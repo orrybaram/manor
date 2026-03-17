@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+*.o
+*.d
+DerivedData/
+vendor/ghostty/zig-out/
+vendor/ghostty/zig-cache/

@@ -223,6 +223,7 @@ final class ManorWindowController: NSWindowController {
         let surfaceView = paneSurfaces.removeValue(forKey: paneID)
         surfaceView?.onClose = nil
         surfaceView?.destroySurface()
+        paneContainer.destroyPaneView(for: paneID)
 
         if allPanes.count <= 1 {
             // Last pane in tab
@@ -352,6 +353,7 @@ final class ManorWindowController: NSWindowController {
             let surfaceView = paneSurfaces.removeValue(forKey: paneID)
             surfaceView?.onClose = nil
             surfaceView?.destroySurface()
+            paneContainer.destroyPaneView(for: paneID)
         }
 
         tabs.remove(at: index)

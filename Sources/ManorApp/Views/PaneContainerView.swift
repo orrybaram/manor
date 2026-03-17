@@ -28,15 +28,19 @@ final class PaneContainerView: NSView {
     // MARK: - Layout
 
     func layout(node: PaneNode, in rect: NSRect) {
-        // Remove views not in the tree
+        // Hide views not in the current tree (don't destroy — they may belong to other tabs)
         let activeIDs = Set(node.allPaneIDs)
         for (id, view) in paneViews where !activeIDs.contains(id) {
-            view.destroySurface()
             view.removeFromSuperview()
-            paneViews.removeValue(forKey: id)
         }
 
         layoutNode(node, in: rect)
+    }
+
+    /// Permanently remove and destroy a pane view (used when closing a pane/tab).
+    func destroyPaneView(for paneID: PaneID) {
+        guard let view = paneViews.removeValue(forKey: paneID) else { return }
+        view.removeFromSuperview()
     }
 
     private func layoutNode(_ node: PaneNode, in rect: NSRect) {
@@ -45,6 +49,9 @@ final class PaneContainerView: NSView {
             let surfaceView: GhosttySurfaceView
             if let existing = paneViews[paneID] {
                 surfaceView = existing
+                if existing.superview != self {
+                    addSubview(existing)
+                }
             } else {
                 surfaceView = GhosttySurfaceView(frame: rect)
                 surfaceView.paneID = paneID

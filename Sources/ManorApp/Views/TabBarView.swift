@@ -15,6 +15,7 @@ final class TabBarView: NSView {
     private let tabHeight: CGFloat = 28
     private let tabMinWidth: CGFloat = 100
     private let tabMaxWidth: CGFloat = 200
+    private let leadingInset: CGFloat = 78
     private let backgroundColor = NSColor(srgbRed: 0.12, green: 0.12, blue: 0.12, alpha: 1)
     private let selectedTabColor = NSColor(srgbRed: 0.18, green: 0.18, blue: 0.18, alpha: 1)
     private let tabTextColor = NSColor(srgbRed: 0.7, green: 0.7, blue: 0.7, alpha: 1)
@@ -49,10 +50,10 @@ final class TabBarView: NSView {
 
         guard !tabs.isEmpty else { return }
 
-        let tabWidth = min(tabMaxWidth, max(tabMinWidth, (bounds.width - 30) / CGFloat(tabs.count)))
+        let tabWidth = min(tabMaxWidth, max(tabMinWidth, (bounds.width - leadingInset - 30) / CGFloat(tabs.count)))
 
         for (i, tab) in tabs.enumerated() {
-            let x = CGFloat(i) * tabWidth
+            let x = leadingInset + CGFloat(i) * tabWidth
             let rect = CGRect(x: x, y: 0, width: tabWidth, height: tabHeight)
 
             // Tab background
@@ -101,7 +102,7 @@ final class TabBarView: NSView {
         }
 
         // New tab button (+)
-        let plusX = CGFloat(tabs.count) * tabWidth + 8
+        let plusX = leadingInset + CGFloat(tabs.count) * tabWidth + 8
         let plusAttrs: [NSAttributedString.Key: Any] = [
             .foregroundColor: tabTextColor,
             .font: NSFont.systemFont(ofSize: 14, weight: .light),
@@ -111,22 +112,26 @@ final class TabBarView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let tabWidth = min(tabMaxWidth, max(tabMinWidth, (bounds.width - 30) / CGFloat(tabs.count)))
+        let tabWidth = min(tabMaxWidth, max(tabMinWidth, (bounds.width - leadingInset - 30) / CGFloat(tabs.count)))
+
+        // Ignore clicks in the traffic light area
+        guard point.x >= leadingInset else { return }
 
         // Check new tab button (+)
-        let plusX = CGFloat(tabs.count) * tabWidth + 8
+        let plusX = leadingInset + CGFloat(tabs.count) * tabWidth + 8
         if point.x >= plusX && point.x <= plusX + 20 {
             delegate?.tabBarDidRequestNewTab(self)
             return
         }
 
-        let clickedIndex = Int(point.x / tabWidth)
+        let clickedIndex = Int((point.x - leadingInset) / tabWidth)
         guard clickedIndex >= 0, clickedIndex < tabs.count else { return }
 
         // Check close button (small × drawn at tabWidth - 18, roughly 12px wide)
         if tabs.count > 1 {
-            let closeLeft = CGFloat(clickedIndex) * tabWidth + tabWidth - 22
-            let closeRight = CGFloat(clickedIndex) * tabWidth + tabWidth - 4
+            let tabOrigin = leadingInset + CGFloat(clickedIndex) * tabWidth
+            let closeLeft = tabOrigin + tabWidth - 22
+            let closeRight = tabOrigin + tabWidth - 4
             if point.x >= closeLeft && point.x <= closeRight && point.y >= 2 && point.y <= 22 {
                 delegate?.tabBar(self, didCloseTabAt: clickedIndex)
                 return

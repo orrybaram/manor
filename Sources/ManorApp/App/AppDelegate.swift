@@ -4,6 +4,16 @@ import ManorCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ManorWindowController?
 
+    // Scratch project used until a proper project picker is added.
+    private var currentProject: ProjectModel = {
+        if let existing = ProjectStore.shared.projects.first {
+            return existing
+        }
+        let p = ProjectModel(name: "Default Project")
+        ProjectStore.shared.upsert(p)
+        return p
+    }()
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
     }
@@ -45,6 +55,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         windowController?.stopGitHubRefresh()
         windowController?.persistProjects()
+    }
+
+    @objc func openProjectSettings(_ sender: Any?) {
+        guard let window = windowController?.window else { return }
+        let vc = ProjectSettingsViewController(project: currentProject) { [weak self] updated in
+            guard let self else { return }
+            self.currentProject = updated
+            ProjectStore.shared.upsert(updated)
+        }
+        window.contentViewController?.presentAsSheet(vc)
     }
 
     // MARK: - Menu Bar
@@ -91,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let toggleSidebarItem = NSMenuItem(title: "Toggle Sidebar", action: #selector(ManorWindowController.toggleSidebarAction(_:)), keyEquivalent: "\\")
         toggleSidebarItem.keyEquivalentModifierMask = [.command]
         projectMenu.addItem(toggleSidebarItem)
+
+        projectMenu.addItem(withTitle: "Project Settings…", action: #selector(openProjectSettings(_:)), keyEquivalent: ",")
 
         let projectMenuItem = NSMenuItem()
         projectMenuItem.submenu = projectMenu

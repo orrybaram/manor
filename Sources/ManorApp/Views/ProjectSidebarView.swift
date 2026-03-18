@@ -285,8 +285,12 @@ final class ProjectSidebarView: NSView {
             let addX = bounds.width - addSize.width - projectInsetX - 4
             if point.x >= addX {
                 delegate?.sidebarDidRequestAddProject(self)
+                return
             }
         }
+
+        // Allow window dragging from non-interactive areas
+        window?.performDrag(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {

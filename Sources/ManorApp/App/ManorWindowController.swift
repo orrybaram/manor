@@ -24,6 +24,7 @@ enum KeyAction {
     case toggleFullScreen
     case toggleSidebar
     case addProject
+    case quit
 }
 
 final class ManorWindowController: NSWindowController {
@@ -255,6 +256,7 @@ final class ManorWindowController: NSWindowController {
         case (3, [.command, .control]):              return .toggleFullScreen
         case (42, .command):                         return .toggleSidebar    // Cmd+\
         case (31, [.command, .shift]):               return .addProject      // Cmd+Shift+O
+        case (12, .command):                         return .quit             // Cmd+Q
         default:                                     return nil
         }
     }
@@ -640,7 +642,10 @@ final class ManorWindowController: NSWindowController {
         initialInput: String? = nil
     ) {
         guard let surfaceView = paneContainer.surfaceView(for: paneID) ?? paneSurfaces[paneID],
-              let app = GhosttyApp.shared.app else { return }
+              let app = GhosttyApp.shared.app else {
+            logger.warning("startSurfaceForPane: no view for pane \(paneID.id.uuidString, privacy: .public), skipping")
+            return
+        }
 
         var surfaceConfig = config ?? ghostty_surface_config_s()
 
@@ -649,8 +654,20 @@ final class ManorWindowController: NSWindowController {
             at: ProjectPersistence.sessionsDirectory,
             withIntermediateDirectories: true
         )
+        let zdotdir = ProjectPersistence.setupZdotdir()
+        // Ghostty's zsh integration uses ZDOTDIR to inject its own .zshenv.
+        // That .zshenv reads GHOSTTY_ZSH_ZDOTDIR and restores it as ZDOTDIR,
+        // then sources dotfiles from that restored path — so we chain by
+        // overriding GHOSTTY_ZSH_ZDOTDIR to our Manor zdotdir rather than
+        // clobbering ZDOTDIR (which would break Ghostty's shell integration).
+        // REAL_ZDOTDIR preserves any user-set ZDOTDIR so our wrapper scripts
+        // can source the right dotfiles.
+        let realZdotdir = ProcessInfo.processInfo.environment["ZDOTDIR"] ?? NSHomeDirectory()
         let envVarPairs: [(key: String, value: String)] = [
             ("HISTFILE", histFile.path),
+            ("MANOR_HISTFILE", histFile.path),
+            ("GHOSTTY_ZSH_ZDOTDIR", zdotdir.path),
+            ("REAL_ZDOTDIR", realZdotdir),
             ("HISTSIZE", "10000"),
             ("SAVEHIST", "10000"),
             ("HISTFILESIZE", "10000"),
@@ -929,6 +946,8 @@ final class ManorWindowController: NSWindowController {
             toggleSidebar()
         case .addProject:
             addProject()
+        case .quit:
+            NSApp.terminate(nil)
         }
     }
 
@@ -1096,7 +1115,11 @@ extension ManorWindowController: ProjectSidebarDelegate {
 
     func sidebar(_ sidebar: ProjectSidebarView, didSelectWorktree worktree: WorktreeInfo, inProject index: Int) {
         guard index < projects.count else { return }
-        guard let wtIdx = projects[index].worktreeModels.firstIndex(where: { $0.info.path == worktree.path }) else { return }
+        guard let wtIdx = projects[index].worktreeIndex(matching: worktree) else {
+            // Phantom default-branch item (path is empty) or unknown path — fall back to project
+            selectProject(at: index)
+            return
+        }
         selectWorktree(at: wtIdx, inProject: index)
     }
 

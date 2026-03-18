@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:manor}",
+            "name": "Debug ManorApp",
+            "program": "${workspaceFolder:manor}/.build/debug/ManorApp",
+            "preLaunchTask": "swift: Build Debug ManorApp"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:manor}",
+            "name": "Release ManorApp",
+            "program": "${workspaceFolder:manor}/.build/release/ManorApp",
+            "preLaunchTask": "swift: Build Release ManorApp"
+        }
+    ]
+}

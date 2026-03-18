@@ -4,16 +4,6 @@ import ManorCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ManorWindowController?
 
-    // Scratch project used until a proper project picker is added.
-    private var currentProject: ProjectModel = {
-        if let existing = ProjectStore.shared.projects.first {
-            return existing
-        }
-        let p = ProjectModel(name: "Default Project")
-        ProjectStore.shared.upsert(p)
-        return p
-    }()
-
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
     }
@@ -57,12 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.persistProjects()
     }
 
-    @objc func openProjectSettings(_ sender: Any?) {
-        guard let window = windowController?.window else { return }
-        let vc = ProjectSettingsViewController(project: currentProject) { [weak self] updated in
-            guard let self else { return }
-            self.currentProject = updated
-            ProjectStore.shared.upsert(updated)
+    @MainActor @objc func openProjectSettings(_ sender: Any?) {
+        guard let wc = windowController,
+              let window = wc.window,
+              let project = wc.currentProject else { return }
+        let vc = ProjectSettingsViewController(project: project) { [weak wc] updated in
+            wc?.updateCurrentProject(updated)
         }
         window.contentViewController?.presentAsSheet(vc)
     }

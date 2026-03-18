@@ -34,9 +34,15 @@ final class ManorWindowController: NSWindowController {
     private var selectedProjectIndex: Int = 0
 
     // Convenience accessors
-    private var currentProject: ProjectModel? {
+    var currentProject: ProjectModel? {
         guard selectedProjectIndex < projects.count else { return nil }
         return projects[selectedProjectIndex]
+    }
+
+    func updateCurrentProject(_ project: ProjectModel) {
+        guard selectedProjectIndex < projects.count else { return }
+        projects[selectedProjectIndex] = project
+        persistProjects()
     }
     private var currentTabs: [TabModel] {
         currentProject?.tabs ?? []
@@ -1331,38 +1337,15 @@ extension ManorWindowController: ProjectSidebarDelegate {
         guard index < projects.count else { return }
         let project = projects[index]
 
-        let vc = ProjectSettingsViewController()
-        vc.projectName = project.name
-        vc.setupScript = project.setupScript ?? ""
-        vc.teardownScript = project.teardownScript ?? ""
-        vc.defaultRunCommand = project.defaultRunCommand ?? ""
-
-        let panel = NSPanel(contentViewController: vc)
-        panel.title = "Project Settings"
-        panel.styleMask = [.titled, .closable]
-        panel.setContentSize(NSSize(width: 420, height: 300))
+        let vc = ProjectSettingsViewController(project: project) { [weak self] updated in
+            guard let self = self else { return }
+            self.projects[index] = updated
+            self.refreshSidebar()
+            self.persistProjects()
+        }
 
         guard let window = self.window else { return }
-
-        vc.onSave = { [weak self, weak panel] in
-            guard let self = self, let panel = panel else { return }
-            if let vc = panel.contentViewController as? ProjectSettingsViewController {
-                let vals = vc.collectValues()
-                self.projects[index].setupScript = vals.setup
-                self.projects[index].teardownScript = vals.teardown
-                self.projects[index].defaultRunCommand = vals.run
-                self.refreshSidebar()
-                self.persistProjects()
-            }
-            window.endSheet(panel, returnCode: .OK)
-        }
-
-        vc.onCancel = { [weak panel] in
-            guard let panel = panel else { return }
-            window.endSheet(panel, returnCode: .cancel)
-        }
-
-        window.beginSheet(panel) { _ in }
+        window.contentViewController?.presentAsSheet(vc)
     }
 
     func sidebar(_ sidebar: ProjectSidebarView, didRequestCheckoutDefaultBranch inProject: Int) {

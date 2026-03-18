@@ -3,6 +3,16 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ManorWindowController?
 
+    // Scratch project used until a proper project picker is added.
+    private var currentProject: ProjectModel = {
+        if let existing = ProjectStore.shared.projects.first {
+            return existing
+        }
+        let p = ProjectModel(name: "Default Project")
+        ProjectStore.shared.upsert(p)
+        return p
+    }()
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
     }
@@ -28,6 +38,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    @objc func openProjectSettings(_ sender: Any?) {
+        guard let window = windowController?.window else { return }
+        let vc = ProjectSettingsViewController(project: currentProject) { [weak self] updated in
+            guard let self else { return }
+            self.currentProject = updated
+            ProjectStore.shared.upsert(updated)
+        }
+        window.contentViewController?.presentAsSheet(vc)
     }
 
     // MARK: - Menu Bar
@@ -72,6 +92,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenuItem = NSMenuItem()
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
+
+        // Project menu
+        let projectMenu = NSMenu(title: "Project")
+        projectMenu.addItem(withTitle: "Project Settings…", action: #selector(openProjectSettings(_:)), keyEquivalent: ",")
+        let projectMenuItem = NSMenuItem()
+        projectMenuItem.submenu = projectMenu
+        mainMenu.addItem(projectMenuItem)
 
         // Window menu
         let windowMenu = NSMenu(title: "Window")

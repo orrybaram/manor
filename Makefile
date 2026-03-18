@@ -51,6 +51,13 @@ ghostty:
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+# Copy Ghostty runtime resources (themes, terminfo) next to the binary so that
+# Ghostty's resource-dir discovery finds them at .build/share/terminfo/78/xterm-ghostty.
+.PHONY: sync-ghostty-resources
+sync-ghostty-resources: | $(BUILD_DIR)
+	rsync -a $(GHOSTTY_DIR)/zig-out/share/ghostty/ $(BUILD_DIR)/share/ghostty/
+	rsync -a $(GHOSTTY_DIR)/zig-out/share/terminfo/ $(BUILD_DIR)/share/terminfo/
+
 run: $(BINARY)
 	./$(BINARY)
 

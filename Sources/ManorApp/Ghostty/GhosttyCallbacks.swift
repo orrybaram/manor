@@ -1,4 +1,5 @@
 import AppKit
+import ManorCore
 #if canImport(CGhosttyKit)
 import CGhosttyKit
 #endif
@@ -55,18 +56,14 @@ func ghosttyReadClipboard(
         return false
     }
 
-    // Get the surface from userdata to complete the request
-    if let userdata {
-        let surface = Unmanaged<AnyObject>.fromOpaque(userdata).takeUnretainedValue()
-        if let surfacePtr = surface as? GhosttySurfaceView {
-            content.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(surfacePtr.surface, ptr, state, false)
-            }
-            return true
-        }
-    }
+    // userdata is rt.userdata = GhosttyApp; get the focused surface via the delegate
+    let ghosttyApp = GhosttyApp.shared
+    guard let surface = ghosttyApp.delegate?.focusedSurface else { return false }
 
-    return false
+    content.withCString { ptr in
+        ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+    }
+    return true
 }
 
 /// Called when ghostty wants to write to the clipboard.

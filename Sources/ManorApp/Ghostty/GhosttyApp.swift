@@ -8,6 +8,7 @@ final class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private(set) var theme: GhosttyTheme = .default
 
     /// Delegate for routing ghostty actions to the window controller.
     weak var delegate: GhosttyAppDelegate?
@@ -38,7 +39,35 @@ final class GhosttyApp {
         }
         ghostty_config_load_default_files(primaryConfig)
         ghostty_config_load_recursive_files(primaryConfig)
+
+        // Also load from macOS Application Support path (where Ghostty.app stores config)
+        let appSupportConfig = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("com.mitchellh.ghostty/config")
+
+        if let configURL = appSupportConfig,
+           FileManager.default.fileExists(atPath: configURL.path) {
+            configURL.path.withCString { ghostty_config_load_file(primaryConfig, $0) }
+        }
+
+        // Apply Manor-specific overrides: distribute leftover cell space evenly so
+        // there is no unbalanced blank area at the bottom of the terminal surface.
+        let overrideConfig = "window-padding-balance = true\n"
+        let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("manor-ghostty-overrides.conf")
+        if (try? overrideConfig.write(to: tmpURL, atomically: true, encoding: .utf8)) != nil {
+            tmpURL.path.withCString { ghostty_config_load_file(primaryConfig, $0) }
+        }
+
         ghostty_config_finalize(primaryConfig)
+
+        #if DEBUG
+        let diagCount = ghostty_config_diagnostics_count(primaryConfig)
+        for i in 0..<diagCount {
+            let diag = ghostty_config_get_diagnostic(primaryConfig, i)
+            if let msg = diag.message { NSLog("GhosttyApp config diagnostic: %s", msg) }
+        }
+        #endif
 
         // Step 3: Runtime callbacks
         var rt = ghostty_runtime_config_s()
@@ -55,6 +84,7 @@ final class GhosttyApp {
         if let created = ghostty_app_new(&rt, primaryConfig) {
             self.app = created
             self.config = primaryConfig
+            self.theme = GhosttyTheme.load(from: primaryConfig)
         } else {
             NSLog("GhosttyApp: primary config failed, trying fallback")
             ghostty_config_free(primaryConfig)
@@ -62,6 +92,7 @@ final class GhosttyApp {
             ghostty_config_finalize(fallback)
             self.app = ghostty_app_new(&rt, fallback)
             self.config = fallback
+            self.theme = GhosttyTheme.load(from: fallback)
         }
 
         if app == nil {
@@ -90,4 +121,5 @@ final class GhosttyApp {
 protocol GhosttyAppDelegate: AnyObject {
     func ghosttyApp(_ app: GhosttyApp, didReceiveAction action: ghostty_action_s, target: ghostty_target_s) -> Bool
     func ghosttyApp(_ app: GhosttyApp, closeSurface surface: ghostty_surface_t, needsConfirm: Bool)
+    var focusedSurface: ghostty_surface_t? { get }
 }

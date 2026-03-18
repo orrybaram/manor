@@ -25,7 +25,14 @@ final class GhosttyApp {
     // MARK: - Initialization
 
     private func initializeGhostty() {
-        // Step 1: Library init
+        // Step 1: Set GHOSTTY_RESOURCES_DIR so Ghostty can find bundled themes.
+        // When running as Manor (not Ghostty.app), the library can't discover the
+        // resources path from the binary location, so we point it at the installed app.
+        if setenv("GHOSTTY_RESOURCES_DIR", ghosttyResourcesDir(), 0) != 0 {
+            NSLog("GhosttyApp: failed to set GHOSTTY_RESOURCES_DIR")
+        }
+
+        // Step 2: Library init
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard result == GHOSTTY_SUCCESS else {
             NSLog("GhosttyApp: ghostty_init failed with code \(result)")
@@ -114,6 +121,23 @@ final class GhosttyApp {
         sc.context = context
         return sc
     }
+}
+
+// MARK: - Helpers
+
+/// Returns the path to Ghostty's bundled resources directory, searching common install locations.
+private func ghosttyResourcesDir() -> String {
+    let candidates = [
+        "/Applications/Ghostty.app/Contents/Resources/ghostty",
+        "\(NSHomeDirectory())/Applications/Ghostty.app/Contents/Resources/ghostty",
+    ]
+    for path in candidates {
+        if FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+    }
+    // Fall back to the first candidate and let Ghostty report the error
+    return candidates[0]
 }
 
 // MARK: - Delegate Protocol

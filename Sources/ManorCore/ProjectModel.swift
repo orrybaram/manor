@@ -22,7 +22,7 @@ package struct WorktreeModel {
     package let id: UUID
     package var info: WorktreeInfo
     package var tabs: [TabModel]
-    package var selectedTabIndex: Int
+    package var selectedTabID: UUID?
     package var displayName: String?
     package var runCommand: String?
 
@@ -32,18 +32,33 @@ package struct WorktreeModel {
 
     package var label: String { displayName ?? info.branch }
 
+    /// Index-based accessor for backward compatibility. Resolves selectedTabID to an index.
+    package var selectedTabIndex: Int {
+        get {
+            guard let id = selectedTabID,
+                  let idx = tabs.firstIndex(where: { $0.id == id }) else {
+                return tabs.isEmpty ? 0 : min(0, tabs.count - 1)
+            }
+            return idx
+        }
+        set {
+            guard newValue < tabs.count else { return }
+            selectedTabID = tabs[newValue].id
+        }
+    }
+
     package init(
         id: UUID = UUID(),
         info: WorktreeInfo,
         tabs: [TabModel] = [],
-        selectedTabIndex: Int = 0,
+        selectedTabID: UUID? = nil,
         displayName: String? = nil,
         runCommand: String? = nil
     ) {
         self.id = id
         self.info = info
         self.tabs = tabs
-        self.selectedTabIndex = selectedTabIndex
+        self.selectedTabID = selectedTabID ?? tabs.first?.id
         self.displayName = displayName
         self.runCommand = runCommand
     }
@@ -56,11 +71,34 @@ package struct ProjectModel {
     package var name: String
     package var path: URL
     package var worktreeModels: [WorktreeModel]
-    package var selectedWorktreeIndex: Int
+    package var selectedWorktreeID: UUID?
     package var defaultBranch: String
     package var setupScript: String?
     package var teardownScript: String?
     package var defaultRunCommand: String?
+
+    /// Resolved selected worktree, or first worktree as fallback.
+    package var selectedWorktree: WorktreeModel? {
+        if let id = selectedWorktreeID {
+            return worktreeModels.first(where: { $0.id == id })
+        }
+        return worktreeModels.first
+    }
+
+    /// Index-based accessor for backward compatibility.
+    package var selectedWorktreeIndex: Int {
+        get {
+            if let id = selectedWorktreeID,
+               let idx = worktreeModels.firstIndex(where: { $0.id == id }) {
+                return idx
+            }
+            return 0
+        }
+        set {
+            guard newValue < worktreeModels.count else { return }
+            selectedWorktreeID = worktreeModels[newValue].id
+        }
+    }
 
     // Forward tabs/selectedTabIndex to the selected worktree
     package var tabs: [TabModel] {
@@ -101,7 +139,7 @@ package struct ProjectModel {
         name: String,
         path: URL,
         worktreeModels: [WorktreeModel],
-        selectedWorktreeIndex: Int = 0,
+        selectedWorktreeID: UUID? = nil,
         defaultBranch: String = "main",
         setupScript: String? = nil,
         teardownScript: String? = nil,
@@ -111,7 +149,7 @@ package struct ProjectModel {
         self.name = name
         self.path = path
         self.worktreeModels = worktreeModels
-        self.selectedWorktreeIndex = selectedWorktreeIndex
+        self.selectedWorktreeID = selectedWorktreeID ?? worktreeModels.first?.id
         self.defaultBranch = defaultBranch
         self.setupScript = setupScript
         self.teardownScript = teardownScript

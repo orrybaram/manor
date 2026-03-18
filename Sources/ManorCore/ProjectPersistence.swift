@@ -117,8 +117,40 @@ package enum ProjectPersistence {
             .appendingPathComponent("Manor/sessions")
     }()
 
+    package static let zdotdirURL: URL = {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Manor/zdotdir")
+    }()
+
     package static func historyFile(for paneID: PaneID) -> URL {
         sessionsDirectory.appendingPathComponent("\(paneID.id.uuidString).history")
+    }
+
+    /// Creates a ZDOTDIR with wrapper dotfiles so that Manor can inject HISTFILE
+    /// after the user's real .zshrc runs (which commonly overrides HISTFILE).
+    /// Each wrapper sources the real dotfile from REAL_ZDOTDIR (defaults to $HOME),
+    /// then the .zshrc wrapper resets HISTFILE from $MANOR_HISTFILE and enables
+    /// incremental history writes (INC_APPEND_HISTORY).
+    @discardableResult
+    package static func setupZdotdir() -> URL {
+        let dir = zdotdirURL
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let files: [(name: String, body: String)] = [
+            (".zshenv",   "[[ -f \"${REAL_ZDOTDIR:-$HOME}/.zshenv\" ]] && source \"${REAL_ZDOTDIR:-$HOME}/.zshenv\"\n"),
+            (".zprofile", "[[ -f \"${REAL_ZDOTDIR:-$HOME}/.zprofile\" ]] && source \"${REAL_ZDOTDIR:-$HOME}/.zprofile\"\n"),
+            (".zshrc",    """
+                          [[ -f "${REAL_ZDOTDIR:-$HOME}/.zshrc" ]] && source "${REAL_ZDOTDIR:-$HOME}/.zshrc"
+                          [[ -n $MANOR_HISTFILE ]] && HISTFILE=$MANOR_HISTFILE
+                          setopt INC_APPEND_HISTORY
+                          """),
+            (".zlogin",   "[[ -f \"${REAL_ZDOTDIR:-$HOME}/.zlogin\" ]] && source \"${REAL_ZDOTDIR:-$HOME}/.zlogin\"\n"),
+        ]
+
+        for (name, body) in files {
+            try? body.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        return dir
     }
 
     package static func save(_ state: PersistedState) {

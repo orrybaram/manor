@@ -88,6 +88,14 @@ package struct ProjectModel {
         worktreeModels.map { $0.info }
     }
 
+    /// Returns the index of the worktree matching `info.path`, or nil if not found.
+    /// Phantom sidebar items (path == "") always return nil — they represent a branch
+    /// that isn't checked out and have no backing worktree model.
+    package func worktreeIndex(matching info: WorktreeInfo) -> Int? {
+        guard !info.path.isEmpty else { return nil }
+        return worktreeModels.firstIndex(where: { $0.info.path == info.path })
+    }
+
     package init(
         id: UUID = UUID(),
         name: String,

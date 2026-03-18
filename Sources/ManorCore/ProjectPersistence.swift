@@ -107,6 +107,13 @@ package struct PersistedState: Codable {
 // MARK: - Project Persistence
 
 package enum ProjectPersistence {
+    /// Convert a persisted tab index to a tab UUID (migration from index-based to ID-based selection).
+    private static func resolveSelectedTabID(tabs: [TabModel], savedIndex: Int) -> UUID? {
+        guard !tabs.isEmpty else { return nil }
+        let idx = min(savedIndex, tabs.count - 1)
+        return tabs[idx].id
+    }
+
     private static let fileURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Manor/projects.json")
@@ -228,20 +235,24 @@ package enum ProjectPersistence {
             if gitWorktrees.isEmpty {
                 let defaultInfo = WorktreeInfo(path: url.path, branch: persisted.name, isMain: true)
                 let saved = persistedByPath[url.path]
+                let tabs = saved?.tabs ?? []
+                let selectedTabID = resolveSelectedTabID(tabs: tabs, savedIndex: saved?.selectedTabIndex ?? 0)
                 worktreeModels = [WorktreeModel(
                     info: defaultInfo,
-                    tabs: saved?.tabs ?? [],
-                    selectedTabIndex: saved?.selectedTabIndex ?? 0,
+                    tabs: tabs,
+                    selectedTabID: selectedTabID,
                     displayName: saved?.displayName,
                     runCommand: saved?.runCommand
                 )]
             } else {
                 worktreeModels = gitWorktrees.map { gitWt in
                     let saved = persistedByPath[gitWt.path]
+                    let tabs = saved?.tabs ?? []
+                    let selectedTabID = resolveSelectedTabID(tabs: tabs, savedIndex: saved?.selectedTabIndex ?? 0)
                     return WorktreeModel(
                         info: gitWt,
-                        tabs: saved?.tabs ?? [],
-                        selectedTabIndex: saved?.selectedTabIndex ?? 0,
+                        tabs: tabs,
+                        selectedTabID: selectedTabID,
                         displayName: saved?.displayName,
                         runCommand: saved?.runCommand
                     )
@@ -258,17 +269,20 @@ package enum ProjectPersistence {
                 }
             }
 
-            let selectedWorktreeIndex = min(
+            let resolvedWorktreeIdx = min(
                 persisted.selectedWorktreeIndex,
                 max(0, worktreeModels.count - 1)
             )
+            let selectedWorktreeID = worktreeModels.indices.contains(resolvedWorktreeIdx)
+                ? worktreeModels[resolvedWorktreeIdx].id
+                : worktreeModels.first?.id
 
             return ProjectModel(
                 id: persisted.id,
                 name: persisted.name,
                 path: url,
                 worktreeModels: worktreeModels,
-                selectedWorktreeIndex: selectedWorktreeIndex,
+                selectedWorktreeID: selectedWorktreeID,
                 defaultBranch: persisted.defaultBranch,
                 setupScript: persisted.setupScript,
                 teardownScript: persisted.teardownScript,

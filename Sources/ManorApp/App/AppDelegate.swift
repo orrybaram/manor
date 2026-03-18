@@ -24,10 +24,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.window?.makeKeyAndOrderFront(nil)
         self.windowController = controller
 
+        // Load projects after the window is visible so git subprocesses
+        // don't block the main thread before the run loop starts.
+        DispatchQueue.main.async {
+            controller.appState.loadProjects()
+            controller.appState.startPortScanner()
+            controller.appState.startGitHubRefresh()
+        }
+
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows {
+            windowController?.showWindow(nil)
+            windowController?.window?.makeKeyAndOrderFront(nil)
+        }
         return true
     }
 
@@ -44,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         windowController?.stopGitHubRefresh()
-        windowController?.persistProjects()
+        windowController?.persistProjectsNow()
     }
 
     @MainActor @objc func openProjectSettings(_ sender: Any?) {

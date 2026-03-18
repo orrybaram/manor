@@ -1,4 +1,5 @@
 import AppKit
+import ManorCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: ManorWindowController?
@@ -28,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        windowController?.stopGitHubRefresh()
+        windowController?.persistProjects()
     }
 
     // MARK: - Menu Bar
@@ -63,6 +69,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shellMenuItem = NSMenuItem()
         shellMenuItem.submenu = shellMenu
         mainMenu.addItem(shellMenuItem)
+
+        // Project menu
+        let projectMenu = NSMenu(title: "Project")
+
+        let openProjectItem = NSMenuItem(title: "Open Project...", action: #selector(ManorWindowController.openProject(_:)), keyEquivalent: "o")
+        openProjectItem.keyEquivalentModifierMask = [.command, .shift]
+        projectMenu.addItem(openProjectItem)
+
+        let toggleSidebarItem = NSMenuItem(title: "Toggle Sidebar", action: #selector(ManorWindowController.toggleSidebarAction(_:)), keyEquivalent: "\\")
+        toggleSidebarItem.keyEquivalentModifierMask = [.command]
+        projectMenu.addItem(toggleSidebarItem)
+
+        let projectMenuItem = NSMenuItem()
+        projectMenuItem.submenu = projectMenu
+        mainMenu.addItem(projectMenuItem)
 
         // Edit menu (for paste)
         let editMenu = NSMenu(title: "Edit")

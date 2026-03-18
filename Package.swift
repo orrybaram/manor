@@ -15,9 +15,16 @@ let package = Package(
             path: "Sources/CGhosttyKit",
             publicHeadersPath: "include"
         ),
+        .target(
+            name: "ManorCore",
+            path: "Sources/ManorCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
         .executableTarget(
             name: "ManorApp",
-            dependencies: ["CGhosttyKit"],
+            dependencies: ["CGhosttyKit", "ManorCore"],
             path: "Sources/ManorApp",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
@@ -32,6 +39,14 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("IOSurface"),
                 .unsafeFlags(["-L", "\(ghosttyXCFramework)", "-lghostty", "-lc++"]),
+            ]
+        ),
+        .testTarget(
+            name: "ManorTests",
+            dependencies: ["ManorCore"],
+            path: "Tests/ManorTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
             ]
         ),
     ]

@@ -1,4 +1,5 @@
 import AppKit
+import ManorCore
 
 // MARK: - Project Settings View Controller
 
@@ -213,19 +214,18 @@ final class ProjectSettingsViewController: NSViewController {
 
     private func populateFields() {
         nameField.stringValue = project.name
-        repoPathField.stringValue = project.repositoryPath
-        worktreeDirField.stringValue = project.settings.worktreeDirectory
-        setupTextView.string = project.settings.setupScript
-        teardownTextView.string = project.settings.teardownScript
+        repoPathField.stringValue = project.path.path
+        worktreeDirField.stringValue = ""
+        setupTextView.string = project.setupScript ?? ""
+        teardownTextView.string = project.teardownScript ?? ""
     }
 
     private func collectSettings() -> ProjectModel {
         var updated = project
         updated.name = nameField.stringValue
-        updated.repositoryPath = repoPathField.stringValue
-        updated.settings.worktreeDirectory = worktreeDirField.stringValue
-        updated.settings.setupScript = setupTextView.string
-        updated.settings.teardownScript = teardownTextView.string
+        updated.path = URL(fileURLWithPath: repoPathField.stringValue)
+        updated.setupScript = setupTextView.string.isEmpty ? nil : setupTextView.string
+        updated.teardownScript = teardownTextView.string.isEmpty ? nil : teardownTextView.string
         return updated
     }
 

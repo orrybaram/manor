@@ -221,7 +221,11 @@ final class TabBarView: NSView {
 
         // Traffic light area — let the window handle it
         guard point.x >= leadingInset else {
-            window?.performDrag(with: event)
+            if event.clickCount == 2 {
+                window?.zoom(nil)
+            } else {
+                window?.performDrag(with: event)
+            }
             return
         }
 
@@ -234,8 +238,12 @@ final class TabBarView: NSView {
 
         let clickedIndex = Int((point.x - leadingInset) / tabWidth)
         guard clickedIndex >= 0, clickedIndex < tabs.count else {
-            // Empty area — drag the window
-            window?.performDrag(with: event)
+            // Empty area — double-click to zoom, single-click to drag
+            if event.clickCount == 2 {
+                window?.zoom(nil)
+            } else {
+                window?.performDrag(with: event)
+            }
             return
         }
 

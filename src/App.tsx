@@ -101,32 +101,34 @@ function App() {
 
   return (
     <div className="app">
-      <TabBar />
       <div className="app-body">
         {sidebarVisible && <Sidebar />}
-        <div className="terminal-container">
-          {/* Render all sessions across all workspaces — only show the active one.
-              Keeping all mounted prevents PTY sessions from being killed on switch. */}
-          {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
-            wsState.sessions.map((session) => {
-              const isVisible =
-                wpath === activeWorkspacePath &&
-                session.id === selectedSessionId;
-              return (
-                <div
-                  key={session.id}
-                  style={{
-                    display: isVisible ? "flex" : "none",
-                    width: "100%",
-                    height: "100%",
-                    overflow: "hidden",
-                  }}
-                >
-                  <PaneLayout node={session.rootNode} workspacePath={wpath} />
-                </div>
-              );
-            })
-          )}
+        <div className={`main-content ${!sidebarVisible ? "no-sidebar" : ""}`}>
+          <TabBar />
+          <div className="terminal-container">
+            {/* Render all sessions across all workspaces — only show the active one.
+                Keeping all mounted prevents PTY sessions from being killed on switch. */}
+            {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
+              wsState.sessions.map((session) => {
+                const isVisible =
+                  wpath === activeWorkspacePath &&
+                  session.id === selectedSessionId;
+                return (
+                  <div
+                    key={session.id}
+                    style={{
+                      display: isVisible ? "flex" : "none",
+                      width: "100%",
+                      height: "100%",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <PaneLayout node={session.rootNode} workspacePath={wpath} />
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={closePalette} />

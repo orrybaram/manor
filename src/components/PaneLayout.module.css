@@ -7,10 +7,7 @@
   position: relative;
 }
 
-.leafFocused {
-  outline: 1px solid var(--border);
-  outline-offset: -1px;
-}
+.leafFocused {}
 
 .split {
   display: flex;

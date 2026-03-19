@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState, WelcomeEmptyState } from "./components/EmptyState";
+import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
@@ -18,6 +19,8 @@ function App() {
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const closeNewWorkspace = useCallback(() => setNewWorkspaceOpen(false), []);
 
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -35,8 +38,11 @@ function App() {
   const zoomOut = useAppStore((s) => s.zoomOut);
   const resetZoom = useAppStore((s) => s.resetZoom);
   const projects = useProjectStore((s) => s.projects);
+  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
+  const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
   const hasProjects = projects.length > 0;
@@ -143,8 +149,19 @@ function App() {
           </div>
         </div>
       </div>
-      <CommandPalette open={paletteOpen} onClose={closePalette} onOpenSettings={() => setSettingsOpen(true)} />
+      <CommandPalette open={paletteOpen} onClose={closePalette} onOpenSettings={() => setSettingsOpen(true)} onNewWorkspace={() => setNewWorkspaceOpen(true)} />
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
+      <NewWorkspaceDialog
+        open={newWorkspaceOpen}
+        onClose={closeNewWorkspace}
+        onSubmit={async (name, branch) => {
+          setNewWorkspaceOpen(false);
+          const selectedProject = projects[selectedProjectIndex];
+          if (!selectedProject) return;
+          const wsPath = await createWorktree(selectedProject.id, name, branch);
+          if (wsPath) setActiveWorkspace(wsPath);
+        }}
+      />
     </div>
   );
 }

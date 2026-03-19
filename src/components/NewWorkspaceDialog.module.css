@@ -1,0 +1,169 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  width: 400px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog[data-state="open"] {
+  animation: scaleIn 150ms ease-out;
+}
+
+.dialog[data-state="closed"] {
+  animation: scaleOut 100ms ease-in;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.closeButton:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+.fieldLabel:first-of-type {
+  margin-top: 0;
+}
+
+.fieldInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.fieldInput::placeholder {
+  color: var(--text-dim);
+}
+
+.fieldInput:focus {
+  border-color: var(--accent);
+}
+
+.error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 8px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cancelButton {
+  padding: 6px 14px;
+  border: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cancelButton:hover {
+  background: var(--surface);
+}
+
+.submitButton {
+  padding: 6px 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.submitButton:hover {
+  opacity: 0.9;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}

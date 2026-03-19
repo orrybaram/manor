@@ -68,7 +68,15 @@
 }
 
 .project {
-  margin-bottom: 2px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.project:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .projectHeader {
@@ -86,7 +94,6 @@
 }
 
 .projectSelected > .projectHeader {
-  background: var(--surface);
   color: var(--text-selected);
 }
 
@@ -103,62 +110,111 @@
   white-space: nowrap;
 }
 
-.projectRemove {
+.projectAction {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
   cursor: pointer;
-  padding: 0 2px;
-  border-radius: 4px;
+  padding: 2px;
+  border-radius: 3px;
+  line-height: 1;
   opacity: 0;
-  transition: opacity 0.15s;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
-.projectHeader:hover .projectRemove {
-  opacity: 0.6;
+.projectHeader:hover .projectAction {
+  opacity: 1;
 }
 
-.projectRemove:hover {
-  opacity: 1 !important;
+.projectAction:hover {
+  background: var(--accent);
+  color: var(--text-selected);
 }
 
 .workspaces {
-  padding-left: 22px;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .workspace {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 6px;
+  padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-primary);
+  touch-action: none;
 }
 
 .workspace:hover {
   background: var(--surface);
 }
 
+.workspaceDragging {
+  opacity: 0.7;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
 .workspaceActive {
+  background: var(--surface);
   color: var(--text-selected);
+  font-weight: 500;
+}
+
+.workspaceActive .workspaceIcon {
+  color: var(--accent);
+}
+
+.workspaceIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.workspaceLabel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workspaceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .workspaceBranch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.3;
 }
 
-.workspaceBadge {
-  font-size: 10px;
+.workspaceNameInput {
   background: var(--surface);
-  color: var(--text-dim);
-  padding: 1px 5px;
+  border: 1px solid var(--accent);
   border-radius: 3px;
-  flex-shrink: 0;
+  color: var(--text-selected);
+  font-size: 12px;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
 }
 
 /* ── Context Menu ── */
@@ -189,6 +245,124 @@
   background: var(--accent);
   color: var(--text-selected);
   outline: none;
+}
+
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ── Confirm Dialog ── */
+
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+}
+
+.confirmOverlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.confirmOverlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+.confirmDialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 201;
+  width: 340px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.confirmDialog[data-state="open"] {
+  animation: scaleIn 150ms ease-out;
+}
+
+.confirmDialog[data-state="closed"] {
+  animation: scaleOut 100ms ease-in;
+}
+
+.confirmTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-selected);
+  margin: 0 0 8px;
+}
+
+.confirmDescription {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirmCancel,
+.confirmRemove {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.confirmCancel {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.confirmCancel:hover {
+  background: var(--hover, var(--surface));
+  color: var(--text-selected);
+}
+
+.confirmRemove {
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirmRemove:hover {
+  background: var(--danger-hover);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
 }
 
 /* ── Ports ── */
@@ -288,7 +462,6 @@
 
 .footer {
   padding: 6px 12px;
-  border-top: 1px solid var(--surface);
   font-size: 11px;
   color: var(--text-dim);
 }

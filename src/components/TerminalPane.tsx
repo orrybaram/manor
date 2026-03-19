@@ -1,11 +1,17 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { init, Terminal, FitAddon } from "ghostty-web";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { ImageAddon } from "@xterm/addon-image";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import "@xterm/xterm/css/xterm.css";
 import { useThemeStore } from "../store/theme-store";
 import { useAppStore } from "../store/app-store";
-
-const ghosttyReady = init();
 
 interface TerminalPaneProps {
   paneId: string;
@@ -33,36 +39,66 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
     let cleanupListener: (() => void) | null = null;
     let cleanupExitListener: (() => void) | null = null;
     let cleanupCwdListener: (() => void) | null = null;
-    let ro: ResizeObserver | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function setup() {
-      await ghosttyReady;
       if (disposed) return;
 
       term = new Terminal({
         fontSize: useAppStore.getState().fontSize,
         fontFamily: "'MesloLGM Nerd Font Mono', 'FiraCode Nerd Font', monospace",
+        allowProposedApi: true,
         ...(theme ? { theme } : {}),
       });
 
-      term.open(containerRef.current!);
-
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
+      term.loadAddon(new SearchAddon());
+      term.loadAddon(new SerializeAddon());
+
+      const unicode11Addon = new Unicode11Addon();
+      term.loadAddon(unicode11Addon);
+      term.unicode.activeVersion = "11";
+
+      term.open(containerRef.current!);
       fitAddon.fit();
 
-      // Refit terminal when container resizes
-      ro = new ResizeObserver(() => {
-        if (!disposed) fitAddon?.fit();
+      // Auto-refit terminal when container resizes
+      resizeObserver = new ResizeObserver(() => {
+        fitAddon?.fit();
       });
-      ro.observe(containerRef.current!);
+      resizeObserver.observe(containerRef.current!);
+
+      // Addons that require a DOM/canvas context must load after open()
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
+      } catch (e) {
+        console.warn("WebGL addon failed, using DOM renderer", e);
+      }
+
+      try {
+        term.loadAddon(new ClipboardAddon());
+      } catch (e) {
+        console.warn("Clipboard addon failed", e);
+      }
+
+      try {
+        term.loadAddon(new ImageAddon());
+      } catch (e) {
+        console.warn("Image addon failed", e);
+      }
+
+
+      
 
       termRef.current = term;
 
       // Intercept app-level shortcuts before the terminal swallows them.
-      // ghostty-web's handler: return true → preventDefault + stop terminal processing
+      // return false → prevent xterm from processing the key
       term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-        if (!e.metaKey) return false; // let terminal handle all non-Cmd keys
+        if (!e.metaKey) return true; // let terminal handle all non-Cmd keys
 
         const isAppShortcut = (() => {
           switch (e.key) {
@@ -96,10 +132,10 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
             altKey: e.altKey,
             bubbles: true,
           }));
-          return true; // tell ghostty-web to stop processing this key
+          return false; // prevent xterm from processing this key
         }
 
-        return false; // let terminal handle other Cmd combos
+        return true; // let terminal handle other Cmd combos
       });
 
       const cols = term.cols;
@@ -147,7 +183,7 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
       cleanupListener?.();
       cleanupExitListener?.();
       cleanupCwdListener?.();
-      ro?.disconnect();
+      resizeObserver?.disconnect();
       fitAddon?.dispose();
       termRef.current = null;
       if (term) {

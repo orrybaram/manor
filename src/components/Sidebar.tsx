@@ -73,6 +73,7 @@ export function Sidebar() {
       className="sidebar"
       style={{ width: sidebarWidth }}
     >
+      <div className="sidebar-titlebar" data-tauri-drag-region />
       <div className="sidebar-content">
         <div className="sidebar-section">
           <div className="sidebar-section-header">

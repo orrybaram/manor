@@ -69,18 +69,30 @@ body,
   overflow: hidden;
 }
 
+/* ── Main Content (tabs + terminal, beside sidebar) ── */
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
 /* ── Session Bar ── */
 
 .session-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   height: 38px;
-  padding-left: 78px;
-  padding-right: 8px;
+  padding: 0 8px 4px;
   background: var(--dim);
   flex-shrink: 0;
   -webkit-app-region: drag;
   user-select: none;
+}
+
+.no-sidebar .session-bar {
+  padding-left: 78px;
 }
 
 .session-bar-sessions {
@@ -172,6 +184,12 @@ body,
   position: relative;
   user-select: none;
   overflow: hidden;
+}
+
+.sidebar-titlebar {
+  height: 38px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
 }
 
 .sidebar-content {

@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X, Check, ChevronDown, ChevronRight, Settings, FolderOpen } from "lucide-react";
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
 import styles from "./SettingsModal.module.css";
 
 interface SettingsModalProps {
@@ -93,32 +94,19 @@ function ThemeSection() {
     await setTheme(name);
   }, [setTheme]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setHighlightIndex((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (highlightIndex >= 0 && filtered[highlightIndex]) {
-          handleSelect(filtered[highlightIndex].name);
-        }
-      }
+  const handleSelectByIndex = useCallback(
+    (index: number) => {
+      if (filtered[index]) handleSelect(filtered[index].name);
     },
-    [filtered, highlightIndex, handleSelect]
+    [filtered, handleSelect]
   );
 
-  const selectedColors: ThemeColors | null = useMemo(() => {
-    if (!currentTheme) return null;
-    return {
-      red: currentTheme.red, green: currentTheme.green, yellow: currentTheme.yellow,
-      blue: currentTheme.blue, magenta: currentTheme.magenta, cyan: currentTheme.cyan,
-      background: currentTheme.background, foreground: currentTheme.foreground,
-    };
-  }, [currentTheme]);
+  const handleKeyDown = useListKeyboardNav(
+    filtered.length,
+    highlightIndex,
+    setHighlightIndex,
+    handleSelectByIndex,
+  );
 
   return (
     <div onKeyDown={handleKeyDown}>
@@ -136,7 +124,7 @@ function ThemeSection() {
         {filtered.map((entry, idx) => {
           const isSelected = entry.name === selectedThemeName;
           const isHighlighted = idx === highlightIndex;
-          const colors = isSelected ? selectedColors : allColors[entry.name] ?? null;
+          const colors = isSelected ? currentTheme : allColors[entry.name] ?? null;
           const dotColors = colors
             ? [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan]
             : null;
@@ -212,22 +200,34 @@ const scriptFields: Array<{
   { field: "defaultRunCommand", label: "Default Run Command", placeholder: "e.g. npm run dev" },
 ];
 
+const DEFAULT_WORKTREE_PATH = "~/.manor/worktrees";
+
 function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const updateProject = useProjectStore((s) => s.updateProject);
   const nameRef = useRef<HTMLInputElement>(null);
-  const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const worktreePathRef = useRef<HTMLInputElement>(null);
+  const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const handleBlur = useCallback(
-    (field: "name" | "setupScript" | "teardownScript" | "defaultRunCommand") => {
-      const el = field === "name" ? nameRef.current : fieldRefs.current[field];
-      if (!el) return;
-      const trimmed = el.value.trim();
+    (field: "name" | "worktreePath" | "setupScript" | "teardownScript" | "defaultRunCommand") => {
       if (field === "name") {
+        const el = nameRef.current;
+        if (!el) return;
+        const trimmed = el.value.trim();
         if (trimmed && trimmed !== project.name) {
           updateProject(project.id, { name: trimmed });
         }
+      } else if (field === "worktreePath") {
+        const el = worktreePathRef.current;
+        if (!el) return;
+        const normalized = el.value.trim() || null;
+        if (normalized !== (project.worktreePath ?? null)) {
+          updateProject(project.id, { worktreePath: normalized });
+        }
       } else {
-        const normalized = trimmed || null;
+        const el = fieldRefs.current[field];
+        if (!el) return;
+        const normalized = el.value.trim() || null;
         if (normalized !== (project[field] ?? null)) {
           updateProject(project.id, { [field]: normalized });
         }
@@ -254,16 +254,32 @@ function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
       </div>
 
       <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Worktrees</div>
+        <label className={styles.fieldLabel}>Worktree Path</label>
+        <input
+          ref={worktreePathRef}
+          className={styles.fieldInput}
+          defaultValue={project.worktreePath ?? ""}
+          onBlur={() => handleBlur("worktreePath")}
+          placeholder={DEFAULT_WORKTREE_PATH}
+        />
+        <div className={styles.fieldHint}>
+          Directory where new worktrees are created. Defaults to {DEFAULT_WORKTREE_PATH}
+        </div>
+      </div>
+
+      <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Scripts</div>
         {scriptFields.map(({ field, label, placeholder }) => (
           <div key={field}>
             <label className={styles.fieldLabel}>{label}</label>
-            <input
+            <textarea
               ref={(el) => { fieldRefs.current[field] = el; }}
-              className={styles.fieldInput}
+              className={`${styles.fieldInput} ${styles.fieldTextarea}`}
               defaultValue={project[field] ?? ""}
               onBlur={() => handleBlur(field)}
               placeholder={placeholder}
+              rows={4}
             />
           </div>
         ))}
@@ -301,7 +317,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.modal}>
+        <Dialog.Content className={styles.modal} onOpenAutoFocus={(e) => e.preventDefault()} onCloseAutoFocus={(e) => { e.preventDefault(); document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus(); }}>
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>Settings</Dialog.Title>
             <Dialog.Close asChild>

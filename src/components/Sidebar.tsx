@@ -5,6 +5,7 @@ import { Plus, ChevronDown, ChevronRight, ExternalLink, House, FolderGit2 } from
 import { useProjectStore, type ProjectInfo, type WorkspaceInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
+import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import styles from "./Sidebar.module.css";
 
@@ -12,7 +13,7 @@ export function Sidebar() {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const loadProjects = useProjectStore((s) => s.loadProjects);
-  const addProject = useProjectStore((s) => s.addProject);
+  const addProjectFromDirectory = useProjectStore((s) => s.addProjectFromDirectory);
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -20,10 +21,15 @@ export function Sidebar() {
   const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
   const reorderWorkspaces = useProjectStore((s) => s.reorderWorkspaces);
   const createWorktree = useProjectStore((s) => s.createWorktree);
+  const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
+  const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
+  const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
+
+  useBranchWatcher();
 
   useEffect(() => {
     // Load persisted layout FIRST so setActiveWorkspace can restore old pane IDs
@@ -41,13 +47,7 @@ export function Sidebar() {
     });
   }, [loadProjects, loadPersistedLayout, setActiveWorkspace]);
 
-  const handleAddProject = useCallback(async () => {
-    const selected = await window.electronAPI.openDirectory();
-    if (selected) {
-      const name = selected.split("/").pop() || "Untitled";
-      await addProject(name, selected);
-    }
-  }, [addProject]);
+  const handleAddProject = addProjectFromDirectory;
 
   // Resizable sidebar
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -108,8 +108,11 @@ export function Sidebar() {
               key={project.id}
               project={project}
               isSelected={idx === selectedProjectIndex}
+              collapsed={collapsedProjectIds.has(project.id)}
+              onToggleCollapsed={() => toggleProjectCollapsed(project.id)}
               onSelect={() => {
                 selectProject(idx);
+                setProjectExpanded(project.id);
                 const ws =
                   project.workspaces[project.selectedWorkspaceIndex] ??
                   project.workspaces[0];
@@ -220,9 +223,13 @@ function PortBadge({ port }: { port: import("../electron.d.ts").ActivePort }) {
   );
 }
 
+const EMPTY_STYLE: React.CSSProperties = {};
+
 function ProjectItem({
   project,
   isSelected,
+  collapsed,
+  onToggleCollapsed,
   onSelect,
   onRemove,
   onSelectWorkspace,
@@ -233,6 +240,8 @@ function ProjectItem({
 }: {
   project: ProjectInfo;
   isSelected: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onSelect: () => void;
   onRemove: () => void;
   onSelectWorkspace: (index: number) => void;
@@ -241,7 +250,7 @@ function ProjectItem({
   onReorderWorkspaces: (orderedPaths: string[]) => void;
   onCreateWorktree: (name: string, branch: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(isSelected);
+  const expanded = !collapsed;
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -251,9 +260,11 @@ function ProjectItem({
   // Drag-and-drop state
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
   const dropIndexRef = useRef<number | null>(null);
   const dragStartY = useRef(0);
   const dragActive = useRef(false);
+  const dragCleanedUp = useRef(false);
   const justDragged = useRef(false);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const itemHeights = useRef<number[]>([]);
@@ -287,12 +298,14 @@ function ProjectItem({
       const target = e.currentTarget as HTMLElement;
       dragStartY.current = e.clientY;
       dragActive.current = false;
+      dragCleanedUp.current = false;
 
-      // Snapshot item heights
+      // Snapshot item heights (gap matches .workspaces CSS gap)
+      const WORKSPACE_GAP = 8;
       const heights: number[] = [];
       for (let i = 0; i < project.workspaces.length; i++) {
         const el = itemRefs.current.get(i);
-        heights[i] = el ? el.getBoundingClientRect().height + 8 : 36; // 8 = gap
+        heights[i] = el ? el.getBoundingClientRect().height + WORKSPACE_GAP : 36;
       }
       itemHeights.current = heights;
 
@@ -309,11 +322,12 @@ function ProjectItem({
           setDropIndex(idx);
         }
 
+        setDragOffset(dy);
+
         // Calculate which index we're over
         let offset = 0;
         let targetIdx = idx;
         if (dy < 0) {
-          // Moving up
           for (let i = idx - 1; i >= 0; i--) {
             offset -= itemHeights.current[i];
             if (dy < offset + itemHeights.current[i] / 2) {
@@ -321,7 +335,6 @@ function ProjectItem({
             } else break;
           }
         } else {
-          // Moving down
           for (let i = idx + 1; i < project.workspaces.length; i++) {
             offset += itemHeights.current[i];
             if (dy > offset - itemHeights.current[i] / 2) {
@@ -334,6 +347,10 @@ function ProjectItem({
       };
 
       const onUp = () => {
+        // Guard against double-fire (pointerup + lostpointercapture)
+        if (dragCleanedUp.current) return;
+        dragCleanedUp.current = true;
+
         target.removeEventListener("pointermove", onMove);
         target.removeEventListener("pointerup", onUp);
         target.removeEventListener("lostpointercapture", onUp);
@@ -347,13 +364,13 @@ function ProjectItem({
             paths.splice(finalDrop, 0, moved);
             onReorderWorkspaces(paths);
           }
-          // Reset justDragged after click event has had a chance to fire
           requestAnimationFrame(() => { justDragged.current = false; });
         }
         dragActive.current = false;
         dropIndexRef.current = null;
         setDragIndex(null);
         setDropIndex(null);
+        setDragOffset(0);
       };
 
       target.addEventListener("pointermove", onMove);
@@ -365,23 +382,15 @@ function ProjectItem({
 
   // Compute transform offsets for smooth animation
   const getTransformStyle = (idx: number): React.CSSProperties => {
-    if (dragIndex === null || dropIndex === null || dragIndex === dropIndex) return {};
+    if (dragIndex === null || dropIndex === null) return EMPTY_STYLE;
     const h = itemHeights.current[dragIndex] || 36;
     if (idx === dragIndex) {
-      // The dragged item moves to drop position
-      const direction = dropIndex > dragIndex ? 1 : -1;
-      let total = 0;
-      const [start, end] =
-        direction > 0 ? [dragIndex + 1, dropIndex] : [dropIndex, dragIndex - 1];
-      for (let i = start; i <= end; i++) {
-        total += itemHeights.current[i] || 36;
-      }
       return {
-        transform: `translateY(${direction * total}px)`,
+        transform: `translateY(${dragOffset}px)`,
         zIndex: 10,
-        transition: "transform 150ms ease",
       };
     }
+    if (dragIndex === dropIndex) return { transition: "transform 150ms ease" };
     if (
       (dropIndex > dragIndex && idx > dragIndex && idx <= dropIndex) ||
       (dropIndex < dragIndex && idx < dragIndex && idx >= dropIndex)
@@ -402,7 +411,7 @@ function ProjectItem({
           <div
             className={styles.projectHeader}
             onClick={() => {
-              setExpanded(!expanded);
+              onToggleCollapsed();
             }}
           >
             <span className={styles.projectChevron}>
@@ -442,7 +451,7 @@ function ProjectItem({
         <div className={styles.workspaces}>
           {project.workspaces.map((ws, idx) => {
             const isEditing = editingPath === ws.path;
-            const displayName = ws.name || ws.branch || "main";
+            const displayName = ws.isMain ? (ws.name || "local") : (ws.name || ws.branch || "main");
             const isDragging = dragIndex === idx;
 
             const workspaceEl = (
@@ -453,7 +462,7 @@ function ProjectItem({
                   else itemRefs.current.delete(idx);
                 }}
                 className={`${styles.workspace} ${
-                  idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
+                  isSelected && idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
                 } ${isDragging ? styles.workspaceDragging : ""}`}
                 style={getTransformStyle(idx)}
                 onClick={() => {
@@ -498,8 +507,6 @@ function ProjectItem({
               </div>
             );
 
-            if (ws.isMain) return workspaceEl;
-
             return (
               <ContextMenu.Root key={ws.path}>
                 <ContextMenu.Trigger asChild>
@@ -509,16 +516,39 @@ function ProjectItem({
                   <ContextMenu.Content className={styles.contextMenu}>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
-                      onSelect={() => startRename(ws)}
+                      onSelect={() => window.electronAPI.openExternal(`file://${ws.path}`)}
                     >
-                      Rename Workspace
+                      Open in Finder
                     </ContextMenu.Item>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
-                      onSelect={() => onRemoveWorktree(ws)}
+                      onSelect={() => navigator.clipboard.writeText(ws.branch || "main")}
                     >
-                      Delete Worktree
+                      Copy Branch Name
                     </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className={styles.contextMenuItem}
+                      onSelect={() => navigator.clipboard.writeText(ws.path)}
+                    >
+                      Copy Path
+                    </ContextMenu.Item>
+                    {!ws.isMain && (
+                      <>
+                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                        <ContextMenu.Item
+                          className={styles.contextMenuItem}
+                          onSelect={() => startRename(ws)}
+                        >
+                          Rename Workspace
+                        </ContextMenu.Item>
+                        <ContextMenu.Item
+                          className={styles.contextMenuItem}
+                          onSelect={() => onRemoveWorktree(ws)}
+                        >
+                          Delete Worktree
+                        </ContextMenu.Item>
+                      </>
+                    )}
                   </ContextMenu.Content>
                 </ContextMenu.Portal>
               </ContextMenu.Root>
@@ -530,7 +560,9 @@ function ProjectItem({
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
         onClose={() => setNewWorkspaceOpen(false)}
-        onSubmit={(name, branch) => {
+        projects={[project]}
+        selectedProjectIndex={0}
+        onSubmit={(_projectId, name, branch) => {
           setNewWorkspaceOpen(false);
           onCreateWorktree(name, branch);
         }}

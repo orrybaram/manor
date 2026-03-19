@@ -82,6 +82,7 @@ body,
   flex: 1;
   overflow: hidden;
   position: relative;
+  margin-left: 8px;
 }
 
 .sr-only {

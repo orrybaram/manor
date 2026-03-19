@@ -113,10 +113,13 @@ export class TerminalHostClient {
       // to the session's broadcast list (which would corrupt the control protocol).
       const snapshotResp = await this.request({ type: "getSnapshot", sessionId });
       if (snapshotResp.type === "snapshot") {
-        // Session exists — subscribe on stream socket for ongoing events
+        // Session exists — resize to match new terminal dimensions before subscribing,
+        // so we don't receive a SIGWINCH-triggered prompt redraw as a stream event.
+        await this.request({ type: "resize", sessionId, cols, rows });
+        // Subscribe on stream socket for ongoing events
         this.streamWrite({ type: "subscribe", sessionId });
         return {
-          session: { sessionId, cwd, cols: 0, rows: 0, alive: true },
+          session: { sessionId, cwd, cols, rows, alive: true },
           snapshot: snapshotResp.snapshot,
         };
       }

@@ -34,6 +34,7 @@ function App() {
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
+  const focusPrevPane = useAppStore((s) => s.focusPrevPane);
   const zoomIn = useAppStore((s) => s.zoomIn);
   const zoomOut = useAppStore((s) => s.zoomOut);
   const resetZoom = useAppStore((s) => s.resetZoom);
@@ -80,9 +81,12 @@ function App() {
       } else if (e.key === "[" && e.shiftKey) {
         e.preventDefault();
         selectPrevSession();
-      } else if (e.key === "]" && !e.shiftKey && e.altKey) {
+      } else if (e.key === "]" && !e.shiftKey) {
         e.preventDefault();
         focusNextPane();
+      } else if (e.key === "[" && !e.shiftKey) {
+        e.preventDefault();
+        focusPrevPane();
       } else if (e.key === "\\") {
         e.preventDefault();
         toggleSidebar();
@@ -108,6 +112,7 @@ function App() {
     selectPrevSession,
     splitPane,
     focusNextPane,
+    focusPrevPane,
     toggleSidebar,
     zoomIn,
     zoomOut,
@@ -136,7 +141,7 @@ function App() {
                       display: "flex",
                       position: "absolute",
                       visibility: isVisible ? "visible" : "hidden",
-                      inset: "0 0 0 16px",
+                      inset: "0",
                       overflow: "hidden",
                     }}
                   >
@@ -154,11 +159,11 @@ function App() {
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
         onClose={closeNewWorkspace}
-        onSubmit={async (name, branch) => {
+        projects={projects}
+        selectedProjectIndex={selectedProjectIndex}
+        onSubmit={async (projectId, name, branch) => {
           setNewWorkspaceOpen(false);
-          const selectedProject = projects[selectedProjectIndex];
-          if (!selectedProject) return;
-          const wsPath = await createWorktree(selectedProject.id, name, branch);
+          const wsPath = await createWorktree(projectId, name, branch);
           if (wsPath) setActiveWorkspace(wsPath);
         }}
       />

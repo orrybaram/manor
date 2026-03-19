@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell } from "electron";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence, type PersistedWorkspace, type PersistedLayout } from "./terminal-host/layout-persistence";
@@ -6,6 +6,7 @@ import { ScrollbackWriter } from "./terminal-host/scrollback";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
+import { BranchWatcher } from "./branch-watcher";
 import { GitHubManager } from "./github";
 import { ShellManager } from "./shell";
 import type { StreamEvent } from "./terminal-host/types";
@@ -41,6 +42,7 @@ const layoutPersistence = new LayoutPersistence();
 const projectManager = new ProjectManager();
 const themeManager = new ThemeManager();
 const portScanner = new PortScanner();
+const branchWatcher = new BranchWatcher();
 const githubManager = new GitHubManager();
 
 // Ensure shell integration is set up
@@ -48,20 +50,24 @@ ShellManager.setupZdotdir();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {
-  if (!mainWindow) return;
-  switch (event.type) {
-    case "data":
-      mainWindow.webContents.send(`pty-output-${event.sessionId}`, event.data);
-      break;
-    case "exit":
-      mainWindow.webContents.send(`pty-exit-${event.sessionId}`);
-      break;
-    case "cwd":
-      mainWindow.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
-      break;
-    case "error":
-      mainWindow.webContents.send(`pty-error-${event.sessionId}`, event.message);
-      break;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    switch (event.type) {
+      case "data":
+        mainWindow.webContents.send(`pty-output-${event.sessionId}`, event.data);
+        break;
+      case "exit":
+        mainWindow.webContents.send(`pty-exit-${event.sessionId}`);
+        break;
+      case "cwd":
+        mainWindow.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
+        break;
+      case "error":
+        mainWindow.webContents.send(`pty-error-${event.sessionId}`, event.message);
+        break;
+    }
+  } catch {
+    // Render frame disposed during window reload or close — safe to ignore
   }
 });
 
@@ -71,11 +77,12 @@ client.onEvent((event: StreamEvent) => {
 ipcMain.handle("pty:create", async (_event, paneId: string, cwd: string | null, cols: number, rows: number) => {
   try {
     const result = await client.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
-    // If we got a snapshot (warm restore), send it to the renderer
-    if (result.snapshot && result.snapshot.screenAnsi) {
-      mainWindow?.webContents.send(`pty-output-${paneId}`, result.snapshot.screenAnsi);
-    }
-    return { ok: true };
+    // Return snapshot to the renderer so it can write it exactly once,
+    // avoiding duplicate writes from StrictMode double-mounting.
+    return {
+      ok: true,
+      snapshot: result.snapshot?.screenAnsi || null,
+    };
   } catch (err) {
     console.error(`Failed to create/attach PTY for ${paneId}:`, err);
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -163,8 +170,8 @@ ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspace
   projectManager.selectWorkspace(projectId, workspaceIndex);
 });
 
-ipcMain.handle("projects:removeWorktree", (_event, projectPath: string, worktreePath: string) => {
-  projectManager.removeWorktree(projectPath, worktreePath);
+ipcMain.handle("projects:removeWorktree", (_event, projectId: string, worktreePath: string) => {
+  projectManager.removeWorktree(projectId, worktreePath);
 });
 
 ipcMain.handle("projects:createWorktree", (_event, projectId: string, name: string, branch?: string) => {
@@ -179,7 +186,7 @@ ipcMain.handle("projects:reorderWorkspaces", (_event, projectId: string, ordered
   projectManager.reorderWorkspaces(projectId, orderedPaths);
 });
 
-ipcMain.handle("projects:update", (_event, projectId: string, updates: Record<string, unknown>) => {
+ipcMain.handle("projects:update", (_event, projectId: string, updates: Partial<Pick<import("./persistence").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => {
   return projectManager.updateProject(projectId, updates);
 });
 
@@ -228,6 +235,15 @@ ipcMain.handle("ports:scanNow", () => {
   return portScanner.scanNow();
 });
 
+// ── Branch Watcher IPC ──
+ipcMain.handle("branches:start", (_event, paths: string[]) => {
+  branchWatcher.start(mainWindow!, paths);
+});
+
+ipcMain.handle("branches:stop", () => {
+  branchWatcher.stop();
+});
+
 // ── GitHub IPC ──
 ipcMain.handle("github:getPrForBranch", (_event, repoPath: string, branch: string) => {
   return githubManager.getPrForBranch(repoPath, branch);
@@ -253,6 +269,28 @@ ipcMain.handle("shell:openExternal", (_event, url: string) => {
 
 // ── App lifecycle ──
 app.whenReady().then(async () => {
+  // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
+  const menu = Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+  ]);
+  Menu.setApplicationMenu(menu);
+
   createWindow();
 
   // Connect to daemon (spawns if needed)

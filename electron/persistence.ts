@@ -28,6 +28,7 @@ export interface ProjectInfo {
   setupScript: string | null;
   teardownScript: string | null;
   defaultRunCommand: string | null;
+  worktreePath: string | null;
 }
 
 interface PersistedProject {
@@ -40,6 +41,7 @@ interface PersistedProject {
   setupScript: string | null;
   teardownScript: string | null;
   defaultRunCommand: string | null;
+  worktreePath: string | null;
   workspaceNames?: Record<string, string>;
   workspaceOrder?: string[];
 }
@@ -76,6 +78,10 @@ export class ProjectManager {
     fs.writeFileSync(this.projectsFilePath(), JSON.stringify(this.state, null, 2));
   }
 
+  private findProject(projectId: string): PersistedProject | undefined {
+    return this.state.projects.find((p) => p.id === projectId);
+  }
+
   getProjects(): ProjectInfo[] {
     return this.state.projects.map((p) => this.buildProjectInfo(p));
   }
@@ -101,6 +107,7 @@ export class ProjectManager {
       setupScript: null,
       teardownScript: null,
       defaultRunCommand: null,
+      worktreePath: null,
     };
     this.state.projects.push(project);
     this.state.selectedProjectIndex = this.state.projects.length - 1;
@@ -120,6 +127,7 @@ export class ProjectManager {
       setupScript: null,
       teardownScript: null,
       defaultRunCommand: null,
+      worktreePath: null,
     };
   }
 
@@ -132,7 +140,7 @@ export class ProjectManager {
   }
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {
-    const project = this.state.projects.find((p) => p.id === projectId);
+    const project = this.findProject(projectId);
     if (project) {
       project.selectedWorkspaceIndex = workspaceIndex;
       this.saveState();
@@ -140,7 +148,7 @@ export class ProjectManager {
   }
 
   renameWorkspace(projectId: string, workspacePath: string, newName: string): void {
-    const project = this.state.projects.find((p) => p.id === projectId);
+    const project = this.findProject(projectId);
     if (!project) return;
     if (!project.workspaceNames) project.workspaceNames = {};
     if (newName.trim() === "") {
@@ -151,8 +159,8 @@ export class ProjectManager {
     this.saveState();
   }
 
-  updateProject(projectId: string, updates: Partial<Pick<PersistedProject, "name" | "setupScript" | "teardownScript" | "defaultRunCommand">>): ProjectInfo | null {
-    const project = this.state.projects.find((p) => p.id === projectId);
+  updateProject(projectId: string, updates: Partial<Pick<PersistedProject, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>): ProjectInfo | null {
+    const project = this.findProject(projectId);
     if (!project) return null;
     Object.assign(project, updates);
     this.saveState();
@@ -188,31 +196,34 @@ export class ProjectManager {
       setupScript: p.setupScript,
       teardownScript: p.teardownScript,
       defaultRunCommand: p.defaultRunCommand,
+      worktreePath: p.worktreePath ?? null,
     };
   }
 
   reorderWorkspaces(projectId: string, orderedPaths: string[]): void {
-    const project = this.state.projects.find((p) => p.id === projectId);
+    const project = this.findProject(projectId);
     if (!project) return;
     project.workspaceOrder = orderedPaths;
     this.saveState();
   }
 
-  removeWorktree(projectPath: string, worktreePath: string): void {
+  removeWorktree(projectId: string, worktreePath: string): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
     execSync(`git worktree remove ${JSON.stringify(worktreePath)}`, {
-      cwd: projectPath,
+      cwd: project.path,
       encoding: "utf-8",
       timeout: 10000,
     });
   }
 
   createWorktree(projectId: string, name: string, branch?: string): ProjectInfo | null {
-    const project = this.state.projects.find((p) => p.id === projectId);
+    const project = this.findProject(projectId);
     if (!project) return null;
 
     const branchName = branch || name;
-    // Place worktree as sibling directory: <project-parent>/<name>
-    const worktreePath = path.join(path.dirname(project.path), name);
+    const baseDir = project.worktreePath || path.join(os.homedir(), ".manor", "worktrees");
+    const worktreePath = path.join(baseDir, name);
 
     execSync(
       `git worktree add ${JSON.stringify(worktreePath)} -b ${JSON.stringify(branchName)}`,
@@ -223,9 +234,11 @@ export class ProjectManager {
       }
     );
 
-    // Set custom name if provided
-    if (!project.workspaceNames) project.workspaceNames = {};
-    project.workspaceNames[worktreePath] = name;
+    // Set custom name only if it differs from the branch
+    if (name !== branchName) {
+      if (!project.workspaceNames) project.workspaceNames = {};
+      project.workspaceNames[worktreePath] = name;
+    }
     this.saveState();
 
     return this.buildProjectInfo(project);

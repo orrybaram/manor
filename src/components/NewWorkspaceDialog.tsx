@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
+import type { ProjectInfo } from "../store/project-store";
 import styles from "./NewWorkspaceDialog.module.css";
 
 function slugify(str: string): string {
@@ -15,12 +16,15 @@ function slugify(str: string): string {
 interface NewWorkspaceDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (name: string, branch: string) => void;
+  onSubmit: (projectId: string, name: string, branch: string) => void;
+  projects: ProjectInfo[];
+  selectedProjectIndex: number;
 }
 
-export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDialogProps) {
+export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selectedProjectIndex }: NewWorkspaceDialogProps) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -31,13 +35,16 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDial
     [onClose]
   );
 
+  const defaultProjectId = projects[selectedProjectIndex]?.id ?? "";
+
   const handleOpenAutoFocus = useCallback((e: Event) => {
     e.preventDefault();
     setName("");
     setBranch("");
+    setSelectedProjectId(defaultProjectId);
     setError(null);
     nameRef.current?.focus();
-  }, []);
+  }, [defaultProjectId]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -47,9 +54,8 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDial
         setError("Name is required");
         return;
       }
-      // Validate: no spaces or special chars that break git worktree paths
-      if (/[^\w\-.]/.test(trimmedName)) {
-        setError("Name can only contain letters, numbers, hyphens, underscores, and dots");
+      if (trimmedName.length > 64) {
+        setError("Name must be 64 characters or fewer");
         return;
       }
       const branchName = slugify(branch.trim() || trimmedName);
@@ -57,10 +63,15 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDial
         setError("Could not derive a valid branch name");
         return;
       }
+      const projectId = selectedProjectId || defaultProjectId;
+      if (!projectId) {
+        setError("No project selected");
+        return;
+      }
       setError(null);
-      onSubmit(trimmedName, branchName);
+      onSubmit(projectId, trimmedName, branchName);
     },
-    [name, branch, onSubmit]
+    [name, branch, selectedProjectId, defaultProjectId, onSubmit]
   );
 
   return (
@@ -70,6 +81,7 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDial
         <Dialog.Content
           className={styles.dialog}
           onOpenAutoFocus={handleOpenAutoFocus}
+          onCloseAutoFocus={(e) => { e.preventDefault(); document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus(); }}
         >
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
@@ -80,6 +92,23 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit }: NewWorkspaceDial
             </Dialog.Close>
           </div>
           <form onSubmit={handleSubmit} className={styles.body}>
+            {projects.length > 1 && (
+              <>
+                <label className={styles.fieldLabel}>Project</label>
+                <div className={styles.selectWrapper}>
+                  <select
+                    className={styles.fieldSelect}
+                    value={selectedProjectId || defaultProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className={styles.selectIcon} />
+                </div>
+              </>
+            )}
             <label className={styles.fieldLabel}>Name</label>
             <input
               ref={nameRef}

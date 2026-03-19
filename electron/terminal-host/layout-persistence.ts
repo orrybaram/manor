@@ -18,6 +18,7 @@ export const LAYOUT_FILE = path.join(os.homedir(), ".manor", "layout.json");
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
+  lastTitle: string | null;
 }
 
 /** Persisted session (tab) layout */

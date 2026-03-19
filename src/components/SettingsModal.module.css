@@ -165,7 +165,7 @@
 .pageContent {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 28px;
 }
 
 /* ── Settings groups ── */
@@ -173,6 +173,7 @@
 .settingsGroup {
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
 .sectionTitle {
@@ -226,6 +227,19 @@
   border-color: var(--accent);
 }
 
+.fieldTextarea {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 80px;
+}
+
+.fieldHint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
 .fieldStatic {
   font-size: 13px;
   color: var(--text-primary);
@@ -259,7 +273,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
+  padding: 7px 20px 7px 12px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);

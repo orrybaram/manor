@@ -46,15 +46,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeProject: (projectId: string) => ipcRenderer.invoke("projects:remove", projectId),
   selectWorkspace: (projectId: string, workspaceIndex: number) =>
     ipcRenderer.invoke("projects:selectWorkspace", projectId, workspaceIndex),
-  removeWorktree: (projectPath: string, worktreePath: string) =>
-    ipcRenderer.invoke("projects:removeWorktree", projectPath, worktreePath),
+  removeWorktree: (projectId: string, worktreePath: string) =>
+    ipcRenderer.invoke("projects:removeWorktree", projectId, worktreePath),
   createWorktree: (projectId: string, name: string, branch?: string) =>
     ipcRenderer.invoke("projects:createWorktree", projectId, name, branch),
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) =>
     ipcRenderer.invoke("projects:renameWorkspace", projectId, workspacePath, newName),
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
     ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
-  updateProject: (projectId: string, updates: Record<string, unknown>) =>
+  updateProject: (projectId: string, updates: Partial<{ name: string; setupScript: string | null; teardownScript: string | null; defaultRunCommand: string | null; worktreePath: string | null }>) =>
     ipcRenderer.invoke("projects:update", projectId, updates),
 
   // Theme
@@ -74,6 +74,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const listener = (_event: Electron.IpcRendererEvent, ports: unknown[]) => callback(ports);
     ipcRenderer.on("ports-changed", listener);
     return () => { ipcRenderer.removeListener("ports-changed", listener); };
+  },
+
+  // Branch Watcher
+  startBranchWatcher: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
+  stopBranchWatcher: () => ipcRenderer.invoke("branches:stop"),
+  onBranchesChanged: (callback: (branches: Record<string, string>) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, branches: Record<string, string>) => callback(branches);
+    ipcRenderer.on("branches-changed", listener);
+    return () => { ipcRenderer.removeListener("branches-changed", listener); };
   },
 
   // GitHub

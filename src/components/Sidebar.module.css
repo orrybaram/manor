@@ -257,6 +257,12 @@
   color: #fff;
 }
 
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border, rgba(255, 255, 255, 0.1));
+}
+
 /* ── Confirm Dialog ── */
 
 .confirmOverlay {

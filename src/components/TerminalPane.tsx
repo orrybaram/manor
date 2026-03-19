@@ -21,7 +21,8 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
       className={styles.container}
       style={{
         width: "100%",
-        height: "100%",
+        flex: 1,
+        minHeight: 0,
         overflow: "hidden",
       }}
     />

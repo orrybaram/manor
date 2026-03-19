@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Terminal, Search, Trash2, FolderDown } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -57,22 +57,14 @@ export function WorkspaceEmptyState() {
 
 /** Shown when there are no projects at all. */
 export function WelcomeEmptyState() {
-  const addProject = useProjectStore((s) => s.addProject);
-
-  const handleImportProject = useCallback(async () => {
-    const selected = await window.electronAPI.openDirectory();
-    if (selected) {
-      const name = selected.split("/").pop() || "Untitled";
-      await addProject(name, selected);
-    }
-  }, [addProject]);
+  const addProjectFromDirectory = useProjectStore((s) => s.addProjectFromDirectory);
 
   const actions: ActionItem[] = [
     {
       icon: <FolderDown size={16} />,
       label: "Import Project",
       keys: [],
-      action: handleImportProject,
+      action: addProjectFromDirectory,
     },
   ];
 

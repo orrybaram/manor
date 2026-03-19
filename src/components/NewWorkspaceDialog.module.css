@@ -104,6 +104,37 @@
   border-color: var(--accent);
 }
 
+.selectWrapper {
+  position: relative;
+}
+
+.fieldSelect {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  appearance: none;
+  cursor: pointer;
+}
+
+.fieldSelect:focus {
+  border-color: var(--accent);
+}
+
+.selectIcon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 .error {
   font-size: 12px;
   color: var(--danger);

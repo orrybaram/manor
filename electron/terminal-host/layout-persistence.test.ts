@@ -35,7 +35,7 @@ describe("LayoutPersistence", () => {
       rootNode: { type: "leaf", paneId },
       focusedPaneId: paneId,
       paneSessions: {
-        [paneId]: { daemonSessionId, lastCwd: "/tmp" },
+        [paneId]: { daemonSessionId, lastCwd: "/tmp", lastTitle: null },
       },
     };
   }
@@ -57,8 +57,8 @@ describe("LayoutPersistence", () => {
       rootNode,
       focusedPaneId: paneIds[0],
       paneSessions: {
-        [paneIds[0]]: { daemonSessionId: daemonSessionIds[0], lastCwd: "/tmp" },
-        [paneIds[1]]: { daemonSessionId: daemonSessionIds[1], lastCwd: "/home" },
+        [paneIds[0]]: { daemonSessionId: daemonSessionIds[0], lastCwd: "/tmp", lastTitle: null },
+        [paneIds[1]]: { daemonSessionId: daemonSessionIds[1], lastCwd: "/home", lastTitle: null },
       },
     };
   }
@@ -180,7 +180,7 @@ describe("LayoutPersistence", () => {
         rootNode: { type: "leaf", paneId: "p1" },
         focusedPaneId: "p1",
         paneSessions: {
-          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code" },
+          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code", lastTitle: null },
         },
       };
 
@@ -405,7 +405,7 @@ describe("LayoutPersistence", () => {
         rootNode: { type: "leaf", paneId: "p1" },
         focusedPaneId: "p1",
         paneSessions: {
-          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code" },
+          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code", lastTitle: null },
         },
       };
 

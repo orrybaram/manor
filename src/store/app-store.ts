@@ -6,6 +6,7 @@ import {
   insertSplit,
   removePane,
   nextPaneId,
+  prevPaneId,
 } from "./pane-tree";
 import type { PersistedWorkspace, PersistedSession, PersistedLayout } from "../electron.d";
 
@@ -67,6 +68,7 @@ export interface AppState {
   workspaceSessions: Record<string, WorkspaceSessionState>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
+  paneTitle: Record<string, string>;
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
@@ -83,15 +85,20 @@ export interface AppState {
   selectSession: (sessionId: string) => void;
   selectNextSession: () => void;
   selectPrevSession: () => void;
+  reorderSessions: (sessionIds: string[]) => void;
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
   closePane: () => void;
   focusPane: (paneId: string) => void;
   focusNextPane: () => void;
+  focusPrevPane: () => void;
 
   // CWD tracking
   setPaneCwd: (paneId: string, cwd: string) => void;
+
+  // Title tracking (from terminal OSC sequences)
+  setPaneTitle: (paneId: string, title: string) => void;
 
   // Zoom
   fontSize: number;
@@ -120,6 +127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaceSessions: {},
   activeWorkspacePath: null,
   paneCwd: {},
+  paneTitle: {},
   fontSize: DEFAULT_FONT_SIZE,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
@@ -130,19 +138,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (layout) {
         _cachedLayout = layout;
 
-        // Pre-populate paneCwd from persisted data
+        // Pre-populate paneCwd and paneTitle from persisted data
         const cwds: Record<string, string> = {};
+        const titles: Record<string, string> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
             for (const [paneId, paneSession] of Object.entries(session.paneSessions)) {
               if (paneSession.lastCwd) {
                 cwds[paneId] = paneSession.lastCwd;
               }
+              if (paneSession.lastTitle) {
+                titles[paneId] = paneSession.lastTitle;
+              }
             }
           }
         }
 
-        set({ layoutLoaded: true, paneCwd: { ...get().paneCwd, ...cwds } });
+        set({
+          layoutLoaded: true,
+          paneCwd: { ...get().paneCwd, ...cwds },
+          paneTitle: { ...get().paneTitle, ...titles },
+        });
       } else {
         set({ layoutLoaded: true });
       }
@@ -206,9 +222,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Mark all panes in the closing session as explicitly closed
       const closingSession = ws.sessions.find((s) => s.id === sessionId);
+      const deadPaneIds: string[] = [];
       if (closingSession) {
         for (const pid of allPaneIds(closingSession.rootNode)) {
           state.closedPaneIds.add(pid);
+          deadPaneIds.push(pid);
         }
       }
 
@@ -220,7 +238,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           : sessionId === ws.selectedSessionId
             ? newSessions[Math.min(idx, newSessions.length - 1)].id
             : ws.selectedSessionId;
+
+      // Clean up metadata for dead panes
+      const newCwd = { ...state.paneCwd };
+      const newTitle = { ...state.paneTitle };
+      for (const pid of deadPaneIds) {
+        delete newCwd[pid];
+        delete newTitle[pid];
+      }
+
       return {
+        paneCwd: newCwd,
+        paneTitle: newTitle,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { sessions: newSessions, selectedSessionId: newSelected },
@@ -270,6 +299,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, selectedSessionId: ws.sessions[prev].id },
+        },
+      };
+    }),
+
+  reorderSessions: (sessionIds: string[]) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const lookup = new Map(ws.sessions.map((s) => [s.id, s]));
+      const reordered = sessionIds.map((id) => lookup.get(id)).filter(Boolean) as Session[];
+      if (reordered.length !== ws.sessions.length) return state;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { ...ws, sessions: reordered },
         },
       };
     }),
@@ -326,7 +372,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const currentWs = s.workspaceSessions[path];
       if (!currentWs) return s;
+      // Clean up metadata for the closed pane
+      const newCwd = { ...s.paneCwd };
+      const newTitle = { ...s.paneTitle };
+      delete newCwd[closingPaneId];
+      delete newTitle[closingPaneId];
       return {
+        paneCwd: newCwd,
+        paneTitle: newTitle,
         workspaceSessions: {
           ...s.workspaceSessions,
           [path]: {
@@ -384,10 +437,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  focusPrevPane: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+      if (!session) return state;
+      const prev = prevPaneId(session.rootNode, session.focusedPaneId);
+      if (!prev) return state;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: ws.sessions.map((s) =>
+              s.id === session.id ? { ...s, focusedPaneId: prev } : s
+            ),
+          },
+        },
+      };
+    }),
+
   setPaneCwd: (paneId: string, cwd: string) =>
-    set((state) => ({
-      paneCwd: { ...state.paneCwd, [paneId]: cwd },
-    })),
+    set((state) => {
+      if (state.paneCwd[paneId] === cwd) return state;
+      return { paneCwd: { ...state.paneCwd, [paneId]: cwd } };
+    }),
+
+  setPaneTitle: (paneId: string, title: string) =>
+    set((state) => {
+      if (state.paneTitle[paneId] === title) return state;
+      return { paneTitle: { ...state.paneTitle, [paneId]: title } };
+    }),
 
   zoomIn: () => set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
   zoomOut: () => set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
@@ -420,11 +503,12 @@ function saveActiveWorkspaceLayout(): void {
       workspacePath: wsPath,
       sessions: ws.sessions.map((s) => {
         const paneIds = allPaneIds(s.rootNode);
-        const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null }> = {};
+        const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null; lastTitle: string | null }> = {};
         for (const pid of paneIds) {
           paneSessions[pid] = {
             daemonSessionId: pid,
             lastCwd: state.paneCwd[pid] ?? null,
+            lastTitle: state.paneTitle[pid] ?? null,
           };
         }
         return {

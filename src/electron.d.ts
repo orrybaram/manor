@@ -9,6 +9,7 @@ export interface ActivePort {
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
+  lastTitle: string | null;
 }
 
 export interface PersistedSession {
@@ -43,7 +44,7 @@ export interface RestoredSessionsInfo {
 
 export interface ElectronAPI {
   // PTY
-  ptyCreate: (paneId: string, cwd: string | null, cols: number, rows: number) => Promise<void>;
+  ptyCreate: (paneId: string, cwd: string | null, cols: number, rows: number) => Promise<{ ok: boolean; snapshot?: string | null }>;
   ptyWrite: (paneId: string, data: string) => Promise<void>;
   ptyResize: (paneId: string, cols: number, rows: number) => Promise<void>;
   ptyClose: (paneId: string) => Promise<void>;
@@ -66,11 +67,11 @@ export interface ElectronAPI {
   addProject: (name: string, path: string) => Promise<import("./store/project-store").ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
-  removeWorktree: (projectPath: string, worktreePath: string) => Promise<void>;
+  removeWorktree: (projectId: string, worktreePath: string) => Promise<void>;
   createWorktree: (projectId: string, name: string, branch?: string) => Promise<import("./store/project-store").ProjectInfo | null>;
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand">>) => Promise<import("./store/project-store").ProjectInfo | null>;
+  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => Promise<import("./store/project-store").ProjectInfo | null>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;
@@ -86,6 +87,11 @@ export interface ElectronAPI {
   updateWorkspacePaths: (paths: string[]) => Promise<void>;
   scanPortsNow: () => Promise<ActivePort[]>;
   onPortsChanged: (callback: (ports: ActivePort[]) => void) => () => void;
+
+  // Branch Watcher
+  startBranchWatcher: (paths: string[]) => Promise<void>;
+  stopBranchWatcher: () => Promise<void>;
+  onBranchesChanged: (callback: (branches: Record<string, string>) => void) => () => void;
 
   // GitHub
   getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;

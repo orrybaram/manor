@@ -1,5 +1,19 @@
 import { create } from "zustand";
 
+const COLLAPSED_KEY = "manor:collapsedProjectIds";
+
+function loadCollapsedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+function saveCollapsedIds(ids: Set<string>): void {
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -17,6 +31,7 @@ export interface ProjectInfo {
   setupScript: string | null;
   teardownScript: string | null;
   defaultRunCommand: string | null;
+  worktreePath: string | null;
 }
 
 interface ProjectState {
@@ -25,20 +40,25 @@ interface ProjectState {
   sidebarVisible: boolean;
   sidebarWidth: number;
   loading: boolean;
+  collapsedProjectIds: Set<string>;
 
   // Actions
   loadProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<void>;
+  addProjectFromDirectory: () => Promise<void>;
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
   createWorktree: (projectId: string, name: string, branch?: string) => Promise<string | null>;
   removeWorktree: (projectId: string, worktreePath: string) => Promise<void>;
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
-  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => void;
-  updateProject: (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand">>) => Promise<void>;
+  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
+  updateProject: (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => Promise<void>;
+  updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
+  toggleProjectCollapsed: (projectId: string) => void;
+  setProjectExpanded: (projectId: string) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -47,6 +67,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   sidebarVisible: true,
   sidebarWidth: 220,
   loading: false,
+  collapsedProjectIds: loadCollapsedIds(),
 
   loadProjects: async () => {
     set({ loading: true });
@@ -65,6 +86,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
     }));
+  },
+
+  addProjectFromDirectory: async () => {
+    const selected = await window.electronAPI.openDirectory();
+    if (selected) {
+      const name = selected.split("/").pop() || "Untitled";
+      await get().addProject(name, selected);
+    }
   },
 
   removeProject: async (projectId: string) => {
@@ -94,7 +123,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
           ? { ...p, selectedWorkspaceIndex: workspaceIndex }
-          : { ...p, selectedWorkspaceIndex: -1 }
+          : p
       ),
     }));
   },
@@ -111,17 +140,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   removeWorktree: async (projectId: string, worktreePath: string) => {
-    const state = get();
-    const project = state.projects.find((p) => p.id === projectId);
-    if (!project) return;
-    await window.electronAPI.removeWorktree(project.path, worktreePath);
+    await window.electronAPI.removeWorktree(projectId, worktreePath);
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.getProjects();
     set({ projects });
   },
 
-  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => {
-    window.electronAPI.reorderWorkspaces(projectId, orderedPaths);
+  reorderWorkspaces: async (projectId: string, orderedPaths: string[]) => {
+    await window.electronAPI.reorderWorkspaces(projectId, orderedPaths);
     set((s) => ({
       projects: s.projects.map((p) => {
         if (p.id !== projectId) return p;
@@ -130,8 +156,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           .map((path) => byPath.get(path))
           .filter((ws): ws is WorkspaceInfo => ws != null);
         // Append any workspaces not in orderedPaths (shouldn't happen, but safe)
+        const orderedSet = new Set(orderedPaths);
         for (const ws of p.workspaces) {
-          if (!orderedPaths.includes(ws.path)) reordered.push(ws);
+          if (!orderedSet.has(ws.path)) reordered.push(ws);
         }
         return { ...p, workspaces: reordered };
       }),
@@ -156,7 +183,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  updateProject: async (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand">>) => {
+  updateProject: async (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => {
     const updated = await window.electronAPI.updateProject(projectId, updates);
     if (updated) {
       set((s) => ({
@@ -165,7 +192,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
+  updateWorkspaceBranch: (workspacePath: string, branch: string) => set((s) => ({
+    projects: s.projects.map((p) => {
+      const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
+      if (wsIdx === -1) return p;
+      const ws = p.workspaces[wsIdx];
+      if (ws.branch === branch) return p;
+      const workspaces = [...p.workspaces];
+      workspaces[wsIdx] = { ...ws, branch };
+      return { ...p, workspaces };
+    }),
+  })),
+
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
 
   setSidebarWidth: (width: number) => set({ sidebarWidth: width }),
+
+  toggleProjectCollapsed: (projectId: string) => set((s) => {
+    const next = new Set(s.collapsedProjectIds);
+    if (next.has(projectId)) next.delete(projectId);
+    else next.add(projectId);
+    saveCollapsedIds(next);
+    return { collapsedProjectIds: next };
+  }),
+
+  setProjectExpanded: (projectId: string) => set((s) => {
+    if (!s.collapsedProjectIds.has(projectId)) return s;
+    const next = new Set(s.collapsedProjectIds);
+    next.delete(projectId);
+    saveCollapsedIds(next);
+    return { collapsedProjectIds: next };
+  }),
 }));

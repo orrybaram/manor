@@ -40,6 +40,22 @@ export function useTerminalLifecycle(
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);
 
+  // Auto-focus terminal when this pane becomes the focused pane of the active session
+  const isFocusedPane = useAppStore((s) => {
+    const path = s.activeWorkspacePath;
+    if (!path) return false;
+    const ws = s.workspaceSessions[path];
+    if (!ws) return false;
+    const session = ws.sessions.find((t) => t.id === ws.selectedSessionId);
+    return session?.focusedPaneId === paneId;
+  });
+
+  useEffect(() => {
+    if (isFocusedPane && termRef.current) {
+      termRef.current.focus();
+    }
+  }, [isFocusedPane]);
+
   // Update font size without recreating
   useEffect(() => {
     if (termRef.current) {
@@ -106,7 +122,17 @@ export function useTerminalLifecycle(
     // Create or attach to daemon session
     const cols = t.cols;
     const rows = t.rows;
-    create(cwd ?? null, cols, rows);
+    let disposed = false;
+    create(cwd ?? null, cols, rows).then((result: { ok: boolean; snapshot?: string | null }) => {
+      if (!disposed && result.ok && result.snapshot) {
+        t.write(result.snapshot);
+      }
+    });
+
+    // Terminal title changes (OSC sequences) → store
+    const titleDisposable = t.onTitleChange((title) => {
+      useAppStore.getState().setPaneTitle(paneId, title);
+    });
 
     // User input → PTY
     const dataDisposable = t.onData(write);
@@ -122,7 +148,9 @@ export function useTerminalLifecycle(
     t.focus();
 
     return () => {
+      disposed = true;
       if (resizeTimer) clearTimeout(resizeTimer);
+      titleDisposable.dispose();
       dataDisposable.dispose();
       resizeDisposable.dispose();
       setTerm(null);

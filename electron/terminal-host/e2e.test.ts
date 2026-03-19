@@ -577,11 +577,11 @@ describe("E2E: layout persistence + reconciliation", () => {
 
   function makeWorkspace(paneConfigs: Array<{ paneId: string; daemonSessionId: string; cwd: string }>): PersistedWorkspace {
     const sessions: PersistedSession[] = [];
-    const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null }> = {};
+    const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null; lastTitle: string | null }> = {};
 
     if (paneConfigs.length === 1) {
       const c = paneConfigs[0];
-      paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd };
+      paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd, lastTitle: null };
       sessions.push({
         id: "tab-1",
         title: "Terminal",
@@ -591,7 +591,7 @@ describe("E2E: layout persistence + reconciliation", () => {
       });
     } else {
       for (const c of paneConfigs) {
-        paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd };
+        paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd, lastTitle: null };
       }
       sessions.push({
         id: "tab-1",
@@ -788,9 +788,9 @@ describe("E2E: layout persistence + reconciliation", () => {
         },
         focusedPaneId: "pane-A",
         paneSessions: {
-          "pane-A": { daemonSessionId: "pane-A", lastCwd: "/project" },
-          "pane-B": { daemonSessionId: "pane-B", lastCwd: "/old" },
-          "pane-C": { daemonSessionId: "pane-C", lastCwd: "/gone" },
+          "pane-A": { daemonSessionId: "pane-A", lastCwd: "/project", lastTitle: null },
+          "pane-B": { daemonSessionId: "pane-B", lastCwd: "/old", lastTitle: null },
+          "pane-C": { daemonSessionId: "pane-C", lastCwd: "/gone", lastTitle: null },
         },
       }],
       selectedSessionId: "tab-1",

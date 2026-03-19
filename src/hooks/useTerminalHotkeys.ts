@@ -19,8 +19,8 @@ const APP_SHORTCUTS: Record<string, boolean | ((e: KeyboardEvent) => boolean)> =
   "=": true,
   "-": true,
   "0": true,
-  "]": (e) => e.shiftKey,
-  "[": (e) => e.shiftKey,
+  "]": true,
+  "[": true,
 };
 
 export function useTerminalHotkeys() {

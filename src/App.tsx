@@ -3,6 +3,8 @@ import { TabBar } from "./components/TabBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
+import { SettingsModal } from "./components/SettingsModal";
+import { WorkspaceEmptyState, WelcomeEmptyState } from "./components/EmptyState";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
@@ -14,6 +16,8 @@ function App() {
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -30,17 +34,23 @@ function App() {
   const zoomIn = useAppStore((s) => s.zoomIn);
   const zoomOut = useAppStore((s) => s.zoomOut);
   const resetZoom = useAppStore((s) => s.resetZoom);
+  const projects = useProjectStore((s) => s.projects);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
+  const hasProjects = projects.length > 0;
+  const hasSessions = (ws?.sessions.length ?? 0) > 0;
 
   // Keybindings
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.metaKey) return;
 
-      if (e.key === "k" && !e.shiftKey) {
+      if (e.key === "," && !e.shiftKey) {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      } else if (e.key === "k" && !e.shiftKey) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       } else if (e.key === "t" && !e.shiftKey) {
@@ -104,7 +114,7 @@ function App() {
       <div className="app-body">
         {sidebarVisible && <Sidebar />}
         <div className="main-content">
-          <TabBar />
+          {hasSessions && <TabBar />}
           <div className="terminal-container">
             {/* Render all sessions across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
@@ -129,10 +139,12 @@ function App() {
                 );
               })
             )}
+            {!hasSessions && (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
           </div>
         </div>
       </div>
-      <CommandPalette open={paletteOpen} onClose={closePalette} />
+      <CommandPalette open={paletteOpen} onClose={closePalette} onOpenSettings={() => setSettingsOpen(true)} />
+      <SettingsModal open={settingsOpen} onClose={closeSettings} />
     </div>
   );
 }

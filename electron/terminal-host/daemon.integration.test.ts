@@ -140,8 +140,12 @@ class TestDaemon {
         }
         break;
       case "create": {
-        const session = this.host.create(req.sessionId, req.cwd, req.cols, req.rows, req.shellArgs);
-        this.send(socket, { type: "created", session });
+        try {
+          const session = this.host.create(req.sessionId, req.cwd, req.cols, req.rows, req.shellArgs);
+          this.send(socket, { type: "created", session });
+        } catch (err) {
+          this.send(socket, { type: "error", message: `Create failed: ${err instanceof Error ? err.message : String(err)}` });
+        }
         break;
       }
       case "attach": {
@@ -399,6 +403,64 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "kill", sessionId: "s1" });
       const resp = await client.readLine();
       expect(resp.type).toBe("killed");
+      client.close();
+    });
+  });
+
+  describe("create error handling", () => {
+    it("returns error response when host.create throws", async () => {
+      const client = await connectRaw(daemon.socketPath);
+      client.send({ type: "auth", token: daemon.authToken });
+      await client.readLine();
+
+      // Monkey-patch host.create to throw
+      const host = daemon.getHost();
+      const origCreate = host.create.bind(host);
+      host.create = () => { throw new Error("spawn failed: no such file"); };
+
+      client.send({ type: "create", sessionId: "s-fail", cwd: "/tmp", cols: 80, rows: 24 });
+      const resp = await client.readLine();
+      expect(resp.type).toBe("error");
+      expect(resp.message).toContain("spawn failed");
+
+      // Restore original and verify subsequent requests still work
+      host.create = origCreate;
+      client.send({ type: "create", sessionId: "s-ok", cwd: "/tmp", cols: 80, rows: 24 });
+      const resp2 = await client.readLine();
+      expect(resp2.type).toBe("created");
+      expect(resp2.session.sessionId).toBe("s-ok");
+
+      client.close();
+    });
+
+    it("FIFO queue stays aligned after create error", async () => {
+      const client = await connectRaw(daemon.socketPath);
+      client.send({ type: "auth", token: daemon.authToken });
+      await client.readLine();
+
+      // Monkey-patch host.create to throw on first call only
+      const host = daemon.getHost();
+      const origCreate = host.create.bind(host);
+      let callCount = 0;
+      host.create = (...args: any[]) => {
+        callCount++;
+        if (callCount === 1) throw new Error("first call fails");
+        return origCreate(...args);
+      };
+
+      // Send two creates back-to-back
+      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({ type: "create", sessionId: "s2", cwd: "/tmp", cols: 80, rows: 24 });
+
+      const resp1 = await client.readLine();
+      const resp2 = await client.readLine();
+
+      // First should be error, second should succeed
+      expect(resp1.type).toBe("error");
+      expect(resp2.type).toBe("created");
+      expect(resp2.session.sessionId).toBe("s2");
+
+      host.create = origCreate;
       client.close();
     });
   });

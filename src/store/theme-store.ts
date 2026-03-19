@@ -27,28 +27,42 @@ export interface Theme {
 
 interface ThemeState {
   theme: Theme | null;
+  selectedThemeName: string;
   loadTheme: () => Promise<void>;
+  setTheme: (name: string) => Promise<void>;
+}
+
+function applyCssVars(theme: Theme) {
+  const root = document.documentElement;
+  root.style.setProperty("--bg", theme.background);
+  root.style.setProperty("--fg", theme.foreground);
+  root.style.setProperty("--dim", adjustBrightness(theme.background, 0.02));
+  root.style.setProperty("--surface", adjustBrightness(theme.background, 0.08));
+  root.style.setProperty("--hover", adjustBrightness(theme.background, 0.05));
+  root.style.setProperty("--border", adjustBrightness(theme.background, 0.10));
+  root.style.setProperty("--text-primary", withAlpha(theme.foreground, 0.7));
+  root.style.setProperty("--text-selected", theme.foreground);
+  root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));
+  root.style.setProperty("--accent", theme.blue);
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({
   theme: null,
+  selectedThemeName: "__ghostty__",
 
   loadTheme: async () => {
-    const theme = await window.electronAPI.getTheme();
-    set({ theme });
+    const [theme, selectedThemeName] = await Promise.all([
+      window.electronAPI.getTheme(),
+      window.electronAPI.getSelectedThemeName(),
+    ]);
+    set({ theme, selectedThemeName });
+    applyCssVars(theme);
+  },
 
-    // Apply to CSS custom properties for chrome colors
-    const root = document.documentElement;
-    root.style.setProperty("--bg", theme.background);
-    root.style.setProperty("--fg", theme.foreground);
-    root.style.setProperty("--dim", adjustBrightness(theme.background, 0.02));
-    root.style.setProperty("--surface", adjustBrightness(theme.background, 0.08));
-    root.style.setProperty("--hover", adjustBrightness(theme.background, 0.05));
-    root.style.setProperty("--border", adjustBrightness(theme.background, 0.10));
-    root.style.setProperty("--text-primary", withAlpha(theme.foreground, 0.7));
-    root.style.setProperty("--text-selected", theme.foreground);
-    root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));
-    root.style.setProperty("--accent", theme.blue);
+  setTheme: async (name: string) => {
+    const theme = await window.electronAPI.setSelectedTheme(name);
+    set({ theme, selectedThemeName: name });
+    applyCssVars(theme);
   },
 }));
 

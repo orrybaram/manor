@@ -161,6 +161,36 @@
   flex-shrink: 0;
 }
 
+/* ── Context Menu ── */
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
 /* ── Ports ── */
 
 .portsSection {

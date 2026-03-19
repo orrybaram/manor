@@ -65,6 +65,172 @@ client.onEvent((event: StreamEvent) => {
   }
 });
 
+// ── Register all IPC handlers before window creation to avoid race conditions ──
+
+// ── PTY IPC (via daemon) ──
+ipcMain.handle("pty:create", async (_event, paneId: string, cwd: string | null, cols: number, rows: number) => {
+  try {
+    const result = await client.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
+    // If we got a snapshot (warm restore), send it to the renderer
+    if (result.snapshot && result.snapshot.screenAnsi) {
+      mainWindow?.webContents.send(`pty-output-${paneId}`, result.snapshot.screenAnsi);
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error(`Failed to create/attach PTY for ${paneId}:`, err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
+  client.writeNoAck(paneId, data);
+});
+
+ipcMain.handle("pty:resize", async (_event, paneId: string, cols: number, rows: number) => {
+  try {
+    await client.resize(paneId, cols, rows);
+  } catch {
+    // ignore resize errors
+  }
+});
+
+ipcMain.handle("pty:close", async (_event, paneId: string) => {
+  try {
+    await client.kill(paneId);
+  } catch {
+    // ignore close errors
+  }
+});
+
+ipcMain.handle("pty:detach", async (_event, paneId: string) => {
+  try {
+    await client.detach(paneId);
+  } catch {
+    // ignore detach errors
+  }
+});
+
+// ── Layout Persistence IPC ──
+ipcMain.handle("layout:save", (_event, workspace: PersistedWorkspace) => {
+  try {
+    layoutPersistence.saveWorkspace(workspace);
+  } catch (err) {
+    console.error("Failed to save layout:", err);
+  }
+});
+
+ipcMain.handle("layout:load", () => {
+  return layoutPersistence.load();
+});
+
+ipcMain.handle("layout:getRestoredSessions", async () => {
+  // Get live daemon sessions and persisted scrollback sessions
+  // so the renderer can reconcile on startup
+  try {
+    const daemonSessions = await client.listSessions();
+    const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
+    return {
+      daemonSessions,
+      persistedSessionIds,
+    };
+  } catch {
+    return { daemonSessions: [], persistedSessionIds: [] };
+  }
+});
+
+// ── Persistence IPC ──
+ipcMain.handle("projects:getAll", () => {
+  return projectManager.getProjects();
+});
+
+ipcMain.handle("projects:getSelectedIndex", () => {
+  return projectManager.getSelectedProjectIndex();
+});
+
+ipcMain.handle("projects:select", (_event, index: number) => {
+  projectManager.selectProject(index);
+});
+
+ipcMain.handle("projects:add", (_event, name: string, projectPath: string) => {
+  return projectManager.addProject(name, projectPath);
+});
+
+ipcMain.handle("projects:remove", (_event, projectId: string) => {
+  projectManager.removeProject(projectId);
+});
+
+ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspaceIndex: number) => {
+  projectManager.selectWorkspace(projectId, workspaceIndex);
+});
+
+ipcMain.handle("projects:removeWorktree", (_event, projectPath: string, worktreePath: string) => {
+  projectManager.removeWorktree(projectPath, worktreePath);
+});
+
+// ── Theme IPC ──
+ipcMain.handle("theme:get", () => {
+  return themeManager.getTheme();
+});
+
+ipcMain.handle("theme:setSelected", (_event, name: string) => {
+  themeManager.setSelectedThemeName(name);
+  return themeManager.getTheme();
+});
+
+ipcMain.handle("theme:getSelectedName", () => {
+  return themeManager.getSelectedThemeName();
+});
+
+ipcMain.handle("theme:hasGhosttyConfig", () => {
+  return themeManager.hasGhosttyConfig();
+});
+
+ipcMain.handle("theme:preview", (_event, name: string) => {
+  if (name === "__ghostty__") return themeManager.loadGhosttyConfigTheme();
+  if (name === "__default__") return null; // use DEFAULT_THEME on renderer
+  return themeManager.loadGhosttyTheme(name);
+});
+
+ipcMain.handle("theme:allColors", async () => {
+  return themeManager.loadAllThemeColors();
+});
+
+// ── Port Scanner IPC ──
+ipcMain.handle("ports:startScanner", () => {
+  portScanner.start(mainWindow!);
+});
+
+ipcMain.handle("ports:stopScanner", () => {
+  portScanner.stop();
+});
+
+ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
+  portScanner.updateWorkspacePaths(paths);
+});
+
+ipcMain.handle("ports:scanNow", () => {
+  return portScanner.scanNow();
+});
+
+// ── GitHub IPC ──
+ipcMain.handle("github:getPrForBranch", (_event, repoPath: string, branch: string) => {
+  return githubManager.getPrForBranch(repoPath, branch);
+});
+
+ipcMain.handle("github:getPrsForBranches", (_event, repoPath: string, branches: string[]) => {
+  return githubManager.getPrsForBranches(repoPath, branches);
+});
+
+// ── Dialog IPC ──
+ipcMain.handle("dialog:openDirectory", async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+// ── App lifecycle ──
 app.whenReady().then(async () => {
   createWindow();
 
@@ -74,140 +240,6 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error("Failed to connect to terminal host daemon:", err);
   }
-
-  // ── PTY IPC (via daemon) ──
-  ipcMain.handle("pty:create", async (_event, paneId: string, cwd: string | null, cols: number, rows: number) => {
-    try {
-      const result = await client.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
-      // If we got a snapshot (warm restore), send it to the renderer
-      if (result.snapshot && result.snapshot.screenAnsi) {
-        mainWindow?.webContents.send(`pty-output-${paneId}`, result.snapshot.screenAnsi);
-      }
-    } catch (err) {
-      console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-    }
-  });
-
-  ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
-    client.writeNoAck(paneId, data);
-  });
-
-  ipcMain.handle("pty:resize", async (_event, paneId: string, cols: number, rows: number) => {
-    try {
-      await client.resize(paneId, cols, rows);
-    } catch {
-      // ignore resize errors
-    }
-  });
-
-  ipcMain.handle("pty:close", async (_event, paneId: string) => {
-    try {
-      await client.kill(paneId);
-    } catch {
-      // ignore close errors
-    }
-  });
-
-  ipcMain.handle("pty:detach", async (_event, paneId: string) => {
-    try {
-      await client.detach(paneId);
-    } catch {
-      // ignore detach errors
-    }
-  });
-
-  // ── Layout Persistence IPC ──
-  ipcMain.handle("layout:save", (_event, workspace: PersistedWorkspace) => {
-    try {
-      layoutPersistence.saveWorkspace(workspace);
-    } catch (err) {
-      console.error("Failed to save layout:", err);
-    }
-  });
-
-  ipcMain.handle("layout:load", () => {
-    return layoutPersistence.load();
-  });
-
-  ipcMain.handle("layout:getRestoredSessions", async () => {
-    // Get live daemon sessions and persisted scrollback sessions
-    // so the renderer can reconcile on startup
-    try {
-      const daemonSessions = await client.listSessions();
-      const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
-      return {
-        daemonSessions,
-        persistedSessionIds,
-      };
-    } catch {
-      return { daemonSessions: [], persistedSessionIds: [] };
-    }
-  });
-
-  // ── Persistence IPC ──
-  ipcMain.handle("projects:getAll", () => {
-    return projectManager.getProjects();
-  });
-
-  ipcMain.handle("projects:getSelectedIndex", () => {
-    return projectManager.getSelectedProjectIndex();
-  });
-
-  ipcMain.handle("projects:select", (_event, index: number) => {
-    projectManager.selectProject(index);
-  });
-
-  ipcMain.handle("projects:add", (_event, name: string, projectPath: string) => {
-    return projectManager.addProject(name, projectPath);
-  });
-
-  ipcMain.handle("projects:remove", (_event, projectId: string) => {
-    projectManager.removeProject(projectId);
-  });
-
-  ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspaceIndex: number) => {
-    projectManager.selectWorkspace(projectId, workspaceIndex);
-  });
-
-  // ── Theme IPC ──
-  ipcMain.handle("theme:get", () => {
-    return themeManager.getTheme();
-  });
-
-  // ── Port Scanner IPC ──
-  ipcMain.handle("ports:startScanner", () => {
-    portScanner.start(mainWindow!);
-  });
-
-  ipcMain.handle("ports:stopScanner", () => {
-    portScanner.stop();
-  });
-
-  ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
-    portScanner.updateWorkspacePaths(paths);
-  });
-
-  ipcMain.handle("ports:scanNow", () => {
-    return portScanner.scanNow();
-  });
-
-  // ── GitHub IPC ──
-  ipcMain.handle("github:getPrForBranch", (_event, repoPath: string, branch: string) => {
-    return githubManager.getPrForBranch(repoPath, branch);
-  });
-
-  ipcMain.handle("github:getPrsForBranches", (_event, repoPath: string, branches: string[]) => {
-    return githubManager.getPrsForBranches(repoPath, branches);
-  });
-
-  // ── Dialog IPC ──
-  ipcMain.handle("dialog:openDirectory", async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
-  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

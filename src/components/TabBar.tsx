@@ -1,3 +1,4 @@
+import { X, Plus } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { allPaneIds } from "../store/pane-tree";
@@ -55,7 +56,7 @@ function SessionButton({
             onClose();
           }}
         >
-          ×
+          <X size={12} />
         </span>
       )}
     </button>
@@ -79,13 +80,13 @@ export function TabBar() {
             key={session.id}
             sessionId={session.id}
             isActive={session.id === selectedSessionId}
-            canClose={sessions.length > 1}
+            canClose={true}
             onSelect={() => selectSession(session.id)}
             onClose={() => closeSession(session.id)}
           />
         ))}
         <button className={styles.addButton} onClick={addSession}>
-          +
+          <Plus size={14} />
         </button>
       </div>
       <div className={styles.spacer} />

@@ -155,8 +155,47 @@ function buildTheme(config: Map<string, string>, palette: Map<number, string>): 
   return theme;
 }
 
+const SETTINGS_PATH = path.join(
+  os.homedir(),
+  "Library",
+  "Application Support",
+  "Manor",
+  "settings.json"
+);
+
+function loadSettings(): { themeName?: string } {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(settings: { themeName?: string }): void {
+  fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+}
+
+export type ThemeColors = Pick<Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">;
+
 export class ThemeManager {
-  getTheme(): Theme {
+  private themeColorsCache: Record<string, ThemeColors> | null = null;
+
+  /** Load a specific Ghostty theme file by name */
+  loadGhosttyTheme(name: string): Theme | null {
+    const themesDir = ghosttyThemesDir();
+    if (!themesDir) return null;
+    try {
+      const content = fs.readFileSync(path.join(themesDir, name), "utf-8");
+      const { config, palette } = parseGhosttyFile(content);
+      return buildTheme(config, palette);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Load theme from Ghostty config (match Ghostty) */
+  loadGhosttyConfigTheme(): Theme {
     const configPath = ghosttyConfigPath();
     if (!configPath) return DEFAULT_THEME;
 
@@ -169,23 +208,16 @@ export class ThemeManager {
 
     const { config, palette: _palette } = parseGhosttyFile(content);
 
-    // If a theme name is specified, load the theme file
     const themeName = config.get("theme");
     if (themeName) {
       const themesDir = ghosttyThemesDir();
       if (themesDir) {
-        const themePath = path.join(themesDir, themeName);
         try {
-          const themeContent = fs.readFileSync(themePath, "utf-8");
+          const themeContent = fs.readFileSync(path.join(themesDir, themeName), "utf-8");
           const { config: themeConfig, palette: themePalette } = parseGhosttyFile(themeContent);
-
-          // User config overrides theme
           for (const [key, value] of config) {
-            if (key !== "theme") {
-              themeConfig.set(key, value);
-            }
+            if (key !== "theme") themeConfig.set(key, value);
           }
-
           return buildTheme(themeConfig, themePalette);
         } catch {
           // Fall through
@@ -193,8 +225,71 @@ export class ThemeManager {
       }
     }
 
-    // No theme reference, parse config directly
     const { config: directConfig, palette } = parseGhosttyFile(content);
     return buildTheme(directConfig, palette);
+  }
+
+  /** Get the active theme based on saved settings */
+  getTheme(): Theme {
+    const settings = loadSettings();
+    const themeName = settings.themeName;
+
+    if (!themeName || themeName === "__ghostty__") {
+      return this.loadGhosttyConfigTheme();
+    }
+    if (themeName === "__default__") {
+      return DEFAULT_THEME;
+    }
+    return this.loadGhosttyTheme(themeName) ?? DEFAULT_THEME;
+  }
+
+  /** Load color palettes for all themes (cached after first call) */
+  async loadAllThemeColors(): Promise<Record<string, ThemeColors>> {
+    if (this.themeColorsCache) return this.themeColorsCache;
+
+    const themesDir = ghosttyThemesDir();
+    if (!themesDir) return {};
+
+    const result: Record<string, ThemeColors> = {};
+    try {
+      const files = (await fs.promises.readdir(themesDir)).filter((f) => !f.startsWith("."));
+      const reads = files.map(async (name) => {
+        try {
+          const content = await fs.promises.readFile(path.join(themesDir, name), "utf-8");
+          const { config, palette } = parseGhosttyFile(content);
+          const theme = buildTheme(config, palette);
+          result[name] = {
+            red: theme.red, green: theme.green, yellow: theme.yellow,
+            blue: theme.blue, magenta: theme.magenta, cyan: theme.cyan,
+            background: theme.background, foreground: theme.foreground,
+          };
+        } catch {
+          // skip unreadable themes
+        }
+      });
+      await Promise.all(reads);
+    } catch {
+      // ignore
+    }
+    this.themeColorsCache = result;
+    return result;
+  }
+
+  /** Check if Ghostty config exists on this system */
+  hasGhosttyConfig(): boolean {
+    return ghosttyConfigPath() !== null;
+  }
+
+  /** Get the saved theme name from settings */
+  getSelectedThemeName(): string {
+    const settings = loadSettings();
+    return settings.themeName ?? "__ghostty__";
+  }
+
+  /** Save the selected theme name */
+  setSelectedThemeName(name: string): void {
+    const settings = loadSettings();
+    settings.themeName = name;
+    saveSettings(settings);
   }
 }

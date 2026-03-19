@@ -83,18 +83,7 @@ export class TerminalHostClient {
 
   /** Disconnect from the daemon */
   disconnect(): void {
-    this.connected = false;
-    this.controlSocket?.destroy();
-    this.streamSocket?.destroy();
-    this.controlSocket = null;
-    this.streamSocket = null;
-
-    // Reject pending requests
-    for (const req of this.pendingRequests) {
-      clearTimeout(req.timeout);
-      req.reject(new Error("Disconnected"));
-    }
-    this.pendingRequests = [];
+    this.cleanup();
   }
 
   /** Create a new session or attach to existing one */
@@ -105,27 +94,50 @@ export class TerminalHostClient {
     rows: number,
     shellArgs?: string[],
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
+    return this.doCreateOrAttach(sessionId, cwd, cols, rows, shellArgs, true);
+  }
+
+  private async doCreateOrAttach(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    shellArgs?: string[],
+    canRetry = true,
+  ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
     await this.ensureConnected();
 
-    // Try to attach first
-    const attachResp = await this.request({ type: "attach", sessionId });
-    if (attachResp.type === "attached") {
-      // Subscribe on stream socket
+    try {
+      // Check if the daemon already has this session (warm restore).
+      // Use getSnapshot instead of attach to avoid adding the control socket
+      // to the session's broadcast list (which would corrupt the control protocol).
+      const snapshotResp = await this.request({ type: "getSnapshot", sessionId });
+      if (snapshotResp.type === "snapshot") {
+        // Session exists — subscribe on stream socket for ongoing events
+        this.streamWrite({ type: "subscribe", sessionId });
+        return {
+          session: { sessionId, cwd, cols: 0, rows: 0, alive: true },
+          snapshot: snapshotResp.snapshot,
+        };
+      }
+
+      // Create new session
+      const createResp = await this.request({ type: "create", sessionId, cwd, cols, rows, shellArgs });
+      if (createResp.type !== "created") {
+        throw new Error(`Create failed: ${createResp.type === "error" ? createResp.message : "unknown"}`);
+      }
+
+      // Subscribe for stream events immediately (no control socket attach needed)
       this.streamWrite({ type: "subscribe", sessionId });
-      return { session: { sessionId, cwd, cols: 0, rows: 0, alive: true }, snapshot: attachResp.snapshot };
+
+      return { session: createResp.session, snapshot: null };
+    } catch (err) {
+      // If the connection broke mid-request, reconnect and retry once
+      if (canRetry && !this.connected) {
+        return this.doCreateOrAttach(sessionId, cwd, cols, rows, shellArgs, false);
+      }
+      throw err;
     }
-
-    // Create new session
-    const createResp = await this.request({ type: "create", sessionId, cwd, cols, rows, shellArgs });
-    if (createResp.type !== "created") {
-      throw new Error(`Create failed: ${createResp.type === "error" ? createResp.message : "unknown"}`);
-    }
-
-    // Attach for stream events
-    await this.request({ type: "attach", sessionId });
-    this.streamWrite({ type: "subscribe", sessionId });
-
-    return { session: createResp.session, snapshot: null };
   }
 
   /** Write terminal input — fire-and-forget via stream socket */
@@ -201,6 +213,13 @@ export class TerminalHostClient {
 
   private async spawnDaemon(): Promise<void> {
     fs.mkdirSync(MANOR_DIR, { recursive: true });
+
+    // Clean up stale socket so waitForSocket waits for the NEW daemon's socket
+    try {
+      fs.unlinkSync(SOCKET_PATH);
+    } catch {
+      // doesn't exist
+    }
 
     const daemonScript = path.join(__dirname, "terminal-host-index.js");
 
@@ -327,11 +346,20 @@ export class TerminalHostClient {
 
   private handleDisconnect(): void {
     if (!this.connected) return;
+    this.cleanup();
+  }
+
+  /** Shared teardown for both intentional disconnect and unexpected connection loss */
+  private cleanup(): void {
     this.connected = false;
     this.controlSocket?.destroy();
     this.streamSocket?.destroy();
     this.controlSocket = null;
     this.streamSocket = null;
+
+    // Reset buffers so stale partial data doesn't corrupt the next connection
+    this.controlBuffer = "";
+    this.streamBuffer = "";
 
     // Reject pending requests
     for (const req of this.pendingRequests) {

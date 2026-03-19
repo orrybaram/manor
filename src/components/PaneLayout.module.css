@@ -1,0 +1,57 @@
+/* ── Pane Layout ── */
+
+.leaf {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.leafFocused {
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.splitHorizontal {
+  flex-direction: row;
+}
+
+.splitVertical {
+  flex-direction: column;
+}
+
+.splitChild {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Dividers ── */
+
+.divider {
+  flex-shrink: 0;
+  background: var(--surface);
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+.dividerHorizontal {
+  width: 3px;
+  cursor: col-resize;
+}
+
+.dividerVertical {
+  height: 3px;
+  cursor: row-resize;
+}
+
+.divider:hover,
+.dividerActive {
+  background: var(--accent);
+}

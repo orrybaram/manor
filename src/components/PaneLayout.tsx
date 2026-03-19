@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { PaneNode } from "../store/pane-tree";
 import { TerminalPane } from "./TerminalPane";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
+import styles from "./PaneLayout.module.css";
 
 interface PaneLayoutProps {
   node: PaneNode;
@@ -35,7 +36,7 @@ function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: s
 
   return (
     <div
-      className={`pane-leaf ${isFocused ? "pane-focused" : ""}`}
+      className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >
       <TerminalPane paneId={paneId} cwd={workspacePath} />
@@ -96,16 +97,16 @@ function SplitLayout({ direction, ratio, first, second, workspacePath }: SplitLa
   return (
     <div
       ref={containerRef}
-      className={`pane-split ${isHorizontal ? "split-horizontal" : "split-vertical"}`}
+      className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
     >
-      <div className="pane-split-child" style={isHorizontal ? { width: firstSize } : { height: firstSize }}>
+      <div className={styles.splitChild} style={isHorizontal ? { width: firstSize } : { height: firstSize }}>
         <PaneLayout node={first} workspacePath={workspacePath} />
       </div>
       <div
-        className={`pane-divider ${isHorizontal ? "divider-horizontal" : "divider-vertical"} ${isDragging ? "divider-active" : ""}`}
+        className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
         onMouseDown={handleMouseDown}
       />
-      <div className="pane-split-child" style={isHorizontal ? { width: secondSize } : { height: secondSize }}>
+      <div className={styles.splitChild} style={isHorizontal ? { width: secondSize } : { height: secondSize }}>
         <PaneLayout node={second} workspacePath={workspacePath} />
       </div>
     </div>

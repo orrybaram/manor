@@ -1,0 +1,8 @@
+/* Force the canvas onto its own GPU compositing layer so it snaps to the
+   device pixel grid, preventing sub-pixel blurriness from fractional flex
+   positions. display:block removes the inline baseline descender gap. */
+.container canvas {
+  display: block;
+  transform: translateZ(0);
+
+}

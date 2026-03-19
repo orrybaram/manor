@@ -1,0 +1,95 @@
+/* ── Session Bar ── */
+
+.sessionBar {
+  display: flex;
+  align-items: flex-end;
+  height: 38px;
+  padding: 0 8px 4px;
+  background: var(--dim);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.noSidebar {
+  padding-left: 78px;
+}
+
+.sessions {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-app-region: no-drag;
+}
+
+.spacer {
+  flex: 1;
+  -webkit-app-region: drag;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.session:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.sessionActive {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.sessionTitle {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessionClose {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.session:hover .sessionClose,
+.sessionActive .sessionClose {
+  opacity: 0.6;
+}
+
+.sessionClose:hover {
+  opacity: 1 !important;
+  background: var(--border);
+}
+
+.addButton {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s, color 0.15s;
+}
+
+.addButton:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}

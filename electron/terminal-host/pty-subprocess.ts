@@ -8,7 +8,6 @@
 
 import * as pty from "node-pty";
 import * as fs from "node:fs";
-import { execFile } from "node:child_process";
 import { MSG, FrameDecoder, encodeFrame, encodeJsonFrame, type MessageType } from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
 import treeKill from "tree-kill";
@@ -17,6 +16,8 @@ let ptyProcess: pty.IPty | null = null;
 let disposed = false;
 let fgProcInterval: ReturnType<typeof setInterval> | null = null;
 let lastFgProcName: string | null = null;
+
+const KNOWN_SHELLS = new Set(["zsh", "bash", "fish", "sh"]);
 
 // ── Output batching ──
 // Batch PTY output to reduce frame overhead on high-throughput output
@@ -115,41 +116,30 @@ const decoder = new FrameDecoder((type, payload) => {
   }
 });
 
-function pollForegroundProcess(shellPid: number): void {
+function pollForegroundProcess(): void {
   if (fgProcInterval) clearInterval(fgProcInterval);
+
+  const shellBasename = ptyProcess?.process?.replace(/^-/, "") ?? "";
 
   fgProcInterval = setInterval(() => {
     if (disposed || !ptyProcess) return;
 
-    // Use ps to find the foreground process group leader of the shell's tty
-    // -o stat= includes process state, -o comm= gets the command name
-    // We look for processes whose parent is the shell PID
-    execFile("ps", ["-o", "pid=,comm=", "-g", String(shellPid)], { timeout: 1000 }, (err, stdout) => {
-      if (err || disposed) return;
+    // Use node-pty's .process property which uses proc_pidinfo on macOS
+    // to correctly resolve the foreground process of the PTY, even when
+    // the child has its own process group (interactive shell job control).
+    const fgProc = ptyProcess.process;
+    const basename = fgProc?.replace(/^-/, "") ?? "";
 
-      // Parse ps output — find processes that aren't the shell itself
-      const lines = stdout.trim().split("\n").filter(Boolean);
-      let fgName: string | null = null;
+    // If the foreground process is the shell itself, report null
+    const isShell = !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
+    const fgName = isShell ? null : basename;
 
-      for (const line of lines) {
-        const match = line.trim().match(/^(\d+)\s+(.+)$/);
-        if (!match) continue;
-        const pid = parseInt(match[1], 10);
-        const comm = match[2].trim();
-        // Skip the shell process itself
-        if (pid === shellPid) continue;
-        // Skip common shell utilities that aren't agents
-        if (comm === "-zsh" || comm === "-bash" || comm === "zsh" || comm === "bash") continue;
-        fgName = comm;
-      }
-
-      // Only send if changed
-      if (fgName !== lastFgProcName) {
-        lastFgProcName = fgName;
-        writeFrame(MSG.FGPROC, JSON.stringify({ name: fgName }));
-      }
-    });
-  }, 1500);
+    // Only send if changed
+    if (fgName !== lastFgProcName) {
+      lastFgProcName = fgName;
+      writeFrame(MSG.FGPROC, JSON.stringify({ name: fgName }));
+    }
+  }, 500);
 }
 
 function handleSpawn(payload: PtySpawnPayload): void {
@@ -166,7 +156,7 @@ function handleSpawn(payload: PtySpawnPayload): void {
     writeFrame(MSG.SPAWNED, JSON.stringify({ pid }));
 
     // Start foreground process polling
-    pollForegroundProcess(pid);
+    pollForegroundProcess();
 
     ptyProcess.onData((data: string) => {
       enqueueOutput(Buffer.from(data, "utf-8"));

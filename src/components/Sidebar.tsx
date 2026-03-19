@@ -1,9 +1,10 @@
-import { useEffect, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import React, { useEffect, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Plus, ChevronDown, ChevronRight, ExternalLink, House, FolderGit2, EthernetPort, Boxes } from "lucide-react";
 import { useProjectStore, type ProjectInfo, type WorkspaceInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
+import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
@@ -17,7 +18,6 @@ export function Sidebar() {
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const removeWorktree = useProjectStore((s) => s.removeWorktree);
   const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
   const reorderWorkspaces = useProjectStore((s) => s.reorderWorkspaces);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
@@ -226,16 +226,18 @@ export function Sidebar() {
               </button>
             </div>
           )}
+          <div className={styles.projects}>
           {projects.map((project, idx) => (
-            <div
-              key={project.id}
-              ref={(el) => {
-                if (el) projItemRefs.current.set(idx, el);
-                else projItemRefs.current.delete(idx);
-              }}
-              style={getProjectTransformStyle(idx)}
-              className={projDragIndex === idx ? styles.projectDragging : undefined}
-            >
+            <React.Fragment key={project.id}>
+              {idx > 0 && <div className={styles.projectSeparator} />}
+              <div
+                ref={(el) => {
+                  if (el) projItemRefs.current.set(idx, el);
+                  else projItemRefs.current.delete(idx);
+                }}
+                style={getProjectTransformStyle(idx)}
+                className={projDragIndex === idx ? styles.projectDragging : undefined}
+              >
               <ProjectItem
                 project={project}
                 isSelected={idx === selectedProjectIndex}
@@ -259,35 +261,18 @@ export function Sidebar() {
                   if (ws) setActiveWorkspace(ws.path);
                 }}
                 onRemoveWorktree={(ws, deleteBranch) => {
-                  const wasActive = useAppStore.getState().activeWorkspacePath === ws.path;
-                  useAppStore.getState().removeWorkspaceSessions(ws.path);
-                  removeWorktree(project.id, ws.path, deleteBranch).then(() => {
-                    if (wasActive) {
-                      const updatedProjects = useProjectStore.getState().projects;
-                      const updatedProject = updatedProjects.find((p) => p.id === project.id);
-                      if (updatedProject && updatedProject.workspaces.length > 0) {
-                        const nextIdx = Math.min(
-                          updatedProject.selectedWorkspaceIndex,
-                          updatedProject.workspaces.length - 1
-                        );
-                        selectWorkspace(updatedProject.id, nextIdx);
-                        const nextWs = updatedProject.workspaces[nextIdx];
-                        if (nextWs) setActiveWorkspace(nextWs.path);
-                      }
-                    }
-                  });
+                  removeWorktreeWithToast(project, ws, deleteBranch);
                 }}
                 onRenameWorkspace={(ws, newName) => renameWorkspace(project.id, ws.path, newName)}
                 onReorderWorkspaces={(orderedPaths) => reorderWorkspaces(project.id, orderedPaths)}
-                onCreateWorktree={async (name, branch) => {
-                  const wsPath = await createWorktree(project.id, name, branch);
-                  if (wsPath) setActiveWorkspace(wsPath);
-                }}
+                onCreateWorktree={(name, branch) => createWorktree(project.id, name, branch)}
                 onDragStart={(e) => handleProjectDragStart(idx, e)}
               />
-            </div>
+              </div>
+            </React.Fragment>
           ))}
         </div>
+      </div>
       </div>
       <PortsList />
 
@@ -334,20 +319,22 @@ function PortsList() {
 }
 
 function PortGroup({ group }: { group: WorkspacePortGroup }) {
-  const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
 
   const handleSelectWorkspace = useCallback(() => {
+    const projects = useProjectStore.getState().projects;
     for (const project of projects) {
       const wsIndex = project.workspaces.findIndex(
         (ws) => ws.path === group.workspacePath
       );
       if (wsIndex >= 0) {
         selectWorkspace(project.id, wsIndex);
+        setActiveWorkspace(group.workspacePath);
         break;
       }
     }
-  }, [projects, group.workspacePath, selectWorkspace]);
+  }, [group.workspacePath, selectWorkspace, setActiveWorkspace]);
 
   return (
     <div className={styles.portGroup}>
@@ -357,7 +344,12 @@ function PortGroup({ group }: { group: WorkspacePortGroup }) {
           onClick={handleSelectWorkspace}
           style={{ cursor: "pointer" }}
         >
-          <span className={styles.portGroupBranch}>{group.branch}</span>
+          <span className={styles.portGroupBranch}>
+            {group.branch}
+            {group.isMain && group.projectName && (
+              <span className={styles.portGroupProject}> · {group.projectName}</span>
+            )}
+          </span>
         </div>
       )}
       {group.ports.map((port) => (
@@ -420,7 +412,9 @@ function ProjectItem({
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<WorkspaceInfo | null>(null);
-  const [deleteBranchChecked, setDeleteBranchChecked] = useState(false);
+  const [deleteBranchChecked, setDeleteBranchChecked] = useState(
+    () => localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true"
+  );
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const editRef = useRef<HTMLInputElement>(null);
 
@@ -591,6 +585,7 @@ function ProjectItem({
             <span className={styles.projectName} title={project.path}>{project.name}</span>
             <button
               className={styles.projectAction}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 setNewWorkspaceOpen(true);
@@ -715,7 +710,6 @@ function ProjectItem({
                         <ContextMenu.Item
                           className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                           onSelect={() => {
-                            setDeleteBranchChecked(false);
                             setConfirmDeleteWorktree(ws);
                           }}
                         >
@@ -796,7 +790,10 @@ function ProjectItem({
                 <input
                   type="checkbox"
                   checked={deleteBranchChecked}
-                  onChange={(e) => setDeleteBranchChecked(e.target.checked)}
+                  onChange={(e) => {
+                    setDeleteBranchChecked(e.target.checked);
+                    localStorage.setItem("manor:deleteBranchOnWorktreeRemove", String(e.target.checked));
+                  }}
                 />
                 Also delete local branch <strong>{confirmDeleteWorktree.branch}</strong>
               </label>

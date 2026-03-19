@@ -1,7 +1,8 @@
 import { type ReactNode, useState, useEffect, useCallback, useMemo } from "react";
-import { Terminal, Search, Trash2, FolderDown } from "lucide-react";
+import { Terminal, Search, Trash2, FolderDown, ExternalLink } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { removeWorktreeWithToast } from "../store/workspace-actions";
 import type { LinearIssue } from "../electron.d";
 import styles from "./EmptyState.module.css";
 
@@ -16,9 +17,9 @@ interface ActionItem {
 /** Shown when the active workspace has no sessions (all tabs closed). */
 export function WorkspaceEmptyState() {
   const addSession = useAppStore((s) => s.addSession);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
-  const removeWorktree = useProjectStore((s) => s.removeWorktree);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const createWorktree = useProjectStore((s) => s.createWorktree);
 
@@ -68,20 +69,16 @@ export function WorkspaceEmptyState() {
       ) ?? -1;
       if (existingIdx >= 0) {
         selectWorkspace(projectId, existingIdx);
+        const existingWs = current?.workspaces[existingIdx];
+        if (existingWs) setActiveWorkspace(existingWs.path);
         return;
       }
-      // Create new worktree
+      // Create new worktree (store handles selection and activation)
       await createWorktree(projectId, issue.identifier, issue.branchName);
-      // After creation, find and select the new workspace
-      const updated = useProjectStore.getState().projects.find((p) => p.id === projectId);
-      if (updated) {
-        const newIdx = updated.workspaces.findIndex((ws) => ws.branch === issue.branchName);
-        if (newIdx >= 0) selectWorkspace(projectId, newIdx);
-      }
     } finally {
       setLoadingTicketId(null);
     }
-  }, [projectId, selectWorkspace, createWorktree]);
+  }, [projectId, selectWorkspace, createWorktree, setActiveWorkspace]);
 
   const actions: ActionItem[] = [
     {
@@ -107,7 +104,7 @@ export function WorkspaceEmptyState() {
       icon: <Trash2 size={16} />,
       label: "Delete Worktree",
       keys: [],
-      action: () => removeWorktree(project.id, workspace.path),
+      action: () => removeWorktreeWithToast(project, workspace),
       variant: "danger",
     });
   }
@@ -116,16 +113,24 @@ export function WorkspaceEmptyState() {
     <div className={styles.ticketsSection}>
       <div className={styles.ticketsSectionHeader}>Your Tickets</div>
       {tickets.map((issue) => (
-        <button
-          key={issue.id}
-          className={styles.ticket}
-          onClick={() => handleTicketClick(issue)}
-          disabled={loadingTicketId === issue.id}
-        >
-          <span className={styles.ticketIdentifier}>{issue.identifier}</span>
-          <span className={styles.ticketTitle}>{issue.title}</span>
-          {loadingTicketId === issue.id && <span className={styles.ticketSpinner} />}
-        </button>
+        <div key={issue.id} className={styles.ticketRow}>
+          <button
+            className={styles.ticket}
+            onClick={() => handleTicketClick(issue)}
+            disabled={loadingTicketId === issue.id}
+          >
+            <span className={styles.ticketIdentifier}>{issue.identifier}</span>
+            <span className={styles.ticketTitle}>{issue.title}</span>
+            {loadingTicketId === issue.id && <span className={styles.ticketSpinner} />}
+          </button>
+          <button
+            className={styles.ticketLink}
+            onClick={(e) => { e.stopPropagation(); window.electronAPI.openExternal(issue.url); }}
+            title="View on Linear"
+          >
+            <ExternalLink size={14} />
+          </button>
+        </div>
       ))}
     </div>
   ) : ticketsLoading && teamIds.length > 0 ? (

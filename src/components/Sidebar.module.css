@@ -67,10 +67,18 @@
   text-decoration: underline;
 }
 
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.projectSeparator {
+  height: 1px;
+  background: var(--surface);
+}
+
 .project {
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--surface);
 }
 
 .projectDragging {
@@ -85,11 +93,6 @@
   border-radius: 4px;
 }
 
-.project:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
 
 .projectHeader {
   display: flex;
@@ -144,12 +147,13 @@
 }
 
 .projectAction:hover {
-  background: var(--accent);
+  background: var(--surface);
   color: var(--text-selected);
 }
 
 .workspaces {
   padding-left: 0;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -328,7 +332,7 @@
   font-size: 13px;
   color: var(--text-primary);
   line-height: 1.5;
-  margin: 0 0 20px;
+  margin: 0 0 12px;
 }
 
 .confirmActions {
@@ -368,16 +372,19 @@
 
 .checkboxLabel {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 12px;
   color: var(--foreground);
-  margin-top: 4px;
+  margin-bottom: 16px;
   cursor: pointer;
+  line-height: 1.4;
 }
 
 .checkboxLabel input[type="checkbox"] {
   accent-color: var(--danger);
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
 @keyframes fadeIn {
@@ -441,6 +448,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.portGroupProject {
+  opacity: 0.6;
 }
 
 .portBadge {

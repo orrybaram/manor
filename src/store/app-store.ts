@@ -73,6 +73,8 @@ export interface AppState {
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
+  /** Pending startup commands to run in new terminals (workspace path → script) */
+  pendingStartupCommands: Record<string, string>;
 
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
@@ -110,6 +112,10 @@ export interface AppState {
   zoomOut: () => void;
   resetZoom: () => void;
 
+  // Startup commands
+  setPendingStartupCommand: (workspacePath: string, command: string) => void;
+  consumePendingStartupCommand: (workspacePath: string) => string | null;
+
   // Workspace cleanup
   removeWorkspaceSessions: (workspacePath: string) => void;
 
@@ -139,6 +145,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   fontSize: DEFAULT_FONT_SIZE,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
+  pendingStartupCommands: {},
 
   loadPersistedLayout: async () => {
     try {
@@ -500,6 +507,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   zoomIn: () => set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
   zoomOut: () => set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
   resetZoom: () => set({ fontSize: DEFAULT_FONT_SIZE }),
+
+  setPendingStartupCommand: (workspacePath: string, command: string) =>
+    set((state) => ({
+      pendingStartupCommands: { ...state.pendingStartupCommands, [workspacePath]: command },
+    })),
+
+  consumePendingStartupCommand: (workspacePath: string) => {
+    const cmd = get().pendingStartupCommands[workspacePath] ?? null;
+    if (cmd) {
+      set((state) => {
+        const { [workspacePath]: _, ...rest } = state.pendingStartupCommands;
+        return { pendingStartupCommands: rest };
+      });
+    }
+    return cmd;
+  },
 
   removeWorkspaceSessions: (workspacePath: string) =>
     set((state) => {

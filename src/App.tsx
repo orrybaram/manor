@@ -6,10 +6,20 @@ import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState, WelcomeEmptyState } from "./components/EmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
+import { ToastContainer } from "./components/Toast";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import "./App.css";
+
+const SESSION_BASE_STYLE: React.CSSProperties = {
+  display: "flex",
+  position: "absolute",
+  inset: "0",
+  overflow: "hidden",
+};
+const SESSION_VISIBLE_STYLE: React.CSSProperties = { ...SESSION_BASE_STYLE, visibility: "visible" };
+const SESSION_HIDDEN_STYLE: React.CSSProperties = { ...SESSION_BASE_STYLE, visibility: "hidden" };
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -43,7 +53,7 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
   const hasProjects = projects.length > 0;
@@ -137,13 +147,7 @@ function App() {
                 return (
                   <div
                     key={session.id}
-                    style={{
-                      display: "flex",
-                      position: "absolute",
-                      visibility: isVisible ? "visible" : "hidden",
-                      inset: "0",
-                      overflow: "hidden",
-                    }}
+                    style={isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE}
                   >
                     <PaneLayout node={session.rootNode} workspacePath={wpath} />
                   </div>
@@ -163,10 +167,10 @@ function App() {
         selectedProjectIndex={selectedProjectIndex}
         onSubmit={async (projectId, name, branch) => {
           setNewWorkspaceOpen(false);
-          const wsPath = await createWorktree(projectId, name, branch);
-          if (wsPath) setActiveWorkspace(wsPath);
+          await createWorktree(projectId, name, branch);
         }}
       />
+      <ToastContainer />
     </div>
   );
 }

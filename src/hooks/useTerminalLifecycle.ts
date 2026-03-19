@@ -124,8 +124,22 @@ export function useTerminalLifecycle(
     const rows = t.rows;
     let disposed = false;
     create(cwd ?? null, cols, rows).then((result: { ok: boolean; snapshot?: string | null }) => {
-      if (!disposed && result.ok && result.snapshot) {
-        t.write(result.snapshot);
+      if (!disposed && result.ok) {
+        if (result.snapshot) {
+          t.write(result.snapshot);
+        }
+        // Check for pending startup command (e.g. worktree start script)
+        const store = useAppStore.getState();
+        const wsPath = store.activeWorkspacePath;
+        if (wsPath && cwd === wsPath) {
+          const cmd = store.consumePendingStartupCommand(wsPath);
+          if (cmd) {
+            // Small delay to let the shell initialize before writing the command
+            setTimeout(() => {
+              if (!disposed) write(cmd + "\n");
+            }, 500);
+          }
+        }
       }
     });
 

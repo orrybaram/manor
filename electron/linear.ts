@@ -19,6 +19,7 @@ export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
+  url: string;
   branchName: string;
   priority: number;
   state: { name: string; type: string };
@@ -103,6 +104,7 @@ export class LinearManager {
               id
               identifier
               title
+              url
               branchName
               priority
               state { name type }
@@ -110,7 +112,7 @@ export class LinearManager {
           }
         }
       }`,
-      { teamIds, stateTypes: ["unstarted", "started"] }
+      { teamIds, stateTypes: ["unstarted"] }
     );
     // Sort by priority (1=urgent, 2=high, 3=medium, 4=low, 0=none)
     const issues = data.viewer.assignedIssues.nodes;

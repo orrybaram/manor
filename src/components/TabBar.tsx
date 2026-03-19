@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X, Plus } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -9,8 +10,23 @@ function useSessionTitle(sessionId: string): string {
     selectActiveWorkspace(s)?.sessions.find((t) => t.id === sessionId)
   );
   const paneCwd = useAppStore((s) => s.paneCwd);
+  const paneTitle = useAppStore((s) => s.paneTitle);
   if (!session) return "Terminal";
-  // Show CWD of the focused pane, or fall back to session title
+
+  // Prefer terminal title (from OSC sequences — reflects the running process)
+  // But if it's just a default shell "user@host:path" title, extract the project name
+  const title = paneTitle[session.focusedPaneId];
+  if (title) {
+    const cwdMatch = title.match(/^.+@.+:(.+)$/);
+    if (cwdMatch) {
+      const path = cwdMatch[1];
+      const parts = path.replace(/\/+$/, "").split("/");
+      return parts[parts.length - 1] || title;
+    }
+    return title;
+  }
+
+  // Fall back to CWD of the focused pane
   const cwd = paneCwd[session.focusedPaneId];
   if (cwd) {
     const parts = cwd.split("/");
@@ -19,6 +35,8 @@ function useSessionTitle(sessionId: string): string {
   // Try any pane in the session
   const ids = allPaneIds(session.rootNode);
   for (const id of ids) {
+    const t = paneTitle[id];
+    if (t) return t;
     const c = paneCwd[id];
     if (c) {
       const parts = c.split("/");
@@ -32,25 +50,39 @@ function SessionButton({
   sessionId,
   isActive,
   canClose,
+  isDragging,
   onSelect,
   onClose,
+  onPointerDown,
+  style,
+  buttonRef,
 }: {
   sessionId: string;
   isActive: boolean;
   canClose: boolean;
+  isDragging: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onPointerDown: (e: ReactPointerEvent) => void;
+  style: React.CSSProperties;
+  buttonRef: (el: HTMLDivElement | null) => void;
 }) {
   const title = useSessionTitle(sessionId);
   return (
-    <button
-      className={`${styles.session} ${isActive ? styles.sessionActive : ""}`}
+    <div
+      ref={buttonRef}
+      className={`${styles.session} ${isActive ? styles.sessionActive : ""} ${isDragging ? styles.sessionDragging : ""}`}
       onClick={onSelect}
+      onPointerDown={onPointerDown}
+      style={style}
     >
       <span className={styles.sessionTitle}>{title}</span>
       {canClose && (
         <span
           className={styles.sessionClose}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
           onClick={(e) => {
             e.stopPropagation();
             onClose();
@@ -59,9 +91,12 @@ function SessionButton({
           <X size={12} />
         </span>
       )}
-    </button>
+    </div>
   );
 }
+
+const EMPTY_STYLE: React.CSSProperties = {};
+const TAB_GAP = 2; // matches .sessions CSS gap
 
 export function TabBar() {
   const ws = useAppStore(selectActiveWorkspace);
@@ -70,19 +105,151 @@ export function TabBar() {
   const selectSession = useAppStore((s) => s.selectSession);
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
+  const reorderSessions = useAppStore((s) => s.reorderSessions);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartX = useRef(0);
+  const dragActive = useRef(false);
+  const dragCleanedUp = useRef(false);
+  const dropIndexRef = useRef<number | null>(null);
+  const justDragged = useRef(false);
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const itemWidths = useRef<number[]>([]);
+
+  const handleDragStart = useCallback(
+    (idx: number, e: ReactPointerEvent) => {
+      if (e.button !== 0) return;
+      // Don't start drag when clicking the close button
+      const target = e.target as HTMLElement;
+      if (target.closest(`.${styles.sessionClose}`)) return;
+
+      const tabEl = e.currentTarget as HTMLElement;
+      dragStartX.current = e.clientX;
+      dragActive.current = false;
+      dragCleanedUp.current = false;
+
+      // Snapshot item widths
+      const widths: number[] = [];
+      for (let i = 0; i < sessions.length; i++) {
+        const el = itemRefs.current.get(i);
+        widths[i] = el ? el.getBoundingClientRect().width + TAB_GAP : 80;
+      }
+      itemWidths.current = widths;
+
+      tabEl.setPointerCapture(e.pointerId);
+
+      const onMove = (ev: globalThis.PointerEvent) => {
+        const dx = ev.clientX - dragStartX.current;
+        if (!dragActive.current && Math.abs(dx) < 4) return;
+
+        if (!dragActive.current) {
+          dragActive.current = true;
+          setDragIndex(idx);
+          setDropIndex(idx);
+        }
+
+        setDragOffset(dx);
+
+        let offset = 0;
+        let targetIdx = idx;
+        if (dx < 0) {
+          for (let i = idx - 1; i >= 0; i--) {
+            offset -= itemWidths.current[i];
+            if (dx < offset + itemWidths.current[i] / 2) {
+              targetIdx = i;
+            } else break;
+          }
+        } else {
+          for (let i = idx + 1; i < sessions.length; i++) {
+            offset += itemWidths.current[i];
+            if (dx > offset - itemWidths.current[i] / 2) {
+              targetIdx = i;
+            } else break;
+          }
+        }
+        dropIndexRef.current = targetIdx;
+        setDropIndex(targetIdx);
+      };
+
+      const onUp = () => {
+        if (dragCleanedUp.current) return;
+        dragCleanedUp.current = true;
+
+        tabEl.removeEventListener("pointermove", onMove);
+        tabEl.removeEventListener("pointerup", onUp);
+        tabEl.removeEventListener("lostpointercapture", onUp);
+
+        if (dragActive.current) {
+          justDragged.current = true;
+          const finalDrop = dropIndexRef.current ?? idx;
+          if (finalDrop !== idx) {
+            const ids = sessions.map((s) => s.id);
+            const [moved] = ids.splice(idx, 1);
+            ids.splice(finalDrop, 0, moved);
+            reorderSessions(ids);
+          }
+          requestAnimationFrame(() => { justDragged.current = false; });
+        }
+        dragActive.current = false;
+        dropIndexRef.current = null;
+        setDragIndex(null);
+        setDropIndex(null);
+        setDragOffset(0);
+      };
+
+      tabEl.addEventListener("pointermove", onMove);
+      tabEl.addEventListener("pointerup", onUp);
+      tabEl.addEventListener("lostpointercapture", onUp);
+    },
+    [sessions, reorderSessions]
+  );
+
+  const getTransformStyle = (idx: number): React.CSSProperties => {
+    if (dragIndex === null || dropIndex === null) return EMPTY_STYLE;
+    const w = itemWidths.current[dragIndex] || 80;
+    if (idx === dragIndex) {
+      return {
+        transform: `translateX(${dragOffset}px)`,
+        zIndex: 10,
+      };
+    }
+    if (dragIndex === dropIndex) return { transition: "transform 150ms ease" };
+    if (
+      (dropIndex > dragIndex && idx > dragIndex && idx <= dropIndex) ||
+      (dropIndex < dragIndex && idx < dragIndex && idx >= dropIndex)
+    ) {
+      const direction = dropIndex > dragIndex ? -1 : 1;
+      return {
+        transform: `translateX(${direction * w}px)`,
+        transition: "transform 150ms ease",
+      };
+    }
+    return { transition: "transform 150ms ease" };
+  };
 
   return (
     <div className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}>
       <div className={styles.sessions}>
-        {sessions.map((session) => (
+        {sessions.map((session, idx) => (
           <SessionButton
             key={session.id}
             sessionId={session.id}
             isActive={session.id === selectedSessionId}
             canClose={true}
-            onSelect={() => selectSession(session.id)}
+            isDragging={dragIndex === idx}
+            onSelect={() => {
+              if (!justDragged.current) selectSession(session.id);
+            }}
             onClose={() => closeSession(session.id)}
+            onPointerDown={(e) => handleDragStart(idx, e)}
+            style={getTransformStyle(idx)}
+            buttonRef={(el) => {
+              if (el) itemRefs.current.set(idx, el);
+              else itemRefs.current.delete(idx);
+            }}
           />
         ))}
         <button className={styles.addButton} onClick={addSession}>

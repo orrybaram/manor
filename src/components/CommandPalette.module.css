@@ -1,0 +1,78 @@
+/* ── Command Palette ── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.palette {
+  width: 500px;
+  max-height: 400px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.input {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-selected);
+  font-size: 14px;
+  outline: none;
+  border-bottom: 1px solid var(--surface);
+  font-family: inherit;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.itemSelected {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.label {
+  flex: 1;
+}
+
+.shortcut {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: inherit;
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}

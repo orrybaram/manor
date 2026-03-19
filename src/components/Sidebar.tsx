@@ -1,7 +1,8 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
+import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
+import styles from "./Sidebar.module.css";
 
 export function Sidebar() {
   const projects = useProjectStore((s) => s.projects);
@@ -14,26 +15,29 @@ export function Sidebar() {
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+  const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
 
   useEffect(() => {
-    loadProjects().then(() => {
-      const { projects, selectedProjectIndex } = useProjectStore.getState();
-      const project = projects[selectedProjectIndex];
-      if (project) {
-        const ws =
-          project.workspaces[project.selectedWorkspaceIndex] ??
-          project.workspaces[0];
-        if (ws) setActiveWorkspace(ws.path);
-      }
+    // Load persisted layout FIRST so setActiveWorkspace can restore old pane IDs
+    loadPersistedLayout().then(() => {
+      loadProjects().then(() => {
+        const { projects, selectedProjectIndex } = useProjectStore.getState();
+        const project = projects[selectedProjectIndex];
+        if (project) {
+          const ws =
+            project.workspaces[project.selectedWorkspaceIndex] ??
+            project.workspaces[0];
+          if (ws) setActiveWorkspace(ws.path);
+        }
+      });
     });
-  }, [loadProjects, setActiveWorkspace]);
+  }, [loadProjects, loadPersistedLayout, setActiveWorkspace]);
 
   const handleAddProject = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false });
+    const selected = await window.electronAPI.openDirectory();
     if (selected) {
-      const path = typeof selected === "string" ? selected : selected;
-      const name = path.split("/").pop() || "Untitled";
-      await addProject(name, path);
+      const name = selected.split("/").pop() || "Untitled";
+      await addProject(name, selected);
     }
   }, [addProject]);
 
@@ -70,23 +74,23 @@ export function Sidebar() {
   return (
     <div
       ref={sidebarRef}
-      className="sidebar"
+      className={styles.sidebar}
       style={{ width: sidebarWidth }}
     >
-      <div className="sidebar-titlebar" data-tauri-drag-region />
-      <div className="sidebar-content">
-        <div className="sidebar-section">
-          <div className="sidebar-section-header">
+      <div className={styles.titlebar} />
+      <div className={styles.content}>
+        <div>
+          <div className={styles.sectionHeader}>
             <span>Projects</span>
-            <button className="sidebar-action" onClick={handleAddProject}>
+            <button className={styles.action} onClick={handleAddProject}>
               +
             </button>
           </div>
           {projects.length === 0 && (
-            <div className="sidebar-empty">
+            <div className={styles.empty}>
               No projects yet.
               <br />
-              <button className="sidebar-link" onClick={handleAddProject}>
+              <button className={styles.link} onClick={handleAddProject}>
                 Open a folder
               </button>
             </div>
@@ -106,20 +110,91 @@ export function Sidebar() {
             />
           ))}
         </div>
+        <PortsList />
       </div>
 
       {selectedProject && (
-        <div className="sidebar-footer">
-          <span className="sidebar-cwd" title={selectedProject.path}>
+        <div className={styles.footer}>
+          <span className={styles.cwd} title={selectedProject.path}>
             {selectedProject.path.split("/").slice(-2).join("/")}
           </span>
         </div>
       )}
 
       <div
-        className={`sidebar-resize-handle ${isResizing ? "active" : ""}`}
+        className={`${styles.resizeHandle} ${isResizing ? styles.resizeHandleActive : ""}`}
         onMouseDown={handleResizeStart}
       />
+    </div>
+  );
+}
+
+function PortsList() {
+  const { workspacePortGroups, totalPortCount } = usePortsData();
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (totalPortCount === 0) return null;
+
+  return (
+    <div className={styles.portsSection}>
+      <div
+        className={styles.sectionHeader}
+        style={{ cursor: "pointer" }}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <span>
+          <span
+            className={styles.projectChevron}
+            style={{ marginRight: 4 }}
+          >
+            {collapsed ? "▸" : "▾"}
+          </span>
+          Ports
+          <span className={styles.portCount}>{totalPortCount}</span>
+        </span>
+      </div>
+      {!collapsed && (
+        <div className={styles.portGroups}>
+          {workspacePortGroups.map((group) => (
+            <PortGroup key={group.workspacePath} group={group} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PortGroup({ group }: { group: WorkspacePortGroup }) {
+  return (
+    <div className={styles.portGroup}>
+      {group.branch && (
+        <div className={styles.portGroupHeader}>
+          <span className={styles.portGroupBranch}>{group.branch}</span>
+        </div>
+      )}
+      {group.ports.map((port) => (
+        <PortBadge key={port.port} port={port} />
+      ))}
+    </div>
+  );
+}
+
+function PortBadge({ port }: { port: import("../electron.d.ts").ActivePort }) {
+  const handleOpen = useCallback(() => {
+    window.open(`http://localhost:${port.port}`, "_blank");
+  }, [port.port]);
+
+  return (
+    <div className={styles.portBadge} title={`${port.processName} (PID ${port.pid})`}>
+      <span className={styles.portNumber}>{port.port}</span>
+      <span className={styles.portProcess}>{port.processName}</span>
+      <button
+        className={styles.portOpen}
+        onClick={handleOpen}
+        title={`Open localhost:${port.port}`}
+      >
+        ↗
+      </button>
     </div>
   );
 }
@@ -140,20 +215,20 @@ function ProjectItem({
   const [expanded, setExpanded] = useState(isSelected);
 
   return (
-    <div className={`sidebar-project ${isSelected ? "selected" : ""}`}>
+    <div className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}>
       <div
-        className="sidebar-project-header"
+        className={styles.projectHeader}
         onClick={() => {
           onSelect();
           setExpanded(!expanded);
         }}
       >
-        <span className="sidebar-project-chevron">
+        <span className={styles.projectChevron}>
           {expanded ? "▾" : "▸"}
         </span>
-        <span className="sidebar-project-name">{project.name}</span>
+        <span className={styles.projectName}>{project.name}</span>
         <button
-          className="sidebar-project-remove"
+          className={styles.projectRemove}
           onClick={(e) => {
             e.stopPropagation();
             onRemove();
@@ -163,17 +238,17 @@ function ProjectItem({
         </button>
       </div>
       {expanded && (
-        <div className="sidebar-workspaces">
+        <div className={styles.workspaces}>
           {project.workspaces.map((ws, idx) => (
             <div
               key={ws.path}
-              className={`sidebar-workspace ${
-                idx === project.selectedWorkspaceIndex ? "active" : ""
+              className={`${styles.workspace} ${
+                idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
               }`}
               onClick={() => onSelectWorkspace(idx)}
             >
-              <span className="sidebar-workspace-branch">{ws.branch || "main"}</span>
-              {ws.isMain && <span className="sidebar-workspace-badge">main</span>}
+              <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
+              {ws.isMain && <span className={styles.workspaceBadge}>main</span>}
             </div>
           ))}
         </div>

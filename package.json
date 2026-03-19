@@ -2,17 +2,17 @@
   "name": "manor",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "package": "vite build && electron-builder",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "electron-rebuild"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-opener": "^2",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-image": "^0.9.0",
@@ -22,21 +22,42 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
-    "ghostty-web": "link:vendor/ghostty-web",
+    "node-pty": "^1.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tree-kill": "^1.2.2",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
+    "@electron/rebuild": "^4.0.3",
+    "@types/node": "^25.5.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^4.1.0"
+  },
+  "build": {
+    "appId": "com.manor.app",
+    "productName": "Manor",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ]
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "node-pty",
+      "electron",
       "esbuild"
     ]
   }

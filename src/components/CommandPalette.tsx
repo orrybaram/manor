@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import styles from "./CommandPalette.module.css";
 
 interface Command {
   id: string;
@@ -98,36 +99,36 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   if (!open) return null;
 
   return (
-    <div className="command-palette-overlay" onClick={onClose}>
+    <div className={styles.overlay} onClick={onClose}>
       <div
-        className="command-palette"
+        className={styles.palette}
         onClick={(e) => e.stopPropagation()}
       >
         <input
           ref={inputRef}
-          className="command-palette-input"
+          className={styles.input}
           type="text"
           placeholder="Type a command..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
         />
-        <div className="command-palette-list">
+        <div className={styles.list}>
           {filtered.map((cmd, idx) => (
             <div
               key={cmd.id}
-              className={`command-palette-item ${idx === selectedIndex ? "selected" : ""}`}
+              className={`${styles.item} ${idx === selectedIndex ? styles.itemSelected : ""}`}
               onClick={() => cmd.action()}
               onMouseEnter={() => setSelectedIndex(idx)}
             >
-              <span className="command-palette-label">{cmd.label}</span>
+              <span className={styles.label}>{cmd.label}</span>
               {cmd.shortcut && (
-                <span className="command-palette-shortcut">{cmd.shortcut}</span>
+                <span className={styles.shortcut}>{cmd.shortcut}</span>
               )}
             </div>
           ))}
           {filtered.length === 0 && (
-            <div className="command-palette-empty">No matching commands</div>
+            <div className={styles.empty}>No matching commands</div>
           )}
         </div>
       </div>

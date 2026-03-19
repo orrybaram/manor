@@ -1,5 +1,7 @@
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
+import { useProjectStore } from "../store/project-store";
 import { allPaneIds } from "../store/pane-tree";
+import styles from "./TabBar.module.css";
 
 function useSessionTitle(sessionId: string): string {
   const session = useAppStore((s) =>
@@ -41,13 +43,13 @@ function SessionButton({
   const title = useSessionTitle(sessionId);
   return (
     <button
-      className={`session ${isActive ? "session-active" : ""}`}
+      className={`${styles.session} ${isActive ? styles.sessionActive : ""}`}
       onClick={onSelect}
     >
-      <span className="session-title">{title}</span>
+      <span className={styles.sessionTitle}>{title}</span>
       {canClose && (
         <span
-          className="session-close"
+          className={styles.sessionClose}
           onClick={(e) => {
             e.stopPropagation();
             onClose();
@@ -67,10 +69,11 @@ export function TabBar() {
   const selectSession = useAppStore((s) => s.selectSession);
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
+  const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
 
   return (
-    <div className="session-bar" data-tauri-drag-region>
-      <div className="session-bar-sessions">
+    <div className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}>
+      <div className={styles.sessions}>
         {sessions.map((session) => (
           <SessionButton
             key={session.id}
@@ -82,8 +85,8 @@ export function TabBar() {
           />
         ))}
       </div>
-      <div className="session-bar-spacer" data-tauri-drag-region />
-      <button className="session-add" onClick={addSession}>
+      <div className={styles.spacer} />
+      <button className={styles.addButton} onClick={addSession}>
         +
       </button>
     </div>

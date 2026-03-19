@@ -1,0 +1,60 @@
+/* ── Agent Status Dot (shared) ── */
+
+.dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotRunning {
+  background: var(--green, #a6e3a1);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.dotWaiting {
+  background: var(--yellow, #f9e2af);
+  animation: pulse 2.5s ease-in-out infinite;
+}
+
+.dotComplete {
+  border-radius: 0;
+  background: none;
+  color: var(--green, #a6e3a1);
+  animation: fadeOut 3s ease-out forwards;
+}
+
+.dotError {
+  background: var(--red, #f38ba8);
+}
+
+/* ── Sizes ── */
+
+.pane {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+}
+
+.tab {
+  width: 6px;
+  height: 6px;
+}
+
+/* Check icon needs auto sizing */
+.pane.dotComplete,
+.tab.dotComplete {
+  width: auto;
+  height: auto;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fadeOut {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}

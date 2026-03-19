@@ -17,6 +17,7 @@
  *   0x13 Data    — raw bytes (terminal output)
  *   0x14 Exit    — JSON: { exitCode }
  *   0x15 Error   — JSON: { message }
+ *   0x16 FgProc  — JSON: { name } (foreground process name, polled)
  */
 
 // ── Message type constants ──
@@ -36,6 +37,7 @@ export const MSG = {
   DATA: 0x13,
   EXIT: 0x14,
   ERROR: 0x15,
+  FGPROC: 0x16,
 } as const;
 
 export type MessageType = (typeof MSG)[keyof typeof MSG];

@@ -25,10 +25,15 @@ export function useTerminalStream(
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
     });
 
+    const unsubAgentStatus = window.electronAPI.onPtyAgentStatus(paneId, (agent) => {
+      useAppStore.getState().setPaneAgentStatus(paneId, agent);
+    });
+
     return () => {
       unsubOutput();
       unsubExit();
       unsubCwd();
+      unsubAgentStatus();
     };
   }, [paneId, term]);
 }

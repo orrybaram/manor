@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { PaneNode } from "../store/pane-tree";
 import { TerminalPane } from "./TerminalPane";
+import { AgentDot } from "./AgentDot";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import styles from "./PaneLayout.module.css";
 
@@ -33,12 +34,15 @@ function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: s
   });
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
+  const agentStatus = useAppStore((s) => s.paneAgentStatus[paneId]);
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
   const isFocused = focusedPaneId === paneId;
 
-  const title = paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
+  let title = paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
+  // Strip "user@host:" prefix from default shell titles
+  title = title.replace(/^.+@.+:/, "");
 
   const handleSplit = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -58,6 +62,7 @@ function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: s
       onMouseDown={() => focusPane(paneId)}
     >
       <div className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""}`}>
+          <AgentDot status={agentStatus?.status} size="pane" />
           <span className={styles.paneStatusTitle}>{title}</span>
           <div className={styles.paneStatusActions}>
             <button
@@ -82,7 +87,9 @@ function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: s
             </button>
           </div>
         </div>
-      <TerminalPane paneId={paneId} cwd={workspacePath} />
+      <div className={styles.leafTerminal}>
+        <TerminalPane paneId={paneId} cwd={workspacePath} />
+      </div>
     </div>
   );
 }

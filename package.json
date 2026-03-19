@@ -13,7 +13,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2",
-    "ghostty-web": "^0.4.0",
+    "ghostty-web": "link:vendor/ghostty-web",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.12"
@@ -27,6 +27,8 @@
     "vite": "^7.0.4"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

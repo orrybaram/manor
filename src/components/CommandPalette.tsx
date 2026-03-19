@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useAppStore } from "../store/app-store";
+import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 
 interface Command {
@@ -19,34 +19,41 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const addTab = useAppStore((s) => s.addTab);
+  const addSession = useAppStore((s) => s.addSession);
   const closePane = useAppStore((s) => s.closePane);
   const splitPane = useAppStore((s) => s.splitPane);
-  const selectNextTab = useAppStore((s) => s.selectNextTab);
-  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
+  const selectNextSession = useAppStore((s) => s.selectNextSession);
+  const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
-  const tabs = useAppStore((s) => s.tabs);
-  const selectedTabId = useAppStore((s) => s.selectedTabId);
-  const closeTab = useAppStore((s) => s.closeTab);
+  const ws = useAppStore(selectActiveWorkspace);
+  const sessions = ws?.sessions ?? [];
+  const selectedSessionId = ws?.selectedSessionId ?? null;
+  const closeSession = useAppStore((s) => s.closeSession);
+  const zoomIn = useAppStore((s) => s.zoomIn);
+  const zoomOut = useAppStore((s) => s.zoomOut);
+  const resetZoom = useAppStore((s) => s.resetZoom);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 
   const commands: Command[] = useMemo(
     () => [
-      { id: "new-tab", label: "New Tab", shortcut: "⌘T", action: () => { addTab(); onClose(); } },
+      { id: "new-session", label: "New Session", shortcut: "⌘T", action: () => { addSession(); onClose(); } },
       { id: "close-pane", label: "Close Pane", shortcut: "⌘W", action: () => { closePane(); onClose(); } },
-      { id: "close-tab", label: "Close Tab", shortcut: "⌘⇧W", action: () => {
-        const tab = tabs.find(t => t.id === selectedTabId);
-        if (tab) closeTab(tab.id);
+      { id: "close-session", label: "Close Session", shortcut: "⌘⇧W", action: () => {
+        const session = sessions.find(s => s.id === selectedSessionId);
+        if (session) closeSession(session.id);
         onClose();
       }},
       { id: "split-h", label: "Split Horizontal", shortcut: "⌘D", action: () => { splitPane("horizontal"); onClose(); } },
       { id: "split-v", label: "Split Vertical", shortcut: "⌘⇧D", action: () => { splitPane("vertical"); onClose(); } },
-      { id: "next-tab", label: "Next Tab", shortcut: "⌘⇧]", action: () => { selectNextTab(); onClose(); } },
-      { id: "prev-tab", label: "Previous Tab", shortcut: "⌘⇧[", action: () => { selectPrevTab(); onClose(); } },
+      { id: "next-session", label: "Next Session", shortcut: "⌘⇧]", action: () => { selectNextSession(); onClose(); } },
+      { id: "prev-session", label: "Previous Session", shortcut: "⌘⇧[", action: () => { selectPrevSession(); onClose(); } },
       { id: "next-pane", label: "Next Pane", shortcut: "⌥]", action: () => { focusNextPane(); onClose(); } },
       { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "⌘\\", action: () => { toggleSidebar(); onClose(); } },
+      { id: "zoom-in", label: "Zoom In", shortcut: "⌘=", action: () => { zoomIn(); onClose(); } },
+      { id: "zoom-out", label: "Zoom Out", shortcut: "⌘-", action: () => { zoomOut(); onClose(); } },
+      { id: "zoom-reset", label: "Reset Zoom", shortcut: "⌘0", action: () => { resetZoom(); onClose(); } },
     ],
-    [addTab, closePane, closeTab, splitPane, selectNextTab, selectPrevTab, focusNextPane, toggleSidebar, onClose, tabs, selectedTabId]
+    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, sessions, selectedSessionId]
   );
 
   const filtered = useMemo(() => {

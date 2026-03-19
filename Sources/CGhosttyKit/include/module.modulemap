@@ -1,4 +1,0 @@
-module CGhosttyKit {
-    header "ghostty_shim.h"
-    export *
-}

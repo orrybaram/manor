@@ -1,15 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import type { PaneNode } from "../store/pane-tree";
 import { TerminalPane } from "./TerminalPane";
-import { useAppStore } from "../store/app-store";
+import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 
 interface PaneLayoutProps {
   node: PaneNode;
+  workspacePath?: string;
 }
 
-export function PaneLayout({ node }: PaneLayoutProps) {
+export function PaneLayout({ node, workspacePath }: PaneLayoutProps) {
   if (node.type === "leaf") {
-    return <LeafPane paneId={node.paneId} />;
+    return <LeafPane paneId={node.paneId} workspacePath={workspacePath} />;
   }
 
   return (
@@ -18,14 +19,16 @@ export function PaneLayout({ node }: PaneLayoutProps) {
       ratio={node.ratio}
       first={node.first}
       second={node.second}
+      workspacePath={workspacePath}
     />
   );
 }
 
-function LeafPane({ paneId }: { paneId: string }) {
+function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: string }) {
   const focusedPaneId = useAppStore((s) => {
-    const tab = s.tabs.find((t) => t.id === s.selectedTabId);
-    return tab?.focusedPaneId;
+    const ws = selectActiveWorkspace(s);
+    const session = ws?.sessions.find((t) => t.id === ws.selectedSessionId);
+    return session?.focusedPaneId;
   });
   const focusPane = useAppStore((s) => s.focusPane);
   const isFocused = focusedPaneId === paneId;
@@ -35,7 +38,7 @@ function LeafPane({ paneId }: { paneId: string }) {
       className={`pane-leaf ${isFocused ? "pane-focused" : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >
-      <TerminalPane paneId={paneId} />
+      <TerminalPane paneId={paneId} cwd={workspacePath} />
     </div>
   );
 }
@@ -45,9 +48,10 @@ interface SplitLayoutProps {
   ratio: number;
   first: PaneNode;
   second: PaneNode;
+  workspacePath?: string;
 }
 
-function SplitLayout({ direction, ratio, first, second }: SplitLayoutProps) {
+function SplitLayout({ direction, ratio, first, second, workspacePath }: SplitLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
   const [isDragging, setIsDragging] = useState(false);
@@ -95,14 +99,14 @@ function SplitLayout({ direction, ratio, first, second }: SplitLayoutProps) {
       className={`pane-split ${isHorizontal ? "split-horizontal" : "split-vertical"}`}
     >
       <div className="pane-split-child" style={isHorizontal ? { width: firstSize } : { height: firstSize }}>
-        <PaneLayout node={first} />
+        <PaneLayout node={first} workspacePath={workspacePath} />
       </div>
       <div
         className={`pane-divider ${isHorizontal ? "divider-horizontal" : "divider-vertical"} ${isDragging ? "divider-active" : ""}`}
         onMouseDown={handleMouseDown}
       />
       <div className="pane-split-child" style={isHorizontal ? { width: secondSize } : { height: secondSize }}>
-        <PaneLayout node={second} />
+        <PaneLayout node={second} workspacePath={workspacePath} />
       </div>
     </div>
   );

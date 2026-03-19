@@ -31,7 +31,7 @@ pub fn save_state(state: &PersistedState) -> Result<(), String> {
 
 // Tauri commands
 
-use crate::models::{ProjectInfo, WorktreeInfo};
+use crate::models::{ProjectInfo, WorkspaceInfo};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -58,8 +58,8 @@ pub fn get_projects(state: State<'_, ProjectState>) -> Vec<ProjectInfo> {
     s.projects
         .iter()
         .map(|p| {
-            let worktrees = list_git_worktrees(&p.path).unwrap_or_else(|| {
-                vec![WorktreeInfo {
+            let workspaces = list_git_workspaces(&p.path).unwrap_or_else(|| {
+                vec![WorkspaceInfo {
                     path: p.path.clone(),
                     branch: p.default_branch.clone(),
                     is_main: true,
@@ -70,8 +70,8 @@ pub fn get_projects(state: State<'_, ProjectState>) -> Vec<ProjectInfo> {
                 name: p.name.clone(),
                 path: p.path.clone(),
                 default_branch: p.default_branch.clone(),
-                worktrees,
-                selected_worktree_index: p.selected_worktree_index,
+                workspaces,
+                selected_workspace_index: p.selected_workspace_index,
                 setup_script: p.setup_script.clone(),
                 teardown_script: p.teardown_script.clone(),
                 default_run_command: p.default_run_command.clone(),
@@ -100,8 +100,8 @@ pub fn add_project(state: State<'_, ProjectState>, name: String, path: String) -
         id,
         name: name.clone(),
         path: path.clone(),
-        selected_worktree_index: 0,
-        worktrees: vec![],
+        selected_workspace_index: 0,
+        workspaces: vec![],
         default_branch: "main".to_string(),
         setup_script: None,
         teardown_script: None,
@@ -111,8 +111,8 @@ pub fn add_project(state: State<'_, ProjectState>, name: String, path: String) -
     s.selected_project_index = (s.projects.len() - 1) as i32;
     let _ = save_state(&s);
 
-    let worktrees = list_git_worktrees(&path).unwrap_or_else(|| {
-        vec![WorktreeInfo {
+    let workspaces = list_git_workspaces(&path).unwrap_or_else(|| {
+        vec![WorkspaceInfo {
             path: path.clone(),
             branch: "main".to_string(),
             is_main: true,
@@ -124,8 +124,8 @@ pub fn add_project(state: State<'_, ProjectState>, name: String, path: String) -
         name,
         path,
         default_branch: "main".to_string(),
-        worktrees,
-        selected_worktree_index: 0,
+        workspaces,
+        selected_workspace_index: 0,
         setup_script: None,
         teardown_script: None,
         default_run_command: None,
@@ -143,21 +143,21 @@ pub fn remove_project(state: State<'_, ProjectState>, project_id: String) {
 }
 
 #[tauri::command]
-pub fn select_worktree(
+pub fn select_workspace(
     state: State<'_, ProjectState>,
     project_id: String,
-    worktree_index: i32,
+    workspace_index: i32,
 ) {
     let mut s = state.state.lock().unwrap();
     if let Some(p) = s.projects.iter_mut().find(|p| p.id.to_string() == project_id) {
-        p.selected_worktree_index = worktree_index;
+        p.selected_workspace_index = workspace_index;
     }
     let _ = save_state(&s);
 }
 
-// Git worktree helpers
+// Git workspace helpers
 
-fn list_git_worktrees(path: &str) -> Option<Vec<WorktreeInfo>> {
+fn list_git_workspaces(path: &str) -> Option<Vec<WorkspaceInfo>> {
     let output = std::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(path)
@@ -169,7 +169,7 @@ fn list_git_worktrees(path: &str) -> Option<Vec<WorktreeInfo>> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut worktrees = Vec::new();
+    let mut workspaces = Vec::new();
     let mut current_path = String::new();
     let mut current_branch = String::new();
     let mut is_first = true;
@@ -177,7 +177,7 @@ fn list_git_worktrees(path: &str) -> Option<Vec<WorktreeInfo>> {
     for line in stdout.lines() {
         if let Some(p) = line.strip_prefix("worktree ") {
             if !current_path.is_empty() {
-                worktrees.push(WorktreeInfo {
+                workspaces.push(WorkspaceInfo {
                     path: current_path.clone(),
                     branch: current_branch.clone(),
                     is_main: is_first,
@@ -189,7 +189,7 @@ fn list_git_worktrees(path: &str) -> Option<Vec<WorktreeInfo>> {
         } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
             current_branch = b.to_string();
         } else if line.is_empty() && !current_path.is_empty() {
-            worktrees.push(WorktreeInfo {
+            workspaces.push(WorkspaceInfo {
                 path: current_path.clone(),
                 branch: current_branch.clone(),
                 is_main: is_first,
@@ -201,16 +201,16 @@ fn list_git_worktrees(path: &str) -> Option<Vec<WorktreeInfo>> {
     }
 
     if !current_path.is_empty() {
-        worktrees.push(WorktreeInfo {
+        workspaces.push(WorkspaceInfo {
             path: current_path,
             branch: current_branch,
             is_main: is_first,
         });
     }
 
-    if worktrees.is_empty() {
+    if workspaces.is_empty() {
         None
     } else {
-        Some(worktrees)
+        Some(workspaces)
     }
 }

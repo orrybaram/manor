@@ -10,13 +10,23 @@ export function Sidebar() {
   const addProject = useProjectStore((s) => s.addProject);
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
-  const selectWorktree = useProjectStore((s) => s.selectWorktree);
+  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    loadProjects().then(() => {
+      const { projects, selectedProjectIndex } = useProjectStore.getState();
+      const project = projects[selectedProjectIndex];
+      if (project) {
+        const ws =
+          project.workspaces[project.selectedWorkspaceIndex] ??
+          project.workspaces[0];
+        if (ws) setActiveWorkspace(ws.path);
+      }
+    });
+  }, [loadProjects, setActiveWorkspace]);
 
   const handleAddProject = useCallback(async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -87,15 +97,16 @@ export function Sidebar() {
               isSelected={idx === selectedProjectIndex}
               onSelect={() => selectProject(idx)}
               onRemove={() => removeProject(project.id)}
-              onSelectWorktree={(wtIdx) =>
-                selectWorktree(project.id, wtIdx)
-              }
+              onSelectWorkspace={(wsIdx) => {
+                selectWorkspace(project.id, wsIdx);
+                const ws = project.workspaces[wsIdx];
+                if (ws) setActiveWorkspace(ws.path);
+              }}
             />
           ))}
         </div>
       </div>
 
-      {/* Show selected worktree path as CWD hint */}
       {selectedProject && (
         <div className="sidebar-footer">
           <span className="sidebar-cwd" title={selectedProject.path}>
@@ -117,16 +128,15 @@ function ProjectItem({
   isSelected,
   onSelect,
   onRemove,
-  onSelectWorktree,
+  onSelectWorkspace,
 }: {
   project: ProjectInfo;
   isSelected: boolean;
   onSelect: () => void;
   onRemove: () => void;
-  onSelectWorktree: (index: number) => void;
+  onSelectWorkspace: (index: number) => void;
 }) {
   const [expanded, setExpanded] = useState(isSelected);
-  const addTab = useAppStore((s) => s.addTab);
 
   return (
     <div className={`sidebar-project ${isSelected ? "selected" : ""}`}>
@@ -152,21 +162,17 @@ function ProjectItem({
         </button>
       </div>
       {expanded && (
-        <div className="sidebar-worktrees">
-          {project.worktrees.map((wt, idx) => (
+        <div className="sidebar-workspaces">
+          {project.workspaces.map((ws, idx) => (
             <div
-              key={wt.path}
-              className={`sidebar-worktree ${
-                idx === project.selectedWorktreeIndex ? "active" : ""
+              key={ws.path}
+              className={`sidebar-workspace ${
+                idx === project.selectedWorkspaceIndex ? "active" : ""
               }`}
-              onClick={() => {
-                onSelectWorktree(idx);
-                // Open a new tab in this worktree's directory
-                addTab();
-              }}
+              onClick={() => onSelectWorkspace(idx)}
             >
-              <span className="sidebar-worktree-branch">{wt.branch || "main"}</span>
-              {wt.isMain && <span className="sidebar-worktree-badge">main</span>}
+              <span className="sidebar-workspace-branch">{ws.branch || "main"}</span>
+              {ws.isMain && <span className="sidebar-workspace-badge">main</span>}
             </div>
           ))}
         </div>

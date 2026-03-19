@@ -12,10 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Swift build artifacts
-.build/
-.swiftpm/
-
 # Tauri build artifacts
 src-tauri/target/
 

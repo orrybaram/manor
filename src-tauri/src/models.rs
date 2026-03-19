@@ -28,7 +28,7 @@ pub enum PaneNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TabModel {
+pub struct SessionModel {
     pub id: Uuid,
     pub title: String,
     pub root_node: PaneNode,
@@ -43,10 +43,10 @@ pub struct PersistedPaneSession {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PersistedWorktree {
+pub struct PersistedWorkspace {
     pub path: String,
-    pub tabs: Vec<TabModel>,
-    pub selected_tab_index: i32,
+    pub sessions: Vec<SessionModel>,
+    pub selected_session_index: i32,
     pub display_name: Option<String>,
     pub run_command: Option<String>,
     #[serde(default)]
@@ -59,8 +59,8 @@ pub struct PersistedProject {
     pub id: Uuid,
     pub name: String,
     pub path: String,
-    pub selected_worktree_index: i32,
-    pub worktrees: Vec<PersistedWorktree>,
+    pub selected_workspace_index: i32,
+    pub workspaces: Vec<PersistedWorkspace>,
     #[serde(default = "default_branch")]
     pub default_branch: String,
     pub setup_script: Option<String>,
@@ -83,7 +83,7 @@ pub struct PersistedState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorktreeInfo {
+pub struct WorkspaceInfo {
     pub path: String,
     pub branch: String,
     pub is_main: bool,
@@ -96,8 +96,8 @@ pub struct ProjectInfo {
     pub name: String,
     pub path: String,
     pub default_branch: String,
-    pub worktrees: Vec<WorktreeInfo>,
-    pub selected_worktree_index: i32,
+    pub workspaces: Vec<WorkspaceInfo>,
+    pub selected_workspace_index: i32,
     pub setup_script: Option<String>,
     pub teardown_script: Option<String>,
     pub default_run_command: Option<String>,

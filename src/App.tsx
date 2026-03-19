@@ -3,7 +3,7 @@ import { TabBar } from "./components/TabBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
-import { useAppStore } from "./store/app-store";
+import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import "./App.css";
@@ -15,19 +15,25 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
-  const tabs = useAppStore((s) => s.tabs);
-  const selectedTabId = useAppStore((s) => s.selectedTabId);
-  const addTab = useAppStore((s) => s.addTab);
-  const closeTab = useAppStore((s) => s.closeTab);
-  const selectNextTab = useAppStore((s) => s.selectNextTab);
-  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
+  const workspaceSessions = useAppStore((s) => s.workspaceSessions);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const ws = useAppStore(selectActiveWorkspace);
+  const selectedSessionId = ws?.selectedSessionId ?? null;
+
+  const addSession = useAppStore((s) => s.addSession);
+  const closeSession = useAppStore((s) => s.closeSession);
+  const selectNextSession = useAppStore((s) => s.selectNextSession);
+  const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
+  const zoomIn = useAppStore((s) => s.zoomIn);
+  const zoomOut = useAppStore((s) => s.zoomOut);
+  const resetZoom = useAppStore((s) => s.resetZoom);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 
-  const activeTab = tabs.find((t) => t.id === selectedTabId);
+  const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
 
   // Keybindings
   useEffect(() => {
@@ -39,7 +45,7 @@ function App() {
         setPaletteOpen((v) => !v);
       } else if (e.key === "t" && !e.shiftKey) {
         e.preventDefault();
-        addTab();
+        addSession();
       } else if (e.key === "d" && !e.shiftKey) {
         e.preventDefault();
         splitPane("horizontal");
@@ -51,36 +57,46 @@ function App() {
         closePane();
       } else if (e.key === "W" || (e.key === "w" && e.shiftKey)) {
         e.preventDefault();
-        const tab = tabs.find((t) => t.id === selectedTabId);
-        if (tab) closeTab(tab.id);
+        if (activeSession) closeSession(activeSession.id);
       } else if (e.key === "]" && e.shiftKey) {
         e.preventDefault();
-        selectNextTab();
+        selectNextSession();
       } else if (e.key === "[" && e.shiftKey) {
         e.preventDefault();
-        selectPrevTab();
+        selectPrevSession();
       } else if (e.key === "]" && !e.shiftKey && e.altKey) {
         e.preventDefault();
         focusNextPane();
       } else if (e.key === "\\") {
         e.preventDefault();
         toggleSidebar();
+      } else if (e.key === "=" && !e.shiftKey) {
+        e.preventDefault();
+        zoomIn();
+      } else if (e.key === "-" && !e.shiftKey) {
+        e.preventDefault();
+        zoomOut();
+      } else if (e.key === "0" && !e.shiftKey) {
+        e.preventDefault();
+        resetZoom();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    addTab,
-    closeTab,
+    addSession,
+    closeSession,
     closePane,
-    selectNextTab,
-    selectPrevTab,
+    selectNextSession,
+    selectPrevSession,
     splitPane,
     focusNextPane,
     toggleSidebar,
-    tabs,
-    selectedTabId,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    activeSession,
   ]);
 
   return (
@@ -89,7 +105,28 @@ function App() {
       <div className="app-body">
         {sidebarVisible && <Sidebar />}
         <div className="terminal-container">
-          {activeTab && <PaneLayout node={activeTab.rootNode} />}
+          {/* Render all sessions across all workspaces — only show the active one.
+              Keeping all mounted prevents PTY sessions from being killed on switch. */}
+          {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
+            wsState.sessions.map((session) => {
+              const isVisible =
+                wpath === activeWorkspacePath &&
+                session.id === selectedSessionId;
+              return (
+                <div
+                  key={session.id}
+                  style={{
+                    display: isVisible ? "flex" : "none",
+                    width: "100%",
+                    height: "100%",
+                    overflow: "hidden",
+                  }}
+                >
+                  <PaneLayout node={session.rootNode} workspacePath={wpath} />
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={closePalette} />

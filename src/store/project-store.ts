@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 
-export interface WorktreeInfo {
+export interface WorkspaceInfo {
   path: string;
   branch: string;
   isMain: boolean;
@@ -12,8 +12,8 @@ export interface ProjectInfo {
   name: string;
   path: string;
   defaultBranch: string;
-  worktrees: WorktreeInfo[];
-  selectedWorktreeIndex: number;
+  workspaces: WorkspaceInfo[];
+  selectedWorkspaceIndex: number;
   setupScript: string | null;
   teardownScript: string | null;
   defaultRunCommand: string | null;
@@ -31,7 +31,7 @@ interface ProjectState {
   addProject: (name: string, path: string) => Promise<void>;
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
-  selectWorktree: (projectId: string, worktreeIndex: number) => void;
+  selectWorkspace: (projectId: string, workspaceIndex: number) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
 }
@@ -81,12 +81,12 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
     set({ selectedProjectIndex: index });
   },
 
-  selectWorktree: (projectId: string, worktreeIndex: number) => {
-    invoke("select_worktree", { projectId, worktreeIndex });
+  selectWorkspace: (projectId: string, workspaceIndex: number) => {
+    invoke("select_workspace", { projectId, workspaceIndex });
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
-          ? { ...p, selectedWorktreeIndex: worktreeIndex }
+          ? { ...p, selectedWorkspaceIndex: workspaceIndex }
           : p
       ),
     }));

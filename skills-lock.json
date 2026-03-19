@@ -5,6 +5,11 @@
       "source": "avdlee/swiftui-agent-skill",
       "sourceType": "github",
       "computedHash": "f8f1a9994e0c22bd01e37369f192651819fce9a80ee21b4faff43b6710191943"
+    },
+    "tauri-v2": {
+      "source": "nodnarbnitram/claude-code-extensions",
+      "sourceType": "github",
+      "computedHash": "72248dbe36769a12c38c07437063cc5a1ad2d182fee87fb72d92a8fa37ce4a0f"
     }
   }
 }

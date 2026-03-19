@@ -18,8 +18,8 @@ importers:
         specifier: ^2
         version: 2.5.3
       ghostty-web:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: link:vendor/ghostty-web
+        version: link:vendor/ghostty-web
       react:
         specifier: ^19.1.0
         version: 19.2.4
@@ -600,9 +600,6 @@ packages:
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
-
-  ghostty-web@0.4.0:
-    resolution: {integrity: sha512-0puDBik2qapbD/QQBW9o5ZHfXnZBqZWx/ctBiVtKZ6ZLds4NYb+wZuw1cRLXZk9zYovIQ908z3rvFhexAvc5Hg==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -1196,8 +1193,6 @@ snapshots:
     optional: true
 
   gensync@1.0.0-beta.2: {}
-
-  ghostty-web@0.4.0: {}
 
   js-tokens@4.0.0: {}
 

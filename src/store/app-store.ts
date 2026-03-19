@@ -12,38 +12,51 @@ function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
 }
 
-function newTabId(): string {
-  return `tab-${crypto.randomUUID()}`;
+function newSessionId(): string {
+  return `session-${crypto.randomUUID()}`;
 }
 
-export interface Tab {
+export interface Session {
   id: string;
   title: string;
   rootNode: PaneNode;
   focusedPaneId: string;
 }
 
-function createTab(title?: string): Tab {
+function createSession(title?: string): Session {
   const paneId = newPaneId();
   return {
-    id: newTabId(),
+    id: newSessionId(),
     title: title ?? "Terminal",
     rootNode: { type: "leaf", paneId },
     focusedPaneId: paneId,
   };
 }
 
+interface WorkspaceSessionState {
+  sessions: Session[];
+  selectedSessionId: string;
+}
+
+function createWorkspaceState(): WorkspaceSessionState {
+  const session = createSession();
+  return { sessions: [session], selectedSessionId: session.id };
+}
+
 export interface AppState {
-  tabs: Tab[];
-  selectedTabId: string;
+  workspaceSessions: Record<string, WorkspaceSessionState>;
+  activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
 
-  // Tab operations
-  addTab: () => void;
-  closeTab: (tabId: string) => void;
-  selectTab: (tabId: string) => void;
-  selectNextTab: () => void;
-  selectPrevTab: () => void;
+  // Workspace activation
+  setActiveWorkspace: (path: string) => void;
+
+  // Session operations
+  addSession: () => void;
+  closeSession: (sessionId: string) => void;
+  selectSession: (sessionId: string) => void;
+  selectNextSession: () => void;
+  selectPrevSession: () => void;
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
@@ -54,134 +67,241 @@ export interface AppState {
   // CWD tracking
   setPaneCwd: (paneId: string, cwd: string) => void;
 
+  // Zoom
+  fontSize: number;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetZoom: () => void;
+
   // Resize
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => {
-  const initialTab = createTab();
+// Selector for the active workspace's session state
+export function selectActiveWorkspace(state: AppState): WorkspaceSessionState | null {
+  if (!state.activeWorkspacePath) return null;
+  return state.workspaceSessions[state.activeWorkspacePath] ?? null;
+}
 
-  return {
-    tabs: [initialTab],
-    selectedTabId: initialTab.id,
-    paneCwd: {},
+const DEFAULT_FONT_SIZE = 13;
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 32;
 
-    addTab: () =>
-      set((state) => {
-        const tab = createTab();
-        return {
-          tabs: [...state.tabs, tab],
-          selectedTabId: tab.id,
-        };
-      }),
+export const useAppStore = create<AppState>((set, get) => ({
+  workspaceSessions: {},
+  activeWorkspacePath: null,
+  paneCwd: {},
+  fontSize: DEFAULT_FONT_SIZE,
 
-    closeTab: (tabId: string) =>
-      set((state) => {
-        if (state.tabs.length <= 1) return state; // keep at least one tab
-        const idx = state.tabs.findIndex((t) => t.id === tabId);
-        const newTabs = state.tabs.filter((t) => t.id !== tabId);
-        const newSelected =
-          tabId === state.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : state.selectedTabId;
-        return { tabs: newTabs, selectedTabId: newSelected };
-      }),
-
-    selectTab: (tabId: string) => set({ selectedTabId: tabId }),
-
-    selectNextTab: () =>
-      set((state) => {
-        const idx = state.tabs.findIndex(
-          (t) => t.id === state.selectedTabId
-        );
-        const next = (idx + 1) % state.tabs.length;
-        return { selectedTabId: state.tabs[next].id };
-      }),
-
-    selectPrevTab: () =>
-      set((state) => {
-        const idx = state.tabs.findIndex(
-          (t) => t.id === state.selectedTabId
-        );
-        const prev = (idx - 1 + state.tabs.length) % state.tabs.length;
-        return { selectedTabId: state.tabs[prev].id };
-      }),
-
-    splitPane: (direction: SplitDirection) =>
-      set((state) => {
-        const tab = state.tabs.find((t) => t.id === state.selectedTabId);
-        if (!tab) return state;
-        const newPane = newPaneId();
-        const newRoot = insertSplit(
-          tab.rootNode,
-          tab.focusedPaneId,
-          direction,
-          newPane
-        );
-        return {
-          tabs: state.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: newRoot, focusedPaneId: newPane }
-              : t
-          ),
-        };
-      }),
-
-    closePane: () => {
-      const state = get();
-      const tab = state.tabs.find((t) => t.id === state.selectedTabId);
-      if (!tab) return;
-
-      const remaining = removePane(tab.rootNode, tab.focusedPaneId);
-      if (remaining === null) {
-        // Last pane in tab — close the tab
-        get().closeTab(tab.id);
-        return;
+  setActiveWorkspace: (path: string) =>
+    set((state) => {
+      if (state.workspaceSessions[path]) {
+        return { activeWorkspacePath: path };
       }
+      return {
+        activeWorkspacePath: path,
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: createWorkspaceState(),
+        },
+      };
+    }),
 
-      const ids = allPaneIds(remaining);
-      const newFocused = ids[0];
+  addSession: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const session = createSession();
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { sessions: [...ws.sessions, session], selectedSessionId: session.id },
+        },
+      };
+    }),
 
-      set((s) => ({
-        tabs: s.tabs.map((t) =>
-          t.id === tab.id
-            ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-            : t
-        ),
-      }));
-    },
+  closeSession: (sessionId: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws || ws.sessions.length <= 1) return state;
+      const idx = ws.sessions.findIndex((s) => s.id === sessionId);
+      const newSessions = ws.sessions.filter((s) => s.id !== sessionId);
+      const newSelected =
+        sessionId === ws.selectedSessionId
+          ? newSessions[Math.min(idx, newSessions.length - 1)].id
+          : ws.selectedSessionId;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { sessions: newSessions, selectedSessionId: newSelected },
+        },
+      };
+    }),
 
-    focusPane: (paneId: string) =>
-      set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === state.selectedTabId
-            ? { ...t, focusedPaneId: paneId }
-            : t
-        ),
-      })),
+  selectSession: (sessionId: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { ...ws, selectedSessionId: sessionId },
+        },
+      };
+    }),
 
-    focusNextPane: () =>
-      set((state) => {
-        const tab = state.tabs.find((t) => t.id === state.selectedTabId);
-        if (!tab) return state;
-        const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
-        if (!next) return state;
-        return {
-          tabs: state.tabs.map((t) =>
-            t.id === tab.id ? { ...t, focusedPaneId: next } : t
-          ),
-        };
-      }),
+  selectNextSession: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
+      const next = (idx + 1) % ws.sessions.length;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { ...ws, selectedSessionId: ws.sessions[next].id },
+        },
+      };
+    }),
 
-    setPaneCwd: (paneId: string, cwd: string) =>
-      set((state) => ({
-        paneCwd: { ...state.paneCwd, [paneId]: cwd },
-      })),
+  selectPrevSession: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
+      const prev = (idx - 1 + ws.sessions.length) % ws.sessions.length;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { ...ws, selectedSessionId: ws.sessions[prev].id },
+        },
+      };
+    }),
 
-    updateSplitRatio: (_firstPaneId: string, _ratio: number) =>
-      set((state) => {
-        // TODO: implement ratio update via pane-tree.updateRatio
-        return state;
-      }),
-  };
-});
+  splitPane: (direction: SplitDirection) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+      if (!session) return state;
+      const newPane = newPaneId();
+      const newRoot = insertSplit(session.rootNode, session.focusedPaneId, direction, newPane);
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: ws.sessions.map((s) =>
+              s.id === session.id ? { ...s, rootNode: newRoot, focusedPaneId: newPane } : s
+            ),
+          },
+        },
+      };
+    }),
+
+  closePane: () => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const ws = state.workspaceSessions[path];
+    if (!ws) return;
+    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+    if (!session) return;
+
+    const remaining = removePane(session.rootNode, session.focusedPaneId);
+    if (remaining === null) {
+      get().closeSession(session.id);
+      return;
+    }
+
+    const ids = allPaneIds(remaining);
+    const newFocused = ids[0];
+
+    set((s) => {
+      const currentWs = s.workspaceSessions[path];
+      if (!currentWs) return s;
+      return {
+        workspaceSessions: {
+          ...s.workspaceSessions,
+          [path]: {
+            ...currentWs,
+            sessions: currentWs.sessions.map((t) =>
+              t.id === session.id
+                ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
+                : t
+            ),
+          },
+        },
+      };
+    });
+  },
+
+  focusPane: (paneId: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: ws.sessions.map((s) =>
+              s.id === ws.selectedSessionId ? { ...s, focusedPaneId: paneId } : s
+            ),
+          },
+        },
+      };
+    }),
+
+  focusNextPane: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+      if (!session) return state;
+      const next = nextPaneId(session.rootNode, session.focusedPaneId);
+      if (!next) return state;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: ws.sessions.map((s) =>
+              s.id === session.id ? { ...s, focusedPaneId: next } : s
+            ),
+          },
+        },
+      };
+    }),
+
+  setPaneCwd: (paneId: string, cwd: string) =>
+    set((state) => ({
+      paneCwd: { ...state.paneCwd, [paneId]: cwd },
+    })),
+
+  zoomIn: () => set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
+  zoomOut: () => set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
+  resetZoom: () => set({ fontSize: DEFAULT_FONT_SIZE }),
+
+  updateSplitRatio: (_firstPaneId: string, _ratio: number) =>
+    set((state) => {
+      // TODO: implement ratio update via pane-tree.updateRatio
+      return state;
+    }),
+}));

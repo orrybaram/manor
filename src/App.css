@@ -1,3 +1,31 @@
+@font-face {
+  font-family: "MesloLGM Nerd Font Mono";
+  src: url("/fonts/MesloLGMNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "MesloLGM Nerd Font Mono";
+  src: url("/fonts/MesloLGMNerdFontMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "FiraCode Nerd Font";
+  src: url("/fonts/FiraCodeNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "FiraCode Nerd Font";
+  src: url("/fonts/FiraCodeNerdFontMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
 :root {
   --bg: #1e1e2e;
   --fg: #cdd6f4;
@@ -41,9 +69,9 @@ body,
   overflow: hidden;
 }
 
-/* ── Tab Bar ── */
+/* ── Session Bar ── */
 
-.tab-bar {
+.session-bar {
   display: flex;
   align-items: center;
   height: 38px;
@@ -55,15 +83,19 @@ body,
   user-select: none;
 }
 
-.tab-bar-tabs {
+.session-bar-sessions {
   display: flex;
   gap: 2px;
   overflow-x: auto;
-  flex: 1;
   -webkit-app-region: no-drag;
 }
 
-.tab {
+.session-bar-spacer {
+  flex: 1;
+  -webkit-app-region: drag;
+}
+
+.session {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -78,23 +110,23 @@ body,
   transition: background 0.15s, color 0.15s;
 }
 
-.tab:hover {
+.session:hover {
   background: var(--surface);
   color: var(--text-selected);
 }
 
-.tab-active {
+.session-active {
   background: var(--surface);
   color: var(--text-selected);
 }
 
-.tab-title {
+.session-title {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.tab-close {
+.session-close {
   font-size: 14px;
   line-height: 1;
   opacity: 0;
@@ -103,17 +135,17 @@ body,
   padding: 0 2px;
 }
 
-.tab:hover .tab-close,
-.tab-active .tab-close {
+.session:hover .session-close,
+.session-active .session-close {
   opacity: 0.6;
 }
 
-.tab-close:hover {
+.session-close:hover {
   opacity: 1 !important;
   background: var(--border);
 }
 
-.tab-add {
+.session-add {
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -125,7 +157,7 @@ body,
   transition: background 0.15s, color 0.15s;
 }
 
-.tab-add:hover {
+.session-add:hover {
   background: var(--surface);
   color: var(--text-selected);
 }
@@ -249,11 +281,11 @@ body,
   opacity: 1 !important;
 }
 
-.sidebar-worktrees {
+.sidebar-workspaces {
   padding-left: 22px;
 }
 
-.sidebar-worktree {
+.sidebar-workspace {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -264,21 +296,21 @@ body,
   color: var(--text-primary);
 }
 
-.sidebar-worktree:hover {
+.sidebar-workspace:hover {
   background: var(--surface);
 }
 
-.sidebar-worktree.active {
+.sidebar-workspace.active {
   color: var(--text-selected);
 }
 
-.sidebar-worktree-branch {
+.sidebar-workspace-branch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-worktree-badge {
+.sidebar-workspace-badge {
   font-size: 10px;
   background: var(--surface);
   color: var(--text-dim);
@@ -321,6 +353,14 @@ body,
 .terminal-container {
   flex: 1;
   overflow: hidden;
+}
+
+/* Force the canvas onto its own GPU compositing layer so it snaps to the
+   device pixel grid, preventing sub-pixel blurriness from fractional flex
+   positions. display:block removes the inline baseline descender gap. */
+.terminal-pane-container canvas {
+  display: block;
+  transform: translateZ(0);
 }
 
 /* ── Pane Layout ── */

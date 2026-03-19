@@ -149,6 +149,14 @@ export class ProjectManager {
       this.saveState();
     }
   }
+
+  removeWorktree(projectPath: string, worktreePath: string): void {
+    execSync(`git worktree remove ${JSON.stringify(worktreePath)}`, {
+      cwd: projectPath,
+      encoding: "utf-8",
+      timeout: 10000,
+    });
+  }
 }
 
 function listGitWorkspaces(projectPath: string): WorkspaceInfo[] | null {

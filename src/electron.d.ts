@@ -1,8 +1,39 @@
+export interface LinearTeam {
+  id: string;
+  name: string;
+  key: string;
+}
+
+export interface LinearAssociation {
+  teamId: string;
+  teamName: string;
+  teamKey: string;
+}
+
+export interface LinearIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  branchName: string;
+  priority: number;
+  state: { name: string; type: string };
+}
+
 export interface ActivePort {
   port: number;
   processName: string;
   pid: number;
   workspacePath: string | null;
+}
+
+export type AgentKind = "claude" | "opencode" | "codex";
+export type AgentStatus = "idle" | "running" | "waiting" | "complete" | "error";
+
+export interface AgentState {
+  kind: AgentKind | null;
+  status: AgentStatus;
+  processName: string | null;
+  since: number;
 }
 
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
@@ -54,6 +85,7 @@ export interface ElectronAPI {
   onPtyOutput: (paneId: string, callback: (data: string) => void) => () => void;
   onPtyExit: (paneId: string, callback: () => void) => () => void;
   onPtyCwd: (paneId: string, callback: (cwd: string) => void) => () => void;
+  onPtyAgentStatus: (paneId: string, callback: (agent: AgentState) => void) => () => void;
 
   // Layout persistence
   saveLayout: (workspace: PersistedWorkspace) => Promise<void>;
@@ -67,11 +99,12 @@ export interface ElectronAPI {
   addProject: (name: string, path: string) => Promise<import("./store/project-store").ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
-  removeWorktree: (projectId: string, worktreePath: string) => Promise<void>;
+  removeWorktree: (projectId: string, worktreePath: string, deleteBranch?: boolean) => Promise<void>;
   createWorktree: (projectId: string, name: string, branch?: string) => Promise<import("./store/project-store").ProjectInfo | null>;
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => Promise<import("./store/project-store").ProjectInfo | null>;
+  reorderProjects: (orderedIds: string[]) => Promise<void>;
+  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => Promise<import("./store/project-store").ProjectInfo | null>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;
@@ -96,6 +129,15 @@ export interface ElectronAPI {
   // GitHub
   getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
   getPrsForBranches: (repoPath: string, branches: string[]) => Promise<unknown>;
+
+  // Linear
+  linearConnect: (apiKey: string) => Promise<{ name: string; email: string }>;
+  linearDisconnect: () => Promise<void>;
+  linearIsConnected: () => Promise<boolean>;
+  linearGetViewer: () => Promise<{ name: string; email: string }>;
+  linearGetTeams: () => Promise<LinearTeam[]>;
+  linearGetMyIssues: (teamIds: string[]) => Promise<LinearIssue[]>;
+  linearAutoMatch: () => Promise<Record<string, LinearAssociation>>;
 
   // Dialog
   openDirectory: () => Promise<string | null>;

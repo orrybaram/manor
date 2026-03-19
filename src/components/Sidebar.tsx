@@ -110,8 +110,8 @@ export function Sidebar() {
             />
           ))}
         </div>
-        <PortsList />
       </div>
+      <PortsList />
 
       {selectedProject && (
         <div className={styles.footer}>

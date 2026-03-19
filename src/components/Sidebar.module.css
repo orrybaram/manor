@@ -164,9 +164,9 @@
 /* ── Ports ── */
 
 .portsSection {
-  margin-top: 8px;
+  flex-shrink: 0;
   border-top: 1px solid var(--surface);
-  padding-top: 4px;
+  padding: 4px 8px;
 }
 
 .portCount {

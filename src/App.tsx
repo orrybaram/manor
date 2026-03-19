@@ -117,9 +117,10 @@ function App() {
                   <div
                     key={session.id}
                     style={{
-                      display: isVisible ? "flex" : "none",
-                      width: "100%",
-                      height: "100%",
+                      display: "flex",
+                      position: "absolute",
+                      visibility: isVisible ? "visible" : "hidden",
+                      inset: "0 0 0 16px",
                       overflow: "hidden",
                     }}
                   >

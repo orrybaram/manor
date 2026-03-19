@@ -5,12 +5,22 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 100;
-  display: flex;
-  justify-content: center;
-  padding-top: 80px;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
 }
 
 .palette {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 101;
   width: 500px;
   max-height: 400px;
   background: var(--dim);
@@ -20,6 +30,14 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
+}
+
+.palette[data-state="open"] {
+  animation: slideIn 150ms ease-out;
+}
+
+.palette[data-state="closed"] {
+  animation: slideOut 100ms ease-in;
 }
 
 .input {
@@ -75,4 +93,24 @@
   text-align: center;
   color: var(--text-dim);
   font-size: 13px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes slideOut {
+  from { opacity: 1; transform: translateX(-50%) translateY(0); }
+  to { opacity: 0; transform: translateX(-50%) translateY(-8px); }
 }

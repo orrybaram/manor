@@ -66,9 +66,15 @@ export interface ElectronAPI {
   addProject: (name: string, path: string) => Promise<import("./store/project-store").ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
+  removeWorktree: (projectPath: string, worktreePath: string) => Promise<void>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;
+  setSelectedTheme: (name: string) => Promise<import("./store/theme-store").Theme>;
+  getSelectedThemeName: () => Promise<string>;
+  hasGhosttyConfig: () => Promise<boolean>;
+  previewTheme: (name: string) => Promise<import("./store/theme-store").Theme | null>;
+  getAllThemeColors: () => Promise<Record<string, Pick<import("./store/theme-store").Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">>>;
 
   // Port Scanner
   startPortScanner: () => Promise<void>;

@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import { Plus, ChevronDown, ChevronRight, ExternalLink, X } from "lucide-react";
+import { useProjectStore, type ProjectInfo, type WorkspaceInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
 import styles from "./Sidebar.module.css";
@@ -12,6 +14,7 @@ export function Sidebar() {
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const removeWorktree = useProjectStore((s) => s.removeWorktree);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
@@ -83,7 +86,7 @@ export function Sidebar() {
           <div className={styles.sectionHeader}>
             <span>Projects</span>
             <button className={styles.action} onClick={handleAddProject}>
-              +
+              <Plus size={14} />
             </button>
           </div>
           {projects.length === 0 && (
@@ -113,6 +116,7 @@ export function Sidebar() {
                 const ws = project.workspaces[wsIdx];
                 if (ws) setActiveWorkspace(ws.path);
               }}
+              onRemoveWorktree={(ws) => removeWorktree(project.id, ws.path)}
             />
           ))}
         </div>
@@ -153,7 +157,7 @@ function PortsList() {
             className={styles.projectChevron}
             style={{ marginRight: 4 }}
           >
-            {collapsed ? "▸" : "▾"}
+            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           </span>
           Ports
           <span className={styles.portCount}>{totalPortCount}</span>
@@ -199,7 +203,7 @@ function PortBadge({ port }: { port: import("../electron.d.ts").ActivePort }) {
         onClick={handleOpen}
         title={`Open localhost:${port.port}`}
       >
-        ↗
+        <ExternalLink size={12} />
       </button>
     </div>
   );
@@ -211,12 +215,14 @@ function ProjectItem({
   onSelect,
   onRemove,
   onSelectWorkspace,
+  onRemoveWorktree,
 }: {
   project: ProjectInfo;
   isSelected: boolean;
   onSelect: () => void;
   onRemove: () => void;
   onSelectWorkspace: (index: number) => void;
+  onRemoveWorktree: (ws: WorkspaceInfo) => void;
 }) {
   const [expanded, setExpanded] = useState(isSelected);
 
@@ -230,7 +236,7 @@ function ProjectItem({
         }}
       >
         <span className={styles.projectChevron}>
-          {expanded ? "▾" : "▸"}
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
         <span className={styles.projectName}>{project.name}</span>
         <button
@@ -240,23 +246,45 @@ function ProjectItem({
             onRemove();
           }}
         >
-          ×
+          <X size={12} />
         </button>
       </div>
       {expanded && (
         <div className={styles.workspaces}>
-          {project.workspaces.map((ws, idx) => (
-            <div
-              key={ws.path}
-              className={`${styles.workspace} ${
-                idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
-              }`}
-              onClick={() => onSelectWorkspace(idx)}
-            >
-              <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
-              {ws.isMain && <span className={styles.workspaceBadge}>main</span>}
-            </div>
-          ))}
+          {project.workspaces.map((ws, idx) => {
+            const workspaceEl = (
+              <div
+                key={ws.path}
+                className={`${styles.workspace} ${
+                  idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
+                }`}
+                onClick={() => onSelectWorkspace(idx)}
+              >
+                <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
+                {ws.isMain && <span className={styles.workspaceBadge}>main</span>}
+              </div>
+            );
+
+            if (ws.isMain) return workspaceEl;
+
+            return (
+              <ContextMenu.Root key={ws.path}>
+                <ContextMenu.Trigger asChild>
+                  {workspaceEl}
+                </ContextMenu.Trigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.Content className={styles.contextMenu}>
+                    <ContextMenu.Item
+                      className={styles.contextMenuItem}
+                      onSelect={() => onRemoveWorktree(ws)}
+                    >
+                      Delete Worktree
+                    </ContextMenu.Item>
+                  </ContextMenu.Content>
+                </ContextMenu.Portal>
+              </ContextMenu.Root>
+            );
+          })}
         </div>
       )}
     </div>

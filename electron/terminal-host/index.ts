@@ -86,14 +86,19 @@ async function handleControlMessage(socket: net.Socket, line: string): Promise<v
     }
 
     case "create": {
-      const session = host.create(
-        request.sessionId,
-        request.cwd,
-        request.cols,
-        request.rows,
-        request.shellArgs,
-      );
-      sendResponse(socket, { type: "created", session });
+      try {
+        const session = host.create(
+          request.sessionId,
+          request.cwd,
+          request.cols,
+          request.rows,
+          request.shellArgs,
+        );
+        sendResponse(socket, { type: "created", session });
+      } catch (err) {
+        log(`Failed to create session ${request.sessionId}: ${err}`);
+        sendResponse(socket, { type: "error", message: `Create failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
       break;
     }
 

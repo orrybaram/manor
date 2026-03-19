@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import styles from "./CommandPalette.module.css";
@@ -13,9 +14,10 @@ interface Command {
 interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onOpenSettings }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,8 +55,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       { id: "zoom-in", label: "Zoom In", shortcut: "⌘=", action: () => { zoomIn(); onClose(); } },
       { id: "zoom-out", label: "Zoom Out", shortcut: "⌘-", action: () => { zoomOut(); onClose(); } },
       { id: "zoom-reset", label: "Reset Zoom", shortcut: "⌘0", action: () => { resetZoom(); onClose(); } },
+      { id: "settings", label: "Settings", shortcut: "⌘,", action: () => { onOpenSettings?.(); onClose(); } },
     ],
-    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, sessions, selectedSessionId]
+    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, onOpenSettings, sessions, selectedSessionId]
   );
 
   const filtered = useMemo(() => {
@@ -67,20 +70,26 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     setSelectedIndex(0);
   }, [query]);
 
-  useEffect(() => {
-    if (open) {
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen) onClose();
+    },
+    [onClose]
+  );
+
+  const handleOpenAutoFocus = useCallback(
+    (e: Event) => {
+      e.preventDefault();
       setQuery("");
       setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }
-  }, [open]);
+      inputRef.current?.focus();
+    },
+    []
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
       } else if (e.key === "ArrowUp") {
@@ -93,45 +102,47 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         }
       }
     },
-    [filtered, selectedIndex, onClose]
+    [filtered, selectedIndex]
   );
 
-  if (!open) return null;
-
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div
-        className={styles.palette}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          ref={inputRef}
-          className={styles.input}
-          type="text"
-          placeholder="Type a command..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <div className={styles.list}>
-          {filtered.map((cmd, idx) => (
-            <div
-              key={cmd.id}
-              className={`${styles.item} ${idx === selectedIndex ? styles.itemSelected : ""}`}
-              onClick={() => cmd.action()}
-              onMouseEnter={() => setSelectedIndex(idx)}
-            >
-              <span className={styles.label}>{cmd.label}</span>
-              {cmd.shortcut && (
-                <span className={styles.shortcut}>{cmd.shortcut}</span>
-              )}
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className={styles.empty}>No matching commands</div>
-          )}
-        </div>
-      </div>
-    </div>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={styles.overlay} />
+        <Dialog.Content
+          className={styles.palette}
+          onOpenAutoFocus={handleOpenAutoFocus}
+        >
+          <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
+          <input
+            ref={inputRef}
+            className={styles.input}
+            type="text"
+            placeholder="Type a command..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          <div className={styles.list}>
+            {filtered.map((cmd, idx) => (
+              <div
+                key={cmd.id}
+                className={`${styles.item} ${idx === selectedIndex ? styles.itemSelected : ""}`}
+                onClick={() => cmd.action()}
+                onMouseEnter={() => setSelectedIndex(idx)}
+              >
+                <span className={styles.label}>{cmd.label}</span>
+                {cmd.shortcut && (
+                  <span className={styles.shortcut}>{cmd.shortcut}</span>
+                )}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div className={styles.empty}>No matching commands</div>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

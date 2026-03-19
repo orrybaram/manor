@@ -202,13 +202,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       const path = state.activeWorkspacePath;
       if (!path) return state;
       const ws = state.workspaceSessions[path];
-      if (!ws || ws.sessions.length <= 1) return state;
+      if (!ws) return state;
+
+      // Mark all panes in the closing session as explicitly closed
+      const closingSession = ws.sessions.find((s) => s.id === sessionId);
+      if (closingSession) {
+        for (const pid of allPaneIds(closingSession.rootNode)) {
+          state.closedPaneIds.add(pid);
+        }
+      }
+
       const idx = ws.sessions.findIndex((s) => s.id === sessionId);
       const newSessions = ws.sessions.filter((s) => s.id !== sessionId);
       const newSelected =
-        sessionId === ws.selectedSessionId
-          ? newSessions[Math.min(idx, newSessions.length - 1)].id
-          : ws.selectedSessionId;
+        newSessions.length === 0
+          ? ""
+          : sessionId === ws.selectedSessionId
+            ? newSessions[Math.min(idx, newSessions.length - 1)].id
+            : ws.selectedSessionId;
       return {
         workspaceSessions: {
           ...state.workspaceSessions,

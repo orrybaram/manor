@@ -46,9 +46,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeProject: (projectId: string) => ipcRenderer.invoke("projects:remove", projectId),
   selectWorkspace: (projectId: string, workspaceIndex: number) =>
     ipcRenderer.invoke("projects:selectWorkspace", projectId, workspaceIndex),
+  removeWorktree: (projectPath: string, worktreePath: string) =>
+    ipcRenderer.invoke("projects:removeWorktree", projectPath, worktreePath),
 
   // Theme
   getTheme: () => ipcRenderer.invoke("theme:get"),
+  setSelectedTheme: (name: string) => ipcRenderer.invoke("theme:setSelected", name),
+  getSelectedThemeName: () => ipcRenderer.invoke("theme:getSelectedName"),
+  hasGhosttyConfig: () => ipcRenderer.invoke("theme:hasGhosttyConfig"),
+  previewTheme: (name: string) => ipcRenderer.invoke("theme:preview", name),
+  getAllThemeColors: () => ipcRenderer.invoke("theme:allColors"),
 
   // Port Scanner
   startPortScanner: () => ipcRenderer.invoke("ports:startScanner"),

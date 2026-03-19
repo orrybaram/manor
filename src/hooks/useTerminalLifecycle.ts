@@ -105,14 +105,18 @@ export function useTerminalLifecycle(
     // User input → PTY
     const dataDisposable = t.onData(write);
 
-    // Resize → PTY
+    // Resize → PTY (debounced to avoid flooding the shell with SIGWINCH
+    // during continuous window resizes, which causes prompt redraw spam)
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resizeDisposable = t.onResize(({ cols: c, rows: r }) => {
-      resize(c, r);
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => resize(c, r), 150);
     });
 
     t.focus();
 
     return () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
       dataDisposable.dispose();
       resizeDisposable.dispose();
       setTerm(null);

@@ -30,7 +30,7 @@ export class TerminalHostClient {
   private controlSocket: net.Socket | null = null;
   private streamSocket: net.Socket | null = null;
   private connected = false;
-  private connecting = false;
+  private connectPromise: Promise<void> | null = null;
   private pendingRequests: Array<{
     resolve: (resp: ControlResponse) => void;
     reject: (err: Error) => void;
@@ -48,32 +48,37 @@ export class TerminalHostClient {
 
   /** Connect to the daemon, spawning it if necessary */
   async connect(): Promise<void> {
-    if (this.connected || this.connecting) return;
-    this.connecting = true;
+    if (this.connected) return;
+    if (this.connectPromise) return this.connectPromise;
 
+    this.connectPromise = this.doConnect();
     try {
-      // Check if daemon is running
-      if (!this.isDaemonRunning()) {
-        await this.spawnDaemon();
-      }
-
-      // Connect control socket
-      await this.connectControlSocket();
-
-      // Authenticate
-      const token = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
-      const authResp = await this.request({ type: "auth", token });
-      if (authResp.type !== "authOk") {
-        throw new Error(`Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`);
-      }
-
-      // Connect stream socket
-      await this.connectStreamSocket(token);
-
-      this.connected = true;
+      await this.connectPromise;
     } finally {
-      this.connecting = false;
+      this.connectPromise = null;
     }
+  }
+
+  private async doConnect(): Promise<void> {
+    // Check if daemon is running
+    if (!this.isDaemonRunning()) {
+      await this.spawnDaemon();
+    }
+
+    // Connect control socket
+    await this.connectControlSocket();
+
+    // Authenticate
+    const token = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
+    const authResp = await this.request({ type: "auth", token });
+    if (authResp.type !== "authOk") {
+      throw new Error(`Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`);
+    }
+
+    // Connect stream socket
+    await this.connectStreamSocket(token);
+
+    this.connected = true;
   }
 
   /** Disconnect from the daemon */
@@ -323,6 +328,10 @@ export class TerminalHostClient {
   private handleDisconnect(): void {
     if (!this.connected) return;
     this.connected = false;
+    this.controlSocket?.destroy();
+    this.streamSocket?.destroy();
+    this.controlSocket = null;
+    this.streamSocket = null;
 
     // Reject pending requests
     for (const req of this.pendingRequests) {

@@ -95,3 +95,14 @@ export function nextPaneId(
   if (idx === -1) return ids[0] ?? null;
   return ids[(idx + 1) % ids.length];
 }
+
+/** Find the previous pane id before the given one (for focus cycling). */
+export function prevPaneId(
+  node: PaneNode,
+  currentPaneId: string
+): string | null {
+  const ids = allPaneIds(node);
+  const idx = ids.indexOf(currentPaneId);
+  if (idx === -1) return ids[0] ?? null;
+  return ids[(idx - 1 + ids.length) % ids.length];
+}

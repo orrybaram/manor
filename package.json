@@ -15,6 +15,7 @@
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-popover": "^1.1.15",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-image": "^0.9.0",
@@ -25,6 +26,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
+    "cmdk": "^1.1.1",
     "lucide-react": "^0.577.0",
     "node-pty": "^1.0.0",
     "react": "^19.1.0",

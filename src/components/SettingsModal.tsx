@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Check, ChevronDown, ChevronRight, Settings, FolderOpen } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
+import { X, Check, ChevronDown, ChevronRight, Settings, FolderOpen, Link, Unlink } from "lucide-react";
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
@@ -13,6 +14,7 @@ interface SettingsModalProps {
 
 type SettingsPage =
   | { type: "app" }
+  | { type: "integrations" }
   | { type: "project"; projectId: string };
 
 // ── Theme Picker (extracted from old modal) ──
@@ -168,6 +170,209 @@ function ThemeSection() {
   );
 }
 
+// ── Integrations Page ──
+
+function IntegrationsPage() {
+  return (
+    <div className={styles.pageContent}>
+      <LinearIntegrationSection />
+    </div>
+  );
+}
+
+function LinearIntegrationSection() {
+  const [connected, setConnected] = useState(false);
+  const [viewer, setViewer] = useState<{ name: string; email: string } | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [matchCount, setMatchCount] = useState<number | null>(null);
+  const loadProjects = useProjectStore((s) => s.loadProjects);
+
+  useEffect(() => {
+    window.electronAPI.linearIsConnected().then(async (isConnected) => {
+      setConnected(isConnected);
+      if (isConnected) {
+        try {
+          const v = await window.electronAPI.linearGetViewer();
+          setViewer(v);
+        } catch {
+          // token may be stale
+        }
+      }
+    });
+  }, []);
+
+  const handleConnect = async () => {
+    if (!apiKey.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const v = await window.electronAPI.linearConnect(apiKey.trim());
+      setViewer(v);
+      setConnected(true);
+      setApiKey("");
+      // Auto-match projects
+      const matches = await window.electronAPI.linearAutoMatch();
+      const count = Object.keys(matches).length;
+      setMatchCount(count);
+      loadProjects();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    await window.electronAPI.linearDisconnect();
+    setConnected(false);
+    setViewer(null);
+    setMatchCount(null);
+  };
+
+  return (
+    <div className={styles.settingsGroup}>
+      <div className={styles.sectionTitle}>Linear</div>
+      {connected ? (
+        <div className={styles.linearConnected}>
+          <div className={styles.linearStatus}>
+            <Link size={14} />
+            <span>Connected as {viewer?.name ?? "..."}</span>
+          </div>
+          {matchCount !== null && matchCount > 0 && (
+            <div className={styles.linearMatchInfo}>
+              Auto-matched {matchCount} project{matchCount !== 1 ? "s" : ""} to Linear teams
+            </div>
+          )}
+          <button className={styles.linearButton} onClick={handleDisconnect}>
+            <Unlink size={13} />
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <div className={styles.linearDisconnected}>
+          <div className={styles.linearInputRow}>
+            <input
+              className={styles.fieldInput}
+              type="password"
+              placeholder="Paste your Linear API key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleConnect(); }}
+            />
+            <button
+              className={styles.linearButton}
+              onClick={handleConnect}
+              disabled={loading || !apiKey.trim()}
+            >
+              {loading ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+          {error && <div className={styles.linearError}>{error}</div>}
+          <div className={styles.fieldHint}>
+            Get your API key from{" "}
+            <a
+              className={styles.linearLink}
+              href="#"
+              onClick={(e) => { e.preventDefault(); window.electronAPI.openExternal("https://linear.app/trytango/settings/account/security"); }}
+            >
+              Linear Settings
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Linear Project Section (Project Settings) ──
+
+function LinearProjectSection({ project }: { project: ProjectInfo }) {
+  const [connected, setConnected] = useState(false);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; key: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  const selectedIds = new Set(project.linearAssociations.map((a) => a.teamId));
+
+  useEffect(() => {
+    window.electronAPI.linearIsConnected().then(async (isConnected) => {
+      setConnected(isConnected);
+      if (isConnected) {
+        try {
+          const t = await window.electronAPI.linearGetTeams();
+          setTeams(t);
+        } catch {
+          // ignore
+        }
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const handleToggleTeam = (team: { id: string; name: string; key: string }) => {
+    const current = project.linearAssociations;
+    const exists = current.some((a) => a.teamId === team.id);
+    const next = exists
+      ? current.filter((a) => a.teamId !== team.id)
+      : [...current, { teamId: team.id, teamName: team.name, teamKey: team.key }];
+    updateProject(project.id, { linearAssociations: next });
+  };
+
+  if (loading) return null;
+
+  const label = selectedIds.size === 0
+    ? "Select teams..."
+    : project.linearAssociations.map((a) => a.teamKey).join(", ");
+
+  return (
+    <div className={styles.settingsGroup}>
+      <div className={styles.sectionTitle}>Linear</div>
+      {!connected ? (
+        <div className={styles.fieldHint}>
+          Connect Linear in Integrations to link this project to a team.
+        </div>
+      ) : (
+        <>
+          <label className={styles.fieldLabel}>Teams</label>
+          <Popover.Root open={open} onOpenChange={setOpen}>
+            <Popover.Trigger asChild>
+              <button className={styles.multiSelectTrigger}>
+                <span className={styles.multiSelectLabel}>{label}</span>
+                <ChevronDown size={14} />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content className={styles.multiSelectContent} sideOffset={4} align="start">
+                {teams.map((team) => {
+                  const isSelected = selectedIds.has(team.id);
+                  return (
+                    <button
+                      key={team.id}
+                      className={`${styles.multiSelectItem} ${isSelected ? styles.multiSelectItemSelected : ""}`}
+                      onClick={() => handleToggleTeam(team)}
+                    >
+                      <span className={styles.multiSelectCheck}>
+                        {isSelected && <Check size={13} />}
+                      </span>
+                      <span>{team.key} — {team.name}</span>
+                    </button>
+                  );
+                })}
+                {teams.length === 0 && (
+                  <div className={styles.multiSelectEmpty}>No teams found</div>
+                )}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── App Settings Page ──
 
 function AppSettingsPage() {
@@ -200,7 +405,15 @@ const scriptFields: Array<{
   { field: "defaultRunCommand", label: "Default Run Command", placeholder: "e.g. npm run dev" },
 ];
 
-const DEFAULT_WORKTREE_PATH = "~/.manor/worktrees";
+function defaultWorktreePath(projectName: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9\s\-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `~/.manor/worktrees/${slug}`;
+}
 
 function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const updateProject = useProjectStore((s) => s.updateProject);
@@ -261,10 +474,10 @@ function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           className={styles.fieldInput}
           defaultValue={project.worktreePath ?? ""}
           onBlur={() => handleBlur("worktreePath")}
-          placeholder={DEFAULT_WORKTREE_PATH}
+          placeholder={defaultWorktreePath(project.name)}
         />
         <div className={styles.fieldHint}>
-          Directory where new worktrees are created. Defaults to {DEFAULT_WORKTREE_PATH}
+          Directory where new worktrees are created. Defaults to {defaultWorktreePath(project.name)}
         </div>
       </div>
 
@@ -284,6 +497,8 @@ function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           </div>
         ))}
       </div>
+
+      <LinearProjectSection project={project} />
     </div>
   );
 }
@@ -338,6 +553,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </button>
 
               <button
+                className={`${styles.navItem} ${page.type === "integrations" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "integrations" })}
+              >
+                <Link size={14} />
+                <span>Integrations</span>
+              </button>
+
+              <button
                 className={styles.navGroupHeader}
                 onClick={() => setProjectsExpanded((v) => !v)}
               >
@@ -364,6 +587,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             {/* Content */}
             <div className={styles.content}>
               {page.type === "app" && <AppSettingsPage />}
+              {page.type === "integrations" && <IntegrationsPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage key={currentProject.id} project={currentProject} />
               )}

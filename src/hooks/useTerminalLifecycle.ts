@@ -12,6 +12,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { useAppStore } from "../store/app-store";
 import { useTerminalConnection } from "./useTerminalConnection";
@@ -89,6 +90,11 @@ export function useTerminalLifecycle(
 
     try { t.loadAddon(new ClipboardAddon()); } catch {}
     try { t.loadAddon(new ImageAddon()); } catch {}
+    try {
+      t.loadAddon(new WebLinksAddon((_event, url) => {
+        window.electronAPI.openExternal(url);
+      }));
+    } catch {}
 
     // Hotkeys
     attachHandler(t);

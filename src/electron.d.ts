@@ -89,6 +89,9 @@ export interface ElectronAPI {
 
   // Dialog
   openDirectory: () => Promise<string | null>;
+
+  // Shell
+  openExternal: (url: string) => Promise<void>;
 }
 
 declare global {

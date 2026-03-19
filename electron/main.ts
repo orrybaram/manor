@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence, type PersistedWorkspace, type PersistedLayout } from "./terminal-host/layout-persistence";
@@ -228,6 +228,11 @@ ipcMain.handle("dialog:openDirectory", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
+});
+
+// ── Shell ──
+ipcMain.handle("shell:openExternal", (_event, url: string) => {
+  return shell.openExternal(url);
 });
 
 // ── App lifecycle ──

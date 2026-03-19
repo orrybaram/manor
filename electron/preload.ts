@@ -76,4 +76,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Dialog
   openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),
+
+  // Shell
+  openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
 });

@@ -1,6 +1,19 @@
 import { create } from "zustand";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
+const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
+const DEFAULT_SIDEBAR_WIDTH = 220;
+
+function loadSidebarWidth(): number {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (raw) {
+      const width = Number(raw);
+      if (Number.isFinite(width) && width >= 160 && width <= 400) return width;
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_SIDEBAR_WIDTH;
+}
 
 function loadCollapsedIds(): Set<string> {
   try {
@@ -21,6 +34,12 @@ export interface WorkspaceInfo {
   name: string | null;
 }
 
+export interface LinearAssociation {
+  teamId: string;
+  teamName: string;
+  teamKey: string;
+}
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -32,6 +51,7 @@ export interface ProjectInfo {
   teardownScript: string | null;
   defaultRunCommand: string | null;
   worktreePath: string | null;
+  linearAssociations: LinearAssociation[];
 }
 
 interface ProjectState {
@@ -50,10 +70,11 @@ interface ProjectState {
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
   createWorktree: (projectId: string, name: string, branch?: string) => Promise<string | null>;
-  removeWorktree: (projectId: string, worktreePath: string) => Promise<void>;
+  removeWorktree: (projectId: string, worktreePath: string, deleteBranch?: boolean) => Promise<void>;
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
+  reorderProjects: (orderedIds: string[]) => Promise<void>;
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => Promise<void>;
+  updateProject: (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -65,7 +86,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
   sidebarVisible: true,
-  sidebarWidth: 220,
+  sidebarWidth: loadSidebarWidth(),
   loading: false,
   collapsedProjectIds: loadCollapsedIds(),
 
@@ -139,11 +160,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     return newWs?.path ?? null;
   },
 
-  removeWorktree: async (projectId: string, worktreePath: string) => {
-    await window.electronAPI.removeWorktree(projectId, worktreePath);
+  removeWorktree: async (projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+    await window.electronAPI.removeWorktree(projectId, worktreePath, deleteBranch);
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.getProjects();
     set({ projects });
+  },
+
+  reorderProjects: async (orderedIds: string[]) => {
+    await window.electronAPI.reorderProjects(orderedIds);
+    set((s) => {
+      const selectedId = s.projects[s.selectedProjectIndex]?.id;
+      const byId = new Map(s.projects.map((p) => [p.id, p]));
+      const reordered = orderedIds
+        .map((id) => byId.get(id))
+        .filter((p): p is ProjectInfo => p != null);
+      const orderedSet = new Set(orderedIds);
+      for (const p of s.projects) {
+        if (!orderedSet.has(p.id)) reordered.push(p);
+      }
+      const newSelectedIndex = selectedId
+        ? Math.max(0, reordered.findIndex((p) => p.id === selectedId))
+        : s.selectedProjectIndex;
+      return { projects: reordered, selectedProjectIndex: newSelectedIndex };
+    });
   },
 
   reorderWorkspaces: async (projectId: string, orderedPaths: string[]) => {
@@ -183,7 +223,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  updateProject: async (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => {
+  updateProject: async (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => {
     const updated = await window.electronAPI.updateProject(projectId, updates);
     if (updated) {
       set((s) => ({
@@ -206,7 +246,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
 
-  setSidebarWidth: (width: number) => set({ sidebarWidth: width }),
+  setSidebarWidth: (width: number) => {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    set({ sidebarWidth: width });
+  },
 
   toggleProjectCollapsed: (projectId: string) => set((s) => {
     const next = new Set(s.collapsedProjectIds);

@@ -8,7 +8,7 @@ import {
   nextPaneId,
   prevPaneId,
 } from "./pane-tree";
-import type { PersistedWorkspace, PersistedSession, PersistedLayout } from "../electron.d";
+import type { PersistedWorkspace, PersistedSession, PersistedLayout, AgentState } from "../electron.d";
 
 function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
@@ -69,6 +69,7 @@ export interface AppState {
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
+  paneAgentStatus: Record<string, AgentState>;
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
@@ -100,11 +101,17 @@ export interface AppState {
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
 
+  // Agent status tracking
+  setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
+
   // Zoom
   fontSize: number;
   zoomIn: () => void;
   zoomOut: () => void;
   resetZoom: () => void;
+
+  // Workspace cleanup
+  removeWorkspaceSessions: (workspacePath: string) => void;
 
   // Resize
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
@@ -128,6 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeWorkspacePath: null,
   paneCwd: {},
   paneTitle: {},
+  paneAgentStatus: {},
   fontSize: DEFAULT_FONT_SIZE,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
@@ -242,14 +250,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Clean up metadata for dead panes
       const newCwd = { ...state.paneCwd };
       const newTitle = { ...state.paneTitle };
+      const newAgentStatus = { ...state.paneAgentStatus };
       for (const pid of deadPaneIds) {
         delete newCwd[pid];
         delete newTitle[pid];
+        delete newAgentStatus[pid];
       }
 
       return {
         paneCwd: newCwd,
         paneTitle: newTitle,
+        paneAgentStatus: newAgentStatus,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { sessions: newSessions, selectedSessionId: newSelected },
@@ -375,11 +386,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Clean up metadata for the closed pane
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
+      const newAgentStatus = { ...s.paneAgentStatus };
       delete newCwd[closingPaneId];
       delete newTitle[closingPaneId];
+      delete newAgentStatus[closingPaneId];
       return {
         paneCwd: newCwd,
         paneTitle: newTitle,
+        paneAgentStatus: newAgentStatus,
         workspaceSessions: {
           ...s.workspaceSessions,
           [path]: {
@@ -472,9 +486,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneTitle: { ...state.paneTitle, [paneId]: title } };
     }),
 
+  setPaneAgentStatus: (paneId: string, agent: AgentState) =>
+    set((state) => {
+      const current = state.paneAgentStatus[paneId];
+      if (current && current.status === agent.status && current.kind === agent.kind) return state;
+      if (agent.status === "idle") {
+        const { [paneId]: _, ...rest } = state.paneAgentStatus;
+        return { paneAgentStatus: rest };
+      }
+      return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
+    }),
+
   zoomIn: () => set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
   zoomOut: () => set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
   resetZoom: () => set({ fontSize: DEFAULT_FONT_SIZE }),
+
+  removeWorkspaceSessions: (workspacePath: string) =>
+    set((state) => {
+      const ws = state.workspaceSessions[workspacePath];
+      if (!ws) {
+        const { [workspacePath]: _, ...rest } = state.workspaceSessions;
+        return { workspaceSessions: rest };
+      }
+
+      // Mark all panes as closed so terminals get killed
+      const deadPaneIds: string[] = [];
+      for (const session of ws.sessions) {
+        for (const pid of allPaneIds(session.rootNode)) {
+          state.closedPaneIds.add(pid);
+          deadPaneIds.push(pid);
+        }
+      }
+
+      // Clean up metadata
+      const newCwd = { ...state.paneCwd };
+      const newTitle = { ...state.paneTitle };
+      const newAgentStatus = { ...state.paneAgentStatus };
+      for (const pid of deadPaneIds) {
+        delete newCwd[pid];
+        delete newTitle[pid];
+        delete newAgentStatus[pid];
+      }
+
+      const { [workspacePath]: _, ...rest } = state.workspaceSessions;
+      return {
+        workspaceSessions: rest,
+        paneCwd: newCwd,
+        paneTitle: newTitle,
+        paneAgentStatus: newAgentStatus,
+      };
+    }),
 
   updateSplitRatio: (_firstPaneId: string, _ratio: number) =>
     set((state) => {

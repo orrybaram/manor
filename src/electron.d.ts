@@ -67,6 +67,10 @@ export interface ElectronAPI {
   removeProject: (projectId: string) => Promise<void>;
   selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
   removeWorktree: (projectPath: string, worktreePath: string) => Promise<void>;
+  createWorktree: (projectId: string, name: string, branch?: string) => Promise<import("./store/project-store").ProjectInfo | null>;
+  renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
+  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
+  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand">>) => Promise<import("./store/project-store").ProjectInfo | null>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;

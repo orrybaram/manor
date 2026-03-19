@@ -167,6 +167,22 @@ ipcMain.handle("projects:removeWorktree", (_event, projectPath: string, worktree
   projectManager.removeWorktree(projectPath, worktreePath);
 });
 
+ipcMain.handle("projects:createWorktree", (_event, projectId: string, name: string, branch?: string) => {
+  return projectManager.createWorktree(projectId, name, branch);
+});
+
+ipcMain.handle("projects:renameWorkspace", (_event, projectId: string, workspacePath: string, newName: string) => {
+  projectManager.renameWorkspace(projectId, workspacePath, newName);
+});
+
+ipcMain.handle("projects:reorderWorkspaces", (_event, projectId: string, orderedPaths: string[]) => {
+  projectManager.reorderWorkspaces(projectId, orderedPaths);
+});
+
+ipcMain.handle("projects:update", (_event, projectId: string, updates: Record<string, unknown>) => {
+  return projectManager.updateProject(projectId, updates);
+});
+
 // ── Theme IPC ──
 ipcMain.handle("theme:get", () => {
   return themeManager.getTheme();

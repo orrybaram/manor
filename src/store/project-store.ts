@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
 
 export interface WorkspaceInfo {
   path: string;
@@ -32,11 +31,12 @@ interface ProjectState {
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
+  removeWorktree: (projectId: string, worktreePath: string) => Promise<void>;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
 }
 
-export const useProjectStore = create<ProjectState>((set, _get) => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   selectedProjectIndex: 0,
   sidebarVisible: true,
@@ -46,8 +46,8 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
   loadProjects: async () => {
     set({ loading: true });
     try {
-      const projects = await invoke<ProjectInfo[]>("get_projects");
-      const selectedIndex = await invoke<number>("get_selected_project_index");
+      const projects = await window.electronAPI.getProjects();
+      const selectedIndex = await window.electronAPI.getSelectedProjectIndex();
       set({ projects, selectedProjectIndex: selectedIndex, loading: false });
     } catch {
       set({ loading: false });
@@ -55,7 +55,7 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
   },
 
   addProject: async (name: string, path: string) => {
-    const project = await invoke<ProjectInfo>("add_project", { name, path });
+    const project = await window.electronAPI.addProject(name, path);
     set((s) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
@@ -63,7 +63,7 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
   },
 
   removeProject: async (projectId: string) => {
-    await invoke("remove_project", { projectId });
+    await window.electronAPI.removeProject(projectId);
     set((s) => {
       const projects = s.projects.filter((p) => p.id !== projectId);
       return {
@@ -77,12 +77,12 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
   },
 
   selectProject: (index: number) => {
-    invoke("select_project", { index });
+    window.electronAPI.selectProject(index);
     set({ selectedProjectIndex: index });
   },
 
   selectWorkspace: (projectId: string, workspaceIndex: number) => {
-    invoke("select_workspace", { projectId, workspaceIndex });
+    window.electronAPI.selectWorkspace(projectId, workspaceIndex);
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -90,6 +90,16 @@ export const useProjectStore = create<ProjectState>((set, _get) => ({
           : p
       ),
     }));
+  },
+
+  removeWorktree: async (projectId: string, worktreePath: string) => {
+    const state = get();
+    const project = state.projects.find((p) => p.id === projectId);
+    if (!project) return;
+    await window.electronAPI.removeWorktree(project.path, worktreePath);
+    // Refresh projects to get updated worktree list
+    const projects = await window.electronAPI.getProjects();
+    set({ projects });
   },
 
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),

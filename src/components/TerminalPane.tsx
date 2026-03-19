@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { init, Terminal } from "ghostty-web";
+import { init, Terminal, FitAddon } from "ghostty-web";
 import { useThemeStore } from "../store/theme-store";
 import { useAppStore } from "../store/app-store";
 
@@ -15,31 +15,52 @@ interface TerminalPaneProps {
 export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
+  const fontSize = useAppStore((s) => s.fontSize);
+  const termRef = useRef<Terminal | null>(null);
+
+  // Update font size without recreating the terminal
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) {
+      term.options.fontSize = fontSize;
+    }
+  }, [fontSize]);
 
   useEffect(() => {
     let disposed = false;
     let term: Terminal | null = null;
+    let fitAddon: FitAddon | null = null;
     let cleanupListener: (() => void) | null = null;
     let cleanupExitListener: (() => void) | null = null;
     let cleanupCwdListener: (() => void) | null = null;
+    let ro: ResizeObserver | null = null;
 
     async function setup() {
       await ghosttyReady;
       if (disposed) return;
 
       term = new Terminal({
-        fontSize: 14,
-        fontFamily: "Menlo, Monaco, 'Courier New', monospace",
-        cursorBlink: true,
+        fontSize: useAppStore.getState().fontSize,
+        fontFamily: "'MesloLGM Nerd Font Mono', 'FiraCode Nerd Font', monospace",
         ...(theme ? { theme } : {}),
       });
 
       term.open(containerRef.current!);
 
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      fitAddon.fit();
+
+      // Refit terminal when container resizes
+      ro = new ResizeObserver(() => {
+        if (!disposed) fitAddon?.fit();
+      });
+      ro.observe(containerRef.current!);
+
+      termRef.current = term;
+
       // Intercept app-level shortcuts before the terminal swallows them.
-      // Must be called AFTER open() so the input handler exists.
       // ghostty-web's handler: return true → preventDefault + stop terminal processing
-      // Since it calls preventDefault, we must dispatch to window ourselves.
       term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
         if (!e.metaKey) return false; // let terminal handle all non-Cmd keys
 
@@ -52,6 +73,9 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
             case "w":
             case "W":
             case "\\":
+            case "=":
+            case "-":
+            case "0":
               return true;
             case "]":
             case "[":
@@ -123,6 +147,9 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
       cleanupListener?.();
       cleanupExitListener?.();
       cleanupCwdListener?.();
+      ro?.disconnect();
+      fitAddon?.dispose();
+      termRef.current = null;
       if (term) {
         invoke("pty_close", { paneId });
         term.dispose();
@@ -133,6 +160,7 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
   return (
     <div
       ref={containerRef}
+      className="terminal-pane-container"
       style={{
         width: "100%",
         height: "100%",

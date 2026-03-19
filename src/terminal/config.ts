@@ -17,7 +17,7 @@ export function terminalOptions(
 ): ITerminalOptions {
   return {
     fontFamily: FONT_FAMILY,
-    cursorBlink: true,
+    cursorBlink: false,
     cursorStyle: "block",
     cursorInactiveStyle: "outline",
     macOptionIsMeta: false,

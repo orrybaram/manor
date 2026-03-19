@@ -65,6 +65,12 @@ body,
   width: 100%;
 }
 
+.drag-region {
+  -webkit-app-region: drag;
+  height: 38px;
+  flex-shrink: 0;
+}
+
 .app-body {
   display: flex;
   flex: 1;
@@ -82,7 +88,6 @@ body,
   flex: 1;
   overflow: hidden;
   position: relative;
-  margin-left: 8px;
 }
 
 .sr-only {

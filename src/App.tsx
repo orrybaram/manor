@@ -125,7 +125,7 @@ function App() {
       <div className="app-body">
         {sidebarVisible && <Sidebar />}
         <div className="main-content">
-          {hasSessions && <TabBar />}
+          {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
             {/* Render all sessions across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}

@@ -3,6 +3,8 @@ import { X, Plus } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { allPaneIds } from "../store/pane-tree";
+import type { AgentStatus } from "../electron.d";
+import { AgentDot } from "./AgentDot";
 import styles from "./TabBar.module.css";
 
 function useSessionTitle(sessionId: string): string {
@@ -46,6 +48,43 @@ function useSessionTitle(sessionId: string): string {
   return session.title;
 }
 
+const STATUS_PRIORITY: Record<AgentStatus, number> = {
+  waiting: 4,
+  running: 3,
+  error: 2,
+  complete: 1,
+  idle: 0,
+};
+
+function useSessionAgentStatus(sessionId: string): AgentStatus | null {
+  return useAppStore((s) => {
+    const ws = selectActiveWorkspace(s);
+    const session = ws?.sessions.find((t) => t.id === sessionId);
+    if (!session) return null;
+
+    const ids = allPaneIds(session.rootNode);
+    let best: AgentStatus | null = null;
+    let bestPriority = 0;
+
+    for (const id of ids) {
+      const agent = s.paneAgentStatus[id];
+      if (!agent) continue;
+      const p = STATUS_PRIORITY[agent.status] ?? 0;
+      if (p > bestPriority) {
+        bestPriority = p;
+        best = agent.status;
+      }
+    }
+
+    return best;
+  });
+}
+
+function TabAgentDot({ sessionId }: { sessionId: string }) {
+  const status = useSessionAgentStatus(sessionId);
+  return <AgentDot status={status ?? undefined} size="tab" />;
+}
+
 function SessionButton({
   sessionId,
   isActive,
@@ -76,6 +115,7 @@ function SessionButton({
       onPointerDown={onPointerDown}
       style={style}
     >
+      <TabAgentDot sessionId={sessionId} />
       <span className={styles.sessionTitle}>{title}</span>
       {canClose && (
         <span

@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Check } from "lucide-react";
+import { X, Check, ChevronDown, ChevronRight, Settings, FolderOpen } from "lucide-react";
 import { useThemeStore, type Theme } from "../store/theme-store";
+import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import styles from "./SettingsModal.module.css";
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
 }
+
+type SettingsPage =
+  | { type: "app" }
+  | { type: "project"; projectId: string };
+
+// ── Theme Picker (extracted from old modal) ──
 
 interface ThemeEntry {
   name: string;
@@ -17,7 +24,7 @@ interface ThemeEntry {
 
 type ThemeColors = Pick<Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">;
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+function ThemeSection() {
   const [hasGhostty, setHasGhostty] = useState(false);
   const [query, setQuery] = useState("");
   const [allColors, setAllColors] = useState<Record<string, ThemeColors>>({});
@@ -30,7 +37,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) return;
     setQuery("");
     setHighlightIndex(-1);
     didScrollRef.current = false;
@@ -41,7 +47,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       setHasGhostty(ghostty);
       setAllColors(colors);
     });
-  }, [open]);
+  }, []);
 
   const entries: ThemeEntry[] = useMemo(() => {
     const result: ThemeEntry[] = [];
@@ -61,22 +67,19 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     return entries.filter((e) => e.displayName.toLowerCase().includes(q));
   }, [query, entries]);
 
-  // Reset highlight when filter changes
   useEffect(() => {
     setHighlightIndex(-1);
   }, [query]);
 
-  // Scroll selected item into view once after data loads
   useEffect(() => {
-    if (!open || didScrollRef.current || Object.keys(allColors).length === 0) return;
+    if (didScrollRef.current || Object.keys(allColors).length === 0) return;
     didScrollRef.current = true;
     requestAnimationFrame(() => {
       const el = itemRefs.current.get(selectedThemeName);
       el?.scrollIntoView({ block: "center" });
     });
-  }, [open, allColors, selectedThemeName]);
+  }, [allColors, selectedThemeName]);
 
-  // Scroll highlighted item into view
   useEffect(() => {
     if (highlightIndex < 0 || highlightIndex >= filtered.length) return;
     const name = filtered[highlightIndex].name;
@@ -108,21 +111,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     [filtered, highlightIndex, handleSelect]
   );
 
-  const handleOpenChange = useCallback(
-    (isOpen: boolean) => {
-      if (!isOpen) onClose();
-    },
-    [onClose]
-  );
-
-  const handleOpenAutoFocus = useCallback(
-    (e: Event) => {
-      e.preventDefault();
-      searchRef.current?.focus();
-    },
-    []
-  );
-
   const selectedColors: ThemeColors | null = useMemo(() => {
     if (!currentTheme) return null;
     return {
@@ -133,14 +121,187 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   }, [currentTheme]);
 
   return (
+    <div onKeyDown={handleKeyDown}>
+      <div className={styles.sectionTitle}>Theme</div>
+      <input
+        ref={searchRef}
+        className={styles.themeSearch}
+        type="text"
+        placeholder="Search themes..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        autoFocus
+      />
+      <div className={styles.themeList}>
+        {filtered.map((entry, idx) => {
+          const isSelected = entry.name === selectedThemeName;
+          const isHighlighted = idx === highlightIndex;
+          const colors = isSelected ? selectedColors : allColors[entry.name] ?? null;
+          const dotColors = colors
+            ? [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan]
+            : null;
+          return (
+            <div
+              key={entry.name}
+              ref={(el) => {
+                if (el) itemRefs.current.set(entry.name, el);
+                else itemRefs.current.delete(entry.name);
+              }}
+              className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""} ${isHighlighted ? styles.themeItemHighlighted : ""}`}
+              onClick={() => handleSelect(entry.name)}
+              onMouseEnter={() => setHighlightIndex(idx)}
+            >
+              <span className={styles.checkmark}>
+                {isSelected ? <Check size={14} /> : ""}
+              </span>
+              <span className={styles.themeItemLabel}>
+                {entry.displayName}
+              </span>
+              {entry.badge && (
+                <span className={styles.themeItemBadge}>{entry.badge}</span>
+              )}
+              {dotColors && (
+                <div className={styles.themePreview}>
+                  {dotColors.map((c, i) => (
+                    <div key={i} className={styles.colorDot} style={{ background: c }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div style={{ padding: 16, textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>
+            No matching themes
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── App Settings Page ──
+
+function AppSettingsPage() {
+  return (
+    <div className={styles.pageContent}>
+      <ThemeSection />
+
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Font</div>
+        <div className={styles.placeholder}>Font family and size settings coming soon.</div>
+      </div>
+
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Keybindings</div>
+        <div className={styles.placeholder}>Custom keyboard shortcuts coming soon.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Project Settings Page ──
+
+const scriptFields: Array<{
+  field: "setupScript" | "teardownScript" | "defaultRunCommand";
+  label: string;
+  placeholder: string;
+}> = [
+  { field: "setupScript", label: "Setup Script", placeholder: "Runs when switching to this project" },
+  { field: "teardownScript", label: "Teardown Script", placeholder: "Runs when switching away from this project" },
+  { field: "defaultRunCommand", label: "Default Run Command", placeholder: "e.g. npm run dev" },
+];
+
+function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const handleBlur = useCallback(
+    (field: "name" | "setupScript" | "teardownScript" | "defaultRunCommand") => {
+      const el = field === "name" ? nameRef.current : fieldRefs.current[field];
+      if (!el) return;
+      const trimmed = el.value.trim();
+      if (field === "name") {
+        if (trimmed && trimmed !== project.name) {
+          updateProject(project.id, { name: trimmed });
+        }
+      } else {
+        const normalized = trimmed || null;
+        if (normalized !== (project[field] ?? null)) {
+          updateProject(project.id, { [field]: normalized });
+        }
+      }
+    },
+    [project, updateProject]
+  );
+
+  return (
+    <div className={styles.pageContent}>
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>General</div>
+        <label className={styles.fieldLabel}>Name</label>
+        <input
+          ref={nameRef}
+          className={styles.fieldInput}
+          defaultValue={project.name}
+          onBlur={() => handleBlur("name")}
+        />
+        <label className={styles.fieldLabel}>Path</label>
+        <div className={styles.fieldStatic}>{project.path}</div>
+        <label className={styles.fieldLabel}>Default Branch</label>
+        <div className={styles.fieldStatic}>{project.defaultBranch}</div>
+      </div>
+
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Scripts</div>
+        {scriptFields.map(({ field, label, placeholder }) => (
+          <div key={field}>
+            <label className={styles.fieldLabel}>{label}</label>
+            <input
+              ref={(el) => { fieldRefs.current[field] = el; }}
+              className={styles.fieldInput}
+              defaultValue={project[field] ?? ""}
+              onBlur={() => handleBlur(field)}
+              placeholder={placeholder}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Settings Modal ──
+
+export function SettingsModal({ open, onClose }: SettingsModalProps) {
+  const projects = useProjectStore((s) => s.projects);
+  const [page, setPage] = useState<SettingsPage>({ type: "app" });
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      setPage({ type: "app" });
+      setProjectsExpanded(true);
+    }
+  }, [open]);
+
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen) onClose();
+    },
+    [onClose]
+  );
+
+  const currentProject = page.type === "project"
+    ? projects.find((p) => p.id === page.projectId)
+    : null;
+
+  return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
-          className={styles.modal}
-          onKeyDown={handleKeyDown}
-          onOpenAutoFocus={handleOpenAutoFocus}
-        >
+        <Dialog.Content className={styles.modal}>
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>Settings</Dialog.Title>
             <Dialog.Close asChild>
@@ -149,61 +310,47 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </button>
             </Dialog.Close>
           </div>
-          <div className={styles.body}>
-            <div className={styles.section}>
-              <div className={styles.sectionTitle}>Theme</div>
-              <input
-                ref={searchRef}
-                className={styles.themeSearch}
-                type="text"
-                placeholder="Search themes..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <div className={styles.themeList}>
-                {filtered.map((entry, idx) => {
-                  const isSelected = entry.name === selectedThemeName;
-                  const isHighlighted = idx === highlightIndex;
-                  const colors = isSelected ? selectedColors : allColors[entry.name] ?? null;
-                  const dotColors = colors
-                    ? [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan]
-                    : null;
-                  return (
-                    <div
-                      key={entry.name}
-                      ref={(el) => {
-                        if (el) itemRefs.current.set(entry.name, el);
-                        else itemRefs.current.delete(entry.name);
-                      }}
-                      className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""} ${isHighlighted ? styles.themeItemHighlighted : ""}`}
-                      onClick={() => handleSelect(entry.name)}
-                      onMouseEnter={() => setHighlightIndex(idx)}
-                    >
-                      <span className={styles.checkmark}>
-                        {isSelected ? <Check size={14} /> : ""}
-                      </span>
-                      <span className={styles.themeItemLabel}>
-                        {entry.displayName}
-                      </span>
-                      {entry.badge && (
-                        <span className={styles.themeItemBadge}>{entry.badge}</span>
-                      )}
-                      {dotColors && (
-                        <div className={styles.themePreview}>
-                          {dotColors.map((c, i) => (
-                            <div key={i} className={styles.colorDot} style={{ background: c }} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <div style={{ padding: 16, textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                    No matching themes
-                  </div>
-                )}
-              </div>
+          <div className={styles.layout}>
+            {/* Sidebar */}
+            <nav className={styles.sidebar}>
+              <button
+                className={`${styles.navItem} ${page.type === "app" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "app" })}
+              >
+                <Settings size={14} />
+                <span>App Settings</span>
+              </button>
+
+              <button
+                className={styles.navGroupHeader}
+                onClick={() => setProjectsExpanded((v) => !v)}
+              >
+                {projectsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span>Projects</span>
+              </button>
+              {projectsExpanded && projects.map((project) => (
+                <button
+                  key={project.id}
+                  className={`${styles.navItem} ${styles.navItemNested} ${
+                    page.type === "project" && page.projectId === project.id ? styles.navItemActive : ""
+                  }`}
+                  onClick={() => setPage({ type: "project", projectId: project.id })}
+                >
+                  <FolderOpen size={13} />
+                  <span className={styles.navItemLabel}>{project.name}</span>
+                </button>
+              ))}
+              {projectsExpanded && projects.length === 0 && (
+                <div className={styles.navEmpty}>No projects</div>
+              )}
+            </nav>
+
+            {/* Content */}
+            <div className={styles.content}>
+              {page.type === "app" && <AppSettingsPage />}
+              {page.type === "project" && currentProject && (
+                <ProjectSettingsPage key={currentProject.id} project={currentProject} />
+              )}
             </div>
           </div>
         </Dialog.Content>

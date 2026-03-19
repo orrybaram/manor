@@ -127,7 +127,7 @@ ShellManager.setupZdotdir();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
   try {
     switch (event.type) {
       case "data":
@@ -251,7 +251,7 @@ ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspace
 });
 
 ipcMain.handle("projects:removeWorktree", (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-  projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
+  return projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
 });
 
 ipcMain.handle("projects:createWorktree", (_event, projectId: string, name: string, branch?: string) => {
@@ -270,7 +270,7 @@ ipcMain.handle("projects:reorder", (_event, orderedIds: string[]) => {
   projectManager.reorderProjects(orderedIds);
 });
 
-ipcMain.handle("projects:update", (_event, projectId: string, updates: Partial<Pick<import("./persistence").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => {
+ipcMain.handle("projects:update", (_event, projectId: string, updates: import("./persistence").ProjectUpdatableFields) => {
   return projectManager.updateProject(projectId, updates);
 });
 

@@ -396,13 +396,20 @@ function AppSettingsPage() {
 // ── Project Settings Page ──
 
 const scriptFields: Array<{
-  field: "setupScript" | "teardownScript" | "defaultRunCommand";
+  field: "defaultRunCommand";
   label: string;
   placeholder: string;
 }> = [
-  { field: "setupScript", label: "Setup Script", placeholder: "Runs when switching to this project" },
-  { field: "teardownScript", label: "Teardown Script", placeholder: "Runs when switching away from this project" },
   { field: "defaultRunCommand", label: "Default Run Command", placeholder: "e.g. npm run dev" },
+];
+
+const worktreeScriptFields: Array<{
+  field: "worktreeStartScript" | "worktreeTeardownScript";
+  label: string;
+  placeholder: string;
+}> = [
+  { field: "worktreeStartScript", label: "Start Script", placeholder: "Runs in the terminal when a new worktree is created" },
+  { field: "worktreeTeardownScript", label: "Teardown Script", placeholder: "Runs before a worktree is deleted" },
 ];
 
 function defaultWorktreePath(projectName: string): string {
@@ -422,7 +429,7 @@ function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const handleBlur = useCallback(
-    (field: "name" | "worktreePath" | "setupScript" | "teardownScript" | "defaultRunCommand") => {
+    (field: "name" | "worktreePath" | "defaultRunCommand" | "worktreeStartScript" | "worktreeTeardownScript") => {
       if (field === "name") {
         const el = nameRef.current;
         if (!el) return;
@@ -479,6 +486,19 @@ function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         <div className={styles.fieldHint}>
           Directory where new worktrees are created. Defaults to {defaultWorktreePath(project.name)}
         </div>
+        {worktreeScriptFields.map(({ field, label, placeholder }) => (
+          <div key={field}>
+            <label className={styles.fieldLabel}>{label}</label>
+            <textarea
+              ref={(el) => { fieldRefs.current[field] = el; }}
+              className={`${styles.fieldInput} ${styles.fieldTextarea}`}
+              defaultValue={project[field] ?? ""}
+              onBlur={() => handleBlur(field)}
+              placeholder={placeholder}
+              rows={4}
+            />
+          </div>
+        ))}
       </div>
 
       <div className={styles.settingsGroup}>

@@ -97,6 +97,17 @@
   padding: 0 16px 8px;
 }
 
+.ticketRow {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.ticketRow:hover {
+  background: var(--hover);
+}
+
 .ticket {
   display: flex;
   align-items: center;
@@ -109,12 +120,34 @@
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s;
   text-align: left;
+  flex: 1;
+  min-width: 0;
 }
 
-.ticket:hover {
-  background: var(--hover);
+.ticketLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.ticketRow:hover .ticketLink {
+  opacity: 1;
+}
+
+.ticketLink:hover {
+  color: var(--text-selected);
 }
 
 .ticket:disabled {

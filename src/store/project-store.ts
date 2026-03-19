@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useAppStore } from "./app-store";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
@@ -47,12 +48,14 @@ export interface ProjectInfo {
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
   selectedWorkspaceIndex: number;
-  setupScript: string | null;
-  teardownScript: string | null;
   defaultRunCommand: string | null;
   worktreePath: string | null;
+  worktreeStartScript: string | null;
+  worktreeTeardownScript: string | null;
   linearAssociations: LinearAssociation[];
 }
+
+export type ProjectUpdatableFields = Partial<Pick<ProjectInfo, "name" | "defaultRunCommand" | "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript" | "linearAssociations">>;
 
 interface ProjectState {
   projects: ProjectInfo[];
@@ -74,7 +77,7 @@ interface ProjectState {
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => Promise<void>;
+  updateProject: (projectId: string, updates: ProjectUpdatableFields) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -155,9 +158,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
-    // Return the path of the new workspace (last non-main workspace)
-    const newWs = updated.workspaces.find((ws) => !ws.isMain && ws.name === name);
-    return newWs?.path ?? null;
+    // Find the new workspace by name or branch.
+    const branchName = branch || name;
+    const newWs = updated.workspaces.find(
+      (ws) => !ws.isMain && (ws.name === name || ws.branch === branchName)
+    );
+    const wsPath = newWs?.path ?? null;
+    if (wsPath) {
+      // Select the new workspace and switch to it
+      const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
+      if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
+      if (updated.worktreeStartScript) {
+        useAppStore.getState().setPendingStartupCommand(wsPath, updated.worktreeStartScript);
+      }
+      useAppStore.getState().setActiveWorkspace(wsPath);
+    }
+    return wsPath;
   },
 
   removeWorktree: async (projectId: string, worktreePath: string, deleteBranch?: boolean) => {
@@ -223,7 +239,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  updateProject: async (projectId: string, updates: Partial<Pick<ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => {
+  updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
     const updated = await window.electronAPI.updateProject(projectId, updates);
     if (updated) {
       set((s) => ({

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { ActivePort } from "../electron.d.ts";
 import { useProjectStore } from "../store/project-store";
 
@@ -6,6 +6,8 @@ export interface WorkspacePortGroup {
   workspacePath: string;
   workspaceName: string;
   branch: string | null;
+  projectName: string | null;
+  isMain: boolean;
   ports: ActivePort[];
 }
 
@@ -13,11 +15,20 @@ export function usePortsData() {
   const [ports, setPorts] = useState<ActivePort[]>([]);
   const projects = useProjectStore((s) => s.projects);
 
+  // Derive a stable paths key so the scanner only restarts when paths actually change
+  const paths = useMemo(
+    () => projects.flatMap((p) => p.workspaces.map((ws) => ws.path)),
+    [projects]
+  );
+  const pathsKey = paths.join("\0");
+  const pathsRef = useRef(paths);
+  pathsRef.current = paths;
+
   // Collect all workspace paths and feed them to the scanner
   useEffect(() => {
-    const paths = projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
-    if (paths.length > 0) {
-      window.electronAPI.updateWorkspacePaths(paths);
+    const currentPaths = pathsRef.current;
+    if (currentPaths.length > 0) {
+      window.electronAPI.updateWorkspacePaths(currentPaths);
       window.electronAPI.startPortScanner();
       // Do an immediate scan
       window.electronAPI.scanPortsNow().then(setPorts);
@@ -26,7 +37,7 @@ export function usePortsData() {
     return () => {
       window.electronAPI.stopPortScanner();
     };
-  }, [projects]);
+  }, [pathsKey]);
 
   // Subscribe to port change events
   useEffect(() => {
@@ -49,11 +60,15 @@ export function usePortsData() {
       }
     }
 
-    // Build a lookup from workspace path → branch name
+    // Build lookups from workspace path → info
     const branchByPath = new Map<string, string>();
+    const isMainByPath = new Map<string, boolean>();
+    const projectNameByPath = new Map<string, string>();
     for (const project of projects) {
       for (const ws of project.workspaces) {
         if (ws.branch) branchByPath.set(ws.path, ws.branch);
+        isMainByPath.set(ws.path, ws.isMain);
+        projectNameByPath.set(ws.path, project.name);
       }
     }
 
@@ -64,6 +79,8 @@ export function usePortsData() {
         workspacePath: wsPath,
         workspaceName: segments[segments.length - 1] || wsPath,
         branch: branchByPath.get(wsPath) ?? null,
+        projectName: projectNameByPath.get(wsPath) ?? null,
+        isMain: isMainByPath.get(wsPath) ?? false,
         ports: wsPorts.sort((a, b) => a.port - b.port),
       });
     }

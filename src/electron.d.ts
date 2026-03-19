@@ -14,6 +14,7 @@ export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
+  url: string;
   branchName: string;
   priority: number;
   state: { name: string; type: string };
@@ -104,7 +105,7 @@ export interface ElectronAPI {
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Pick<import("./store/project-store").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => Promise<import("./store/project-store").ProjectInfo | null>;
+  updateProject: (projectId: string, updates: import("./store/project-store").ProjectUpdatableFields) => Promise<import("./store/project-store").ProjectInfo | null>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;

@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execSync } from "node:child_process";
+import { execSync, exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
 import type { LinearAssociation } from "./linear";
 
 function slugify(str: string): string {
@@ -35,12 +38,14 @@ export interface ProjectInfo {
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
   selectedWorkspaceIndex: number;
-  setupScript: string | null;
-  teardownScript: string | null;
   defaultRunCommand: string | null;
   worktreePath: string | null;
+  worktreeStartScript: string | null;
+  worktreeTeardownScript: string | null;
   linearAssociations: LinearAssociation[];
 }
+
+export type ProjectUpdatableFields = Partial<Pick<ProjectInfo, "name" | "defaultRunCommand" | "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript" | "linearAssociations">>;
 
 interface PersistedProject {
   id: string;
@@ -49,10 +54,10 @@ interface PersistedProject {
   selectedWorkspaceIndex: number;
   workspaces: unknown[];
   defaultBranch: string;
-  setupScript: string | null;
-  teardownScript: string | null;
   defaultRunCommand: string | null;
   worktreePath: string | null;
+  worktreeStartScript?: string | null;
+  worktreeTeardownScript?: string | null;
   linearAssociations?: LinearAssociation[];
   workspaceNames?: Record<string, string>;
   workspaceOrder?: string[];
@@ -116,10 +121,10 @@ export class ProjectManager {
       selectedWorkspaceIndex: 0,
       workspaces: [],
       defaultBranch: "main",
-      setupScript: null,
-      teardownScript: null,
       defaultRunCommand: null,
       worktreePath: null,
+      worktreeStartScript: null,
+      worktreeTeardownScript: null,
     };
     this.state.projects.push(project);
     this.state.selectedProjectIndex = this.state.projects.length - 1;
@@ -136,10 +141,10 @@ export class ProjectManager {
       defaultBranch: "main",
       workspaces,
       selectedWorkspaceIndex: 0,
-      setupScript: null,
-      teardownScript: null,
       defaultRunCommand: null,
       worktreePath: null,
+      worktreeStartScript: null,
+      worktreeTeardownScript: null,
       linearAssociations: [],
     };
   }
@@ -172,7 +177,7 @@ export class ProjectManager {
     this.saveState();
   }
 
-  updateProject(projectId: string, updates: Partial<Pick<PersistedProject, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>): ProjectInfo | null {
+  updateProject(projectId: string, updates: ProjectUpdatableFields): ProjectInfo | null {
     const project = this.findProject(projectId);
     if (!project) return null;
     Object.assign(project, updates);
@@ -206,10 +211,10 @@ export class ProjectManager {
       defaultBranch: p.defaultBranch,
       workspaces,
       selectedWorkspaceIndex: p.selectedWorkspaceIndex,
-      setupScript: p.setupScript,
-      teardownScript: p.teardownScript,
       defaultRunCommand: p.defaultRunCommand,
       worktreePath: p.worktreePath ?? null,
+      worktreeStartScript: p.worktreeStartScript ?? null,
+      worktreeTeardownScript: p.worktreeTeardownScript ?? null,
       linearAssociations: p.linearAssociations ?? [],
     };
   }
@@ -240,7 +245,7 @@ export class ProjectManager {
     this.saveState();
   }
 
-  removeWorktree(projectId: string, worktreePath: string, deleteBranch?: boolean): void {
+  async removeWorktree(projectId: string, worktreePath: string, deleteBranch?: boolean): Promise<void> {
     const project = this.findProject(projectId);
     if (!project) return;
 
@@ -248,13 +253,12 @@ export class ProjectManager {
     let branchName: string | null = null;
     if (deleteBranch) {
       try {
-        const output = execSync("git worktree list --porcelain", {
+        const { stdout } = await execAsync("git worktree list --porcelain", {
           cwd: project.path,
-          encoding: "utf-8",
-          timeout: 5000,
+          timeout: 10000,
         });
         let currentPath = "";
-        for (const line of output.split("\n")) {
+        for (const line of stdout.split("\n")) {
           if (line.startsWith("worktree ")) {
             currentPath = line.slice(9);
           } else if (line.startsWith("branch refs/heads/") && currentPath === worktreePath) {
@@ -264,11 +268,27 @@ export class ProjectManager {
       } catch { /* proceed without branch deletion */ }
     }
 
-    execSync(`git worktree remove ${JSON.stringify(worktreePath)}`, {
-      cwd: project.path,
-      encoding: "utf-8",
-      timeout: 10000,
-    });
+    // Run worktree teardown script before removal
+    if (project.worktreeTeardownScript) {
+      try {
+        await execAsync(project.worktreeTeardownScript, {
+          cwd: worktreePath,
+          timeout: 30000,
+        });
+      } catch { /* teardown script failure should not block removal */ }
+    }
+
+    try {
+      await execAsync(`git worktree remove --force ${JSON.stringify(worktreePath)}`, {
+        cwd: project.path,
+        timeout: 30000,
+      });
+    } catch {
+      // Worktree may already be gone — prune stale entries and continue
+      try {
+        await execAsync("git worktree prune", { cwd: project.path, timeout: 10000 });
+      } catch { /* best effort */ }
+    }
 
     // Clean up workspace metadata
     if (project.workspaceNames) {
@@ -281,9 +301,8 @@ export class ProjectManager {
 
     if (deleteBranch && branchName) {
       try {
-        execSync(`git branch -D ${JSON.stringify(branchName)}`, {
+        await execAsync(`git branch -D ${JSON.stringify(branchName)}`, {
           cwd: project.path,
-          encoding: "utf-8",
           timeout: 10000,
         });
       } catch { /* branch may already be gone or is checked out elsewhere */ }

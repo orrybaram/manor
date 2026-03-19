@@ -25,8 +25,6 @@ describe("ProjectManager", () => {
 
       expect(project.name).toBe("My Project");
       expect(project.path).toBe("/tmp/fake-project");
-      expect(project.setupScript).toBeNull();
-      expect(project.teardownScript).toBeNull();
       expect(project.defaultRunCommand).toBeNull();
 
       const projects = manager.getProjects();
@@ -98,22 +96,6 @@ describe("ProjectManager", () => {
       expect(manager.getProjects()[0].name).toBe("New Name");
     });
 
-    it("updates setupScript", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
-
-      manager.updateProject(project.id, { setupScript: "npm install" });
-
-      expect(manager.getProjects()[0].setupScript).toBe("npm install");
-    });
-
-    it("updates teardownScript", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
-
-      manager.updateProject(project.id, { teardownScript: "docker-compose down" });
-
-      expect(manager.getProjects()[0].teardownScript).toBe("docker-compose down");
-    });
-
     it("updates defaultRunCommand", () => {
       const project = manager.addProject("Proj", "/tmp/proj");
 
@@ -127,24 +109,21 @@ describe("ProjectManager", () => {
 
       manager.updateProject(project.id, {
         name: "Renamed",
-        setupScript: "setup.sh",
         defaultRunCommand: "make run",
       });
 
       const p = manager.getProjects()[0];
       expect(p.name).toBe("Renamed");
-      expect(p.setupScript).toBe("setup.sh");
       expect(p.defaultRunCommand).toBe("make run");
-      expect(p.teardownScript).toBeNull();
     });
 
     it("can set a field to null", () => {
       const project = manager.addProject("Proj", "/tmp/proj");
-      manager.updateProject(project.id, { setupScript: "initial" });
-      expect(manager.getProjects()[0].setupScript).toBe("initial");
+      manager.updateProject(project.id, { defaultRunCommand: "initial" });
+      expect(manager.getProjects()[0].defaultRunCommand).toBe("initial");
 
-      manager.updateProject(project.id, { setupScript: null });
-      expect(manager.getProjects()[0].setupScript).toBeNull();
+      manager.updateProject(project.id, { defaultRunCommand: null });
+      expect(manager.getProjects()[0].defaultRunCommand).toBeNull();
     });
 
     it("returns null for unknown project id", () => {
@@ -167,13 +146,13 @@ describe("ProjectManager", () => {
       const project = manager.addProject("Proj", "/tmp/proj");
       manager.updateProject(project.id, {
         name: "Persisted",
-        setupScript: "echo hello",
+        defaultRunCommand: "echo hello",
       });
 
       const reloaded = new ProjectManager(tmpDir);
       const p = reloaded.getProjects()[0];
       expect(p.name).toBe("Persisted");
-      expect(p.setupScript).toBe("echo hello");
+      expect(p.defaultRunCommand).toBe("echo hello");
     });
   });
 

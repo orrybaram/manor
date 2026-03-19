@@ -62,7 +62,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
   reorderProjects: (orderedIds: string[]) =>
     ipcRenderer.invoke("projects:reorder", orderedIds),
-  updateProject: (projectId: string, updates: Partial<{ name: string; setupScript: string | null; teardownScript: string | null; defaultRunCommand: string | null; worktreePath: string | null; linearAssociations: Array<{ teamId: string; teamName: string; teamKey: string }> }>) =>
+  updateProject: (projectId: string, updates: Partial<{ name: string; defaultRunCommand: string | null; worktreePath: string | null; worktreeStartScript: string | null; worktreeTeardownScript: string | null; linearAssociations: Array<{ teamId: string; teamName: string; teamKey: string }> }>) =>
     ipcRenderer.invoke("projects:update", projectId, updates),
 
   // Theme

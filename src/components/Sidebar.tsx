@@ -100,7 +100,13 @@ export function Sidebar() {
               key={project.id}
               project={project}
               isSelected={idx === selectedProjectIndex}
-              onSelect={() => selectProject(idx)}
+              onSelect={() => {
+                selectProject(idx);
+                const ws =
+                  project.workspaces[project.selectedWorkspaceIndex] ??
+                  project.workspaces[0];
+                if (ws) setActiveWorkspace(ws.path);
+              }}
               onRemove={() => removeProject(project.id)}
               onSelectWorkspace={(wsIdx) => {
                 selectWorkspace(project.id, wsIdx);

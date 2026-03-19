@@ -1,17 +1,18 @@
-import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
+import { useMemo, useCallback, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Command } from "cmdk";
 import { House, FolderGit2 } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
 import styles from "./CommandPalette.module.css";
 
-interface Command {
+interface CommandItem {
   id: string;
   label: string;
   icon?: ReactNode;
   shortcut?: string;
   group?: string;
+  isActive?: boolean;
   action: () => void;
 }
 
@@ -23,10 +24,6 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }: CommandPaletteProps) {
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
   const addSession = useAppStore((s) => s.addSession);
   const closePane = useAppStore((s) => s.closePane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -49,22 +46,24 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const hasProject = projects.length > 0 && projects[selectedProjectIndex];
 
-  const workspaceCommands: Command[] = useMemo(() => {
-    const cmds: Command[] = [];
+  const workspaceCommands: CommandItem[] = useMemo(() => {
+    const cmds: CommandItem[] = [];
     for (const project of projects) {
       for (let wi = 0; wi < project.workspaces.length; wi++) {
         const workspace = project.workspaces[wi];
         const isActive = workspace.path === activeWorkspacePath;
-        if (isActive) continue;
         const displayName = workspace.name || workspace.branch || "main";
         cmds.push({
           id: `ws-${project.id}-${wi}`,
           label: displayName,
           icon: workspace.isMain ? <House size={14} /> : <FolderGit2 size={14} />,
           group: project.name,
+          isActive,
           action: () => {
-            selectWorkspace(project.id, wi);
-            setActiveWorkspace(workspace.path);
+            if (!isActive) {
+              selectWorkspace(project.id, wi);
+              setActiveWorkspace(workspace.path);
+            }
             onClose();
           },
         });
@@ -73,7 +72,7 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
     return cmds;
   }, [projects, activeWorkspacePath, selectWorkspace, setActiveWorkspace, onClose]);
 
-  const commands: Command[] = useMemo(
+  const commands: CommandItem[] = useMemo(
     () => [
       { id: "new-session", label: "New Session", shortcut: "⌘T", action: () => { addSession(); onClose(); } },
       ...(hasProject ? [{ id: "new-workspace", label: "New Workspace", action: () => { onNewWorkspace?.(); onClose(); } }] : []),
@@ -94,23 +93,25 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
       { id: "zoom-out", label: "Zoom Out", shortcut: "⌘-", action: () => { zoomOut(); onClose(); } },
       { id: "zoom-reset", label: "Reset Zoom", shortcut: "⌘0", action: () => { resetZoom(); onClose(); } },
       { id: "settings", label: "Settings", shortcut: "⌘,", action: () => { onOpenSettings?.(); onClose(); } },
-      ...workspaceCommands,
     ],
-    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, focusPrevPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, onOpenSettings, onNewWorkspace, sessions, selectedSessionId, hasProject, projects, selectedProjectIndex, workspaceCommands]
+    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, focusPrevPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, onOpenSettings, onNewWorkspace, sessions, selectedSessionId, hasProject, projects, selectedProjectIndex]
   );
 
-  const filtered = useMemo(() => {
-    if (!query) return commands;
-    const q = query.toLowerCase();
-    return commands.filter((c) =>
-      c.label.toLowerCase().includes(q) ||
-      (c.group && c.group.toLowerCase().includes(q))
-    );
-  }, [query, commands]);
-
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+  // Group workspace commands by project name, active project first
+  const workspaceGroups = useMemo(() => {
+    const groups = new Map<string, CommandItem[]>();
+    for (const cmd of workspaceCommands) {
+      const group = cmd.group || "Workspaces";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group)!.push(cmd);
+    }
+    const sorted = [...groups.entries()].sort(([, a], [, b]) => {
+      const aActive = a.some((c) => c.isActive) ? 0 : 1;
+      const bActive = b.some((c) => c.isActive) ? 0 : 1;
+      return aActive - bActive;
+    });
+    return new Map(sorted);
+  }, [workspaceCommands]);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -122,9 +123,6 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
-      setQuery("");
-      setSelectedIndex(0);
-      inputRef.current?.focus();
     },
     []
   );
@@ -132,23 +130,10 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
   const handleCloseAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
-      // Refocus the active terminal pane's xterm textarea
       const textarea = document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
       textarea?.focus();
     },
     []
-  );
-
-  const handleSelect = useCallback(
-    (index: number) => { filtered[index]?.action(); },
-    [filtered]
-  );
-
-  const handleKeyDown = useListKeyboardNav(
-    filtered.length,
-    selectedIndex,
-    setSelectedIndex,
-    handleSelect,
   );
 
   return (
@@ -161,42 +146,49 @@ export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }
           onCloseAutoFocus={handleCloseAutoFocus}
         >
           <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-          <input
-            ref={inputRef}
-            className={styles.input}
-            type="text"
-            placeholder="Type a command..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <div className={styles.list}>
-            {filtered.map((cmd, idx) => {
-              const prevGroup = idx > 0 ? filtered[idx - 1].group : undefined;
-              const showGroup = cmd.group && cmd.group !== prevGroup;
-              return (
-                <div key={cmd.id}>
-                  {showGroup && (
-                    <div className={styles.groupHeader}>{cmd.group}</div>
-                  )}
-                  <div
-                    className={`${styles.item} ${idx === selectedIndex ? styles.itemSelected : ""}`}
-                    onClick={() => cmd.action()}
-                    onMouseEnter={() => setSelectedIndex(idx)}
+          <Command className={styles.command} loop>
+            <Command.Input
+              className={styles.input}
+              placeholder="Type a command..."
+              autoFocus
+            />
+            <Command.List className={styles.list}>
+              <Command.Empty className={styles.empty}>No matching commands</Command.Empty>
+              {[...workspaceGroups.entries()].map(([groupName, items]) => (
+                <Command.Group key={groupName} heading={groupName} className={styles.group}>
+                  {items.map((cmd) => (
+                    <Command.Item
+                      key={cmd.id}
+                      value={`${groupName} ${cmd.label}`}
+                      onSelect={cmd.action}
+                      className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
+                    >
+                      {cmd.icon && <span className={styles.icon}>{cmd.icon}</span>}
+                      <span className={styles.label}>{cmd.label}</span>
+                      {cmd.isActive && <span className={styles.activeBadge}>current</span>}
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              ))}
+              <Command.Separator className={styles.separator} />
+              <Command.Group heading="Commands" className={styles.group}>
+                {commands.map((cmd) => (
+                  <Command.Item
+                    key={cmd.id}
+                    value={cmd.label}
+                    onSelect={cmd.action}
+                    className={styles.item}
                   >
                     {cmd.icon && <span className={styles.icon}>{cmd.icon}</span>}
                     <span className={styles.label}>{cmd.label}</span>
                     {cmd.shortcut && (
                       <span className={styles.shortcut}>{cmd.shortcut}</span>
                     )}
-                  </div>
-                </div>
-              );
-            })}
-            {filtered.length === 0 && (
-              <div className={styles.empty}>No matching commands</div>
-            )}
-          </div>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            </Command.List>
+          </Command>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

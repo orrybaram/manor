@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on(channel, listener);
     return () => { ipcRenderer.removeListener(channel, listener); };
   },
+  onPtyAgentStatus: (paneId: string, callback: (agent: unknown) => void) => {
+    const channel = `pty-agent-status-${paneId}`;
+    const listener = (_event: Electron.IpcRendererEvent, agent: unknown) => callback(agent);
+    ipcRenderer.on(channel, listener);
+    return () => { ipcRenderer.removeListener(channel, listener); };
+  },
 
   // Layout persistence
   saveLayout: (workspace: unknown) => ipcRenderer.invoke("layout:save", workspace),
@@ -46,15 +52,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeProject: (projectId: string) => ipcRenderer.invoke("projects:remove", projectId),
   selectWorkspace: (projectId: string, workspaceIndex: number) =>
     ipcRenderer.invoke("projects:selectWorkspace", projectId, workspaceIndex),
-  removeWorktree: (projectId: string, worktreePath: string) =>
-    ipcRenderer.invoke("projects:removeWorktree", projectId, worktreePath),
+  removeWorktree: (projectId: string, worktreePath: string, deleteBranch?: boolean) =>
+    ipcRenderer.invoke("projects:removeWorktree", projectId, worktreePath, deleteBranch),
   createWorktree: (projectId: string, name: string, branch?: string) =>
     ipcRenderer.invoke("projects:createWorktree", projectId, name, branch),
   renameWorkspace: (projectId: string, workspacePath: string, newName: string) =>
     ipcRenderer.invoke("projects:renameWorkspace", projectId, workspacePath, newName),
   reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
     ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
-  updateProject: (projectId: string, updates: Partial<{ name: string; setupScript: string | null; teardownScript: string | null; defaultRunCommand: string | null; worktreePath: string | null }>) =>
+  reorderProjects: (orderedIds: string[]) =>
+    ipcRenderer.invoke("projects:reorder", orderedIds),
+  updateProject: (projectId: string, updates: Partial<{ name: string; setupScript: string | null; teardownScript: string | null; defaultRunCommand: string | null; worktreePath: string | null; linearAssociations: Array<{ teamId: string; teamName: string; teamKey: string }> }>) =>
     ipcRenderer.invoke("projects:update", projectId, updates),
 
   // Theme
@@ -90,6 +98,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),
   getPrsForBranches: (repoPath: string, branches: string[]) =>
     ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
+
+  // Linear
+  linearConnect: (apiKey: string) => ipcRenderer.invoke("linear:connect", apiKey),
+  linearDisconnect: () => ipcRenderer.invoke("linear:disconnect"),
+  linearIsConnected: () => ipcRenderer.invoke("linear:isConnected"),
+  linearGetViewer: () => ipcRenderer.invoke("linear:getViewer"),
+  linearGetTeams: () => ipcRenderer.invoke("linear:getTeams"),
+  linearGetMyIssues: (teamIds: string[]) => ipcRenderer.invoke("linear:getMyIssues", teamIds),
+  linearAutoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
 
   // Dialog
   openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),

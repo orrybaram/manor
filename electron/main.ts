@@ -1,4 +1,6 @@
-import { app, BrowserWindow, Menu, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen } from "electron";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence, type PersistedWorkspace, type PersistedLayout } from "./terminal-host/layout-persistence";
@@ -8,15 +10,67 @@ import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
 import { BranchWatcher } from "./branch-watcher";
 import { GitHubManager } from "./github";
+import { LinearManager } from "./linear";
 import { ShellManager } from "./shell";
 import type { StreamEvent } from "./terminal-host/types";
 
 let mainWindow: BrowserWindow | null = null;
 
+interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
+function windowBoundsPath(): string {
+  const dataDir = process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support", "Manor")
+    : path.join(os.homedir(), ".local", "share", "Manor");
+  return path.join(dataDir, "window-bounds.json");
+}
+
+function loadWindowBounds(): WindowBounds | null {
+  try {
+    const data = fs.readFileSync(windowBoundsPath(), "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
+function saveWindowBounds(win: BrowserWindow): void {
+  const bounds: WindowBounds = {
+    ...win.getBounds(),
+    isMaximized: win.isMaximized(),
+  };
+  try {
+    const boundsPath = windowBoundsPath();
+    fs.mkdirSync(path.dirname(boundsPath), { recursive: true });
+    fs.writeFileSync(boundsPath, JSON.stringify(bounds));
+  } catch { /* ignore write errors */ }
+}
+
+function boundsAreVisible(bounds: WindowBounds): boolean {
+  const displays = screen.getAllDisplays();
+  // Check if the window's center point is within any display
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  return displays.some((display) => {
+    const { x, y, width, height } = display.workArea;
+    return cx >= x && cx < x + width && cy >= y && cy < y + height;
+  });
+}
+
 function createWindow() {
+  const saved = loadWindowBounds();
+  const useSaved = saved && boundsAreVisible(saved);
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: useSaved ? saved.width : 1200,
+    height: useSaved ? saved.height : 800,
+    ...(useSaved ? { x: saved.x, y: saved.y } : {}),
     minWidth: 400,
     minHeight: 300,
     titleBarStyle: "hiddenInset",
@@ -27,6 +81,28 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  if (useSaved && saved.isMaximized) {
+    mainWindow.maximize();
+  }
+
+  // Persist bounds on move/resize (debounced)
+  let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+  const persistBounds = () => {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        saveWindowBounds(mainWindow);
+      }
+    }, 500);
+  };
+  mainWindow.on("resize", persistBounds);
+  mainWindow.on("move", persistBounds);
+  mainWindow.on("close", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      saveWindowBounds(mainWindow);
+    }
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -44,6 +120,7 @@ const themeManager = new ThemeManager();
 const portScanner = new PortScanner();
 const branchWatcher = new BranchWatcher();
 const githubManager = new GitHubManager();
+const linearManager = new LinearManager();
 
 // Ensure shell integration is set up
 ShellManager.setupZdotdir();
@@ -64,6 +141,9 @@ client.onEvent((event: StreamEvent) => {
         break;
       case "error":
         mainWindow.webContents.send(`pty-error-${event.sessionId}`, event.message);
+        break;
+      case "agentStatus":
+        mainWindow.webContents.send(`pty-agent-status-${event.sessionId}`, event.agent);
         break;
     }
   } catch {
@@ -170,8 +250,8 @@ ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspace
   projectManager.selectWorkspace(projectId, workspaceIndex);
 });
 
-ipcMain.handle("projects:removeWorktree", (_event, projectId: string, worktreePath: string) => {
-  projectManager.removeWorktree(projectId, worktreePath);
+ipcMain.handle("projects:removeWorktree", (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+  projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
 });
 
 ipcMain.handle("projects:createWorktree", (_event, projectId: string, name: string, branch?: string) => {
@@ -186,7 +266,11 @@ ipcMain.handle("projects:reorderWorkspaces", (_event, projectId: string, ordered
   projectManager.reorderWorkspaces(projectId, orderedPaths);
 });
 
-ipcMain.handle("projects:update", (_event, projectId: string, updates: Partial<Pick<import("./persistence").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath">>) => {
+ipcMain.handle("projects:reorder", (_event, orderedIds: string[]) => {
+  projectManager.reorderProjects(orderedIds);
+});
+
+ipcMain.handle("projects:update", (_event, projectId: string, updates: Partial<Pick<import("./persistence").ProjectInfo, "name" | "setupScript" | "teardownScript" | "defaultRunCommand" | "worktreePath" | "linearAssociations">>) => {
   return projectManager.updateProject(projectId, updates);
 });
 
@@ -251,6 +335,55 @@ ipcMain.handle("github:getPrForBranch", (_event, repoPath: string, branch: strin
 
 ipcMain.handle("github:getPrsForBranches", (_event, repoPath: string, branches: string[]) => {
   return githubManager.getPrsForBranches(repoPath, branches);
+});
+
+// ── Linear IPC ──
+ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
+  linearManager.saveToken(apiKey);
+  try {
+    const viewer = await linearManager.getViewer();
+    return viewer;
+  } catch (err) {
+    linearManager.clearToken();
+    throw err;
+  }
+});
+
+ipcMain.handle("linear:disconnect", () => {
+  linearManager.clearToken();
+});
+
+ipcMain.handle("linear:isConnected", () => {
+  return linearManager.isConnected();
+});
+
+ipcMain.handle("linear:getViewer", async () => {
+  return linearManager.getViewer();
+});
+
+ipcMain.handle("linear:getTeams", async () => {
+  return linearManager.getTeams();
+});
+
+ipcMain.handle("linear:getMyIssues", async (_event, teamIds: string[]) => {
+  return linearManager.getMyIssues(teamIds);
+});
+
+ipcMain.handle("linear:autoMatch", async () => {
+  const projects = projectManager.getProjects();
+  const teams = await linearManager.getTeams();
+  const matches = linearManager.autoMatchProjects(
+    projects.map((p) => ({ id: p.id, name: p.name })),
+    teams
+  );
+  // Apply matches to projects without existing associations
+  for (const [projectId, association] of Object.entries(matches)) {
+    const project = projects.find((p) => p.id === projectId);
+    if (project && project.linearAssociations.length === 0) {
+      projectManager.updateProject(projectId, { linearAssociations: [association] });
+    }
+  }
+  return matches;
 });
 
 // ── Dialog IPC ──

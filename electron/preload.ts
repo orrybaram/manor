@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("projects:selectWorkspace", projectId, workspaceIndex),
   removeWorktree: (projectPath: string, worktreePath: string) =>
     ipcRenderer.invoke("projects:removeWorktree", projectPath, worktreePath),
+  createWorktree: (projectId: string, name: string, branch?: string) =>
+    ipcRenderer.invoke("projects:createWorktree", projectId, name, branch),
+  renameWorkspace: (projectId: string, workspacePath: string, newName: string) =>
+    ipcRenderer.invoke("projects:renameWorkspace", projectId, workspacePath, newName),
+  reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
+    ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
+  updateProject: (projectId: string, updates: Record<string, unknown>) =>
+    ipcRenderer.invoke("projects:update", projectId, updates),
 
   // Theme
   getTheme: () => ipcRenderer.invoke("theme:get"),

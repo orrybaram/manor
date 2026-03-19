@@ -103,7 +103,7 @@ function App() {
     <div className="app">
       <div className="app-body">
         {sidebarVisible && <Sidebar />}
-        <div className={`main-content ${!sidebarVisible ? "no-sidebar" : ""}`}>
+        <div className="main-content">
           <TabBar />
           <div className="terminal-container">
             {/* Render all sessions across all workspaces — only show the active one.

@@ -1,32 +1,76 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import electron from "vite-plugin-electron";
+import renderer from "vite-plugin-electron-renderer";
 
-// @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
-
-// https://vite.dev/config/
-export default defineConfig(async () => ({
-  plugins: [react()],
-
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
+export default defineConfig({
+  plugins: [
+    react(),
+    electron([
+      {
+        entry: "electron/main.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              external: ["node-pty", "tree-kill"],
+              output: {
+                format: "cjs",
+              },
+            },
+          },
+        },
+      },
+      {
+        entry: "electron/preload.ts",
+        onstart(args) {
+          args.reload();
+        },
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              output: {
+                format: "cjs",
+              },
+            },
+          },
+        },
+      },
+      {
+        // Terminal host daemon — runs as standalone Node.js process
+        entry: "electron/terminal-host/index.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              external: ["node-pty", "tree-kill", "@xterm/headless", "@xterm/addon-serialize"],
+              output: {
+                format: "cjs",
+                entryFileNames: "terminal-host-index.js",
+              },
+            },
+          },
+        },
+      },
+      {
+        // PTY subprocess — one per terminal session
+        entry: "electron/terminal-host/pty-subprocess.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              external: ["node-pty", "tree-kill"],
+              output: {
+                format: "cjs",
+                entryFileNames: "pty-subprocess.js",
+              },
+            },
+          },
+        },
+      },
+    ]),
+    renderer(),
+  ],
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
-  server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
-    watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
-    },
-  },
-}));
+});

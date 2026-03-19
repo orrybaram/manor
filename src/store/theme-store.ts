@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
 
 export interface Theme {
   background: string;
@@ -35,7 +34,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
   theme: null,
 
   loadTheme: async () => {
-    const theme = await invoke<Theme>("get_theme");
+    const theme = await window.electronAPI.getTheme();
     set({ theme });
 
     // Apply to CSS custom properties for chrome colors

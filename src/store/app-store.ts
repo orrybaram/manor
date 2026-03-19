@@ -7,6 +7,7 @@ import {
   removePane,
   nextPaneId,
 } from "./pane-tree";
+import type { PersistedWorkspace, PersistedSession, PersistedLayout } from "../electron.d";
 
 function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
@@ -43,13 +44,38 @@ function createWorkspaceState(): WorkspaceSessionState {
   return { sessions: [session], selectedSessionId: session.id };
 }
 
+/** Convert a PersistedWorkspace back into a WorkspaceSessionState */
+function restoreWorkspaceState(persisted: PersistedWorkspace): WorkspaceSessionState {
+  const sessions: Session[] = persisted.sessions.map((ps) => ({
+    id: ps.id,
+    title: ps.title,
+    rootNode: ps.rootNode,
+    focusedPaneId: ps.focusedPaneId,
+  }));
+
+  if (sessions.length === 0) {
+    return createWorkspaceState();
+  }
+
+  return {
+    sessions,
+    selectedSessionId: persisted.selectedSessionId || sessions[0].id,
+  };
+}
+
 export interface AppState {
   workspaceSessions: Record<string, WorkspaceSessionState>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
+  layoutLoaded: boolean;
+  /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
+  closedPaneIds: Set<string>;
 
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
+
+  // Layout restore — called once on startup
+  loadPersistedLayout: () => Promise<void>;
 
   // Session operations
   addSession: () => void;
@@ -87,17 +113,66 @@ const DEFAULT_FONT_SIZE = 13;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 
+// Cache the loaded layout so setActiveWorkspace can check it synchronously
+let _cachedLayout: PersistedLayout | null = null;
+
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceSessions: {},
   activeWorkspacePath: null,
   paneCwd: {},
   fontSize: DEFAULT_FONT_SIZE,
+  layoutLoaded: false,
+  closedPaneIds: new Set<string>(),
+
+  loadPersistedLayout: async () => {
+    try {
+      const layout = await window.electronAPI?.loadLayout();
+      if (layout) {
+        _cachedLayout = layout;
+
+        // Pre-populate paneCwd from persisted data
+        const cwds: Record<string, string> = {};
+        for (const ws of layout.workspaces) {
+          for (const session of ws.sessions) {
+            for (const [paneId, paneSession] of Object.entries(session.paneSessions)) {
+              if (paneSession.lastCwd) {
+                cwds[paneId] = paneSession.lastCwd;
+              }
+            }
+          }
+        }
+
+        set({ layoutLoaded: true, paneCwd: { ...get().paneCwd, ...cwds } });
+      } else {
+        set({ layoutLoaded: true });
+      }
+    } catch {
+      set({ layoutLoaded: true });
+    }
+  },
 
   setActiveWorkspace: (path: string) =>
     set((state) => {
+      // Already initialized for this workspace
       if (state.workspaceSessions[path]) {
         return { activeWorkspacePath: path };
       }
+
+      // Check persisted layout for this workspace
+      if (_cachedLayout) {
+        const persisted = _cachedLayout.workspaces.find((w) => w.workspacePath === path);
+        if (persisted && persisted.sessions.length > 0) {
+          return {
+            activeWorkspacePath: path,
+            workspaceSessions: {
+              ...state.workspaceSessions,
+              [path]: restoreWorkspaceState(persisted),
+            },
+          };
+        }
+      }
+
+      // No persisted state — create fresh
       return {
         activeWorkspacePath: path,
         workspaceSessions: {
@@ -220,8 +295,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
     if (!session) return;
 
-    const remaining = removePane(session.rootNode, session.focusedPaneId);
+    // Mark the focused pane as explicitly closed (should be killed, not detached)
+    const closingPaneId = session.focusedPaneId;
+    state.closedPaneIds.add(closingPaneId);
+
+    const remaining = removePane(session.rootNode, closingPaneId);
     if (remaining === null) {
+      // All panes in this session are closed — mark them all
+      for (const pid of allPaneIds(session.rootNode)) {
+        state.closedPaneIds.add(pid);
+      }
       get().closeSession(session.id);
       return;
     }
@@ -305,3 +388,55 @@ export const useAppStore = create<AppState>((set, get) => ({
       return state;
     }),
 }));
+
+// ── Layout Persistence ──
+
+let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounced save of the active workspace's layout to disk */
+function saveActiveWorkspaceLayout(): void {
+  if (saveLayoutTimer) clearTimeout(saveLayoutTimer);
+  saveLayoutTimer = setTimeout(() => {
+    saveLayoutTimer = null;
+
+    const state = useAppStore.getState();
+    const wsPath = state.activeWorkspacePath;
+    if (!wsPath) return;
+    const ws = state.workspaceSessions[wsPath];
+    if (!ws) return;
+
+    const persisted: PersistedWorkspace = {
+      workspacePath: wsPath,
+      sessions: ws.sessions.map((s) => {
+        const paneIds = allPaneIds(s.rootNode);
+        const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null }> = {};
+        for (const pid of paneIds) {
+          paneSessions[pid] = {
+            daemonSessionId: pid,
+            lastCwd: state.paneCwd[pid] ?? null,
+          };
+        }
+        return {
+          id: s.id,
+          title: s.title,
+          rootNode: s.rootNode,
+          focusedPaneId: s.focusedPaneId,
+          paneSessions,
+        } satisfies PersistedSession;
+      }),
+      selectedSessionId: ws.selectedSessionId,
+    };
+
+    window.electronAPI?.saveLayout(persisted);
+  }, 500);
+}
+
+// Subscribe to store changes and auto-save layout
+useAppStore.subscribe((state, prevState) => {
+  if (
+    state.workspaceSessions !== prevState.workspaceSessions ||
+    state.activeWorkspacePath !== prevState.activeWorkspacePath
+  ) {
+    saveActiveWorkspaceLayout();
+  }
+});

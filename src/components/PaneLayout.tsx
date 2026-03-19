@@ -31,14 +31,57 @@ function LeafPane({ paneId, workspacePath }: { paneId: string; workspacePath?: s
     const session = ws?.sessions.find((t) => t.id === ws.selectedSessionId);
     return session?.focusedPaneId;
   });
+  const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
+  const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const focusPane = useAppStore((s) => s.focusPane);
+  const splitPane = useAppStore((s) => s.splitPane);
+  const closePane = useAppStore((s) => s.closePane);
   const isFocused = focusedPaneId === paneId;
+
+  const title = paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
+
+  const handleSplit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    focusPane(paneId);
+    splitPane("horizontal");
+  };
+
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    focusPane(paneId);
+    closePane();
+  };
 
   return (
     <div
       className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >
+      <div className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""}`}>
+          <span className={styles.paneStatusTitle}>{title}</span>
+          <div className={styles.paneStatusActions}>
+            <button
+              className={styles.paneStatusBtn}
+              onClick={handleSplit}
+              title="Split pane"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <rect x="1" y="1" width="14" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                <line x1="8" y1="1.5" x2="8" y2="14.5" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </button>
+            <button
+              className={styles.paneStatusBtn}
+              onClick={handleClose}
+              title="Close pane"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" strokeWidth="1.5" />
+                <line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </button>
+          </div>
+        </div>
       <TerminalPane paneId={paneId} cwd={workspacePath} />
     </div>
   );

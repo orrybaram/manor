@@ -84,11 +84,11 @@ export function TabBar() {
             onClose={() => closeSession(session.id)}
           />
         ))}
+        <button className={styles.addButton} onClick={addSession}>
+          +
+        </button>
       </div>
       <div className={styles.spacer} />
-      <button className={styles.addButton} onClick={addSession}>
-        +
-      </button>
     </div>
   );
 }

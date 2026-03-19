@@ -37,6 +37,8 @@
   --text-selected: #cdd6f4;
   --text-dim: #cdd6f466;
   --accent: #89b4fa;
+  --danger: #ee5555;
+  --danger-hover: #dd3333;
 }
 
 * {

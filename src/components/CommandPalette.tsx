@@ -15,9 +15,10 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onNewWorkspace?: () => void;
 }
 
-export function CommandPalette({ open, onClose, onOpenSettings }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onOpenSettings, onNewWorkspace }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,10 +37,14 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
   const zoomOut = useAppStore((s) => s.zoomOut);
   const resetZoom = useAppStore((s) => s.resetZoom);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
+  const projects = useProjectStore((s) => s.projects);
+  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
+  const hasProject = projects.length > 0 && projects[selectedProjectIndex];
 
   const commands: Command[] = useMemo(
     () => [
       { id: "new-session", label: "New Session", shortcut: "⌘T", action: () => { addSession(); onClose(); } },
+      ...(hasProject ? [{ id: "new-workspace", label: `New Workspace${hasProject ? ` (${projects[selectedProjectIndex].name})` : ""}`, action: () => { onNewWorkspace?.(); onClose(); } }] : []),
       { id: "close-pane", label: "Close Pane", shortcut: "⌘W", action: () => { closePane(); onClose(); } },
       { id: "close-session", label: "Close Session", shortcut: "⌘⇧W", action: () => {
         const session = sessions.find(s => s.id === selectedSessionId);
@@ -57,7 +62,7 @@ export function CommandPalette({ open, onClose, onOpenSettings }: CommandPalette
       { id: "zoom-reset", label: "Reset Zoom", shortcut: "⌘0", action: () => { resetZoom(); onClose(); } },
       { id: "settings", label: "Settings", shortcut: "⌘,", action: () => { onOpenSettings?.(); onClose(); } },
     ],
-    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, onOpenSettings, sessions, selectedSessionId]
+    [addSession, closePane, closeSession, splitPane, selectNextSession, selectPrevSession, focusNextPane, toggleSidebar, zoomIn, zoomOut, resetZoom, onClose, onOpenSettings, onNewWorkspace, sessions, selectedSessionId, hasProject, projects, selectedProjectIndex]
   );
 
   const filtered = useMemo(() => {

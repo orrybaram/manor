@@ -1,9 +1,11 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Plus, ChevronDown, ChevronRight, ExternalLink, X } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { Plus, ChevronDown, ChevronRight, ExternalLink, House, FolderGit2 } from "lucide-react";
 import { useProjectStore, type ProjectInfo, type WorkspaceInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
+import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar() {
@@ -15,6 +17,9 @@ export function Sidebar() {
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const removeWorktree = useProjectStore((s) => s.removeWorktree);
+  const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
+  const reorderWorkspaces = useProjectStore((s) => s.reorderWorkspaces);
+  const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
@@ -117,6 +122,12 @@ export function Sidebar() {
                 if (ws) setActiveWorkspace(ws.path);
               }}
               onRemoveWorktree={(ws) => removeWorktree(project.id, ws.path)}
+              onRenameWorkspace={(ws, newName) => renameWorkspace(project.id, ws.path, newName)}
+              onReorderWorkspaces={(orderedPaths) => reorderWorkspaces(project.id, orderedPaths)}
+              onCreateWorktree={async (name, branch) => {
+                const wsPath = await createWorktree(project.id, name, branch);
+                if (wsPath) setActiveWorkspace(wsPath);
+              }}
             />
           ))}
         </div>
@@ -216,6 +227,9 @@ function ProjectItem({
   onRemove,
   onSelectWorkspace,
   onRemoveWorktree,
+  onRenameWorkspace,
+  onReorderWorkspaces,
+  onCreateWorktree,
 }: {
   project: ProjectInfo;
   isSelected: boolean;
@@ -223,45 +237,264 @@ function ProjectItem({
   onRemove: () => void;
   onSelectWorkspace: (index: number) => void;
   onRemoveWorktree: (ws: WorkspaceInfo) => void;
+  onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
+  onReorderWorkspaces: (orderedPaths: string[]) => void;
+  onCreateWorktree: (name: string, branch: string) => void;
 }) {
   const [expanded, setExpanded] = useState(isSelected);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const editRef = useRef<HTMLInputElement>(null);
+
+  // Drag-and-drop state
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dropIndexRef = useRef<number | null>(null);
+  const dragStartY = useRef(0);
+  const dragActive = useRef(false);
+  const justDragged = useRef(false);
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const itemHeights = useRef<number[]>([]);
+
+  const startRename = useCallback((ws: WorkspaceInfo) => {
+    setEditingPath(ws.path);
+    setEditValue(ws.name || ws.branch || "");
+  }, []);
+
+  const commitRename = useCallback(
+    (ws: WorkspaceInfo) => {
+      setEditingPath(null);
+      onRenameWorkspace(ws, editValue);
+    },
+    [editValue, onRenameWorkspace]
+  );
+
+  useEffect(() => {
+    if (editingPath && editRef.current) {
+      editRef.current.focus();
+      editRef.current.select();
+    }
+  }, [editingPath]);
+
+  const handleDragStart = useCallback(
+    (idx: number, e: ReactPointerEvent) => {
+      if (editingPath) return;
+      // Only handle left mouse button
+      if (e.button !== 0) return;
+
+      const target = e.currentTarget as HTMLElement;
+      dragStartY.current = e.clientY;
+      dragActive.current = false;
+
+      // Snapshot item heights
+      const heights: number[] = [];
+      for (let i = 0; i < project.workspaces.length; i++) {
+        const el = itemRefs.current.get(i);
+        heights[i] = el ? el.getBoundingClientRect().height + 8 : 36; // 8 = gap
+      }
+      itemHeights.current = heights;
+
+      // Use pointer capture so we get events even outside the element
+      target.setPointerCapture(e.pointerId);
+
+      const onMove = (ev: globalThis.PointerEvent) => {
+        const dy = ev.clientY - dragStartY.current;
+        if (!dragActive.current && Math.abs(dy) < 4) return;
+
+        if (!dragActive.current) {
+          dragActive.current = true;
+          setDragIndex(idx);
+          setDropIndex(idx);
+        }
+
+        // Calculate which index we're over
+        let offset = 0;
+        let targetIdx = idx;
+        if (dy < 0) {
+          // Moving up
+          for (let i = idx - 1; i >= 0; i--) {
+            offset -= itemHeights.current[i];
+            if (dy < offset + itemHeights.current[i] / 2) {
+              targetIdx = i;
+            } else break;
+          }
+        } else {
+          // Moving down
+          for (let i = idx + 1; i < project.workspaces.length; i++) {
+            offset += itemHeights.current[i];
+            if (dy > offset - itemHeights.current[i] / 2) {
+              targetIdx = i;
+            } else break;
+          }
+        }
+        dropIndexRef.current = targetIdx;
+        setDropIndex(targetIdx);
+      };
+
+      const onUp = () => {
+        target.removeEventListener("pointermove", onMove);
+        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("lostpointercapture", onUp);
+
+        if (dragActive.current) {
+          justDragged.current = true;
+          const finalDrop = dropIndexRef.current ?? idx;
+          if (finalDrop !== idx) {
+            const paths = project.workspaces.map((ws) => ws.path);
+            const [moved] = paths.splice(idx, 1);
+            paths.splice(finalDrop, 0, moved);
+            onReorderWorkspaces(paths);
+          }
+          // Reset justDragged after click event has had a chance to fire
+          requestAnimationFrame(() => { justDragged.current = false; });
+        }
+        dragActive.current = false;
+        dropIndexRef.current = null;
+        setDragIndex(null);
+        setDropIndex(null);
+      };
+
+      target.addEventListener("pointermove", onMove);
+      target.addEventListener("pointerup", onUp);
+      target.addEventListener("lostpointercapture", onUp);
+    },
+    [editingPath, project.workspaces, onReorderWorkspaces]
+  );
+
+  // Compute transform offsets for smooth animation
+  const getTransformStyle = (idx: number): React.CSSProperties => {
+    if (dragIndex === null || dropIndex === null || dragIndex === dropIndex) return {};
+    const h = itemHeights.current[dragIndex] || 36;
+    if (idx === dragIndex) {
+      // The dragged item moves to drop position
+      const direction = dropIndex > dragIndex ? 1 : -1;
+      let total = 0;
+      const [start, end] =
+        direction > 0 ? [dragIndex + 1, dropIndex] : [dropIndex, dragIndex - 1];
+      for (let i = start; i <= end; i++) {
+        total += itemHeights.current[i] || 36;
+      }
+      return {
+        transform: `translateY(${direction * total}px)`,
+        zIndex: 10,
+        transition: "transform 150ms ease",
+      };
+    }
+    if (
+      (dropIndex > dragIndex && idx > dragIndex && idx <= dropIndex) ||
+      (dropIndex < dragIndex && idx < dragIndex && idx >= dropIndex)
+    ) {
+      const direction = dropIndex > dragIndex ? -1 : 1;
+      return {
+        transform: `translateY(${direction * h}px)`,
+        transition: "transform 150ms ease",
+      };
+    }
+    return { transition: "transform 150ms ease" };
+  };
 
   return (
-    <div className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}>
-      <div
-        className={styles.projectHeader}
-        onClick={() => {
-          onSelect();
-          setExpanded(!expanded);
-        }}
-      >
-        <span className={styles.projectChevron}>
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </span>
-        <span className={styles.projectName}>{project.name}</span>
-        <button
-          className={styles.projectRemove}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-        >
-          <X size={12} />
-        </button>
-      </div>
+    <div className={styles.project}>
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            className={styles.projectHeader}
+            onClick={() => {
+              setExpanded(!expanded);
+            }}
+          >
+            <span className={styles.projectChevron}>
+              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>
+            <span className={styles.projectName} title={project.path}>{project.name}</span>
+            <button
+              className={styles.projectAction}
+              onClick={(e) => {
+                e.stopPropagation();
+                setNewWorkspaceOpen(true);
+              }}
+              title="New Workspace"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className={styles.contextMenu}>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => setNewWorkspaceOpen(true)}
+            >
+              New Workspace
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+              onSelect={() => setConfirmRemove(true)}
+            >
+              Remove Project
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
       {expanded && (
         <div className={styles.workspaces}>
           {project.workspaces.map((ws, idx) => {
+            const isEditing = editingPath === ws.path;
+            const displayName = ws.name || ws.branch || "main";
+            const isDragging = dragIndex === idx;
+
             const workspaceEl = (
               <div
                 key={ws.path}
+                ref={(el) => {
+                  if (el) itemRefs.current.set(idx, el);
+                  else itemRefs.current.delete(idx);
+                }}
                 className={`${styles.workspace} ${
                   idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
-                }`}
-                onClick={() => onSelectWorkspace(idx)}
+                } ${isDragging ? styles.workspaceDragging : ""}`}
+                style={getTransformStyle(idx)}
+                onClick={() => {
+                  if (!justDragged.current) onSelectWorkspace(idx);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startRename(ws);
+                }}
+                onPointerDown={(e) => handleDragStart(idx, e)}
               >
-                <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
-                {ws.isMain && <span className={styles.workspaceBadge}>main</span>}
+                {isEditing ? (
+                  <input
+                    ref={editRef}
+                    className={styles.workspaceNameInput}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => {
+                      if (editingPath) commitRename(ws);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(ws);
+                      if (e.key === "Escape") {
+                        setEditingPath(null);
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <span className={styles.workspaceIcon}>
+                      {ws.isMain ? <House size={12} /> : <FolderGit2 size={12} />}
+                    </span>
+                    <div className={styles.workspaceLabel}>
+                      <span className={styles.workspaceName}>{displayName}</span>
+                      <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
+                    </div>
+                  </>
+                )}
               </div>
             );
 
@@ -276,6 +509,12 @@ function ProjectItem({
                   <ContextMenu.Content className={styles.contextMenu}>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
+                      onSelect={() => startRename(ws)}
+                    >
+                      Rename Workspace
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className={styles.contextMenuItem}
                       onSelect={() => onRemoveWorktree(ws)}
                     >
                       Delete Worktree
@@ -287,6 +526,47 @@ function ProjectItem({
           })}
         </div>
       )}
+
+      <NewWorkspaceDialog
+        open={newWorkspaceOpen}
+        onClose={() => setNewWorkspaceOpen(false)}
+        onSubmit={(name, branch) => {
+          setNewWorkspaceOpen(false);
+          onCreateWorktree(name, branch);
+        }}
+      />
+
+      <Dialog.Root open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.confirmOverlay} />
+          <Dialog.Content className={styles.confirmDialog}>
+            <Dialog.Title className={styles.confirmTitle}>
+              Remove Project
+            </Dialog.Title>
+            <Dialog.Description className={styles.confirmDescription}>
+              Remove <strong>{project.name}</strong> from the sidebar? This won't
+              delete any files on disk.
+            </Dialog.Description>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.confirmCancel}
+                onClick={() => setConfirmRemove(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.confirmRemove}
+                onClick={() => {
+                  setConfirmRemove(false);
+                  onRemove();
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

@@ -63,13 +63,26 @@ export type ControlResponse =
   | { type: "pong" }
   | { type: "error"; message: string };
 
+// ── Agent status types ──
+
+export type AgentKind = "claude" | "opencode" | "codex";
+export type AgentStatus = "idle" | "running" | "waiting" | "complete" | "error";
+
+export interface AgentState {
+  kind: AgentKind | null;
+  status: AgentStatus;
+  processName: string | null;
+  since: number; // timestamp
+}
+
 // ── Stream socket event types ──
 
 export type StreamEvent =
   | { type: "data"; sessionId: string; data: string }
   | { type: "exit"; sessionId: string; exitCode: number }
   | { type: "cwd"; sessionId: string; cwd: string }
-  | { type: "error"; sessionId: string; message: string };
+  | { type: "error"; sessionId: string; message: string }
+  | { type: "agentStatus"; sessionId: string; agent: AgentState };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 

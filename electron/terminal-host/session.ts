@@ -18,6 +18,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { MSG, FrameDecoder, encodeFrame, encodeJsonFrame } from "./pty-subprocess-ipc";
 import { ShellManager } from "../shell";
 import { ScrollbackWriter } from "./scrollback";
+import { AgentDetector } from "./agent-detector";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -50,6 +51,9 @@ export class Session {
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
 
+  // Agent detection
+  private agentDetector: AgentDetector;
+
   // OSC 7 parser state
   private oscBuf: number[] = [];
   private inOsc7 = false;
@@ -75,6 +79,12 @@ export class Session {
       this.scrollbackWriter = new ScrollbackWriter(sessionId, sessionsDir);
       this.scrollbackWriter.init({ sessionId, cols, rows, cwd });
     }
+
+    // Agent detection
+    this.agentDetector = new AgentDetector();
+    this.agentDetector.onStatusChange = (state) => {
+      this.broadcastEvent({ type: "agentStatus", sessionId: this.sessionId, agent: state });
+    };
   }
 
   get alive(): boolean {
@@ -181,6 +191,9 @@ export class Session {
         // Track terminal modes from escape sequences
         this.trackModes(data);
 
+        // Feed agent detector with output timing
+        this.agentDetector.processOutput(data);
+
         // Broadcast to attached clients
         this.broadcastEvent({ type: "data", sessionId: this.sessionId, data });
         break;
@@ -199,6 +212,12 @@ export class Session {
       case MSG.ERROR: {
         const { message } = JSON.parse(payload.toString("utf-8"));
         this.broadcastEvent({ type: "error", sessionId: this.sessionId, message });
+        break;
+      }
+
+      case MSG.FGPROC: {
+        const { name } = JSON.parse(payload.toString("utf-8"));
+        this.agentDetector.updateForegroundProcess(name);
         break;
       }
     }
@@ -238,6 +257,7 @@ export class Session {
       this.subprocess = null;
     }
     this._alive = false;
+    this.agentDetector.dispose();
     this.scrollbackWriter?.end();
     this.scrollbackWriter?.dispose();
     this.scrollbackWriter = null;
@@ -352,8 +372,14 @@ export class Session {
     if (data.includes("\x1b[?1l")) this.modes.applicationCursor = false;
 
     // Alt screen: CSI ?1049h (enable) / CSI ?1049l (disable)
-    if (data.includes("\x1b[?1049h")) this.modes.altScreen = true;
-    if (data.includes("\x1b[?1049l")) this.modes.altScreen = false;
+    if (data.includes("\x1b[?1049h")) {
+      this.modes.altScreen = true;
+      this.agentDetector.setAltScreen(true);
+    }
+    if (data.includes("\x1b[?1049l")) {
+      this.modes.altScreen = false;
+      this.agentDetector.setAltScreen(false);
+    }
 
     // Mouse tracking: CSI ?1000h (enable) / CSI ?1000l (disable)
     if (data.includes("\x1b[?1000h")) this.modes.mouseTracking = true;

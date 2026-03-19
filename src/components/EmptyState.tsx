@@ -1,7 +1,8 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState, useEffect, useCallback, useMemo } from "react";
 import { Terminal, Search, Trash2, FolderDown } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import type { LinearIssue } from "../electron.d";
 import styles from "./EmptyState.module.css";
 
 interface ActionItem {
@@ -18,10 +19,69 @@ export function WorkspaceEmptyState() {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const removeWorktree = useProjectStore((s) => s.removeWorktree);
+  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const createWorktree = useProjectStore((s) => s.createWorktree);
 
   const project = projects[selectedProjectIndex];
   const workspace = project?.workspaces[project.selectedWorkspaceIndex];
   const isWorktree = workspace && !workspace.isMain;
+
+  const teamIds = useMemo(
+    () => project?.linearAssociations?.map((a) => a.teamId) ?? [],
+    [project?.linearAssociations]
+  );
+
+  const [tickets, setTickets] = useState<LinearIssue[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [loadingTicketId, setLoadingTicketId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (teamIds.length === 0) {
+      setTickets([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setTicketsLoading(true);
+      try {
+        const issues = await window.electronAPI.linearGetMyIssues(teamIds);
+        if (!cancelled) setTickets(issues);
+      } catch (err) {
+        console.error("[EmptyState] Failed to fetch tickets:", err);
+      } finally {
+        if (!cancelled) setTicketsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamIds]);
+
+  const projectId = project?.id;
+  const handleTicketClick = useCallback(async (issue: LinearIssue) => {
+    if (!projectId) return;
+    setLoadingTicketId(issue.id);
+    try {
+      // Check if a workspace with matching branch already exists
+      const current = useProjectStore.getState().projects.find((p) => p.id === projectId);
+      const existingIdx = current?.workspaces.findIndex(
+        (ws) => ws.branch === issue.branchName
+      ) ?? -1;
+      if (existingIdx >= 0) {
+        selectWorkspace(projectId, existingIdx);
+        return;
+      }
+      // Create new worktree
+      await createWorktree(projectId, issue.identifier, issue.branchName);
+      // After creation, find and select the new workspace
+      const updated = useProjectStore.getState().projects.find((p) => p.id === projectId);
+      if (updated) {
+        const newIdx = updated.workspaces.findIndex((ws) => ws.branch === issue.branchName);
+        if (newIdx >= 0) selectWorkspace(projectId, newIdx);
+      }
+    } finally {
+      setLoadingTicketId(null);
+    }
+  }, [projectId, selectWorkspace, createWorktree]);
 
   const actions: ActionItem[] = [
     {
@@ -52,7 +112,32 @@ export function WorkspaceEmptyState() {
     });
   }
 
-  return <EmptyStateShell actions={actions} />;
+  const ticketsSection = tickets.length > 0 ? (
+    <div className={styles.ticketsSection}>
+      <div className={styles.ticketsSectionHeader}>Your Tickets</div>
+      {tickets.map((issue) => (
+        <button
+          key={issue.id}
+          className={styles.ticket}
+          onClick={() => handleTicketClick(issue)}
+          disabled={loadingTicketId === issue.id}
+        >
+          <span className={styles.ticketIdentifier}>{issue.identifier}</span>
+          <span className={styles.ticketTitle}>{issue.title}</span>
+          {loadingTicketId === issue.id && <span className={styles.ticketSpinner} />}
+        </button>
+      ))}
+    </div>
+  ) : ticketsLoading && teamIds.length > 0 ? (
+    <div className={styles.ticketsSection}>
+      <div className={styles.ticketsSectionHeader}>Your Tickets</div>
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} className={styles.ticketLoading} />
+      ))}
+    </div>
+  ) : null;
+
+  return <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />;
 }
 
 /** Shown when there are no projects at all. */
@@ -74,9 +159,11 @@ export function WelcomeEmptyState() {
 function EmptyStateShell({
   subtitle,
   actions,
+  ticketsSection,
 }: {
   subtitle?: string;
   actions: ActionItem[];
+  ticketsSection?: ReactNode;
 }) {
   return (
     <div className={styles.container}>
@@ -85,6 +172,7 @@ function EmptyStateShell({
           <ManorLogo />
           {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
         </div>
+        {ticketsSection}
         <div className={styles.actions}>
           {actions.map((item) => (
             <button

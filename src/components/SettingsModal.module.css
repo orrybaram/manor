@@ -329,6 +329,173 @@
   width: 16px;
 }
 
+/* ── Linear integration ── */
+
+.linearConnected {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.linearStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-selected);
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--surface);
+  border-radius: 6px;
+}
+
+.linearMatchInfo {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.linearDisconnected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.linearInputRow {
+  display: flex;
+  gap: 8px;
+}
+
+.linearInputRow .fieldInput {
+  flex: 1;
+}
+
+.linearButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.linearButton:hover {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.linearButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.linearError {
+  font-size: 12px;
+  color: var(--red, #f38ba8);
+}
+
+.linearLink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.linearLink:hover {
+  text-decoration: underline;
+}
+
+/* ── Multi-select (Radix Popover) ── */
+
+.multiSelectTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.multiSelectTrigger:hover {
+  border-color: var(--text-dim);
+}
+
+.multiSelectTrigger:focus {
+  border-color: var(--accent);
+}
+
+.multiSelectLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multiSelectContent {
+  min-width: 240px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 200;
+}
+
+.multiSelectItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.multiSelectItem:hover {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.multiSelectItemSelected {
+  color: var(--text-selected);
+}
+
+.multiSelectCheck {
+  width: 16px;
+  flex-shrink: 0;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.multiSelectEmpty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

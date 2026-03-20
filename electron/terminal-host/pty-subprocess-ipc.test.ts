@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { encodeFrame, encodeJsonFrame, FrameDecoder, MSG } from "./pty-subprocess-ipc";
+import {
+  encodeFrame,
+  encodeJsonFrame,
+  FrameDecoder,
+  MSG,
+} from "./pty-subprocess-ipc";
 
 describe("pty-subprocess-ipc", () => {
   describe("encodeFrame / FrameDecoder roundtrip", () => {

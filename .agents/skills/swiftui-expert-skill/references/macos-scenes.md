@@ -18,14 +18,14 @@
 
 ## Quick Lookup Table
 
-| API | Availability | macOS-Only? | macOS-Specific Behavior |
-|-----|-------------|:-----------:|------------------------|
-| `WindowGroup` | macOS 11.0+ | No | Multiple window instances, tabbed interface, automatic Window menu commands |
-| `Window` | macOS 13.0+ | No | App quits when sole window closes; adds itself to Windows menu |
-| `UtilityWindow` | macOS 15.0+ | Yes | Floating tool palette; receives `FocusedValues` from active main window |
-| `Settings` | macOS 11.0+ | Yes | Presents preferences window (Cmd+,) |
-| `MenuBarExtra` | macOS 13.0+ | Yes | Persistent icon/menu in the system menu bar |
-| `DocumentGroup` | macOS 11.0+ | No | Document-based menu bar commands (File > New/Open/Save); multiple document windows |
+| API             | Availability | macOS-Only? | macOS-Specific Behavior                                                            |
+| --------------- | ------------ | :---------: | ---------------------------------------------------------------------------------- |
+| `WindowGroup`   | macOS 11.0+  |     No      | Multiple window instances, tabbed interface, automatic Window menu commands        |
+| `Window`        | macOS 13.0+  |     No      | App quits when sole window closes; adds itself to Windows menu                     |
+| `UtilityWindow` | macOS 15.0+  |     Yes     | Floating tool palette; receives `FocusedValues` from active main window            |
+| `Settings`      | macOS 11.0+  |     Yes     | Presents preferences window (Cmd+,)                                                |
+| `MenuBarExtra`  | macOS 13.0+  |     Yes     | Persistent icon/menu in the system menu bar                                        |
+| `DocumentGroup` | macOS 11.0+  |     No      | Document-based menu bar commands (File > New/Open/Save); multiple document windows |
 
 ---
 
@@ -81,6 +81,7 @@ struct OpenSettingsButton: View {
 ## MenuBarExtra (macOS-only)
 
 Renders a persistent control in the system menu bar. Two styles available:
+
 - **`.menu`** (default) — standard dropdown menu
 - **`.window`** — popover panel with custom SwiftUI views
 
@@ -106,6 +107,7 @@ MenuBarExtra("Status", systemImage: "chart.bar") {
 ```
 
 **Variations:**
+
 - **Toggleable** — pass `isInserted:` with an `@AppStorage` binding to let users show/hide the extra: `MenuBarExtra("Status", systemImage: "chart.bar", isInserted: $showMenuBarExtra)`
 - **Menu-bar-only app** — use `MenuBarExtra` as the sole scene + set `LSUIElement = true` in Info.plist to hide the Dock icon. The app auto-terminates if the user removes the extra from the menu bar.
 
@@ -114,6 +116,7 @@ MenuBarExtra("Status", systemImage: "chart.bar") {
 ## WindowGroup (macOS behavior)
 
 On macOS, `WindowGroup` supports:
+
 - **Multiple window instances** — users can open many windows from File > New Window
 - **Tabbed interface** — users can merge windows into tabs
 - **Automatic Window menu** — commands for window management appear automatically
@@ -206,6 +209,7 @@ struct VideoCall: App {
 A specialized floating window for tool palettes and inspector panels. Available since macOS 15.0.
 
 **Key behaviors:**
+
 - Receives `FocusedValues` from the focused main scene (like menu bar commands)
 - Floats above main windows (default level: `.floating`)
 - Hides when the app is no longer active
@@ -250,6 +254,7 @@ struct PhotoInfoViewer: View {
 ## DocumentGroup
 
 Document-based apps with automatic file management. On macOS, provides:
+
 - **Document-based menu bar commands** (File > New, Open, Save, Revert)
 - **Multiple document windows** simultaneously
 - On iOS, shows a document browser instead

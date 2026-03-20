@@ -39,7 +39,9 @@
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .session:hover {
@@ -91,11 +93,12 @@
   padding: 2px 8px;
   border-radius: 6px;
   -webkit-app-region: no-drag;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .addButton:hover {
   background: var(--surface);
   color: var(--text-selected);
 }
-

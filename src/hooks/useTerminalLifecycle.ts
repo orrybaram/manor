@@ -31,11 +31,13 @@ export function useTerminalLifecycle(
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fontSize = useAppStore((s) => s.fontSize);
-  const { write, resize, create, close, detach } = useTerminalConnection(paneId);
+  const { write, resize, create, close, detach } =
+    useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
 
-  // Subscribe to stream events
-  useTerminalStream(paneId, term);
+  // Subscribe to stream events (pass write so the stream handler can
+  // respond to kitty keyboard protocol queries on behalf of xterm.js)
+  useTerminalStream(paneId, term, write);
 
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);
@@ -78,10 +80,12 @@ export function useTerminalLifecycle(
 
     const currentTheme = useAppStore.getState();
 
-    const t = new Terminal(terminalOptions({
-      fontSize: currentTheme.fontSize,
-      ...(theme ? { theme } : {}),
-    }));
+    const t = new Terminal(
+      terminalOptions({
+        fontSize: currentTheme.fontSize,
+        ...(theme ? { theme } : {}),
+      }),
+    );
 
     const fit = new FitAddon();
     t.loadAddon(fit);
@@ -104,16 +108,28 @@ export function useTerminalLifecycle(
       console.warn("WebGL addon failed, using DOM renderer", e);
     }
 
-    try { t.loadAddon(new ClipboardAddon()); } catch {}
-    try { t.loadAddon(new ImageAddon()); } catch {}
     try {
-      t.loadAddon(new WebLinksAddon((_event, url) => {
-        window.electronAPI.openExternal(url);
-      }));
-    } catch {}
+      t.loadAddon(new ClipboardAddon());
+    } catch {
+      // ignored
+    }
+    try {
+      t.loadAddon(new ImageAddon());
+    } catch {
+      // ignored
+    }
+    try {
+      t.loadAddon(
+        new WebLinksAddon((_event, url) => {
+          window.electronAPI.openExternal(url);
+        }),
+      );
+    } catch {
+      // ignored
+    }
 
     // Hotkeys
-    attachHandler(t);
+    attachHandler(t, write);
 
     termRef.current = t;
     setTerm(t);
@@ -123,25 +139,27 @@ export function useTerminalLifecycle(
     const cols = t.cols;
     const rows = t.rows;
     let disposed = false;
-    create(cwd ?? null, cols, rows).then((result: { ok: boolean; snapshot?: string | null }) => {
-      if (!disposed && result.ok) {
-        if (result.snapshot) {
-          t.write(result.snapshot);
-        }
-        // Check for pending startup command (e.g. worktree start script)
-        const store = useAppStore.getState();
-        const wsPath = store.activeWorkspacePath;
-        if (wsPath && cwd === wsPath) {
-          const cmd = store.consumePendingStartupCommand(wsPath);
-          if (cmd) {
-            // Small delay to let the shell initialize before writing the command
-            setTimeout(() => {
-              if (!disposed) write(cmd + "\n");
-            }, 500);
+    create(cwd ?? null, cols, rows).then(
+      (result: { ok: boolean; snapshot?: string | null }) => {
+        if (!disposed && result.ok) {
+          if (result.snapshot) {
+            t.write(result.snapshot);
+          }
+          // Check for pending startup command (e.g. worktree start script)
+          const store = useAppStore.getState();
+          const wsPath = store.activeWorkspacePath;
+          if (wsPath && cwd === wsPath) {
+            const cmd = store.consumePendingStartupCommand(wsPath);
+            if (cmd) {
+              // Small delay to let the shell initialize before writing the command
+              setTimeout(() => {
+                if (!disposed) write(cmd + "\n");
+              }, 500);
+            }
           }
         }
-      }
-    });
+      },
+    );
 
     // Terminal title changes (OSC sequences) → store
     const titleDisposable = t.onTitleChange((title) => {
@@ -181,7 +199,7 @@ export function useTerminalLifecycle(
       }
       t.dispose();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId, cwd]);
 
   return { term, fitAddon };

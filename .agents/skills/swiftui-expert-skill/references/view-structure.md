@@ -162,6 +162,7 @@ Use for small, simple sections (a few views, no expensive computation) that don'
 ## When to Extract Subviews
 
 Extract complex views into separate subviews when:
+
 - The view has multiple logical sections or responsibilities
 - The view contains reusable components
 - The view body becomes difficult to read or understand
@@ -222,6 +223,7 @@ Prefer `overlay` / `background` when you’re **decorating a primary view**.
 Not primarily because they don’t affect layout size, but because they **express intent and improve readability**: the view being modified remains the clear layout anchor.
 
 A key difference is **size proposal behavior**:
+
 - In `overlay` / `background`, the child view implicitly adopts the size proposed to the parent when it doesn’t define its own size, making decorative attachments feel natural and predictable.
 - In `ZStack`, each child participates independently in layout, and no implicit size inheritance exists. This makes it better suited for peer composition, but less intuitive for simple decoration.
 

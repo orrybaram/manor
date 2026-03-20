@@ -10,7 +10,10 @@ describe("ProjectManager", () => {
   let manager: ProjectManager;
 
   beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `manor-persistence-test-${crypto.randomUUID()}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-persistence-test-${crypto.randomUUID()}`,
+    );
     fs.mkdirSync(tmpDir, { recursive: true });
     manager = new ProjectManager(tmpDir);
   });
@@ -181,11 +184,13 @@ describe("ProjectManager", () => {
       manager.renameWorkspace(project.id, "/tmp/proj", "My Workspace");
 
       // Persists across reload
-      const reloaded = new ProjectManager(tmpDir);
+      const _reloaded = new ProjectManager(tmpDir);
       const state = JSON.parse(
-        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")
+        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
       );
-      expect(state.projects[0].workspaceNames["/tmp/proj"]).toBe("My Workspace");
+      expect(state.projects[0].workspaceNames["/tmp/proj"]).toBe(
+        "My Workspace",
+      );
     });
 
     it("removes name when set to empty string", () => {
@@ -195,7 +200,7 @@ describe("ProjectManager", () => {
       manager.renameWorkspace(project.id, "/tmp/proj", "");
 
       const state = JSON.parse(
-        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")
+        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
       );
       expect(state.projects[0].workspaceNames["/tmp/proj"]).toBeUndefined();
     });

@@ -79,9 +79,15 @@ class TestDaemon {
     this.activeSockets.clear();
     return new Promise((resolve) => {
       this.server.close(() => {
-        try { fs.unlinkSync(this.socketPath); } catch {}
-        try { fs.unlinkSync(this.tokenPath); } catch {}
-        try { fs.unlinkSync(this.pidPath); } catch {}
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {}
+        try {
+          fs.unlinkSync(this.tokenPath);
+        } catch {}
+        try {
+          fs.unlinkSync(this.pidPath);
+        } catch {}
         resolve();
       });
     });
@@ -126,9 +132,14 @@ class TestDaemon {
     });
   }
 
-  private async handleControlMessage(socket: net.Socket, line: string): Promise<void> {
+  private async handleControlMessage(
+    socket: net.Socket,
+    line: string,
+  ): Promise<void> {
     let req: ControlRequest;
-    try { req = JSON.parse(line); } catch {
+    try {
+      req = JSON.parse(line);
+    } catch {
       this.send(socket, { type: "error", message: "Invalid JSON" });
       return;
     }
@@ -149,10 +160,19 @@ class TestDaemon {
         break;
       case "create": {
         try {
-          const session = this.host.create(req.sessionId, req.cwd, req.cols, req.rows, req.shellArgs);
+          const session = this.host.create(
+            req.sessionId,
+            req.cwd,
+            req.cols,
+            req.rows,
+            req.shellArgs,
+          );
           this.send(socket, { type: "created", session });
         } catch (err) {
-          this.send(socket, { type: "error", message: `Create failed: ${err instanceof Error ? err.message : String(err)}` });
+          this.send(socket, {
+            type: "error",
+            message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
         break;
       }
@@ -161,7 +181,10 @@ class TestDaemon {
         if (snapshot) {
           this.send(socket, { type: "attached", snapshot });
         } else {
-          this.send(socket, { type: "error", message: `Session ${req.sessionId} not found` });
+          this.send(socket, {
+            type: "error",
+            message: `Session ${req.sessionId} not found`,
+          });
         }
         break;
       }
@@ -182,12 +205,18 @@ class TestDaemon {
         if (snapshot) {
           this.send(socket, { type: "snapshot", snapshot });
         } else {
-          this.send(socket, { type: "error", message: `Session ${req.sessionId} not found` });
+          this.send(socket, {
+            type: "error",
+            message: `Session ${req.sessionId} not found`,
+          });
         }
         break;
       }
       case "listSessions":
-        this.send(socket, { type: "sessions", sessions: this.host.listSessions() });
+        this.send(socket, {
+          type: "sessions",
+          sessions: this.host.listSessions(),
+        });
         break;
       case "ping":
         this.send(socket, { type: "pong" });
@@ -195,9 +224,16 @@ class TestDaemon {
     }
   }
 
-  private async handleStreamMessage(socket: net.Socket, line: string): Promise<void> {
+  private async handleStreamMessage(
+    socket: net.Socket,
+    line: string,
+  ): Promise<void> {
     let cmd: any;
-    try { cmd = JSON.parse(line); } catch { return; }
+    try {
+      cmd = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (!this.authenticatedSockets.has(socket)) return;
 
     switch (cmd.type) {
@@ -231,7 +267,7 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
   const socketPath = daemon.socketPath;
   const tokenPath = daemon.tokenPath;
 
-  const origConnectControl = (client as any).connectControlSocket.bind(client);
+  const _origConnectControl = (client as any).connectControlSocket.bind(client);
   (client as any).connectControlSocket = () => {
     // Override SOCKET_PATH temporarily
     return new Promise<void>((resolve, reject) => {
@@ -274,7 +310,9 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
   (client as any).connectStreamSocket = (token: string) => {
     return new Promise<void>((resolve, reject) => {
       const socket = net.createConnection(socketPath, () => {
-        socket.write(JSON.stringify({ connectionType: "stream", token }) + "\n");
+        socket.write(
+          JSON.stringify({ connectionType: "stream", token }) + "\n",
+        );
         resolve();
       });
       (client as any).streamSocket = socket;
@@ -305,13 +343,15 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
 
   // Patch the request method to read the test token
   const origRequest = (client as any).request.bind(client);
-  const origDoConnect = (client as any).doConnect.bind(client);
+  const _origDoConnect = (client as any).doConnect.bind(client);
   (client as any).doConnect = async () => {
     await (client as any).connectControlSocket();
     const token = fs.readFileSync(tokenPath, "utf-8").trim();
     const authResp = await origRequest({ type: "auth", token });
     if (authResp.type !== "authOk") {
-      throw new Error(`Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`);
+      throw new Error(
+        `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
+      );
     }
     await (client as any).connectStreamSocket(token);
     (client as any).connected = true;
@@ -335,7 +375,9 @@ describe("TerminalHostClient", () => {
 
   afterEach(async () => {
     await daemon.stop();
-    try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+    try {
+      fs.rmSync(tmpDir, { recursive: true });
+    } catch {}
   });
 
   describe("connect", () => {
@@ -350,7 +392,7 @@ describe("TerminalHostClient", () => {
       const client = createTestClient(daemon);
 
       // Call connect multiple times concurrently
-      const results = await Promise.all([
+      const _results = await Promise.all([
         client.connect(),
         client.connect(),
         client.connect(),
@@ -530,7 +572,9 @@ describe("TerminalHostClient", () => {
       const client = createTestClient(daemon);
       // Don't connect
       // Override ensureConnected to throw
-      (client as any).ensureConnected = () => { throw new Error("not connected"); };
+      (client as any).ensureConnected = () => {
+        throw new Error("not connected");
+      };
       expect(await client.ping()).toBe(false);
     });
 
@@ -541,7 +585,9 @@ describe("TerminalHostClient", () => {
       // Monkey-patch the daemon's host.create to throw
       const host = daemon.getHost();
       const origCreate = host.create.bind(host);
-      host.create = () => { throw new Error("spawn failed: no such file"); };
+      host.create = () => {
+        throw new Error("spawn failed: no such file");
+      };
 
       await expect(
         client.createOrAttach("pane-fail", "/tmp", 80, 24),
@@ -564,9 +610,9 @@ describe("TerminalHostClient", () => {
       (client as any).controlSocket = null;
 
       const requestFn = (client as any).request.bind(client);
-      await expect(
-        requestFn({ type: "ping" }),
-      ).rejects.toThrow("Control socket not writable");
+      await expect(requestFn({ type: "ping" })).rejects.toThrow(
+        "Control socket not writable",
+      );
 
       // Reset state so disconnect doesn't error
       (client as any).connected = false;
@@ -594,7 +640,9 @@ describe("TerminalHostClient", () => {
       // Wait for event propagation
       await new Promise((r) => setTimeout(r, 100));
 
-      expect(events.some((e) => e.type === "data" && e.data === "output data")).toBe(true);
+      expect(
+        events.some((e) => e.type === "data" && e.data === "output data"),
+      ).toBe(true);
       client.disconnect();
     });
   });

@@ -18,7 +18,7 @@ export function usePortsData() {
   // Derive a stable paths key so the scanner only restarts when paths actually change
   const paths = useMemo(
     () => projects.flatMap((p) => p.workspaces.map((ws) => ws.path)),
-    [projects]
+    [projects],
   );
   const pathsKey = paths.join("\0");
   const pathsRef = useRef(paths);

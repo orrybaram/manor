@@ -8,38 +8,57 @@
 import { useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 
-const APP_SHORTCUTS: Record<string, boolean | ((e: KeyboardEvent) => boolean)> = {
-  t: true,
-  k: true,
-  d: true,
-  D: true,
-  w: true,
-  W: true,
-  "\\": true,
-  "=": true,
-  "-": true,
-  "0": true,
-  "]": true,
-  "[": true,
-};
+const APP_SHORTCUTS: Record<string, boolean | ((e: KeyboardEvent) => boolean)> =
+  {
+    t: true,
+    k: true,
+    d: true,
+    D: true,
+    w: true,
+    W: true,
+    "\\": true,
+    "=": true,
+    "-": true,
+    "0": true,
+    "]": true,
+    "[": true,
+  };
 
 export function useTerminalHotkeys() {
-  const attachHandler = useCallback((term: Terminal) => {
-    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (!e.metaKey) return true;
+  const attachHandler = useCallback(
+    (term: Terminal, ptyWrite: (data: string) => void) => {
+      term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        // Shift+Enter: send CSI u sequence so CLI tools (e.g. Claude) can
+        // distinguish it from plain Enter and treat it as a newline.
+        if (
+          e.key === "Enter" &&
+          e.shiftKey &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey
+        ) {
+          if (e.type === "keydown") {
+            ptyWrite("\x1b[13;2u");
+          }
+          return false;
+        }
 
-      const check = APP_SHORTCUTS[e.key];
-      const isAppShortcut = typeof check === "function" ? check(e) : !!check;
+        if (!e.metaKey) return true;
 
-      if (isAppShortcut) {
-        // Return false to tell xterm not to handle this key —
-        // the original event will bubble up to window where App.tsx handles it.
-        return false;
-      }
+        const check = APP_SHORTCUTS[e.key];
+        const isAppShortcut = typeof check === "function" ? check(e) : !!check;
 
-      return true;
-    });
-  }, []);
+        if (isAppShortcut) {
+          // Return false to tell xterm not to handle this key —
+          // the original event will bubble up to window where App.tsx handles it.
+          return false;
+        }
+
+        return true;
+      });
+    },
+    [],
+  );
 
   return { attachHandler };
 }

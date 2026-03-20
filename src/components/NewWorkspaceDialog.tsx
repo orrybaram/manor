@@ -7,7 +7,7 @@ import styles from "./NewWorkspaceDialog.module.css";
 function slugify(str: string): string {
   return str
     .toLowerCase()
-    .replace(/[^a-z0-9\s\-]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/[\s_]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
@@ -19,9 +19,17 @@ interface NewWorkspaceDialogProps {
   onSubmit: (projectId: string, name: string, branch: string) => void;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
+  preselectedProjectId?: string | null;
 }
 
-export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selectedProjectIndex }: NewWorkspaceDialogProps) {
+export function NewWorkspaceDialog({
+  open,
+  onClose,
+  onSubmit,
+  projects,
+  selectedProjectIndex,
+  preselectedProjectId,
+}: NewWorkspaceDialogProps) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -32,19 +40,23 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selected
     (isOpen: boolean) => {
       if (!isOpen) onClose();
     },
-    [onClose]
+    [onClose],
   );
 
-  const defaultProjectId = projects[selectedProjectIndex]?.id ?? "";
+  const defaultProjectId =
+    preselectedProjectId || projects[selectedProjectIndex]?.id || "";
 
-  const handleOpenAutoFocus = useCallback((e: Event) => {
-    e.preventDefault();
-    setName("");
-    setBranch("");
-    setSelectedProjectId(defaultProjectId);
-    setError(null);
-    nameRef.current?.focus();
-  }, [defaultProjectId]);
+  const handleOpenAutoFocus = useCallback(
+    (e: Event) => {
+      e.preventDefault();
+      setName("");
+      setBranch("");
+      setSelectedProjectId(defaultProjectId);
+      setError(null);
+      nameRef.current?.focus();
+    },
+    [defaultProjectId],
+  );
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -71,7 +83,7 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selected
       setError(null);
       onSubmit(projectId, trimmedName, branchName);
     },
-    [name, branch, selectedProjectId, defaultProjectId, onSubmit]
+    [name, branch, selectedProjectId, defaultProjectId, onSubmit],
   );
 
   return (
@@ -81,7 +93,12 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selected
         <Dialog.Content
           className={styles.dialog}
           onOpenAutoFocus={handleOpenAutoFocus}
-          onCloseAutoFocus={(e) => { e.preventDefault(); document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus(); }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            document
+              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+              ?.focus();
+          }}
         >
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
@@ -102,7 +119,9 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selected
                     onChange={(e) => setSelectedProjectId(e.target.value)}
                   >
                     {projects.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
                   </select>
                   <ChevronDown size={14} className={styles.selectIcon} />
@@ -131,7 +150,11 @@ export function NewWorkspaceDialog({ open, onClose, onSubmit, projects, selected
             />
             {error && <div className={styles.error}>{error}</div>}
             <div className={styles.actions}>
-              <button type="button" className={styles.cancelButton} onClick={onClose}>
+              <button
+                type="button"
+                className={styles.cancelButton}
+                onClick={onClose}
+              >
                 Cancel
               </button>
               <button type="submit" className={styles.submitButton}>

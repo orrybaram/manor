@@ -42,7 +42,14 @@ export interface SessionInfo {
 
 export type ControlRequest =
   | { type: "auth"; token: string }
-  | { type: "create"; sessionId: string; cwd: string; cols: number; rows: number; shellArgs?: string[] }
+  | {
+      type: "create";
+      sessionId: string;
+      cwd: string;
+      cols: number;
+      rows: number;
+      shellArgs?: string[];
+    }
   | { type: "attach"; sessionId: string }
   | { type: "detach"; sessionId: string }
   | { type: "resize"; sessionId: string; cols: number; rows: number }

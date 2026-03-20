@@ -19,40 +19,40 @@
 
 ### Views
 
-| API | Availability | macOS-Only? | Usage |
-|-----|-------------|:-----------:|-------|
-| `HSplitView` | macOS 10.15+ | Yes | Horizontal resizable split layout with user-draggable dividers |
-| `VSplitView` | macOS 10.15+ | Yes | Vertical resizable split layout with user-draggable dividers |
-| `Table` | macOS 12.0+ | No | Full multi-column layout with sorting; on iOS compact, columns collapse |
-| `PasteButton` | macOS 10.15+ | No | System button that reads clipboard; does NOT auto-validate on macOS |
-| `CopyButton` | macOS 15.0+ | Yes | System button that copies `Transferable` content to clipboard |
+| API           | Availability | macOS-Only? | Usage                                                                   |
+| ------------- | ------------ | :---------: | ----------------------------------------------------------------------- |
+| `HSplitView`  | macOS 10.15+ |     Yes     | Horizontal resizable split layout with user-draggable dividers          |
+| `VSplitView`  | macOS 10.15+ |     Yes     | Vertical resizable split layout with user-draggable dividers            |
+| `Table`       | macOS 12.0+  |     No      | Full multi-column layout with sorting; on iOS compact, columns collapse |
+| `PasteButton` | macOS 10.15+ |     No      | System button that reads clipboard; does NOT auto-validate on macOS     |
+| `CopyButton`  | macOS 15.0+  |     Yes     | System button that copies `Transferable` content to clipboard           |
 
 ### File Operations
 
-| API | Availability | macOS-Only? | Usage |
-|-----|-------------|:-----------:|-------|
-| `fileImporter()` | macOS 11.0+ | No | Native NSOpenPanel with column/list/gallery view, sidebar, tags, QuickLook |
-| `fileExporter()` | macOS 11.0+ | No | Native NSSavePanel with format dropdown, tags field |
-| `fileMover()` | macOS 11.0+ | No | Native macOS move panel with Finder-like navigation |
-| `fileDialogMessage(_:)` | macOS 13.0+ | Yes | Custom message text in file dialogs |
-| `fileDialogConfirmationLabel(_:)` | macOS 13.0+ | Yes | Custom confirm button text in file dialogs |
-| `fileExporterFilenameLabel(_:)` | macOS 13.0+ | Yes | Custom filename field label in file exporter |
+| API                               | Availability | macOS-Only? | Usage                                                                      |
+| --------------------------------- | ------------ | :---------: | -------------------------------------------------------------------------- |
+| `fileImporter()`                  | macOS 11.0+  |     No      | Native NSOpenPanel with column/list/gallery view, sidebar, tags, QuickLook |
+| `fileExporter()`                  | macOS 11.0+  |     No      | Native NSSavePanel with format dropdown, tags field                        |
+| `fileMover()`                     | macOS 11.0+  |     No      | Native macOS move panel with Finder-like navigation                        |
+| `fileDialogMessage(_:)`           | macOS 13.0+  |     Yes     | Custom message text in file dialogs                                        |
+| `fileDialogConfirmationLabel(_:)` | macOS 13.0+  |     Yes     | Custom confirm button text in file dialogs                                 |
+| `fileExporterFilenameLabel(_:)`   | macOS 13.0+  |     Yes     | Custom filename field label in file exporter                               |
 
 ### Drag, Drop & Pasteboard
 
-| API | Availability | macOS-Only? | Usage |
-|-----|-------------|:-----------:|-------|
-| `onDrag(_:)` / `draggable(_:)` | macOS 11.0+ | No | Drag image follows cursor; items draggable between apps |
-| `onDrop(of:delegate:)` / `dropDestination(for:action:)` | macOS 11.0+ | No | Accepts drops from any macOS app including Finder |
+| API                                                     | Availability | macOS-Only? | Usage                                                   |
+| ------------------------------------------------------- | ------------ | :---------: | ------------------------------------------------------- |
+| `onDrag(_:)` / `draggable(_:)`                          | macOS 11.0+  |     No      | Drag image follows cursor; items draggable between apps |
+| `onDrop(of:delegate:)` / `dropDestination(for:action:)` | macOS 11.0+  |     No      | Accepts drops from any macOS app including Finder       |
 
 ### AppKit Interop
 
-| API | Availability | macOS-Only? | Usage |
-|-----|-------------|:-----------:|-------|
-| `NSViewRepresentable` | macOS 10.15+ | Yes | Wrap an AppKit `NSView` in SwiftUI |
-| `NSViewControllerRepresentable` | macOS 10.15+ | Yes | Wrap an AppKit `NSViewController` in SwiftUI |
-| `NSHostingController` | macOS 10.15+ | Yes | Host SwiftUI inside an AppKit view controller |
-| `NSHostingView` | macOS 10.15+ | Yes | Host SwiftUI inside an AppKit `NSView` hierarchy |
+| API                             | Availability | macOS-Only? | Usage                                            |
+| ------------------------------- | ------------ | :---------: | ------------------------------------------------ |
+| `NSViewRepresentable`           | macOS 10.15+ |     Yes     | Wrap an AppKit `NSView` in SwiftUI               |
+| `NSViewControllerRepresentable` | macOS 10.15+ |     Yes     | Wrap an AppKit `NSViewController` in SwiftUI     |
+| `NSHostingController`           | macOS 10.15+ |     Yes     | Host SwiftUI inside an AppKit view controller    |
+| `NSHostingView`                 | macOS 10.15+ |     Yes     | Host SwiftUI inside an AppKit `NSView` hierarchy |
 
 ---
 
@@ -72,6 +72,7 @@ HSplitView {
 ```
 
 > **When to use which:**
+>
 > - **`NavigationSplitView`** — sidebar-based navigation (sidebar drives content/detail)
 > - **`HSplitView`/`VSplitView`** — IDE-style layouts where all panes are equal peers
 

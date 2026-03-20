@@ -12,15 +12,21 @@ export class GitHubManager {
     return this.getPrForBranchInner(repoPath, branch);
   }
 
-  getPrsForBranches(repoPath: string, branches: string[]): [string, PrInfo | null][] {
-    return branches.map((branch) => [branch, this.getPrForBranchInner(repoPath, branch)]);
+  getPrsForBranches(
+    repoPath: string,
+    branches: string[],
+  ): [string, PrInfo | null][] {
+    return branches.map((branch) => [
+      branch,
+      this.getPrForBranchInner(repoPath, branch),
+    ]);
   }
 
   private getPrForBranchInner(repoPath: string, branch: string): PrInfo | null {
     try {
       const output = execSync(
         `gh pr list --head ${JSON.stringify(branch)} --json number,state,title,url --limit 1`,
-        { cwd: repoPath, encoding: "utf-8", timeout: 10000 }
+        { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
 
       const prs = JSON.parse(output);

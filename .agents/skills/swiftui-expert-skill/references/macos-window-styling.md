@@ -17,17 +17,17 @@
 
 ## Quick Lookup Table
 
-| API | Availability | macOS-Only? | Usage |
-|-----|-------------|:-----------:|-------|
-| `windowToolbarStyle(_:)` | macOS 11.0+ | Yes | Sets toolbar style: `.unified`, `.unifiedCompact`, `.expanded` |
-| `windowStyle(_:)` | macOS 11.0+ | No | Supports `.hiddenTitleBar` for chromeless windows |
-| `windowResizability(_:)` | macOS 13.0+ | No | Controls resize handle and green zoom button behavior |
-| `defaultSize(width:height:)` | macOS 13.0+ | No | Initial frame size when user creates a new window |
-| `defaultPosition(_:)` | macOS 13.0+ | No | Initial window position on screen |
-| `windowIdealPlacement(_:)` | macOS 15.0+ | No | Closure with display geometry for precise window positioning |
-| `menuBarExtraStyle(_:)` | macOS 13.0+ | Yes | Sets MenuBarExtra to `.menu` or `.window` style |
-| `NavigationSplitView` | macOS 13.0+ | No | Columns always visible side-by-side on macOS; translucent sidebar |
-| `Inspector` | macOS 14.0+ | No | Trailing-edge sidebar panel; resizable by dragging |
+| API                          | Availability | macOS-Only? | Usage                                                             |
+| ---------------------------- | ------------ | :---------: | ----------------------------------------------------------------- |
+| `windowToolbarStyle(_:)`     | macOS 11.0+  |     Yes     | Sets toolbar style: `.unified`, `.unifiedCompact`, `.expanded`    |
+| `windowStyle(_:)`            | macOS 11.0+  |     No      | Supports `.hiddenTitleBar` for chromeless windows                 |
+| `windowResizability(_:)`     | macOS 13.0+  |     No      | Controls resize handle and green zoom button behavior             |
+| `defaultSize(width:height:)` | macOS 13.0+  |     No      | Initial frame size when user creates a new window                 |
+| `defaultPosition(_:)`        | macOS 13.0+  |     No      | Initial window position on screen                                 |
+| `windowIdealPlacement(_:)`   | macOS 15.0+  |     No      | Closure with display geometry for precise window positioning      |
+| `menuBarExtraStyle(_:)`      | macOS 13.0+  |     Yes     | Sets MenuBarExtra to `.menu` or `.window` style                   |
+| `NavigationSplitView`        | macOS 13.0+  |     No      | Columns always visible side-by-side on macOS; translucent sidebar |
+| `Inspector`                  | macOS 14.0+  |     No      | Trailing-edge sidebar panel; resizable by dragging                |
 
 ---
 
@@ -52,12 +52,12 @@ struct MyApp: App {
 
 **Available styles:**
 
-| Style | Description |
-|-------|-------------|
-| `.automatic` | System default |
-| `.unified` | Title bar and toolbar in a single combined row |
-| `.unifiedCompact` | Same as unified but with reduced vertical height |
-| `.expanded` | Title bar displayed above the toolbar (more toolbar space) |
+| Style             | Description                                                |
+| ----------------- | ---------------------------------------------------------- |
+| `.automatic`      | System default                                             |
+| `.unified`        | Title bar and toolbar in a single combined row             |
+| `.unifiedCompact` | Same as unified but with reduced vertical height           |
+| `.expanded`       | Title bar displayed above the toolbar (more toolbar space) |
 
 ```swift
 // Unified compact — minimal chrome
@@ -138,15 +138,16 @@ WindowGroup {
 
 **`windowResizability` options:**
 
-| Value | Behavior |
-|-------|----------|
-| `.automatic` | System decides resize behavior |
-| `.contentSize` | Fixed to content size; no user resize; zoom button disabled |
+| Value             | Behavior                                                         |
+| ----------------- | ---------------------------------------------------------------- |
+| `.automatic`      | System decides resize behavior                                   |
+| `.contentSize`    | Fixed to content size; no user resize; zoom button disabled      |
 | `.contentMinSize` | Resizable with minimum based on content's `minWidth`/`minHeight` |
 
 **`defaultPosition` options:** `.center`, `.topLeading`, `.top`, `.topTrailing`, `.leading`, `.trailing`, `.bottomLeading`, `.bottom`, `.bottomTrailing`
 
 **Guidelines:**
+
 - Set `minWidth`/`minHeight` via `.frame()` on content, enforce with `.contentMinSize`
 - Use `.defaultSize()` for initial dimensions (larger than minimums)
 - `defaultSize` also accepts `CGSize`

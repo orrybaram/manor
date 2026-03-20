@@ -26,7 +26,11 @@ function mockSocket(): any {
   return { write: vi.fn(), on: vi.fn(), destroy: vi.fn() };
 }
 
-function feedSessionData(host: TerminalHost, sessionId: string, data: string): void {
+function feedSessionData(
+  host: TerminalHost,
+  sessionId: string,
+  data: string,
+): void {
   const session = (host as any).sessions.get(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
   const frame = encodeFrame(MSG.DATA, data);
@@ -36,8 +40,12 @@ function feedSessionData(host: TerminalHost, sessionId: string, data: string): v
 describe("TerminalHost", () => {
   let host: TerminalHost;
 
-  beforeEach(() => { host = new TerminalHost(); });
-  afterEach(() => { host.disposeAll(); });
+  beforeEach(() => {
+    host = new TerminalHost();
+  });
+  afterEach(() => {
+    host.disposeAll();
+  });
 
   describe("create", () => {
     it("creates a new session", () => {
@@ -74,7 +82,11 @@ describe("TerminalHost", () => {
       host.create("s3", "/", 80, 24);
       const sessions = host.listSessions();
       expect(sessions).toHaveLength(3);
-      expect(sessions.map((s) => s.sessionId).sort()).toEqual(["s1", "s2", "s3"]);
+      expect(sessions.map((s) => s.sessionId).sort()).toEqual([
+        "s1",
+        "s2",
+        "s3",
+      ]);
     });
   });
 
@@ -118,7 +130,9 @@ describe("TerminalHost", () => {
         try {
           const e = JSON.parse(call[0].trim());
           return e.type === "data" && e.data === "after detach";
-        } catch { return false; }
+        } catch {
+          return false;
+        }
       });
       expect(dataWrites).toHaveLength(0);
     });
@@ -206,12 +220,16 @@ describe("TerminalHost", () => {
       feedSessionData(host, "s1", "test");
       feedSessionData(host, "s2", "test");
 
-      const dataWritesAfterDetach = socket.write.mock.calls.filter((call: any[]) => {
-        try {
-          const e = JSON.parse(call[0].trim());
-          return e.type === "data" && e.data === "test";
-        } catch { return false; }
-      });
+      const dataWritesAfterDetach = socket.write.mock.calls.filter(
+        (call: any[]) => {
+          try {
+            const e = JSON.parse(call[0].trim());
+            return e.type === "data" && e.data === "test";
+          } catch {
+            return false;
+          }
+        },
+      );
       expect(dataWritesAfterDetach).toHaveLength(0);
     });
   });

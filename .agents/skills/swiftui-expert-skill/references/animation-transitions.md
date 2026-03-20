@@ -3,6 +3,7 @@
 Transitions for view insertion/removal, custom transitions, and the Animatable protocol.
 
 ## Table of Contents
+
 - [Property Animations vs Transitions](#property-animations-vs-transitions)
 - [Basic Transitions](#basic-transitions)
 - [Asymmetric Transitions](#asymmetric-transitions)
@@ -78,13 +79,13 @@ if showDetail {
 
 ### Built-in Transitions
 
-| Transition | Effect |
-|------------|--------|
-| `.opacity` | Fade in/out (default) |
-| `.scale` | Scale up/down |
-| `.slide` | Slide from leading edge |
-| `.move(edge:)` | Move from specific edge |
-| `.offset(x:y:)` | Move by offset amount |
+| Transition      | Effect                  |
+| --------------- | ----------------------- |
+| `.opacity`      | Fade in/out (default)   |
+| `.scale`        | Scale up/down           |
+| `.slide`        | Slide from leading edge |
+| `.move(edge:)`  | Move from specific edge |
+| `.offset(x:y:)` | Move by offset amount   |
 
 ### Combining Transitions
 
@@ -313,6 +314,7 @@ struct ThreePropertyModifier: ViewModifier, Animatable {
 ## Quick Reference
 
 ### Do
+
 - Place transitions outside conditional structures
 - Use `withAnimation` or `.animation` outside the `if`
 - Implement `animatableData` explicitly for custom Animatable
@@ -320,6 +322,7 @@ struct ThreePropertyModifier: ViewModifier, Animatable {
 - Use asymmetric transitions when insert/remove need different effects
 
 ### Don't
+
 - Put animation modifiers inside conditionals for transitions
 - Forget `animatableData` implementation (silent failure)
 - Use inline blur/opacity instead of proper transitions

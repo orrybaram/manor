@@ -24,7 +24,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const DAEMON_SCRIPT = path.join(ROOT, "dist-electron", "terminal-host-index.js");
+const DAEMON_SCRIPT = path.join(
+  ROOT,
+  "dist-electron",
+  "terminal-host-index.js",
+);
 const MANOR_DIR = path.join(os.homedir(), ".manor");
 const SOCKET_PATH = path.join(MANOR_DIR, "terminal-host.sock");
 const TOKEN_PATH = path.join(MANOR_DIR, "terminal-host.token");
@@ -37,7 +41,9 @@ let passed = 0;
 let failed = 0;
 const errors = [];
 
-function log(msg) { console.log(msg); }
+function log(msg) {
+  console.log(msg);
+}
 
 function assert(condition, msg) {
   if (condition) {
@@ -56,8 +62,12 @@ function assertEq(actual, expected, msg) {
     console.log(`  ✓ ${msg}`);
   } else {
     failed++;
-    console.log(`  ✗ ${msg} (expected: ${JSON.stringify(expected)}, got: ${JSON.stringify(actual)})`);
-    errors.push(`${msg} (expected: ${JSON.stringify(expected)}, got: ${JSON.stringify(actual)})`);
+    console.log(
+      `  ✗ ${msg} (expected: ${JSON.stringify(expected)}, got: ${JSON.stringify(actual)})`,
+    );
+    errors.push(
+      `${msg} (expected: ${JSON.stringify(expected)}, got: ${JSON.stringify(actual)})`,
+    );
   }
 }
 
@@ -67,8 +77,11 @@ function assertContains(haystack, needle, msg) {
     console.log(`  ✓ ${msg}`);
   } else {
     failed++;
-    const preview = typeof haystack === "string" ? haystack.slice(0, 200) : String(haystack);
-    console.log(`  ✗ ${msg} (string does not contain "${needle}", got: "${preview}...")`);
+    const preview =
+      typeof haystack === "string" ? haystack.slice(0, 200) : String(haystack);
+    console.log(
+      `  ✗ ${msg} (string does not contain "${needle}", got: "${preview}...")`,
+    );
     errors.push(msg);
   }
 }
@@ -79,7 +92,10 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function connectRaw(socketPath) {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("connect timeout")), 5000);
+    const timeout = setTimeout(
+      () => reject(new Error("connect timeout")),
+      5000,
+    );
     const socket = net.createConnection(socketPath, () => {
       clearTimeout(timeout);
       let buf = "";
@@ -101,15 +117,28 @@ function connectRaw(socketPath) {
       resolve({
         socket,
         send: (msg) => socket.write(JSON.stringify(msg) + "\n"),
-        readLine: (timeoutMs = 5000) => new Promise((res, rej) => {
-          if (received.length > 0) { res(received.shift()); return; }
-          const t = setTimeout(() => rej(new Error("readLine timeout")), timeoutMs);
-          pending.push((v) => { clearTimeout(t); res(v); });
-        }),
+        readLine: (timeoutMs = 5000) =>
+          new Promise((res, rej) => {
+            if (received.length > 0) {
+              res(received.shift());
+              return;
+            }
+            const t = setTimeout(
+              () => rej(new Error("readLine timeout")),
+              timeoutMs,
+            );
+            pending.push((v) => {
+              clearTimeout(t);
+              res(v);
+            });
+          }),
         close: () => socket.destroy(),
       });
     });
-    socket.on("error", (e) => { clearTimeout(timeout); reject(e); });
+    socket.on("error", (e) => {
+      clearTimeout(timeout);
+      reject(e);
+    });
   });
 }
 
@@ -119,7 +148,8 @@ async function connectControl(socketPath) {
   const c = await connectRaw(socketPath);
   c.send({ type: "auth", token });
   const resp = await c.readLine();
-  if (resp.type !== "authOk") throw new Error(`Auth failed: ${JSON.stringify(resp)}`);
+  if (resp.type !== "authOk")
+    throw new Error(`Auth failed: ${JSON.stringify(resp)}`);
   return c;
 }
 
@@ -153,11 +183,16 @@ async function ensureDaemonRunning() {
   daemonProc.unref();
 
   let stderr = "";
-  daemonProc.stderr.on("data", (c) => { stderr += c.toString(); });
+  daemonProc.stderr.on("data", (c) => {
+    stderr += c.toString();
+  });
 
   const start = Date.now();
   while (Date.now() - start < 8000) {
-    if (fs.existsSync(SOCKET_PATH)) { await delay(200); return; }
+    if (fs.existsSync(SOCKET_PATH)) {
+      await delay(200);
+      return;
+    }
     await delay(100);
   }
   throw new Error("Daemon failed to start. stderr: " + stderr.slice(0, 500));
@@ -168,14 +203,25 @@ function killDaemon() {
     const pid = parseInt(fs.readFileSync(PID_PATH, "utf-8").trim(), 10);
     process.kill(pid, "SIGKILL"); // hard kill to simulate crash
   } catch {}
-  if (daemonProc) { try { daemonProc.kill("SIGKILL"); } catch {} daemonProc = null; }
-  try { fs.unlinkSync(SOCKET_PATH); } catch {}
-  try { fs.unlinkSync(PID_PATH); } catch {}
+  if (daemonProc) {
+    try {
+      daemonProc.kill("SIGKILL");
+    } catch {}
+    daemonProc = null;
+  }
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {}
+  try {
+    fs.unlinkSync(PID_PATH);
+  } catch {}
 }
 
 function cleanupTestSessions(paneIds) {
   for (const id of paneIds) {
-    try { fs.rmSync(path.join(SESSIONS_DIR, id), { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(path.join(SESSIONS_DIR, id), { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -210,11 +256,23 @@ async function main() {
     const ctrl1 = await connectControl(SOCKET_PATH);
 
     // Create two sessions (like the app would on startup)
-    ctrl1.send({ type: "create", sessionId: PANE_A, cwd: "/tmp", cols: 80, rows: 24 });
+    ctrl1.send({
+      type: "create",
+      sessionId: PANE_A,
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     const createA = await ctrl1.readLine();
     assertEq(createA.type, "created", "session A created");
 
-    ctrl1.send({ type: "create", sessionId: PANE_B, cwd: "/tmp", cols: 120, rows: 40 });
+    ctrl1.send({
+      type: "create",
+      sessionId: PANE_B,
+      cwd: "/tmp",
+      cols: 120,
+      rows: 40,
+    });
     const createB = await ctrl1.readLine();
     assertEq(createB.type, "created", "session B created");
 
@@ -229,14 +287,21 @@ async function main() {
     // Drain any shell startup output
     let startupEvents = 0;
     while (true) {
-      const e = await Promise.race([stream1.readLine(200).catch(() => null), delay(200).then(() => null)]);
+      const e = await Promise.race([
+        stream1.readLine(200).catch(() => null),
+        delay(200).then(() => null),
+      ]);
       if (!e) break;
       startupEvents++;
     }
     log(`  (drained ${startupEvents} shell startup events)`);
 
     // Type something in pane A
-    stream1.send({ type: "write", sessionId: PANE_A, data: "echo PANE_A_MARKER_12345\n" });
+    stream1.send({
+      type: "write",
+      sessionId: PANE_A,
+      data: "echo PANE_A_MARKER_12345\n",
+    });
 
     // Collect output events until we see our marker or timeout
     let gotPaneAOutput = false;
@@ -244,11 +309,17 @@ async function main() {
     while (Date.now() - readStart < 5000) {
       try {
         const event = await stream1.readLine(2000);
-        if (event.type === "data" && event.sessionId === PANE_A && event.data.includes("PANE_A_MARKER_12345")) {
+        if (
+          event.type === "data" &&
+          event.sessionId === PANE_A &&
+          event.data.includes("PANE_A_MARKER_12345")
+        ) {
           gotPaneAOutput = true;
           break;
         }
-      } catch { break; }
+      } catch {
+        break;
+      }
     }
     assert(gotPaneAOutput, "stream receives PTY output from pane A");
 
@@ -257,13 +328,21 @@ async function main() {
     snapCtrl.send({ type: "getSnapshot", sessionId: PANE_A });
     const snapA = await snapCtrl.readLine();
     assertEq(snapA.type, "snapshot", "snapshot A returned");
-    assert(snapA.snapshot.screenAnsi.length > 0, "snapshot A has content (length: " + snapA.snapshot.screenAnsi.length + ")");
+    assert(
+      snapA.snapshot.screenAnsi.length > 0,
+      "snapshot A has content (length: " +
+        snapA.snapshot.screenAnsi.length +
+        ")",
+    );
     snapCtrl.close();
 
     // Check scrollback on disk
     await delay(500); // let flush timer fire
     const scrollbackDir = path.join(SESSIONS_DIR, PANE_A);
-    assert(fs.existsSync(scrollbackDir), "pane A scrollback dir exists on disk");
+    assert(
+      fs.existsSync(scrollbackDir),
+      "pane A scrollback dir exists on disk",
+    );
 
     const metaPath = path.join(scrollbackDir, "meta.json");
     assert(fs.existsSync(metaPath), "pane A meta.json exists on disk");
@@ -276,26 +355,30 @@ async function main() {
     // Save layout (like app-store would)
     const layout = {
       version: 1,
-      workspaces: [{
-        workspacePath: WORKSPACE_PATH,
-        sessions: [{
-          id: "tab-1",
-          title: "Terminal",
-          rootNode: {
-            type: "split",
-            direction: "horizontal",
-            ratio: 0.5,
-            first: { type: "leaf", paneId: PANE_A },
-            second: { type: "leaf", paneId: PANE_B },
-          },
-          focusedPaneId: PANE_A,
-          paneSessions: {
-            [PANE_A]: { daemonSessionId: PANE_A, lastCwd: "/tmp" },
-            [PANE_B]: { daemonSessionId: PANE_B, lastCwd: "/tmp" },
-          },
-        }],
-        selectedSessionId: "tab-1",
-      }],
+      workspaces: [
+        {
+          workspacePath: WORKSPACE_PATH,
+          sessions: [
+            {
+              id: "tab-1",
+              title: "Terminal",
+              rootNode: {
+                type: "split",
+                direction: "horizontal",
+                ratio: 0.5,
+                first: { type: "leaf", paneId: PANE_A },
+                second: { type: "leaf", paneId: PANE_B },
+              },
+              focusedPaneId: PANE_A,
+              paneSessions: {
+                [PANE_A]: { daemonSessionId: PANE_A, lastCwd: "/tmp" },
+                [PANE_B]: { daemonSessionId: PANE_B, lastCwd: "/tmp" },
+              },
+            },
+          ],
+          selectedSessionId: "tab-1",
+        },
+      ],
     };
     fs.mkdirSync(MANOR_DIR, { recursive: true });
     fs.writeFileSync(LAYOUT_FILE, JSON.stringify(layout, null, 2));
@@ -305,7 +388,10 @@ async function main() {
     ctrl1.send({ type: "listSessions" });
     const list1 = await ctrl1.readLine();
     assertEq(list1.type, "sessions", "listSessions works");
-    assert(list1.sessions.length >= 2, `daemon has >= 2 sessions (has ${list1.sessions.length})`);
+    assert(
+      list1.sessions.length >= 2,
+      `daemon has >= 2 sessions (has ${list1.sessions.length})`,
+    );
 
     // Disconnect (simulate app quit)
     log("\n  Disconnecting (simulating app quit)...");
@@ -316,7 +402,10 @@ async function main() {
     // ── Phase 2: Verify daemon survived ──
     log("\nPhase 2: Verify daemon survived app quit");
 
-    assert(fs.existsSync(SOCKET_PATH), "daemon socket still exists after disconnect");
+    assert(
+      fs.existsSync(SOCKET_PATH),
+      "daemon socket still exists after disconnect",
+    );
 
     let pid;
     try {
@@ -334,7 +423,9 @@ async function main() {
     const loadedLayout = JSON.parse(fs.readFileSync(LAYOUT_FILE, "utf-8"));
     assert(loadedLayout.workspaces.length > 0, "layout loaded from disk");
 
-    const workspace = loadedLayout.workspaces.find((w) => w.workspacePath === WORKSPACE_PATH);
+    const workspace = loadedLayout.workspaces.find(
+      (w) => w.workspacePath === WORKSPACE_PATH,
+    );
     assert(!!workspace, "our workspace found in layout");
 
     const ctrl2 = await connectControl(SOCKET_PATH);
@@ -349,16 +440,31 @@ async function main() {
     // Attach to pane A (like createOrAttach would)
     ctrl2.send({ type: "attach", sessionId: PANE_A });
     const attachA = await ctrl2.readLine();
-    assertEq(attachA.type, "attached", "warm restore: attach to pane A succeeds");
-    assert(attachA.snapshot.screenAnsi.length > 0, "warm restore: snapshot A has content");
-    assertContains(attachA.snapshot.screenAnsi, "PANE_A_MARKER_12345", "warm restore: snapshot contains typed text");
+    assertEq(
+      attachA.type,
+      "attached",
+      "warm restore: attach to pane A succeeds",
+    );
+    assert(
+      attachA.snapshot.screenAnsi.length > 0,
+      "warm restore: snapshot A has content",
+    );
+    assertContains(
+      attachA.snapshot.screenAnsi,
+      "PANE_A_MARKER_12345",
+      "warm restore: snapshot contains typed text",
+    );
 
     // Subscribe stream and verify new data flows
     const stream2 = await connectStream(SOCKET_PATH);
     stream2.send({ type: "subscribe", sessionId: PANE_A });
     await delay(200);
 
-    stream2.send({ type: "write", sessionId: PANE_A, data: "echo AFTER_RESTORE_67890\n" });
+    stream2.send({
+      type: "write",
+      sessionId: PANE_A,
+      data: "echo AFTER_RESTORE_67890\n",
+    });
     let gotPostRestoreOutput = false;
     try {
       const event = await stream2.readLine(3000);
@@ -376,23 +482,46 @@ async function main() {
     killDaemon();
     await delay(500);
 
-    assert(!fs.existsSync(SOCKET_PATH) || (() => {
-      try { net.createConnection(SOCKET_PATH).destroy(); return false; } catch { return true; }
-    })(), "daemon is dead");
+    assert(
+      !fs.existsSync(SOCKET_PATH) ||
+        (() => {
+          try {
+            net.createConnection(SOCKET_PATH).destroy();
+            return false;
+          } catch {
+            return true;
+          }
+        })(),
+      "daemon is dead",
+    );
 
     // Scrollback should be on disk
     const scrollbackBin = path.join(SESSIONS_DIR, PANE_A, "scrollback.bin");
-    assert(fs.existsSync(scrollbackBin), "scrollback.bin exists after daemon death");
+    assert(
+      fs.existsSync(scrollbackBin),
+      "scrollback.bin exists after daemon death",
+    );
     if (fs.existsSync(scrollbackBin)) {
       const content = fs.readFileSync(scrollbackBin, "utf-8");
-      assert(content.length > 0, "scrollback.bin has content (length: " + content.length + ")");
-      assertContains(content, "PANE_A_MARKER_12345", "scrollback.bin contains typed text");
+      assert(
+        content.length > 0,
+        "scrollback.bin has content (length: " + content.length + ")",
+      );
+      assertContains(
+        content,
+        "PANE_A_MARKER_12345",
+        "scrollback.bin contains typed text",
+      );
     }
 
     // Meta should show unclean shutdown (daemon was killed, no endedAt)
     if (fs.existsSync(metaPath)) {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-      assertEq(meta.endedAt, null, "meta.json endedAt still null (unclean shutdown)");
+      assertEq(
+        meta.endedAt,
+        null,
+        "meta.json endedAt still null (unclean shutdown)",
+      );
     }
 
     // Layout file should still be there
@@ -409,18 +538,35 @@ async function main() {
     ctrl3.send({ type: "listSessions" });
     const list3 = await ctrl3.readLine();
     const hasOldSessions = list3.sessions.some((s) => s.sessionId === PANE_A);
-    assert(!hasOldSessions, "new daemon does NOT have old sessions (they're gone)");
+    assert(
+      !hasOldSessions,
+      "new daemon does NOT have old sessions (they're gone)",
+    );
 
     // But we can read scrollback from disk
     if (fs.existsSync(scrollbackBin)) {
       const coldContent = fs.readFileSync(scrollbackBin, "utf-8");
-      assertContains(coldContent, "PANE_A_MARKER_12345", "cold restore: scrollback readable from disk");
+      assertContains(
+        coldContent,
+        "PANE_A_MARKER_12345",
+        "cold restore: scrollback readable from disk",
+      );
     }
 
     // Create a fresh session in the old CWD (what the app would do on cold restore)
-    ctrl3.send({ type: "create", sessionId: PANE_A + "-restored", cwd: "/tmp", cols: 80, rows: 24 });
+    ctrl3.send({
+      type: "create",
+      sessionId: PANE_A + "-restored",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     const coldCreate = await ctrl3.readLine();
-    assertEq(coldCreate.type, "created", "cold restore: new session created in old CWD");
+    assertEq(
+      coldCreate.type,
+      "created",
+      "cold restore: new session created in old CWD",
+    );
 
     ctrl3.close();
 
@@ -433,7 +579,9 @@ async function main() {
       // Remove only our test workspace from layout, not the whole file
       if (fs.existsSync(LAYOUT_FILE)) {
         const l = JSON.parse(fs.readFileSync(LAYOUT_FILE, "utf-8"));
-        l.workspaces = l.workspaces.filter((w) => w.workspacePath !== WORKSPACE_PATH);
+        l.workspaces = l.workspaces.filter(
+          (w) => w.workspacePath !== WORKSPACE_PATH,
+        );
         if (l.workspaces.length > 0) {
           fs.writeFileSync(LAYOUT_FILE, JSON.stringify(l, null, 2));
         } else {
@@ -441,7 +589,6 @@ async function main() {
         }
       }
     } catch {}
-
   } catch (e) {
     console.error(`\nFATAL: ${e.message}`);
     console.error(e.stack);

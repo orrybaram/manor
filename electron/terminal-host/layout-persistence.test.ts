@@ -9,7 +9,6 @@ import {
   type PersistedLayout,
   type PersistedWorkspace,
   type PersistedSession,
-  type PaneRestoreAction,
 } from "./layout-persistence";
 
 describe("LayoutPersistence", () => {
@@ -28,7 +27,10 @@ describe("LayoutPersistence", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function makeLeafSession(paneId: string, daemonSessionId: string): PersistedSession {
+  function makeLeafSession(
+    paneId: string,
+    daemonSessionId: string,
+  ): PersistedSession {
     return {
       id: `session-${crypto.randomUUID()}`,
       title: "Terminal",
@@ -57,8 +59,16 @@ describe("LayoutPersistence", () => {
       rootNode,
       focusedPaneId: paneIds[0],
       paneSessions: {
-        [paneIds[0]]: { daemonSessionId: daemonSessionIds[0], lastCwd: "/tmp", lastTitle: null },
-        [paneIds[1]]: { daemonSessionId: daemonSessionIds[1], lastCwd: "/home", lastTitle: null },
+        [paneIds[0]]: {
+          daemonSessionId: daemonSessionIds[0],
+          lastCwd: "/tmp",
+          lastTitle: null,
+        },
+        [paneIds[1]]: {
+          daemonSessionId: daemonSessionIds[1],
+          lastCwd: "/home",
+          lastTitle: null,
+        },
       },
     };
   }
@@ -67,11 +77,13 @@ describe("LayoutPersistence", () => {
     it("saves layout to disk", () => {
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project/main",
-          sessions: [makeLeafSession("p1", "ds1")],
-          selectedSessionId: "doesn't matter for save",
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project/main",
+            sessions: [makeLeafSession("p1", "ds1")],
+            selectedSessionId: "doesn't matter for save",
+          },
+        ],
       };
 
       persistence.save(layout);
@@ -87,11 +99,13 @@ describe("LayoutPersistence", () => {
       const session = makeLeafSession("p1", "ds1");
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project/main",
-          sessions: [session],
-          selectedSessionId: session.id,
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project/main",
+            sessions: [session],
+            selectedSessionId: session.id,
+          },
+        ],
       };
 
       persistence.save(layout);
@@ -109,11 +123,13 @@ describe("LayoutPersistence", () => {
       const session = makeSplitSession(["p1", "p2"], ["ds1", "ds2"]);
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project/main",
-          sessions: [session],
-          selectedSessionId: session.id,
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project/main",
+            sessions: [session],
+            selectedSessionId: session.id,
+          },
+        ],
       };
 
       persistence.save(layout);
@@ -159,11 +175,13 @@ describe("LayoutPersistence", () => {
 
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project/main",
-          sessions: [s1, s2, s3],
-          selectedSessionId: s2.id,
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project/main",
+            sessions: [s1, s2, s3],
+            selectedSessionId: s2.id,
+          },
+        ],
       };
 
       persistence.save(layout);
@@ -180,22 +198,30 @@ describe("LayoutPersistence", () => {
         rootNode: { type: "leaf", paneId: "p1" },
         focusedPaneId: "p1",
         paneSessions: {
-          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code", lastTitle: null },
+          p1: {
+            daemonSessionId: "ds1",
+            lastCwd: "/Users/test/code",
+            lastTitle: null,
+          },
         },
       };
 
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project",
-          sessions: [session],
-          selectedSessionId: "s1",
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project",
+            sessions: [session],
+            selectedSessionId: "s1",
+          },
+        ],
       };
 
       persistence.save(layout);
       const loaded = persistence.load();
-      expect(loaded!.workspaces[0].sessions[0].paneSessions.p1.lastCwd).toBe("/Users/test/code");
+      expect(loaded!.workspaces[0].sessions[0].paneSessions.p1.lastCwd).toBe(
+        "/Users/test/code",
+      );
     });
   });
 
@@ -226,10 +252,7 @@ describe("LayoutPersistence", () => {
       // Update same workspace
       persistence.saveWorkspace({
         workspacePath: "/project/main",
-        sessions: [
-          makeLeafSession("p1", "ds1"),
-          makeLeafSession("p2", "ds2"),
-        ],
+        sessions: [makeLeafSession("p1", "ds1"), makeLeafSession("p2", "ds2")],
         selectedSessionId: "y",
       });
 
@@ -285,11 +308,13 @@ describe("LayoutPersistence", () => {
     it("no-op when workspace doesn't exist", () => {
       const layout: PersistedLayout = {
         version: 1,
-        workspaces: [{
-          workspacePath: "/project/main",
-          sessions: [makeLeafSession("p1", "ds1")],
-          selectedSessionId: "x",
-        }],
+        workspaces: [
+          {
+            workspacePath: "/project/main",
+            sessions: [makeLeafSession("p1", "ds1")],
+            selectedSessionId: "x",
+          },
+        ],
       };
       persistence.save(layout);
 
@@ -311,7 +336,11 @@ describe("LayoutPersistence", () => {
       const aliveDaemonSessions = new Set(["ds1"]);
       const persistedSessions = new Set<string>();
 
-      const plan = persistence.reconcile(workspace, aliveDaemonSessions, persistedSessions);
+      const plan = persistence.reconcile(
+        workspace,
+        aliveDaemonSessions,
+        persistedSessions,
+      );
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].type).toBe("warm");
@@ -331,7 +360,11 @@ describe("LayoutPersistence", () => {
       const aliveDaemonSessions = new Set<string>(); // daemon lost it
       const persistedSessions = new Set(["ds1"]); // but scrollback exists
 
-      const plan = persistence.reconcile(workspace, aliveDaemonSessions, persistedSessions);
+      const plan = persistence.reconcile(
+        workspace,
+        aliveDaemonSessions,
+        persistedSessions,
+      );
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].type).toBe("cold");
@@ -348,7 +381,11 @@ describe("LayoutPersistence", () => {
       const aliveDaemonSessions = new Set<string>();
       const persistedSessions = new Set<string>();
 
-      const plan = persistence.reconcile(workspace, aliveDaemonSessions, persistedSessions);
+      const plan = persistence.reconcile(
+        workspace,
+        aliveDaemonSessions,
+        persistedSessions,
+      );
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].type).toBe("fresh");
@@ -365,7 +402,11 @@ describe("LayoutPersistence", () => {
       const aliveDaemonSessions = new Set(["ds1"]); // only ds1 alive
       const persistedSessions = new Set(["ds2"]); // ds2 has scrollback
 
-      const plan = persistence.reconcile(workspace, aliveDaemonSessions, persistedSessions);
+      const plan = persistence.reconcile(
+        workspace,
+        aliveDaemonSessions,
+        persistedSessions,
+      );
 
       expect(plan.actions).toHaveLength(2);
 
@@ -390,7 +431,11 @@ describe("LayoutPersistence", () => {
       const aliveDaemonSessions = new Set(["ds1", "ds3"]);
       const persistedSessions = new Set(["ds2"]);
 
-      const plan = persistence.reconcile(workspace, aliveDaemonSessions, persistedSessions);
+      const plan = persistence.reconcile(
+        workspace,
+        aliveDaemonSessions,
+        persistedSessions,
+      );
 
       expect(plan.actions).toHaveLength(3);
       expect(plan.actions.find((a) => a.paneId === "p1")?.type).toBe("warm");
@@ -405,7 +450,11 @@ describe("LayoutPersistence", () => {
         rootNode: { type: "leaf", paneId: "p1" },
         focusedPaneId: "p1",
         paneSessions: {
-          p1: { daemonSessionId: "ds1", lastCwd: "/Users/test/code", lastTitle: null },
+          p1: {
+            daemonSessionId: "ds1",
+            lastCwd: "/Users/test/code",
+            lastTitle: null,
+          },
         },
       };
 

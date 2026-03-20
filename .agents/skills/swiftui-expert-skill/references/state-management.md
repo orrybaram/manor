@@ -19,13 +19,13 @@
 
 ## Property Wrapper Selection Guide
 
-| Wrapper | Use When | Notes |
-|---------|----------|-------|
-| `@State` | Internal view state that triggers updates | Must be `private` |
-| `@Binding` | Child view needs to modify parent's state | Don't use for read-only |
+| Wrapper     | Use When                                                       | Notes                    |
+| ----------- | -------------------------------------------------------------- | ------------------------ |
+| `@State`    | Internal view state that triggers updates                      | Must be `private`        |
+| `@Binding`  | Child view needs to modify parent's state                      | Don't use for read-only  |
 | `@Bindable` | iOS 17+: View receives `@Observable` object and needs bindings | For injected observables |
-| `let` | Read-only value passed from parent | Simplest option |
-| `var` | Read-only value that child observes via `.onChange()` | For reactive reads |
+| `let`       | Read-only value passed from parent                             | Simplest option          |
+| `var`       | Read-only value that child observes via `.onChange()`          | For reactive reads       |
 
 **Legacy (Pre-iOS 17):**
 | Wrapper | Use When | Notes |
@@ -69,7 +69,7 @@ struct MyView: View {
 }
 ```
 
-**Critical**: When a view *owns* an `@Observable` object, always use `@State` -- not `let`. Without `@State`, SwiftUI may recreate the instance when a parent view redraws, losing accumulated state. `@State` tells SwiftUI to preserve the instance across view redraws. Using `@State` also provides bindings directly (no need for `@Bindable`).
+**Critical**: When a view _owns_ an `@Observable` object, always use `@State` -- not `let`. Without `@State`, SwiftUI may recreate the instance when a parent view redraws, losing accumulated state. `@State` tells SwiftUI to preserve the instance across view redraws. Using `@State` also provides bindings directly (no need for `@Bindable`).
 
 **Note**: You may want to mark `@Observable` classes with `@MainActor` to ensure thread safety with SwiftUI, unless your project or package uses Default Actor Isolation set to `MainActor`—in which case, the explicit attribute is redundant and can be omitted.
 
@@ -96,6 +96,7 @@ final class SettingsModel {
 ```
 
 This applies to **any** property wrapper used inside an `@Observable` class, including but not limited to:
+
 - `@AppStorage`
 - `@SceneStorage`
 - `@Query` (SwiftData)
@@ -385,12 +386,12 @@ struct MyView: View {
     @State private var viewModel = ViewModel()
     @AppStorage("theme") private var theme = "light"
     @Environment(\.colorScheme) private var colorScheme
-    
+
     // Passed from parent - not private
     let title: String
     @Binding var isSelected: Bool
     @Bindable var user: User
-    
+
     var body: some View {
         // ...
     }

@@ -34,7 +34,7 @@ vi.mock("../shell", () => ({
 }));
 
 import { TerminalHost } from "./terminal-host";
-import type { ControlRequest, ControlResponse, StreamEvent } from "./types";
+import type { ControlRequest, ControlResponse } from "./types";
 
 /**
  * In-process daemon server for testing the socket protocol without
@@ -48,7 +48,10 @@ class TestDaemon {
   readonly socketPath: string;
 
   constructor() {
-    this.socketPath = path.join(os.tmpdir(), `manor-test-${crypto.randomUUID()}.sock`);
+    this.socketPath = path.join(
+      os.tmpdir(),
+      `manor-test-${crypto.randomUUID()}.sock`,
+    );
     this.token = crypto.randomBytes(16).toString("hex");
     this.server = net.createServer((socket) => this.handleConnection(socket));
   }
@@ -72,7 +75,9 @@ class TestDaemon {
     this.host.disposeAll();
     return new Promise((resolve) => {
       this.server.close(() => {
-        try { fs.unlinkSync(this.socketPath); } catch {}
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {}
         resolve();
       });
     });
@@ -116,7 +121,10 @@ class TestDaemon {
     });
   }
 
-  private async handleControlMessage(socket: net.Socket, line: string): Promise<void> {
+  private async handleControlMessage(
+    socket: net.Socket,
+    line: string,
+  ): Promise<void> {
     let req: ControlRequest;
     try {
       req = JSON.parse(line);
@@ -141,10 +149,19 @@ class TestDaemon {
         break;
       case "create": {
         try {
-          const session = this.host.create(req.sessionId, req.cwd, req.cols, req.rows, req.shellArgs);
+          const session = this.host.create(
+            req.sessionId,
+            req.cwd,
+            req.cols,
+            req.rows,
+            req.shellArgs,
+          );
           this.send(socket, { type: "created", session });
         } catch (err) {
-          this.send(socket, { type: "error", message: `Create failed: ${err instanceof Error ? err.message : String(err)}` });
+          this.send(socket, {
+            type: "error",
+            message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
         break;
       }
@@ -153,7 +170,10 @@ class TestDaemon {
         if (snapshot) {
           this.send(socket, { type: "attached", snapshot });
         } else {
-          this.send(socket, { type: "error", message: `Session ${req.sessionId} not found` });
+          this.send(socket, {
+            type: "error",
+            message: `Session ${req.sessionId} not found`,
+          });
         }
         break;
       }
@@ -174,12 +194,18 @@ class TestDaemon {
         if (snapshot) {
           this.send(socket, { type: "snapshot", snapshot });
         } else {
-          this.send(socket, { type: "error", message: `Session ${req.sessionId} not found` });
+          this.send(socket, {
+            type: "error",
+            message: `Session ${req.sessionId} not found`,
+          });
         }
         break;
       }
       case "listSessions":
-        this.send(socket, { type: "sessions", sessions: this.host.listSessions() });
+        this.send(socket, {
+          type: "sessions",
+          sessions: this.host.listSessions(),
+        });
         break;
       case "ping":
         this.send(socket, { type: "pong" });
@@ -187,9 +213,16 @@ class TestDaemon {
     }
   }
 
-  private async handleStreamMessage(socket: net.Socket, line: string): Promise<void> {
+  private async handleStreamMessage(
+    socket: net.Socket,
+    line: string,
+  ): Promise<void> {
     let cmd: any;
-    try { cmd = JSON.parse(line); } catch { return; }
+    try {
+      cmd = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (!this.authenticatedSockets.has(socket)) return;
 
     switch (cmd.type) {
@@ -241,13 +274,14 @@ function connectRaw(socketPath: string): Promise<{
       resolve({
         socket,
         send: (msg: any) => socket.write(JSON.stringify(msg) + "\n"),
-        readLine: () => new Promise((res) => {
-          if (received.length > 0) {
-            res(received.shift());
-          } else {
-            pending.push(res);
-          }
-        }),
+        readLine: () =>
+          new Promise((res) => {
+            if (received.length > 0) {
+              res(received.shift());
+            } else {
+              pending.push(res);
+            }
+          }),
         close: () => socket.destroy(),
       });
     });
@@ -255,7 +289,11 @@ function connectRaw(socketPath: string): Promise<{
 }
 
 /** Push data into a session via the host's internal session decoder */
-function feedSessionData(host: TerminalHost, sessionId: string, data: string): void {
+function feedSessionData(
+  host: TerminalHost,
+  sessionId: string,
+  data: string,
+): void {
   const session = (host as any).sessions.get(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
   const frame = encodeFrame(MSG.DATA, data);
@@ -321,7 +359,13 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "auth", token: daemon.authToken });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       const resp = await client.readLine();
       expect(resp.type).toBe("created");
       expect(resp.session.sessionId).toBe("s1");
@@ -333,10 +377,22 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "auth", token: daemon.authToken });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s2", cwd: "/home", cols: 120, rows: 40 });
+      client.send({
+        type: "create",
+        sessionId: "s2",
+        cwd: "/home",
+        cols: 120,
+        rows: 40,
+      });
       await client.readLine();
 
       client.send({ type: "listSessions" });
@@ -351,7 +407,13 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "auth", token: daemon.authToken });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client.readLine();
 
       client.send({ type: "attach", sessionId: "s1" });
@@ -378,7 +440,13 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "auth", token: daemon.authToken });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client.readLine();
 
       client.send({ type: "resize", sessionId: "s1", cols: 120, rows: 40 });
@@ -397,7 +465,13 @@ describe("Daemon protocol (in-process)", () => {
       client.send({ type: "auth", token: daemon.authToken });
       await client.readLine();
 
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client.readLine();
 
       client.send({ type: "kill", sessionId: "s1" });
@@ -416,16 +490,30 @@ describe("Daemon protocol (in-process)", () => {
       // Monkey-patch host.create to throw
       const host = daemon.getHost();
       const origCreate = host.create.bind(host);
-      host.create = () => { throw new Error("spawn failed: no such file"); };
+      host.create = () => {
+        throw new Error("spawn failed: no such file");
+      };
 
-      client.send({ type: "create", sessionId: "s-fail", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s-fail",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       const resp = await client.readLine();
       expect(resp.type).toBe("error");
       expect(resp.message).toContain("spawn failed");
 
       // Restore original and verify subsequent requests still work
       host.create = origCreate;
-      client.send({ type: "create", sessionId: "s-ok", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s-ok",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       const resp2 = await client.readLine();
       expect(resp2.type).toBe("created");
       expect(resp2.session.sessionId).toBe("s-ok");
@@ -449,8 +537,20 @@ describe("Daemon protocol (in-process)", () => {
       };
 
       // Send two creates back-to-back
-      client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
-      client.send({ type: "create", sessionId: "s2", cwd: "/tmp", cols: 80, rows: 24 });
+      client.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
+      client.send({
+        type: "create",
+        sessionId: "s2",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
 
       const resp1 = await client.readLine();
       const resp2 = await client.readLine();
@@ -472,11 +572,21 @@ describe("Daemon protocol (in-process)", () => {
       client1.send({ type: "auth", token: daemon.authToken });
       await client1.readLine();
 
-      client1.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client1.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client1.readLine();
 
       // Simulate PTY output by feeding data directly into the host
-      feedSessionData(daemon.getHost(), "s1", "important output that must survive");
+      feedSessionData(
+        daemon.getHost(),
+        "s1",
+        "important output that must survive",
+      );
 
       // Client 1 disconnects
       client1.close();
@@ -491,7 +601,9 @@ describe("Daemon protocol (in-process)", () => {
       client2.send({ type: "attach", sessionId: "s1" });
       const resp = await client2.readLine();
       expect(resp.type).toBe("attached");
-      expect(resp.snapshot.screenAnsi).toContain("important output that must survive");
+      expect(resp.snapshot.screenAnsi).toContain(
+        "important output that must survive",
+      );
       client2.close();
     });
 
@@ -500,10 +612,20 @@ describe("Daemon protocol (in-process)", () => {
       client1.send({ type: "auth", token: daemon.authToken });
       await client1.readLine();
 
-      client1.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client1.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client1.readLine();
 
-      feedSessionData(daemon.getHost(), "s1", "\x1b]7;file://localhost/Users/restored\x07");
+      feedSessionData(
+        daemon.getHost(),
+        "s1",
+        "\x1b]7;file://localhost/Users/restored\x07",
+      );
 
       client1.close();
       await new Promise((r) => setTimeout(r, 50));
@@ -523,7 +645,13 @@ describe("Daemon protocol (in-process)", () => {
       client1.send({ type: "auth", token: daemon.authToken });
       await client1.readLine();
 
-      client1.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      client1.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await client1.readLine();
 
       feedSessionData(daemon.getHost(), "s1", "\x1b[?2004h\x1b[?1049h");
@@ -550,7 +678,13 @@ describe("Daemon protocol (in-process)", () => {
       control.send({ type: "auth", token: daemon.authToken });
       await control.readLine();
 
-      control.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      control.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await control.readLine();
 
       // Stream socket: subscribe
@@ -579,7 +713,13 @@ describe("Daemon protocol (in-process)", () => {
       control.send({ type: "auth", token: daemon.authToken });
       await control.readLine();
 
-      control.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      control.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await control.readLine();
 
       const stream = await connectRaw(daemon.socketPath);
@@ -610,7 +750,13 @@ describe("Daemon protocol (in-process)", () => {
       control.send({ type: "auth", token: daemon.authToken });
       await control.readLine();
 
-      control.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      control.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await control.readLine();
 
       const stream = await connectRaw(daemon.socketPath);
@@ -639,7 +785,13 @@ describe("Daemon protocol (in-process)", () => {
       control.send({ type: "auth", token: daemon.authToken });
       await control.readLine();
 
-      control.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+      control.send({
+        type: "create",
+        sessionId: "s1",
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await control.readLine();
 
       // Two stream clients subscribe

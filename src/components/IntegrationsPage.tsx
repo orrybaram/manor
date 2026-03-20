@@ -13,7 +13,9 @@ export function IntegrationsPage() {
 
 function LinearIntegrationSection() {
   const [connected, setConnected] = useState(false);
-  const [viewer, setViewer] = useState<{ name: string; email: string } | null>(null);
+  const [viewer, setViewer] = useState<{ name: string; email: string } | null>(
+    null,
+  );
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,8 @@ function LinearIntegrationSection() {
           </div>
           {matchCount !== null && matchCount > 0 && (
             <div className={styles.linearMatchInfo}>
-              Auto-matched {matchCount} project{matchCount !== 1 ? "s" : ""} to Linear teams
+              Auto-matched {matchCount} project{matchCount !== 1 ? "s" : ""} to
+              Linear teams
             </div>
           )}
           <button className={styles.linearButton} onClick={handleDisconnect}>
@@ -90,7 +93,9 @@ function LinearIntegrationSection() {
               placeholder="Paste your Linear API key"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleConnect(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConnect();
+              }}
             />
             <button
               className={styles.linearButton}
@@ -106,7 +111,12 @@ function LinearIntegrationSection() {
             <a
               className={styles.linearLink}
               href="#"
-              onClick={(e) => { e.preventDefault(); window.electronAPI.openExternal("https://linear.app/trytango/settings/account/security"); }}
+              onClick={(e) => {
+                e.preventDefault();
+                window.electronAPI.openExternal(
+                  "https://linear.app/trytango/settings/account/security",
+                );
+              }}
             >
               Linear Settings
             </a>

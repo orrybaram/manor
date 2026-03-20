@@ -45,8 +45,12 @@ export type MessageType = (typeof MSG)[keyof typeof MSG];
 const HEADER_SIZE = 5;
 
 /** Encode a frame: 1-byte type + 4-byte BE length + payload */
-export function encodeFrame(type: MessageType, payload: Buffer | string = Buffer.alloc(0)): Buffer {
-  const buf = typeof payload === "string" ? Buffer.from(payload, "utf-8") : payload;
+export function encodeFrame(
+  type: MessageType,
+  payload: Buffer | string = Buffer.alloc(0),
+): Buffer {
+  const buf =
+    typeof payload === "string" ? Buffer.from(payload, "utf-8") : payload;
   const frame = Buffer.allocUnsafe(HEADER_SIZE + buf.length);
   frame[0] = type;
   frame.writeUInt32BE(buf.length, 1);
@@ -71,7 +75,8 @@ export class FrameDecoder {
   }
 
   push(chunk: Buffer): void {
-    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+    this.buffer =
+      this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
 
     while (this.buffer.length >= HEADER_SIZE) {
       const payloadLen = this.buffer.readUInt32BE(1);

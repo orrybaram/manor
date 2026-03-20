@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Plus } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -10,7 +16,7 @@ const TAB_GAP = 2; // matches .sessions CSS gap
 
 export function TabBar() {
   const ws = useAppStore(selectActiveWorkspace);
-  const sessions = ws?.sessions ?? [];
+  const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const selectSession = useAppStore((s) => s.selectSession);
   const addSession = useAppStore((s) => s.addSession);
@@ -101,7 +107,9 @@ export function TabBar() {
             ids.splice(finalDrop, 0, moved);
             reorderSessions(ids);
           }
-          requestAnimationFrame(() => { justDragged.current = false; });
+          requestAnimationFrame(() => {
+            justDragged.current = false;
+          });
         }
         dragActive.current = false;
         dropIndexRef.current = null;
@@ -114,7 +122,7 @@ export function TabBar() {
       tabEl.addEventListener("pointerup", onUp);
       tabEl.addEventListener("lostpointercapture", onUp);
     },
-    [sessions, reorderSessions]
+    [sessions, reorderSessions],
   );
 
   const getTransformStyle = (idx: number): React.CSSProperties => {
@@ -141,7 +149,9 @@ export function TabBar() {
   };
 
   return (
-    <div className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}>
+    <div
+      className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}
+    >
       <div className={styles.sessions}>
         {sessions.map((session, idx) => (
           <SessionButton

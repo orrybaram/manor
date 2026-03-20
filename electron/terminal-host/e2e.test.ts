@@ -40,7 +40,6 @@ import { TerminalHost } from "./terminal-host";
 import { ScrollbackWriter, type SessionMeta } from "./scrollback";
 import {
   LayoutPersistence,
-  type PersistedLayout,
   type PersistedWorkspace,
   type PersistedSession,
 } from "./layout-persistence";
@@ -71,8 +70,12 @@ class E2EDaemon {
     this.server = net.createServer((s) => this.handleConnection(s));
   }
 
-  get authToken(): string { return this.token; }
-  getHost(): TerminalHost { return this.host; }
+  get authToken(): string {
+    return this.token;
+  }
+  getHost(): TerminalHost {
+    return this.host;
+  }
 
   async start(): Promise<void> {
     return new Promise((r) => this.server.listen(this.socketPath, r));
@@ -82,7 +85,9 @@ class E2EDaemon {
     this.host.disposeAll();
     return new Promise((r) => {
       this.server.close(() => {
-        try { fs.unlinkSync(this.socketPath); } catch {}
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {}
         r();
       });
     });
@@ -92,7 +97,9 @@ class E2EDaemon {
   async crash(): Promise<void> {
     return new Promise((r) => {
       this.server.close(() => {
-        try { fs.unlinkSync(this.socketPath); } catch {}
+        try {
+          fs.unlinkSync(this.socketPath);
+        } catch {}
         r();
       });
     });
@@ -112,7 +119,8 @@ class E2EDaemon {
             const msg = JSON.parse(line);
             if (msg.connectionType === "stream") {
               type = "stream";
-              if (msg.token === this.token) this.authenticatedSockets.add(socket);
+              if (msg.token === this.token)
+                this.authenticatedSockets.add(socket);
               continue;
             }
           } catch {}
@@ -130,11 +138,15 @@ class E2EDaemon {
 
   private async handleControl(socket: net.Socket, line: string): Promise<void> {
     let req: ControlRequest;
-    try { req = JSON.parse(line); } catch {
-      this.send(socket, { type: "error", message: "Invalid JSON" }); return;
+    try {
+      req = JSON.parse(line);
+    } catch {
+      this.send(socket, { type: "error", message: "Invalid JSON" });
+      return;
     }
     if (req.type !== "auth" && !this.authenticatedSockets.has(socket)) {
-      this.send(socket, { type: "error", message: "Not authenticated" }); return;
+      this.send(socket, { type: "error", message: "Not authenticated" });
+      return;
     }
     switch (req.type) {
       case "auth":
@@ -146,11 +158,25 @@ class E2EDaemon {
         }
         break;
       case "create":
-        this.send(socket, { type: "created", session: this.host.create(req.sessionId, req.cwd, req.cols, req.rows, req.shellArgs) });
+        this.send(socket, {
+          type: "created",
+          session: this.host.create(
+            req.sessionId,
+            req.cwd,
+            req.cols,
+            req.rows,
+            req.shellArgs,
+          ),
+        });
         break;
       case "attach": {
         const snap = await this.host.attach(req.sessionId, socket);
-        this.send(socket, snap ? { type: "attached", snapshot: snap } : { type: "error", message: "not found" });
+        this.send(
+          socket,
+          snap
+            ? { type: "attached", snapshot: snap }
+            : { type: "error", message: "not found" },
+        );
         break;
       }
       case "detach":
@@ -167,11 +193,19 @@ class E2EDaemon {
         break;
       case "getSnapshot": {
         const snap = await this.host.getSnapshot(req.sessionId);
-        this.send(socket, snap ? { type: "snapshot", snapshot: snap } : { type: "error", message: "not found" });
+        this.send(
+          socket,
+          snap
+            ? { type: "snapshot", snapshot: snap }
+            : { type: "error", message: "not found" },
+        );
         break;
       }
       case "listSessions":
-        this.send(socket, { type: "sessions", sessions: this.host.listSessions() });
+        this.send(socket, {
+          type: "sessions",
+          sessions: this.host.listSessions(),
+        });
         break;
       case "ping":
         this.send(socket, { type: "pong" });
@@ -181,11 +215,17 @@ class E2EDaemon {
 
   private async handleStream(socket: net.Socket, line: string): Promise<void> {
     let cmd: any;
-    try { cmd = JSON.parse(line); } catch { return; }
+    try {
+      cmd = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (!this.authenticatedSockets.has(socket)) return;
     if (cmd.type === "write") this.host.write(cmd.sessionId, cmd.data);
-    else if (cmd.type === "subscribe") await this.host.attach(cmd.sessionId, socket);
-    else if (cmd.type === "unsubscribe") this.host.detach(cmd.sessionId, socket);
+    else if (cmd.type === "subscribe")
+      await this.host.attach(cmd.sessionId, socket);
+    else if (cmd.type === "unsubscribe")
+      this.host.detach(cmd.sessionId, socket);
   }
 
   private send(socket: net.Socket, resp: ControlResponse): void {
@@ -218,17 +258,22 @@ function connectRaw(socketPath: string): Promise<{
       resolve({
         socket,
         send: (msg: any) => socket.write(JSON.stringify(msg) + "\n"),
-        readLine: () => new Promise((r) => {
-          if (received.length > 0) r(received.shift());
-          else pending.push(r);
-        }),
+        readLine: () =>
+          new Promise((r) => {
+            if (received.length > 0) r(received.shift());
+            else pending.push(r);
+          }),
         close: () => socket.destroy(),
       });
     });
   });
 }
 
-function feedSessionData(host: TerminalHost, sessionId: string, data: string): void {
+function feedSessionData(
+  host: TerminalHost,
+  sessionId: string,
+  data: string,
+): void {
   const session = (host as any).sessions.get(sessionId);
   if (!session) throw new Error(`Session ${sessionId} not found`);
   (session as any).decoder.push(encodeFrame(MSG.DATA, data));
@@ -266,7 +311,13 @@ describe("E2E: scrollback persistence through daemon", () => {
     client.send({ type: "auth", token: daemon.authToken });
     await client.readLine();
 
-    client.send({ type: "create", sessionId: "s1", cwd: "/tmp/test", cols: 80, rows: 24 });
+    client.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp/test",
+      cols: 80,
+      rows: 24,
+    });
     await client.readLine();
 
     // Session dir should exist
@@ -274,7 +325,9 @@ describe("E2E: scrollback persistence through daemon", () => {
     expect(fs.existsSync(sessionDir)).toBe(true);
 
     // meta.json should have correct content
-    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "meta.json"), "utf-8")) as SessionMeta;
+    const meta = JSON.parse(
+      fs.readFileSync(path.join(sessionDir, "meta.json"), "utf-8"),
+    ) as SessionMeta;
     expect(meta.sessionId).toBe("s1");
     expect(meta.cwd).toBe("/tmp/test");
     expect(meta.cols).toBe(80);
@@ -292,7 +345,13 @@ describe("E2E: scrollback persistence through daemon", () => {
     client.send({ type: "auth", token: daemon.authToken });
     await client.readLine();
 
-    client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    client.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await client.readLine();
 
     // Feed data into the session
@@ -317,14 +376,27 @@ describe("E2E: scrollback persistence through daemon", () => {
     client.send({ type: "auth", token: daemon.authToken });
     await client.readLine();
 
-    client.send({ type: "create", sessionId: "s1", cwd: "/start", cols: 80, rows: 24 });
+    client.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/start",
+      cols: 80,
+      rows: 24,
+    });
     await client.readLine();
 
-    feedSessionData(daemon.getHost(), "s1", "\x1b]7;file://localhost/Users/new/dir\x07");
+    feedSessionData(
+      daemon.getHost(),
+      "s1",
+      "\x1b]7;file://localhost/Users/new/dir\x07",
+    );
     flushScrollback(daemon.getHost(), "s1");
 
     const meta = JSON.parse(
-      fs.readFileSync(path.join(daemon.sessionsDir, "s1", "meta.json"), "utf-8"),
+      fs.readFileSync(
+        path.join(daemon.sessionsDir, "s1", "meta.json"),
+        "utf-8",
+      ),
     ) as SessionMeta;
     expect(meta.cwd).toBe("/Users/new/dir");
 
@@ -336,14 +408,23 @@ describe("E2E: scrollback persistence through daemon", () => {
     client.send({ type: "auth", token: daemon.authToken });
     await client.readLine();
 
-    client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    client.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await client.readLine();
 
     // Dispose the session (simulates clean shutdown)
     daemon.getHost().disposeSession("s1");
 
     const meta = JSON.parse(
-      fs.readFileSync(path.join(daemon.sessionsDir, "s1", "meta.json"), "utf-8"),
+      fs.readFileSync(
+        path.join(daemon.sessionsDir, "s1", "meta.json"),
+        "utf-8",
+      ),
     ) as SessionMeta;
     expect(meta.endedAt).not.toBeNull();
 
@@ -355,15 +436,25 @@ describe("E2E: scrollback persistence through daemon", () => {
     client.send({ type: "auth", token: daemon.authToken });
     await client.readLine();
 
-    client.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    client.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await client.readLine();
 
     // Session is alive — endedAt should be null
-    expect(ScrollbackWriter.isUncleanShutdown("s1", daemon.sessionsDir)).toBe(true);
+    expect(ScrollbackWriter.isUncleanShutdown("s1", daemon.sessionsDir)).toBe(
+      true,
+    );
 
     // After clean end
     daemon.getHost().disposeSession("s1");
-    expect(ScrollbackWriter.isUncleanShutdown("s1", daemon.sessionsDir)).toBe(false);
+    expect(ScrollbackWriter.isUncleanShutdown("s1", daemon.sessionsDir)).toBe(
+      false,
+    );
 
     client.close();
   });
@@ -390,7 +481,13 @@ describe("E2E: warm restore through daemon sockets", () => {
     c1.send({ type: "auth", token: daemon.authToken });
     await c1.readLine();
 
-    c1.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    c1.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await c1.readLine();
 
     feedSessionData(daemon.getHost(), "s1", "important output");
@@ -401,7 +498,10 @@ describe("E2E: warm restore through daemon sockets", () => {
     await delay(50);
 
     // Verify scrollback on disk
-    const scrollback = fs.readFileSync(path.join(daemon.sessionsDir, "s1", "scrollback.bin"), "utf-8");
+    const scrollback = fs.readFileSync(
+      path.join(daemon.sessionsDir, "s1", "scrollback.bin"),
+      "utf-8",
+    );
     expect(scrollback).toContain("important output");
 
     // Client 2: attach and get snapshot
@@ -423,10 +523,20 @@ describe("E2E: warm restore through daemon sockets", () => {
     c1.send({ type: "auth", token: daemon.authToken });
     await c1.readLine();
 
-    c1.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    c1.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await c1.readLine();
 
-    feedSessionData(daemon.getHost(), "s1", "\x1b]7;file://localhost/restored/cwd\x07");
+    feedSessionData(
+      daemon.getHost(),
+      "s1",
+      "\x1b]7;file://localhost/restored/cwd\x07",
+    );
     feedSessionData(daemon.getHost(), "s1", "\x1b[?2004h"); // bracketed paste on
 
     c1.close();
@@ -482,12 +592,22 @@ describe("E2E: cold restore from scrollback on disk", () => {
     c1.send({ type: "auth", token: daemon1.authToken });
     await c1.readLine();
 
-    c1.send({ type: "create", sessionId: "s1", cwd: "/project/code", cols: 120, rows: 40 });
+    c1.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/project/code",
+      cols: 120,
+      rows: 40,
+    });
     await c1.readLine();
 
     feedSessionData(daemon1.getHost(), "s1", "$ git status\r\n");
     feedSessionData(daemon1.getHost(), "s1", "On branch main\r\n");
-    feedSessionData(daemon1.getHost(), "s1", "nothing to commit, working tree clean\r\n");
+    feedSessionData(
+      daemon1.getHost(),
+      "s1",
+      "nothing to commit, working tree clean\r\n",
+    );
     flushScrollback(daemon1.getHost(), "s1");
 
     c1.close();
@@ -526,7 +646,13 @@ describe("E2E: cold restore from scrollback on disk", () => {
     expect(coldScrollback).toContain("nothing to commit");
 
     // Create a new session in the same CWD for the user
-    c2.send({ type: "create", sessionId: "s1-restored", cwd: meta!.cwd!, cols: meta!.cols, rows: meta!.rows });
+    c2.send({
+      type: "create",
+      sessionId: "s1-restored",
+      cwd: meta!.cwd!,
+      cols: meta!.cols,
+      rows: meta!.rows,
+    });
     const createResp = await c2.readLine();
     expect(createResp.type).toBe("created");
     expect(createResp.session.cwd).toBe("/project/code");
@@ -547,7 +673,13 @@ describe("E2E: cold restore from scrollback on disk", () => {
 
     // Create 3 sessions
     for (const id of ["s1", "s2", "s3"]) {
-      c.send({ type: "create", sessionId: id, cwd: "/tmp", cols: 80, rows: 24 });
+      c.send({
+        type: "create",
+        sessionId: id,
+        cwd: "/tmp",
+        cols: 80,
+        rows: 24,
+      });
       await c.readLine();
       feedSessionData(daemon1.getHost(), id, `output for ${id}`);
       flushScrollback(daemon1.getHost(), id);
@@ -575,13 +707,30 @@ describe("E2E: layout persistence + reconciliation", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function makeWorkspace(paneConfigs: Array<{ paneId: string; daemonSessionId: string; cwd: string }>): PersistedWorkspace {
+  function makeWorkspace(
+    paneConfigs: Array<{
+      paneId: string;
+      daemonSessionId: string;
+      cwd: string;
+    }>,
+  ): PersistedWorkspace {
     const sessions: PersistedSession[] = [];
-    const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null; lastTitle: string | null }> = {};
+    const paneSessions: Record<
+      string,
+      {
+        daemonSessionId: string;
+        lastCwd: string | null;
+        lastTitle: string | null;
+      }
+    > = {};
 
     if (paneConfigs.length === 1) {
       const c = paneConfigs[0];
-      paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd, lastTitle: null };
+      paneSessions[c.paneId] = {
+        daemonSessionId: c.daemonSessionId,
+        lastCwd: c.cwd,
+        lastTitle: null,
+      };
       sessions.push({
         id: "tab-1",
         title: "Terminal",
@@ -591,7 +740,11 @@ describe("E2E: layout persistence + reconciliation", () => {
       });
     } else {
       for (const c of paneConfigs) {
-        paneSessions[c.paneId] = { daemonSessionId: c.daemonSessionId, lastCwd: c.cwd, lastTitle: null };
+        paneSessions[c.paneId] = {
+          daemonSessionId: c.daemonSessionId,
+          lastCwd: c.cwd,
+          lastTitle: null,
+        };
       }
       sessions.push({
         id: "tab-1",
@@ -627,9 +780,21 @@ describe("E2E: layout persistence + reconciliation", () => {
     c.send({ type: "auth", token: daemon1.authToken });
     await c.readLine();
 
-    c.send({ type: "create", sessionId: "pane-A", cwd: "/project", cols: 80, rows: 24 });
+    c.send({
+      type: "create",
+      sessionId: "pane-A",
+      cwd: "/project",
+      cols: 80,
+      rows: 24,
+    });
     await c.readLine();
-    c.send({ type: "create", sessionId: "pane-B", cwd: "/project/sub", cols: 80, rows: 24 });
+    c.send({
+      type: "create",
+      sessionId: "pane-B",
+      cwd: "/project/sub",
+      cols: 80,
+      rows: 24,
+    });
     await c.readLine();
 
     feedSessionData(daemon1.getHost(), "pane-A", "pane A output");
@@ -663,10 +828,18 @@ describe("E2E: layout persistence + reconciliation", () => {
     const savedLayout = layout.load()!;
     const savedWorkspace = savedLayout.workspaces[0];
 
-    const aliveSessions = new Set(listResp.sessions.map((s: any) => s.sessionId));
-    const persistedOnDisk = new Set(ScrollbackWriter.listPersistedSessions(sessionsDir));
+    const aliveSessions = new Set(
+      listResp.sessions.map((s: any) => s.sessionId),
+    );
+    const persistedOnDisk = new Set(
+      ScrollbackWriter.listPersistedSessions(sessionsDir),
+    );
 
-    const plan = layout.reconcile(savedWorkspace, aliveSessions, persistedOnDisk);
+    const plan = layout.reconcile(
+      savedWorkspace,
+      aliveSessions,
+      persistedOnDisk,
+    );
 
     // Both sessions should be "cold" (daemon lost them, but scrollback exists)
     expect(plan.actions).toHaveLength(2);
@@ -704,7 +877,13 @@ describe("E2E: layout persistence + reconciliation", () => {
     c.send({ type: "auth", token: daemon.authToken });
     await c.readLine();
 
-    c.send({ type: "create", sessionId: "pane-A", cwd: "/project", cols: 80, rows: 24 });
+    c.send({
+      type: "create",
+      sessionId: "pane-A",
+      cwd: "/project",
+      cols: 80,
+      rows: 24,
+    });
     await c.readLine();
 
     feedSessionData(daemon.getHost(), "pane-A", "preserved by daemon");
@@ -726,11 +905,19 @@ describe("E2E: layout persistence + reconciliation", () => {
     c2.send({ type: "listSessions" });
     const listResp = await c2.readLine();
 
-    const aliveSessions = new Set(listResp.sessions.map((s: any) => s.sessionId));
-    const persistedOnDisk = new Set(ScrollbackWriter.listPersistedSessions(sessionsDir));
+    const aliveSessions = new Set(
+      listResp.sessions.map((s: any) => s.sessionId),
+    );
+    const persistedOnDisk = new Set(
+      ScrollbackWriter.listPersistedSessions(sessionsDir),
+    );
 
     const savedLayout = layout.load()!;
-    const plan = layout.reconcile(savedLayout.workspaces[0], aliveSessions, persistedOnDisk);
+    const plan = layout.reconcile(
+      savedLayout.workspaces[0],
+      aliveSessions,
+      persistedOnDisk,
+    );
 
     expect(plan.actions).toHaveLength(1);
     expect(plan.actions[0].type).toBe("warm");
@@ -764,41 +951,63 @@ describe("E2E: layout persistence + reconciliation", () => {
     c.send({ type: "auth", token: daemon.authToken });
     await c.readLine();
 
-    c.send({ type: "create", sessionId: "pane-A", cwd: "/project", cols: 80, rows: 24 });
+    c.send({
+      type: "create",
+      sessionId: "pane-A",
+      cwd: "/project",
+      cols: 80,
+      rows: 24,
+    });
     await c.readLine();
 
     // Layout has 3 panes: A (daemon alive), B (scrollback on disk), C (nothing)
     const workspace: PersistedWorkspace = {
       workspacePath: "/project/main",
-      sessions: [{
-        id: "tab-1",
-        title: "Terminal",
-        rootNode: {
-          type: "split",
-          direction: "horizontal",
-          ratio: 0.5,
-          first: { type: "leaf", paneId: "pane-A" },
-          second: {
+      sessions: [
+        {
+          id: "tab-1",
+          title: "Terminal",
+          rootNode: {
             type: "split",
-            direction: "vertical",
+            direction: "horizontal",
             ratio: 0.5,
-            first: { type: "leaf", paneId: "pane-B" },
-            second: { type: "leaf", paneId: "pane-C" },
+            first: { type: "leaf", paneId: "pane-A" },
+            second: {
+              type: "split",
+              direction: "vertical",
+              ratio: 0.5,
+              first: { type: "leaf", paneId: "pane-B" },
+              second: { type: "leaf", paneId: "pane-C" },
+            },
+          },
+          focusedPaneId: "pane-A",
+          paneSessions: {
+            "pane-A": {
+              daemonSessionId: "pane-A",
+              lastCwd: "/project",
+              lastTitle: null,
+            },
+            "pane-B": {
+              daemonSessionId: "pane-B",
+              lastCwd: "/old",
+              lastTitle: null,
+            },
+            "pane-C": {
+              daemonSessionId: "pane-C",
+              lastCwd: "/gone",
+              lastTitle: null,
+            },
           },
         },
-        focusedPaneId: "pane-A",
-        paneSessions: {
-          "pane-A": { daemonSessionId: "pane-A", lastCwd: "/project", lastTitle: null },
-          "pane-B": { daemonSessionId: "pane-B", lastCwd: "/old", lastTitle: null },
-          "pane-C": { daemonSessionId: "pane-C", lastCwd: "/gone", lastTitle: null },
-        },
-      }],
+      ],
       selectedSessionId: "tab-1",
     };
     layout.saveWorkspace(workspace);
 
     const aliveSessions = new Set(["pane-A"]); // only A alive
-    const persistedOnDisk = new Set(ScrollbackWriter.listPersistedSessions(sessionsDir));
+    const persistedOnDisk = new Set(
+      ScrollbackWriter.listPersistedSessions(sessionsDir),
+    );
 
     const plan = layout.reconcile(workspace, aliveSessions, persistedOnDisk);
     expect(plan.actions).toHaveLength(3);
@@ -847,13 +1056,22 @@ describe("E2E: clear-scrollback escape sequence", () => {
     c.send({ type: "auth", token: daemon.authToken });
     await c.readLine();
 
-    c.send({ type: "create", sessionId: "s1", cwd: "/tmp", cols: 80, rows: 24 });
+    c.send({
+      type: "create",
+      sessionId: "s1",
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
     await c.readLine();
 
     feedSessionData(daemon.getHost(), "s1", "old stuff\r\n");
     flushScrollback(daemon.getHost(), "s1");
 
-    const before = fs.readFileSync(path.join(daemon.sessionsDir, "s1", "scrollback.bin"), "utf-8");
+    const before = fs.readFileSync(
+      path.join(daemon.sessionsDir, "s1", "scrollback.bin"),
+      "utf-8",
+    );
     expect(before).toContain("old stuff");
 
     // Send clear-scrollback
@@ -861,7 +1079,10 @@ describe("E2E: clear-scrollback escape sequence", () => {
     feedSessionData(daemon.getHost(), "s1", "fresh start\r\n");
     flushScrollback(daemon.getHost(), "s1");
 
-    const after = fs.readFileSync(path.join(daemon.sessionsDir, "s1", "scrollback.bin"), "utf-8");
+    const after = fs.readFileSync(
+      path.join(daemon.sessionsDir, "s1", "scrollback.bin"),
+      "utf-8",
+    );
     expect(after).not.toContain("old stuff");
     expect(after).toContain("fresh start");
 

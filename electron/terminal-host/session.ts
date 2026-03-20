@@ -15,7 +15,12 @@ import type net from "node:net";
 import "./xterm-env-polyfill";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { MSG, FrameDecoder, encodeFrame, encodeJsonFrame } from "./pty-subprocess-ipc";
+import {
+  MSG,
+  FrameDecoder,
+  encodeFrame,
+  encodeJsonFrame,
+} from "./pty-subprocess-ipc";
 import { ShellManager } from "../shell";
 import { ScrollbackWriter } from "./scrollback";
 import { AgentDetector } from "./agent-detector";
@@ -58,14 +63,25 @@ export class Session {
   private oscBuf: number[] = [];
   private inOsc7 = false;
 
-  constructor(sessionId: string, cwd: string, cols: number, rows: number, sessionsDir?: string) {
+  constructor(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    sessionsDir?: string,
+  ) {
     this.sessionId = sessionId;
     this.cwd = cwd;
     this.cols = cols;
     this.rows = rows;
 
     // Set up headless terminal for snapshots
-    this.headless = new HeadlessTerminal({ cols, rows, allowProposedApi: true, scrollback: 10_000 });
+    this.headless = new HeadlessTerminal({
+      cols,
+      rows,
+      allowProposedApi: true,
+      scrollback: 10_000,
+    });
     this.serializeAddon = new SerializeAddon();
     this.headless.loadAddon(this.serializeAddon);
 
@@ -83,7 +99,11 @@ export class Session {
     // Agent detection
     this.agentDetector = new AgentDetector();
     this.agentDetector.onStatusChange = (state) => {
-      this.broadcastEvent({ type: "agentStatus", sessionId: this.sessionId, agent: state });
+      this.broadcastEvent({
+        type: "agentStatus",
+        sessionId: this.sessionId,
+        agent: state,
+      });
     };
   }
 
@@ -118,7 +138,11 @@ export class Session {
     this.subprocess.on("exit", () => {
       if (this._alive) {
         this._alive = false;
-        this.broadcastEvent({ type: "exit", sessionId: this.sessionId, exitCode: this.exitCode });
+        this.broadcastEvent({
+          type: "exit",
+          sessionId: this.sessionId,
+          exitCode: this.exitCode,
+        });
       }
     });
 
@@ -205,13 +229,21 @@ export class Session {
         this._alive = false;
         this.scrollbackWriter?.end();
         this.scrollbackWriter?.dispose();
-        this.broadcastEvent({ type: "exit", sessionId: this.sessionId, exitCode });
+        this.broadcastEvent({
+          type: "exit",
+          sessionId: this.sessionId,
+          exitCode,
+        });
         break;
       }
 
       case MSG.ERROR: {
         const { message } = JSON.parse(payload.toString("utf-8"));
-        this.broadcastEvent({ type: "error", sessionId: this.sessionId, message });
+        this.broadcastEvent({
+          type: "error",
+          sessionId: this.sessionId,
+          message,
+        });
         break;
       }
 
@@ -337,7 +369,11 @@ export class Session {
         }
       } else if (byte === 0x1b) {
         this.oscBuf = [byte];
-      } else if (this.oscBuf.length === 1 && this.oscBuf[0] === 0x1b && byte === 0x5d) {
+      } else if (
+        this.oscBuf.length === 1 &&
+        this.oscBuf[0] === 0x1b &&
+        byte === 0x5d
+      ) {
         this.oscBuf.push(byte);
       } else if (this.oscBuf.length === 2 && byte === 0x37) {
         this.oscBuf.push(byte);
@@ -357,7 +393,11 @@ export class Session {
     const p = slashIdx >= 0 ? rest.slice(slashIdx) : rest;
     this.cwd = decodeURIComponent(p);
     this.scrollbackWriter?.updateCwd(this.cwd);
-    this.broadcastEvent({ type: "cwd", sessionId: this.sessionId, cwd: this.cwd });
+    this.broadcastEvent({
+      type: "cwd",
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+    });
   }
 
   // ── Mode Tracking ──

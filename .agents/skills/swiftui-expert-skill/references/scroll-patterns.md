@@ -16,7 +16,7 @@
 struct ChatView: View {
     @State private var messages: [Message] = []
     private let bottomID = "bottom"
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -50,7 +50,7 @@ struct FeedView: View {
     @State private var items: [Item] = []
     @State private var scrollToTop = false
     private let topID = "top"
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -58,7 +58,7 @@ struct FeedView: View {
                     Color.clear
                         .frame(height: 1)
                         .id(topID)
-                    
+
                     ForEach(items) { item in
                         ItemRow(item: item)
                     }
@@ -155,14 +155,14 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 ```swift
 struct ContentView: View {
     @State private var showHeader = true
-    
+
     var body: some View {
         VStack(spacing: 0) {
             if showHeader {
                 HeaderView()
                     .transition(.move(edge: .top))
             }
-            
+
             ScrollView {
                 content
                     .background(
@@ -231,7 +231,7 @@ struct ParallaxHeader: View {
                             .offset(y: offset > 0 ? -offset * 0.5 : 0)
                     }
                     .clipped()
-                
+
                 ContentView()
             }
         }

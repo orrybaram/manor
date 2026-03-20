@@ -48,7 +48,7 @@ export class PortScanner {
     try {
       output = execSync(
         `/usr/sbin/lsof -a -iTCP -sTCP:LISTEN -nP -F pcn -u ${uid}`,
-        { encoding: "utf-8", timeout: 5000 }
+        { encoding: "utf-8", timeout: 5000 },
       );
     } catch {
       return [];
@@ -125,10 +125,10 @@ export class PortScanner {
     const pidList = pids.join(",");
     let output: string;
     try {
-      output = execSync(
-        `/usr/sbin/lsof -a -p ${pidList} -d cwd -nP -F pn`,
-        { encoding: "utf-8", timeout: 5000 }
-      );
+      output = execSync(`/usr/sbin/lsof -a -p ${pidList} -d cwd -nP -F pn`, {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
     } catch {
       return new Map();
     }

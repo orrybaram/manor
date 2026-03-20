@@ -8,7 +8,12 @@
 
 import * as pty from "node-pty";
 import * as fs from "node:fs";
-import { MSG, FrameDecoder, encodeFrame, encodeJsonFrame, type MessageType } from "./pty-subprocess-ipc";
+import {
+  MSG,
+  FrameDecoder,
+  encodeFrame,
+  type MessageType,
+} from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
 import treeKill from "tree-kill";
 
@@ -131,7 +136,8 @@ function pollForegroundProcess(): void {
     const basename = fgProc?.replace(/^-/, "") ?? "";
 
     // If the foreground process is the shell itself, report null
-    const isShell = !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
+    const isShell =
+      !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
     const fgName = isShell ? null : basename;
 
     // Only send if changed

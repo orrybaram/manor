@@ -15,7 +15,10 @@ describe("ScrollbackWriter", () => {
   let sessionsDir: string;
 
   beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `manor-scrollback-test-${crypto.randomUUID()}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-scrollback-test-${crypto.randomUUID()}`,
+    );
     sessionsDir = path.join(tmpDir, "sessions");
     fs.mkdirSync(sessionsDir, { recursive: true });
   });
@@ -35,7 +38,9 @@ describe("ScrollbackWriter", () => {
       const metaPath = path.join(sessionDir, "meta.json");
       expect(fs.existsSync(metaPath)).toBe(true);
 
-      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as SessionMeta;
+      const meta = JSON.parse(
+        fs.readFileSync(metaPath, "utf-8"),
+      ) as SessionMeta;
       expect(meta.sessionId).toBe("s1");
       expect(meta.cols).toBe(80);
       expect(meta.rows).toBe(24);
@@ -83,7 +88,10 @@ describe("ScrollbackWriter", () => {
       writer.append("second");
       writer.flush();
 
-      const content = fs.readFileSync(path.join(sessionsDir, "s1", "scrollback.bin"), "utf-8");
+      const content = fs.readFileSync(
+        path.join(sessionsDir, "s1", "scrollback.bin"),
+        "utf-8",
+      );
       expect(content).toBe("firstsecond");
 
       writer.dispose();
@@ -135,7 +143,10 @@ describe("ScrollbackWriter", () => {
       writer.append("new content");
       writer.flush();
 
-      const content = fs.readFileSync(path.join(sessionsDir, "s1", "scrollback.bin"), "utf-8");
+      const content = fs.readFileSync(
+        path.join(sessionsDir, "s1", "scrollback.bin"),
+        "utf-8",
+      );
       expect(content).toBe("new content");
       expect(content).not.toContain("old content");
 
@@ -151,7 +162,7 @@ describe("ScrollbackWriter", () => {
       writer.updateCwd("/new/path");
 
       const meta = JSON.parse(
-        fs.readFileSync(path.join(sessionsDir, "s1", "meta.json"), "utf-8")
+        fs.readFileSync(path.join(sessionsDir, "s1", "meta.json"), "utf-8"),
       ) as SessionMeta;
       expect(meta.cwd).toBe("/new/path");
 
@@ -167,7 +178,7 @@ describe("ScrollbackWriter", () => {
       writer.end();
 
       const meta = JSON.parse(
-        fs.readFileSync(path.join(sessionsDir, "s1", "meta.json"), "utf-8")
+        fs.readFileSync(path.join(sessionsDir, "s1", "meta.json"), "utf-8"),
       ) as SessionMeta;
       expect(meta.endedAt).toBeTruthy();
       expect(new Date(meta.endedAt!).getTime()).toBeGreaterThan(0);
@@ -184,7 +195,10 @@ describe("ScrollbackWriter", () => {
       writer.append("unflushed data");
       writer.dispose();
 
-      const content = fs.readFileSync(path.join(sessionsDir, "s1", "scrollback.bin"), "utf-8");
+      const content = fs.readFileSync(
+        path.join(sessionsDir, "s1", "scrollback.bin"),
+        "utf-8",
+      );
       expect(content).toBe("unflushed data");
     });
   });
@@ -195,7 +209,10 @@ describe("ScrollbackWriter static readers", () => {
   let sessionsDir: string;
 
   beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `manor-scrollback-read-test-${crypto.randomUUID()}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-scrollback-read-test-${crypto.randomUUID()}`,
+    );
     sessionsDir = path.join(tmpDir, "sessions");
     fs.mkdirSync(sessionsDir, { recursive: true });
   });
@@ -213,7 +230,10 @@ describe("ScrollbackWriter static readers", () => {
     const sessionDir = path.join(sessionsDir, sessionId);
     fs.mkdirSync(sessionDir, { recursive: true });
 
-    fs.writeFileSync(path.join(sessionDir, "scrollback.bin"), scrollbackContent);
+    fs.writeFileSync(
+      path.join(sessionDir, "scrollback.bin"),
+      scrollbackContent,
+    );
 
     const fullMeta: SessionMeta = {
       sessionId,
@@ -224,12 +244,19 @@ describe("ScrollbackWriter static readers", () => {
       endedAt: null,
       ...meta,
     };
-    fs.writeFileSync(path.join(sessionDir, "meta.json"), JSON.stringify(fullMeta));
+    fs.writeFileSync(
+      path.join(sessionDir, "meta.json"),
+      JSON.stringify(fullMeta),
+    );
   }
 
   describe("readMeta", () => {
     it("reads meta.json for a session", () => {
-      createPersistedSession("s1", "", { cwd: "/Users/test", cols: 120, rows: 40 });
+      createPersistedSession("s1", "", {
+        cwd: "/Users/test",
+        cols: 120,
+        rows: 40,
+      });
 
       const meta = ScrollbackWriter.readMeta("s1", sessionsDir);
       expect(meta).not.toBeNull();
@@ -255,7 +282,10 @@ describe("ScrollbackWriter static readers", () => {
     });
 
     it("returns empty string for nonexistent session", () => {
-      const content = ScrollbackWriter.readScrollback("nonexistent", sessionsDir);
+      const content = ScrollbackWriter.readScrollback(
+        "nonexistent",
+        sessionsDir,
+      );
       expect(content).toBe("");
     });
 
@@ -276,9 +306,13 @@ describe("ScrollbackWriter static readers", () => {
 
       const restored = ScrollbackWriter.readScrollback("s1", sessionsDir);
       // Should not contain broken UTF-8 — if we can parse it, it's valid
-      expect(() => Buffer.from(restored, "utf-8").toString("utf-8")).not.toThrow();
+      expect(() =>
+        Buffer.from(restored, "utf-8").toString("utf-8"),
+      ).not.toThrow();
       // Content should be <= limit
-      expect(Buffer.from(restored, "utf-8").length).toBeLessThanOrEqual(COLD_RESTORE_MAX_BYTES);
+      expect(Buffer.from(restored, "utf-8").length).toBeLessThanOrEqual(
+        COLD_RESTORE_MAX_BYTES,
+      );
     });
   });
 
@@ -289,12 +323,16 @@ describe("ScrollbackWriter static readers", () => {
     });
 
     it("returns false when endedAt is set", () => {
-      createPersistedSession("s1", "data", { endedAt: new Date().toISOString() });
+      createPersistedSession("s1", "data", {
+        endedAt: new Date().toISOString(),
+      });
       expect(ScrollbackWriter.isUncleanShutdown("s1", sessionsDir)).toBe(false);
     });
 
     it("returns false for nonexistent session", () => {
-      expect(ScrollbackWriter.isUncleanShutdown("nonexistent", sessionsDir)).toBe(false);
+      expect(
+        ScrollbackWriter.isUncleanShutdown("nonexistent", sessionsDir),
+      ).toBe(false);
     });
   });
 

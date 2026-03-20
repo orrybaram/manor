@@ -11,7 +11,7 @@ import type { LinearAssociation } from "./linear";
 function slugify(str: string): string {
   return str
     .toLowerCase()
-    .replace(/[^a-z0-9\s\-]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/[\s_]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
@@ -45,7 +45,17 @@ export interface ProjectInfo {
   linearAssociations: LinearAssociation[];
 }
 
-export type ProjectUpdatableFields = Partial<Pick<ProjectInfo, "name" | "defaultRunCommand" | "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript" | "linearAssociations">>;
+export type ProjectUpdatableFields = Partial<
+  Pick<
+    ProjectInfo,
+    | "name"
+    | "defaultRunCommand"
+    | "worktreePath"
+    | "worktreeStartScript"
+    | "worktreeTeardownScript"
+    | "linearAssociations"
+  >
+>;
 
 interface PersistedProject {
   id: string;
@@ -92,7 +102,10 @@ export class ProjectManager {
 
   private saveState(): void {
     fs.mkdirSync(this.dataDir, { recursive: true });
-    fs.writeFileSync(this.projectsFilePath(), JSON.stringify(this.state, null, 2));
+    fs.writeFileSync(
+      this.projectsFilePath(),
+      JSON.stringify(this.state, null, 2),
+    );
   }
 
   private findProject(projectId: string): PersistedProject | undefined {
@@ -152,7 +165,10 @@ export class ProjectManager {
   removeProject(projectId: string): void {
     this.state.projects = this.state.projects.filter((p) => p.id !== projectId);
     if (this.state.selectedProjectIndex >= this.state.projects.length) {
-      this.state.selectedProjectIndex = Math.max(0, this.state.projects.length - 1);
+      this.state.selectedProjectIndex = Math.max(
+        0,
+        this.state.projects.length - 1,
+      );
     }
     this.saveState();
   }
@@ -165,7 +181,11 @@ export class ProjectManager {
     }
   }
 
-  renameWorkspace(projectId: string, workspacePath: string, newName: string): void {
+  renameWorkspace(
+    projectId: string,
+    workspacePath: string,
+    newName: string,
+  ): void {
     const project = this.findProject(projectId);
     if (!project) return;
     if (!project.workspaceNames) project.workspaceNames = {};
@@ -177,7 +197,10 @@ export class ProjectManager {
     this.saveState();
   }
 
-  updateProject(projectId: string, updates: ProjectUpdatableFields): ProjectInfo | null {
+  updateProject(
+    projectId: string,
+    updates: ProjectUpdatableFields,
+  ): ProjectInfo | null {
     const project = this.findProject(projectId);
     if (!project) return null;
     Object.assign(project, updates);
@@ -245,7 +268,11 @@ export class ProjectManager {
     this.saveState();
   }
 
-  async removeWorktree(projectId: string, worktreePath: string, deleteBranch?: boolean): Promise<void> {
+  async removeWorktree(
+    projectId: string,
+    worktreePath: string,
+    deleteBranch?: boolean,
+  ): Promise<void> {
     const project = this.findProject(projectId);
     if (!project) return;
 
@@ -261,11 +288,16 @@ export class ProjectManager {
         for (const line of stdout.split("\n")) {
           if (line.startsWith("worktree ")) {
             currentPath = line.slice(9);
-          } else if (line.startsWith("branch refs/heads/") && currentPath === worktreePath) {
+          } else if (
+            line.startsWith("branch refs/heads/") &&
+            currentPath === worktreePath
+          ) {
             branchName = line.slice(18);
           }
         }
-      } catch { /* proceed without branch deletion */ }
+      } catch {
+        /* proceed without branch deletion */
+      }
     }
 
     // Run worktree teardown script before removal
@@ -275,19 +307,29 @@ export class ProjectManager {
           cwd: worktreePath,
           timeout: 30000,
         });
-      } catch { /* teardown script failure should not block removal */ }
+      } catch {
+        /* teardown script failure should not block removal */
+      }
     }
 
     try {
-      await execAsync(`git worktree remove --force ${JSON.stringify(worktreePath)}`, {
-        cwd: project.path,
-        timeout: 30000,
-      });
+      await execAsync(
+        `git worktree remove --force ${JSON.stringify(worktreePath)}`,
+        {
+          cwd: project.path,
+          timeout: 30000,
+        },
+      );
     } catch {
       // Worktree may already be gone — prune stale entries and continue
       try {
-        await execAsync("git worktree prune", { cwd: project.path, timeout: 10000 });
-      } catch { /* best effort */ }
+        await execAsync("git worktree prune", {
+          cwd: project.path,
+          timeout: 10000,
+        });
+      } catch {
+        /* best effort */
+      }
     }
 
     // Clean up workspace metadata
@@ -295,7 +337,9 @@ export class ProjectManager {
       delete project.workspaceNames[worktreePath];
     }
     if (project.workspaceOrder) {
-      project.workspaceOrder = project.workspaceOrder.filter((p) => p !== worktreePath);
+      project.workspaceOrder = project.workspaceOrder.filter(
+        (p) => p !== worktreePath,
+      );
     }
     this.saveState();
 
@@ -305,27 +349,58 @@ export class ProjectManager {
           cwd: project.path,
           timeout: 10000,
         });
-      } catch { /* branch may already be gone or is checked out elsewhere */ }
+      } catch {
+        /* branch may already be gone or is checked out elsewhere */
+      }
     }
   }
 
-  createWorktree(projectId: string, name: string, branch?: string): ProjectInfo | null {
+  createWorktree(
+    projectId: string,
+    name: string,
+    branch?: string,
+  ): ProjectInfo | null {
     const project = this.findProject(projectId);
     if (!project) return null;
 
     const branchName = branch || name;
     const slug = slugify(name);
-    const baseDir = project.worktreePath || path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
+    const baseDir =
+      project.worktreePath ||
+      path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
     const worktreePath = path.join(baseDir, slug);
 
-    execSync(
-      `git worktree add ${JSON.stringify(worktreePath)} -b ${JSON.stringify(branchName)}`,
-      {
+    // Prune stale worktree entries (e.g. leftover from a previous failed creation)
+    try {
+      execSync("git worktree prune", {
         cwd: project.path,
         encoding: "utf-8",
-        timeout: 15000,
-      }
-    );
+        timeout: 10000,
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    try {
+      execSync(
+        `git worktree add ${JSON.stringify(worktreePath)} -b ${JSON.stringify(branchName)}`,
+        {
+          cwd: project.path,
+          encoding: "utf-8",
+          timeout: 15000,
+        },
+      );
+    } catch {
+      // Branch already exists — create worktree checking out the existing branch
+      execSync(
+        `git worktree add ${JSON.stringify(worktreePath)} ${JSON.stringify(branchName)}`,
+        {
+          cwd: project.path,
+          encoding: "utf-8",
+          timeout: 15000,
+        },
+      );
+    }
 
     // Set custom name only if it differs from the branch
     if (name !== branchName) {
@@ -354,7 +429,12 @@ function listGitWorkspaces(projectPath: string): WorkspaceInfo[] | null {
     for (const line of output.split("\n")) {
       if (line.startsWith("worktree ")) {
         if (currentPath) {
-          workspaces.push({ path: currentPath, branch: currentBranch, isMain: isFirst, name: null });
+          workspaces.push({
+            path: currentPath,
+            branch: currentBranch,
+            isMain: isFirst,
+            name: null,
+          });
           isFirst = false;
         }
         currentPath = line.slice(9);
@@ -362,7 +442,12 @@ function listGitWorkspaces(projectPath: string): WorkspaceInfo[] | null {
       } else if (line.startsWith("branch refs/heads/")) {
         currentBranch = line.slice(18);
       } else if (line === "" && currentPath) {
-        workspaces.push({ path: currentPath, branch: currentBranch, isMain: isFirst, name: null });
+        workspaces.push({
+          path: currentPath,
+          branch: currentBranch,
+          isMain: isFirst,
+          name: null,
+        });
         isFirst = false;
         currentPath = "";
         currentBranch = "";
@@ -370,7 +455,12 @@ function listGitWorkspaces(projectPath: string): WorkspaceInfo[] | null {
     }
 
     if (currentPath) {
-      workspaces.push({ path: currentPath, branch: currentBranch, isMain: isFirst, name: null });
+      workspaces.push({
+        path: currentPath,
+        branch: currentBranch,
+        isMain: isFirst,
+        name: null,
+      });
     }
 
     return workspaces.length > 0 ? workspaces : null;

@@ -240,33 +240,36 @@ function EmptyStateShell({
 }
 
 function ManorLogo() {
+  const s = 8;
+  const g = 2;
+  const step = s + g;
+  const fill = "var(--text-primary)";
+  // M on a 7-col x 5-row pixel grid
+  const pixels = [
+    [0, 0], [6, 0],
+    [0, 1], [1, 1], [5, 1], [6, 1],
+    [0, 2], [2, 2], [4, 2], [6, 2],
+    [0, 3], [3, 3], [6, 3],
+    [0, 4], [6, 4],
+  ];
   return (
     <svg
-      width="80"
-      height="48"
-      viewBox="0 0 80 48"
+      width={7 * s + 6 * g}
+      height={5 * s + 4 * g}
+      viewBox={`0 0 ${7 * s + 6 * g} ${5 * s + 4 * g}`}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Left bracket { */}
-      <path
-        d="M8 8 L16 8 L16 12 L12 12 L12 20 L16 20 L16 28 L12 28 L12 36 L16 36 L16 40 L8 40 L8 36 L4 36 L4 28 L8 28 L8 20 L4 20 L4 12 L8 12 Z"
-        fill="var(--text-dim)"
-      />
-      {/* Center { } */}
-      <path
-        d="M28 8 L36 8 L36 12 L32 12 L32 20 L36 20 L36 28 L32 28 L32 36 L36 36 L36 40 L28 40 L28 36 L24 36 L24 28 L28 28 L28 20 L24 20 L24 12 L28 12 Z"
-        fill="var(--text-primary)"
-      />
-      <path
-        d="M44 8 L52 8 L52 12 L56 12 L56 20 L52 20 L52 28 L56 28 L56 36 L52 36 L52 40 L44 40 L44 36 L48 36 L48 28 L44 28 L44 20 L48 20 L48 12 L44 12 Z"
-        fill="var(--text-primary)"
-      />
-      {/* Right bracket } */}
-      <path
-        d="M64 8 L72 8 L72 12 L76 12 L76 20 L72 20 L72 28 L76 28 L76 36 L72 36 L72 40 L64 40 L64 36 L68 36 L68 28 L64 28 L64 20 L68 20 L68 12 L64 12 Z"
-        fill="var(--text-dim)"
-      />
+      {pixels.map(([col, row]) => (
+        <rect
+          key={`${col}-${row}`}
+          x={col * step}
+          y={row * step}
+          width={s}
+          height={s}
+          fill={fill}
+        />
+      ))}
     </svg>
   );
 }

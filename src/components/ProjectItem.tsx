@@ -14,6 +14,9 @@ import {
   House,
   FolderGit2,
   GitBranch,
+  GitPullRequest,
+  GitMerge,
+  GitPullRequestClosed,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
@@ -327,12 +330,52 @@ export function ProjectItem({
                       )}
                     </span>
                     <div className={styles.workspaceLabel}>
-                      <span className={styles.workspaceName}>
-                        {displayName}
-                      </span>
-                      <span className={styles.workspaceBranch}>
-                        {ws.branch || "main"}
-                      </span>
+                      <div className={styles.workspaceNameRow}>
+                        <span className={styles.workspaceName}>
+                          {displayName}
+                        </span>
+                        {ws.diffStats && (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
+                          <span className={styles.diffStats}>
+                            {ws.diffStats.added > 0 && (
+                              <span className={styles.diffAdded}>+{ws.diffStats.added}</span>
+                            )}
+                            {ws.diffStats.removed > 0 && (
+                              <span className={styles.diffRemoved}>-{ws.diffStats.removed}</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      <div className={styles.workspaceBranchRow}>
+                        <span className={styles.workspaceBranch}>
+                          {ws.branch || "main"}
+                        </span>
+                        {ws.pr && (
+                          <span
+                            className={`${styles.prBadge} ${
+                              ws.pr.state === "merged"
+                                ? styles.prMerged
+                                : ws.pr.state === "closed"
+                                  ? styles.prClosed
+                                  : styles.prOpen
+                            }`}
+                            title={ws.pr.title}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.electronAPI.openExternal(ws.pr!.url);
+                            }}
+                          >
+                            {ws.pr.state === "merged" ? (
+                              <GitMerge size={10} />
+                            ) : ws.pr.state === "closed" ? (
+                              <GitPullRequestClosed size={10} />
+                            ) : (
+                              <GitPullRequest size={10} />
+                            )}
+                            #{ws.pr.number}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </>
                 )}

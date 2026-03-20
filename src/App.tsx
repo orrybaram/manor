@@ -66,9 +66,6 @@ function App() {
   const closePane = useAppStore((s) => s.closePane);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
-  const zoomIn = useAppStore((s) => s.zoomIn);
-  const zoomOut = useAppStore((s) => s.zoomOut);
-  const resetZoom = useAppStore((s) => s.resetZoom);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -120,15 +117,6 @@ function App() {
       } else if (e.key === "\\") {
         e.preventDefault();
         toggleSidebar();
-      } else if (e.key === "=" && !e.shiftKey) {
-        e.preventDefault();
-        zoomIn();
-      } else if (e.key === "-" && !e.shiftKey) {
-        e.preventDefault();
-        zoomOut();
-      } else if (e.key === "0" && !e.shiftKey) {
-        e.preventDefault();
-        resetZoom();
       }
     }
 
@@ -144,9 +132,6 @@ function App() {
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
-    zoomIn,
-    zoomOut,
-    resetZoom,
     activeSession,
   ]);
 

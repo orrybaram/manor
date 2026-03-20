@@ -210,7 +210,70 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  flex: 1;
   gap: 2px;
+}
+
+.workspaceNameRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspaceBranchRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.diffStats {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--surface); 
+}
+
+.diffAdded {
+  color: var(--green);
+}
+
+.diffRemoved {
+  color: var(--red);
+}
+
+.prBadge {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.prOpen {
+  color: var(--green);
+  background: var(--green-a20);
+}
+
+.prMerged {
+  color: var(--magenta, #a855f7);
+  background: var(--magenta-a20);
+}
+
+.prClosed {
+  color: var(--red);
+  background: var(--red-a20);
 }
 
 .workspaceName {

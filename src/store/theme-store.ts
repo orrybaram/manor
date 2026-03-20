@@ -44,6 +44,34 @@ function applyCssVars(theme: Theme) {
   root.style.setProperty("--text-selected", theme.foreground);
   root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));
   root.style.setProperty("--accent", theme.blue);
+
+  // Palette colors
+  root.style.setProperty("--red", theme.red);
+  root.style.setProperty("--green", theme.green);
+  root.style.setProperty("--yellow", theme.yellow);
+  root.style.setProperty("--blue", theme.blue);
+  root.style.setProperty("--magenta", theme.magenta);
+  root.style.setProperty("--cyan", theme.cyan);
+
+  // Alpha variants
+  const alphaSteps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+  const colors = {
+    red: theme.red,
+    green: theme.green,
+    yellow: theme.yellow,
+    blue: theme.blue,
+    magenta: theme.magenta,
+    cyan: theme.cyan,
+    bg: theme.background,
+    fg: theme.foreground,
+  };
+
+  for (const [name, hex] of Object.entries(colors)) {
+    for (const a of alphaSteps) {
+      const pct = Math.round(a * 100);
+      root.style.setProperty(`--${name}-a${pct}`, withAlpha(hex, a));
+    }
+  }
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({

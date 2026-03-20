@@ -126,9 +126,13 @@ export class LinearManager {
       }`,
       { teamIds, stateTypes, first: fetchLimit },
     );
-    // Sort by priority (1=urgent, 2=high, 3=medium, 4=low, 0=none)
+    // Sort by state type (unstarted/todo first, then backlog), then by priority
+    const stateOrder: Record<string, number> = { unstarted: 0, backlog: 1 };
     const issues = data.viewer.assignedIssues.nodes;
     issues.sort((a, b) => {
+      const sa = stateOrder[a.state.type] ?? 2;
+      const sb = stateOrder[b.state.type] ?? 2;
+      if (sa !== sb) return sa - sb;
       const pa = a.priority || 5;
       const pb = b.priority || 5;
       return pa - pb;

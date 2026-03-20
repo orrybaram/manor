@@ -1,6 +1,11 @@
 /**
- * Agent detector — state machine that combines foreground process info
- * and output timing to determine agent status for a terminal pane.
+ * Agent detector — tracks foreground process to detect when an agent CLI
+ * starts and exits. Status transitions (running/waiting) are handled by
+ * hook events from the agent CLI, not by this detector.
+ *
+ * This detector is responsible for:
+ * - Detecting when an agent process appears → transition to "running"
+ * - Detecting when an agent process exits → transition to "complete" → "idle"
  */
 
 import type { AgentKind, AgentState, AgentStatus } from "./types";
@@ -11,7 +16,6 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
   codex: "codex",
 };
 
-const WAITING_TIMEOUT_MS = 2000;
 const COMPLETE_CLEAR_MS = 3000;
 
 export class AgentDetector {
@@ -19,10 +23,7 @@ export class AgentDetector {
   private status: AgentStatus = "idle";
   private processName: string | null = null;
   private since: number = Date.now();
-  private lastOutputTime = 0;
-  private waitingCheckTimer: ReturnType<typeof setInterval> | null = null;
   private completeClearTimer: ReturnType<typeof setTimeout> | null = null;
-  private altScreen = false;
   private _onStatusChange: ((state: AgentState) => void) | null = null;
 
   set onStatusChange(cb: (state: AgentState) => void) {
@@ -46,7 +47,6 @@ export class AgentDetector {
     if (!name) {
       // Shell is foreground — agent is gone
       if (prevKind && (prevStatus === "running" || prevStatus === "waiting")) {
-        // Agent just exited — show "complete" briefly
         this.transitionToComplete();
       } else if (prevStatus !== "complete" && prevStatus !== "error") {
         this.transitionToIdle();
@@ -69,7 +69,6 @@ export class AgentDetector {
       ) {
         this.clearTimers();
         this.transition("running");
-        this.ensureWaitingCheck();
       }
     } else if (
       this.kind &&
@@ -82,26 +81,24 @@ export class AgentDetector {
     }
   }
 
-  /** Called when terminal output is received */
-  processOutput(_data: string): void {
-    if (
-      this.status === "idle" ||
-      this.status === "complete" ||
-      this.status === "error"
-    )
+  /** Called by hook events to update status directly */
+  setStatus(status: AgentStatus): void {
+    if (this.status === "idle" && status !== "idle") {
+      // Agent hook fired but process detection hasn't caught up yet — set kind
+      // This shouldn't normally happen, but be defensive.
       return;
-
-    this.lastOutputTime = Date.now();
-
-    if (this.status === "waiting") {
-      this.transition("running");
-      this.ensureWaitingCheck();
     }
+    this.transition(status);
+  }
+
+  /** Called when terminal output is received — no-op, hooks handle status */
+  processOutput(_data: string): void {
+    // Kept for API compatibility; hook events drive status transitions now.
   }
 
   /** Update alt screen state (from mode tracking) */
-  setAltScreen(enabled: boolean): void {
-    this.altScreen = enabled;
+  setAltScreen(_enabled: boolean): void {
+    // Kept for API compatibility
   }
 
   dispose(): void {
@@ -112,7 +109,6 @@ export class AgentDetector {
     this.clearTimers();
     this.transition("complete");
 
-    // Auto-clear to idle after 3s
     this.completeClearTimer = setTimeout(() => {
       this.completeClearTimer = null;
       this.transitionToIdle();
@@ -134,31 +130,7 @@ export class AgentDetector {
     this._onStatusChange?.(this.getState());
   }
 
-  /** Single interval that checks if output has gone silent → transition to "waiting" */
-  private ensureWaitingCheck(): void {
-    if (this.waitingCheckTimer) return;
-    this.lastOutputTime = Date.now();
-    this.waitingCheckTimer = setInterval(() => {
-      if (
-        this.status === "running" &&
-        !this.altScreen &&
-        Date.now() - this.lastOutputTime > WAITING_TIMEOUT_MS
-      ) {
-        this.transition("waiting");
-        // Stop checking once we've transitioned — processOutput will restart
-        if (this.waitingCheckTimer) {
-          clearInterval(this.waitingCheckTimer);
-          this.waitingCheckTimer = null;
-        }
-      }
-    }, WAITING_TIMEOUT_MS);
-  }
-
   private clearTimers(): void {
-    if (this.waitingCheckTimer) {
-      clearInterval(this.waitingCheckTimer);
-      this.waitingCheckTimer = null;
-    }
     if (this.completeClearTimer) {
       clearTimeout(this.completeClearTimer);
       this.completeClearTimer = null;

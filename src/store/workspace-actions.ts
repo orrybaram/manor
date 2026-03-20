@@ -17,14 +17,16 @@ export function removeWorktreeWithToast(
   const toastStore = useToastStore.getState();
 
   const wasActive = appStore.activeWorkspacePath === ws.path;
-  const wsName = ws.name || ws.branch || ws.path.split("/").pop() || "workspace";
+  const wsName =
+    ws.name || ws.branch || ws.path.split("/").pop() || "workspace";
 
   // Immediately switch to next workspace before teardown
   if (wasActive) {
     const workspaces = project.workspaces;
     const removedIdx = workspaces.findIndex((w) => w.path === ws.path);
     // Pick the next workspace, or the one before if we're removing the last
-    const nextIdx = removedIdx < workspaces.length - 1 ? removedIdx + 1 : removedIdx - 1;
+    const nextIdx =
+      removedIdx < workspaces.length - 1 ? removedIdx + 1 : removedIdx - 1;
     if (nextIdx >= 0) {
       projectStore.selectWorkspace(project.id, nextIdx);
       appStore.setActiveWorkspace(workspaces[nextIdx].path);

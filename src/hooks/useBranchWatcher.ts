@@ -11,10 +11,7 @@ export function useBranchWatcher() {
   const paths = (() => {
     const next = projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
     const prev = prevPathsRef.current;
-    if (
-      next.length === prev.length &&
-      next.every((p, i) => p === prev[i])
-    ) {
+    if (next.length === prev.length && next.every((p, i) => p === prev[i])) {
       return prev;
     }
     prevPathsRef.current = next;

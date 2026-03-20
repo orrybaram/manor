@@ -13,6 +13,8 @@ function ToastItem({ toast }: { toast: ToastData }) {
   useEffect(() => {
     if (toast.status === "loading") return;
 
+    const _delay =
+      toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS;
     dismissRef.current = setTimeout(() => {
       setExiting(true);
       exitRef.current = setTimeout(() => removeToast(toast.id), 200);

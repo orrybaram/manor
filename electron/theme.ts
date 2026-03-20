@@ -59,7 +59,7 @@ function ghosttyConfigPath(): string | null {
     "Library",
     "Application Support",
     "com.mitchellh.ghostty",
-    "config"
+    "config",
   );
   if (fs.existsSync(macPath)) return macPath;
 
@@ -71,7 +71,8 @@ function ghosttyConfigPath(): string | null {
 }
 
 function ghosttyThemesDir(): string | null {
-  const appThemes = "/Applications/Ghostty.app/Contents/Resources/ghostty/themes";
+  const appThemes =
+    "/Applications/Ghostty.app/Contents/Resources/ghostty/themes";
   if (fs.existsSync(appThemes)) return appThemes;
 
   const xdgThemes = path.join(
@@ -79,14 +80,17 @@ function ghosttyThemesDir(): string | null {
     "Library",
     "Application Support",
     "ghostty",
-    "themes"
+    "themes",
   );
   if (fs.existsSync(xdgThemes)) return xdgThemes;
 
   return null;
 }
 
-function parseGhosttyFile(content: string): { config: Map<string, string>; palette: Map<number, string> } {
+function parseGhosttyFile(content: string): {
+  config: Map<string, string>;
+  palette: Map<number, string>;
+} {
   const config = new Map<string, string>();
   const palette = new Map<number, string>();
 
@@ -128,21 +132,39 @@ function loadThemeFromConfig(config: Map<string, string>): Theme {
     theme.selectionForeground = fg;
   }
   if (config.has("cursor-color")) theme.cursor = config.get("cursor-color")!;
-  if (config.has("cursor-text")) theme.cursorAccent = config.get("cursor-text")!;
-  if (config.has("selection-background")) theme.selectionBackground = config.get("selection-background")!;
-  if (config.has("selection-foreground")) theme.selectionForeground = config.get("selection-foreground")!;
+  if (config.has("cursor-text"))
+    theme.cursorAccent = config.get("cursor-text")!;
+  if (config.has("selection-background"))
+    theme.selectionBackground = config.get("selection-background")!;
+  if (config.has("selection-foreground"))
+    theme.selectionForeground = config.get("selection-foreground")!;
 
   return theme;
 }
 
-function buildTheme(config: Map<string, string>, palette: Map<number, string>): Theme {
+function buildTheme(
+  config: Map<string, string>,
+  palette: Map<number, string>,
+): Theme {
   const theme = loadThemeFromConfig(config);
 
   const paletteMap: [number, keyof Theme][] = [
-    [0, "black"], [1, "red"], [2, "green"], [3, "yellow"],
-    [4, "blue"], [5, "magenta"], [6, "cyan"], [7, "white"],
-    [8, "brightBlack"], [9, "brightRed"], [10, "brightGreen"], [11, "brightYellow"],
-    [12, "brightBlue"], [13, "brightMagenta"], [14, "brightCyan"], [15, "brightWhite"],
+    [0, "black"],
+    [1, "red"],
+    [2, "green"],
+    [3, "yellow"],
+    [4, "blue"],
+    [5, "magenta"],
+    [6, "cyan"],
+    [7, "white"],
+    [8, "brightBlack"],
+    [9, "brightRed"],
+    [10, "brightGreen"],
+    [11, "brightYellow"],
+    [12, "brightBlue"],
+    [13, "brightMagenta"],
+    [14, "brightCyan"],
+    [15, "brightWhite"],
   ];
 
   for (const [idx, key] of paletteMap) {
@@ -160,7 +182,7 @@ const SETTINGS_PATH = path.join(
   "Library",
   "Application Support",
   "Manor",
-  "settings.json"
+  "settings.json",
 );
 
 function loadSettings(): { themeName?: string } {
@@ -176,7 +198,17 @@ function saveSettings(settings: { themeName?: string }): void {
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
 
-export type ThemeColors = Pick<Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">;
+export type ThemeColors = Pick<
+  Theme,
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "magenta"
+  | "cyan"
+  | "background"
+  | "foreground"
+>;
 
 export class ThemeManager {
   private themeColorsCache: Record<string, ThemeColors> | null = null;
@@ -213,8 +245,12 @@ export class ThemeManager {
       const themesDir = ghosttyThemesDir();
       if (themesDir) {
         try {
-          const themeContent = fs.readFileSync(path.join(themesDir, themeName), "utf-8");
-          const { config: themeConfig, palette: themePalette } = parseGhosttyFile(themeContent);
+          const themeContent = fs.readFileSync(
+            path.join(themesDir, themeName),
+            "utf-8",
+          );
+          const { config: themeConfig, palette: themePalette } =
+            parseGhosttyFile(themeContent);
           for (const [key, value] of config) {
             if (key !== "theme") themeConfig.set(key, value);
           }
@@ -252,16 +288,26 @@ export class ThemeManager {
 
     const result: Record<string, ThemeColors> = {};
     try {
-      const files = (await fs.promises.readdir(themesDir)).filter((f) => !f.startsWith("."));
+      const files = (await fs.promises.readdir(themesDir)).filter(
+        (f) => !f.startsWith("."),
+      );
       const reads = files.map(async (name) => {
         try {
-          const content = await fs.promises.readFile(path.join(themesDir, name), "utf-8");
+          const content = await fs.promises.readFile(
+            path.join(themesDir, name),
+            "utf-8",
+          );
           const { config, palette } = parseGhosttyFile(content);
           const theme = buildTheme(config, palette);
           result[name] = {
-            red: theme.red, green: theme.green, yellow: theme.yellow,
-            blue: theme.blue, magenta: theme.magenta, cyan: theme.cyan,
-            background: theme.background, foreground: theme.foreground,
+            red: theme.red,
+            green: theme.green,
+            yellow: theme.yellow,
+            blue: theme.blue,
+            magenta: theme.magenta,
+            cyan: theme.cyan,
+            background: theme.background,
+            foreground: theme.foreground,
           };
         } catch {
           // skip unreadable themes

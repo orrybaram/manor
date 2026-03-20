@@ -44,7 +44,12 @@ export default defineConfig({
           build: {
             outDir: "dist-electron",
             rollupOptions: {
-              external: ["node-pty", "tree-kill", "@xterm/headless", "@xterm/addon-serialize"],
+              external: [
+                "node-pty",
+                "tree-kill",
+                "@xterm/headless",
+                "@xterm/addon-serialize",
+              ],
               output: {
                 format: "cjs",
                 entryFileNames: "terminal-host-index.js",

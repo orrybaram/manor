@@ -62,12 +62,19 @@ export class AgentDetector {
       this.kind = agentKind;
       this.processName = name;
 
-      if (prevStatus === "idle" || prevStatus === "complete" || prevKind !== agentKind) {
+      if (
+        prevStatus === "idle" ||
+        prevStatus === "complete" ||
+        prevKind !== agentKind
+      ) {
         this.clearTimers();
         this.transition("running");
         this.ensureWaitingCheck();
       }
-    } else if (this.kind && (this.status === "running" || this.status === "waiting")) {
+    } else if (
+      this.kind &&
+      (this.status === "running" || this.status === "waiting")
+    ) {
       // Agent was running but now a different process is foreground
       // (e.g. agent spawned a child) — keep tracking
     } else {
@@ -77,7 +84,12 @@ export class AgentDetector {
 
   /** Called when terminal output is received */
   processOutput(_data: string): void {
-    if (this.status === "idle" || this.status === "complete" || this.status === "error") return;
+    if (
+      this.status === "idle" ||
+      this.status === "complete" ||
+      this.status === "error"
+    )
+      return;
 
     this.lastOutputTime = Date.now();
 
@@ -127,8 +139,11 @@ export class AgentDetector {
     if (this.waitingCheckTimer) return;
     this.lastOutputTime = Date.now();
     this.waitingCheckTimer = setInterval(() => {
-      if (this.status === "running" && !this.altScreen &&
-          Date.now() - this.lastOutputTime > WAITING_TIMEOUT_MS) {
+      if (
+        this.status === "running" &&
+        !this.altScreen &&
+        Date.now() - this.lastOutputTime > WAITING_TIMEOUT_MS
+      ) {
         this.transition("waiting");
         // Stop checking once we've transitioned — processOutput will restart
         if (this.waitingCheckTimer) {

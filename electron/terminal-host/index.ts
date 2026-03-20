@@ -58,7 +58,10 @@ function readToken(): string {
 
 // ── Control socket handling ──
 
-async function handleControlMessage(socket: net.Socket, line: string): Promise<void> {
+async function handleControlMessage(
+  socket: net.Socket,
+  line: string,
+): Promise<void> {
   let request: ControlRequest;
   try {
     request = JSON.parse(line);
@@ -97,7 +100,10 @@ async function handleControlMessage(socket: net.Socket, line: string): Promise<v
         sendResponse(socket, { type: "created", session });
       } catch (err) {
         log(`Failed to create session ${request.sessionId}: ${err}`);
-        sendResponse(socket, { type: "error", message: `Create failed: ${err instanceof Error ? err.message : String(err)}` });
+        sendResponse(socket, {
+          type: "error",
+          message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
       break;
     }
@@ -107,7 +113,10 @@ async function handleControlMessage(socket: net.Socket, line: string): Promise<v
       if (snapshot) {
         sendResponse(socket, { type: "attached", snapshot });
       } else {
-        sendResponse(socket, { type: "error", message: `Session ${request.sessionId} not found` });
+        sendResponse(socket, {
+          type: "error",
+          message: `Session ${request.sessionId} not found`,
+        });
       }
       break;
     }
@@ -135,7 +144,10 @@ async function handleControlMessage(socket: net.Socket, line: string): Promise<v
       if (snapshot) {
         sendResponse(socket, { type: "snapshot", snapshot });
       } else {
-        sendResponse(socket, { type: "error", message: `Session ${request.sessionId} not found` });
+        sendResponse(socket, {
+          type: "error",
+          message: `Session ${request.sessionId} not found`,
+        });
       }
       break;
     }
@@ -153,7 +165,10 @@ async function handleControlMessage(socket: net.Socket, line: string): Promise<v
   }
 }
 
-async function handleStreamMessage(socket: net.Socket, line: string): Promise<void> {
+async function handleStreamMessage(
+  socket: net.Socket,
+  line: string,
+): Promise<void> {
   let command: StreamCommand;
   try {
     command = JSON.parse(line);
@@ -187,7 +202,9 @@ function sendResponse(socket: net.Socket, response: ControlResponse): void {
 
 // ── NDJSON line parser ──
 
-function createLineParser(onLine: (line: string) => void): (chunk: Buffer) => void {
+function createLineParser(
+  onLine: (line: string) => void,
+): (chunk: Buffer) => void {
   let buffer = "";
   return (chunk: Buffer) => {
     buffer += chunk.toString("utf-8");
@@ -271,8 +288,16 @@ function shutdown(): void {
   log("Shutting down...");
   host.disposeAll();
   server.close();
-  try { fs.unlinkSync(SOCKET_PATH); } catch { /* ignore */ }
-  try { fs.unlinkSync(PID_PATH); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {
+    /* ignore */
+  }
+  try {
+    fs.unlinkSync(PID_PATH);
+  } catch {
+    /* ignore */
+  }
   process.exit(0);
 }
 

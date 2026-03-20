@@ -3,6 +3,7 @@
 Core animation concepts, implicit vs explicit animations, timing curves, and performance patterns.
 
 ## Table of Contents
+
 - [Core Concepts](#core-concepts)
 - [Implicit Animations](#implicit-animations)
 - [Explicit Animations](#explicit-animations)
@@ -20,11 +21,13 @@ Core animation concepts, implicit vs explicit animations, timing curves, and per
 State changes trigger view updates. SwiftUI provides mechanisms to animate these changes.
 
 **Animation Process:**
+
 1. State change triggers view tree re-evaluation
 2. SwiftUI compares new tree to current render tree
 3. Animatable properties are identified and interpolated (~60 fps)
 
 **Key Characteristics:**
+
 - Animations are additive and cancelable
 - Always start from current render tree state
 - Blend smoothly when interrupted
@@ -69,6 +72,7 @@ Button("Toggle") {
 ```
 
 **When to use which:**
+
 - **Implicit**: Animations tied to specific value changes, precise view tree scope
 - **Explicit**: Event-driven animations (button taps, gestures)
 
@@ -119,12 +123,12 @@ Rectangle()
 
 ### Built-in Curves
 
-| Curve | Use Case |
-|-------|----------|
-| `.spring` | Interactive elements, most UI |
-| `.easeInOut` | Appearance changes |
-| `.bouncy` | Playful feedback (iOS 17+) |
-| `.linear` | Progress indicators only |
+| Curve        | Use Case                      |
+| ------------ | ----------------------------- |
+| `.spring`    | Interactive elements, most UI |
+| `.easeInOut` | Appearance changes            |
+| `.bouncy`    | Playful feedback (iOS 17+)    |
+| `.linear`    | Progress indicators only      |
 
 ### Modifiers
 
@@ -270,6 +274,7 @@ struct AnimationDebugModifier: ViewModifier, Animatable {
 ## Quick Reference
 
 ### Do
+
 - Use `.animation(_:value:)` with value parameter
 - Use `withAnimation` for event-driven animations
 - Prefer transforms over layout changes
@@ -277,6 +282,7 @@ struct AnimationDebugModifier: ViewModifier, Animatable {
 - Choose appropriate timing curves
 
 ### Don't
+
 - Use deprecated `.animation(_:)` without value
 - Animate layout properties in hot paths
 - Apply broad animations at root level

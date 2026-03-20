@@ -1,7 +1,20 @@
-import React, { useEffect, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import React, {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, ChevronDown, ChevronRight, House, FolderGit2 } from "lucide-react";
+import {
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  House,
+  FolderGit2,
+  GitBranch,
+} from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import styles from "./Sidebar.module.css";
@@ -13,7 +26,7 @@ export function ProjectItem({
   isSelected,
   collapsed,
   onToggleCollapsed,
-  onSelect,
+  onSelect: _onSelect,
   onRemove,
   onSelectWorkspace,
   onRemoveWorktree,
@@ -39,11 +52,13 @@ export function ProjectItem({
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<WorkspaceInfo | null>(null);
+  const [confirmDeleteWorktree, setConfirmDeleteWorktree] =
+    useState<WorkspaceInfo | null>(null);
   const [deleteBranchChecked, setDeleteBranchChecked] = useState(
-    () => localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true"
+    () => localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true",
   );
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   const editRef = useRef<HTMLInputElement>(null);
 
   // Drag-and-drop state
@@ -68,7 +83,7 @@ export function ProjectItem({
       setEditingPath(null);
       onRenameWorkspace(ws, editValue);
     },
-    [editValue, onRenameWorkspace]
+    [editValue, onRenameWorkspace],
   );
 
   useEffect(() => {
@@ -94,7 +109,9 @@ export function ProjectItem({
       const heights: number[] = [];
       for (let i = 0; i < project.workspaces.length; i++) {
         const el = itemRefs.current.get(i);
-        heights[i] = el ? el.getBoundingClientRect().height + WORKSPACE_GAP : 36;
+        heights[i] = el
+          ? el.getBoundingClientRect().height + WORKSPACE_GAP
+          : 36;
       }
       itemHeights.current = heights;
 
@@ -155,7 +172,9 @@ export function ProjectItem({
             paths.splice(finalDrop, 0, moved);
             onReorderWorkspaces(paths);
           }
-          requestAnimationFrame(() => { justDragged.current = false; });
+          requestAnimationFrame(() => {
+            justDragged.current = false;
+          });
         }
         dragActive.current = false;
         dropIndexRef.current = null;
@@ -168,7 +187,7 @@ export function ProjectItem({
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [editingPath, project.workspaces, onReorderWorkspaces]
+    [editingPath, project.workspaces, onReorderWorkspaces],
   );
 
   // Compute transform offsets for smooth animation
@@ -208,9 +227,15 @@ export function ProjectItem({
             style={{ touchAction: "none" }}
           >
             <span className={styles.projectChevron}>
-              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {expanded ? (
+                <ChevronDown size={12} />
+              ) : (
+                <ChevronRight size={12} />
+              )}
             </span>
-            <span className={styles.projectName} title={project.path}>{project.name}</span>
+            <span className={styles.projectName} title={project.path}>
+              {project.name}
+            </span>
             <button
               className={styles.projectAction}
               onPointerDown={(e) => e.stopPropagation()}
@@ -245,8 +270,11 @@ export function ProjectItem({
         <div className={styles.workspaces}>
           {project.workspaces.map((ws, idx) => {
             const isEditing = editingPath === ws.path;
-            const displayName = ws.isMain ? (ws.name || "local") : (ws.name || ws.branch || "main");
+            const displayName = ws.isMain
+              ? ws.name || "local"
+              : ws.name || ws.branch || "main";
             const isDragging = dragIndex === idx;
+            const isDeleting = deletingPaths.has(ws.path);
 
             const workspaceEl = (
               <div
@@ -256,8 +284,10 @@ export function ProjectItem({
                   else itemRefs.current.delete(idx);
                 }}
                 className={`${styles.workspace} ${
-                  isSelected && idx === project.selectedWorkspaceIndex ? styles.workspaceActive : ""
-                } ${isDragging ? styles.workspaceDragging : ""}`}
+                  isSelected && idx === project.selectedWorkspaceIndex
+                    ? styles.workspaceActive
+                    : ""
+                } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}`}
                 style={getTransformStyle(idx)}
                 onClick={() => {
                   if (!justDragged.current) onSelectWorkspace(idx);
@@ -290,11 +320,19 @@ export function ProjectItem({
                 ) : (
                   <>
                     <span className={styles.workspaceIcon}>
-                      {ws.isMain ? <House size={12} /> : <FolderGit2 size={12} />}
+                      {ws.isMain ? (
+                        <House size={12} />
+                      ) : (
+                        <FolderGit2 size={12} />
+                      )}
                     </span>
                     <div className={styles.workspaceLabel}>
-                      <span className={styles.workspaceName}>{displayName}</span>
-                      <span className={styles.workspaceBranch}>{ws.branch || "main"}</span>
+                      <span className={styles.workspaceName}>
+                        {displayName}
+                      </span>
+                      <span className={styles.workspaceBranch}>
+                        {ws.branch || "main"}
+                      </span>
                     </div>
                   </>
                 )}
@@ -303,20 +341,22 @@ export function ProjectItem({
 
             return (
               <ContextMenu.Root key={ws.path}>
-                <ContextMenu.Trigger asChild>
-                  {workspaceEl}
-                </ContextMenu.Trigger>
+                <ContextMenu.Trigger asChild>{workspaceEl}</ContextMenu.Trigger>
                 <ContextMenu.Portal>
                   <ContextMenu.Content className={styles.contextMenu}>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
-                      onSelect={() => window.electronAPI.openExternal(`file://${ws.path}`)}
+                      onSelect={() =>
+                        window.electronAPI.openExternal(`file://${ws.path}`)
+                      }
                     >
                       Open in Finder
                     </ContextMenu.Item>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
-                      onSelect={() => navigator.clipboard.writeText(ws.branch || "main")}
+                      onSelect={() =>
+                        navigator.clipboard.writeText(ws.branch || "main")
+                      }
                     >
                       Copy Branch Name
                     </ContextMenu.Item>
@@ -328,7 +368,9 @@ export function ProjectItem({
                     </ContextMenu.Item>
                     {!ws.isMain && (
                       <>
-                        <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                        <ContextMenu.Separator
+                          className={styles.contextMenuSeparator}
+                        />
                         <ContextMenu.Item
                           className={styles.contextMenuItem}
                           onSelect={() => startRename(ws)}
@@ -372,8 +414,8 @@ export function ProjectItem({
               Remove Project
             </Dialog.Title>
             <Dialog.Description className={styles.confirmDescription}>
-              Remove <strong>{project.name}</strong> from the sidebar? This won't
-              delete any files on disk.
+              Remove <strong>{project.name}</strong> from the sidebar? This
+              won't delete any files on disk.
             </Dialog.Description>
             <div className={styles.confirmActions}>
               <button
@@ -398,7 +440,9 @@ export function ProjectItem({
 
       <Dialog.Root
         open={confirmDeleteWorktree !== null}
-        onOpenChange={(open) => { if (!open) setConfirmDeleteWorktree(null); }}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteWorktree(null);
+        }}
       >
         <Dialog.Portal>
           <Dialog.Overlay className={styles.confirmOverlay} />
@@ -409,20 +453,28 @@ export function ProjectItem({
             <Dialog.Description className={styles.confirmDescription}>
               Delete workspace{" "}
               <strong>
-                {confirmDeleteWorktree?.name || confirmDeleteWorktree?.branch || ""}
+                {confirmDeleteWorktree?.name ||
+                  confirmDeleteWorktree?.branch ||
+                  ""}
               </strong>
               ? This will remove the worktree from disk.
             </Dialog.Description>
             {confirmDeleteWorktree?.branch && (
               <div className={styles.branchDeleteSection}>
-                <strong className={styles.branchName}>{confirmDeleteWorktree.branch}</strong>
+                <code className={styles.branchName}>
+                  <GitBranch size={12} />
+                  {confirmDeleteWorktree.branch}
+                </code>
                 <label className={styles.checkboxLabel}>
                   <input
                     type="checkbox"
                     checked={deleteBranchChecked}
                     onChange={(e) => {
                       setDeleteBranchChecked(e.target.checked);
-                      localStorage.setItem("manor:deleteBranchOnWorktreeRemove", String(e.target.checked));
+                      localStorage.setItem(
+                        "manor:deleteBranchOnWorktreeRemove",
+                        String(e.target.checked),
+                      );
                     }}
                   />
                   Also delete local branch
@@ -441,7 +493,10 @@ export function ProjectItem({
                 onClick={() => {
                   const ws = confirmDeleteWorktree;
                   setConfirmDeleteWorktree(null);
-                  if (ws) onRemoveWorktree(ws, deleteBranchChecked);
+                  if (ws) {
+                    setDeletingPaths((prev) => new Set(prev).add(ws.path));
+                    onRemoveWorktree(ws, deleteBranchChecked);
+                  }
                 }}
               >
                 Delete

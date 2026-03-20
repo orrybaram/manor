@@ -10,7 +10,17 @@ interface ThemeEntry {
   badge?: string;
 }
 
-type ThemeColors = Pick<Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">;
+type ThemeColors = Pick<
+  Theme,
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "magenta"
+  | "cyan"
+  | "background"
+  | "foreground"
+>;
 
 export function ThemeSection() {
   const [hasGhostty, setHasGhostty] = useState(false);
@@ -25,8 +35,8 @@ export function ThemeSection() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery("");
-    setHighlightIndex(-1);
     didScrollRef.current = false;
     Promise.all([
       window.electronAPI.hasGhosttyConfig(),
@@ -40,9 +50,17 @@ export function ThemeSection() {
   const entries: ThemeEntry[] = useMemo(() => {
     const result: ThemeEntry[] = [];
     if (hasGhostty) {
-      result.push({ name: "__ghostty__", displayName: "Match Ghostty", badge: "Ghostty" });
+      result.push({
+        name: "__ghostty__",
+        displayName: "Match Ghostty",
+        badge: "Ghostty",
+      });
     }
-    result.push({ name: "__default__", displayName: "Catppuccin Mocha", badge: "Default" });
+    result.push({
+      name: "__default__",
+      displayName: "Catppuccin Mocha",
+      badge: "Default",
+    });
     for (const n of Object.keys(allColors).sort()) {
       result.push({ name: n, displayName: n });
     }
@@ -56,6 +74,8 @@ export function ThemeSection() {
   }, [query, entries]);
 
   useEffect(() => {
+    // Reset highlight when query changes - intentional synchronous setState in effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHighlightIndex(-1);
   }, [query]);
 
@@ -77,15 +97,18 @@ export function ThemeSection() {
     });
   }, [highlightIndex, filtered]);
 
-  const handleSelect = useCallback(async (name: string) => {
-    await setTheme(name);
-  }, [setTheme]);
+  const handleSelect = useCallback(
+    async (name: string) => {
+      await setTheme(name);
+    },
+    [setTheme],
+  );
 
   const handleSelectByIndex = useCallback(
     (index: number) => {
       if (filtered[index]) handleSelect(filtered[index].name);
     },
-    [filtered, handleSelect]
+    [filtered, handleSelect],
   );
 
   const handleKeyDown = useListKeyboardNav(
@@ -111,9 +134,18 @@ export function ThemeSection() {
         {filtered.map((entry, idx) => {
           const isSelected = entry.name === selectedThemeName;
           const isHighlighted = idx === highlightIndex;
-          const colors = isSelected ? currentTheme : allColors[entry.name] ?? null;
+          const colors = isSelected
+            ? currentTheme
+            : (allColors[entry.name] ?? null);
           const dotColors = colors
-            ? [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan]
+            ? [
+                colors.red,
+                colors.green,
+                colors.yellow,
+                colors.blue,
+                colors.magenta,
+                colors.cyan,
+              ]
             : null;
           return (
             <div
@@ -129,16 +161,18 @@ export function ThemeSection() {
               <span className={styles.checkmark}>
                 {isSelected ? <Check size={14} /> : ""}
               </span>
-              <span className={styles.themeItemLabel}>
-                {entry.displayName}
-              </span>
+              <span className={styles.themeItemLabel}>{entry.displayName}</span>
               {entry.badge && (
                 <span className={styles.themeItemBadge}>{entry.badge}</span>
               )}
               {dotColors && (
                 <div className={styles.themePreview}>
                   {dotColors.map((c, i) => (
-                    <div key={i} className={styles.colorDot} style={{ background: c }} />
+                    <div
+                      key={i}
+                      className={styles.colorDot}
+                      style={{ background: c }}
+                    />
                   ))}
                 </div>
               )}
@@ -146,7 +180,14 @@ export function ThemeSection() {
           );
         })}
         {filtered.length === 0 && (
-          <div style={{ padding: 16, textAlign: "center", color: "var(--text-dim)", fontSize: 13 }}>
+          <div
+            style={{
+              padding: 16,
+              textAlign: "center",
+              color: "var(--text-dim)",
+              fontSize: 13,
+            }}
+          >
             No matching themes
           </div>
         )}

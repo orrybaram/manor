@@ -21,6 +21,6 @@ export function useListKeyboardNav(
         }
       }
     },
-    [listLength, highlightIndex, setHighlightIndex, onSelect]
+    [listLength, highlightIndex, setHighlightIndex, onSelect],
   );
 }

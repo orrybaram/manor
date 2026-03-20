@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, ChevronDown, ChevronRight, Settings, FolderOpen, Link } from "lucide-react";
+import {
+  X,
+  ChevronDown,
+  ChevronRight,
+  Settings,
+  FolderOpen,
+  Link,
+} from "lucide-react";
 import { useProjectStore } from "../store/project-store";
 import { AppSettingsPage } from "./AppSettingsPage";
 import { IntegrationsPage } from "./IntegrationsPage";
@@ -24,6 +31,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset to defaults when opened
       setPage({ type: "app" });
       setProjectsExpanded(true);
     }
@@ -33,18 +41,28 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     (isOpen: boolean) => {
       if (!isOpen) onClose();
     },
-    [onClose]
+    [onClose],
   );
 
-  const currentProject = page.type === "project"
-    ? projects.find((p) => p.id === page.projectId)
-    : null;
+  const currentProject =
+    page.type === "project"
+      ? projects.find((p) => p.id === page.projectId)
+      : null;
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.modal} onOpenAutoFocus={(e) => e.preventDefault()} onCloseAutoFocus={(e) => { e.preventDefault(); document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus(); }}>
+        <Dialog.Content
+          className={styles.modal}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            document
+              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+              ?.focus();
+          }}
+        >
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>Settings</Dialog.Title>
             <Dialog.Close asChild>
@@ -76,21 +94,30 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 className={styles.navGroupHeader}
                 onClick={() => setProjectsExpanded((v) => !v)}
               >
-                {projectsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {projectsExpanded ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronRight size={14} />
+                )}
                 <span>Projects</span>
               </button>
-              {projectsExpanded && projects.map((project) => (
-                <button
-                  key={project.id}
-                  className={`${styles.navItem} ${styles.navItemNested} ${
-                    page.type === "project" && page.projectId === project.id ? styles.navItemActive : ""
-                  }`}
-                  onClick={() => setPage({ type: "project", projectId: project.id })}
-                >
-                  <FolderOpen size={13} />
-                  <span className={styles.navItemLabel}>{project.name}</span>
-                </button>
-              ))}
+              {projectsExpanded &&
+                projects.map((project) => (
+                  <button
+                    key={project.id}
+                    className={`${styles.navItem} ${styles.navItemNested} ${
+                      page.type === "project" && page.projectId === project.id
+                        ? styles.navItemActive
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setPage({ type: "project", projectId: project.id })
+                    }
+                  >
+                    <FolderOpen size={13} />
+                    <span className={styles.navItemLabel}>{project.name}</span>
+                  </button>
+                ))}
               {projectsExpanded && projects.length === 0 && (
                 <div className={styles.navEmpty}>No projects</div>
               )}
@@ -101,7 +128,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               {page.type === "app" && <AppSettingsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
               {page.type === "project" && currentProject && (
-                <ProjectSettingsPage key={currentProject.id} project={currentProject} />
+                <ProjectSettingsPage
+                  key={currentProject.id}
+                  project={currentProject}
+                />
               )}
             </div>
           </div>

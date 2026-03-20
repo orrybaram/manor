@@ -175,7 +175,10 @@ export class ScrollbackWriter {
   // ── Static readers for cold restore ──
 
   /** Read meta.json for a session. Returns null if not found. */
-  static readMeta(sessionId: string, sessionsDir: string = SESSIONS_DIR): SessionMeta | null {
+  static readMeta(
+    sessionId: string,
+    sessionsDir: string = SESSIONS_DIR,
+  ): SessionMeta | null {
     try {
       const metaPath = path.join(sessionsDir, sessionId, "meta.json");
       const raw = fs.readFileSync(metaPath, "utf-8");
@@ -186,9 +189,16 @@ export class ScrollbackWriter {
   }
 
   /** Read scrollback.bin, truncated to COLD_RESTORE_MAX_BYTES at a UTF-8 safe boundary */
-  static readScrollback(sessionId: string, sessionsDir: string = SESSIONS_DIR): string {
+  static readScrollback(
+    sessionId: string,
+    sessionsDir: string = SESSIONS_DIR,
+  ): string {
     try {
-      const scrollbackPath = path.join(sessionsDir, sessionId, "scrollback.bin");
+      const scrollbackPath = path.join(
+        sessionsDir,
+        sessionId,
+        "scrollback.bin",
+      );
       const content = fs.readFileSync(scrollbackPath);
 
       if (content.length <= COLD_RESTORE_MAX_BYTES) {
@@ -211,7 +221,10 @@ export class ScrollbackWriter {
   }
 
   /** Check if a session had an unclean shutdown (meta exists but no endedAt) */
-  static isUncleanShutdown(sessionId: string, sessionsDir: string = SESSIONS_DIR): boolean {
+  static isUncleanShutdown(
+    sessionId: string,
+    sessionsDir: string = SESSIONS_DIR,
+  ): boolean {
     const meta = ScrollbackWriter.readMeta(sessionId, sessionsDir);
     if (!meta) return false;
     return meta.endedAt === null;
@@ -221,9 +234,7 @@ export class ScrollbackWriter {
   static listPersistedSessions(sessionsDir: string = SESSIONS_DIR): string[] {
     try {
       const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
-      return entries
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name);
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name);
     } catch {
       return [];
     }

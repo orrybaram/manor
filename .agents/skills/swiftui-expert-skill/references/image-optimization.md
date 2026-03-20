@@ -57,7 +57,7 @@ struct OptimizedImageView: View {
     let imageData: Data
     let targetSize: CGSize
     @State private var processedImage: UIImage?
-    
+
     var body: some View {
         Group {
             if let processedImage {
@@ -72,23 +72,23 @@ struct OptimizedImageView: View {
             processedImage = await decodeAndDownsample(imageData, targetSize: targetSize)
         }
     }
-    
+
     private func decodeAndDownsample(_ data: Data, targetSize: CGSize) async -> UIImage? {
         await Task.detached {
             guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
                 return nil
             }
-            
+
             let options: [CFString: Any] = [
                 kCGImageSourceThumbnailMaxPixelSize: max(targetSize.width, targetSize.height),
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]
-            
+
             guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
                 return nil
             }
-            
+
             return UIImage(cgImage: cgImage)
         }.value
     }
@@ -129,6 +129,7 @@ Key details: `kCGImageSourceShouldCache: false` on the source prevents the full-
 ### When to Suggest This Optimization
 
 Mention this optimization when you see `UIImage(data:)` usage, particularly in:
+
 - Scrollable content (List, ScrollView with LazyVStack/LazyHStack)
 - Grid layouts with many images
 - Image galleries or carousels

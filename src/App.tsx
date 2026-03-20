@@ -4,7 +4,10 @@ import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
-import { WorkspaceEmptyState, WelcomeEmptyState } from "./components/EmptyState";
+import {
+  WorkspaceEmptyState,
+  WelcomeEmptyState,
+} from "./components/EmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
@@ -18,19 +21,33 @@ const SESSION_BASE_STYLE: React.CSSProperties = {
   inset: "0",
   overflow: "hidden",
 };
-const SESSION_VISIBLE_STYLE: React.CSSProperties = { ...SESSION_BASE_STYLE, visibility: "visible" };
-const SESSION_HIDDEN_STYLE: React.CSSProperties = { ...SESSION_BASE_STYLE, visibility: "hidden" };
+const SESSION_VISIBLE_STYLE: React.CSSProperties = {
+  ...SESSION_BASE_STYLE,
+  visibility: "visible",
+};
+const SESSION_HIDDEN_STYLE: React.CSSProperties = {
+  ...SESSION_BASE_STYLE,
+  visibility: "hidden",
+};
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
-  useEffect(() => { loadTheme(); }, [loadTheme]);
+  useEffect(() => {
+    loadTheme();
+  }, [loadTheme]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  const closeNewWorkspace = useCallback(() => setNewWorkspaceOpen(false), []);
+  const [preselectedProjectId, setPreselectedProjectId] = useState<
+    string | null
+  >(null);
+  const closeNewWorkspace = useCallback(() => {
+    setNewWorkspaceOpen(false);
+    setPreselectedProjectId(null);
+  }, []);
 
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -53,7 +70,6 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
-
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
   const hasProjects = projects.length > 0;
@@ -147,24 +163,36 @@ function App() {
                 return (
                   <div
                     key={session.id}
-                    style={isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE}
+                    style={
+                      isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE
+                    }
                   >
                     <PaneLayout node={session.rootNode} workspacePath={wpath} />
                   </div>
                 );
-              })
+              }),
             )}
-            {!hasSessions && (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
+            {!hasSessions &&
+              (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
           </div>
         </div>
       </div>
-      <CommandPalette open={paletteOpen} onClose={closePalette} onOpenSettings={() => setSettingsOpen(true)} onNewWorkspace={() => setNewWorkspaceOpen(true)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onNewWorkspace={(projectId?: string) => {
+          if (projectId) setPreselectedProjectId(projectId);
+          setNewWorkspaceOpen(true);
+        }}
+      />
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
         onClose={closeNewWorkspace}
         projects={projects}
         selectedProjectIndex={selectedProjectIndex}
+        preselectedProjectId={preselectedProjectId}
         onSubmit={async (projectId, name, branch) => {
           setNewWorkspaceOpen(false);
           await createWorktree(projectId, name, branch);

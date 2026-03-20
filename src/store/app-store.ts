@@ -8,7 +8,12 @@ import {
   nextPaneId,
   prevPaneId,
 } from "./pane-tree";
-import type { PersistedWorkspace, PersistedSession, PersistedLayout, AgentState } from "../electron.d";
+import type {
+  PersistedWorkspace,
+  PersistedSession,
+  PersistedLayout,
+  AgentState,
+} from "../electron.d";
 
 function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
@@ -46,7 +51,9 @@ function createWorkspaceState(): WorkspaceSessionState {
 }
 
 /** Convert a PersistedWorkspace back into a WorkspaceSessionState */
-function restoreWorkspaceState(persisted: PersistedWorkspace): WorkspaceSessionState {
+function restoreWorkspaceState(
+  persisted: PersistedWorkspace,
+): WorkspaceSessionState {
   const sessions: Session[] = persisted.sessions.map((ps) => ({
     id: ps.id,
     title: ps.title,
@@ -64,6 +71,12 @@ function restoreWorkspaceState(persisted: PersistedWorkspace): WorkspaceSessionS
   };
 }
 
+export interface RecentView {
+  sessionId: string;
+  workspacePath: string;
+  timestamp: number;
+}
+
 export interface AppState {
   workspaceSessions: Record<string, WorkspaceSessionState>;
   activeWorkspacePath: string | null;
@@ -75,6 +88,8 @@ export interface AppState {
   closedPaneIds: Set<string>;
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
+  /** Last 5 viewed tabs (sessions) across workspaces */
+  recentViews: RecentView[];
 
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
@@ -124,7 +139,9 @@ export interface AppState {
 }
 
 // Selector for the active workspace's session state
-export function selectActiveWorkspace(state: AppState): WorkspaceSessionState | null {
+export function selectActiveWorkspace(
+  state: AppState,
+): WorkspaceSessionState | null {
   if (!state.activeWorkspacePath) return null;
   return state.workspaceSessions[state.activeWorkspacePath] ?? null;
 }
@@ -146,6 +163,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
+  recentViews: [],
 
   loadPersistedLayout: async () => {
     try {
@@ -158,7 +176,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         const titles: Record<string, string> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
-            for (const [paneId, paneSession] of Object.entries(session.paneSessions)) {
+            for (const [paneId, paneSession] of Object.entries(
+              session.paneSessions,
+            )) {
               if (paneSession.lastCwd) {
                 cwds[paneId] = paneSession.lastCwd;
               }
@@ -191,7 +211,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Check persisted layout for this workspace
       if (_cachedLayout) {
-        const persisted = _cachedLayout.workspaces.find((w) => w.workspacePath === path);
+        const persisted = _cachedLayout.workspaces.find(
+          (w) => w.workspacePath === path,
+        );
         if (persisted && persisted.sessions.length > 0) {
           return {
             activeWorkspacePath: path,
@@ -223,7 +245,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         workspaceSessions: {
           ...state.workspaceSessions,
-          [path]: { sessions: [...ws.sessions, session], selectedSessionId: session.id },
+          [path]: {
+            sessions: [...ws.sessions, session],
+            selectedSessionId: session.id,
+          },
         },
       };
     }),
@@ -281,7 +306,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!path) return state;
       const ws = state.workspaceSessions[path];
       if (!ws) return state;
+      // Track this view in recents
+      const filtered = state.recentViews.filter(
+        (v) => !(v.sessionId === sessionId && v.workspacePath === path),
+      );
+      const recentViews: RecentView[] = [
+        { sessionId, workspacePath: path, timestamp: Date.now() },
+        ...filtered,
+      ].slice(0, 5);
       return {
+        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, selectedSessionId: sessionId },
@@ -297,10 +331,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!ws) return state;
       const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
       const next = (idx + 1) % ws.sessions.length;
+      const nextId = ws.sessions[next].id;
+      const filtered = state.recentViews.filter(
+        (v) => !(v.sessionId === nextId && v.workspacePath === path),
+      );
+      const recentViews: RecentView[] = [
+        { sessionId: nextId, workspacePath: path, timestamp: Date.now() },
+        ...filtered,
+      ].slice(0, 5);
       return {
+        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
-          [path]: { ...ws, selectedSessionId: ws.sessions[next].id },
+          [path]: { ...ws, selectedSessionId: nextId },
         },
       };
     }),
@@ -313,10 +356,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!ws) return state;
       const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
       const prev = (idx - 1 + ws.sessions.length) % ws.sessions.length;
+      const prevId = ws.sessions[prev].id;
+      const filtered = state.recentViews.filter(
+        (v) => !(v.sessionId === prevId && v.workspacePath === path),
+      );
+      const recentViews: RecentView[] = [
+        { sessionId: prevId, workspacePath: path, timestamp: Date.now() },
+        ...filtered,
+      ].slice(0, 5);
       return {
+        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
-          [path]: { ...ws, selectedSessionId: ws.sessions[prev].id },
+          [path]: { ...ws, selectedSessionId: prevId },
         },
       };
     }),
@@ -328,7 +380,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ws = state.workspaceSessions[path];
       if (!ws) return state;
       const lookup = new Map(ws.sessions.map((s) => [s.id, s]));
-      const reordered = sessionIds.map((id) => lookup.get(id)).filter(Boolean) as Session[];
+      const reordered = sessionIds
+        .map((id) => lookup.get(id))
+        .filter(Boolean) as Session[];
       if (reordered.length !== ws.sessions.length) return state;
       return {
         workspaceSessions: {
@@ -347,14 +401,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
       if (!session) return state;
       const newPane = newPaneId();
-      const newRoot = insertSplit(session.rootNode, session.focusedPaneId, direction, newPane);
+      const newRoot = insertSplit(
+        session.rootNode,
+        session.focusedPaneId,
+        direction,
+        newPane,
+      );
       return {
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: {
             ...ws,
             sessions: ws.sessions.map((s) =>
-              s.id === session.id ? { ...s, rootNode: newRoot, focusedPaneId: newPane } : s
+              s.id === session.id
+                ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
+                : s,
             ),
           },
         },
@@ -408,7 +469,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             sessions: currentWs.sessions.map((t) =>
               t.id === session.id
                 ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-                : t
+                : t,
             ),
           },
         },
@@ -428,7 +489,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           [path]: {
             ...ws,
             sessions: ws.sessions.map((s) =>
-              s.id === ws.selectedSessionId ? { ...s, focusedPaneId: paneId } : s
+              s.id === ws.selectedSessionId
+                ? { ...s, focusedPaneId: paneId }
+                : s,
             ),
           },
         },
@@ -451,7 +514,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           [path]: {
             ...ws,
             sessions: ws.sessions.map((s) =>
-              s.id === session.id ? { ...s, focusedPaneId: next } : s
+              s.id === session.id ? { ...s, focusedPaneId: next } : s,
             ),
           },
         },
@@ -474,7 +537,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           [path]: {
             ...ws,
             sessions: ws.sessions.map((s) =>
-              s.id === session.id ? { ...s, focusedPaneId: prev } : s
+              s.id === session.id ? { ...s, focusedPaneId: prev } : s,
             ),
           },
         },
@@ -496,7 +559,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPaneAgentStatus: (paneId: string, agent: AgentState) =>
     set((state) => {
       const current = state.paneAgentStatus[paneId];
-      if (current && current.status === agent.status && current.kind === agent.kind) return state;
+      if (
+        current &&
+        current.status === agent.status &&
+        current.kind === agent.kind
+      )
+        return state;
       if (agent.status === "idle") {
         const { [paneId]: _, ...rest } = state.paneAgentStatus;
         return { paneAgentStatus: rest };
@@ -504,13 +572,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
 
-  zoomIn: () => set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
-  zoomOut: () => set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
+  zoomIn: () =>
+    set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
+  zoomOut: () =>
+    set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
   resetZoom: () => set({ fontSize: DEFAULT_FONT_SIZE }),
 
   setPendingStartupCommand: (workspacePath: string, command: string) =>
     set((state) => ({
-      pendingStartupCommands: { ...state.pendingStartupCommands, [workspacePath]: command },
+      pendingStartupCommands: {
+        ...state.pendingStartupCommands,
+        [workspacePath]: command,
+      },
     })),
 
   consumePendingStartupCommand: (workspacePath: string) => {
@@ -587,7 +660,14 @@ function saveActiveWorkspaceLayout(): void {
       workspacePath: wsPath,
       sessions: ws.sessions.map((s) => {
         const paneIds = allPaneIds(s.rootNode);
-        const paneSessions: Record<string, { daemonSessionId: string; lastCwd: string | null; lastTitle: string | null }> = {};
+        const paneSessions: Record<
+          string,
+          {
+            daemonSessionId: string;
+            lastCwd: string | null;
+            lastTitle: string | null;
+          }
+        > = {};
         for (const pid of paneIds) {
           paneSessions[pid] = {
             daemonSessionId: pid,

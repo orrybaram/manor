@@ -1,5 +1,10 @@
 import { useCallback, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink, EthernetPort } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  EthernetPort,
+} from "lucide-react";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { usePortsData, type WorkspacePortGroup } from "../hooks/usePortsData";
@@ -19,12 +24,11 @@ export function PortsList() {
         onClick={() => setCollapsed(!collapsed)}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span
-            className={styles.projectChevron}
-          >
+          <span className={styles.projectChevron}>
             {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           </span>
-          <EthernetPort size={12} />Ports
+          <EthernetPort size={12} />
+          Ports
           <span className={styles.portCount}>{totalPortCount}</span>
         </span>
       </div>
@@ -47,7 +51,7 @@ function PortGroup({ group }: { group: WorkspacePortGroup }) {
     const projects = useProjectStore.getState().projects;
     for (const project of projects) {
       const wsIndex = project.workspaces.findIndex(
-        (ws) => ws.path === group.workspacePath
+        (ws) => ws.path === group.workspacePath,
       );
       if (wsIndex >= 0) {
         selectWorkspace(project.id, wsIndex);
@@ -68,7 +72,10 @@ function PortGroup({ group }: { group: WorkspacePortGroup }) {
           <span className={styles.portGroupBranch}>
             {group.branch}
             {group.isMain && group.projectName && (
-              <span className={styles.portGroupProject}> · {group.projectName}</span>
+              <span className={styles.portGroupProject}>
+                {" "}
+                · {group.projectName}
+              </span>
             )}
           </span>
         </div>

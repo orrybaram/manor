@@ -9,14 +9,20 @@ interface PtySession {
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
 
-  create(window: BrowserWindow, paneId: string, cwd: string | null, cols: number, rows: number): void {
+  create(
+    window: BrowserWindow,
+    paneId: string,
+    cwd: string | null,
+    cols: number,
+    rows: number,
+  ): void {
     const zdotdir = ShellManager.zdotdirPath();
     const histfile = ShellManager.historyFileFor(paneId);
 
     const shell = process.env.SHELL || "/bin/zsh";
 
     const env: Record<string, string> = {
-      ...process.env as Record<string, string>,
+      ...(process.env as Record<string, string>),
       MANOR_PANE_ID: paneId,
       TERM: "xterm-256color",
       ZDOTDIR: zdotdir,
@@ -63,7 +69,11 @@ export class PtyManager {
           }
         } else if (byte === 0x1b) {
           oscBuf = [byte];
-        } else if (oscBuf.length === 1 && oscBuf[0] === 0x1b && byte === 0x5d /* ] */) {
+        } else if (
+          oscBuf.length === 1 &&
+          oscBuf[0] === 0x1b &&
+          byte === 0x5d /* ] */
+        ) {
           oscBuf.push(byte);
         } else if (oscBuf.length === 2 && byte === 0x37 /* 7 */) {
           oscBuf.push(byte);
@@ -102,7 +112,11 @@ export class PtyManager {
     }
   }
 
-  private extractOsc7Cwd(window: BrowserWindow, paneId: string, payload: string): void {
+  private extractOsc7Cwd(
+    window: BrowserWindow,
+    paneId: string,
+    payload: string,
+  ): void {
     // Format: file://hostname/path or file:///path
     if (!payload.startsWith("file://")) return;
     const rest = payload.slice(7);

@@ -36,7 +36,9 @@ function pushExitFrame(session: Session, exitCode: number): void {
 function mockSocket(): { socket: any; written: string[] } {
   const written: string[] = [];
   const socket = {
-    write: (data: string) => { written.push(data); },
+    write: (data: string) => {
+      written.push(data);
+    },
     on: vi.fn(),
     destroy: vi.fn(),
   };
@@ -216,8 +218,12 @@ describe("Session", () => {
       session.attachClient(client2.socket);
       pushDataFrame(session, "shared");
 
-      expect(client1.written.some((l) => JSON.parse(l.trim()).data === "shared")).toBe(true);
-      expect(client2.written.some((l) => JSON.parse(l.trim()).data === "shared")).toBe(true);
+      expect(
+        client1.written.some((l) => JSON.parse(l.trim()).data === "shared"),
+      ).toBe(true);
+      expect(
+        client2.written.some((l) => JSON.parse(l.trim()).data === "shared"),
+      ).toBe(true);
     });
 
     it("detached client stops receiving events", () => {
@@ -231,7 +237,9 @@ describe("Session", () => {
         .map((line) => JSON.parse(line.trim()) as StreamEvent)
         .filter((e) => e.type === "data");
       expect(dataEvents).toHaveLength(1);
-      expect(dataEvents[0].type === "data" && dataEvents[0].data).toBe("before");
+      expect(dataEvents[0].type === "data" && dataEvents[0].data).toBe(
+        "before",
+      );
     });
 
     it("broadcasts exit event when PTY exits", () => {

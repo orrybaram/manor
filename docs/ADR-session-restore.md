@@ -1,6 +1,7 @@
 # ADR: Daemon-Backed Session Restore
 
 ## Status
+
 Proposed
 
 ## Context
@@ -54,10 +55,10 @@ A standalone Rust binary shipped as a Tauri sidecar (`manor-daemon`). It:
 
 Two socket connections per client (mirroring Superset's proven pattern):
 
-| Connection | Format | Purpose |
-|---|---|---|
-| **Control** | NDJSON request/response | `create_session`, `attach`, `list_sessions`, `resize`, `kill`, `get_snapshot` |
-| **Stream** | Length-prefixed binary frames (4-byte LE header + payload) | PTY output (daemon → app), user input (app → daemon) |
+| Connection  | Format                                                     | Purpose                                                                       |
+| ----------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Control** | NDJSON request/response                                    | `create_session`, `attach`, `list_sessions`, `resize`, `kill`, `get_snapshot` |
+| **Stream**  | Length-prefixed binary frames (4-byte LE header + payload) | PTY output (daemon → app), user input (app → daemon)                          |
 
 Binary framing for the stream connection avoids JSON encoding overhead on high-throughput terminal data.
 
@@ -110,12 +111,13 @@ App start → connect to daemon (or spawn it)
 
 The daemon writes two files per session to `~/.manor/sessions/{session_id}/`:
 
-| File | Format | Purpose |
-|---|---|---|
-| `scrollback.bin` | Raw bytes, append-only | PTY output stream for cold restore |
-| `meta.json` | JSON | `{ cols, rows, cwd, created_at, ended_at }` |
+| File             | Format                 | Purpose                                     |
+| ---------------- | ---------------------- | ------------------------------------------- |
+| `scrollback.bin` | Raw bytes, append-only | PTY output stream for cold restore          |
+| `meta.json`      | JSON                   | `{ cols, rows, cwd, created_at, ended_at }` |
 
 **Write path:**
+
 1. PTY produces output → daemon reads it
 2. Daemon feeds output to headless emulator (state tracking)
 3. Daemon forwards output to connected app client (display)
@@ -131,20 +133,24 @@ Separately from scrollback, persist the session/pane tree structure in the exist
 
 ```json
 {
-  "workspaces": [{
-    "sessions": [{
-      "id": "uuid",
-      "title": "...",
-      "root_node": { "type": "leaf", "pane_id": "..." },
-      "focused_pane_id": "...",
-      "pane_sessions": {
-        "pane-uuid": {
-          "daemon_session_id": "uuid",
-          "last_cwd": "/path/to/dir"
+  "workspaces": [
+    {
+      "sessions": [
+        {
+          "id": "uuid",
+          "title": "...",
+          "root_node": { "type": "leaf", "pane_id": "..." },
+          "focused_pane_id": "...",
+          "pane_sessions": {
+            "pane-uuid": {
+              "daemon_session_id": "uuid",
+              "last_cwd": "/path/to/dir"
+            }
+          }
         }
-      }
-    }]
-  }]
+      ]
+    }
+  ]
 }
 ```
 
@@ -154,44 +160,47 @@ On startup, the app reads this layout and calls `attach(daemon_session_id)` for 
 
 #### New: `manor-daemon` sidecar binary
 
-| Module | Responsibility |
-|---|---|
-| `main.rs` | Socket listener, auth, spawn lock, signal handling |
-| `session.rs` | PTY ownership, headless emulator, snapshot generation |
-| `protocol.rs` | NDJSON control + binary stream frame codec |
-| `persistence.rs` | Scrollback writer, meta.json management |
+| Module           | Responsibility                                        |
+| ---------------- | ----------------------------------------------------- |
+| `main.rs`        | Socket listener, auth, spawn lock, signal handling    |
+| `session.rs`     | PTY ownership, headless emulator, snapshot generation |
+| `protocol.rs`    | NDJSON control + binary stream frame codec            |
+| `persistence.rs` | Scrollback writer, meta.json management               |
 
 #### Modified: `src-tauri/`
 
-| File | Change |
-|---|---|
-| `pty.rs` | Remove direct PTY management; replace with daemon client that connects over Unix socket |
-| `persistence.rs` | Add session/pane tree serialization to `projects.json` |
-| `models.rs` | Add `daemon_session_id` to `PersistedPaneSession` |
-| `lib.rs` | Add daemon lifecycle management (spawn, connect, health check) |
-| `tauri.conf.json` | Register `manor-daemon` as a sidecar |
+| File              | Change                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| `pty.rs`          | Remove direct PTY management; replace with daemon client that connects over Unix socket |
+| `persistence.rs`  | Add session/pane tree serialization to `projects.json`                                  |
+| `models.rs`       | Add `daemon_session_id` to `PersistedPaneSession`                                       |
+| `lib.rs`          | Add daemon lifecycle management (spawn, connect, health check)                          |
+| `tauri.conf.json` | Register `manor-daemon` as a sidecar                                                    |
 
 #### Modified: `src/` (frontend)
 
-| File | Change |
-|---|---|
+| File               | Change                                                                       |
+| ------------------ | ---------------------------------------------------------------------------- |
 | `TerminalPane.tsx` | On mount: check for snapshot → write to xterm.js before resuming live stream |
-| `app-store.ts` | Persist session tree to backend on layout changes (add/remove/split) |
+| `app-store.ts`     | Persist session tree to backend on layout changes (add/remove/split)         |
 
 ### Implementation phases
 
 **Phase 1 — Cold restore only (no daemon yet)**
+
 - Add scrollback persistence directly in `pty.rs` (write `scrollback.bin` from the PTY reader thread)
 - Persist pane layout in `projects.json`
 - On startup: restore layout, replay scrollback into xterm.js, spawn fresh shells in saved CWDs
 - This gives us 80% of the value with 20% of the complexity
 
 **Phase 2 — Daemon extraction**
+
 - Extract PTY management into `manor-daemon` sidecar
 - Add Unix socket IPC (control + stream)
 - Warm restore via daemon snapshots
 
 **Phase 3 — Headless emulator + polish**
+
 - Add `alacritty_terminal` headless emulator to daemon
 - Snapshot generation for pixel-perfect warm restore
 - Mode tracking and replay

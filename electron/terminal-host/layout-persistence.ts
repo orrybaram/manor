@@ -74,7 +74,9 @@ export class LayoutPersistence {
       layout = { version: 1, workspaces: [] };
     }
 
-    const idx = layout.workspaces.findIndex((w) => w.workspacePath === workspace.workspacePath);
+    const idx = layout.workspaces.findIndex(
+      (w) => w.workspacePath === workspace.workspacePath,
+    );
     if (idx >= 0) {
       layout.workspaces[idx] = workspace;
     } else {
@@ -89,7 +91,9 @@ export class LayoutPersistence {
     const layout = this.load();
     if (!layout) return;
 
-    layout.workspaces = layout.workspaces.filter((w) => w.workspacePath !== workspacePath);
+    layout.workspaces = layout.workspaces.filter(
+      (w) => w.workspacePath !== workspacePath,
+    );
     this.save(layout);
   }
 
@@ -136,7 +140,12 @@ export class LayoutPersistence {
 
 export type PaneRestoreAction =
   | { type: "warm"; paneId: string; daemonSessionId: string }
-  | { type: "cold"; paneId: string; daemonSessionId: string; lastCwd: string | null }
+  | {
+      type: "cold";
+      paneId: string;
+      daemonSessionId: string;
+      lastCwd: string | null;
+    }
   | { type: "fresh"; paneId: string; cwd: string | null };
 
 export interface ReconciliationPlan {

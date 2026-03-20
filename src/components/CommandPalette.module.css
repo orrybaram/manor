@@ -86,12 +86,12 @@
 .item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);
+  min-width: 0;
 }
 
 .item[data-selected="true"] {
@@ -109,6 +109,9 @@
 
 .label {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shortcut {
@@ -128,6 +131,13 @@
   letter-spacing: 0.04em;
 }
 
+.recentMeta {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
 .separator {
   height: 1px;
   background: var(--surface);
@@ -141,22 +151,169 @@
   font-size: 13px;
 }
 
+/* ── Breadcrumb (nested views) ── */
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.breadcrumbBack {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.breadcrumbBack:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.breadcrumbLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Chevron (drill-in indicator) ── */
+
+.chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* ── Linear issue items ── */
+
+.issueIdentifier {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-right: 8px;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.issueState {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* ── Linear loading state ── */
+
+.linearLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Issue action popover ── */
+
+.issuePopover {
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 200;
+  min-width: 180px;
+}
+
+.popoverAction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.popoverAction:hover,
+.popoverAction:focus-visible {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.popoverAction:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translate(-50%, -50%) translateY(-8px); }
-  to { opacity: 1; transform: translate(-50%, -50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(0);
+  }
 }
 
 @keyframes slideOut {
-  from { opacity: 1; transform: translate(-50%, -50%) translateY(0); }
-  to { opacity: 0; transform: translate(-50%, -50%) translateY(-8px); }
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-8px);
+  }
 }

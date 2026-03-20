@@ -6,11 +6,13 @@ description: Write, review, or improve SwiftUI code following best practices for
 # SwiftUI Expert Skill
 
 ## Overview
+
 Use this skill to build, review, or improve SwiftUI features with correct state management, optimal view composition, and iOS 26+ Liquid Glass styling. Prioritize native APIs, Apple design guidance, and performance-conscious patterns. This skill focuses on facts and best practices without enforcing specific architectural patterns.
 
 ## Workflow Decision Tree
 
 ### 1) Review existing SwiftUI code
+
 - **First, consult `references/latest-apis.md`** to ensure only current, non-deprecated APIs are used
 - Check property wrapper usage against the selection guide (see `references/state-management.md`)
 - Verify view composition follows extraction rules (see `references/view-structure.md`)
@@ -24,6 +26,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Validate iOS 26+ availability handling with sensible fallbacks
 
 ### 2) Improve existing SwiftUI code
+
 - **First, consult `references/latest-apis.md`** to replace any deprecated APIs with their modern equivalents
 - Audit state management for correct wrapper selection (see `references/state-management.md`)
 - Extract complex views into separate subviews (see `references/view-structure.md`)
@@ -37,6 +40,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Adopt Liquid Glass only when explicitly requested by the user
 
 ### 3) Implement new SwiftUI feature
+
 - **First, consult `references/latest-apis.md`** to use only current, non-deprecated APIs for the target deployment version
 - Design data flow first: identify owned vs injected state (see `references/state-management.md`)
 - Structure views for optimal diffing (extract subviews early, see `references/view-structure.md`)
@@ -51,6 +55,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 ## Core Guidelines
 
 ### State Management
+
 - `@State` must be `private`; use for internal view state
 - `@Binding` only when a child needs to **modify** parent state
 - `@StateObject` when view **creates** the object; `@ObservedObject` when **injected**
@@ -60,6 +65,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Nested `ObservableObject` doesn't propagate changes — pass nested objects directly; `@Observable` handles nesting fine
 
 ### View Composition
+
 - Extract complex views into separate subviews for better readability and performance
 - Prefer modifiers over conditional views for state changes (maintains view identity)
 - Keep view `body` simple and pure (no side effects or complex logic)
@@ -70,6 +76,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Views should work in any context (don't assume screen size or presentation style)
 
 ### Performance
+
 - Pass only needed values to views (avoid large "config" or "context" objects)
 - Eliminate unnecessary dependencies to reduce update fan-out
 - Consider per-item `@Observable` state objects in lists to narrow update/dependency scope
@@ -90,6 +97,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - `Shape.path()`, `visualEffect`, `Layout`, and `onGeometryChange` closures may run off the main thread — capture values instead of accessing `@MainActor` state
 
 ### Animations
+
 - Use `.animation(_:value:)` with value parameter (deprecated version without value is too broad)
 - Use `withAnimation` for event-driven animations (button taps, gestures)
 - Prefer transforms (`offset`, `scale`, `rotation`) over layout changes (`frame`) for performance
@@ -102,6 +110,7 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Implicit animations override explicit animations (later in view tree wins)
 
 ### Accessibility
+
 - Prefer `Button` over `onTapGesture` for tappable elements (free VoiceOver support)
 - Use `@ScaledMetric` for custom numeric values that should scale with Dynamic Type
 - Group related elements with `accessibilityElement(children: .combine)` for joined labels
@@ -109,7 +118,9 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 - Use `accessibilityRepresentation` for custom controls that should behave like native ones
 
 ### Liquid Glass (iOS 26+)
+
 **Only adopt when explicitly requested by the user.**
+
 - Use native `glassEffect`, `GlassEffectContainer`, and glass button styles
 - Wrap multiple glass elements in `GlassEffectContainer`
 - Apply `.glassEffect()` after layout and visual modifiers
@@ -119,17 +130,19 @@ Use this skill to build, review, or improve SwiftUI features with correct state 
 ## Quick Reference
 
 ### Property Wrapper Selection
-| Wrapper | Use When |
-|---------|----------|
-| `@State` | Internal view state (must be `private`) |
-| `@Binding` | Child modifies parent's state |
-| `@StateObject` | View owns an `ObservableObject` |
-| `@ObservedObject` | View receives an `ObservableObject` |
-| `@Bindable` | iOS 17+: Injected `@Observable` needing bindings |
-| `let` | Read-only value from parent |
-| `var` | Read-only value watched via `.onChange()` |
+
+| Wrapper           | Use When                                         |
+| ----------------- | ------------------------------------------------ |
+| `@State`          | Internal view state (must be `private`)          |
+| `@Binding`        | Child modifies parent's state                    |
+| `@StateObject`    | View owns an `ObservableObject`                  |
+| `@ObservedObject` | View receives an `ObservableObject`              |
+| `@Bindable`       | iOS 17+: Injected `@Observable` needing bindings |
+| `let`             | Read-only value from parent                      |
+| `var`             | Read-only value watched via `.onChange()`        |
 
 ### Liquid Glass Patterns
+
 ```swift
 // Basic glass effect with fallback
 if #available(iOS 26, *) {
@@ -158,10 +171,12 @@ Button("Confirm") { }
 ## Review Checklist
 
 ### Latest APIs (see `references/latest-apis.md`)
+
 - [ ] No deprecated modifiers used (check against the quick lookup table)
 - [ ] API choices match the project's minimum deployment target
 
 ### State Management
+
 - [ ] `@State` properties are `private`
 - [ ] `@Binding` only where child modifies parent state
 - [ ] `@StateObject` for owned, `@ObservedObject` for injected
@@ -170,19 +185,23 @@ Button("Confirm") { }
 - [ ] Nested `ObservableObject` avoided (or passed directly to child views)
 
 ### Sheets & Navigation (see `references/sheet-navigation-patterns.md`)
+
 - [ ] Using `.sheet(item:)` for model-based sheets
 - [ ] Sheets own their actions and dismiss internally
 
 ### ScrollView (see `references/scroll-patterns.md`)
+
 - [ ] Using `ScrollViewReader` with stable IDs for programmatic scrolling
 
 ### View Structure (see `references/view-structure.md`)
+
 - [ ] Using modifiers instead of conditionals for state changes
 - [ ] Complex views extracted to separate subviews
 - [ ] Container views use `@ViewBuilder let content: Content`
 - [ ] `.compositingGroup()` before `.clipShape()` on layered views
 
 ### Performance (see `references/performance-patterns.md`)
+
 - [ ] View `body` kept simple and pure (no side effects)
 - [ ] Passing only needed values (not large config objects)
 - [ ] Eliminating unnecessary dependencies
@@ -194,12 +213,14 @@ Button("Confirm") { }
 - [ ] Sendable closures capture values instead of accessing @MainActor state
 
 ### List Patterns (see `references/list-patterns.md`)
+
 - [ ] ForEach uses stable identity (not `.indices`)
 - [ ] Constant number of views per ForEach element
 - [ ] No inline filtering in ForEach
 - [ ] No `AnyView` in list rows
 
 ### Layout (see `references/layout-best-practices.md`)
+
 - [ ] Avoiding layout thrash (deep hierarchies, excessive GeometryReader)
 - [ ] Gating frequent geometry updates by thresholds
 - [ ] Business logic kept in services and models (not in views)
@@ -208,6 +229,7 @@ Button("Confirm") { }
 - [ ] Views work in any context (context-agnostic)
 
 ### Animations (see `references/animation-basics.md`, `references/animation-transitions.md`, `references/animation-advanced.md`)
+
 - [ ] Using `.animation(_:value:)` with value parameter
 - [ ] Using `withAnimation` for event-driven animations
 - [ ] Transitions paired with animations outside conditional structure
@@ -218,12 +240,14 @@ Button("Confirm") { }
 - [ ] Completion handlers use `.transaction(value:)` for reexecution
 
 ### Accessibility (see `references/accessibility-patterns.md`)
+
 - [ ] `Button` used instead of `onTapGesture` for tappable elements
 - [ ] `@ScaledMetric` used for custom values that should scale with Dynamic Type
 - [ ] Related elements grouped with `accessibilityElement(children:)`
 - [ ] Custom controls use `accessibilityRepresentation` when appropriate
 
 ### Charts (see `references/charts.md`, `references/charts-accessibility.md`)
+
 - [ ] `import Charts` is present in files using chart types
 - [ ] Chart data models use `Identifiable` (or explicit `id:` key path)
 - [ ] Chart-wide modifiers applied to `Chart`, not individual marks
@@ -234,6 +258,7 @@ Button("Confirm") { }
 - [ ] `foregroundStyle(by:)` used for categorical series (not manual per-mark colors)
 
 ### macOS APIs (see `references/macos-scenes.md`, `references/macos-window-styling.md`, `references/macos-views.md`)
+
 - [ ] Using `Settings` scene for preferences (not a custom window)
 - [ ] Using `MenuBarExtra` for menu bar items (not AppKit `NSStatusItem`)
 - [ ] Using `Commands` / `CommandGroup` / `CommandMenu` for menu bar menus
@@ -245,6 +270,7 @@ Button("Confirm") { }
 - [ ] `HSplitView`/`VSplitView` reserved for IDE-style equal peer panes
 
 ### Liquid Glass (iOS 26+)
+
 - [ ] `#available(iOS 26, *)` with fallback for Liquid Glass
 - [ ] Multiple glass views wrapped in `GlassEffectContainer`
 - [ ] `.glassEffect()` applied after layout/appearance modifiers
@@ -252,6 +278,7 @@ Button("Confirm") { }
 - [ ] Shapes and tints consistent across related elements
 
 ## References
+
 - `references/latest-apis.md` - **Required reading for all workflows.** Version-segmented guide of deprecated-to-modern API transitions (iOS 15+ through iOS 26+)
 - `references/state-management.md` - Property wrappers and data flow
 - `references/view-structure.md` - View composition, extraction, and container patterns
@@ -275,6 +302,7 @@ Button("Confirm") { }
 ## Philosophy
 
 This skill focuses on **facts and best practices**, not architectural opinions:
+
 - We don't enforce specific architectures (e.g., MVVM, VIPER)
 - We do encourage separating business logic for testability
 - We optimize for performance and maintainability

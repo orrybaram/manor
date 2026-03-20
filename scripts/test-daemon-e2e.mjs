@@ -28,7 +28,11 @@ const TOKEN_PATH = path.join(TMP, "terminal-host.token");
 const PID_PATH = path.join(TMP, "terminal-host.pid");
 const SESSIONS_DIR = path.join(TMP, "sessions");
 
-const DAEMON_SCRIPT = path.join(ROOT, "dist-electron", "terminal-host-index.js");
+const DAEMON_SCRIPT = path.join(
+  ROOT,
+  "dist-electron",
+  "terminal-host-index.js",
+);
 
 let daemonProc = null;
 let passed = 0;
@@ -72,10 +76,11 @@ function connectRaw(socketPath) {
       resolve({
         socket,
         send: (msg) => socket.write(JSON.stringify(msg) + "\n"),
-        readLine: () => new Promise((r) => {
-          if (received.length > 0) r(received.shift());
-          else pending.push(r);
-        }),
+        readLine: () =>
+          new Promise((r) => {
+            if (received.length > 0) r(received.shift());
+            else pending.push(r);
+          }),
         close: () => socket.destroy(),
       });
     });
@@ -103,7 +108,9 @@ async function startDaemon() {
   console.log(`\nStarting daemon: ${DAEMON_SCRIPT}`);
 
   if (!fs.existsSync(DAEMON_SCRIPT)) {
-    console.error(`\n  ERROR: ${DAEMON_SCRIPT} not found. Run 'pnpm build' first.\n`);
+    console.error(
+      `\n  ERROR: ${DAEMON_SCRIPT} not found. Run 'pnpm build' first.\n`,
+    );
     process.exit(1);
   }
 
@@ -160,7 +167,9 @@ function stopDaemon() {
 
 function cleanup() {
   stopDaemon();
-  try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+  try {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  } catch {}
 }
 
 // ── Tests ──
@@ -262,7 +271,9 @@ async function testSessionPersistence(socketPath) {
 
   // Clean up files
   await delay(500);
-  try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+  try {
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+  } catch {}
 
   return sessionId;
 }
@@ -294,9 +305,15 @@ async function testWarmRestore(socketPath) {
 
   c2.send({ type: "attach", sessionId });
   const attachResp = await c2.readLine();
-  assert(attachResp.type === "attached", "warm restore: attach succeeds after disconnect");
+  assert(
+    attachResp.type === "attached",
+    "warm restore: attach succeeds after disconnect",
+  );
   assert(attachResp.snapshot !== undefined, "warm restore: snapshot returned");
-  assert(attachResp.snapshot.cols === 80, "warm restore: snapshot has correct dimensions");
+  assert(
+    attachResp.snapshot.cols === 80,
+    "warm restore: snapshot has correct dimensions",
+  );
 
   // Clean up
   c2.send({ type: "kill", sessionId });
@@ -305,7 +322,10 @@ async function testWarmRestore(socketPath) {
 
   await delay(500);
   try {
-    fs.rmSync(path.join(sessionsDir, sessionId), { recursive: true, force: true });
+    fs.rmSync(path.join(sessionsDir, sessionId), {
+      recursive: true,
+      force: true,
+    });
   } catch {}
 }
 
@@ -344,7 +364,10 @@ async function testStreamSocket(socketPath) {
 
   assert(event !== null, "stream socket receives PTY output");
   if (event) {
-    assert(event.type === "data", `stream event type is 'data' (got ${event.type})`);
+    assert(
+      event.type === "data",
+      `stream event type is 'data' (got ${event.type})`,
+    );
     assert(event.sessionId === sessionId, "stream event has correct sessionId");
   }
 
@@ -356,7 +379,10 @@ async function testStreamSocket(socketPath) {
 
   await delay(500);
   try {
-    fs.rmSync(path.join(sessionsDir, sessionId), { recursive: true, force: true });
+    fs.rmSync(path.join(sessionsDir, sessionId), {
+      recursive: true,
+      force: true,
+    });
   } catch {}
 }
 

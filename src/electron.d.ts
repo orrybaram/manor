@@ -76,7 +76,12 @@ export interface RestoredSessionsInfo {
 
 export interface ElectronAPI {
   // PTY
-  ptyCreate: (paneId: string, cwd: string | null, cols: number, rows: number) => Promise<{ ok: boolean; snapshot?: string | null }>;
+  ptyCreate: (
+    paneId: string,
+    cwd: string | null,
+    cols: number,
+    rows: number,
+  ) => Promise<{ ok: boolean; snapshot?: string | null }>;
   ptyWrite: (paneId: string, data: string) => Promise<void>;
   ptyResize: (paneId: string, cols: number, rows: number) => Promise<void>;
   ptyClose: (paneId: string) => Promise<void>;
@@ -86,7 +91,10 @@ export interface ElectronAPI {
   onPtyOutput: (paneId: string, callback: (data: string) => void) => () => void;
   onPtyExit: (paneId: string, callback: () => void) => () => void;
   onPtyCwd: (paneId: string, callback: (cwd: string) => void) => () => void;
-  onPtyAgentStatus: (paneId: string, callback: (agent: AgentState) => void) => () => void;
+  onPtyAgentStatus: (
+    paneId: string,
+    callback: (agent: AgentState) => void,
+  ) => () => void;
 
   // Layout persistence
   saveLayout: (workspace: PersistedWorkspace) => Promise<void>;
@@ -97,23 +105,63 @@ export interface ElectronAPI {
   getProjects: () => Promise<import("./store/project-store").ProjectInfo[]>;
   getSelectedProjectIndex: () => Promise<number>;
   selectProject: (index: number) => Promise<void>;
-  addProject: (name: string, path: string) => Promise<import("./store/project-store").ProjectInfo>;
+  addProject: (
+    name: string,
+    path: string,
+  ) => Promise<import("./store/project-store").ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
-  removeWorktree: (projectId: string, worktreePath: string, deleteBranch?: boolean) => Promise<void>;
-  createWorktree: (projectId: string, name: string, branch?: string) => Promise<import("./store/project-store").ProjectInfo | null>;
-  renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
-  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
+  removeWorktree: (
+    projectId: string,
+    worktreePath: string,
+    deleteBranch?: boolean,
+  ) => Promise<void>;
+  createWorktree: (
+    projectId: string,
+    name: string,
+    branch?: string,
+  ) => Promise<import("./store/project-store").ProjectInfo | null>;
+  renameWorkspace: (
+    projectId: string,
+    workspacePath: string,
+    newName: string,
+  ) => Promise<void>;
+  reorderWorkspaces: (
+    projectId: string,
+    orderedPaths: string[],
+  ) => Promise<void>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: import("./store/project-store").ProjectUpdatableFields) => Promise<import("./store/project-store").ProjectInfo | null>;
+  updateProject: (
+    projectId: string,
+    updates: import("./store/project-store").ProjectUpdatableFields,
+  ) => Promise<import("./store/project-store").ProjectInfo | null>;
 
   // Theme
   getTheme: () => Promise<import("./store/theme-store").Theme>;
-  setSelectedTheme: (name: string) => Promise<import("./store/theme-store").Theme>;
+  setSelectedTheme: (
+    name: string,
+  ) => Promise<import("./store/theme-store").Theme>;
   getSelectedThemeName: () => Promise<string>;
   hasGhosttyConfig: () => Promise<boolean>;
-  previewTheme: (name: string) => Promise<import("./store/theme-store").Theme | null>;
-  getAllThemeColors: () => Promise<Record<string, Pick<import("./store/theme-store").Theme, "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "background" | "foreground">>>;
+  previewTheme: (
+    name: string,
+  ) => Promise<import("./store/theme-store").Theme | null>;
+  getAllThemeColors: () => Promise<
+    Record<
+      string,
+      Pick<
+        import("./store/theme-store").Theme,
+        | "red"
+        | "green"
+        | "yellow"
+        | "blue"
+        | "magenta"
+        | "cyan"
+        | "background"
+        | "foreground"
+      >
+    >
+  >;
 
   // Port Scanner
   startPortScanner: () => Promise<void>;
@@ -125,7 +173,9 @@ export interface ElectronAPI {
   // Branch Watcher
   startBranchWatcher: (paths: string[]) => Promise<void>;
   stopBranchWatcher: () => Promise<void>;
-  onBranchesChanged: (callback: (branches: Record<string, string>) => void) => () => void;
+  onBranchesChanged: (
+    callback: (branches: Record<string, string>) => void,
+  ) => () => void;
 
   // GitHub
   getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
@@ -137,7 +187,10 @@ export interface ElectronAPI {
   linearIsConnected: () => Promise<boolean>;
   linearGetViewer: () => Promise<{ name: string; email: string }>;
   linearGetTeams: () => Promise<LinearTeam[]>;
-  linearGetMyIssues: (teamIds: string[]) => Promise<LinearIssue[]>;
+  linearGetMyIssues: (
+    teamIds: string[],
+    options?: { stateTypes?: string[]; limit?: number },
+  ) => Promise<LinearIssue[]>;
   linearAutoMatch: () => Promise<Record<string, LinearAssociation>>;
 
   // Dialog

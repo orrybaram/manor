@@ -16,9 +16,12 @@ export function useTerminalConnection(paneId: string) {
     window.electronAPI.ptyResize(paneIdRef.current, cols, rows);
   }, []);
 
-  const create = useCallback((cwd: string | null, cols: number, rows: number) => {
-    return window.electronAPI.ptyCreate(paneIdRef.current, cwd, cols, rows);
-  }, []);
+  const create = useCallback(
+    (cwd: string | null, cols: number, rows: number) => {
+      return window.electronAPI.ptyCreate(paneIdRef.current, cwd, cols, rows);
+    },
+    [],
+  );
 
   /** Kill the PTY session in the daemon (user explicitly closed pane) */
   const close = useCallback(() => {

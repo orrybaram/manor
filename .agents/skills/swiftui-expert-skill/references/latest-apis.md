@@ -3,6 +3,7 @@
 > Based on a comparison of Apple's documentation using the Sosumi MCP, we found the latest recommended APIs to use.
 
 ## Table of Contents
+
 - [Always Use (iOS 15+)](#always-use-ios-15)
 - [When Targeting iOS 16+](#when-targeting-ios-16)
 - [When Targeting iOS 17+](#when-targeting-ios-17)
@@ -432,33 +433,33 @@ PhotoGrid(photos: photos)
 
 ## Quick Lookup Table
 
-| Deprecated | Recommended | Since |
-|-----------|-------------|-------|
-| `navigationBarTitle(_:)` | `navigationTitle(_:)` | iOS 15+ |
-| `navigationBarItems(...)` | `toolbar { ToolbarItem(...) }` | iOS 15+ |
-| `navigationBarHidden(_:)` | `toolbarVisibility(.hidden, for: .navigationBar)` | iOS 15+ |
-| `statusBar(hidden:)` | `statusBarHidden(_:)` | iOS 15+ |
-| `edgesIgnoringSafeArea(_:)` | `ignoresSafeArea(_:edges:)` | iOS 15+ |
-| `colorScheme(_:)` | `preferredColorScheme(_:)` | iOS 15+ |
-| `foregroundColor(_:)` | `foregroundStyle(_:)` | iOS 15+ |
-| `cornerRadius(_:)` | `clipShape(.rect(cornerRadius:))` | iOS 15+ |
-| `actionSheet(...)` | `confirmationDialog(...)` | iOS 15+ |
-| `alert(isPresented:content:)` | `alert(_:isPresented:actions:message:)` | iOS 15+ |
-| `autocapitalization(_:)` | `textInputAutocapitalization(_:)` | iOS 15+ |
-| `accessibility(label:)` etc. | `accessibilityLabel()` etc. | iOS 15+ |
-| `TextField` `onCommit`/`onEditingChanged` | `onSubmit` + `focused` | iOS 15+ |
-| `animation(_:)` (no value) | `animation(_:value:)` | Back-deploys (iOS 13+) |
-| Manual `EnvironmentKey` | `@Entry` macro | Back-deploys (Xcode 16+) |
-| `NavigationView` | `NavigationStack` / `NavigationSplitView` | iOS 16+ |
-| `accentColor(_:)` | `tint(_:)` | iOS 16+ |
-| `disableAutocorrection(_:)` | `autocorrectionDisabled(_:)` | iOS 16+ |
-| `UIPasteboard.general` | `PasteButton` | iOS 16+ |
-| `onChange(of:perform:)` | `onChange(of:) { }` or `onChange(of:) { old, new in }` | iOS 17+ |
-| `MagnificationGesture` | `MagnifyGesture` | iOS 17+ |
-| `RotationGesture` | `RotateGesture` | iOS 17+ |
-| `coordinateSpace(name:)` | `coordinateSpace(.named(...))` | iOS 17+ |
-| `ObservableObject` | `@Observable` | iOS 17+ |
-| `tabItem(_:)` | `Tab` API | iOS 18+ |
-| Manual `animatableData` | `@Animatable` macro | iOS 26+ |
-| `presentationBackground(_:)` on sheets | Default Liquid Glass sheet material | iOS 26+ |
-| Custom toolbar background hacks | `scrollEdgeEffectStyle(_:for:)` | iOS 26+ |
+| Deprecated                                | Recommended                                            | Since                    |
+| ----------------------------------------- | ------------------------------------------------------ | ------------------------ |
+| `navigationBarTitle(_:)`                  | `navigationTitle(_:)`                                  | iOS 15+                  |
+| `navigationBarItems(...)`                 | `toolbar { ToolbarItem(...) }`                         | iOS 15+                  |
+| `navigationBarHidden(_:)`                 | `toolbarVisibility(.hidden, for: .navigationBar)`      | iOS 15+                  |
+| `statusBar(hidden:)`                      | `statusBarHidden(_:)`                                  | iOS 15+                  |
+| `edgesIgnoringSafeArea(_:)`               | `ignoresSafeArea(_:edges:)`                            | iOS 15+                  |
+| `colorScheme(_:)`                         | `preferredColorScheme(_:)`                             | iOS 15+                  |
+| `foregroundColor(_:)`                     | `foregroundStyle(_:)`                                  | iOS 15+                  |
+| `cornerRadius(_:)`                        | `clipShape(.rect(cornerRadius:))`                      | iOS 15+                  |
+| `actionSheet(...)`                        | `confirmationDialog(...)`                              | iOS 15+                  |
+| `alert(isPresented:content:)`             | `alert(_:isPresented:actions:message:)`                | iOS 15+                  |
+| `autocapitalization(_:)`                  | `textInputAutocapitalization(_:)`                      | iOS 15+                  |
+| `accessibility(label:)` etc.              | `accessibilityLabel()` etc.                            | iOS 15+                  |
+| `TextField` `onCommit`/`onEditingChanged` | `onSubmit` + `focused`                                 | iOS 15+                  |
+| `animation(_:)` (no value)                | `animation(_:value:)`                                  | Back-deploys (iOS 13+)   |
+| Manual `EnvironmentKey`                   | `@Entry` macro                                         | Back-deploys (Xcode 16+) |
+| `NavigationView`                          | `NavigationStack` / `NavigationSplitView`              | iOS 16+                  |
+| `accentColor(_:)`                         | `tint(_:)`                                             | iOS 16+                  |
+| `disableAutocorrection(_:)`               | `autocorrectionDisabled(_:)`                           | iOS 16+                  |
+| `UIPasteboard.general`                    | `PasteButton`                                          | iOS 16+                  |
+| `onChange(of:perform:)`                   | `onChange(of:) { }` or `onChange(of:) { old, new in }` | iOS 17+                  |
+| `MagnificationGesture`                    | `MagnifyGesture`                                       | iOS 17+                  |
+| `RotationGesture`                         | `RotateGesture`                                        | iOS 17+                  |
+| `coordinateSpace(name:)`                  | `coordinateSpace(.named(...))`                         | iOS 17+                  |
+| `ObservableObject`                        | `@Observable`                                          | iOS 17+                  |
+| `tabItem(_:)`                             | `Tab` API                                              | iOS 18+                  |
+| Manual `animatableData`                   | `@Animatable` macro                                    | iOS 26+                  |
+| `presentationBackground(_:)` on sheets    | Default Liquid Glass sheet material                    | iOS 26+                  |
+| Custom toolbar background hacks           | `scrollEdgeEffectStyle(_:for:)`                        | iOS 26+                  |

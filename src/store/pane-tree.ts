@@ -23,7 +23,7 @@ export function insertSplit(
   node: PaneNode,
   targetPaneId: string,
   direction: SplitDirection,
-  newPaneId: string
+  newPaneId: string,
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === targetPaneId) {
@@ -47,7 +47,7 @@ export function insertSplit(
 /** Remove a pane, collapsing its parent split. Returns null if tree is empty. */
 export function removePane(
   node: PaneNode,
-  targetPaneId: string
+  targetPaneId: string,
 ): PaneNode | null {
   if (node.type === "leaf") {
     return node.paneId === targetPaneId ? null : node;
@@ -64,17 +64,14 @@ export function removePane(
 export function updateRatio(
   node: PaneNode,
   splitFirstPaneId: string,
-  ratio: number
+  ratio: number,
 ): PaneNode {
   if (node.type === "leaf") return node;
   // Check if the first child's leftmost pane matches
   const firstIds = allPaneIds(node.first);
   if (firstIds.includes(splitFirstPaneId)) {
     // If this split directly contains the target as first child
-    if (
-      node.first.type === "leaf" &&
-      node.first.paneId === splitFirstPaneId
-    ) {
+    if (node.first.type === "leaf" && node.first.paneId === splitFirstPaneId) {
       return { ...node, ratio };
     }
   }
@@ -88,7 +85,7 @@ export function updateRatio(
 /** Find the next pane id after the given one (for focus cycling). */
 export function nextPaneId(
   node: PaneNode,
-  currentPaneId: string
+  currentPaneId: string,
 ): string | null {
   const ids = allPaneIds(node);
   const idx = ids.indexOf(currentPaneId);
@@ -99,7 +96,7 @@ export function nextPaneId(
 /** Find the previous pane id before the given one (for focus cycling). */
 export function prevPaneId(
   node: PaneNode,
-  currentPaneId: string
+  currentPaneId: string,
 ): string | null {
   const ids = allPaneIds(node);
   const idx = ids.indexOf(currentPaneId);

@@ -5,12 +5,10 @@
  * This is the core logic used by the daemon's socket server.
  */
 
-import * as path from "node:path";
-import * as os from "node:os";
 import type net from "node:net";
 import { Session } from "./session";
 import { SESSIONS_DIR } from "./scrollback";
-import type { SessionInfo, TerminalSnapshot, StreamEvent } from "./types";
+import type { SessionInfo, TerminalSnapshot } from "./types";
 
 export class TerminalHost {
   private sessions = new Map<string, Session>();
@@ -39,7 +37,10 @@ export class TerminalHost {
   }
 
   /** Attach a stream socket to a session (for receiving output) */
-  async attach(sessionId: string, socket: net.Socket): Promise<TerminalSnapshot | null> {
+  async attach(
+    sessionId: string,
+    socket: net.Socket,
+  ): Promise<TerminalSnapshot | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     session.attachClient(socket);

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useAppStore } from "./app-store";
+import { useToastStore } from "./toast-store";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
@@ -12,7 +13,9 @@ function loadSidebarWidth(): number {
       const width = Number(raw);
       if (Number.isFinite(width) && width >= 160 && width <= 400) return width;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
@@ -20,7 +23,9 @@ function loadCollapsedIds(): Set<string> {
   try {
     const raw = localStorage.getItem(COLLAPSED_KEY);
     if (raw) return new Set(JSON.parse(raw));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return new Set();
 }
 
@@ -55,7 +60,17 @@ export interface ProjectInfo {
   linearAssociations: LinearAssociation[];
 }
 
-export type ProjectUpdatableFields = Partial<Pick<ProjectInfo, "name" | "defaultRunCommand" | "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript" | "linearAssociations">>;
+export type ProjectUpdatableFields = Partial<
+  Pick<
+    ProjectInfo,
+    | "name"
+    | "defaultRunCommand"
+    | "worktreePath"
+    | "worktreeStartScript"
+    | "worktreeTeardownScript"
+    | "linearAssociations"
+  >
+>;
 
 interface ProjectState {
   projects: ProjectInfo[];
@@ -72,12 +87,30 @@ interface ProjectState {
   removeProject: (projectId: string) => Promise<void>;
   selectProject: (index: number) => void;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
-  createWorktree: (projectId: string, name: string, branch?: string) => Promise<string | null>;
-  removeWorktree: (projectId: string, worktreePath: string, deleteBranch?: boolean) => Promise<void>;
-  renameWorkspace: (projectId: string, workspacePath: string, newName: string) => Promise<void>;
+  createWorktree: (
+    projectId: string,
+    name: string,
+    branch?: string,
+  ) => Promise<string | null>;
+  removeWorktree: (
+    projectId: string,
+    worktreePath: string,
+    deleteBranch?: boolean,
+  ) => Promise<void>;
+  renameWorkspace: (
+    projectId: string,
+    workspacePath: string,
+    newName: string,
+  ) => Promise<void>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
-  reorderWorkspaces: (projectId: string, orderedPaths: string[]) => Promise<void>;
-  updateProject: (projectId: string, updates: ProjectUpdatableFields) => Promise<void>;
+  reorderWorkspaces: (
+    projectId: string,
+    orderedPaths: string[],
+  ) => Promise<void>;
+  updateProject: (
+    projectId: string,
+    updates: ProjectUpdatableFields,
+  ) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -128,7 +161,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projects,
         selectedProjectIndex: Math.min(
           s.selectedProjectIndex,
-          Math.max(0, projects.length - 1)
+          Math.max(0, projects.length - 1),
         ),
       };
     });
@@ -143,17 +176,39 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     window.electronAPI.selectWorkspace(projectId, workspaceIndex);
     const projectIndex = get().projects.findIndex((p) => p.id === projectId);
     set((s) => ({
-      selectedProjectIndex: projectIndex >= 0 ? projectIndex : s.selectedProjectIndex,
+      selectedProjectIndex:
+        projectIndex >= 0 ? projectIndex : s.selectedProjectIndex,
       projects: s.projects.map((p) =>
         p.id === projectId
           ? { ...p, selectedWorkspaceIndex: workspaceIndex }
-          : p
+          : p,
       ),
     }));
   },
 
   createWorktree: async (projectId: string, name: string, branch?: string) => {
-    const updated = await window.electronAPI.createWorktree(projectId, name, branch);
+    let updated;
+    try {
+      updated = await window.electronAPI.createWorktree(
+        projectId,
+        name,
+        branch,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Strip the verbose "Error invoking remote method" prefix
+      const detail = message.replace(
+        /^Error invoking remote method '[^']+': Error:\s*/i,
+        "",
+      );
+      useToastStore.getState().addToast({
+        id: `worktree-error-${Date.now()}`,
+        message: "Failed to create workspace",
+        status: "error",
+        detail,
+      });
+      return null;
+    }
     if (!updated) return null;
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
@@ -161,7 +216,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Find the new workspace by name or branch.
     const branchName = branch || name;
     const newWs = updated.workspaces.find(
-      (ws) => !ws.isMain && (ws.name === name || ws.branch === branchName)
+      (ws) => !ws.isMain && (ws.name === name || ws.branch === branchName),
     );
     const wsPath = newWs?.path ?? null;
     if (wsPath) {
@@ -169,15 +224,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
       if (updated.worktreeStartScript) {
-        useAppStore.getState().setPendingStartupCommand(wsPath, updated.worktreeStartScript);
+        useAppStore
+          .getState()
+          .setPendingStartupCommand(wsPath, updated.worktreeStartScript);
       }
       useAppStore.getState().setActiveWorkspace(wsPath);
     }
     return wsPath;
   },
 
-  removeWorktree: async (projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-    await window.electronAPI.removeWorktree(projectId, worktreePath, deleteBranch);
+  removeWorktree: async (
+    projectId: string,
+    worktreePath: string,
+    deleteBranch?: boolean,
+  ) => {
+    await window.electronAPI.removeWorktree(
+      projectId,
+      worktreePath,
+      deleteBranch,
+    );
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.getProjects();
     set({ projects });
@@ -196,7 +261,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (!orderedSet.has(p.id)) reordered.push(p);
       }
       const newSelectedIndex = selectedId
-        ? Math.max(0, reordered.findIndex((p) => p.id === selectedId))
+        ? Math.max(
+            0,
+            reordered.findIndex((p) => p.id === selectedId),
+          )
         : s.selectedProjectIndex;
       return { projects: reordered, selectedProjectIndex: newSelectedIndex };
     });
@@ -221,7 +289,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  renameWorkspace: async (projectId: string, workspacePath: string, newName: string) => {
+  renameWorkspace: async (
+    projectId: string,
+    workspacePath: string,
+    newName: string,
+  ) => {
     await window.electronAPI.renameWorkspace(projectId, workspacePath, newName);
     set((s) => ({
       projects: s.projects.map((p) =>
@@ -231,10 +303,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               workspaces: p.workspaces.map((ws) =>
                 ws.path === workspacePath
                   ? { ...ws, name: newName.trim() || null }
-                  : ws
+                  : ws,
               ),
             }
-          : p
+          : p,
       ),
     }));
   },
@@ -248,17 +320,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  updateWorkspaceBranch: (workspacePath: string, branch: string) => set((s) => ({
-    projects: s.projects.map((p) => {
-      const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
-      if (wsIdx === -1) return p;
-      const ws = p.workspaces[wsIdx];
-      if (ws.branch === branch) return p;
-      const workspaces = [...p.workspaces];
-      workspaces[wsIdx] = { ...ws, branch };
-      return { ...p, workspaces };
-    }),
-  })),
+  updateWorkspaceBranch: (workspacePath: string, branch: string) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
+        if (wsIdx === -1) return p;
+        const ws = p.workspaces[wsIdx];
+        if (ws.branch === branch) return p;
+        const workspaces = [...p.workspaces];
+        workspaces[wsIdx] = { ...ws, branch };
+        return { ...p, workspaces };
+      }),
+    })),
 
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
 
@@ -267,19 +340,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ sidebarWidth: width });
   },
 
-  toggleProjectCollapsed: (projectId: string) => set((s) => {
-    const next = new Set(s.collapsedProjectIds);
-    if (next.has(projectId)) next.delete(projectId);
-    else next.add(projectId);
-    saveCollapsedIds(next);
-    return { collapsedProjectIds: next };
-  }),
+  toggleProjectCollapsed: (projectId: string) =>
+    set((s) => {
+      const next = new Set(s.collapsedProjectIds);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      saveCollapsedIds(next);
+      return { collapsedProjectIds: next };
+    }),
 
-  setProjectExpanded: (projectId: string) => set((s) => {
-    if (!s.collapsedProjectIds.has(projectId)) return s;
-    const next = new Set(s.collapsedProjectIds);
-    next.delete(projectId);
-    saveCollapsedIds(next);
-    return { collapsedProjectIds: next };
-  }),
+  setProjectExpanded: (projectId: string) =>
+    set((s) => {
+      if (!s.collapsedProjectIds.has(projectId)) return s;
+      const next = new Set(s.collapsedProjectIds);
+      next.delete(projectId);
+      saveCollapsedIds(next);
+      return { collapsedProjectIds: next };
+    }),
 }));

@@ -11,7 +11,13 @@ interface SplitLayoutProps {
   workspacePath?: string;
 }
 
-export function SplitLayout({ direction, ratio, first, second, workspacePath }: SplitLayoutProps) {
+export function SplitLayout({
+  direction,
+  ratio,
+  first,
+  second,
+  workspacePath,
+}: SplitLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
   const [isDragging, setIsDragging] = useState(false);
@@ -47,7 +53,7 @@ export function SplitLayout({ direction, ratio, first, second, workspacePath }: 
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [isHorizontal]
+    [isHorizontal],
   );
 
   const firstSize = `${currentRatio * 100}%`;
@@ -58,14 +64,20 @@ export function SplitLayout({ direction, ratio, first, second, workspacePath }: 
       ref={containerRef}
       className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
     >
-      <div className={styles.splitChild} style={isHorizontal ? { width: firstSize } : { height: firstSize }}>
+      <div
+        className={styles.splitChild}
+        style={isHorizontal ? { width: firstSize } : { height: firstSize }}
+      >
         <PaneLayout node={first} workspacePath={workspacePath} />
       </div>
       <div
         className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
         onMouseDown={handleMouseDown}
       />
-      <div className={styles.splitChild} style={isHorizontal ? { width: secondSize } : { height: secondSize }}>
+      <div
+        className={styles.splitChild}
+        style={isHorizontal ? { width: secondSize } : { height: secondSize }}
+      >
         <PaneLayout node={second} workspacePath={workspacePath} />
       </div>
     </div>

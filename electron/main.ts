@@ -1,9 +1,20 @@
-import { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  dialog,
+  shell,
+  screen,
+} from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
-import { LayoutPersistence, type PersistedWorkspace, type PersistedLayout } from "./terminal-host/layout-persistence";
+import {
+  LayoutPersistence,
+  type PersistedWorkspace,
+} from "./terminal-host/layout-persistence";
 import { ScrollbackWriter } from "./terminal-host/scrollback";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
@@ -25,9 +36,10 @@ interface WindowBounds {
 }
 
 function windowBoundsPath(): string {
-  const dataDir = process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Application Support", "Manor")
-    : path.join(os.homedir(), ".local", "share", "Manor");
+  const dataDir =
+    process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Application Support", "Manor")
+      : path.join(os.homedir(), ".local", "share", "Manor");
   return path.join(dataDir, "window-bounds.json");
 }
 
@@ -49,7 +61,9 @@ function saveWindowBounds(win: BrowserWindow): void {
     const boundsPath = windowBoundsPath();
     fs.mkdirSync(path.dirname(boundsPath), { recursive: true });
     fs.writeFileSync(boundsPath, JSON.stringify(bounds));
-  } catch { /* ignore write errors */ }
+  } catch {
+    /* ignore write errors */
+  }
 }
 
 function boundsAreVisible(bounds: WindowBounds): boolean {
@@ -127,11 +141,19 @@ ShellManager.setupZdotdir();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    mainWindow.webContents.isDestroyed()
+  )
+    return;
   try {
     switch (event.type) {
       case "data":
-        mainWindow.webContents.send(`pty-output-${event.sessionId}`, event.data);
+        mainWindow.webContents.send(
+          `pty-output-${event.sessionId}`,
+          event.data,
+        );
         break;
       case "exit":
         mainWindow.webContents.send(`pty-exit-${event.sessionId}`);
@@ -140,10 +162,16 @@ client.onEvent((event: StreamEvent) => {
         mainWindow.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
         break;
       case "error":
-        mainWindow.webContents.send(`pty-error-${event.sessionId}`, event.message);
+        mainWindow.webContents.send(
+          `pty-error-${event.sessionId}`,
+          event.message,
+        );
         break;
       case "agentStatus":
-        mainWindow.webContents.send(`pty-agent-status-${event.sessionId}`, event.agent);
+        mainWindow.webContents.send(
+          `pty-agent-status-${event.sessionId}`,
+          event.agent,
+        );
         break;
     }
   } catch {
@@ -154,32 +182,52 @@ client.onEvent((event: StreamEvent) => {
 // ── Register all IPC handlers before window creation to avoid race conditions ──
 
 // ── PTY IPC (via daemon) ──
-ipcMain.handle("pty:create", async (_event, paneId: string, cwd: string | null, cols: number, rows: number) => {
-  try {
-    const result = await client.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
-    // Return snapshot to the renderer so it can write it exactly once,
-    // avoiding duplicate writes from StrictMode double-mounting.
-    return {
-      ok: true,
-      snapshot: result.snapshot?.screenAnsi || null,
-    };
-  } catch (err) {
-    console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-});
+ipcMain.handle(
+  "pty:create",
+  async (
+    _event,
+    paneId: string,
+    cwd: string | null,
+    cols: number,
+    rows: number,
+  ) => {
+    try {
+      const result = await client.createOrAttach(
+        paneId,
+        cwd || process.env.HOME || "/",
+        cols,
+        rows,
+      );
+      // Return snapshot to the renderer so it can write it exactly once,
+      // avoiding duplicate writes from StrictMode double-mounting.
+      return {
+        ok: true,
+        snapshot: result.snapshot?.screenAnsi || null,
+      };
+    } catch (err) {
+      console.error(`Failed to create/attach PTY for ${paneId}:`, err);
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+);
 
 ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
   client.writeNoAck(paneId, data);
 });
 
-ipcMain.handle("pty:resize", async (_event, paneId: string, cols: number, rows: number) => {
-  try {
-    await client.resize(paneId, cols, rows);
-  } catch {
-    // ignore resize errors
-  }
-});
+ipcMain.handle(
+  "pty:resize",
+  async (_event, paneId: string, cols: number, rows: number) => {
+    try {
+      await client.resize(paneId, cols, rows);
+    } catch {
+      // ignore resize errors
+    }
+  },
+);
 
 ipcMain.handle("pty:close", async (_event, paneId: string) => {
   try {
@@ -246,33 +294,55 @@ ipcMain.handle("projects:remove", (_event, projectId: string) => {
   projectManager.removeProject(projectId);
 });
 
-ipcMain.handle("projects:selectWorkspace", (_event, projectId: string, workspaceIndex: number) => {
-  projectManager.selectWorkspace(projectId, workspaceIndex);
-});
+ipcMain.handle(
+  "projects:selectWorkspace",
+  (_event, projectId: string, workspaceIndex: number) => {
+    projectManager.selectWorkspace(projectId, workspaceIndex);
+  },
+);
 
-ipcMain.handle("projects:removeWorktree", (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-  return projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
-});
+ipcMain.handle(
+  "projects:removeWorktree",
+  (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+    return projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
+  },
+);
 
-ipcMain.handle("projects:createWorktree", (_event, projectId: string, name: string, branch?: string) => {
-  return projectManager.createWorktree(projectId, name, branch);
-});
+ipcMain.handle(
+  "projects:createWorktree",
+  (_event, projectId: string, name: string, branch?: string) => {
+    return projectManager.createWorktree(projectId, name, branch);
+  },
+);
 
-ipcMain.handle("projects:renameWorkspace", (_event, projectId: string, workspacePath: string, newName: string) => {
-  projectManager.renameWorkspace(projectId, workspacePath, newName);
-});
+ipcMain.handle(
+  "projects:renameWorkspace",
+  (_event, projectId: string, workspacePath: string, newName: string) => {
+    projectManager.renameWorkspace(projectId, workspacePath, newName);
+  },
+);
 
-ipcMain.handle("projects:reorderWorkspaces", (_event, projectId: string, orderedPaths: string[]) => {
-  projectManager.reorderWorkspaces(projectId, orderedPaths);
-});
+ipcMain.handle(
+  "projects:reorderWorkspaces",
+  (_event, projectId: string, orderedPaths: string[]) => {
+    projectManager.reorderWorkspaces(projectId, orderedPaths);
+  },
+);
 
 ipcMain.handle("projects:reorder", (_event, orderedIds: string[]) => {
   projectManager.reorderProjects(orderedIds);
 });
 
-ipcMain.handle("projects:update", (_event, projectId: string, updates: import("./persistence").ProjectUpdatableFields) => {
-  return projectManager.updateProject(projectId, updates);
-});
+ipcMain.handle(
+  "projects:update",
+  (
+    _event,
+    projectId: string,
+    updates: import("./persistence").ProjectUpdatableFields,
+  ) => {
+    return projectManager.updateProject(projectId, updates);
+  },
+);
 
 // ── Theme IPC ──
 ipcMain.handle("theme:get", () => {
@@ -329,13 +399,19 @@ ipcMain.handle("branches:stop", () => {
 });
 
 // ── GitHub IPC ──
-ipcMain.handle("github:getPrForBranch", (_event, repoPath: string, branch: string) => {
-  return githubManager.getPrForBranch(repoPath, branch);
-});
+ipcMain.handle(
+  "github:getPrForBranch",
+  (_event, repoPath: string, branch: string) => {
+    return githubManager.getPrForBranch(repoPath, branch);
+  },
+);
 
-ipcMain.handle("github:getPrsForBranches", (_event, repoPath: string, branches: string[]) => {
-  return githubManager.getPrsForBranches(repoPath, branches);
-});
+ipcMain.handle(
+  "github:getPrsForBranches",
+  (_event, repoPath: string, branches: string[]) => {
+    return githubManager.getPrsForBranches(repoPath, branches);
+  },
+);
 
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
@@ -365,22 +441,31 @@ ipcMain.handle("linear:getTeams", async () => {
   return linearManager.getTeams();
 });
 
-ipcMain.handle("linear:getMyIssues", async (_event, teamIds: string[]) => {
-  return linearManager.getMyIssues(teamIds);
-});
+ipcMain.handle(
+  "linear:getMyIssues",
+  async (
+    _event,
+    teamIds: string[],
+    options?: { stateTypes?: string[]; limit?: number },
+  ) => {
+    return linearManager.getMyIssues(teamIds, options);
+  },
+);
 
 ipcMain.handle("linear:autoMatch", async () => {
   const projects = projectManager.getProjects();
   const teams = await linearManager.getTeams();
   const matches = linearManager.autoMatchProjects(
     projects.map((p) => ({ id: p.id, name: p.name })),
-    teams
+    teams,
   );
   // Apply matches to projects without existing associations
   for (const [projectId, association] of Object.entries(matches)) {
     const project = projects.find((p) => p.id === projectId);
     if (project && project.linearAssociations.length === 0) {
-      projectManager.updateProject(projectId, { linearAssociations: [association] });
+      projectManager.updateProject(projectId, {
+        linearAssociations: [association],
+      });
     }
   }
   return matches;

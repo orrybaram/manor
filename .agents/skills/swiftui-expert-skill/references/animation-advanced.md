@@ -3,6 +3,7 @@
 Transactions, phase animations (iOS 17+), keyframe animations (iOS 17+), completion handlers (iOS 17+), and `@Animatable` macro (iOS 26+).
 
 ## Table of Contents
+
 - [Transactions](#transactions)
 - [Phase Animations (iOS 17+)](#phase-animations-ios-17)
 - [Keyframe Animations (iOS 17+)](#keyframe-animations-ios-17)
@@ -211,12 +212,12 @@ struct AnimationValues {
 
 ### Keyframe Types
 
-| Type | Behavior |
-|------|----------|
-| `CubicKeyframe` | Smooth interpolation |
-| `LinearKeyframe` | Straight-line interpolation |
-| `SpringKeyframe` | Spring physics |
-| `MoveKeyframe` | Instant jump (no interpolation) |
+| Type             | Behavior                        |
+| ---------------- | ------------------------------- |
+| `CubicKeyframe`  | Smooth interpolation            |
+| `LinearKeyframe` | Straight-line interpolation     |
+| `SpringKeyframe` | Spring physics                  |
+| `MoveKeyframe`   | Instant jump (no interpolation) |
 
 ### Multiple Synchronized Tracks
 
@@ -361,6 +362,7 @@ struct Wedge: Shape {
 ```
 
 ### When to Use
+
 - **Prefer `@Animatable`** for any custom `Shape`, `AnimatableModifier`, or type conforming to `Animatable` with multiple properties
 - **Use `@AnimatableIgnored`** for properties that control behavior but should not interpolate (e.g., directions, flags, identifiers)
 - The macro works with any type conforming to `Animatable`, not just `Shape`
@@ -372,32 +374,38 @@ struct Wedge: Shape {
 ## Quick Reference
 
 ### Transactions (All iOS versions)
+
 - `withTransaction` is the explicit form of `withAnimation`
 - Implicit animations override explicit (later in view tree wins)
 - Use `disablesAnimations` to prevent override
 - Use `.transaction { $0.animation = nil }` to remove animation
 
 ### Custom Transaction Keys (iOS 17+)
+
 - Pass metadata through animation system via `TransactionKey`
 
 ### Phase Animations (iOS 17+)
+
 - Use for multi-step sequences returning to start
 - Prefer enum phases for clarity
 - Each phase change is a separate animation
 - Use `trigger` parameter for one-shot animations
 
 ### Keyframe Animations (iOS 17+)
+
 - Use for precise timing control
 - Tracks run in parallel
 - Use `KeyframeTimeline` for testing/advanced use
 - Prefer over manual DispatchQueue timing
 
 ### Completion Handlers (iOS 17+)
+
 - Use `withAnimation(.animation) { } completion: { }` for one-shot completion handlers
 - Use `.transaction(value:)` for handlers that should refire on every value change
 - Without `value:` parameter, completion only fires once
 
 ### @Animatable Macro (iOS 26+)
+
 - Use `@Animatable` to auto-synthesize `animatableData` from stored properties
 - Use `@AnimatableIgnored` to exclude non-animatable properties
 - Replaces verbose manual `animatableData` getters/setters

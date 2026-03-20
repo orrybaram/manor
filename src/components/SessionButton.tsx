@@ -8,7 +8,7 @@ import styles from "./TabBar.module.css";
 
 function useSessionTitle(sessionId: string): string {
   const session = useAppStore((s) =>
-    selectActiveWorkspace(s)?.sessions.find((t) => t.id === sessionId)
+    selectActiveWorkspace(s)?.sessions.find((t) => t.id === sessionId),
   );
   const paneCwd = useAppStore((s) => s.paneCwd);
   const paneTitle = useAppStore((s) => s.paneTitle);

@@ -151,7 +151,7 @@ enum Route: Hashable {
 ```swift
 struct ContentView: View {
     @State private var navigationPath = NavigationPath()
-    
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             List {
@@ -237,13 +237,13 @@ struct ContentView: View {
 
 ### Platform Behavior
 
-| Platform | Behavior |
-|----------|----------|
-| **macOS** | Columns always visible side-by-side; sidebar has translucent material; variable-width column resizing by dragging |
-| **iPadOS (regular)** | Sidebar can overlay or push detail; supports column visibility toggle via toolbar button |
+| Platform                   | Behavior                                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **macOS**                  | Columns always visible side-by-side; sidebar has translucent material; variable-width column resizing by dragging        |
+| **iPadOS (regular)**       | Sidebar can overlay or push detail; supports column visibility toggle via toolbar button                                 |
 | **iOS / iPadOS (compact)** | Collapses into a single `NavigationStack`; sidebar items show disclosure chevrons; back button navigates between columns |
-| **iPhone (all sizes)** | Always collapsed into a stack; sidebar appears as the root list; selections push detail onto the stack |
-| **watchOS / tvOS** | Collapses into a single stack |
+| **iPhone (all sizes)**     | Always collapsed into a stack; sidebar appears as the root list; selections push detail onto the stack                   |
+| **watchOS / tvOS**         | Collapses into a single stack                                                                                            |
 
 ## Inspector
 
@@ -299,12 +299,12 @@ MyEditorView()
 
 ### Platform Behavior
 
-| Platform | Behavior |
-|----------|----------|
-| **macOS** | Trailing-edge sidebar panel; resizable by dragging edge; integrates with window toolbar |
-| **iPadOS (regular)** | Trailing column alongside content; toggleable via toolbar button |
-| **iOS / iPadOS (compact)** | Adapts to a sheet presentation; swipe-to-dismiss supported |
-| **iPhone (all sizes)** | Always presented as a sheet (no trailing column); dismiss via swipe or button |
+| Platform                   | Behavior                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| **macOS**                  | Trailing-edge sidebar panel; resizable by dragging edge; integrates with window toolbar |
+| **iPadOS (regular)**       | Trailing column alongside content; toggleable via toolbar button                        |
+| **iOS / iPadOS (compact)** | Adapts to a sheet presentation; swipe-to-dismiss supported                              |
+| **iPhone (all sizes)**     | Always presented as a sheet (no trailing column); dismiss via swipe or button           |
 
 > **Tip:** Use `InspectorCommands` in your app's `.commands` to include the default inspector toggle keyboard shortcut.
 
@@ -315,7 +315,7 @@ MyEditorView()
 ```swift
 struct ContentView: View {
     @State private var showFullScreen = false
-    
+
     var body: some View {
         Button("Show Full Screen") {
             showFullScreen = true
@@ -332,7 +332,7 @@ struct ContentView: View {
 ```swift
 struct ContentView: View {
     @State private var showPopover = false
-    
+
     var body: some View {
         Button("Show Popover") {
             showPopover = true

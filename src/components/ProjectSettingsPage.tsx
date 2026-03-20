@@ -9,7 +9,11 @@ const scriptFields: Array<{
   label: string;
   placeholder: string;
 }> = [
-  { field: "defaultRunCommand", label: "Default Run Command", placeholder: "e.g. npm run dev" },
+  {
+    field: "defaultRunCommand",
+    label: "Default Run Command",
+    placeholder: "e.g. npm run dev",
+  },
 ];
 
 const worktreeScriptFields: Array<{
@@ -17,14 +21,22 @@ const worktreeScriptFields: Array<{
   label: string;
   placeholder: string;
 }> = [
-  { field: "worktreeStartScript", label: "Start Script", placeholder: "Runs in the terminal when a new worktree is created" },
-  { field: "worktreeTeardownScript", label: "Teardown Script", placeholder: "Runs before a worktree is deleted" },
+  {
+    field: "worktreeStartScript",
+    label: "Start Script",
+    placeholder: "Runs in the terminal when a new worktree is created",
+  },
+  {
+    field: "worktreeTeardownScript",
+    label: "Teardown Script",
+    placeholder: "Runs before a worktree is deleted",
+  },
 ];
 
 function defaultWorktreePath(projectName: string): string {
   const slug = projectName
     .toLowerCase()
-    .replace(/[^a-z0-9\s\-]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/[\s_]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
@@ -38,7 +50,14 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const handleBlur = useCallback(
-    (field: "name" | "worktreePath" | "defaultRunCommand" | "worktreeStartScript" | "worktreeTeardownScript") => {
+    (
+      field:
+        | "name"
+        | "worktreePath"
+        | "defaultRunCommand"
+        | "worktreeStartScript"
+        | "worktreeTeardownScript",
+    ) => {
       if (field === "name") {
         const el = nameRef.current;
         if (!el) return;
@@ -62,7 +81,7 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         }
       }
     },
-    [project, updateProject]
+    [project, updateProject],
   );
 
   return (
@@ -93,13 +112,16 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           placeholder={defaultWorktreePath(project.name)}
         />
         <div className={styles.fieldHint}>
-          Directory where new worktrees are created. Defaults to {defaultWorktreePath(project.name)}
+          Directory where new worktrees are created. Defaults to{" "}
+          {defaultWorktreePath(project.name)}
         </div>
         {worktreeScriptFields.map(({ field, label, placeholder }) => (
           <div key={field}>
             <label className={styles.fieldLabel}>{label}</label>
             <textarea
-              ref={(el) => { fieldRefs.current[field] = el; }}
+              ref={(el) => {
+                fieldRefs.current[field] = el;
+              }}
               className={`${styles.fieldInput} ${styles.fieldTextarea}`}
               defaultValue={project[field] ?? ""}
               onBlur={() => handleBlur(field)}
@@ -116,7 +138,9 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           <div key={field}>
             <label className={styles.fieldLabel}>{label}</label>
             <textarea
-              ref={(el) => { fieldRefs.current[field] = el; }}
+              ref={(el) => {
+                fieldRefs.current[field] = el;
+              }}
               className={`${styles.fieldInput} ${styles.fieldTextarea}`}
               defaultValue={project[field] ?? ""}
               onBlur={() => handleBlur(field)}
@@ -134,7 +158,9 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
 
 function LinearProjectSection({ project }: { project: ProjectInfo }) {
   const [connected, setConnected] = useState(false);
-  const [teams, setTeams] = useState<Array<{ id: string; name: string; key: string }>>([]);
+  const [teams, setTeams] = useState<
+    Array<{ id: string; name: string; key: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const updateProject = useProjectStore((s) => s.updateProject);
@@ -156,20 +182,28 @@ function LinearProjectSection({ project }: { project: ProjectInfo }) {
     });
   }, []);
 
-  const handleToggleTeam = (team: { id: string; name: string; key: string }) => {
+  const handleToggleTeam = (team: {
+    id: string;
+    name: string;
+    key: string;
+  }) => {
     const current = project.linearAssociations;
     const exists = current.some((a) => a.teamId === team.id);
     const next = exists
       ? current.filter((a) => a.teamId !== team.id)
-      : [...current, { teamId: team.id, teamName: team.name, teamKey: team.key }];
+      : [
+          ...current,
+          { teamId: team.id, teamName: team.name, teamKey: team.key },
+        ];
     updateProject(project.id, { linearAssociations: next });
   };
 
   if (loading) return null;
 
-  const label = selectedIds.size === 0
-    ? "Select teams..."
-    : project.linearAssociations.map((a) => a.teamKey).join(", ");
+  const label =
+    selectedIds.size === 0
+      ? "Select teams..."
+      : project.linearAssociations.map((a) => a.teamKey).join(", ");
 
   return (
     <div className={styles.settingsGroup}>
@@ -189,7 +223,11 @@ function LinearProjectSection({ project }: { project: ProjectInfo }) {
               </button>
             </Popover.Trigger>
             <Popover.Portal>
-              <Popover.Content className={styles.multiSelectContent} sideOffset={4} align="start">
+              <Popover.Content
+                className={styles.multiSelectContent}
+                sideOffset={4}
+                align="start"
+              >
                 {teams.map((team) => {
                   const isSelected = selectedIds.has(team.id);
                   return (
@@ -201,7 +239,9 @@ function LinearProjectSection({ project }: { project: ProjectInfo }) {
                       <span className={styles.multiSelectCheck}>
                         {isSelected && <Check size={13} />}
                       </span>
-                      <span>{team.key} — {team.name}</span>
+                      <span>
+                        {team.key} — {team.name}
+                      </span>
                     </button>
                   );
                 })}

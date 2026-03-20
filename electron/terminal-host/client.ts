@@ -72,7 +72,9 @@ export class TerminalHostClient {
     const token = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
     const authResp = await this.request({ type: "auth", token });
     if (authResp.type !== "authOk") {
-      throw new Error(`Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`);
+      throw new Error(
+        `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
+      );
     }
 
     // Connect stream socket
@@ -111,7 +113,10 @@ export class TerminalHostClient {
       // Check if the daemon already has this session (warm restore).
       // Use getSnapshot instead of attach to avoid adding the control socket
       // to the session's broadcast list (which would corrupt the control protocol).
-      const snapshotResp = await this.request({ type: "getSnapshot", sessionId });
+      const snapshotResp = await this.request({
+        type: "getSnapshot",
+        sessionId,
+      });
       if (snapshotResp.type === "snapshot") {
         // Session exists — resize to match new terminal dimensions before subscribing,
         // so we don't receive a SIGWINCH-triggered prompt redraw as a stream event.
@@ -125,9 +130,18 @@ export class TerminalHostClient {
       }
 
       // Create new session
-      const createResp = await this.request({ type: "create", sessionId, cwd, cols, rows, shellArgs });
+      const createResp = await this.request({
+        type: "create",
+        sessionId,
+        cwd,
+        cols,
+        rows,
+        shellArgs,
+      });
       if (createResp.type !== "created") {
-        throw new Error(`Create failed: ${createResp.type === "error" ? createResp.message : "unknown"}`);
+        throw new Error(
+          `Create failed: ${createResp.type === "error" ? createResp.message : "unknown"}`,
+        );
       }
 
       // Subscribe for stream events immediately (no control socket attach needed)
@@ -137,7 +151,14 @@ export class TerminalHostClient {
     } catch (err) {
       // If the connection broke mid-request, reconnect and retry once
       if (canRetry && !this.connected) {
-        return this.doCreateOrAttach(sessionId, cwd, cols, rows, shellArgs, false);
+        return this.doCreateOrAttach(
+          sessionId,
+          cwd,
+          cols,
+          rows,
+          shellArgs,
+          false,
+        );
       }
       throw err;
     }
@@ -248,7 +269,9 @@ export class TerminalHostClient {
       }
       await new Promise((r) => setTimeout(r, 50));
     }
-    throw new Error("Daemon failed to start: socket not created within timeout");
+    throw new Error(
+      "Daemon failed to start: socket not created within timeout",
+    );
   }
 
   private connectControlSocket(): Promise<void> {
@@ -294,7 +317,9 @@ export class TerminalHostClient {
     return new Promise((resolve, reject) => {
       this.streamSocket = net.createConnection(SOCKET_PATH, () => {
         // Send init message identifying this as a stream connection
-        this.streamSocket!.write(JSON.stringify({ connectionType: "stream", token }) + "\n");
+        this.streamSocket!.write(
+          JSON.stringify({ connectionType: "stream", token }) + "\n",
+        );
         resolve();
       });
 
@@ -323,7 +348,10 @@ export class TerminalHostClient {
     });
   }
 
-  private request(req: ControlRequest, timeoutMs = 10_000): Promise<ControlResponse> {
+  private request(
+    req: ControlRequest,
+    timeoutMs = 10_000,
+  ): Promise<ControlResponse> {
     return new Promise((resolve, reject) => {
       if (!this.controlSocket?.writable) {
         reject(new Error("Control socket not writable"));
@@ -331,7 +359,9 @@ export class TerminalHostClient {
       }
 
       const timeout = setTimeout(() => {
-        const idx = this.pendingRequests.findIndex((p) => p.timeout === timeout);
+        const idx = this.pendingRequests.findIndex(
+          (p) => p.timeout === timeout,
+        );
         if (idx >= 0) this.pendingRequests.splice(idx, 1);
         reject(new Error(`Request timed out: ${req.type}`));
       }, timeoutMs);

@@ -40,7 +40,11 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
-  onNewWorkspace?: (projectId?: string) => void;
+  onNewWorkspace?: (opts?: {
+    projectId?: string;
+    name?: string;
+    branch?: string;
+  }) => void;
 }
 
 type PaletteView = "root" | "linear";
@@ -70,7 +74,6 @@ export function CommandPalette({
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const createWorktree = useProjectStore((s) => s.createWorktree);
   const recentViews = useAppStore((s) => s.recentViews);
   const selectSession = useAppStore((s) => s.selectSession);
   const paneTitle = useAppStore((s) => s.paneTitle);
@@ -82,9 +85,6 @@ export function CommandPalette({
   const [linearLoading, setLinearLoading] = useState(false);
   const [linearConnected, setLinearConnected] = useState(false);
   const [popoverIssue, setPopoverIssue] = useState<LinearIssue | null>(null);
-  const [creatingWorkspace, setCreatingWorkspace] = useState<string | null>(
-    null,
-  );
   const popoverAnchorRef = useRef<HTMLDivElement | null>(null);
 
   // Get all team IDs from projects with Linear associations
@@ -139,7 +139,6 @@ export function CommandPalette({
       setView("root");
       setSearch("");
       setPopoverIssue(null);
-      setCreatingWorkspace(null);
     }
   }, [open]);
 
@@ -165,39 +164,40 @@ export function CommandPalette({
   );
 
   const handleCreateWorkspace = useCallback(
-    async (issue: LinearIssue) => {
+    (issue: LinearIssue) => {
       const project = findProjectForIssue(issue);
       if (!project) return;
 
-      setCreatingWorkspace(issue.id);
-      try {
-        // Check if a workspace with matching branch already exists
-        const current = useProjectStore
-          .getState()
-          .projects.find((p) => p.id === project.id);
-        const existingIdx =
-          current?.workspaces.findIndex(
-            (ws) => ws.branch === issue.branchName,
-          ) ?? -1;
-        if (existingIdx >= 0) {
-          selectWorkspace(project.id, existingIdx);
-          const existingWs = current?.workspaces[existingIdx];
-          if (existingWs) setActiveWorkspace(existingWs.path);
-          onClose();
-          return;
-        }
-        await createWorktree(project.id, issue.identifier, issue.branchName);
+      // Check if a workspace with matching branch already exists
+      const current = useProjectStore
+        .getState()
+        .projects.find((p) => p.id === project.id);
+      const existingIdx =
+        current?.workspaces.findIndex(
+          (ws) => ws.branch === issue.branchName,
+        ) ?? -1;
+      if (existingIdx >= 0) {
+        selectWorkspace(project.id, existingIdx);
+        const existingWs = current?.workspaces[existingIdx];
+        if (existingWs) setActiveWorkspace(existingWs.path);
         onClose();
-      } finally {
-        setCreatingWorkspace(null);
+        return;
       }
+
+      // Open the new workspace dialog with pre-filled info
+      onClose();
+      onNewWorkspace?.({
+        projectId: project.id,
+        name: issue.title,
+        branch: issue.branchName,
+      });
     },
     [
       findProjectForIssue,
       selectWorkspace,
-      createWorktree,
       setActiveWorkspace,
       onClose,
+      onNewWorkspace,
     ],
   );
 
@@ -241,7 +241,7 @@ export function CommandPalette({
         icon: <Plus size={14} />,
         group: project.name,
         action: () => {
-          onNewWorkspace?.(project.id);
+          onNewWorkspace?.({ projectId: project.id });
           onClose();
         },
       });
@@ -747,16 +747,8 @@ export function CommandPalette({
                               <button
                                 className={styles.popoverAction}
                                 onClick={() => handleCreateWorkspace(issue)}
-                                disabled={creatingWorkspace === issue.id}
                               >
-                                {creatingWorkspace === issue.id ? (
-                                  <Loader2
-                                    size={14}
-                                    className={styles.spinner}
-                                  />
-                                ) : (
-                                  <GitBranch size={14} />
-                                )}
+                                <GitBranch size={14} />
                                 <span>Create Workspace</span>
                               </button>
                               <button

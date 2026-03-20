@@ -44,9 +44,13 @@ function App() {
   const [preselectedProjectId, setPreselectedProjectId] = useState<
     string | null
   >(null);
+  const [initialName, setInitialName] = useState("");
+  const [initialBranch, setInitialBranch] = useState("");
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
+    setInitialName("");
+    setInitialBranch("");
   }, []);
 
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
@@ -181,8 +185,14 @@ function App() {
         open={paletteOpen}
         onClose={closePalette}
         onOpenSettings={() => setSettingsOpen(true)}
-        onNewWorkspace={(projectId?: string) => {
-          if (projectId) setPreselectedProjectId(projectId);
+        onNewWorkspace={(opts?: {
+          projectId?: string;
+          name?: string;
+          branch?: string;
+        }) => {
+          if (opts?.projectId) setPreselectedProjectId(opts.projectId);
+          if (opts?.name) setInitialName(opts.name);
+          if (opts?.branch) setInitialBranch(opts.branch);
           setNewWorkspaceOpen(true);
         }}
       />
@@ -193,9 +203,14 @@ function App() {
         projects={projects}
         selectedProjectIndex={selectedProjectIndex}
         preselectedProjectId={preselectedProjectId}
+        initialName={initialName}
+        initialBranch={initialBranch}
         onSubmit={async (projectId, name, branch) => {
-          setNewWorkspaceOpen(false);
-          await createWorktree(projectId, name, branch);
+          const result = await createWorktree(projectId, name, branch);
+          if (result) {
+            setNewWorkspaceOpen(false);
+          }
+          return !!result;
         }}
       />
       <ToastContainer />

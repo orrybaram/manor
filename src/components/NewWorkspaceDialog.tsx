@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, ChevronDown } from "lucide-react";
+import { X, ChevronDown, Loader2 } from "lucide-react";
 import type { ProjectInfo } from "../store/project-store";
 import styles from "./NewWorkspaceDialog.module.css";
 
@@ -16,10 +16,16 @@ function slugify(str: string): string {
 interface NewWorkspaceDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (projectId: string, name: string, branch: string) => void;
+  onSubmit: (
+    projectId: string,
+    name: string,
+    branch: string,
+  ) => Promise<boolean>;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
   preselectedProjectId?: string | null;
+  initialName?: string;
+  initialBranch?: string;
 }
 
 export function NewWorkspaceDialog({
@@ -29,18 +35,21 @@ export function NewWorkspaceDialog({
   projects,
   selectedProjectIndex,
   preselectedProjectId,
+  initialName = "",
+  initialBranch = "",
 }: NewWorkspaceDialogProps) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (!isOpen) onClose();
+      if (!isOpen && !isCreating) onClose();
     },
-    [onClose],
+    [onClose, isCreating],
   );
 
   const defaultProjectId =
@@ -49,18 +58,20 @@ export function NewWorkspaceDialog({
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
-      setName("");
-      setBranch("");
+      setName(initialName);
+      setBranch(initialBranch);
       setSelectedProjectId(defaultProjectId);
       setError(null);
+      setIsCreating(false);
       nameRef.current?.focus();
     },
-    [defaultProjectId],
+    [defaultProjectId, initialName, initialBranch],
   );
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
+      if (isCreating) return;
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError("Name is required");
@@ -81,9 +92,13 @@ export function NewWorkspaceDialog({
         return;
       }
       setError(null);
-      onSubmit(projectId, trimmedName, branchName);
+      setIsCreating(true);
+      const success = await onSubmit(projectId, trimmedName, branchName);
+      if (!success) {
+        setIsCreating(false);
+      }
     },
-    [name, branch, selectedProjectId, defaultProjectId, onSubmit],
+    [name, branch, selectedProjectId, defaultProjectId, onSubmit, isCreating],
   );
 
   return (
@@ -109,58 +124,73 @@ export function NewWorkspaceDialog({
             </Dialog.Close>
           </div>
           <form onSubmit={handleSubmit} className={styles.body}>
-            {projects.length > 1 && (
-              <>
-                <label className={styles.fieldLabel}>Project</label>
-                <div className={styles.selectWrapper}>
-                  <select
-                    className={styles.fieldSelect}
-                    value={selectedProjectId || defaultProjectId}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} className={styles.selectIcon} />
-                </div>
-              </>
-            )}
-            <label className={styles.fieldLabel}>Name</label>
-            <input
-              ref={nameRef}
-              className={styles.fieldInput}
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setError(null);
-              }}
-              placeholder="my-feature"
-            />
-            <label className={styles.fieldLabel}>Branch</label>
-            <input
-              className={styles.fieldInput}
-              type="text"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder={slugify(name.trim()) || "defaults to slugified name"}
-            />
-            {error && <div className={styles.error}>{error}</div>}
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.cancelButton}
-                onClick={onClose}
-              >
-                Cancel
-              </button>
-              <button type="submit" className={styles.submitButton}>
-                Create
-              </button>
-            </div>
+            <fieldset disabled={isCreating} className={styles.fieldset}>
+              {projects.length > 1 && (
+                <>
+                  <label className={styles.fieldLabel}>Project</label>
+                  <div className={styles.selectWrapper}>
+                    <select
+                      className={styles.fieldSelect}
+                      value={selectedProjectId || defaultProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                    >
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className={styles.selectIcon} />
+                  </div>
+                </>
+              )}
+              <label className={styles.fieldLabel}>Name</label>
+              <input
+                ref={nameRef}
+                className={styles.fieldInput}
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError(null);
+                }}
+                placeholder="my-feature"
+              />
+              <label className={styles.fieldLabel}>Branch</label>
+              <input
+                className={styles.fieldInput}
+                type="text"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder={
+                  slugify(name.trim()) || "defaults to slugified name"
+                }
+              />
+              {error && <div className={styles.error}>{error}</div>}
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.cancelButton}
+                  onClick={onClose}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.submitButton}
+                  disabled={isCreating}
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 size={14} className={styles.spinner} />
+                      Creating…
+                    </>
+                  ) : (
+                    "Create"
+                  )}
+                </button>
+              </div>
+            </fieldset>
           </form>
         </Dialog.Content>
       </Dialog.Portal>

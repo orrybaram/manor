@@ -45,7 +45,7 @@ export function ProjectItem({
   onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onReorderWorkspaces: (orderedPaths: string[]) => void;
-  onCreateWorktree: (name: string, branch: string) => void;
+  onCreateWorktree: (name: string, branch: string) => Promise<string | null>;
   onDragStart?: (e: ReactPointerEvent) => void;
 }) {
   const expanded = !collapsed;
@@ -400,9 +400,12 @@ export function ProjectItem({
         onClose={() => setNewWorkspaceOpen(false)}
         projects={[project]}
         selectedProjectIndex={0}
-        onSubmit={(_projectId, name, branch) => {
-          setNewWorkspaceOpen(false);
-          onCreateWorktree(name, branch);
+        onSubmit={async (_projectId, name, branch) => {
+          const result = await onCreateWorktree(name, branch);
+          if (result) {
+            setNewWorkspaceOpen(false);
+          }
+          return !!result;
         }}
       />
 

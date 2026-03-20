@@ -160,7 +160,7 @@
 
 .workspace {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 4px 6px;
   border-radius: 4px;
@@ -202,6 +202,7 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  height: 16px;
 }
 
 .workspaceLabel {

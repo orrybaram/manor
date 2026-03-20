@@ -20,6 +20,7 @@ import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
 import { BranchWatcher } from "./branch-watcher";
+import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { ShellManager } from "./shell";
@@ -35,12 +36,37 @@ interface WindowBounds {
   isMaximized: boolean;
 }
 
+function manorDataDir(): string {
+  return process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support", "Manor")
+    : path.join(os.homedir(), ".local", "share", "Manor");
+}
+
 function windowBoundsPath(): string {
-  const dataDir =
-    process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Application Support", "Manor")
-      : path.join(os.homedir(), ".local", "share", "Manor");
-  return path.join(dataDir, "window-bounds.json");
+  return path.join(manorDataDir(), "window-bounds.json");
+}
+
+function zoomLevelPath(): string {
+  return path.join(manorDataDir(), "zoom-level.json");
+}
+
+function loadZoomLevel(): number {
+  try {
+    const data = fs.readFileSync(zoomLevelPath(), "utf-8");
+    return JSON.parse(data).zoomFactor ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+function saveZoomLevel(factor: number): void {
+  try {
+    const p = zoomLevelPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify({ zoomFactor: factor }));
+  } catch {
+    /* ignore */
+  }
 }
 
 function loadWindowBounds(): WindowBounds | null {
@@ -119,6 +145,10 @@ function createWindow() {
     }
   });
 
+  // Restore persisted zoom level
+  const savedZoom = loadZoomLevel();
+  mainWindow.webContents.setZoomFactor(savedZoom);
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
@@ -133,6 +163,7 @@ const projectManager = new ProjectManager();
 const themeManager = new ThemeManager();
 const portScanner = new PortScanner();
 const branchWatcher = new BranchWatcher();
+const diffWatcher = new DiffWatcher();
 const githubManager = new GitHubManager();
 const linearManager = new LinearManager();
 
@@ -398,6 +429,18 @@ ipcMain.handle("branches:stop", () => {
   branchWatcher.stop();
 });
 
+// ── Diff Watcher IPC ──
+ipcMain.handle(
+  "diffs:start",
+  (_event, workspaces: Record<string, string>) => {
+    diffWatcher.start(mainWindow!, workspaces);
+  },
+);
+
+ipcMain.handle("diffs:stop", () => {
+  diffWatcher.stop();
+});
+
 // ── GitHub IPC ──
 ipcMain.handle(
   "github:getPrForBranch",
@@ -498,9 +541,38 @@ app.whenReady().then(async () => {
         { role: "forceReload" },
         { role: "toggleDevTools" },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.setZoomFactor(1);
+              saveZoomLevel(1);
+            }
+          },
+        },
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+=",
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const next = Math.min(mainWindow.webContents.getZoomFactor() + 0.1, 3);
+              mainWindow.webContents.setZoomFactor(next);
+              saveZoomLevel(next);
+            }
+          },
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const next = Math.max(mainWindow.webContents.getZoomFactor() - 0.1, 0.3);
+              mainWindow.webContents.setZoomFactor(next);
+              saveZoomLevel(next);
+            }
+          },
+        },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],

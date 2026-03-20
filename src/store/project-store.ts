@@ -33,11 +33,25 @@ function saveCollapsedIds(ids: Set<string>): void {
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
 }
 
+export interface DiffStats {
+  added: number;
+  removed: number;
+}
+
+export interface PrInfo {
+  number: number;
+  state: string;
+  title: string;
+  url: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
   isMain: boolean;
   name: string | null;
+  diffStats?: DiffStats | null;
+  pr?: PrInfo | null;
 }
 
 export interface LinearAssociation {
@@ -112,6 +126,8 @@ interface ProjectState {
     updates: ProjectUpdatableFields,
   ) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
+  updateWorkspaceDiffStats: (workspacePath: string, stats: DiffStats | null) => void;
+  updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
   toggleProjectCollapsed: (projectId: string) => void;
@@ -329,6 +345,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (ws.branch === branch) return p;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, branch };
+        return { ...p, workspaces };
+      }),
+    })),
+
+  updateWorkspaceDiffStats: (workspacePath: string, stats: DiffStats | null) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
+        if (wsIdx === -1) return p;
+        const ws = p.workspaces[wsIdx];
+        if (ws.diffStats?.added === stats?.added && ws.diffStats?.removed === stats?.removed) return p;
+        const workspaces = [...p.workspaces];
+        workspaces[wsIdx] = { ...ws, diffStats: stats };
+        return { ...p, workspaces };
+      }),
+    })),
+
+  updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
+        if (wsIdx === -1) return p;
+        const ws = p.workspaces[wsIdx];
+        if (ws.pr?.number === pr?.number && ws.pr?.state === pr?.state) return p;
+        const workspaces = [...p.workspaces];
+        workspaces[wsIdx] = { ...ws, pr };
         return { ...p, workspaces };
       }),
     })),

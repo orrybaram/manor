@@ -56,6 +56,7 @@ export interface PersistedWorkspace {
   workspacePath: string;
   sessions: PersistedSession[];
   selectedSessionId: string;
+  pinnedSessionIds?: string[];
 }
 
 export interface PersistedLayout {
@@ -177,9 +178,19 @@ export interface ElectronAPI {
     callback: (branches: Record<string, string>) => void,
   ) => () => void;
 
+  // Diff Watcher
+  startDiffWatcher: (workspaces: Record<string, string>) => Promise<void>;
+  stopDiffWatcher: () => Promise<void>;
+  onDiffsChanged: (
+    callback: (diffs: Record<string, { added: number; removed: number }>) => void,
+  ) => () => void;
+
   // GitHub
   getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
-  getPrsForBranches: (repoPath: string, branches: string[]) => Promise<unknown>;
+  getPrsForBranches: (
+    repoPath: string,
+    branches: string[],
+  ) => Promise<[string, { number: number; state: string; title: string; url: string } | null][]>;
 
   // Linear
   linearConnect: (apiKey: string) => Promise<{ name: string; email: string }>;

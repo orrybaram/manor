@@ -10,6 +10,8 @@ import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
+import { useDiffWatcher } from "../hooks/useDiffWatcher";
+import { usePrWatcher } from "../hooks/usePrWatcher";
 import { ProjectItem } from "./ProjectItem";
 import { PortsList } from "./PortsList";
 import styles from "./Sidebar.module.css";
@@ -39,6 +41,8 @@ export function Sidebar() {
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
 
   useBranchWatcher();
+  useDiffWatcher();
+  usePrWatcher();
 
   useEffect(() => {
     // Load persisted layout FIRST so setActiveWorkspace can restore old pane IDs

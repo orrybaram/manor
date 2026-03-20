@@ -149,6 +149,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     };
   },
 
+  // Diff Watcher
+  startDiffWatcher: (workspaces: Record<string, string>) =>
+    ipcRenderer.invoke("diffs:start", workspaces),
+  stopDiffWatcher: () => ipcRenderer.invoke("diffs:stop"),
+  onDiffsChanged: (
+    callback: (diffs: Record<string, { added: number; removed: number }>) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      diffs: Record<string, { added: number; removed: number }>,
+    ) => callback(diffs);
+    ipcRenderer.on("diffs-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("diffs-changed", listener);
+    };
+  },
+
   // GitHub
   getPrForBranch: (repoPath: string, branch: string) =>
     ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),

@@ -43,11 +43,12 @@ function createSession(title?: string): Session {
 interface WorkspaceSessionState {
   sessions: Session[];
   selectedSessionId: string;
+  pinnedSessionIds: string[];
 }
 
 function createWorkspaceState(): WorkspaceSessionState {
   const session = createSession();
-  return { sessions: [session], selectedSessionId: session.id };
+  return { sessions: [session], selectedSessionId: session.id, pinnedSessionIds: [] };
 }
 
 /** Convert a PersistedWorkspace back into a WorkspaceSessionState */
@@ -68,6 +69,7 @@ function restoreWorkspaceState(
   return {
     sessions,
     selectedSessionId: persisted.selectedSessionId || sessions[0].id,
+    pinnedSessionIds: persisted.pinnedSessionIds ?? [],
   };
 }
 
@@ -104,6 +106,7 @@ export interface AppState {
   selectNextSession: () => void;
   selectPrevSession: () => void;
   reorderSessions: (sessionIds: string[]) => void;
+  togglePinSession: (sessionId: string) => void;
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
@@ -295,7 +298,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus: newAgentStatus,
         workspaceSessions: {
           ...state.workspaceSessions,
-          [path]: { sessions: newSessions, selectedSessionId: newSelected },
+          [path]: {
+            sessions: newSessions,
+            selectedSessionId: newSelected,
+            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sessionId),
+          },
         },
       };
     }),
@@ -388,6 +395,40 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, sessions: reordered },
+        },
+      };
+    }),
+
+  togglePinSession: (sessionId: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const pinned = ws.pinnedSessionIds ?? [];
+      const isPinned = pinned.includes(sessionId);
+      let newPinned: string[];
+      let newSessions: Session[];
+      if (isPinned) {
+        // Unpin: remove from pinned list, move to after last pinned tab
+        newPinned = pinned.filter((id) => id !== sessionId);
+        const session = ws.sessions.find((s) => s.id === sessionId);
+        if (!session) return state;
+        const others = ws.sessions.filter((s) => s.id !== sessionId);
+        const insertIdx = newPinned.length;
+        newSessions = [...others.slice(0, insertIdx), session, ...others.slice(insertIdx)];
+      } else {
+        newPinned = [...pinned, sessionId];
+        const session = ws.sessions.find((s) => s.id === sessionId);
+        if (!session) return state;
+        const others = ws.sessions.filter((s) => s.id !== sessionId);
+        const insertIdx = pinned.length;
+        newSessions = [...others.slice(0, insertIdx), session, ...others.slice(insertIdx)];
+      }
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: { ...ws, sessions: newSessions, pinnedSessionIds: newPinned },
         },
       };
     }),
@@ -684,6 +725,7 @@ function saveActiveWorkspaceLayout(): void {
         } satisfies PersistedSession;
       }),
       selectedSessionId: ws.selectedSessionId,
+      pinnedSessionIds: ws.pinnedSessionIds,
     };
 
     window.electronAPI?.saveLayout(persisted);

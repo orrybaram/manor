@@ -22,6 +22,8 @@ export function TabBar() {
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
   const reorderSessions = useAppStore((s) => s.reorderSessions);
+  const togglePinSession = useAppStore((s) => s.togglePinSession);
+  const pinnedSessionIds = useMemo(() => ws?.pinnedSessionIds ?? [], [ws?.pinnedSessionIds]);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -57,6 +59,12 @@ export function TabBar() {
 
       tabEl.setPointerCapture(e.pointerId);
 
+      // Compute drag boundaries: pinned tabs stay in pinned zone, unpinned in unpinned zone
+      const pinnedCount = pinnedSessionIds.length;
+      const isDraggedPinned = pinnedSessionIds.includes(sessions[idx].id);
+      const minIdx = isDraggedPinned ? 0 : pinnedCount;
+      const maxIdx = isDraggedPinned ? pinnedCount - 1 : sessions.length - 1;
+
       const onMove = (ev: globalThis.PointerEvent) => {
         const dx = ev.clientX - dragStartX.current;
         if (!dragActive.current && Math.abs(dx) < 4) return;
@@ -72,20 +80,21 @@ export function TabBar() {
         let offset = 0;
         let targetIdx = idx;
         if (dx < 0) {
-          for (let i = idx - 1; i >= 0; i--) {
+          for (let i = idx - 1; i >= minIdx; i--) {
             offset -= itemWidths.current[i];
             if (dx < offset + itemWidths.current[i] / 2) {
               targetIdx = i;
             } else break;
           }
         } else {
-          for (let i = idx + 1; i < sessions.length; i++) {
+          for (let i = idx + 1; i <= maxIdx; i++) {
             offset += itemWidths.current[i];
             if (dx > offset - itemWidths.current[i] / 2) {
               targetIdx = i;
             } else break;
           }
         }
+        targetIdx = Math.max(minIdx, Math.min(maxIdx, targetIdx));
         dropIndexRef.current = targetIdx;
         setDropIndex(targetIdx);
       };
@@ -122,7 +131,7 @@ export function TabBar() {
       tabEl.addEventListener("pointerup", onUp);
       tabEl.addEventListener("lostpointercapture", onUp);
     },
-    [sessions, reorderSessions],
+    [sessions, reorderSessions, pinnedSessionIds],
   );
 
   const getTransformStyle = (idx: number): React.CSSProperties => {
@@ -158,13 +167,15 @@ export function TabBar() {
             key={session.id}
             sessionId={session.id}
             isActive={session.id === selectedSessionId}
+            isPinned={pinnedSessionIds.includes(session.id)}
             canClose={true}
             isDragging={dragIndex === idx}
             onSelect={() => {
               if (!justDragged.current) selectSession(session.id);
             }}
             onClose={() => closeSession(session.id)}
-            onPointerDown={(e) => handleDragStart(idx, e)}
+            onTogglePin={() => togglePinSession(session.id)}
+            onPointerDown={pinnedSessionIds.includes(session.id) ? undefined : (e) => handleDragStart(idx, e)}
             style={getTransformStyle(idx)}
             buttonRef={(el) => {
               if (el) itemRefs.current.set(idx, el);

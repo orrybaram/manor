@@ -25,7 +25,7 @@ export class GitHubManager {
   private getPrForBranchInner(repoPath: string, branch: string): PrInfo | null {
     try {
       const output = execSync(
-        `gh pr list --head ${JSON.stringify(branch)} --json number,state,title,url --limit 1`,
+        `gh pr list --head ${JSON.stringify(branch)} --state all --json number,state,title,url --limit 1`,
         { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
 

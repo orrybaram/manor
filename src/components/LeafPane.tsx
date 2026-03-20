@@ -1,6 +1,6 @@
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { TerminalPane } from "./TerminalPane";
-import { AgentDot } from "./AgentDot";
+
 import styles from "./PaneLayout.module.css";
 
 export function LeafPane({
@@ -17,7 +17,7 @@ export function LeafPane({
   });
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
-  const agentStatus = useAppStore((s) => s.paneAgentStatus[paneId]);
+
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
@@ -48,7 +48,6 @@ export function LeafPane({
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""}`}
       >
-        <AgentDot status={agentStatus?.status} size="pane" />
         <span className={styles.paneStatusTitle}>{title}</span>
         <div className={styles.paneStatusActions}>
           <button

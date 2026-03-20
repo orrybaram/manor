@@ -62,13 +62,13 @@ export class AgentDetector {
       this.kind = agentKind;
       this.processName = name;
 
-      if (
-        prevStatus === "idle" ||
-        prevStatus === "complete" ||
-        prevKind !== agentKind
-      ) {
+      if (prevKind !== agentKind) {
         this.clearTimers();
-        this.transition("running");
+        // Just track the agent — stay idle (no dot) until a hook event
+        // tells us the agent is actually thinking or responding.
+        if (prevStatus !== "idle") {
+          this.transition("idle");
+        }
       }
     } else if (
       this.kind &&
@@ -83,7 +83,7 @@ export class AgentDetector {
 
   /** Called by hook events to update status directly */
   setStatus(status: AgentStatus): void {
-    if (this.status === "idle" && status !== "idle") {
+    if (this.status === "idle" && status !== "idle" && !this.kind) {
       // Agent hook fired but process detection hasn't caught up yet — set kind
       // This shouldn't normally happen, but be defensive.
       return;
@@ -116,10 +116,10 @@ export class AgentDetector {
   }
 
   private transitionToIdle(): void {
-    if (this.status === "idle") return;
     this.clearTimers();
     this.kind = null;
     this.processName = null;
+    if (this.status === "idle") return;
     this.transition("idle");
   }
 

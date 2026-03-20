@@ -39,6 +39,8 @@
   --accent: #89b4fa;
   --danger: #ee5555;
   --danger-hover: #dd3333;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 * {

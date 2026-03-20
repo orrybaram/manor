@@ -215,9 +215,6 @@ export class Session {
         // Track terminal modes from escape sequences
         this.trackModes(data);
 
-        // Feed agent detector with output timing
-        this.agentDetector.processOutput(data);
-
         // Broadcast to attached clients
         this.broadcastEvent({ type: "data", sessionId: this.sessionId, data });
         break;

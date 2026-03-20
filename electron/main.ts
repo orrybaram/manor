@@ -24,6 +24,11 @@ import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { ShellManager } from "./shell";
+import {
+  AgentHookServer,
+  ensureHookScript,
+  registerClaudeHooks,
+} from "./agent-hooks";
 import type { StreamEvent } from "./terminal-host/types";
 
 let mainWindow: BrowserWindow | null = null;
@@ -167,8 +172,12 @@ const diffWatcher = new DiffWatcher();
 const githubManager = new GitHubManager();
 const linearManager = new LinearManager();
 
-// Ensure shell integration is set up
+const agentHookServer = new AgentHookServer();
+
+// Ensure shell integration and agent hooks are set up
 ShellManager.setupZdotdir();
+ensureHookScript();
+registerClaudeHooks();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {
@@ -178,6 +187,13 @@ client.onEvent((event: StreamEvent) => {
     mainWindow.webContents.isDestroyed()
   )
     return;
+  // Check that the main frame is still available (avoids "Render frame was
+  // disposed" errors during window reload/close).
+  try {
+    if (!mainWindow.webContents.mainFrame) return;
+  } catch {
+    return;
+  }
   try {
     switch (event.type) {
       case "data":
@@ -205,8 +221,14 @@ client.onEvent((event: StreamEvent) => {
         );
         break;
     }
-  } catch {
+  } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore
+    if (
+      !(err instanceof Error) ||
+      !err.message.includes("disposed")
+    ) {
+      console.error("Error in stream event handler:", err);
+    }
   }
 });
 
@@ -583,6 +605,13 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Start agent hook server (receives lifecycle events from Claude Code, etc.)
+  // Must happen before daemon connect so the port is available in the environment.
+  if (mainWindow) {
+    await agentHookServer.start(mainWindow);
+    process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+  }
+
   // Connect to daemon (spawns if needed)
   try {
     await client.connect();
@@ -597,6 +626,10 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  agentHookServer.stop();
 });
 
 // Note: We intentionally do NOT disconnect the client or kill the daemon on quit.

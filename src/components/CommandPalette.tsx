@@ -6,6 +6,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
@@ -81,11 +82,10 @@ export function CommandPalette({
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
-  const [linearIssues, setLinearIssues] = useState<LinearIssue[]>([]);
-  const [linearLoading, setLinearLoading] = useState(false);
   const [linearConnected, setLinearConnected] = useState(false);
   const [popoverIssue, setPopoverIssue] = useState<LinearIssue | null>(null);
   const popoverAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [showGhosts, setShowGhosts] = useState(false);
 
   // Get all team IDs from projects with Linear associations
   const allTeamIds = useMemo(() => {
@@ -107,31 +107,16 @@ export function CommandPalette({
       .catch(() => setLinearConnected(false));
   }, [open]);
 
-  // Fetch Linear issues when entering Linear view
-  useEffect(() => {
-    if (view !== "linear" || allTeamIds.length === 0) return;
-
-    let cancelled = false;
-    setLinearLoading(true);
-    window.electronAPI
-      .linearGetMyIssues(allTeamIds, {
+  // Fetch Linear issues with caching via react-query
+  const { data: linearIssues = [], isLoading: linearLoading } = useQuery({
+    queryKey: ["linear-issues", allTeamIds],
+    queryFn: () =>
+      window.electronAPI.linearGetMyIssues(allTeamIds, {
         stateTypes: ["unstarted", "backlog"],
         limit: 50,
-      })
-      .then((issues) => {
-        if (!cancelled) setLinearIssues(issues);
-      })
-      .catch((err) => {
-        console.error("[CommandPalette] Failed to fetch Linear issues:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setLinearLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [view, allTeamIds]);
+      }),
+    enabled: view === "linear" && allTeamIds.length > 0,
+  });
 
   // Reset state when palette closes
   useEffect(() => {
@@ -385,6 +370,16 @@ export function CommandPalette({
           onClose();
         },
       },
+      {
+        id: "ghosts",
+        label: "Ghosts!?",
+        icon: <span>👻</span>,
+        action: () => {
+          onClose();
+          setShowGhosts(true);
+          setTimeout(() => setShowGhosts(false), 5000);
+        },
+      },
     ],
     [
       addSession,
@@ -511,6 +506,11 @@ export function CommandPalette({
       if (popoverIssue) {
         e.preventDefault();
         setPopoverIssue(null);
+        requestAnimationFrame(() => {
+          const input =
+            document.querySelector<HTMLInputElement>("[cmdk-input]");
+          input?.focus();
+        });
         return;
       }
       if (view !== "root") {
@@ -525,6 +525,7 @@ export function CommandPalette({
   const showLinear = linearConnected && allTeamIds.length > 0;
 
   return (
+    <>
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
@@ -672,6 +673,7 @@ export function CommandPalette({
                           onOpenChange={(isOpen) => {
                             if (!isOpen) setPopoverIssue(null);
                           }}
+                          modal={false}
                         >
                           <Popover.Anchor asChild>
                             <div
@@ -704,7 +706,15 @@ export function CommandPalette({
                               side="right"
                               sideOffset={8}
                               align="start"
-                              onCloseAutoFocus={(e) => e.preventDefault()}
+                              onCloseAutoFocus={(e) => {
+                                e.preventDefault();
+                                // Refocus the cmdk input so keyboard navigation resumes
+                                const input =
+                                  document.querySelector<HTMLInputElement>(
+                                    "[cmdk-input]",
+                                  );
+                                input?.focus();
+                              }}
                               onKeyDown={(e) => {
                                 // Stop all key events from bubbling to cmdk
                                 e.stopPropagation();
@@ -734,13 +744,6 @@ export function CommandPalette({
                                 if (e.key === "Escape") {
                                   e.preventDefault();
                                   setPopoverIssue(null);
-                                  requestAnimationFrame(() => {
-                                    const input =
-                                      document.querySelector<HTMLInputElement>(
-                                        "[cmdk-input]",
-                                      );
-                                    input?.focus();
-                                  });
                                 }
                               }}
                             >
@@ -771,6 +774,28 @@ export function CommandPalette({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+    {showGhosts && (
+        <div className={styles.ghostOverlay} aria-hidden>
+          {Array.from({ length: 50 }, (_, i) => (
+            <span
+              key={i}
+              className={styles.ghost}
+              style={{
+                left: `${Math.random() * 90 + 5}%`,
+                animationDelay: `${Math.random() * 2}s`,
+                animationDuration: `${2 + Math.random() * 2}s`,
+                fontSize: `${24 + Math.random() * 32}px`,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ["--ghost-peak" as any]: `${0.4 + Math.random() * 0.4}`,
+                ["--ghost-rotate" as any]: `${Math.random() * 90 - 45}deg`,
+              }}
+            >
+              {Math.random() < 0.2 ? "🦇" : "👻"}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

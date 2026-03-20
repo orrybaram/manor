@@ -9,13 +9,12 @@
 }
 
 .dotRunning {
-  background: var(--green, #a6e3a1);
+  background: var(--yellow, #f9e2af);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .dotWaiting {
-  background: var(--yellow, #f9e2af);
-  animation: pulse 2.5s ease-in-out infinite;
+  background: var(--green, #a6e3a1);
 }
 
 .dotComplete {

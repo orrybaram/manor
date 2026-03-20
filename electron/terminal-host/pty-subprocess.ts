@@ -26,6 +26,10 @@ let lastFgProcName: string | null = null;
 const KNOWN_SHELLS = new Set(["zsh", "bash", "fish", "sh"]);
 const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
 
+// Some CLIs (e.g. Claude Code) set their process title to a version string
+// like "2.1.80". Detect these so we can fall back to child arg inspection.
+const VERSION_STRING_RE = /^\d+\.\d+/;
+
 // Patterns to match known agent CLIs in process command lines
 const AGENT_PATTERNS: Array<[RegExp, string]> = [
   [/\bclaude\b/i, "claude"],
@@ -40,16 +44,40 @@ const AGENT_PATTERNS: Array<[RegExp, string]> = [
  */
 function detectAgentFromChildArgs(shellPid: number): string | null {
   try {
-    const raw = execFileSync("pgrep", ["-P", String(shellPid)], {
-      encoding: "utf-8",
-      timeout: 200,
-    });
-    const childPids = raw.trim().split("\n").filter(Boolean);
-    if (childPids.length === 0) return null;
+    // Use pgrep -g to find all processes in the same process group,
+    // or fall back to -P for direct children, then check descendants too
+    let childPids: string[] = [];
+
+    // First try direct children
+    try {
+      const raw = execFileSync("pgrep", ["-P", String(shellPid)], {
+        encoding: "utf-8",
+        timeout: 200,
+      });
+      childPids = raw.trim().split("\n").filter(Boolean);
+    } catch {
+      // no direct children
+    }
+
+    // Also get grandchildren (agents may be spawned by intermediate processes)
+    const allPids = [...childPids];
+    for (const pid of childPids) {
+      try {
+        const raw = execFileSync("pgrep", ["-P", pid.trim()], {
+          encoding: "utf-8",
+          timeout: 200,
+        });
+        allPids.push(...raw.trim().split("\n").filter(Boolean));
+      } catch {
+        // no grandchildren for this pid
+      }
+    }
+
+    if (allPids.length === 0) return null;
 
     // Build ps args: -o args= -p PID1 -p PID2 ...
     const psArgs = ["-o", "args="];
-    for (const pid of childPids) {
+    for (const pid of allPids) {
       psArgs.push("-p", pid.trim());
     }
 
@@ -57,6 +85,7 @@ function detectAgentFromChildArgs(shellPid: number): string | null {
       encoding: "utf-8",
       timeout: 200,
     });
+
 
     for (const line of result.trim().split("\n")) {
       if (!line.trim()) continue;
@@ -66,8 +95,8 @@ function detectAgentFromChildArgs(shellPid: number): string | null {
         }
       }
     }
-  } catch {
-    // pgrep/ps may fail if no children exist
+  } catch (err) {
+    console.error(`[DEBUG:detectAgent] error:`, err);
   }
   return null;
 }
@@ -189,10 +218,11 @@ function pollForegroundProcess(): void {
         !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
       let fgName = isShell ? null : basename;
 
-      // On macOS, node-pty returns the binary name (e.g. "node") rather than
-      // the CLI tool name (e.g. "claude"). When the foreground process is a
-      // JS runtime, inspect child process command lines to identify agents.
-      if (fgName && JS_RUNTIMES.has(fgName)) {
+      // On macOS, node-pty returns the binary name (e.g. "node") or the
+      // process title (e.g. "2.1.80" for Claude Code) rather than the CLI
+      // tool name. When the foreground process is a JS runtime or a version
+      // string, inspect child process command lines to identify agents.
+      if (fgName && (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))) {
         const agent = detectAgentFromChildArgs(ptyProcess.pid);
         if (agent) fgName = agent;
       }

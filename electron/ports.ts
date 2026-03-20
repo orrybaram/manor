@@ -1,6 +1,9 @@
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import os from "node:os";
 import type { BrowserWindow } from "electron";
+
+const execFileAsync = promisify(execFile);
 
 interface ActivePort {
   port: number;
@@ -13,15 +16,22 @@ export class PortScanner {
   private workspacePaths: string[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastPorts: ActivePort[] = [];
+  private scanning = false;
 
   start(window: BrowserWindow): void {
     this.stop();
 
-    this.timer = setInterval(() => {
-      const ports = this.scan();
-      if (JSON.stringify(ports) !== JSON.stringify(this.lastPorts)) {
-        window.webContents.send("ports-changed", ports);
-        this.lastPorts = ports;
+    this.timer = setInterval(async () => {
+      if (this.scanning) return;
+      this.scanning = true;
+      try {
+        const ports = await this.scan();
+        if (JSON.stringify(ports) !== JSON.stringify(this.lastPorts)) {
+          window.webContents.send("ports-changed", ports);
+          this.lastPorts = ports;
+        }
+      } finally {
+        this.scanning = false;
       }
     }, 3000);
   }
@@ -37,19 +47,21 @@ export class PortScanner {
     this.workspacePaths = paths;
   }
 
-  scanNow(): ActivePort[] {
+  async scanNow(): Promise<ActivePort[]> {
     return this.scan();
   }
 
-  private scan(): ActivePort[] {
+  private async scan(): Promise<ActivePort[]> {
     const uid = process.getuid?.() ?? 0;
 
     let output: string;
     try {
-      output = execSync(
-        `/usr/sbin/lsof -a -iTCP -sTCP:LISTEN -nP -F pcn -u ${uid}`,
-        { encoding: "utf-8", timeout: 5000 },
+      const { stdout } = await execFileAsync(
+        "/usr/sbin/lsof",
+        ["-a", "-iTCP", "-sTCP:LISTEN", "-nP", "-F", "pcn", "-u", String(uid)],
+        { timeout: 5000 },
       );
+      output = stdout;
     } catch {
       return [];
     }
@@ -58,7 +70,7 @@ export class PortScanner {
 
     if (this.workspacePaths.length > 0 && results.length > 0) {
       const pids = results.map((p) => p.pid);
-      const cwds = this.cwdsByPid(pids);
+      const cwds = await this.cwdsByPid(pids);
       const home = os.homedir();
 
       for (const port of results) {
@@ -119,16 +131,18 @@ export class PortScanner {
     return results;
   }
 
-  private cwdsByPid(pids: number[]): Map<number, string> {
+  private async cwdsByPid(pids: number[]): Promise<Map<number, string>> {
     if (pids.length === 0) return new Map();
 
     const pidList = pids.join(",");
     let output: string;
     try {
-      output = execSync(`/usr/sbin/lsof -a -p ${pidList} -d cwd -nP -F pn`, {
-        encoding: "utf-8",
-        timeout: 5000,
-      });
+      const { stdout } = await execFileAsync(
+        "/usr/sbin/lsof",
+        ["-a", "-p", pidList, "-d", "cwd", "-nP", "-F", "pn"],
+        { timeout: 5000 },
+      );
+      output = stdout;
     } catch {
       return new Map();
     }

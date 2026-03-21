@@ -262,6 +262,29 @@
   padding: 2px;
 }
 
+.prBadge {
+  position: relative;
+}
+
+.prBadgeDotWarning,
+.prBadgeDotSuccess {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--dim);
+}
+
+.prBadgeDotWarning {
+  background: var(--yellow, #eab308);
+}
+
+.prBadgeDotSuccess {
+  background: var(--green);
+}
+
 .prOpen {
   color: var(--green);
   background: var(--green-a20);
@@ -316,10 +339,23 @@
   gap: 6px;
 }
 
-.prPopoverFooter {
-  color: var(--text-dim);
-  font-size: 10px;
+.prPopoverFooterButton {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
   margin-top: 2px;
+  background: none;
+  border: 1px solid var(--surface);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.prPopoverFooterButton:hover {
+  color: var(--text-selected);
+  background: var(--hover);
 }
 
 .prPopoverStateOpen {

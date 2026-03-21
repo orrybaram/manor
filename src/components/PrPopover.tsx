@@ -71,6 +71,19 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
         ? styles.prClosed
         : styles.prOpen;
 
+  // Status dot on badge
+  const hasUnresolved = pr.unresolvedThreads != null && pr.unresolvedThreads > 0;
+  const allChecksPassing = pr.checks != null && pr.checks.failing === 0 && pr.checks.pending === 0;
+  const isApproved = pr.reviewDecision === "APPROVED";
+  const isAllGreen = pr.state === "open" && allChecksPassing && isApproved && !hasUnresolved;
+
+  let dotClass: string | null = null;
+  if (hasUnresolved) {
+    dotClass = styles.prBadgeDotWarning;
+  } else if (isAllGreen) {
+    dotClass = styles.prBadgeDotSuccess;
+  }
+
   // CI checks summary
   let checksElement: React.ReactNode = null;
   if (pr.checks) {
@@ -145,20 +158,6 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
     );
   }
 
-  // Diff stats
-  let diffElement: React.ReactNode = null;
-  if (pr.additions != null || pr.deletions != null) {
-    diffElement = (
-      <div className={styles.prPopoverRow}>
-        {pr.additions != null && (
-          <span style={{ color: "var(--green)" }}>+{pr.additions}</span>
-        )}
-        {pr.deletions != null && (
-          <span style={{ color: "var(--red)" }}>-{pr.deletions}</span>
-        )}
-      </div>
-    );
-  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -175,6 +174,7 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
         >
           <PrIcon size={10} />
           #{pr.number}
+          {dotClass && <span className={dotClass} />}
         </span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -200,9 +200,17 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
           {checksElement}
           {reviewElement}
           {commentsElement}
-          {diffElement}
 
-          <div className={styles.prPopoverFooter}>Open in GitHub</div>
+          <button
+            className={styles.prPopoverFooterButton}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              window.electronAPI.shell.openExternal(pr.url);
+            }}
+          >
+            Open in GitHub
+          </button>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

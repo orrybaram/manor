@@ -31,6 +31,7 @@ import {
 } from "./agent-hooks";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import type { StreamEvent } from "./terminal-host/types";
+import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -568,6 +569,10 @@ ipcMain.handle("dialog:openDirectory", async () => {
   return result.filePaths[0];
 });
 
+// ── Updater IPC ──
+ipcMain.handle("updater:checkForUpdates", () => checkForUpdates());
+ipcMain.handle("updater:quitAndInstall", () => quitAndInstall());
+
 // ── Shell ──
 ipcMain.handle("shell:openExternal", async (_event, url: string) => {
   assertString(url, "url");
@@ -638,6 +643,11 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(menu);
 
   createWindow();
+
+  // Initialize auto-updater
+  if (mainWindow) {
+    initAutoUpdater(mainWindow);
+  }
 
   // Start agent hook server (receives lifecycle events from Claude Code, etc.)
   // Must happen before daemon connect so the port is available in the environment.

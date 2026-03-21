@@ -161,4 +161,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   },
+
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke("updater:checkForUpdates"),
+    quitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
+    onUpdateAvailable: (callback: (info: { version: string }) => void) =>
+      onChannel("updater:update-available", callback),
+    onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
+      onChannel("updater:update-downloaded", callback),
+    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) =>
+      onChannel("updater:download-progress", callback),
+    onError: (callback: (message: string) => void) =>
+      onChannel("updater:error", callback),
+  },
 });

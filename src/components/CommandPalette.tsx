@@ -14,8 +14,6 @@ import {
   Plus,
   ChevronRight,
   ArrowLeft,
-  GitBranch,
-  ExternalLink,
   Loader2,
   Clock,
 } from "lucide-react";
@@ -47,6 +45,14 @@ interface CommandPaletteProps {
 }
 
 type PaletteView = "root" | "linear" | "issue-detail";
+
+const HIDDEN_STYLE = { display: "none" } as const;
+
+const wordPrefixFilter = (value: string, search: string) => {
+  const words = value.toLowerCase().split(/\s+/);
+  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  return terms.every((t) => words.some((w) => w.startsWith(t))) ? 1 : 0;
+};
 
 export function CommandPalette({
   open,
@@ -530,19 +536,44 @@ export function CommandPalette({
 
   const showLinear = linearConnected && allTeamIds.length > 0;
 
+  // Keyboard shortcuts for issue detail view
+  // Uses keyup for Enter so the keydown that selected the issue in the list
+  // doesn't immediately trigger workspace creation.
+  useEffect(() => {
+    if (view !== "issue-detail" || !issueDetail) return;
+    const onKeyUp = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleCreateWorkspace(issueDetail);
+      }
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "o" && e.metaKey) {
+        e.preventDefault();
+        handleOpenInBrowser(issueDetail);
+      }
+    };
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [view, issueDetail, handleCreateWorkspace, handleOpenInBrowser]);
+
   return (
     <>
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
-          className={styles.palette}
+          className={`${styles.palette} ${view === "issue-detail" ? styles.paletteWide : ""}`}
           onOpenAutoFocus={handleOpenAutoFocus}
           onCloseAutoFocus={handleCloseAutoFocus}
           onEscapeKeyDown={handleEscapeKeyDown}
         >
           <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-          <Command className={styles.command} loop>
+          <Command className={styles.command} loop filter={wordPrefixFilter}>
             {view === "linear" && (
               <div className={styles.breadcrumb}>
                 <button
@@ -552,25 +583,6 @@ export function CommandPalette({
                   <ArrowLeft size={14} />
                 </button>
                 <span className={styles.breadcrumbLabel}>Linear Issues</span>
-              </div>
-            )}
-            {view === "issue-detail" && (
-              <div className={styles.breadcrumb}>
-                <button
-                  className={styles.breadcrumbBack}
-                  onClick={navigateToLinearList}
-                >
-                  <ArrowLeft size={14} />
-                </button>
-                <span className={styles.breadcrumbLabel}>
-                  Linear Issues
-                  {issueDetail && (
-                    <>
-                      {" > "}
-                      {issueDetail.identifier}
-                    </>
-                  )}
-                </span>
               </div>
             )}
             {view !== "issue-detail" && (
@@ -584,12 +596,12 @@ export function CommandPalette({
                 onValueChange={setSearch}
               />
             )}
-            <Command.List className={styles.list}>
-              <Command.Empty className={styles.empty}>
-                {view === "linear"
-                  ? "No matching issues"
-                  : "No matching commands"}
-              </Command.Empty>
+            <Command.List className={styles.list} style={view === "issue-detail" ? HIDDEN_STYLE : undefined}>
+              {view === "linear" && (
+                <Command.Empty className={styles.empty}>
+                  No matching issues
+                </Command.Empty>
+              )}
 
               {view === "root" && (
                 <>
@@ -724,8 +736,7 @@ export function CommandPalette({
               <IssueDetailView
                 issueDetail={issueDetail ?? null}
                 isLoading={issueDetailLoading}
-                onCreateWorkspace={handleCreateWorkspace}
-                onOpenInBrowser={handleOpenInBrowser}
+                onBack={navigateToLinearList}
               />
             )}
           </Command>
@@ -783,13 +794,11 @@ function stripMarkdown(text: string): string {
 function IssueDetailView({
   issueDetail,
   isLoading,
-  onCreateWorkspace,
-  onOpenInBrowser,
+  onBack,
 }: {
   issueDetail: LinearIssueDetail | null;
   isLoading: boolean;
-  onCreateWorkspace: (issue: LinearIssueDetail) => void;
-  onOpenInBrowser: (issue: LinearIssueDetail) => void;
+  onBack: () => void;
 }) {
   if (isLoading) {
     return (
@@ -808,69 +817,79 @@ function IssueDetailView({
   const description = issueDetail.description
     ? stripMarkdown(issueDetail.description)
     : null;
-  const truncatedDescription =
-    description && description.length > 500
-      ? description.slice(0, 500) + "..."
-      : description;
 
   return (
     <>
-      <div className={styles.detailBody}>
-        <div className={styles.detailHeader}>
-          <span className={styles.detailIdentifier}>
-            {issueDetail.identifier}
-          </span>
+      <div className={styles.detailLayout}>
+        <div className={styles.detailBack}>
+          <button className={styles.breadcrumbBack} onClick={onBack}>
+            <ArrowLeft size={14} />
+          </button>
+        </div>
+        <div className={styles.detailMain}>
           <h2 className={styles.detailTitle}>{issueDetail.title}</h2>
+          {description && (
+            <div className={styles.detailDescription}>{description}</div>
+          )}
         </div>
-        <div className={styles.detailMeta}>
-          <span
-            className={styles.detailPriority}
-            style={{ color: priority.color }}
-          >
-            <span
-              className={styles.priorityDot}
-              style={{ background: priority.color }}
-            />
-            {priority.label}
-          </span>
-          <span className={styles.detailStateBadge}>
-            {issueDetail.state.name}
-          </span>
-          {issueDetail.labels.map((label) => (
-            <span
-              key={label.id}
-              className={styles.detailLabel}
-              style={{ background: label.color + "22", color: label.color }}
-            >
-              {label.name}
+        <div className={styles.detailSidebar}>
+          <div className={styles.sidebarField}>
+            <span className={styles.sidebarLabel}>Status</span>
+            <span className={styles.sidebarValue}>
+              <span className={styles.statusDot} />
+              {issueDetail.state.name}
             </span>
-          ))}
-        </div>
-        {issueDetail.assignee && (
-          <div className={styles.detailAssignee}>
-            <span className={styles.detailAssigneeLabel}>Assignee:</span>
-            <span>{issueDetail.assignee.displayName}</span>
           </div>
-        )}
-        {truncatedDescription && (
-          <div className={styles.detailDescription}>{truncatedDescription}</div>
-        )}
+          <div className={styles.sidebarField}>
+            <span className={styles.sidebarLabel}>Priority</span>
+            <span className={styles.sidebarValue}>
+              <span
+                className={styles.priorityDot}
+                style={{ background: priority.color }}
+              />
+              {priority.label}
+            </span>
+          </div>
+          {issueDetail.assignee && (
+            <div className={styles.sidebarField}>
+              <span className={styles.sidebarLabel}>Assignee</span>
+              <span className={styles.sidebarValue}>
+                {issueDetail.assignee.displayName}
+              </span>
+            </div>
+          )}
+          <div className={styles.sidebarField}>
+            <span className={styles.sidebarLabel}>Labels</span>
+            {issueDetail.labels.length > 0 ? (
+              <div className={styles.sidebarLabels}>
+                {issueDetail.labels.map((label) => (
+                  <span
+                    key={label.id}
+                    className={styles.detailLabel}
+                    style={{
+                      background: label.color + "22",
+                      color: label.color,
+                    }}
+                  >
+                    {label.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className={styles.sidebarValue}>No Labels</span>
+            )}
+          </div>
+        </div>
       </div>
-      <div className={styles.detailActions}>
-        <button
-          className={styles.detailAction}
-          onClick={() => onCreateWorkspace(issueDetail)}
-        >
-          <GitBranch size={14} />
+      <div className={styles.detailFooter}>
+        <span className={styles.footerHint}>
+          <kbd className={styles.kbd}>Enter</kbd>
           <span>Create Workspace</span>
-        </button>
-        <button
-          className={styles.detailAction}
-          onClick={() => onOpenInBrowser(issueDetail)}
-        >
-          <ExternalLink size={14} />
+        </span>
+        <span className={styles.footerHint}>
+          <kbd className={styles.kbd}>&#8984;O</kbd>
           <span>Open in Browser</span>
-        </button>
+        </span>
       </div>
     </>
   );

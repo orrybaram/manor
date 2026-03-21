@@ -23,6 +23,18 @@ export interface LinearIssue {
   branchName: string;
   priority: number;
   state: { name: string; type: string };
+  labels: Array<{ name: string; color: string }>;
+}
+
+export interface LinearIssueDetail extends LinearIssue {
+  description: string | null;
+  labels: Array<{ id: string; name: string; color: string }>;
+  assignee: {
+    id: string;
+    name: string;
+    displayName: string;
+    avatarUrl: string | null;
+  } | null;
 }
 
 export interface GetMyIssuesOptions {
@@ -95,10 +107,13 @@ export class LinearManager {
     const limit = options?.limit ?? 5;
     const fetchLimit = Math.min(limit * 2, 50); // Fetch extra to allow for sorting/slicing
 
+    type RawIssue = Omit<LinearIssue, "labels"> & {
+      labels: { nodes: Array<{ name: string; color: string }> };
+    };
     const data = await this.graphql<{
       viewer: {
         assignedIssues: {
-          nodes: LinearIssue[];
+          nodes: RawIssue[];
         };
       };
     }>(
@@ -120,6 +135,7 @@ export class LinearManager {
               branchName
               priority
               state { name type }
+              labels { nodes { name color } }
             }
           }
         }
@@ -128,7 +144,9 @@ export class LinearManager {
     );
     // Sort by state type (unstarted/todo first, then backlog), then by priority
     const stateOrder: Record<string, number> = { unstarted: 0, backlog: 1 };
-    const issues = data.viewer.assignedIssues.nodes;
+    const issues: LinearIssue[] = data.viewer.assignedIssues.nodes.map(
+      (raw) => ({ ...raw, labels: raw.labels.nodes }),
+    );
     issues.sort((a, b) => {
       const sa = stateOrder[a.state.type] ?? 2;
       const sb = stateOrder[b.state.type] ?? 2;
@@ -138,6 +156,31 @@ export class LinearManager {
       return pa - pb;
     });
     return issues.slice(0, limit);
+  }
+
+  async getIssueDetail(issueId: string): Promise<LinearIssueDetail> {
+    type RawDetail = Omit<LinearIssueDetail, "labels"> & {
+      labels: { nodes: Array<{ id: string; name: string; color: string }> };
+    };
+    const data = await this.graphql<{ issue: RawDetail }>(
+      `query($id: String!) {
+        issue(id: $id) {
+          id
+          identifier
+          title
+          url
+          branchName
+          priority
+          description
+          state { name type }
+          labels { nodes { id name color } }
+          assignee { id name displayName avatarUrl }
+        }
+      }`,
+      { id: issueId },
+    );
+    const raw = data.issue;
+    return { ...raw, labels: raw.labels.nodes };
   }
 
   autoMatchProjects(

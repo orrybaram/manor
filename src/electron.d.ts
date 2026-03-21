@@ -18,6 +18,18 @@ export interface LinearIssue {
   branchName: string;
   priority: number;
   state: { name: string; type: string };
+  labels: Array<{ name: string; color: string }>;
+}
+
+export interface LinearIssueDetail extends LinearIssue {
+  description: string | null;
+  labels: Array<{ id: string; name: string; color: string }>;
+  assignee: {
+    id: string;
+    name: string;
+    displayName: string;
+    avatarUrl: string | null;
+  } | null;
 }
 
 export interface ActivePort {
@@ -202,6 +214,7 @@ export interface ElectronAPI {
     teamIds: string[],
     options?: { stateTypes?: string[]; limit?: number },
   ) => Promise<LinearIssue[]>;
+  linearGetIssueDetail: (issueId: string) => Promise<LinearIssueDetail>;
   linearAutoMatch: () => Promise<Record<string, LinearAssociation>>;
 
   // Dialog

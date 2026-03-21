@@ -6,21 +6,20 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import * as Dialog from "@radix-ui/react-dialog";
 import {
   Plus,
   ChevronDown,
   ChevronRight,
   House,
   FolderGit2,
-  GitBranch,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
+import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
+import { useWorkspaceDrag } from "../hooks/useWorkspaceDrag";
 import styles from "./Sidebar.module.css";
-
-const EMPTY_STYLE: React.CSSProperties = {};
 
 export function ProjectItem({
   project,
@@ -55,24 +54,16 @@ export function ProjectItem({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] =
     useState<WorkspaceInfo | null>(null);
-  const [deleteBranchChecked, setDeleteBranchChecked] = useState(
-    () => localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true",
-  );
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   const editRef = useRef<HTMLInputElement>(null);
 
-  // Drag-and-drop state
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const dropIndexRef = useRef<number | null>(null);
-  const dragStartY = useRef(0);
-  const dragActive = useRef(false);
-  const dragCleanedUp = useRef(false);
-  const justDragged = useRef(false);
-  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const itemHeights = useRef<number[]>([]);
+  const { dragIndex, handleDragStart, getTransformStyle, justDragged, itemRefs } =
+    useWorkspaceDrag({
+      workspaces: project.workspaces,
+      onReorderWorkspaces,
+      editingPath,
+    });
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
@@ -93,127 +84,6 @@ export function ProjectItem({
       editRef.current.select();
     }
   }, [editingPath]);
-
-  const handleDragStart = useCallback(
-    (idx: number, e: ReactPointerEvent) => {
-      if (editingPath) return;
-      // Only handle left mouse button
-      if (e.button !== 0) return;
-
-      const target = e.currentTarget as HTMLElement;
-      dragStartY.current = e.clientY;
-      dragActive.current = false;
-      dragCleanedUp.current = false;
-
-      // Snapshot item heights (gap matches .workspaces CSS gap)
-      const WORKSPACE_GAP = 8;
-      const heights: number[] = [];
-      for (let i = 0; i < project.workspaces.length; i++) {
-        const el = itemRefs.current.get(i);
-        heights[i] = el
-          ? el.getBoundingClientRect().height + WORKSPACE_GAP
-          : 36;
-      }
-      itemHeights.current = heights;
-
-      // Use pointer capture so we get events even outside the element
-      target.setPointerCapture(e.pointerId);
-
-      const onMove = (ev: globalThis.PointerEvent) => {
-        const dy = ev.clientY - dragStartY.current;
-        if (!dragActive.current && Math.abs(dy) < 4) return;
-
-        if (!dragActive.current) {
-          dragActive.current = true;
-          setDragIndex(idx);
-          setDropIndex(idx);
-        }
-
-        setDragOffset(dy);
-
-        // Calculate which index we're over
-        let offset = 0;
-        let targetIdx = idx;
-        if (dy < 0) {
-          for (let i = idx - 1; i >= 0; i--) {
-            offset -= itemHeights.current[i];
-            if (dy < offset + itemHeights.current[i] / 2) {
-              targetIdx = i;
-            } else break;
-          }
-        } else {
-          for (let i = idx + 1; i < project.workspaces.length; i++) {
-            offset += itemHeights.current[i];
-            if (dy > offset - itemHeights.current[i] / 2) {
-              targetIdx = i;
-            } else break;
-          }
-        }
-        if (dropIndexRef.current !== targetIdx) {
-          dropIndexRef.current = targetIdx;
-          setDropIndex(targetIdx);
-        }
-      };
-
-      const onUp = () => {
-        // Guard against double-fire (pointerup + lostpointercapture)
-        if (dragCleanedUp.current) return;
-        dragCleanedUp.current = true;
-
-        target.removeEventListener("pointermove", onMove);
-        target.removeEventListener("pointerup", onUp);
-        target.removeEventListener("lostpointercapture", onUp);
-
-        if (dragActive.current) {
-          justDragged.current = true;
-          const finalDrop = dropIndexRef.current ?? idx;
-          if (finalDrop !== idx) {
-            const paths = project.workspaces.map((ws) => ws.path);
-            const [moved] = paths.splice(idx, 1);
-            paths.splice(finalDrop, 0, moved);
-            onReorderWorkspaces(paths);
-          }
-          requestAnimationFrame(() => {
-            justDragged.current = false;
-          });
-        }
-        dragActive.current = false;
-        dropIndexRef.current = null;
-        setDragIndex(null);
-        setDropIndex(null);
-        setDragOffset(0);
-      };
-
-      target.addEventListener("pointermove", onMove);
-      target.addEventListener("pointerup", onUp);
-      target.addEventListener("lostpointercapture", onUp);
-    },
-    [editingPath, project.workspaces, onReorderWorkspaces],
-  );
-
-  // Compute transform offsets for smooth animation
-  const getTransformStyle = (idx: number): React.CSSProperties => {
-    if (dragIndex === null || dropIndex === null) return EMPTY_STYLE;
-    const h = itemHeights.current[dragIndex] || 36;
-    if (idx === dragIndex) {
-      return {
-        transform: `translateY(${dragOffset}px)`,
-        zIndex: 10,
-      };
-    }
-    if (dragIndex === dropIndex) return { transition: "transform 150ms ease" };
-    if (
-      (dropIndex > dragIndex && idx > dragIndex && idx <= dropIndex) ||
-      (dropIndex < dragIndex && idx < dragIndex && idx >= dropIndex)
-    ) {
-      const direction = dropIndex > dragIndex ? -1 : 1;
-      return {
-        transform: `translateY(${direction * h}px)`,
-        transition: "transform 150ms ease",
-      };
-    }
-    return { transition: "transform 150ms ease" };
-  };
 
   return (
     <div className={styles.project}>
@@ -432,105 +302,24 @@ export function ProjectItem({
         }}
       />
 
-      <Dialog.Root open={confirmRemove} onOpenChange={setConfirmRemove}>
-        <Dialog.Portal>
-          <Dialog.Overlay className={styles.confirmOverlay} />
-          <Dialog.Content className={styles.confirmDialog}>
-            <Dialog.Title className={styles.confirmTitle}>
-              Remove Project
-            </Dialog.Title>
-            <Dialog.Description className={styles.confirmDescription}>
-              Remove <strong>{project.name}</strong> from the sidebar? This
-              won't delete any files on disk.
-            </Dialog.Description>
-            <div className={styles.confirmActions}>
-              <button
-                className={styles.confirmCancel}
-                onClick={() => setConfirmRemove(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.confirmRemove}
-                onClick={() => {
-                  setConfirmRemove(false);
-                  onRemove();
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <RemoveProjectDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        projectName={project.name}
+        onConfirm={onRemove}
+      />
 
-      <Dialog.Root
+      <DeleteWorktreeDialog
         open={confirmDeleteWorktree !== null}
         onOpenChange={(open) => {
           if (!open) setConfirmDeleteWorktree(null);
         }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className={styles.confirmOverlay} />
-          <Dialog.Content className={styles.confirmDialog}>
-            <Dialog.Title className={styles.confirmTitle}>
-              Delete Workspace
-            </Dialog.Title>
-            <Dialog.Description className={styles.confirmDescription}>
-              Delete workspace{" "}
-              <strong>
-                {confirmDeleteWorktree?.name ||
-                  confirmDeleteWorktree?.branch ||
-                  ""}
-              </strong>
-              ? This will remove the worktree from disk.
-            </Dialog.Description>
-            {confirmDeleteWorktree?.branch && (
-              <div className={styles.branchDeleteSection}>
-                <code className={styles.branchName}>
-                  <GitBranch size={12} />
-                  {confirmDeleteWorktree.branch}
-                </code>
-                <label className={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={deleteBranchChecked}
-                    onChange={(e) => {
-                      setDeleteBranchChecked(e.target.checked);
-                      localStorage.setItem(
-                        "manor:deleteBranchOnWorktreeRemove",
-                        String(e.target.checked),
-                      );
-                    }}
-                  />
-                  Also delete local branch
-                </label>
-              </div>
-            )}
-            <div className={styles.confirmActions}>
-              <button
-                className={styles.confirmCancel}
-                onClick={() => setConfirmDeleteWorktree(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.confirmRemove}
-                onClick={() => {
-                  const ws = confirmDeleteWorktree;
-                  setConfirmDeleteWorktree(null);
-                  if (ws) {
-                    setDeletingPaths((prev) => new Set(prev).add(ws.path));
-                    onRemoveWorktree(ws, deleteBranchChecked);
-                  }
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+        workspace={confirmDeleteWorktree}
+        onConfirm={(ws, deleteBranch) => {
+          setDeletingPaths((prev) => new Set(prev).add(ws.path));
+          onRemoveWorktree(ws, deleteBranch);
+        }}
+      />
     </div>
   );
 }

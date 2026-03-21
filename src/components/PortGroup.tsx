@@ -1,0 +1,50 @@
+import { useCallback } from "react";
+import { useProjectStore } from "../store/project-store";
+import { useAppStore } from "../store/app-store";
+import { type WorkspacePortGroup } from "../hooks/usePortsData";
+import { PortBadge } from "./PortBadge";
+import styles from "./Sidebar.module.css";
+
+export function PortGroup({ group }: { group: WorkspacePortGroup }) {
+  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+
+  const handleSelectWorkspace = useCallback(() => {
+    const projects = useProjectStore.getState().projects;
+    for (const project of projects) {
+      const wsIndex = project.workspaces.findIndex(
+        (ws) => ws.path === group.workspacePath,
+      );
+      if (wsIndex >= 0) {
+        selectWorkspace(project.id, wsIndex);
+        setActiveWorkspace(group.workspacePath);
+        break;
+      }
+    }
+  }, [group.workspacePath, selectWorkspace, setActiveWorkspace]);
+
+  return (
+    <div className={styles.portGroup}>
+      {group.branch && (
+        <div
+          className={styles.portGroupHeader}
+          onClick={handleSelectWorkspace}
+          style={{ cursor: "pointer" }}
+        >
+          <span className={styles.portGroupBranch}>
+            {group.branch}
+            {group.isMain && group.projectName && (
+              <span className={styles.portGroupProject}>
+                {" "}
+                · {group.projectName}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      {group.ports.map((port) => (
+        <PortBadge key={port.port} port={port} />
+      ))}
+    </div>
+  );
+}

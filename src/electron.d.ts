@@ -234,6 +234,15 @@ export interface ElectronAPI {
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
   };
 
+  updater: {
+    checkForUpdates: () => Promise<void>;
+    quitAndInstall: () => Promise<void>;
+    onUpdateAvailable: (callback: (info: { version: string }) => void) => () => void;
+    onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
+    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
+    onError: (callback: (message: string) => void) => () => void;
+  };
+
   dialog: {
     openDirectory: () => Promise<string | null>;
   };

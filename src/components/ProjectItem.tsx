@@ -14,12 +14,10 @@ import {
   House,
   FolderGit2,
   GitBranch,
-  GitPullRequest,
-  GitMerge,
-  GitPullRequestClosed,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
+import { PrPopover } from "./PrPopover";
 import styles from "./Sidebar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
@@ -350,30 +348,12 @@ export function ProjectItem({
                           {ws.branch || "main"}
                         </span>
                         {ws.pr && (
-                          <span
-                            className={`${styles.prBadge} ${
-                              ws.pr.state === "merged"
-                                ? styles.prMerged
-                                : ws.pr.state === "closed"
-                                  ? styles.prClosed
-                                  : styles.prOpen
-                            }`}
-                            title={ws.pr.title}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              window.electronAPI.shell.openExternal(ws.pr!.url);
-                            }}
-                          >
-                            {ws.pr.state === "merged" ? (
-                              <GitMerge size={10} />
-                            ) : ws.pr.state === "closed" ? (
-                              <GitPullRequestClosed size={10} />
-                            ) : (
-                              <GitPullRequest size={10} />
-                            )}
-                            #{ws.pr.number}
-                          </span>
+                          <PrPopover
+                            pr={ws.pr}
+                            onOpen={() =>
+                              window.electronAPI.shell.openExternal(ws.pr!.url)
+                            }
+                          />
                         )}
                       </div>
                     </div>

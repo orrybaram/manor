@@ -121,7 +121,7 @@ export function useTerminalLifecycle(
     try {
       t.loadAddon(
         new WebLinksAddon((_event, url) => {
-          window.electronAPI.openExternal(url);
+          window.electronAPI.shell.openExternal(url);
         }),
       );
     } catch {

@@ -113,7 +113,7 @@ export function CommandPalette({
   const { data: linearIssues = [], isLoading: linearLoading } = useQuery({
     queryKey: ["linear-issues", allTeamIds],
     queryFn: () =>
-      window.electronAPI.linearGetMyIssues(allTeamIds, {
+      window.electronAPI.linear.getMyIssues(allTeamIds, {
         stateTypes: ["unstarted", "backlog"],
         limit: 50,
       }),
@@ -123,7 +123,7 @@ export function CommandPalette({
   // Fetch issue detail when viewing a specific issue
   const { data: issueDetail, isLoading: issueDetailLoading } = useQuery({
     queryKey: ["linear-issue-detail", selectedIssueId],
-    queryFn: () => window.electronAPI.linearGetIssueDetail(selectedIssueId!),
+    queryFn: () => window.electronAPI.linear.getIssueDetail(selectedIssueId!),
     enabled: view === "issue-detail" && selectedIssueId !== null,
     staleTime: 60_000,
   });
@@ -204,7 +204,7 @@ export function CommandPalette({
 
   const handleOpenInBrowser = useCallback(
     (issue: LinearIssue) => {
-      window.electronAPI.openExternal(issue.url);
+      window.electronAPI.shell.openExternal(issue.url);
       onClose();
     },
     [onClose],

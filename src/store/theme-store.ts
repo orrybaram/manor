@@ -80,15 +80,15 @@ export const useThemeStore = create<ThemeState>((set) => ({
 
   loadTheme: async () => {
     const [theme, selectedThemeName] = await Promise.all([
-      window.electronAPI.getTheme(),
-      window.electronAPI.getSelectedThemeName(),
+      window.electronAPI.theme.get(),
+      window.electronAPI.theme.getSelectedName(),
     ]);
     set({ theme, selectedThemeName });
     applyCssVars(theme);
   },
 
   setTheme: async (name: string) => {
-    const theme = await window.electronAPI.setSelectedTheme(name);
+    const theme = await window.electronAPI.theme.setSelected(name);
     set({ theme, selectedThemeName: name });
     applyCssVars(theme);
   },

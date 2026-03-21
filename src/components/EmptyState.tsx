@@ -58,7 +58,7 @@ export function WorkspaceEmptyState() {
     (async () => {
       setTicketsLoading(true);
       try {
-        const issues = await window.electronAPI.linearGetMyIssues(teamIds);
+        const issues = await window.electronAPI.linear.getMyIssues(teamIds);
         if (!cancelled) setTickets(issues);
       } catch (err) {
         console.error("[EmptyState] Failed to fetch tickets:", err);
@@ -152,7 +152,7 @@ export function WorkspaceEmptyState() {
               className={styles.ticketLink}
               onClick={(e) => {
                 e.stopPropagation();
-                window.electronAPI.openExternal(issue.url);
+                window.electronAPI.shell.openExternal(issue.url);
               }}
               title="View on Linear"
             >

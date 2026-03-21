@@ -80,6 +80,7 @@ export interface AgentState {
   status: AgentStatus;
   processName: string | null;
   since: number; // timestamp
+  title: string | null;
 }
 
 // ── Stream socket event types ──
@@ -96,7 +97,8 @@ export type StreamEvent =
 export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
-  | { type: "unsubscribe"; sessionId: string };
+  | { type: "unsubscribe"; sessionId: string }
+  | { type: "agentHook"; sessionId: string; status: AgentStatus };
 
 // ── PTY Subprocess spawn payload ──
 

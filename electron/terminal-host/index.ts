@@ -191,6 +191,9 @@ async function handleStreamMessage(
     case "unsubscribe":
       host.detach(command.sessionId, socket);
       break;
+    case "agentHook":
+      host.setAgentHookStatus(command.sessionId, command.status);
+      break;
   }
 }
 

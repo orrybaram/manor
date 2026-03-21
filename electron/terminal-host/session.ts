@@ -32,6 +32,7 @@ import type {
   SessionInfo,
   StreamEvent,
   PtySpawnPayload,
+  AgentStatus,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
 
@@ -235,6 +236,7 @@ export class Session {
         if (titles.length > 0) {
           const latestTitle = titles[titles.length - 1];
           this.titleDetector.setTitle(latestTitle);
+          this.agentDetector.setTitle(latestTitle);
           const titleStatus = this.titleDetector.detect();
           if (titleStatus !== "unknown") {
             this.agentDetector.setFallbackStatus(titleStatus);
@@ -286,6 +288,11 @@ export class Session {
         break;
       }
     }
+  }
+
+  /** Called when a hook event arrives for this session */
+  setAgentHookStatus(status: AgentStatus): void {
+    this.agentDetector.setStatus(status);
   }
 
   /** Write terminal input to the subprocess */

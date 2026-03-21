@@ -23,7 +23,6 @@ const GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
 
 const KNOWN_SHELLS = new Set(["zsh", "bash", "sh", "fish", "nu", "pwsh", "powershell"]);
 
-const COMPLETE_CLEAR_MS = 3000;
 const HOOK_DEBOUNCE_MS = 2000;
 
 export class AgentDetector {
@@ -32,7 +31,6 @@ export class AgentDetector {
   private processName: string | null = null;
   private since: number = Date.now();
   private title: string | null = null;
-  private completeClearTimer: ReturnType<typeof setTimeout> | null = null;
   private _onStatusChange: ((state: AgentState) => void) | null = null;
 
   /** Timestamp of the last hook-driven status update */
@@ -72,14 +70,14 @@ export class AgentDetector {
     const prevStatus = this.status;
 
     if (!name) {
-      // Shell is foreground — agent is gone
+      // No foreground process — agent is gone regardless of prior status
       if (prevKind && (prevStatus === "thinking" || prevStatus === "working" || prevStatus === "requires_input")) {
-        this.transitionToComplete();
+        this.transitionToGone();
       } else if (prevStatus === "complete") {
-        // Stop hook already set complete — just start the idle timer
-        this.scheduleIdleAfterComplete();
+        // Stop hook already set complete — agent is now gone
+        this.transitionToGone();
       } else if (prevStatus !== "error") {
-        this.transitionToIdle();
+        this.transitionToGone();
       }
       return;
     }
@@ -98,7 +96,6 @@ export class AgentDetector {
       }
 
       if (prevKind !== agentKind) {
-        this.clearTimers();
         // Just track the agent — stay idle (no dot) until a hook event
         // tells us the agent is actually thinking or responding.
         if (prevStatus !== "idle") {
@@ -117,9 +114,9 @@ export class AgentDetector {
       (this.status === "thinking" || this.status === "working" || this.status === "requires_input")
     ) {
       // Shell returned to foreground — agent exited
-      this.transitionToComplete();
+      this.transitionToGone();
     } else {
-      this.transitionToIdle();
+      this.transitionToGone();
     }
   }
 
@@ -132,7 +129,13 @@ export class AgentDetector {
       this.processName = kind; // best we know without process detection
     }
 
-    if (this.status === "idle" && status !== "idle" && !this.kind) {
+    // Session ended — agent is gone
+    if (status === "idle") {
+      this.transitionToGone();
+      return;
+    }
+
+    if (this.status === "idle" && !this.kind) {
       // Agent hook fired but process detection hasn't caught up yet
       // and no kind was provided — can't track without knowing the agent.
       return;
@@ -188,7 +191,7 @@ export class AgentDetector {
   /**
    * Sweep tracked PIDs for stale (dead) processes.
    * For each tracked agent with a non-idle status, check if the process still exists.
-   * Dead processes get forced to idle.
+   * Dead processes get forced to gone.
    */
   sweepStalePids(): void {
     const deadPids: number[] = [];
@@ -213,8 +216,15 @@ export class AgentDetector {
       this.trackedPids.delete(pid);
     }
 
-    // If all tracked PIDs are dead and agent was not idle, force to idle
+    // If all tracked PIDs are dead and agent was not idle, force gone
     if (deadPids.length > 0 && this.trackedPids.size === 0 && this.status !== "idle") {
+      this.transitionToGone();
+    }
+  }
+
+  /** Called when terminal input is received — transitions complete→idle */
+  setInputReceived(): void {
+    if (this.status === "complete") {
       this.transitionToIdle();
     }
   }
@@ -230,31 +240,26 @@ export class AgentDetector {
   }
 
   dispose(): void {
-    this.clearTimers();
     this.trackedPids.clear();
   }
 
   private transitionToComplete(): void {
-    this.clearTimers();
     this.transition("complete");
-    this.scheduleIdleAfterComplete();
   }
 
-  /** Start the timer to transition from complete → idle */
-  private scheduleIdleAfterComplete(): void {
-    if (this.completeClearTimer) return; // already scheduled
-    this.completeClearTimer = setTimeout(() => {
-      this.completeClearTimer = null;
-      this.transitionToIdle();
-    }, COMPLETE_CLEAR_MS);
-  }
-
-  private transitionToIdle(): void {
-    this.clearTimers();
+  /** Transition to gone — clears all agent state and emits idle with kind=null.
+   *  The store uses kind=null to remove the entry. */
+  private transitionToGone(): void {
     this.kind = null;
     this.processName = null;
     this.title = null;
     this.hasBeenActive = false;
+    if (this.status === "idle") return;
+    this.transition("idle");
+  }
+
+  /** Transition to idle while keeping agent state (kind/processName/title) intact. */
+  private transitionToIdle(): void {
     if (this.status === "idle") return;
     this.transition("idle");
   }
@@ -264,12 +269,5 @@ export class AgentDetector {
     this.status = newStatus;
     this.since = Date.now();
     this._onStatusChange?.(this.getState());
-  }
-
-  private clearTimers(): void {
-    if (this.completeClearTimer) {
-      clearTimeout(this.completeClearTimer);
-      this.completeClearTimer = null;
-    }
   }
 }

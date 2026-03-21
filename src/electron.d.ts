@@ -207,7 +207,17 @@ export interface ElectronAPI {
     getPrsForBranches: (
       repoPath: string,
       branches: string[],
-    ) => Promise<[string, { number: number; state: string; title: string; url: string } | null][]>;
+    ) => Promise<[string, {
+      number: number;
+      state: string;
+      title: string;
+      url: string;
+      isDraft?: boolean;
+      additions?: number;
+      deletions?: number;
+      reviewDecision?: string | null;
+      checks?: { total: number; passing: number; failing: number; pending: number } | null;
+    } | null][]>;
   };
 
   linear: {

@@ -21,7 +21,7 @@ const SOCKET_PATH = path.join(MANOR_DIR, "terminal-host.sock");
 const TOKEN_PATH = path.join(MANOR_DIR, "terminal-host.token");
 const PID_PATH = path.join(MANOR_DIR, "terminal-host.pid");
 
-const daemonVersion = process.env.MANOR_VERSION || undefined;
+const daemonVersion = process.env.MANOR_VERSION;
 
 const host = new TerminalHost();
 const authenticatedSockets = new WeakSet<net.Socket>();

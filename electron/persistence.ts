@@ -177,6 +177,10 @@ export class ProjectManager {
     const project = this.findProject(projectId);
     if (project) {
       project.selectedWorkspaceIndex = workspaceIndex;
+      const projectIndex = this.state.projects.indexOf(project);
+      if (projectIndex >= 0) {
+        this.state.selectedProjectIndex = projectIndex;
+      }
       this.saveState();
     }
   }

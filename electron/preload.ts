@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+function onChannel<T>(
+  channel: string,
+  callback: (value: T) => void,
+): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, value: T) =>
+    callback(value);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   pty: {
     create: (paneId: string, cwd: string | null, cols: number, rows: number) =>
@@ -10,41 +20,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pty:resize", paneId, cols, rows),
     close: (paneId: string) => ipcRenderer.invoke("pty:close", paneId),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    onOutput: (paneId: string, callback: (data: string) => void) => {
-      const channel = `pty-output-${paneId}`;
-      const listener = (_event: Electron.IpcRendererEvent, data: string) =>
-        callback(data);
-      ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
-    },
-    onExit: (paneId: string, callback: () => void) => {
-      const channel = `pty-exit-${paneId}`;
-      const listener = () => callback();
-      ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
-    },
-    onCwd: (paneId: string, callback: (cwd: string) => void) => {
-      const channel = `pty-cwd-${paneId}`;
-      const listener = (_event: Electron.IpcRendererEvent, cwd: string) =>
-        callback(cwd);
-      ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
-    },
-    onAgentStatus: (paneId: string, callback: (agent: unknown) => void) => {
-      const channel = `pty-agent-status-${paneId}`;
-      const listener = (_event: Electron.IpcRendererEvent, agent: unknown) =>
-        callback(agent);
-      ipcRenderer.on(channel, listener);
-      return () => {
-        ipcRenderer.removeListener(channel, listener);
-      };
-    },
+    onOutput: (paneId: string, callback: (data: string) => void) =>
+      onChannel(`pty-output-${paneId}`, callback),
+    onExit: (paneId: string, callback: () => void) =>
+      onChannel(`pty-exit-${paneId}`, callback),
+    onCwd: (paneId: string, callback: (cwd: string) => void) =>
+      onChannel(`pty-cwd-${paneId}`, callback),
+    onAgentStatus: (paneId: string, callback: (agent: unknown) => void) =>
+      onChannel(`pty-agent-status-${paneId}`, callback),
   },
 
   layout: {
@@ -127,30 +110,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     updateWorkspacePaths: (paths: string[]) =>
       ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
-    onChange: (callback: (ports: unknown[]) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, ports: unknown[]) =>
-        callback(ports);
-      ipcRenderer.on("ports-changed", listener);
-      return () => {
-        ipcRenderer.removeListener("ports-changed", listener);
-      };
-    },
+    onChange: (callback: (ports: unknown[]) => void) =>
+      onChannel("ports-changed", callback),
   },
 
   branches: {
     start: (paths: string[]) =>
       ipcRenderer.invoke("branches:start", paths),
     stop: () => ipcRenderer.invoke("branches:stop"),
-    onChange: (callback: (branches: Record<string, string>) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        branches: Record<string, string>,
-      ) => callback(branches);
-      ipcRenderer.on("branches-changed", listener);
-      return () => {
-        ipcRenderer.removeListener("branches-changed", listener);
-      };
-    },
+    onChange: (callback: (branches: Record<string, string>) => void) =>
+      onChannel("branches-changed", callback),
   },
 
   diffs: {
@@ -159,16 +128,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     stop: () => ipcRenderer.invoke("diffs:stop"),
     onChange: (
       callback: (diffs: Record<string, { added: number; removed: number }>) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        diffs: Record<string, { added: number; removed: number }>,
-      ) => callback(diffs);
-      ipcRenderer.on("diffs-changed", listener);
-      return () => {
-        ipcRenderer.removeListener("diffs-changed", listener);
-      };
-    },
+    ) => onChannel("diffs-changed", callback),
   },
 
   github: {

@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent } from "react";
+import React, { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { X } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
@@ -103,7 +103,7 @@ function shortenTitle(title: string): string {
   return trimmed.length <= 3 ? trimmed : trimmed.slice(0, 3);
 }
 
-export function SessionButton({
+export const SessionButton = React.memo(function SessionButton({
   sessionId,
   isActive,
   isPinned,
@@ -180,4 +180,4 @@ export function SessionButton({
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
-}
+});

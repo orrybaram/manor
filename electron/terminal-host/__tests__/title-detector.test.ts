@@ -26,9 +26,9 @@ describe("TitleDetector", () => {
   });
 
   describe("done marker detection", () => {
-    it("detects ✳ → complete", () => {
+    it("✳ is ignored (Claude Code branding, not done marker)", () => {
       detector.setTitle("✳ Claude Code");
-      expect(detector.detect()).toBe("complete");
+      expect(detector.detect()).toBe("unknown");
     });
 
     it("detects ✻ → complete", () => {

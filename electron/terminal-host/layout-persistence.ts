@@ -14,11 +14,21 @@ import { allPaneIds, type PaneNode } from "../../src/store/pane-tree";
 
 export const LAYOUT_FILE = path.join(os.homedir(), ".manor", "layout.json");
 
+/** Agent state snapshot for persistence */
+export interface PersistedAgentState {
+  kind: string | null;
+  status: string;
+  processName: string | null;
+  since: number;
+  title: string | null;
+}
+
 /** Persisted pane → daemon session mapping */
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
   lastTitle: string | null;
+  lastAgentStatus?: PersistedAgentState | null;
 }
 
 /** Persisted session (tab) layout */

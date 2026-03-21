@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, EthernetPort } from "lucide-react";
+import { ChevronRight, EthernetPort } from "lucide-react";
 import { usePortsData } from "../hooks/usePortsData";
 import { PortGroup } from "./PortGroup";
 import styles from "./Sidebar.module.css";
@@ -18,8 +18,8 @@ export function PortsList() {
         onClick={() => setCollapsed(!collapsed)}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span className={styles.projectChevron}>
-            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <span className={`${styles.projectChevron} ${!collapsed ? styles.projectChevronOpen : ""}`}>
+            <ChevronRight size={12} />
           </span>
           <EthernetPort size={12} />
           Ports

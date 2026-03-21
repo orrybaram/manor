@@ -47,6 +47,7 @@ export interface AgentState {
   status: AgentStatus;
   processName: string | null;
   since: number;
+  title: string | null;
 }
 
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
@@ -54,6 +55,7 @@ export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
   lastTitle: string | null;
+  lastAgentStatus?: AgentState | null;
 }
 
 export interface PersistedSession {

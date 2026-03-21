@@ -13,11 +13,6 @@
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-.dotWorking {
-  background: var(--yellow, #f9e2af);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
 .dotRequiresInput {
   background: var(--peach, #fab387);
 }
@@ -46,9 +41,15 @@
   height: 6px;
 }
 
+.sidebar {
+  width: 6px;
+  height: 6px;
+}
+
 /* Check icon needs auto sizing */
 .pane.dotComplete,
-.tab.dotComplete {
+.tab.dotComplete,
+.sidebar.dotComplete {
   width: auto;
   height: auto;
 }

@@ -13,7 +13,7 @@ function makeAgentState(
   status: AgentStatus,
   kind: "claude" | "opencode" | "codex" | null = "claude",
 ): AgentState {
-  return { kind, status, processName: kind, since: Date.now() };
+  return { kind, status, processName: kind, since: Date.now(), title: null };
 }
 
 describe("setPaneAgentStatus", () => {

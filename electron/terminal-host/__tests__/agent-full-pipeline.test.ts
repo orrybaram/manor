@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AgentDetector } from "../agent-detector";
+import { Session } from "../session";
 import { OutputPatternMatcher } from "../output-pattern-matcher";
 import { TitleDetector } from "../title-detector";
 import type { AgentState, AgentStatus } from "../types";
@@ -125,7 +126,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.setFallbackStatus(workingResult as AgentStatus);
 
     // 3. OSC title contains done marker → complete (title fallback)
-    titleDetector.setTitle("✳ claude done");
+    titleDetector.setTitle("✻ claude done");
     const completeResult = titleDetector.detect();
     expect(completeResult).toBe("complete");
     detector.setFallbackStatus(completeResult as AgentStatus);
@@ -387,14 +388,18 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     expect(titleDetector.detect()).toBe("working");
 
     // Done marker → complete
-    titleDetector.setTitle("✳ task complete");
+    titleDetector.setTitle("✻ task complete");
     expect(titleDetector.detect()).toBe("complete");
 
-    // Each done marker works
-    for (const marker of ["✳", "✻", "✽", "✶", "✢"]) {
+    // Each done marker works (✳ excluded — it's Claude Code branding)
+    for (const marker of ["✻", "✽", "✶", "✢"]) {
       titleDetector.setTitle(`${marker} done`);
       expect(titleDetector.detect()).toBe("complete");
     }
+
+    // ✳ is NOT a done marker (Claude Code uses it as static branding)
+    titleDetector.setTitle("✳ Claude Code");
+    expect(titleDetector.detect()).toBe("unknown");
 
     // Regular title → unknown
     titleDetector.setTitle("claude - terminal");
@@ -476,6 +481,235 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
         "idle",
       ]
     `);
+
+    detector.dispose();
+  });
+
+  it("Regression: shell becomes foreground — agent should transition to complete", () => {
+    const { detector, transitions } = createTestHarness();
+
+    // Agent starts
+    detector.updateForegroundProcess("claude");
+    detector.setStatus("thinking");
+    detector.setStatus("working");
+
+    // Agent exits — shell becomes foreground (not null)
+    detector.updateForegroundProcess("zsh");
+
+    expect(detector.getState().status).toBe("complete");
+
+    // After 3s, should go idle
+    vi.advanceTimersByTime(3000);
+
+    expect(statuses(transitions)).toMatchInlineSnapshot(`
+      [
+        "thinking",
+        "working",
+        "complete",
+        "idle",
+      ]
+    `);
+
+    detector.dispose();
+  });
+
+  it("Regression: shell variants (bash, fish, etc.) trigger completion", () => {
+    for (const shell of ["bash", "sh", "fish", "nu", "pwsh", "zsh"]) {
+      const { detector, transitions } = createTestHarness();
+
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+
+      // Shell becomes foreground
+      detector.updateForegroundProcess(shell);
+
+      expect(detector.getState().status).toBe("complete");
+      expect(statuses(transitions)).toContain("complete");
+
+      detector.dispose();
+    }
+  });
+
+  it("Regression: full path shell name triggers completion", () => {
+    const { detector, transitions } = createTestHarness();
+
+    detector.updateForegroundProcess("claude");
+    detector.setStatus("thinking");
+    detector.setStatus("working");
+
+    // Shell returned as full path
+    detector.updateForegroundProcess("/bin/zsh");
+
+    expect(detector.getState().status).toBe("complete");
+
+    vi.advanceTimersByTime(3000);
+
+    expect(statuses(transitions)).toMatchInlineSnapshot(`
+      [
+        "thinking",
+        "working",
+        "complete",
+        "idle",
+      ]
+    `);
+
+    detector.dispose();
+  });
+
+  it("Regression: non-shell child process does NOT trigger completion", () => {
+    const { detector } = createTestHarness();
+
+    detector.updateForegroundProcess("claude");
+    detector.setStatus("thinking");
+    detector.setStatus("working");
+
+    // Agent spawns a child (e.g., npm, node) — should keep tracking
+    detector.updateForegroundProcess("node");
+
+    expect(detector.getState().status).toBe("working");
+
+    detector.dispose();
+  });
+
+  it("Regression: fallback working → shell foreground → complete", () => {
+    const { detector, transitions } = createTestHarness();
+
+    detector.updateForegroundProcess("claude");
+    vi.advanceTimersByTime(2500);
+
+    // Fallback detects working (no hooks)
+    detector.setFallbackStatus("working");
+
+    // Agent exits — shell returns
+    detector.updateForegroundProcess("bash");
+
+    expect(detector.getState().status).toBe("complete");
+
+    vi.advanceTimersByTime(3000);
+
+    expect(statuses(transitions)).toMatchInlineSnapshot(`
+      [
+        "working",
+        "complete",
+        "idle",
+      ]
+    `);
+
+    detector.dispose();
+  });
+});
+
+describe("Hook events routed through Session", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Session.setAgentHookStatus() exists and delegates to AgentDetector", () => {
+    // Verify the method exists on Session instances
+    const session = new Session("test-session", "/tmp", 80, 24);
+    expect(typeof session.setAgentHookStatus).toBe("function");
+    session.dispose();
+  });
+
+  it("setAgentHookStatus routes to AgentDetector via state machine", () => {
+    // Test the AgentDetector state machine directly — this is what setAgentHookStatus delegates to.
+    // Session.setAgentHookStatus(status) calls agentDetector.setStatus(status).
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    // Simulate agent process detected first (so setStatus doesn't guard on !kind)
+    detector.updateForegroundProcess("claude");
+
+    // Hook fires: UserPromptSubmit → thinking
+    detector.setStatus("thinking");
+
+    expect(detector.getState().status).toBe("thinking");
+    expect(statuses(transitions)).toEqual(["thinking"]);
+
+    detector.dispose();
+  });
+
+  it("Complete auto-transitions to idle after 3000ms timer", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+
+    // Hook: thinking → complete
+    detector.setStatus("thinking");
+    detector.setStatus("complete");
+
+    expect(detector.getState().status).toBe("complete");
+
+    // Process exits (FG goes null) — this schedules the idle timer
+    detector.updateForegroundProcess(null);
+
+    // Advance timer by 3000ms — should transition to idle
+    vi.advanceTimersByTime(3000);
+
+    expect(detector.getState().status).toBe("idle");
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
+
+    detector.dispose();
+  });
+
+  it("Fallback debounce respects hook timing — fallback ignored within 2s window", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+
+    // Hook fires: thinking (sets lastHookTime)
+    detector.setStatus("thinking");
+
+    // Immediately try fallback with a different status — should be ignored
+    detector.setFallbackStatus("complete");
+
+    // Status stays thinking — fallback was debounced
+    expect(detector.getState().status).toBe("thinking");
+    expect(statuses(transitions)).toEqual(["thinking"]);
+
+    detector.dispose();
+  });
+
+  it("hasBeenActive set by hook events — complete not ignored after activity", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+
+    // Agent becomes active (hasBeenActive = true)
+    detector.setStatus("thinking");
+
+    // Now complete should NOT be ignored (hasBeenActive is true)
+    detector.setStatus("complete");
+
+    expect(detector.getState().status).toBe("complete");
+    expect(statuses(transitions)).toContain("complete");
+
+    detector.dispose();
+  });
+
+  it("complete ignored when hasBeenActive is false (no prior activity)", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+
+    // Send complete without any prior thinking/working — should be ignored
+    detector.setStatus("complete");
+
+    expect(detector.getState().status).toBe("idle");
+    expect(statuses(transitions)).not.toContain("complete");
 
     detector.dispose();
   });

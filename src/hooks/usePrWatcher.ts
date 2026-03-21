@@ -34,6 +34,11 @@ export function usePrWatcher() {
                     state: pr.state,
                     title: pr.title,
                     url: pr.url,
+                    isDraft: pr.isDraft,
+                    additions: pr.additions,
+                    deletions: pr.deletions,
+                    reviewDecision: pr.reviewDecision,
+                    checks: pr.checks,
                   }
                 : null,
             );

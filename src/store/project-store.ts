@@ -43,6 +43,11 @@ export interface PrInfo {
   state: string;
   title: string;
   url: string;
+  isDraft?: boolean;
+  additions?: number;
+  deletions?: number;
+  reviewDecision?: string | null;
+  checks?: { total: number; passing: number; failing: number; pending: number } | null;
 }
 
 export interface WorkspaceInfo {

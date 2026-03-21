@@ -1,11 +1,13 @@
 /**
  * Agent detector — tracks foreground process to detect when an agent CLI
- * starts and exits. Status transitions (running/waiting) are handled by
- * hook events from the agent CLI, not by this detector.
+ * starts and exits. Status transitions are driven by:
  *
- * This detector is responsible for:
- * - Detecting when an agent process appears → track it (stay idle until hooks fire)
- * - Detecting when an agent process exits → transition to "complete" → "idle"
+ * 1. Hook events (highest priority) — direct from agent CLI hooks
+ * 2. Fallback status — output patterns, title detection (lower priority)
+ * 3. Process polling — PID sweep for stale agents (lowest priority)
+ *
+ * Fallback signals are debounced: they cannot override a hook-driven status
+ * within 2 seconds of the last hook event.
  */
 
 import type { AgentKind, AgentState, AgentStatus } from "./types";
@@ -17,6 +19,7 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
 };
 
 const COMPLETE_CLEAR_MS = 3000;
+const HOOK_DEBOUNCE_MS = 2000;
 
 export class AgentDetector {
   private kind: AgentKind | null = null;
@@ -25,6 +28,12 @@ export class AgentDetector {
   private since: number = Date.now();
   private completeClearTimer: ReturnType<typeof setTimeout> | null = null;
   private _onStatusChange: ((state: AgentState) => void) | null = null;
+
+  /** Timestamp of the last hook-driven status update */
+  private lastHookTime = 0;
+
+  /** Tracked agent PIDs for stale sweep */
+  private trackedPids = new Map<number, { kind: AgentKind; status: AgentStatus }>();
 
   set onStatusChange(cb: (state: AgentState) => void) {
     this._onStatusChange = cb;
@@ -40,7 +49,7 @@ export class AgentDetector {
   }
 
   /** Called when foreground process info changes (from polling) */
-  updateForegroundProcess(name: string | null): void {
+  updateForegroundProcess(name: string | null, pid?: number): void {
     const prevKind = this.kind;
     const prevStatus = this.status;
 
@@ -65,6 +74,11 @@ export class AgentDetector {
       this.kind = agentKind;
       this.processName = name;
 
+      // Track PID if provided
+      if (pid !== undefined) {
+        this.trackedPids.set(pid, { kind: agentKind, status: this.status });
+      }
+
       if (prevKind !== agentKind) {
         this.clearTimers();
         // Just track the agent — stay idle (no dot) until a hook event
@@ -84,14 +98,72 @@ export class AgentDetector {
     }
   }
 
-  /** Called by hook events to update status directly */
+  /** Called by hook events to update status directly (highest priority) */
   setStatus(status: AgentStatus): void {
     if (this.status === "idle" && status !== "idle" && !this.kind) {
       // Agent hook fired but process detection hasn't caught up yet — set kind
       // This shouldn't normally happen, but be defensive.
       return;
     }
+    this.lastHookTime = Date.now();
     this.transition(status);
+
+    // Update tracked PID statuses
+    for (const [pid, info] of this.trackedPids) {
+      info.status = status;
+    }
+  }
+
+  /**
+   * Called by fallback detection (output patterns, title) — lower priority than hooks.
+   * Won't override a hook-driven status within HOOK_DEBOUNCE_MS of the last hook event.
+   */
+  setFallbackStatus(status: AgentStatus): void {
+    // Don't apply fallback if no agent is being tracked
+    if (!this.kind) return;
+
+    // Don't override a recent hook-driven status
+    const elapsed = Date.now() - this.lastHookTime;
+    if (elapsed < HOOK_DEBOUNCE_MS) return;
+
+    // Don't transition to the same status
+    if (this.status === status) return;
+
+    this.transition(status);
+  }
+
+  /**
+   * Sweep tracked PIDs for stale (dead) processes.
+   * For each tracked agent with a non-idle status, check if the process still exists.
+   * Dead processes get forced to idle.
+   */
+  sweepStalePids(): void {
+    const deadPids: number[] = [];
+
+    for (const [pid, info] of this.trackedPids) {
+      if (info.status === "idle") continue;
+
+      try {
+        process.kill(pid, 0); // Just checks existence, sends no signal
+        // Process is alive — no action needed
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ESRCH") {
+          // Process does not exist — it's dead
+          deadPids.push(pid);
+        }
+        // EPERM means it exists but we can't signal it — keep tracking
+      }
+    }
+
+    for (const pid of deadPids) {
+      this.trackedPids.delete(pid);
+    }
+
+    // If all tracked PIDs are dead and agent was not idle, force to idle
+    if (deadPids.length > 0 && this.trackedPids.size === 0 && this.status !== "idle") {
+      this.transitionToIdle();
+    }
   }
 
   /** Called when terminal output is received — no-op, hooks handle status */
@@ -106,6 +178,7 @@ export class AgentDetector {
 
   dispose(): void {
     this.clearTimers();
+    this.trackedPids.clear();
   }
 
   private transitionToComplete(): void {

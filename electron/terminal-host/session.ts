@@ -24,6 +24,8 @@ import {
 import { ShellManager } from "../shell";
 import { ScrollbackWriter } from "./scrollback";
 import { AgentDetector } from "./agent-detector";
+import { OutputPatternMatcher } from "./output-pattern-matcher";
+import { TitleDetector, OscTitleParser } from "./title-detector";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -58,6 +60,12 @@ export class Session {
 
   // Agent detection
   private agentDetector: AgentDetector;
+
+  // Fallback detection
+  private outputMatcher: OutputPatternMatcher;
+  private titleDetector: TitleDetector;
+  private oscTitleParser: OscTitleParser;
+  private pidSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   // OSC 7 parser state
   private oscBuf: number[] = [];
@@ -105,6 +113,16 @@ export class Session {
         agent: state,
       });
     };
+
+    // Fallback detection
+    this.outputMatcher = new OutputPatternMatcher();
+    this.titleDetector = new TitleDetector();
+    this.oscTitleParser = new OscTitleParser();
+
+    // Stale PID sweep every 30 seconds
+    this.pidSweepTimer = setInterval(() => {
+      this.agentDetector.sweepStalePids();
+    }, 30_000);
   }
 
   get alive(): boolean {
@@ -212,6 +230,24 @@ export class Session {
         // Parse OSC 7 for CWD tracking
         this.parseOsc7(data);
 
+        // Parse OSC 0/2 for title-based fallback detection
+        const titles = this.oscTitleParser.parse(data);
+        if (titles.length > 0) {
+          const latestTitle = titles[titles.length - 1];
+          this.titleDetector.setTitle(latestTitle);
+          const titleStatus = this.titleDetector.detect();
+          if (titleStatus !== "unknown") {
+            this.agentDetector.setFallbackStatus(titleStatus);
+          }
+        }
+
+        // Output pattern fallback detection
+        this.outputMatcher.addData(data);
+        const patternStatus = this.outputMatcher.detect();
+        if (patternStatus !== null) {
+          this.agentDetector.setFallbackStatus(patternStatus);
+        }
+
         // Track terminal modes from escape sequences
         this.trackModes(data);
 
@@ -287,6 +323,10 @@ export class Session {
     }
     this._alive = false;
     this.agentDetector.dispose();
+    if (this.pidSweepTimer) {
+      clearInterval(this.pidSweepTimer);
+      this.pidSweepTimer = null;
+    }
     this.scrollbackWriter?.end();
     this.scrollbackWriter?.dispose();
     this.scrollbackWriter = null;

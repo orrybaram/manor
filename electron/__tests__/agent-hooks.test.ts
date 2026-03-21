@@ -5,21 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import { AgentHookServer, mapEventToStatus } from "../agent-hooks";
-
-// ── Helpers ──
-
-function makeMockWindow(overrides: {
-  isDestroyed?: boolean;
-  webContentsIsDestroyed?: boolean;
-} = {}) {
-  return {
-    isDestroyed: () => overrides.isDestroyed ?? false,
-    webContents: {
-      isDestroyed: () => overrides.webContentsIsDestroyed ?? false,
-      send: vi.fn(),
-    },
-  } as unknown as import("electron").BrowserWindow;
-}
+import type { AgentStatus } from "../terminal-host/types";
 
 function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -100,12 +86,12 @@ describe("mapEventToStatus", () => {
 
 describe("AgentHookServer", () => {
   let server: AgentHookServer;
-  let mockWindow: ReturnType<typeof makeMockWindow>;
+  let relayFn: (paneId: string, status: AgentStatus) => void;
 
   beforeEach(async () => {
     server = new AgentHookServer();
-    mockWindow = makeMockWindow();
-    await server.start(mockWindow);
+    relayFn = vi.fn() as unknown as (paneId: string, status: AgentStatus) => void;
+    await server.start(relayFn);
   });
 
   afterEach(() => {
@@ -127,13 +113,13 @@ describe("AgentHookServer", () => {
     it("supports multiple start/stop cycles", async () => {
       server.stop();
 
-      const win = makeMockWindow();
-      await server.start(win);
+      const relay = vi.fn();
+      await server.start(relay);
       expect(server.hookPort).toBeGreaterThan(0);
 
       server.stop();
 
-      await server.start(win);
+      await server.start(relay);
       expect(server.hookPort).toBeGreaterThan(0);
     });
   });
@@ -159,89 +145,46 @@ describe("AgentHookServer", () => {
       expect(res.status).toBe(404);
     });
 
-    it("returns 200 for valid request with unknown eventType (accepted but no IPC)", async () => {
+    it("returns 200 for valid request with unknown eventType (accepted but relay not called)", async () => {
       const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=UnknownThing");
       expect(res.status).toBe(200);
-      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+      expect(relayFn).not.toHaveBeenCalled();
     });
   });
 
-  describe("IPC delivery to renderer", () => {
-    it("sends correct message shape for a valid event", async () => {
-      const before = Date.now();
+  describe("relay callback invocation", () => {
+    it("calls relay with correct paneId and status for a valid event", async () => {
       await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
 
-      expect(mockWindow.webContents.send).toHaveBeenCalledTimes(1);
-      const [channel, payload] = mockWindow.webContents.send.mock.calls[0];
-      expect(channel).toBe("pty-agent-status-abc");
-      expect(payload).toMatchObject({
-        kind: "claude",
-        status: "complete",
-        processName: "claude",
-      });
-      expect(payload.since).toBeGreaterThanOrEqual(before);
-      expect(payload.since).toBeLessThanOrEqual(Date.now());
+      expect(relayFn).toHaveBeenCalledTimes(1);
+      expect(relayFn).toHaveBeenCalledWith("abc", "complete");
     });
 
-    it("sends to the correct channel per paneId", async () => {
+    it("calls relay with correct paneId for each request", async () => {
       await httpGet(server.hookPort, "/hook/event?paneId=pane-1&eventType=Stop");
       await httpGet(server.hookPort, "/hook/event?paneId=pane-2&eventType=UserPromptSubmit");
 
-      expect(mockWindow.webContents.send).toHaveBeenCalledTimes(2);
-      expect(mockWindow.webContents.send.mock.calls[0][0]).toBe("pty-agent-status-pane-1");
-      expect(mockWindow.webContents.send.mock.calls[1][0]).toBe("pty-agent-status-pane-2");
+      expect(relayFn).toHaveBeenCalledTimes(2);
+      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete");
+      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking");
     });
 
-    it("paneId isolation: event for pane-1 does not send to pane-2", async () => {
+    it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {
       await httpGet(server.hookPort, "/hook/event?paneId=pane-1&eventType=Stop");
 
-      expect(mockWindow.webContents.send).toHaveBeenCalledTimes(1);
-      const channel = mockWindow.webContents.send.mock.calls[0][0];
-      expect(channel).toBe("pty-agent-status-pane-1");
-      expect(channel).not.toContain("pane-2");
+      expect(relayFn).toHaveBeenCalledTimes(1);
+      const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
+      const [paneId] = mockRelay.mock.calls[0] as [string, AgentStatus];
+      expect(paneId).toBe("pane-1");
+      expect(paneId).not.toContain("pane-2");
     });
 
-    it("does not throw when mainWindow is null", async () => {
-      server.stop();
-
-      const nullServer = new AgentHookServer();
-      const win = makeMockWindow({ isDestroyed: true });
-      await nullServer.start(win);
-
-      const res = await httpGet(nullServer.hookPort, "/hook/event?paneId=abc&eventType=Stop");
+    it("does not call relay for unknown eventType", async () => {
+      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=SomeUnknown");
       expect(res.status).toBe(200);
-      expect(win.webContents.send).not.toHaveBeenCalled();
-
-      nullServer.stop();
+      expect(relayFn).not.toHaveBeenCalled();
     });
 
-    it("does not throw when mainWindow.isDestroyed() returns true", async () => {
-      server.stop();
-
-      const destroyedWin = makeMockWindow({ isDestroyed: true });
-      const s = new AgentHookServer();
-      await s.start(destroyedWin);
-
-      const res = await httpGet(s.hookPort, "/hook/event?paneId=abc&eventType=UserPromptSubmit");
-      expect(res.status).toBe(200);
-      expect(destroyedWin.webContents.send).not.toHaveBeenCalled();
-
-      s.stop();
-    });
-
-    it("does not throw when webContents.isDestroyed() returns true", async () => {
-      server.stop();
-
-      const destroyedWC = makeMockWindow({ webContentsIsDestroyed: true });
-      const s = new AgentHookServer();
-      await s.start(destroyedWC);
-
-      const res = await httpGet(s.hookPort, "/hook/event?paneId=abc&eventType=UserPromptSubmit");
-      expect(res.status).toBe(200);
-      expect(destroyedWC.webContents.send).not.toHaveBeenCalled();
-
-      s.stop();
-    });
   });
 });
 

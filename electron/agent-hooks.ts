@@ -12,7 +12,6 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { BrowserWindow } from "electron";
 
 // Map hook event names to our status
 import type { AgentStatus } from "./terminal-host/types";
@@ -46,15 +45,15 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private mainWindow: BrowserWindow | null = null;
+  private relayFn: ((paneId: string, status: AgentStatus) => void) | null = null;
 
   get hookPort(): number {
     return this.port;
   }
 
   /** Start the HTTP server on a random port */
-  async start(mainWindow: BrowserWindow): Promise<void> {
-    this.mainWindow = mainWindow;
+  async start(relay: (paneId: string, status: AgentStatus) => void): Promise<void> {
+    this.relayFn = relay;
 
     this.server = http.createServer((req, res) => {
       if (!req.url) {
@@ -82,7 +81,7 @@ export class AgentHookServer {
 
       const status = mapEventToStatus(eventType);
       if (status) {
-        this.sendToRenderer(paneId, status);
+        this.relayFn?.(paneId, status);
       }
 
       res.writeHead(200);
@@ -98,25 +97,6 @@ export class AgentHookServer {
         resolve();
       });
     });
-  }
-
-  private sendToRenderer(paneId: string, status: PaneStatus): void {
-    if (
-      !this.mainWindow ||
-      this.mainWindow.isDestroyed() ||
-      this.mainWindow.webContents.isDestroyed()
-    )
-      return;
-    try {
-      this.mainWindow.webContents.send(`pty-agent-status-${paneId}`, {
-        kind: "claude",
-        status,
-        processName: "claude",
-        since: Date.now(),
-      });
-    } catch {
-      // Window disposed during reload
-    }
   }
 
   stop(): void {

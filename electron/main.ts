@@ -6,6 +6,7 @@ import {
   dialog,
   shell,
   screen,
+  nativeImage,
 } from "electron";
 import fs from "node:fs";
 import os from "node:os";
@@ -120,6 +121,7 @@ function createWindow() {
     ...(useSaved ? { x: saved.x, y: saved.y } : {}),
     minWidth: 400,
     minHeight: 300,
+    icon: path.join(__dirname, "../build/icon.png"),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",
@@ -644,18 +646,19 @@ app.whenReady().then(async () => {
   ]);
   Menu.setApplicationMenu(menu);
 
+  // Set Dock icon on macOS
+  if (process.platform === "darwin") {
+    const iconPath = path.join(__dirname, "../build/icon.png");
+    if (fs.existsSync(iconPath)) {
+      app.dock.setIcon(nativeImage.createFromPath(iconPath));
+    }
+  }
+
   createWindow();
 
   // Initialize auto-updater
   if (mainWindow) {
     initAutoUpdater(mainWindow);
-  }
-
-  // Start agent hook server (receives lifecycle events from Claude Code, etc.)
-  // Must happen before daemon connect so the port is available in the environment.
-  if (mainWindow) {
-    await agentHookServer.start(mainWindow);
-    process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
   }
 
   // Connect to daemon (spawns if needed)
@@ -664,6 +667,13 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error("Failed to connect to terminal host daemon:", err);
   }
+
+  // Start agent hook server (receives lifecycle events from Claude Code, etc.)
+  // Must happen after daemon connect so the client is ready to relay events.
+  await agentHookServer.start((paneId, status) => {
+    client.relayAgentHook(paneId, status);
+  });
+  process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -9,28 +9,18 @@ import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import {
-  House,
-  FolderGit2,
-  Plus,
   ChevronRight,
   ArrowLeft,
   Loader2,
   Clock,
 } from "lucide-react";
-import { useAppStore, selectActiveWorkspace } from "../store/app-store";
-import { useProjectStore } from "../store/project-store";
-import type { LinearIssue, LinearIssueDetail } from "../electron.d";
+import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
+import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
+import { useWorkspaceCommands } from "./useWorkspaceCommands";
+import { useCommands } from "./useCommands";
+import type { CommandItem } from "./useWorkspaceCommands";
 import styles from "./CommandPalette.module.css";
-
-interface CommandItem {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-  shortcut?: string;
-  group?: string;
-  isActive?: boolean;
-  action: () => void;
-}
 
 interface CommandPaletteProps {
   open: boolean;
@@ -208,228 +198,34 @@ export function CommandPalette({
     [onClose],
   );
 
-  const workspaceCommands: CommandItem[] = useMemo(() => {
-    const cmds: CommandItem[] = [];
-    for (const project of projects) {
-      for (let wi = 0; wi < project.workspaces.length; wi++) {
-        const workspace = project.workspaces[wi];
-        const isActive = workspace.path === activeWorkspacePath;
-        const displayName = workspace.name || workspace.branch || "main";
-        cmds.push({
-          id: `ws-${project.id}-${wi}`,
-          label: displayName,
-          icon: workspace.isMain ? (
-            <House size={14} />
-          ) : (
-            <FolderGit2 size={14} />
-          ),
-          group: project.name,
-          isActive,
-          action: () => {
-            if (!isActive) {
-              selectWorkspace(project.id, wi);
-              setActiveWorkspace(workspace.path);
-            }
-            onClose();
-          },
-        });
-      }
-      cmds.push({
-        id: `new-ws-${project.id}`,
-        label: "New Workspace",
-        icon: <Plus size={14} />,
-        group: project.name,
-        action: () => {
-          onNewWorkspace?.({ projectId: project.id });
-          onClose();
-        },
-      });
-    }
-    return cmds;
-  }, [
+  const { workspaceGroups } = useWorkspaceCommands({
     projects,
     activeWorkspacePath,
     selectWorkspace,
     setActiveWorkspace,
     onClose,
     onNewWorkspace,
-  ]);
+  });
 
-  const commands: CommandItem[] = useMemo(
-    () => [
-      {
-        id: "new-session",
-        label: "New Session",
-        shortcut: "⌘T",
-        action: () => {
-          addSession();
-          onClose();
-        },
-      },
-      {
-        id: "close-pane",
-        label: "Close Pane",
-        shortcut: "⌘W",
-        action: () => {
-          closePane();
-          onClose();
-        },
-      },
-      {
-        id: "close-session",
-        label: "Close Session",
-        shortcut: "⌘⇧W",
-        action: () => {
-          const session = sessions.find((s) => s.id === selectedSessionId);
-          if (session) closeSession(session.id);
-          onClose();
-        },
-      },
-      {
-        id: "split-h",
-        label: "Split Horizontal",
-        shortcut: "⌘D",
-        action: () => {
-          splitPane("horizontal");
-          onClose();
-        },
-      },
-      {
-        id: "split-v",
-        label: "Split Vertical",
-        shortcut: "⌘⇧D",
-        action: () => {
-          splitPane("vertical");
-          onClose();
-        },
-      },
-      {
-        id: "next-session",
-        label: "Next Session",
-        shortcut: "⌘⇧]",
-        action: () => {
-          selectNextSession();
-          onClose();
-        },
-      },
-      {
-        id: "prev-session",
-        label: "Previous Session",
-        shortcut: "⌘⇧[",
-        action: () => {
-          selectPrevSession();
-          onClose();
-        },
-      },
-      {
-        id: "next-pane",
-        label: "Next Pane",
-        shortcut: "⌘]",
-        action: () => {
-          focusNextPane();
-          onClose();
-        },
-      },
-      {
-        id: "prev-pane",
-        label: "Previous Pane",
-        shortcut: "⌘[",
-        action: () => {
-          focusPrevPane();
-          onClose();
-        },
-      },
-      {
-        id: "toggle-sidebar",
-        label: "Toggle Sidebar",
-        shortcut: "⌘\\",
-        action: () => {
-          toggleSidebar();
-          onClose();
-        },
-      },
-      {
-        id: "zoom-in",
-        label: "Zoom In",
-        shortcut: "⌘=",
-        action: () => {
-          zoomIn();
-          onClose();
-        },
-      },
-      {
-        id: "zoom-out",
-        label: "Zoom Out",
-        shortcut: "⌘-",
-        action: () => {
-          zoomOut();
-          onClose();
-        },
-      },
-      {
-        id: "zoom-reset",
-        label: "Reset Zoom",
-        shortcut: "⌘0",
-        action: () => {
-          resetZoom();
-          onClose();
-        },
-      },
-      {
-        id: "settings",
-        label: "Settings",
-        shortcut: "⌘,",
-        action: () => {
-          onOpenSettings?.();
-          onClose();
-        },
-      },
-      {
-        id: "ghosts",
-        label: "Ghosts!?",
-        icon: <span>👻</span>,
-        action: () => {
-          onClose();
-          setShowGhosts(true);
-          setTimeout(() => setShowGhosts(false), 5000);
-        },
-      },
-    ],
-    [
-      addSession,
-      closePane,
-      closeSession,
-      splitPane,
-      selectNextSession,
-      selectPrevSession,
-      focusNextPane,
-      focusPrevPane,
-      toggleSidebar,
-      zoomIn,
-      zoomOut,
-      resetZoom,
-      onClose,
-      onOpenSettings,
-      sessions,
-      selectedSessionId,
-    ],
-  );
-
-  // Group workspace commands by project name, active project first
-  const workspaceGroups = useMemo(() => {
-    const groups = new Map<string, CommandItem[]>();
-    for (const cmd of workspaceCommands) {
-      const group = cmd.group || "Workspaces";
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group)!.push(cmd);
-    }
-    const sorted = [...groups.entries()].sort(([, a], [, b]) => {
-      const aActive = a.some((c) => c.isActive) ? 0 : 1;
-      const bActive = b.some((c) => c.isActive) ? 0 : 1;
-      return aActive - bActive;
-    });
-    return new Map(sorted);
-  }, [workspaceCommands]);
+  const commands = useCommands({
+    addSession,
+    closePane,
+    closeSession,
+    splitPane,
+    selectNextSession,
+    selectPrevSession,
+    focusNextPane,
+    focusPrevPane,
+    toggleSidebar,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    onClose,
+    onOpenSettings,
+    sessions,
+    selectedSessionId,
+    setShowGhosts,
+  });
 
   const recentCommands: CommandItem[] = useMemo(() => {
     const state = useAppStore.getState();

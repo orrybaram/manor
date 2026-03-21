@@ -3,12 +3,10 @@ import {
   useCallback,
   useState,
   useEffect,
-  useRef,
   type ReactNode,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
 import {
   House,
@@ -24,7 +22,7 @@ import {
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import type { RecentView } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import type { LinearIssue } from "../electron.d";
+import type { LinearIssue, LinearIssueDetail } from "../electron.d";
 import styles from "./CommandPalette.module.css";
 
 interface CommandItem {
@@ -48,7 +46,7 @@ interface CommandPaletteProps {
   }) => void;
 }
 
-type PaletteView = "root" | "linear";
+type PaletteView = "root" | "linear" | "issue-detail";
 
 export function CommandPalette({
   open,
@@ -83,8 +81,7 @@ export function CommandPalette({
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
   const [linearConnected, setLinearConnected] = useState(false);
-  const [popoverIssue, setPopoverIssue] = useState<LinearIssue | null>(null);
-  const popoverAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [showGhosts, setShowGhosts] = useState(false);
 
   // Get all team IDs from projects with Linear associations
@@ -118,12 +115,20 @@ export function CommandPalette({
     enabled: view === "linear" && allTeamIds.length > 0,
   });
 
+  // Fetch issue detail when viewing a specific issue
+  const { data: issueDetail, isLoading: issueDetailLoading } = useQuery({
+    queryKey: ["linear-issue-detail", selectedIssueId],
+    queryFn: () => window.electronAPI.linearGetIssueDetail(selectedIssueId!),
+    enabled: view === "issue-detail" && selectedIssueId !== null,
+    staleTime: 60_000,
+  });
+
   // Reset state when palette closes
   useEffect(() => {
     if (!open) {
       setView("root");
       setSearch("");
-      setPopoverIssue(null);
+      setSelectedIssueId(null);
     }
   }, [open]);
 
@@ -134,8 +139,14 @@ export function CommandPalette({
 
   const navigateToRoot = useCallback(() => {
     setSearch("");
-    setPopoverIssue(null);
+    setSelectedIssueId(null);
     setView("root");
+  }, []);
+
+  const navigateToLinearList = useCallback(() => {
+    setSearch("");
+    setSelectedIssueId(null);
+    setView("linear");
   }, []);
 
   // Find the project that has a Linear association for a given issue's team
@@ -503,14 +514,9 @@ export function CommandPalette({
 
   const handleEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (popoverIssue) {
+      if (view === "issue-detail") {
         e.preventDefault();
-        setPopoverIssue(null);
-        requestAnimationFrame(() => {
-          const input =
-            document.querySelector<HTMLInputElement>("[cmdk-input]");
-          input?.focus();
-        });
+        navigateToLinearList();
         return;
       }
       if (view !== "root") {
@@ -519,7 +525,7 @@ export function CommandPalette({
         return;
       }
     },
-    [view, popoverIssue, navigateToRoot],
+    [view, navigateToRoot, navigateToLinearList],
   );
 
   const showLinear = linearConnected && allTeamIds.length > 0;
@@ -548,15 +554,36 @@ export function CommandPalette({
                 <span className={styles.breadcrumbLabel}>Linear Issues</span>
               </div>
             )}
-            <Command.Input
-              className={styles.input}
-              placeholder={
-                view === "linear" ? "Search issues..." : "Type a command..."
-              }
-              autoFocus
-              value={search}
-              onValueChange={setSearch}
-            />
+            {view === "issue-detail" && (
+              <div className={styles.breadcrumb}>
+                <button
+                  className={styles.breadcrumbBack}
+                  onClick={navigateToLinearList}
+                >
+                  <ArrowLeft size={14} />
+                </button>
+                <span className={styles.breadcrumbLabel}>
+                  Linear Issues
+                  {issueDetail && (
+                    <>
+                      {" > "}
+                      {issueDetail.identifier}
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+            {view !== "issue-detail" && (
+              <Command.Input
+                className={styles.input}
+                placeholder={
+                  view === "linear" ? "Search issues..." : "Type a command..."
+                }
+                autoFocus
+                value={search}
+                onValueChange={setSearch}
+              />
+            )}
             <Command.List className={styles.list}>
               <Command.Empty className={styles.empty}>
                 {view === "linear"
@@ -667,109 +694,40 @@ export function CommandPalette({
                   ) : (
                     <Command.Group heading="My Issues" className={styles.group}>
                       {linearIssues.map((issue) => (
-                        <Popover.Root
+                        <Command.Item
                           key={issue.id}
-                          open={popoverIssue?.id === issue.id}
-                          onOpenChange={(isOpen) => {
-                            if (!isOpen) setPopoverIssue(null);
+                          value={`${issue.identifier} ${issue.title}`}
+                          onSelect={() => {
+                            setSelectedIssueId(issue.id);
+                            setSearch("");
+                            setView("issue-detail");
                           }}
-                          modal={false}
+                          className={styles.item}
                         >
-                          <Popover.Anchor asChild>
-                            <div
-                              ref={
-                                popoverIssue?.id === issue.id
-                                  ? popoverAnchorRef
-                                  : undefined
-                              }
-                            >
-                              <Command.Item
-                                value={`${issue.identifier} ${issue.title}`}
-                                onSelect={() => setPopoverIssue(issue)}
-                                className={styles.item}
-                              >
-                                <span className={styles.issueIdentifier}>
-                                  {issue.identifier}
-                                </span>
-                                <span className={styles.label}>
-                                  {issue.title}
-                                </span>
-                                <span className={styles.issueState}>
-                                  {issue.state.name}
-                                </span>
-                              </Command.Item>
-                            </div>
-                          </Popover.Anchor>
-                          <Popover.Portal>
-                            <Popover.Content
-                              className={styles.issuePopover}
-                              side="right"
-                              sideOffset={8}
-                              align="start"
-                              onCloseAutoFocus={(e) => {
-                                e.preventDefault();
-                                // Refocus the cmdk input so keyboard navigation resumes
-                                const input =
-                                  document.querySelector<HTMLInputElement>(
-                                    "[cmdk-input]",
-                                  );
-                                input?.focus();
-                              }}
-                              onKeyDown={(e) => {
-                                // Stop all key events from bubbling to cmdk
-                                e.stopPropagation();
-                                if (
-                                  e.key === "ArrowDown" ||
-                                  e.key === "ArrowUp"
-                                ) {
-                                  e.preventDefault();
-                                  const container = e.currentTarget;
-                                  const buttons = Array.from(
-                                    container.querySelectorAll<HTMLButtonElement>(
-                                      "button:not(:disabled)",
-                                    ),
-                                  );
-                                  const idx = buttons.indexOf(
-                                    e.target as HTMLButtonElement,
-                                  );
-                                  const next =
-                                    e.key === "ArrowDown"
-                                      ? buttons[(idx + 1) % buttons.length]
-                                      : buttons[
-                                          (idx - 1 + buttons.length) %
-                                            buttons.length
-                                        ];
-                                  next?.focus();
-                                }
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  setPopoverIssue(null);
-                                }
-                              }}
-                            >
-                              <button
-                                className={styles.popoverAction}
-                                onClick={() => handleCreateWorkspace(issue)}
-                              >
-                                <GitBranch size={14} />
-                                <span>Create Workspace</span>
-                              </button>
-                              <button
-                                className={styles.popoverAction}
-                                onClick={() => handleOpenInBrowser(issue)}
-                              >
-                                <ExternalLink size={14} />
-                                <span>Open in Browser</span>
-                              </button>
-                            </Popover.Content>
-                          </Popover.Portal>
-                        </Popover.Root>
+                          <span className={styles.issueIdentifier}>
+                            {issue.identifier}
+                          </span>
+                          <span className={styles.label}>
+                            {issue.title}
+                          </span>
+                          <span className={styles.issueState}>
+                            {issue.state.name}
+                          </span>
+                        </Command.Item>
                       ))}
                     </Command.Group>
                   )}
                 </>
               )}
             </Command.List>
+            {view === "issue-detail" && (
+              <IssueDetailView
+                issueDetail={issueDetail ?? null}
+                isLoading={issueDetailLoading}
+                onCreateWorkspace={handleCreateWorkspace}
+                onOpenInBrowser={handleOpenInBrowser}
+              />
+            )}
           </Command>
         </Dialog.Content>
       </Dialog.Portal>
@@ -795,6 +753,125 @@ export function CommandPalette({
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
+  0: { label: "None", color: "var(--text-dim)" },
+  1: { label: "Urgent", color: "#f76a6a" },
+  2: { label: "High", color: "#f0913a" },
+  3: { label: "Medium", color: "#f0c73a" },
+  4: { label: "Low", color: "#8da4ef" },
+};
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // images
+    .replace(/\[[^\]]*\]\([^)]*\)/g, (m) => m.replace(/\[([^\]]*)\]\([^)]*\)/, "$1")) // links
+    .replace(/#{1,6}\s+/g, "") // headings
+    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1") // bold/italic
+    .replace(/`{1,3}[^`]*`{1,3}/g, (m) => m.replace(/`+/g, "")) // code
+    .replace(/^\s*[-*+]\s+/gm, "") // list markers
+    .replace(/^\s*\d+\.\s+/gm, "") // numbered lists
+    .replace(/^\s*>/gm, "") // blockquotes
+    .replace(/---+|===+/g, "") // horizontal rules
+    .replace(/\n{3,}/g, "\n\n") // excessive newlines
+    .trim();
+}
+
+function IssueDetailView({
+  issueDetail,
+  isLoading,
+  onCreateWorkspace,
+  onOpenInBrowser,
+}: {
+  issueDetail: LinearIssueDetail | null;
+  isLoading: boolean;
+  onCreateWorkspace: (issue: LinearIssueDetail) => void;
+  onOpenInBrowser: (issue: LinearIssueDetail) => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className={styles.detailBody}>
+        <div className={styles.linearLoading}>
+          <Loader2 size={16} className={styles.spinner} />
+          <span>Loading issue...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!issueDetail) return null;
+
+  const priority = PRIORITY_LABELS[issueDetail.priority] ?? PRIORITY_LABELS[0];
+  const description = issueDetail.description
+    ? stripMarkdown(issueDetail.description)
+    : null;
+  const truncatedDescription =
+    description && description.length > 500
+      ? description.slice(0, 500) + "..."
+      : description;
+
+  return (
+    <>
+      <div className={styles.detailBody}>
+        <div className={styles.detailHeader}>
+          <span className={styles.detailIdentifier}>
+            {issueDetail.identifier}
+          </span>
+          <h2 className={styles.detailTitle}>{issueDetail.title}</h2>
+        </div>
+        <div className={styles.detailMeta}>
+          <span
+            className={styles.detailPriority}
+            style={{ color: priority.color }}
+          >
+            <span
+              className={styles.priorityDot}
+              style={{ background: priority.color }}
+            />
+            {priority.label}
+          </span>
+          <span className={styles.detailStateBadge}>
+            {issueDetail.state.name}
+          </span>
+          {issueDetail.labels.map((label) => (
+            <span
+              key={label.id}
+              className={styles.detailLabel}
+              style={{ background: label.color + "22", color: label.color }}
+            >
+              {label.name}
+            </span>
+          ))}
+        </div>
+        {issueDetail.assignee && (
+          <div className={styles.detailAssignee}>
+            <span className={styles.detailAssigneeLabel}>Assignee:</span>
+            <span>{issueDetail.assignee.displayName}</span>
+          </div>
+        )}
+        {truncatedDescription && (
+          <div className={styles.detailDescription}>{truncatedDescription}</div>
+        )}
+      </div>
+      <div className={styles.detailActions}>
+        <button
+          className={styles.detailAction}
+          onClick={() => onCreateWorkspace(issueDetail)}
+        >
+          <GitBranch size={14} />
+          <span>Create Workspace</span>
+        </button>
+        <button
+          className={styles.detailAction}
+          onClick={() => onOpenInBrowser(issueDetail)}
+        >
+          <ExternalLink size={14} />
+          <span>Open in Browser</span>
+        </button>
+      </div>
     </>
   );
 }

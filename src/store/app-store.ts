@@ -180,7 +180,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               if (paneSession.lastTitle) {
                 titles[paneId] = paneSession.lastTitle;
               }
-              if (paneSession.lastAgentStatus && paneSession.lastAgentStatus.status !== "idle") {
+              if (paneSession.lastAgentStatus &&
+                  !(paneSession.lastAgentStatus.status === "idle" && paneSession.lastAgentStatus.kind === null)) {
                 agents[paneId] = paneSession.lastAgentStatus as AgentState;
               }
             }
@@ -591,7 +592,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         current.processName === agent.processName
       )
         return state;
-      if (agent.status === "idle") {
+      // Remove from store only when agent is truly gone (kind is null)
+      if (agent.status === "idle" && agent.kind === null) {
         const { [paneId]: _, ...rest } = state.paneAgentStatus;
         return { paneAgentStatus: rest };
       }

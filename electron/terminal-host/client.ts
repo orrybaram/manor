@@ -18,6 +18,7 @@ import type {
   SessionInfo,
   TerminalSnapshot,
   AgentStatus,
+  AgentKind,
 } from "./types";
 
 const MANOR_DIR = path.join(os.homedir(), ".manor");
@@ -198,8 +199,8 @@ export class TerminalHostClient {
   }
 
   /** Relay an agent hook event to the daemon (fire-and-forget) */
-  relayAgentHook(sessionId: string, status: AgentStatus): void {
-    this.streamWrite({ type: "agentHook", sessionId, status });
+  relayAgentHook(sessionId: string, status: AgentStatus, kind: AgentKind): void {
+    this.streamWrite({ type: "agentHook", sessionId, status, kind });
   }
 
   /** Resize a session's terminal */

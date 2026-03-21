@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import { AgentHookServer, mapEventToStatus } from "../agent-hooks";
-import type { AgentStatus } from "../terminal-host/types";
+import type { AgentStatus, AgentKind } from "../terminal-host/types";
 
 function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -86,11 +86,11 @@ describe("mapEventToStatus", () => {
 
 describe("AgentHookServer", () => {
   let server: AgentHookServer;
-  let relayFn: (paneId: string, status: AgentStatus) => void;
+  let relayFn: (paneId: string, status: AgentStatus, kind: AgentKind) => void;
 
   beforeEach(async () => {
     server = new AgentHookServer();
-    relayFn = vi.fn() as unknown as (paneId: string, status: AgentStatus) => void;
+    relayFn = vi.fn() as unknown as (paneId: string, status: AgentStatus, kind: AgentKind) => void;
     await server.start();
     server.setRelay(relayFn);
   });
@@ -160,7 +160,7 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
 
       expect(relayFn).toHaveBeenCalledTimes(1);
-      expect(relayFn).toHaveBeenCalledWith("abc", "complete");
+      expect(relayFn).toHaveBeenCalledWith("abc", "complete", "claude");
     });
 
     it("calls relay with correct paneId for each request", async () => {
@@ -168,8 +168,8 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=pane-2&eventType=UserPromptSubmit");
 
       expect(relayFn).toHaveBeenCalledTimes(2);
-      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete");
-      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking");
+      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete", "claude");
+      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking", "claude");
     });
 
     it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {

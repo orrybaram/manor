@@ -98,7 +98,7 @@ export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
   | { type: "unsubscribe"; sessionId: string }
-  | { type: "agentHook"; sessionId: string; status: AgentStatus };
+  | { type: "agentHook"; sessionId: string; status: AgentStatus; kind: AgentKind };
 
 // ── PTY Subprocess spawn payload ──
 

@@ -5,6 +5,8 @@ export interface Toast {
   message: string;
   status: "loading" | "success" | "error";
   detail?: string;
+  persistent?: boolean;
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastState {

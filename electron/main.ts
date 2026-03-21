@@ -29,6 +29,7 @@ import {
   ensureHookScript,
   registerClaudeHooks,
 } from "./agent-hooks";
+import { assertString, assertPositiveInt } from "./ipc-validate";
 import type { StreamEvent } from "./terminal-host/types";
 
 let mainWindow: BrowserWindow | null = null;
@@ -245,6 +246,10 @@ ipcMain.handle(
     cols: number,
     rows: number,
   ) => {
+    assertString(paneId, "paneId");
+    if (cwd !== null) assertString(cwd, "cwd");
+    assertPositiveInt(cols, "cols");
+    assertPositiveInt(rows, "rows");
     try {
       const result = await client.createOrAttach(
         paneId,
@@ -269,12 +274,17 @@ ipcMain.handle(
 );
 
 ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
+  assertString(paneId, "paneId");
+  assertString(data, "data");
   client.writeNoAck(paneId, data);
 });
 
 ipcMain.handle(
   "pty:resize",
   async (_event, paneId: string, cols: number, rows: number) => {
+    assertString(paneId, "paneId");
+    assertPositiveInt(cols, "cols");
+    assertPositiveInt(rows, "rows");
     try {
       await client.resize(paneId, cols, rows);
     } catch {
@@ -284,6 +294,7 @@ ipcMain.handle(
 );
 
 ipcMain.handle("pty:close", async (_event, paneId: string) => {
+  assertString(paneId, "paneId");
   try {
     await client.kill(paneId);
   } catch {
@@ -292,6 +303,7 @@ ipcMain.handle("pty:close", async (_event, paneId: string) => {
 });
 
 ipcMain.handle("pty:detach", async (_event, paneId: string) => {
+  assertString(paneId, "paneId");
   try {
     await client.detach(paneId);
   } catch {
@@ -341,6 +353,8 @@ ipcMain.handle("projects:select", (_event, index: number) => {
 });
 
 ipcMain.handle("projects:add", (_event, name: string, projectPath: string) => {
+  assertString(name, "name");
+  assertString(projectPath, "path");
   return projectManager.addProject(name, projectPath);
 });
 
@@ -481,6 +495,7 @@ ipcMain.handle(
 
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
+  assertString(apiKey, "apiKey");
   linearManager.saveToken(apiKey);
   try {
     const viewer = await linearManager.getViewer();

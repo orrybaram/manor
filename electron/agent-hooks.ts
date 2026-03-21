@@ -17,7 +17,7 @@ import type { BrowserWindow } from "electron";
 // Map hook event names to our status
 type PaneStatus = "running" | "waiting" | "idle";
 
-function mapEventToStatus(eventType: string): PaneStatus | null {
+export function mapEventToStatus(eventType: string): PaneStatus | null {
   switch (eventType) {
     case "UserPromptSubmit":
     case "PostToolUse":

@@ -2,11 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execSync, exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execAsync = promisify(exec);
 import type { LinearAssociation } from "./linear";
+
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 function slugify(str: string): string {
   return str
@@ -112,8 +114,8 @@ export class ProjectManager {
     return this.state.projects.find((p) => p.id === projectId);
   }
 
-  getProjects(): ProjectInfo[] {
-    return this.state.projects.map((p) => this.buildProjectInfo(p));
+  async getProjects(): Promise<ProjectInfo[]> {
+    return Promise.all(this.state.projects.map((p) => this.buildProjectInfo(p)));
   }
 
   getSelectedProjectIndex(): number {
@@ -125,7 +127,7 @@ export class ProjectManager {
     this.saveState();
   }
 
-  addProject(name: string, projectPath: string): ProjectInfo {
+  async addProject(name: string, projectPath: string): Promise<ProjectInfo> {
     const id = crypto.randomUUID();
     const project: PersistedProject = {
       id,
@@ -143,7 +145,7 @@ export class ProjectManager {
     this.state.selectedProjectIndex = this.state.projects.length - 1;
     this.saveState();
 
-    const workspaces = listGitWorkspaces(projectPath) ?? [
+    const workspaces = (await listGitWorkspaces(projectPath)) ?? [
       { path: projectPath, branch: "main", isMain: true, name: null },
     ];
 
@@ -201,10 +203,10 @@ export class ProjectManager {
     this.saveState();
   }
 
-  updateProject(
+  async updateProject(
     projectId: string,
     updates: ProjectUpdatableFields,
-  ): ProjectInfo | null {
+  ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
     Object.assign(project, updates);
@@ -212,8 +214,8 @@ export class ProjectManager {
     return this.buildProjectInfo(project);
   }
 
-  private buildProjectInfo(p: PersistedProject): ProjectInfo {
-    const rawWorkspaces = listGitWorkspaces(p.path) ?? [
+  private async buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
+    const rawWorkspaces = (await listGitWorkspaces(p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ];
     // Apply persisted ordering
@@ -359,11 +361,11 @@ export class ProjectManager {
     }
   }
 
-  createWorktree(
+  async createWorktree(
     projectId: string,
     name: string,
     branch?: string,
-  ): ProjectInfo | null {
+  ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
 
@@ -376,9 +378,8 @@ export class ProjectManager {
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     try {
-      execSync("git worktree prune", {
+      await execFileAsync("git", ["worktree", "prune"], {
         cwd: project.path,
-        encoding: "utf-8",
         timeout: 10000,
       });
     } catch {
@@ -386,21 +387,21 @@ export class ProjectManager {
     }
 
     try {
-      execSync(
-        `git worktree add ${JSON.stringify(worktreePath)} -b ${JSON.stringify(branchName)}`,
+      await execFileAsync(
+        "git",
+        ["worktree", "add", worktreePath, "-b", branchName],
         {
           cwd: project.path,
-          encoding: "utf-8",
           timeout: 15000,
         },
       );
     } catch {
       // Branch already exists — create worktree checking out the existing branch
-      execSync(
-        `git worktree add ${JSON.stringify(worktreePath)} ${JSON.stringify(branchName)}`,
+      await execFileAsync(
+        "git",
+        ["worktree", "add", worktreePath, branchName],
         {
           cwd: project.path,
-          encoding: "utf-8",
           timeout: 15000,
         },
       );
@@ -417,20 +418,25 @@ export class ProjectManager {
   }
 }
 
-function listGitWorkspaces(projectPath: string): WorkspaceInfo[] | null {
+async function listGitWorkspaces(
+  projectPath: string,
+): Promise<WorkspaceInfo[] | null> {
   try {
-    const output = execSync("git worktree list --porcelain", {
-      cwd: projectPath,
-      encoding: "utf-8",
-      timeout: 5000,
-    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      {
+        cwd: projectPath,
+        timeout: 5000,
+      },
+    );
 
     const workspaces: WorkspaceInfo[] = [];
     let currentPath = "";
     let currentBranch = "";
     let isFirst = true;
 
-    for (const line of output.split("\n")) {
+    for (const line of stdout.split("\n")) {
       if (line.startsWith("worktree ")) {
         if (currentPath) {
           workspaces.push({

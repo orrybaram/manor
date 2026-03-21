@@ -541,7 +541,7 @@ ipcMain.handle(
 );
 
 ipcMain.handle("linear:autoMatch", async () => {
-  const projects = projectManager.getProjects();
+  const projects = await projectManager.getProjects();
   const teams = await linearManager.getTeams();
   const matches = linearManager.autoMatchProjects(
     projects.map((p) => ({ id: p.id, name: p.name })),

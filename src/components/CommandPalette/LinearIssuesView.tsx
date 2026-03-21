@@ -1,0 +1,47 @@
+import { useQuery } from "@tanstack/react-query";
+import { Command } from "cmdk";
+import { IssueListSkeleton } from "./IssueListSkeleton";
+import styles from "./CommandPalette.module.css";
+
+interface LinearIssuesViewProps {
+  allTeamIds: string[];
+  onSelectIssue: (issueId: string) => void;
+}
+
+export function LinearIssuesView({
+  allTeamIds,
+  onSelectIssue,
+}: LinearIssuesViewProps) {
+  const { data: linearIssues = [], isLoading } = useQuery({
+    queryKey: ["linear-issues", allTeamIds],
+    queryFn: () =>
+      window.electronAPI.linear.getMyIssues(allTeamIds, {
+        stateTypes: ["unstarted", "backlog"],
+        limit: 50,
+      }),
+    enabled: allTeamIds.length > 0,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  if (isLoading) {
+    return <IssueListSkeleton />;
+  }
+
+  return (
+    <Command.Group heading="My Issues" className={styles.group}>
+      {linearIssues.map((issue) => (
+        <Command.Item
+          key={issue.id}
+          value={`${issue.identifier} ${issue.title}`}
+          onSelect={() => onSelectIssue(issue.id)}
+          className={styles.item}
+        >
+          <span className={styles.issueIdentifier}>{issue.identifier}</span>
+          <span className={styles.label}>{issue.title}</span>
+          <span className={styles.issueState}>{issue.state.name}</span>
+        </Command.Item>
+      ))}
+    </Command.Group>
+  );
+}

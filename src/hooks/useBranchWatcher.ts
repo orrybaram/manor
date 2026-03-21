@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useProjectStore } from "../store/project-store";
+import { useMountEffect } from "./useMountEffect";
 
 export function useBranchWatcher() {
   const projects = useProjectStore((s) => s.projects);
@@ -18,24 +19,41 @@ export function useBranchWatcher() {
     return next;
   })();
 
-  // Start/stop watcher with paths in a single IPC call — no race conditions
-  useEffect(() => {
-    if (paths.length === 0) return;
+  const pathsRef = useRef(paths);
+  pathsRef.current = paths;
 
-    window.electronAPI.branches.start(paths);
+  // Start/stop watcher with paths — uses store subscription to react to changes
+  useMountEffect(() => {
+    let currentPaths = pathsRef.current;
+    if (currentPaths.length > 0) {
+      window.electronAPI.branches.start(currentPaths);
+    }
+
+    const unsub = useProjectStore.subscribe(() => {
+      const nextPaths = pathsRef.current;
+      if (nextPaths !== currentPaths) {
+        currentPaths = nextPaths;
+        if (currentPaths.length > 0) {
+          window.electronAPI.branches.start(currentPaths);
+        } else {
+          window.electronAPI.branches.stop();
+        }
+      }
+    });
 
     return () => {
+      unsub();
       window.electronAPI.branches.stop();
     };
-  }, [paths]);
+  });
 
   // Subscribe to branch change events
-  useEffect(() => {
+  useMountEffect(() => {
     const unsubscribe = window.electronAPI.branches.onChange((branches) => {
       for (const [wsPath, branch] of Object.entries(branches)) {
         updateWorkspaceBranch(wsPath, branch);
       }
     });
     return unsubscribe;
-  }, [updateWorkspaceBranch]);
+  });
 }

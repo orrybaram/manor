@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, Unlink } from "lucide-react";
 import { useProjectStore } from "../store/project-store";
+import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./SettingsModal.module.css";
 
 export function LinearIntegrationSection() {
@@ -14,7 +15,7 @@ export function LinearIntegrationSection() {
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const loadProjects = useProjectStore((s) => s.loadProjects);
 
-  useEffect(() => {
+  useMountEffect(() => {
     window.electronAPI.linear.isConnected().then(async (isConnected) => {
       setConnected(isConnected);
       if (isConnected) {
@@ -26,7 +27,7 @@ export function LinearIntegrationSection() {
         }
       }
     });
-  }, []);
+  });
 
   const handleConnect = async () => {
     if (!apiKey.trim()) return;

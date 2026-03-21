@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { useToastStore, type Toast as ToastData } from "../store/toast-store";
 import styles from "./Toast.module.css";
 
@@ -10,21 +11,21 @@ export function ToastItem({ toast }: { toast: ToastData }) {
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
+  useMountEffect(() => {
     if (toast.status === "loading") return;
 
-    const _delay =
+    const delay =
       toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS;
     dismissRef.current = setTimeout(() => {
       setExiting(true);
       exitRef.current = setTimeout(() => removeToast(toast.id), 200);
-    }, AUTO_DISMISS_MS);
+    }, delay);
 
     return () => {
       if (dismissRef.current) clearTimeout(dismissRef.current);
       if (exitRef.current) clearTimeout(exitRef.current);
     };
-  }, [toast.status, toast.id, removeToast]);
+  });
 
   return (
     <div className={`${styles.toast} ${exiting ? styles.exiting : ""}`}>

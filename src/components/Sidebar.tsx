@@ -1,5 +1,4 @@
 import React, {
-  useEffect,
   useCallback,
   useRef,
   useState,
@@ -12,6 +11,7 @@ import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../hooks/useDiffWatcher";
 import { usePrWatcher } from "../hooks/usePrWatcher";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { ProjectItem } from "./ProjectItem";
 import { PortsList } from "./PortsList";
 import styles from "./Sidebar.module.css";
@@ -44,7 +44,7 @@ export function Sidebar() {
   useDiffWatcher();
   usePrWatcher();
 
-  useEffect(() => {
+  useMountEffect(() => {
     Promise.all([loadPersistedLayout(), loadProjects()]).then(() => {
       const { projects, selectedProjectIndex } = useProjectStore.getState();
       const project = projects[selectedProjectIndex];
@@ -55,7 +55,7 @@ export function Sidebar() {
         if (ws) setActiveWorkspace(ws.path);
       }
     });
-  }, [loadProjects, loadPersistedLayout, setActiveWorkspace]);
+  });
 
   const handleAddProject = addProjectFromDirectory;
 

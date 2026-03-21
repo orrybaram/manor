@@ -10,7 +10,7 @@ export function ToastContainer() {
   return (
     <div className={styles.container}>
       {toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} />
+        <ToastItem key={`${t.id}-${t.status}`} toast={t} />
       ))}
     </div>
   );

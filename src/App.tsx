@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { TabBar } from "./components/TabBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
@@ -11,6 +11,7 @@ import { ToastContainer } from "./components/Toast";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
+import { useMountEffect } from "./hooks/useMountEffect";
 import "./App.css";
 
 const SESSION_BASE_STYLE: React.CSSProperties = {
@@ -30,9 +31,9 @@ const SESSION_HIDDEN_STYLE: React.CSSProperties = {
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
-  useEffect(() => {
+  useMountEffect(() => {
     loadTheme();
-  }, [loadTheme]);
+  });
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
@@ -69,6 +70,7 @@ function App() {
 
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
+  const selectSession = useAppStore((s) => s.selectSession);
   const selectNextSession = useAppStore((s) => s.selectNextSession);
   const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -86,9 +88,16 @@ function App() {
   const hasSessions = (ws?.sessions.length ?? 0) > 0;
 
   // Keybindings
-  useEffect(() => {
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+  const wsRef = useRef(ws);
+  wsRef.current = ws;
+
+  useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.metaKey) return;
+      const activeSession = activeSessionRef.current;
+      const ws = wsRef.current;
 
       if (e.key === "," && !e.shiftKey) {
         e.preventDefault();
@@ -126,23 +135,19 @@ function App() {
       } else if (e.key === "\\") {
         e.preventDefault();
         toggleSidebar();
+      } else if (e.key >= "1" && e.key <= "9" && !e.shiftKey) {
+        e.preventDefault();
+        const index = parseInt(e.key, 10) - 1;
+        const sessions = ws?.sessions;
+        if (sessions && index < sessions.length) {
+          selectSession(sessions[index].id);
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    addSession,
-    closeSession,
-    closePane,
-    selectNextSession,
-    selectPrevSession,
-    splitPane,
-    focusNextPane,
-    focusPrevPane,
-    toggleSidebar,
-    activeSession,
-  ]);
+  });
 
   return (
     <div className="app">

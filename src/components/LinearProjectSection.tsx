@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./SettingsModal.module.css";
 
 export function LinearProjectSection({ project }: { project: ProjectInfo }) {
@@ -15,7 +16,7 @@ export function LinearProjectSection({ project }: { project: ProjectInfo }) {
 
   const selectedIds = new Set(project.linearAssociations.map((a) => a.teamId));
 
-  useEffect(() => {
+  useMountEffect(() => {
     window.electronAPI.linear.isConnected().then(async (isConnected) => {
       setConnected(isConnected);
       if (isConnected) {
@@ -28,7 +29,7 @@ export function LinearProjectSection({ project }: { project: ProjectInfo }) {
       }
       setLoading(false);
     });
-  }, []);
+  });
 
   const handleToggleTeam = (team: {
     id: string;

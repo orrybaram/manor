@@ -73,12 +73,6 @@ function restoreWorkspaceState(
   };
 }
 
-export interface RecentView {
-  sessionId: string;
-  workspacePath: string;
-  timestamp: number;
-}
-
 export interface AppState {
   workspaceSessions: Record<string, WorkspaceSessionState>;
   activeWorkspacePath: string | null;
@@ -90,9 +84,6 @@ export interface AppState {
   closedPaneIds: Set<string>;
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
-  /** Last 5 viewed tabs (sessions) across workspaces */
-  recentViews: RecentView[];
-
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
 
@@ -111,6 +102,7 @@ export interface AppState {
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
   closePane: () => void;
+  closePaneById: (paneId: string) => void;
   focusPane: (paneId: string) => void;
   focusNextPane: () => void;
   focusPrevPane: () => void;
@@ -166,7 +158,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
-  recentViews: [],
 
   loadPersistedLayout: async () => {
     try {
@@ -313,16 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!path) return state;
       const ws = state.workspaceSessions[path];
       if (!ws) return state;
-      // Track this view in recents
-      const filtered = state.recentViews.filter(
-        (v) => !(v.sessionId === sessionId && v.workspacePath === path),
-      );
-      const recentViews: RecentView[] = [
-        { sessionId, workspacePath: path, timestamp: Date.now() },
-        ...filtered,
-      ].slice(0, 5);
       return {
-        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, selectedSessionId: sessionId },
@@ -339,15 +321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
       const next = (idx + 1) % ws.sessions.length;
       const nextId = ws.sessions[next].id;
-      const filtered = state.recentViews.filter(
-        (v) => !(v.sessionId === nextId && v.workspacePath === path),
-      );
-      const recentViews: RecentView[] = [
-        { sessionId: nextId, workspacePath: path, timestamp: Date.now() },
-        ...filtered,
-      ].slice(0, 5);
       return {
-        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, selectedSessionId: nextId },
@@ -364,15 +338,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
       const prev = (idx - 1 + ws.sessions.length) % ws.sessions.length;
       const prevId = ws.sessions[prev].id;
-      const filtered = state.recentViews.filter(
-        (v) => !(v.sessionId === prevId && v.workspacePath === path),
-      );
-      const recentViews: RecentView[] = [
-        { sessionId: prevId, workspacePath: path, timestamp: Date.now() },
-        ...filtered,
-      ].slice(0, 5);
       return {
-        recentViews,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: { ...ws, selectedSessionId: prevId },
@@ -471,14 +437,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!ws) return;
     const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
     if (!session) return;
+    get().closePaneById(session.focusedPaneId);
+  },
 
-    // Mark the focused pane as explicitly closed (should be killed, not detached)
-    const closingPaneId = session.focusedPaneId;
-    state.closedPaneIds.add(closingPaneId);
+  closePaneById: (paneId: string) => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const ws = state.workspaceSessions[path];
+    if (!ws) return;
 
-    const remaining = removePane(session.rootNode, closingPaneId);
+    const session = ws.sessions.find((s) =>
+      allPaneIds(s.rootNode).includes(paneId),
+    );
+    if (!session) return;
+
+    state.closedPaneIds.add(paneId);
+
+    const remaining = removePane(session.rootNode, paneId);
     if (remaining === null) {
-      // All panes in this session are closed — mark them all
       for (const pid of allPaneIds(session.rootNode)) {
         state.closedPaneIds.add(pid);
       }
@@ -487,18 +464,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     const ids = allPaneIds(remaining);
-    const newFocused = ids[0];
+    const newFocused =
+      session.focusedPaneId === paneId ? ids[0] : session.focusedPaneId;
 
     set((s) => {
       const currentWs = s.workspaceSessions[path];
       if (!currentWs) return s;
-      // Clean up metadata for the closed pane
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
       const newAgentStatus = { ...s.paneAgentStatus };
-      delete newCwd[closingPaneId];
-      delete newTitle[closingPaneId];
-      delete newAgentStatus[closingPaneId];
+      delete newCwd[paneId];
+      delete newTitle[paneId];
+      delete newAgentStatus[paneId];
       return {
         paneCwd: newCwd,
         paneTitle: newTitle,

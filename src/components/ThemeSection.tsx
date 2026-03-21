@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { Check } from "lucide-react";
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
@@ -34,8 +35,7 @@ export function ThemeSection() {
   const didScrollRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  useMountEffect(() => {
     setQuery("");
     didScrollRef.current = false;
     Promise.all([
@@ -44,8 +44,13 @@ export function ThemeSection() {
     ]).then(([ghostty, colors]) => {
       setHasGhostty(ghostty);
       setAllColors(colors);
+      // Scroll to selected theme after data loads
+      requestAnimationFrame(() => {
+        const el = itemRefs.current.get(selectedThemeName);
+        el?.scrollIntoView({ block: "center" });
+      });
     });
-  }, []);
+  });
 
   const entries: ThemeEntry[] = useMemo(() => {
     const result: ThemeEntry[] = [];
@@ -73,29 +78,6 @@ export function ThemeSection() {
     return entries.filter((e) => e.displayName.toLowerCase().includes(q));
   }, [query, entries]);
 
-  useEffect(() => {
-    // Reset highlight when query changes - intentional synchronous setState in effect
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHighlightIndex(-1);
-  }, [query]);
-
-  useEffect(() => {
-    if (didScrollRef.current || Object.keys(allColors).length === 0) return;
-    didScrollRef.current = true;
-    requestAnimationFrame(() => {
-      const el = itemRefs.current.get(selectedThemeName);
-      el?.scrollIntoView({ block: "center" });
-    });
-  }, [allColors, selectedThemeName]);
-
-  useEffect(() => {
-    if (highlightIndex < 0 || highlightIndex >= filtered.length) return;
-    const name = filtered[highlightIndex].name;
-    requestAnimationFrame(() => {
-      const el = itemRefs.current.get(name);
-      el?.scrollIntoView({ block: "nearest" });
-    });
-  }, [highlightIndex, filtered]);
 
   const handleSelect = useCallback(
     async (name: string) => {
@@ -111,10 +93,27 @@ export function ThemeSection() {
     [filtered, handleSelect],
   );
 
+  const scrollToHighlight = useCallback(
+    (updater: (i: number) => number) => {
+      setHighlightIndex((prev) => {
+        const next = updater(prev);
+        if (next >= 0 && next < filtered.length) {
+          const name = filtered[next].name;
+          requestAnimationFrame(() => {
+            const el = itemRefs.current.get(name);
+            el?.scrollIntoView({ block: "nearest" });
+          });
+        }
+        return next;
+      });
+    },
+    [filtered],
+  );
+
   const handleKeyDown = useListKeyboardNav(
     filtered.length,
     highlightIndex,
-    setHighlightIndex,
+    scrollToHighlight,
     handleSelectByIndex,
   );
 
@@ -127,7 +126,10 @@ export function ThemeSection() {
         type="text"
         placeholder="Search themes..."
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setHighlightIndex(-1);
+        }}
         autoFocus
       />
       <div className={styles.themeList}>

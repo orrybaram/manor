@@ -6,9 +6,10 @@
  * does not implement the protocol natively).
  */
 
-import { useEffect } from "react";
+import { useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useAppStore } from "../store/app-store";
+import { useMountEffect } from "./useMountEffect";
 
 // Matches kitty keyboard protocol sequences:
 //   \x1b[>Xu  — push mode (flags = X, one or more digits)
@@ -21,14 +22,20 @@ export function useTerminalStream(
   term: Terminal | null,
   ptyWrite?: (data: string) => void,
 ) {
-  useEffect(() => {
-    if (!term) return;
+  const termRef = useRef(term);
+  termRef.current = term;
+  const ptyWriteRef = useRef(ptyWrite);
+  ptyWriteRef.current = ptyWrite;
 
+  useMountEffect(() => {
     let kittyFlags = 0;
 
     const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
       (data: string) => {
+        const currentTerm = termRef.current;
+        if (!currentTerm) return;
+
         // Intercept kitty keyboard protocol sequences before xterm sees them
         let hasKitty = false;
         const filtered = data.replace(KITTY_KB_RE, (_match, prefix, digits) => {
@@ -41,17 +48,17 @@ export function useTerminalStream(
             kittyFlags = 0;
           } else if (prefix === "?") {
             // Query — respond with current flags
-            ptyWrite?.(`\x1b[?${kittyFlags}u`);
+            ptyWriteRef.current?.(`\x1b[?${kittyFlags}u`);
           }
           return ""; // strip from output so xterm doesn't choke
         });
 
-        term.write(hasKitty ? filtered : data);
+        currentTerm.write(hasKitty ? filtered : data);
       },
     );
 
     const unsubExit = window.electronAPI.pty.onExit(paneId, () => {
-      term.write("\r\n[Process exited]\r\n");
+      useAppStore.getState().closePaneById(paneId);
     });
 
     const unsubCwd = window.electronAPI.pty.onCwd(paneId, (cwdPath: string) => {
@@ -71,5 +78,5 @@ export function useTerminalStream(
       unsubCwd();
       unsubAgentStatus();
     };
-  }, [paneId, term, ptyWrite]);
+  });
 }

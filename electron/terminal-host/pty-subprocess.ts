@@ -8,7 +8,8 @@
 
 import * as pty from "node-pty";
 import * as fs from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   MSG,
   FrameDecoder,
@@ -18,10 +19,13 @@ import {
 import type { PtySpawnPayload } from "./types";
 import treeKill from "tree-kill";
 
+const execFileAsync = promisify(execFile);
+
 let ptyProcess: pty.IPty | null = null;
 let disposed = false;
 let fgProcInterval: ReturnType<typeof setInterval> | null = null;
 let lastFgProcName: string | null = null;
+let fgPollRunning = false;
 
 const KNOWN_SHELLS = new Set(["zsh", "bash", "fish", "sh"]);
 const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
@@ -42,7 +46,7 @@ const AGENT_PATTERNS: Array<[RegExp, string]> = [
  * command lines of the shell's child processes to identify known agent CLIs.
  * e.g. "node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.mjs"
  */
-function detectAgentFromChildArgs(shellPid: number): string | null {
+async function detectAgentFromChildArgs(shellPid: number): Promise<string | null> {
   try {
     // Use pgrep -g to find all processes in the same process group,
     // or fall back to -P for direct children, then check descendants too
@@ -50,7 +54,7 @@ function detectAgentFromChildArgs(shellPid: number): string | null {
 
     // First try direct children
     try {
-      const raw = execFileSync("pgrep", ["-P", String(shellPid)], {
+      const { stdout: raw } = await execFileAsync("pgrep", ["-P", String(shellPid)], {
         encoding: "utf-8",
         timeout: 200,
       });
@@ -63,7 +67,7 @@ function detectAgentFromChildArgs(shellPid: number): string | null {
     const allPids = [...childPids];
     for (const pid of childPids) {
       try {
-        const raw = execFileSync("pgrep", ["-P", pid.trim()], {
+        const { stdout: raw } = await execFileAsync("pgrep", ["-P", pid.trim()], {
           encoding: "utf-8",
           timeout: 200,
         });
@@ -81,11 +85,10 @@ function detectAgentFromChildArgs(shellPid: number): string | null {
       psArgs.push("-p", pid.trim());
     }
 
-    const result = execFileSync("ps", psArgs, {
+    const { stdout: result } = await execFileAsync("ps", psArgs, {
       encoding: "utf-8",
       timeout: 200,
     });
-
 
     for (const line of result.trim().split("\n")) {
       if (!line.trim()) continue;
@@ -204,37 +207,44 @@ function pollForegroundProcess(): void {
   const shellBasename = ptyProcess?.process?.replace(/^-/, "") ?? "";
 
   fgProcInterval = setInterval(() => {
-    if (disposed || !ptyProcess) return;
+    if (fgPollRunning) return;
 
-    try {
-      // Use node-pty's .process property which uses proc_pidinfo on macOS
-      // to correctly resolve the foreground process of the PTY, even when
-      // the child has its own process group (interactive shell job control).
-      const fgProc = ptyProcess.process;
-      const basename = fgProc?.replace(/^-/, "") ?? "";
+    (async () => {
+      if (disposed || !ptyProcess) return;
 
-      // If the foreground process is the shell itself, report null
-      const isShell =
-        !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
-      let fgName = isShell ? null : basename;
+      fgPollRunning = true;
+      try {
+        // Use node-pty's .process property which uses proc_pidinfo on macOS
+        // to correctly resolve the foreground process of the PTY, even when
+        // the child has its own process group (interactive shell job control).
+        const fgProc = ptyProcess.process;
+        const basename = fgProc?.replace(/^-/, "") ?? "";
 
-      // On macOS, node-pty returns the binary name (e.g. "node") or the
-      // process title (e.g. "2.1.80" for Claude Code) rather than the CLI
-      // tool name. When the foreground process is a JS runtime or a version
-      // string, inspect child process command lines to identify agents.
-      if (fgName && (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))) {
-        const agent = detectAgentFromChildArgs(ptyProcess.pid);
-        if (agent) fgName = agent;
+        // If the foreground process is the shell itself, report null
+        const isShell =
+          !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
+        let fgName = isShell ? null : basename;
+
+        // On macOS, node-pty returns the binary name (e.g. "node") or the
+        // process title (e.g. "2.1.80" for Claude Code) rather than the CLI
+        // tool name. When the foreground process is a JS runtime or a version
+        // string, inspect child process command lines to identify agents.
+        if (fgName && (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))) {
+          const agent = await detectAgentFromChildArgs(ptyProcess.pid);
+          if (agent) fgName = agent;
+        }
+
+        // Only send if changed
+        if (fgName !== lastFgProcName) {
+          lastFgProcName = fgName;
+          writeFrame(MSG.FGPROC, JSON.stringify({ name: fgName }));
+        }
+      } catch {
+        // Ignore errors in process detection
+      } finally {
+        fgPollRunning = false;
       }
-
-      // Only send if changed
-      if (fgName !== lastFgProcName) {
-        lastFgProcName = fgName;
-        writeFrame(MSG.FGPROC, JSON.stringify({ name: fgName }));
-      }
-    } catch {
-      // Ignore errors in process detection
-    }
+    })();
   }, 500);
 }
 

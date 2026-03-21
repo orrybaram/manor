@@ -1,28 +1,28 @@
-# Release workflow — triggered on version tags (e.g. v0.1.0, v1.0.0-beta.1)
+# Manor Release Workflow
 #
-# Required secrets (configure in Settings > Secrets and variables > Actions):
+# Builds, signs, notarizes, and publishes Manor to GitHub Releases.
+# Triggered by pushing a version tag (e.g., git tag v0.2.0 && git push --tags).
 #
-# GH_TOKEN         — automatically provided by GitHub; no setup needed
+# Required repository secrets:
 #
-# CSC_LINK         — base64-encoded .p12 signing certificate
-#   To create:
-#     1. Export your Developer ID Application certificate from Keychain Access
-#        (File > Export Items, choose .p12 format, set a password)
-#     2. Base64-encode it: base64 -i certificate.p12 | pbcopy
-#     3. Paste the result as the CSC_LINK secret value
+#   CSC_LINK
+#     Base64-encoded .p12 certificate for macOS code signing.
+#     Export from Keychain Access: Developer ID Application certificate -> Export as .p12
+#     Then: base64 -i certificate.p12 | pbcopy
 #
-# CSC_KEY_PASSWORD — the password you set when exporting the .p12 above
+#   CSC_KEY_PASSWORD
+#     Password used when exporting the .p12 certificate.
 #
-# APPLE_ID         — the Apple ID email used for your developer account
+#   APPLE_ID
+#     Apple ID email address for notarization (must be enrolled in Apple Developer Program).
 #
-# APPLE_APP_SPECIFIC_PASSWORD — an app-specific password for notarization
-#   To create:
-#     1. Sign in at appleid.apple.com
-#     2. Go to Sign-In and Security > App-Specific Passwords
-#     3. Generate a new password and paste it as the secret value
+#   APPLE_APP_SPECIFIC_PASSWORD
+#     App-specific password for notarization.
+#     Generate at: https://appleid.apple.com -> Sign-In and Security -> App-Specific Passwords
 #
-# APPLE_TEAM_ID    — your 10-character Apple Developer Team ID
-#   Find it at developer.apple.com/account (top-right corner of the page)
+#   APPLE_TEAM_ID
+#     Your Apple Developer Team ID.
+#     Find at: https://developer.apple.com/account -> Membership Details
 
 name: Release
 

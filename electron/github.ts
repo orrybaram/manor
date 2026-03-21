@@ -113,7 +113,7 @@ export class GitHubManager {
       const data = JSON.parse(stdout);
       const threads = data?.data?.repository?.pullRequest?.reviewThreads?.nodes;
       if (!Array.isArray(threads)) return undefined;
-      return threads.filter((t: any) => !t.isResolved).length;
+      return threads.filter((t: { isResolved: boolean }) => !t.isResolved).length;
     } catch {
       return undefined;
     }
@@ -129,9 +129,10 @@ export class GitHubManager {
       const combined = stdout + stderr;
       const match = combined.match(/account\s+(\S+)/);
       return { installed: true, authenticated: true, username: match?.[1] };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err as { stderr?: string; stdout?: string };
       // gh exists but not authenticated → exit code 1
-      if (err.stderr?.includes("not logged in") || err.stdout?.includes("not logged in")) {
+      if (e.stderr?.includes("not logged in") || e.stdout?.includes("not logged in")) {
         return { installed: true, authenticated: false };
       }
       // gh not found → ENOENT

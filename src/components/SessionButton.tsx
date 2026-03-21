@@ -1,25 +1,21 @@
-import React, { type PointerEvent as ReactPointerEvent } from "react";
+import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { X } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
+import { allPaneIds } from "../store/pane-tree";
 import type { AgentStatus } from "../electron.d";
 import { AgentDot } from "./AgentDot";
 import styles from "./TabBar.module.css";
 
 function useSessionTitle(sessionId: string): string {
-  // First, resolve which pane ID we care about
   const focusedPaneId = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     const session = ws?.sessions.find((t) => t.id === sessionId);
     return session?.focusedPaneId ?? null;
   });
 
-  // Then subscribe narrowly to just that pane's title and CWD
   const title = useAppStore((s) => focusedPaneId ? s.paneTitle[focusedPaneId] ?? null : null);
   const cwd = useAppStore((s) => focusedPaneId ? s.paneCwd[focusedPaneId] ?? null : null);
-
-  // Prefer terminal title (from OSC sequences — reflects the running process)
-  // But if it's just a default shell "user@host:path" title, extract the project name
   if (title) {
     const cwdMatch = title.match(/^.+@.+:(.+)$/);
     if (cwdMatch) {
@@ -103,7 +99,7 @@ function shortenTitle(title: string): string {
   return trimmed.length <= 3 ? trimmed : trimmed.slice(0, 3);
 }
 
-export const SessionButton = React.memo(function SessionButton({
+export function SessionButton({
   sessionId,
   isActive,
   isPinned,
@@ -180,4 +176,4 @@ export const SessionButton = React.memo(function SessionButton({
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
-});
+}

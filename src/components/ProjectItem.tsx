@@ -24,7 +24,7 @@ import styles from "./Sidebar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
 
-export const ProjectItem = React.memo(function ProjectItem({
+export function ProjectItem({
   project,
   isSelected,
   collapsed,
@@ -553,4 +553,4 @@ export const ProjectItem = React.memo(function ProjectItem({
       </Dialog.Root>
     </div>
   );
-});
+}

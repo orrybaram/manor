@@ -5,7 +5,6 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import { shallow } from "zustand/shallow";
 import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
@@ -20,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import type { AppState, RecentView } from "../store/app-store";
+import { shallow } from "zustand/shallow";
 import { useProjectStore } from "../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../electron.d";
 import styles from "./CommandPalette.module.css";
@@ -433,7 +433,6 @@ export function CommandPalette({
     return new Map(sorted);
   }, [workspaceCommands]);
 
-  // Derive the specific pane IDs we need from recent views
   const recentPaneIds = useMemo(() => {
     const ids: string[] = [];
     for (const rv of recentViews) {
@@ -466,13 +465,11 @@ export function CommandPalette({
     shallow
   );
 
-  // Build recent view commands from tracked views
   const recentCommands: CommandItem[] = useMemo(() => {
     const allWorkspaceSessions = useAppStore.getState().workspaceSessions;
     const result: CommandItem[] = [];
 
     for (const rv of recentViews) {
-      // Skip the current view
       if (
         rv.workspacePath === activeWorkspacePath &&
         rv.sessionId === selectedSessionId
@@ -480,15 +477,12 @@ export function CommandPalette({
         continue;
       }
 
-      // Look up workspace/session data and skip if not found
       const ws = allWorkspaceSessions[rv.workspacePath];
       if (!ws) continue;
 
       const session = ws.sessions.find((s) => s.id === rv.sessionId);
       if (!session) continue;
 
-      // Build the CommandItem
-      // Find workspace display name from projects
       const project = projects.find((p) =>
         p.workspaces.some((w) => w.path === rv.workspacePath),
       );

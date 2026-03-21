@@ -3,45 +3,26 @@ import {
   useCallback,
   useState,
   useEffect,
-  type ReactNode,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import {
   ChevronRight,
   ArrowLeft,
-  Loader2,
-  Clock,
 } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
-import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
-import type { CommandItem } from "./useWorkspaceCommands";
+import { LinearIcon } from "./LinearIcon";
+import { LinearIssuesView } from "./LinearIssuesView";
+import { IssueDetailView } from "./IssueDetailView";
+import { GhostOverlay } from "./GhostOverlay";
+import { wordPrefixFilter } from "./utils";
+import type { CommandPaletteProps, PaletteView } from "./types";
 import styles from "./CommandPalette.module.css";
 
-interface CommandPaletteProps {
-  open: boolean;
-  onClose: () => void;
-  onOpenSettings?: () => void;
-  onNewWorkspace?: (opts?: {
-    projectId?: string;
-    name?: string;
-    branch?: string;
-  }) => void;
-}
-
-type PaletteView = "root" | "linear" | "issue-detail";
-
 const HIDDEN_STYLE = { display: "none" } as const;
-
-const wordPrefixFilter = (value: string, search: string) => {
-  const words = value.toLowerCase().split(/\s+/);
-  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
-  return terms.every((t) => words.some((w) => w.startsWith(t))) ? 1 : 0;
-};
 
 export function CommandPalette({
   open,
@@ -68,8 +49,6 @@ export function CommandPalette({
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const recentViews = useAppStore((s) => s.recentViews);
-  const selectSession = useAppStore((s) => s.selectSession);
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
@@ -97,25 +76,6 @@ export function CommandPalette({
       .catch(() => setLinearConnected(false));
   }, [open]);
 
-  // Fetch Linear issues with caching via react-query
-  const { data: linearIssues = [], isLoading: linearLoading } = useQuery({
-    queryKey: ["linear-issues", allTeamIds],
-    queryFn: () =>
-      window.electronAPI.linear.getMyIssues(allTeamIds, {
-        stateTypes: ["unstarted", "backlog"],
-        limit: 50,
-      }),
-    enabled: view === "linear" && allTeamIds.length > 0,
-  });
-
-  // Fetch issue detail when viewing a specific issue
-  const { data: issueDetail, isLoading: issueDetailLoading } = useQuery({
-    queryKey: ["linear-issue-detail", selectedIssueId],
-    queryFn: () => window.electronAPI.linear.getIssueDetail(selectedIssueId!),
-    enabled: view === "issue-detail" && selectedIssueId !== null,
-    staleTime: 60_000,
-  });
-
   // Reset state when palette closes
   useEffect(() => {
     if (!open) {
@@ -141,62 +101,6 @@ export function CommandPalette({
     setSelectedIssueId(null);
     setView("linear");
   }, []);
-
-  // Find the project that has a Linear association for a given issue's team
-  const findProjectForIssue = useCallback(
-    (_issue: LinearIssue) => {
-      // Return the first project that has any Linear association
-      // (issues are already filtered by team IDs from associated projects)
-      return projects.find((p) => p.linearAssociations.length > 0);
-    },
-    [projects],
-  );
-
-  const handleCreateWorkspace = useCallback(
-    (issue: LinearIssue) => {
-      const project = findProjectForIssue(issue);
-      if (!project) return;
-
-      // Check if a workspace with matching branch already exists
-      const current = useProjectStore
-        .getState()
-        .projects.find((p) => p.id === project.id);
-      const existingIdx =
-        current?.workspaces.findIndex(
-          (ws) => ws.branch === issue.branchName,
-        ) ?? -1;
-      if (existingIdx >= 0) {
-        selectWorkspace(project.id, existingIdx);
-        const existingWs = current?.workspaces[existingIdx];
-        if (existingWs) setActiveWorkspace(existingWs.path);
-        onClose();
-        return;
-      }
-
-      // Open the new workspace dialog with pre-filled info
-      onClose();
-      onNewWorkspace?.({
-        projectId: project.id,
-        name: issue.title,
-        branch: issue.branchName,
-      });
-    },
-    [
-      findProjectForIssue,
-      selectWorkspace,
-      setActiveWorkspace,
-      onClose,
-      onNewWorkspace,
-    ],
-  );
-
-  const handleOpenInBrowser = useCallback(
-    (issue: LinearIssue) => {
-      window.electronAPI.shell.openExternal(issue.url);
-      onClose();
-    },
-    [onClose],
-  );
 
   const { workspaceGroups } = useWorkspaceCommands({
     projects,
@@ -226,73 +130,6 @@ export function CommandPalette({
     selectedSessionId,
     setShowGhosts,
   });
-
-  const recentCommands: CommandItem[] = useMemo(() => {
-    const state = useAppStore.getState();
-    const allWorkspaceSessions = state.workspaceSessions;
-    const result: CommandItem[] = [];
-
-    for (const rv of recentViews) {
-      if (
-        rv.workspacePath === activeWorkspacePath &&
-        rv.sessionId === selectedSessionId
-      ) {
-        continue;
-      }
-
-      const ws = allWorkspaceSessions[rv.workspacePath];
-      if (!ws) continue;
-
-      const session = ws.sessions.find((s) => s.id === rv.sessionId);
-      if (!session) continue;
-
-      const project = projects.find((p) =>
-        p.workspaces.some((w) => w.path === rv.workspacePath),
-      );
-      const workspace = project?.workspaces.find(
-        (w) => w.path === rv.workspacePath,
-      );
-      const wsName = workspace?.name || workspace?.branch || "main";
-      const projectName = project?.name ?? "";
-      const paneId = session.focusedPaneId;
-      const label =
-        state.paneTitle[paneId] ||
-        state.paneCwd[paneId]?.split("/").pop() ||
-        session.title;
-
-      result.push({
-        id: `recent-${rv.sessionId}`,
-        label,
-        icon: <Clock size={14} />,
-        group: `${projectName} / ${wsName}`,
-        action: () => {
-          if (rv.workspacePath !== activeWorkspacePath) {
-            const wi =
-              project?.workspaces.findIndex(
-                (w) => w.path === rv.workspacePath,
-              ) ?? -1;
-            if (project && wi >= 0) {
-              selectWorkspace(project.id, wi);
-              setActiveWorkspace(rv.workspacePath);
-            }
-          }
-          selectSession(rv.sessionId);
-          onClose();
-        },
-      } satisfies CommandItem);
-    }
-
-    return result;
-  }, [
-    recentViews,
-    projects,
-    activeWorkspacePath,
-    selectedSessionId,
-    selectWorkspace,
-    setActiveWorkspace,
-    selectSession,
-    onClose,
-  ]);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -330,31 +167,6 @@ export function CommandPalette({
   );
 
   const showLinear = linearConnected && allTeamIds.length > 0;
-
-  // Keyboard shortcuts for issue detail view
-  // Uses keyup for Enter so the keydown that selected the issue in the list
-  // doesn't immediately trigger workspace creation.
-  useEffect(() => {
-    if (view !== "issue-detail" || !issueDetail) return;
-    const onKeyUp = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleCreateWorkspace(issueDetail);
-      }
-    };
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "o" && e.metaKey) {
-        e.preventDefault();
-        handleOpenInBrowser(issueDetail);
-      }
-    };
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [view, issueDetail, handleCreateWorkspace, handleOpenInBrowser]);
 
   return (
     <>
@@ -400,29 +212,6 @@ export function CommandPalette({
 
               {view === "root" && (
                 <>
-                  {recentCommands.length > 0 && (
-                    <>
-                      <Command.Group heading="Recent" className={styles.group}>
-                        {recentCommands.map((cmd) => (
-                          <Command.Item
-                            key={cmd.id}
-                            value={`Recent ${cmd.group} ${cmd.label} ${cmd.id}`}
-                            onSelect={cmd.action}
-                            className={styles.item}
-                          >
-                            {cmd.icon && (
-                              <span className={styles.icon}>{cmd.icon}</span>
-                            )}
-                            <span className={styles.label}>{cmd.label}</span>
-                            <span className={styles.recentMeta}>
-                              {cmd.group}
-                            </span>
-                          </Command.Item>
-                        ))}
-                      </Command.Group>
-                      <Command.Separator className={styles.separator} />
-                    </>
-                  )}
                   {[...workspaceGroups.entries()].map(([groupName, items]) => (
                     <Command.Group
                       key={groupName}
@@ -492,213 +281,29 @@ export function CommandPalette({
               )}
 
               {view === "linear" && (
-                <>
-                  {linearLoading ? (
-                    <div className={styles.linearLoading}>
-                      <Loader2 size={16} className={styles.spinner} />
-                      <span>Loading issues...</span>
-                    </div>
-                  ) : (
-                    <Command.Group heading="My Issues" className={styles.group}>
-                      {linearIssues.map((issue) => (
-                        <Command.Item
-                          key={issue.id}
-                          value={`${issue.identifier} ${issue.title}`}
-                          onSelect={() => {
-                            setSelectedIssueId(issue.id);
-                            setSearch("");
-                            setView("issue-detail");
-                          }}
-                          className={styles.item}
-                        >
-                          <span className={styles.issueIdentifier}>
-                            {issue.identifier}
-                          </span>
-                          <span className={styles.label}>
-                            {issue.title}
-                          </span>
-                          <span className={styles.issueState}>
-                            {issue.state.name}
-                          </span>
-                        </Command.Item>
-                      ))}
-                    </Command.Group>
-                  )}
-                </>
+                <LinearIssuesView
+                  allTeamIds={allTeamIds}
+                  onSelectIssue={(issueId) => {
+                    setSelectedIssueId(issueId);
+                    setSearch("");
+                    setView("issue-detail");
+                  }}
+                />
               )}
             </Command.List>
-            {view === "issue-detail" && (
+            {view === "issue-detail" && selectedIssueId && (
               <IssueDetailView
-                issueDetail={issueDetail ?? null}
-                isLoading={issueDetailLoading}
+                issueId={selectedIssueId}
                 onBack={navigateToLinearList}
+                onClose={onClose}
+                onNewWorkspace={onNewWorkspace}
               />
             )}
           </Command>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-    {showGhosts && (
-        <div className={styles.ghostOverlay} aria-hidden>
-          {Array.from({ length: 50 }, (_, i) => (
-            <span
-              key={i}
-              className={styles.ghost}
-              style={{
-                left: `${Math.random() * 90 + 5}%`,
-                animationDelay: `${Math.random() * 2}s`,
-                animationDuration: `${2 + Math.random() * 2}s`,
-                fontSize: `${24 + Math.random() * 32}px`,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ["--ghost-peak" as any]: `${0.4 + Math.random() * 0.4}`,
-                ["--ghost-rotate" as any]: `${Math.random() * 90 - 45}deg`,
-              }}
-            >
-              {Math.random() < 0.2 ? "🦇" : "👻"}
-            </span>
-          ))}
-        </div>
-      )}
+    {showGhosts && <GhostOverlay />}
     </>
-  );
-}
-
-const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
-  0: { label: "None", color: "var(--text-dim)" },
-  1: { label: "Urgent", color: "#f76a6a" },
-  2: { label: "High", color: "#f0913a" },
-  3: { label: "Medium", color: "#f0c73a" },
-  4: { label: "Low", color: "#8da4ef" },
-};
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // images
-    .replace(/\[[^\]]*\]\([^)]*\)/g, (m) => m.replace(/\[([^\]]*)\]\([^)]*\)/, "$1")) // links
-    .replace(/#{1,6}\s+/g, "") // headings
-    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1") // bold/italic
-    .replace(/`{1,3}[^`]*`{1,3}/g, (m) => m.replace(/`+/g, "")) // code
-    .replace(/^\s*[-*+]\s+/gm, "") // list markers
-    .replace(/^\s*\d+\.\s+/gm, "") // numbered lists
-    .replace(/^\s*>/gm, "") // blockquotes
-    .replace(/---+|===+/g, "") // horizontal rules
-    .replace(/\n{3,}/g, "\n\n") // excessive newlines
-    .trim();
-}
-
-function IssueDetailView({
-  issueDetail,
-  isLoading,
-  onBack,
-}: {
-  issueDetail: LinearIssueDetail | null;
-  isLoading: boolean;
-  onBack: () => void;
-}) {
-  if (isLoading) {
-    return (
-      <div className={styles.detailBody}>
-        <div className={styles.linearLoading}>
-          <Loader2 size={16} className={styles.spinner} />
-          <span>Loading issue...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!issueDetail) return null;
-
-  const priority = PRIORITY_LABELS[issueDetail.priority] ?? PRIORITY_LABELS[0];
-  const description = issueDetail.description
-    ? stripMarkdown(issueDetail.description)
-    : null;
-
-  return (
-    <>
-      <div className={styles.detailLayout}>
-        <div className={styles.detailBack}>
-          <button className={styles.breadcrumbBack} onClick={onBack}>
-            <ArrowLeft size={14} />
-          </button>
-        </div>
-        <div className={styles.detailMain}>
-          <h2 className={styles.detailTitle}>{issueDetail.title}</h2>
-          {description && (
-            <div className={styles.detailDescription}>{description}</div>
-          )}
-        </div>
-        <div className={styles.detailSidebar}>
-          <div className={styles.sidebarField}>
-            <span className={styles.sidebarLabel}>Status</span>
-            <span className={styles.sidebarValue}>
-              <span className={styles.statusDot} />
-              {issueDetail.state.name}
-            </span>
-          </div>
-          <div className={styles.sidebarField}>
-            <span className={styles.sidebarLabel}>Priority</span>
-            <span className={styles.sidebarValue}>
-              <span
-                className={styles.priorityDot}
-                style={{ background: priority.color }}
-              />
-              {priority.label}
-            </span>
-          </div>
-          {issueDetail.assignee && (
-            <div className={styles.sidebarField}>
-              <span className={styles.sidebarLabel}>Assignee</span>
-              <span className={styles.sidebarValue}>
-                {issueDetail.assignee.displayName}
-              </span>
-            </div>
-          )}
-          <div className={styles.sidebarField}>
-            <span className={styles.sidebarLabel}>Labels</span>
-            {issueDetail.labels.length > 0 ? (
-              <div className={styles.sidebarLabels}>
-                {issueDetail.labels.map((label) => (
-                  <span
-                    key={label.id}
-                    className={styles.detailLabel}
-                    style={{
-                      background: label.color + "22",
-                      color: label.color,
-                    }}
-                  >
-                    {label.name}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <span className={styles.sidebarValue}>No Labels</span>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className={styles.detailFooter}>
-        <span className={styles.footerHint}>
-          <kbd className={styles.kbd}>Enter</kbd>
-          <span>Create Workspace</span>
-        </span>
-        <span className={styles.footerHint}>
-          <kbd className={styles.kbd}>&#8984;O</kbd>
-          <span>Open in Browser</span>
-        </span>
-      </div>
-    </>
-  );
-}
-
-function LinearIcon({ size }: { size: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <path d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z" />
-    </svg>
   );
 }

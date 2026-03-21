@@ -3,7 +3,7 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -19,6 +19,7 @@ import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
+import { useMountEffect } from "./useMountEffect";
 import type { ITheme } from "@xterm/xterm";
 
 export function useTerminalLifecycle(
@@ -30,7 +31,6 @@ export function useTerminalLifecycle(
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fontSize = useAppStore((s) => s.fontSize);
   const { write, resize, create, close, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
@@ -42,39 +42,48 @@ export function useTerminalLifecycle(
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);
 
-  // Auto-focus terminal when this pane becomes the focused pane of the active session
-  const isFocusedPane = useAppStore((s) => {
-    const path = s.activeWorkspacePath;
-    if (!path) return false;
-    const ws = s.workspaceSessions[path];
-    if (!ws) return false;
-    const session = ws.sessions.find((t) => t.id === ws.selectedSessionId);
-    return session?.focusedPaneId === paneId;
+  // Auto-focus terminal when this pane becomes the focused pane of the active session.
+  // Uses a store subscription so we don't need useEffect with changing deps.
+  useMountEffect(() => {
+    let wasFocused = false;
+    return useAppStore.subscribe((state) => {
+      const path = state.activeWorkspacePath;
+      const ws = path ? state.workspaceSessions[path] : undefined;
+      const session = ws?.sessions.find((t) => t.id === ws?.selectedSessionId);
+      const isFocused = session?.focusedPaneId === paneId;
+      if (isFocused && !wasFocused && termRef.current) {
+        termRef.current.focus();
+      }
+      wasFocused = !!isFocused;
+    });
   });
 
-  useEffect(() => {
-    if (isFocusedPane && termRef.current) {
-      termRef.current.focus();
-    }
-  }, [isFocusedPane]);
+  // Update font size without recreating — store subscription
+  useMountEffect(() => {
+    let prevFontSize = useAppStore.getState().fontSize;
+    return useAppStore.subscribe((state) => {
+      if (state.fontSize !== prevFontSize) {
+        prevFontSize = state.fontSize;
+        if (termRef.current) {
+          termRef.current.options.fontSize = state.fontSize;
+        }
+      }
+    });
+  });
 
-  // Update font size without recreating
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.fontSize = fontSize;
-    }
-  }, [fontSize]);
-
-  // Update theme without recreating the terminal or the PTY session
-  useEffect(() => {
+  // Update theme without recreating the terminal or the PTY session.
+  // Ref-based render-time check: when theme changes, apply it immediately.
+  const prevThemeRef = useRef<ITheme | null>(theme);
+  if (theme !== prevThemeRef.current) {
+    prevThemeRef.current = theme;
     if (termRef.current && theme) {
       termRef.current.options.theme = theme;
     }
-  }, [theme]);
+  }
 
-  // Main lifecycle — only depends on paneId and cwd.
-  // Theme changes are handled above without tearing down the session.
-  useEffect(() => {
+  // Main lifecycle — paneId and cwd are stable for a given mount (component
+  // is keyed by paneId). Converted from useEffect to useMountEffect.
+  useMountEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -199,8 +208,7 @@ export function useTerminalLifecycle(
       }
       t.dispose();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, cwd]);
+  });
 
   return { term, fitAddon };
 }

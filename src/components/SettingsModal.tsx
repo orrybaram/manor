@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   X,
@@ -29,13 +29,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [page, setPage] = useState<SettingsPage>({ type: "app" });
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
-  useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset to defaults when opened
-      setPage({ type: "app" });
-      setProjectsExpanded(true);
-    }
-  }, [open]);
+  const prevOpenRef = useRef(false);
+  if (open && !prevOpenRef.current) {
+    setPage({ type: "app" });
+    setProjectsExpanded(true);
+  }
+  prevOpenRef.current = open;
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {

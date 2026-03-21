@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import type { ActivePort } from "../electron.d.ts";
 import { useProjectStore } from "../store/project-store";
+import { useMountEffect } from "./useMountEffect";
 
 export interface WorkspacePortGroup {
   workspacePath: string;
@@ -15,37 +16,52 @@ export function usePortsData() {
   const [ports, setPorts] = useState<ActivePort[]>([]);
   const projects = useProjectStore((s) => s.projects);
 
-  // Derive a stable paths key so the scanner only restarts when paths actually change
-  const paths = useMemo(
-    () => projects.flatMap((p) => p.workspaces.map((ws) => ws.path)),
-    [projects],
-  );
-  const pathsKey = paths.join("\0");
-  const pathsRef = useRef(paths);
-  pathsRef.current = paths;
+  // Scanner setup: subscribe to store changes to detect when workspace paths change,
+  // and restart the scanner accordingly.
+  useMountEffect(() => {
+    const getPaths = () =>
+      useProjectStore
+        .getState()
+        .projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
 
-  // Collect all workspace paths and feed them to the scanner
-  useEffect(() => {
-    const currentPaths = pathsRef.current;
-    if (currentPaths.length > 0) {
-      window.electronAPI.ports.updateWorkspacePaths(currentPaths);
-      window.electronAPI.ports.startScanner();
-      // Do an immediate scan
-      window.electronAPI.ports.scanNow().then(setPorts);
-    }
+    let currentPathsKey = "";
+
+    const setup = (paths: string[]) => {
+      if (paths.length > 0) {
+        window.electronAPI.ports.updateWorkspacePaths(paths);
+        window.electronAPI.ports.startScanner();
+        window.electronAPI.ports.scanNow().then(setPorts);
+      }
+    };
+
+    // Initial setup
+    const initialPaths = getPaths();
+    currentPathsKey = initialPaths.join("\0");
+    setup(initialPaths);
+
+    // Re-setup when paths change
+    const unsub = useProjectStore.subscribe(() => {
+      const newPaths = getPaths();
+      const newKey = newPaths.join("\0");
+      if (newKey !== currentPathsKey) {
+        currentPathsKey = newKey;
+        setup(newPaths);
+      }
+    });
 
     return () => {
+      unsub();
       window.electronAPI.ports.stopScanner();
     };
-  }, [pathsKey]);
+  });
 
   // Subscribe to port change events
-  useEffect(() => {
+  useMountEffect(() => {
     const unsubscribe = window.electronAPI.ports.onChange((newPorts) => {
       setPorts(newPorts as ActivePort[]);
     });
     return unsubscribe;
-  }, []);
+  });
 
   // Group ports by workspace
   const workspacePortGroups = useMemo(() => {

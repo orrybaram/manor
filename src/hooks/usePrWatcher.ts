@@ -1,14 +1,24 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useRef } from "react";
 import { useProjectStore } from "../store/project-store";
+import { useMountEffect } from "./useMountEffect";
 
 const PR_POLL_INTERVAL = 60_000;
 
-export function usePrWatcher() {
-  const projects = useProjectStore((s) => s.projects);
-  const updateWorkspacePr = useProjectStore((s) => s.updateWorkspacePr);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+function computeFingerprint() {
+  const projects = useProjectStore.getState().projects;
+  return projects
+    .flatMap((p) =>
+      p.workspaces.filter((ws) => !ws.isMain).map((ws) => `${p.path}:${ws.branch}`),
+    )
+    .join("|");
+}
 
-  const fetchPrs = useCallback(async () => {
+export function usePrWatcher() {
+  const updateWorkspacePr = useProjectStore((s) => s.updateWorkspacePr);
+  const updateWorkspacePrRef = useRef(updateWorkspacePr);
+  updateWorkspacePrRef.current = updateWorkspacePr;
+
+  const fetchPrs = useRef(async () => {
     for (const project of useProjectStore.getState().projects) {
       const nonMainWorkspaces = project.workspaces.filter(
         (ws) => !ws.isMain && ws.branch,
@@ -26,7 +36,7 @@ export function usePrWatcher() {
         for (const [branch, pr] of results) {
           const ws = nonMainWorkspaces.find((w) => w.branch === branch);
           if (ws) {
-            updateWorkspacePr(
+            updateWorkspacePrRef.current(
               ws.path,
               pr
                 ? {
@@ -48,32 +58,35 @@ export function usePrWatcher() {
         // gh CLI not available or network error — skip
       }
     }
-  }, [updateWorkspacePr]);
+  }).current;
 
-  // Build a stable fingerprint of branches to detect changes
-  const prevFingerprintRef = useRef("");
-  const fingerprint = projects
-    .flatMap((p) => p.workspaces.filter((ws) => !ws.isMain).map((ws) => `${p.path}:${ws.branch}`))
-    .join("|");
+  useMountEffect(() => {
+    let prevFingerprint = "";
+    let timer: ReturnType<typeof setInterval> | null = null;
 
-  useEffect(() => {
-    // Fetch immediately on mount or branch change
-    const changed = fingerprint !== prevFingerprintRef.current;
-    prevFingerprintRef.current = fingerprint;
+    const startPolling = () => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(fetchPrs, PR_POLL_INTERVAL);
+    };
 
-    if (changed) {
-      fetchPrs();
-    }
+    // Initial fetch
+    prevFingerprint = computeFingerprint();
+    fetchPrs();
+    startPolling();
 
-    // Set up polling
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(fetchPrs, PR_POLL_INTERVAL);
+    // Subscribe to store changes to detect fingerprint changes
+    const unsub = useProjectStore.subscribe(() => {
+      const fp = computeFingerprint();
+      if (fp !== prevFingerprint) {
+        prevFingerprint = fp;
+        fetchPrs();
+        startPolling();
+      }
+    });
 
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      unsub();
+      if (timer) clearInterval(timer);
     };
-  }, [fingerprint, fetchPrs]);
+  });
 }

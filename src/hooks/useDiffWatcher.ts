@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useProjectStore } from "../store/project-store";
+import { useMountEffect } from "./useMountEffect";
 
 export function useDiffWatcher() {
   const projects = useProjectStore((s) => s.projects);
@@ -29,17 +30,34 @@ export function useDiffWatcher() {
     return next;
   })();
 
-  useEffect(() => {
-    if (Object.keys(workspaceMap).length === 0) return;
+  const workspaceMapRef = useRef(workspaceMap);
+  workspaceMapRef.current = workspaceMap;
 
-    window.electronAPI.diffs.start(workspaceMap);
+  useMountEffect(() => {
+    let currentMap = workspaceMapRef.current;
+    if (Object.keys(currentMap).length > 0) {
+      window.electronAPI.diffs.start(currentMap);
+    }
+
+    const unsub = useProjectStore.subscribe(() => {
+      const nextMap = workspaceMapRef.current;
+      if (nextMap !== currentMap) {
+        currentMap = nextMap;
+        if (Object.keys(currentMap).length > 0) {
+          window.electronAPI.diffs.start(currentMap);
+        } else {
+          window.electronAPI.diffs.stop();
+        }
+      }
+    });
 
     return () => {
+      unsub();
       window.electronAPI.diffs.stop();
     };
-  }, [workspaceMap]);
+  });
 
-  useEffect(() => {
+  useMountEffect(() => {
     const unsubscribe = window.electronAPI.diffs.onChange((diffs) => {
       // Get all workspace paths to clear stats for workspaces with no diff
       const allPaths = Object.keys(prevMapRef.current);
@@ -48,5 +66,5 @@ export function useDiffWatcher() {
       }
     });
     return unsubscribe;
-  }, [updateWorkspaceDiffStats]);
+  });
 }

@@ -1,6 +1,5 @@
 import {
   useState,
-  useEffect,
   useCallback,
   useMemo,
 } from "react";
@@ -13,6 +12,7 @@ import {
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
+import { useMountEffect } from "../hooks/useMountEffect";
 import type { LinearIssue } from "../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import styles from "./EmptyState.module.css";
@@ -39,28 +39,49 @@ export function WorkspaceEmptyState() {
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [loadingTicketId, setLoadingTicketId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (teamIds.length === 0) {
-      setTickets([]);
-      return;
-    }
-
+  useMountEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    const getTeamIds = () => {
+      const state = useProjectStore.getState();
+      const proj = state.projects[state.selectedProjectIndex];
+      return proj?.linearAssociations?.map((a) => a.teamId) ?? [];
+    };
+
+    const fetchTickets = async (ids: string[]) => {
+      if (ids.length === 0) {
+        setTickets([]);
+        setTicketsLoading(false);
+        return;
+      }
       setTicketsLoading(true);
       try {
-        const issues = await window.electronAPI.linear.getMyIssues(teamIds);
+        const issues = await window.electronAPI.linear.getMyIssues(ids);
         if (!cancelled) setTickets(issues);
       } catch (err) {
         console.error("[EmptyState] Failed to fetch tickets:", err);
       } finally {
         if (!cancelled) setTicketsLoading(false);
       }
-    })();
+    };
+
+    let prevKey = getTeamIds().join(",");
+    fetchTickets(getTeamIds());
+
+    const unsub = useProjectStore.subscribe(() => {
+      const ids = getTeamIds();
+      const key = ids.join(",");
+      if (key !== prevKey) {
+        prevKey = key;
+        fetchTickets(ids);
+      }
+    });
+
     return () => {
       cancelled = true;
+      unsub();
     };
-  }, [teamIds]);
+  });
 
   const projectId = project?.id;
   const handleTicketClick = useCallback(

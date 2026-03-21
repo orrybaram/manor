@@ -429,6 +429,68 @@
   }
 }
 
+/* ── Skeleton loading states ── */
+
+.skeletonBone {
+  background: var(--surface);
+  border-radius: 4px;
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+.skeletonIdentifier {
+  width: 48px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.skeletonTitle {
+  height: 14px;
+  flex: 1;
+}
+
+.skeletonState {
+  width: 56px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.skeletonDetailTitle {
+  width: 70%;
+  height: 22px;
+  margin-bottom: 16px;
+}
+
+.skeletonDetailLine {
+  height: 14px;
+  margin-bottom: 8px;
+}
+
+.skeletonSidebarLabel {
+  width: 50%;
+  height: 10px;
+}
+
+.skeletonSidebarValue {
+  width: 80%;
+  height: 14px;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 /* ── Ghosts!? Easter Egg ── */
 
 .ghostOverlay {

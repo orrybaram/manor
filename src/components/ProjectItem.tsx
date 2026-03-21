@@ -1,5 +1,4 @@
 import React, {
-  useEffect,
   useCallback,
   useRef,
   useState,
@@ -68,6 +67,10 @@ export function ProjectItem({
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
     setEditValue(ws.name || ws.branch || "");
+    requestAnimationFrame(() => {
+      editRef.current?.focus();
+      editRef.current?.select();
+    });
   }, []);
 
   const commitRename = useCallback(
@@ -78,12 +81,6 @@ export function ProjectItem({
     [editValue, onRenameWorkspace],
   );
 
-  useEffect(() => {
-    if (editingPath && editRef.current) {
-      editRef.current.focus();
-      editRef.current.select();
-    }
-  }, [editingPath]);
 
   return (
     <div className={styles.project}>

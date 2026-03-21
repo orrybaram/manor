@@ -11,7 +11,7 @@
 }
 
 .titlebar {
-  height: 38px;
+  height: 32px;
   flex-shrink: 0;
   -webkit-app-region: drag;
 }

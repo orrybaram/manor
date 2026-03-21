@@ -72,6 +72,25 @@
   margin-top: 2px;
 }
 
+.actionButton {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: var(--text-on-accent, #fff);
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.actionButton:hover {
+  opacity: 0.85;
+}
+
 @keyframes slideIn {
   from {
     opacity: 0;

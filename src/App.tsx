@@ -12,6 +12,7 @@ import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import "./App.css";
 
 const SESSION_BASE_STYLE: React.CSSProperties = {
@@ -34,6 +35,8 @@ function App() {
   useMountEffect(() => {
     loadTheme();
   });
+
+  useAutoUpdate();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);

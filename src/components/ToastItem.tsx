@@ -13,6 +13,7 @@ export function ToastItem({ toast }: { toast: ToastData }) {
 
   useMountEffect(() => {
     if (toast.status === "loading") return;
+    if (toast.persistent) return;
 
     const delay =
       toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS;
@@ -40,6 +41,15 @@ export function ToastItem({ toast }: { toast: ToastData }) {
         <div className={styles.message}>{toast.message}</div>
         {toast.detail && <div className={styles.detail}>{toast.detail}</div>}
       </div>
+      {toast.action && (
+        <button
+          className={styles.actionButton}
+          onClick={toast.action.onClick}
+          type="button"
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   );
 }

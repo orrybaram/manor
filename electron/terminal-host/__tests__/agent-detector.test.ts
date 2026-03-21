@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AgentDetector } from "../agent-detector";
-import type { AgentState } from "../types";
+import type { AgentState, AgentStatus } from "../types";
 
 describe("AgentDetector", () => {
   let detector: AgentDetector;
@@ -93,38 +93,38 @@ describe("AgentDetector", () => {
   // ── 3. Hook-driven transitions via setStatus() ──
 
   describe("hook-driven transitions via setStatus()", () => {
-    it('after agent detected: setStatus("running") -> status running', () => {
+    it('after agent detected: setStatus("thinking") -> status thinking', () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
-      expect(detector.getState().status).toBe("running");
+      detector.setStatus("thinking");
+      expect(detector.getState().status).toBe("thinking");
     });
 
-    it("running -> waiting via setStatus", () => {
+    it("thinking -> requires_input via setStatus", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
-      detector.setStatus("waiting");
-      expect(detector.getState().status).toBe("waiting");
+      detector.setStatus("thinking");
+      detector.setStatus("requires_input");
+      expect(detector.getState().status).toBe("requires_input");
     });
 
-    it("waiting -> running (permission granted)", () => {
+    it("requires_input -> thinking (permission granted)", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
-      detector.setStatus("waiting");
-      detector.setStatus("running");
-      expect(detector.getState().status).toBe("running");
+      detector.setStatus("thinking");
+      detector.setStatus("requires_input");
+      detector.setStatus("thinking");
+      expect(detector.getState().status).toBe("thinking");
     });
 
-    it("setStatus(running) when already running does not fire callback (dedup)", () => {
+    it("setStatus(thinking) when already thinking does not fire callback (dedup)", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       onChange.mockClear();
 
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       expect(onChange).not.toHaveBeenCalled();
     });
 
     it("setStatus ignored when no agent kind set", () => {
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       expect(detector.getState().status).toBe("idle");
       expect(onChange).not.toHaveBeenCalled();
     });
@@ -133,19 +133,19 @@ describe("AgentDetector", () => {
   // ── 4. Agent exit (foreground process disappears) ──
 
   describe("agent exit", () => {
-    it('agent running, FG becomes null -> "complete"', () => {
+    it('agent thinking, FG becomes null -> "complete"', () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
     });
 
-    it('agent waiting, FG becomes null -> "complete"', () => {
+    it('agent requires_input, FG becomes null -> "complete"', () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
-      detector.setStatus("waiting");
+      detector.setStatus("thinking");
+      detector.setStatus("requires_input");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
@@ -168,7 +168,7 @@ describe("AgentDetector", () => {
 
     it("complete -> idle after COMPLETE_CLEAR_MS (3000ms)", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
 
@@ -185,21 +185,21 @@ describe("AgentDetector", () => {
   describe("callback behavior", () => {
     it("onStatusChange fires on every actual transition", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       expect(onChange).toHaveBeenCalledTimes(1);
 
-      detector.setStatus("waiting");
+      detector.setStatus("requires_input");
       expect(onChange).toHaveBeenCalledTimes(2);
     });
 
     it("receives correct AgentState shape", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
 
       const state = onChange.mock.calls[0][0] as AgentState;
       expect(state).toEqual({
         kind: "claude",
-        status: "running",
+        status: "thinking",
         processName: "claude",
         since: expect.any(Number),
       });
@@ -207,16 +207,16 @@ describe("AgentDetector", () => {
 
     it("does NOT fire when status unchanged", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       onChange.mockClear();
 
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       expect(onChange).not.toHaveBeenCalled();
     });
 
     it("fires for complete AND the subsequent idle (two callbacks)", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
@@ -230,14 +230,14 @@ describe("AgentDetector", () => {
 
     it("fires in correct order during rapid transitions", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
-      detector.setStatus("waiting");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
+      detector.setStatus("requires_input");
+      detector.setStatus("thinking");
 
       const statuses = onChange.mock.calls.map(
         ([s]: [AgentState]) => s.status
       );
-      expect(statuses).toEqual(["running", "waiting", "running"]);
+      expect(statuses).toEqual(["thinking", "requires_input", "thinking"]);
     });
   });
 
@@ -246,7 +246,7 @@ describe("AgentDetector", () => {
   describe("timer behavior", () => {
     it("complete->idle timer is exactly 3000ms", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
 
       vi.advanceTimersByTime(2999);
@@ -258,7 +258,7 @@ describe("AgentDetector", () => {
 
     it("timer cleared when new agent appears during complete", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
 
@@ -274,7 +274,7 @@ describe("AgentDetector", () => {
 
     it("timer cleared on dispose()", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
 
@@ -291,7 +291,7 @@ describe("AgentDetector", () => {
     it("rapid exits don't stack timers (only one pending at a time)", () => {
       // First agent session
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
 
@@ -299,12 +299,11 @@ describe("AgentDetector", () => {
       vi.advanceTimersByTime(1000);
 
       // Complete -> idle happens from timer of first complete
-      // Actually, let's set up a new agent and make it exit too
       vi.advanceTimersByTime(2000); // first timer fires -> idle
       expect(detector.getState().status).toBe("idle");
 
       detector.updateForegroundProcess("opencode");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
       detector.updateForegroundProcess(null);
       expect(detector.getState().status).toBe("complete");
 
@@ -325,7 +324,7 @@ describe("AgentDetector", () => {
   describe("edge cases", () => {
     it("agent switch: claude exits -> opencode starts immediately -> correct kind/status", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
 
       // Claude exits
       detector.updateForegroundProcess(null);
@@ -337,18 +336,18 @@ describe("AgentDetector", () => {
       expect(detector.getState().status).toBe("idle");
 
       // Hook fires for opencode
-      detector.setStatus("running");
-      expect(detector.getState().status).toBe("running");
+      detector.setStatus("thinking");
+      expect(detector.getState().status).toBe("thinking");
       expect(detector.getState().kind).toBe("opencode");
     });
 
-    it("unknown FG process while agent running (child process) keeps tracking", () => {
+    it("unknown FG process while agent thinking (child process) keeps tracking", () => {
       detector.updateForegroundProcess("claude");
-      detector.setStatus("running");
+      detector.setStatus("thinking");
 
       // Agent spawns git as a child process
       detector.updateForegroundProcess("git");
-      expect(detector.getState().status).toBe("running");
+      expect(detector.getState().status).toBe("thinking");
       expect(detector.getState().kind).toBe("claude");
     });
 
@@ -375,7 +374,7 @@ describe("AgentDetector", () => {
   // ── 8. Transition sequence capture ──
 
   describe("transition sequence capture", () => {
-    it("records exact lifecycle: idle -> running -> waiting -> running -> complete -> idle", () => {
+    it("records exact lifecycle: idle -> thinking -> requires_input -> thinking -> complete -> idle", () => {
       const transitions: AgentStatus[] = [];
       detector.onStatusChange = (state: AgentState) => {
         transitions.push(state.status);
@@ -388,14 +387,14 @@ describe("AgentDetector", () => {
       detector.updateForegroundProcess("claude");
       expect(detector.getState().status).toBe("idle");
 
-      // Hook: running
-      detector.setStatus("running");
+      // Hook: thinking
+      detector.setStatus("thinking");
 
-      // Hook: waiting
-      detector.setStatus("waiting");
+      // Hook: requires_input
+      detector.setStatus("requires_input");
 
-      // Hook: running (permission granted)
-      detector.setStatus("running");
+      // Hook: thinking (permission granted)
+      detector.setStatus("thinking");
 
       // Agent exits -> complete
       detector.updateForegroundProcess(null);
@@ -404,9 +403,9 @@ describe("AgentDetector", () => {
       vi.advanceTimersByTime(3000);
 
       expect(transitions).toEqual([
-        "running",
-        "waiting",
-        "running",
+        "thinking",
+        "requires_input",
+        "thinking",
         "complete",
         "idle",
       ]);

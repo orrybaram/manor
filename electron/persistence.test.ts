@@ -23,41 +23,41 @@ describe("ProjectManager", () => {
   });
 
   describe("addProject", () => {
-    it("adds a project and persists it", () => {
-      const project = manager.addProject("My Project", "/tmp/fake-project");
+    it("adds a project and persists it", async () => {
+      const project = await manager.addProject("My Project", "/tmp/fake-project");
 
       expect(project.name).toBe("My Project");
       expect(project.path).toBe("/tmp/fake-project");
       expect(project.defaultRunCommand).toBeNull();
 
-      const projects = manager.getProjects();
+      const projects = await manager.getProjects();
       expect(projects).toHaveLength(1);
       expect(projects[0].id).toBe(project.id);
     });
 
-    it("sets selectedProjectIndex to the new project", () => {
-      manager.addProject("First", "/tmp/first");
-      manager.addProject("Second", "/tmp/second");
+    it("sets selectedProjectIndex to the new project", async () => {
+      await manager.addProject("First", "/tmp/first");
+      await manager.addProject("Second", "/tmp/second");
 
       expect(manager.getSelectedProjectIndex()).toBe(1);
     });
   });
 
   describe("removeProject", () => {
-    it("removes a project by id", () => {
-      const p1 = manager.addProject("One", "/tmp/one");
-      manager.addProject("Two", "/tmp/two");
+    it("removes a project by id", async () => {
+      const p1 = await manager.addProject("One", "/tmp/one");
+      await manager.addProject("Two", "/tmp/two");
 
       manager.removeProject(p1.id);
 
-      const projects = manager.getProjects();
+      const projects = await manager.getProjects();
       expect(projects).toHaveLength(1);
       expect(projects[0].name).toBe("Two");
     });
 
-    it("adjusts selectedProjectIndex when removing", () => {
-      manager.addProject("One", "/tmp/one");
-      const p2 = manager.addProject("Two", "/tmp/two");
+    it("adjusts selectedProjectIndex when removing", async () => {
+      await manager.addProject("One", "/tmp/one");
+      const p2 = await manager.addProject("Two", "/tmp/two");
 
       // selectedProjectIndex is 1 (Two)
       manager.removeProject(p2.id);
@@ -67,9 +67,9 @@ describe("ProjectManager", () => {
   });
 
   describe("selectProject", () => {
-    it("changes the selected project index", () => {
-      manager.addProject("One", "/tmp/one");
-      manager.addProject("Two", "/tmp/two");
+    it("changes the selected project index", async () => {
+      await manager.addProject("One", "/tmp/one");
+      await manager.addProject("Two", "/tmp/two");
 
       manager.selectProject(0);
       expect(manager.getSelectedProjectIndex()).toBe(0);
@@ -78,9 +78,9 @@ describe("ProjectManager", () => {
       expect(manager.getSelectedProjectIndex()).toBe(1);
     });
 
-    it("persists across reloads", () => {
-      manager.addProject("One", "/tmp/one");
-      manager.addProject("Two", "/tmp/two");
+    it("persists across reloads", async () => {
+      await manager.addProject("One", "/tmp/one");
+      await manager.addProject("Two", "/tmp/two");
       manager.selectProject(0);
 
       const reloaded = new ProjectManager(tmpDir);
@@ -89,97 +89,97 @@ describe("ProjectManager", () => {
   });
 
   describe("updateProject", () => {
-    it("updates the project name", () => {
-      const project = manager.addProject("Old Name", "/tmp/proj");
+    it("updates the project name", async () => {
+      const project = await manager.addProject("Old Name", "/tmp/proj");
 
-      const updated = manager.updateProject(project.id, { name: "New Name" });
+      const updated = await manager.updateProject(project.id, { name: "New Name" });
 
       expect(updated).not.toBeNull();
       expect(updated!.name).toBe("New Name");
-      expect(manager.getProjects()[0].name).toBe("New Name");
+      expect((await manager.getProjects())[0].name).toBe("New Name");
     });
 
-    it("updates defaultRunCommand", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
+    it("updates defaultRunCommand", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
 
-      manager.updateProject(project.id, { defaultRunCommand: "npm run dev" });
+      await manager.updateProject(project.id, { defaultRunCommand: "npm run dev" });
 
-      expect(manager.getProjects()[0].defaultRunCommand).toBe("npm run dev");
+      expect((await manager.getProjects())[0].defaultRunCommand).toBe("npm run dev");
     });
 
-    it("updates multiple fields at once", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
+    it("updates multiple fields at once", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
 
-      manager.updateProject(project.id, {
+      await manager.updateProject(project.id, {
         name: "Renamed",
         defaultRunCommand: "make run",
       });
 
-      const p = manager.getProjects()[0];
+      const p = (await manager.getProjects())[0];
       expect(p.name).toBe("Renamed");
       expect(p.defaultRunCommand).toBe("make run");
     });
 
-    it("can set a field to null", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
-      manager.updateProject(project.id, { defaultRunCommand: "initial" });
-      expect(manager.getProjects()[0].defaultRunCommand).toBe("initial");
+    it("can set a field to null", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      await manager.updateProject(project.id, { defaultRunCommand: "initial" });
+      expect((await manager.getProjects())[0].defaultRunCommand).toBe("initial");
 
-      manager.updateProject(project.id, { defaultRunCommand: null });
-      expect(manager.getProjects()[0].defaultRunCommand).toBeNull();
+      await manager.updateProject(project.id, { defaultRunCommand: null });
+      expect((await manager.getProjects())[0].defaultRunCommand).toBeNull();
     });
 
-    it("returns null for unknown project id", () => {
-      const result = manager.updateProject("nonexistent-id", { name: "X" });
+    it("returns null for unknown project id", async () => {
+      const result = await manager.updateProject("nonexistent-id", { name: "X" });
       expect(result).toBeNull();
     });
 
-    it("does not affect other projects", () => {
-      const p1 = manager.addProject("One", "/tmp/one");
-      const p2 = manager.addProject("Two", "/tmp/two");
+    it("does not affect other projects", async () => {
+      const p1 = await manager.addProject("One", "/tmp/one");
+      const p2 = await manager.addProject("Two", "/tmp/two");
 
-      manager.updateProject(p1.id, { name: "One Updated" });
+      await manager.updateProject(p1.id, { name: "One Updated" });
 
-      const projects = manager.getProjects();
+      const projects = await manager.getProjects();
       expect(projects.find((p) => p.id === p1.id)!.name).toBe("One Updated");
       expect(projects.find((p) => p.id === p2.id)!.name).toBe("Two");
     });
 
-    it("persists updates across reloads", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
-      manager.updateProject(project.id, {
+    it("persists updates across reloads", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      await manager.updateProject(project.id, {
         name: "Persisted",
         defaultRunCommand: "echo hello",
       });
 
       const reloaded = new ProjectManager(tmpDir);
-      const p = reloaded.getProjects()[0];
+      const p = (await reloaded.getProjects())[0];
       expect(p.name).toBe("Persisted");
       expect(p.defaultRunCommand).toBe("echo hello");
     });
   });
 
   describe("selectWorkspace", () => {
-    it("updates the selected workspace index", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
+    it("updates the selected workspace index", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
 
       manager.selectWorkspace(project.id, 2);
 
-      const p = manager.getProjects()[0];
+      const p = (await manager.getProjects())[0];
       expect(p.selectedWorkspaceIndex).toBe(2);
     });
 
-    it("no-ops for unknown project id", () => {
-      manager.addProject("Proj", "/tmp/proj");
+    it("no-ops for unknown project id", async () => {
+      await manager.addProject("Proj", "/tmp/proj");
       manager.selectWorkspace("nonexistent", 5);
 
-      expect(manager.getProjects()[0].selectedWorkspaceIndex).toBe(0);
+      expect((await manager.getProjects())[0].selectedWorkspaceIndex).toBe(0);
     });
   });
 
   describe("renameWorkspace", () => {
-    it("sets a workspace name", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
+    it("sets a workspace name", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
 
       manager.renameWorkspace(project.id, "/tmp/proj", "My Workspace");
 
@@ -193,8 +193,8 @@ describe("ProjectManager", () => {
       );
     });
 
-    it("removes name when set to empty string", () => {
-      const project = manager.addProject("Proj", "/tmp/proj");
+    it("removes name when set to empty string", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
 
       manager.renameWorkspace(project.id, "/tmp/proj", "Named");
       manager.renameWorkspace(project.id, "/tmp/proj", "");

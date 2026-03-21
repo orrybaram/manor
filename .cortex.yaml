@@ -1,0 +1,15 @@
+version: 1
+name: manor
+project: null
+workspace: null
+path: manor
+include:
+- pattern: '**/*.md'
+  dest: .
+tags: []
+context:
+  max_tokens: 4000
+  summarize: true
+  include_index: true
+  full_content: []
+shared: true

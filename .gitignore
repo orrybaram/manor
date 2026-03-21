@@ -26,3 +26,7 @@ release/
 *.njsproj
 *.sln
 *.sw?
+.cortex.local/
+
+# Cortex-managed
+.claude/rules/cortex.md

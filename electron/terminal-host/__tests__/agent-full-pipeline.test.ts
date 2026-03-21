@@ -391,15 +391,11 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     titleDetector.setTitle("✻ task complete");
     expect(titleDetector.detect()).toBe("complete");
 
-    // Each done marker works (✳ excluded — it's Claude Code branding)
-    for (const marker of ["✻", "✽", "✶", "✢"]) {
+    // Each done marker works (including ✳)
+    for (const marker of ["✳", "✻", "✽", "✶", "✢"]) {
       titleDetector.setTitle(`${marker} done`);
       expect(titleDetector.detect()).toBe("complete");
     }
-
-    // ✳ is NOT a done marker (Claude Code uses it as static branding)
-    titleDetector.setTitle("✳ Claude Code");
-    expect(titleDetector.detect()).toBe("unknown");
 
     // Regular title → unknown
     titleDetector.setTitle("claude - terminal");

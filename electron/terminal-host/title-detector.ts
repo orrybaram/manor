@@ -18,9 +18,11 @@ function hasBrailleChars(str: string): boolean {
 }
 
 /** Done markers that Claude Code puts in titles when finished.
- *  NOTE: ✳ is excluded — Claude Code uses it as a static branding character
- *  in its default title ("✳ Claude Code"), not as a completion signal. */
-const DONE_MARKERS = ["✻", "✽", "✶", "✢"];
+ *  ✳ is included — Claude Code uses it in completed titles (e.g. "✳ Task name").
+ *  False positives are prevented because: braille chars are checked first
+ *  (so active spinners always return "working"), and setFallbackStatus()
+ *  ignores the signal when no agent is being tracked. */
+const DONE_MARKERS = ["✳", "✻", "✽", "✶", "✢"];
 
 function hasDoneMarker(str: string): boolean {
   for (const marker of DONE_MARKERS) {

@@ -40,6 +40,11 @@ export class TerminalHostClient {
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
+  private clientVersion: string | undefined;
+
+  constructor(version?: string) {
+    this.clientVersion = version;
+  }
 
   /** Set a handler for stream events (data, exit, cwd, error) */
   onEvent(handler: StreamEventHandler): void {
@@ -75,6 +80,28 @@ export class TerminalHostClient {
       throw new Error(
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
       );
+    }
+
+    // Check daemon version — if mismatched, restart daemon and reconnect
+    if (this.clientVersion && authResp.version && authResp.version !== this.clientVersion) {
+      console.log(
+        `Daemon version mismatch: daemon=${authResp.version}, client=${this.clientVersion}. Restarting daemon...`,
+      );
+      this.cleanup();
+      await this.killDaemonByPid();
+      await new Promise((r) => setTimeout(r, 500));
+      await this.spawnDaemon();
+      await this.connectControlSocket();
+      const retryToken = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
+      const retryAuth = await this.request({ type: "auth", token: retryToken });
+      if (retryAuth.type !== "authOk") {
+        throw new Error(
+          `Auth failed after daemon restart: ${retryAuth.type === "error" ? retryAuth.message : "unknown"}`,
+        );
+      }
+      await this.connectStreamSocket(retryToken);
+      this.connected = true;
+      return;
     }
 
     // Connect stream socket
@@ -235,6 +262,15 @@ export class TerminalHostClient {
     }
   }
 
+  private async killDaemonByPid(): Promise<void> {
+    try {
+      const pid = parseInt(fs.readFileSync(PID_PATH, "utf-8").trim(), 10);
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // PID file missing or process already gone — ignore
+    }
+  }
+
   private async spawnDaemon(): Promise<void> {
     fs.mkdirSync(MANOR_DIR, { recursive: true });
 
@@ -247,8 +283,16 @@ export class TerminalHostClient {
 
     const daemonScript = path.join(__dirname, "terminal-host-index.js");
 
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+    };
+    if (this.clientVersion) {
+      env.MANOR_VERSION = this.clientVersion;
+    }
+
     this.daemonProcess = spawn(process.execPath, [daemonScript], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      env,
       stdio: ["ignore", "ignore", "inherit"],
       detached: true,
     });

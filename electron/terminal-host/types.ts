@@ -59,7 +59,7 @@ export type ControlRequest =
   | { type: "ping" };
 
 export type ControlResponse =
-  | { type: "authOk" }
+  | { type: "authOk"; version?: string }
   | { type: "created"; session: SessionInfo }
   | { type: "attached"; snapshot: TerminalSnapshot }
   | { type: "detached" }

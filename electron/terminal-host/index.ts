@@ -21,6 +21,8 @@ const SOCKET_PATH = path.join(MANOR_DIR, "terminal-host.sock");
 const TOKEN_PATH = path.join(MANOR_DIR, "terminal-host.token");
 const PID_PATH = path.join(MANOR_DIR, "terminal-host.pid");
 
+const daemonVersion = process.env.MANOR_VERSION || undefined;
+
 const host = new TerminalHost();
 const authenticatedSockets = new WeakSet<net.Socket>();
 
@@ -81,7 +83,7 @@ async function handleControlMessage(
       const expected = readToken();
       if (request.token === expected) {
         authenticatedSockets.add(socket);
-        sendResponse(socket, { type: "authOk" });
+        sendResponse(socket, { type: "authOk", version: daemonVersion });
       } else {
         sendResponse(socket, { type: "error", message: "Invalid token" });
       }

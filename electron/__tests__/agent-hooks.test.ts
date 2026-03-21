@@ -91,7 +91,8 @@ describe("AgentHookServer", () => {
   beforeEach(async () => {
     server = new AgentHookServer();
     relayFn = vi.fn() as unknown as (paneId: string, status: AgentStatus) => void;
-    await server.start(relayFn);
+    await server.start();
+    server.setRelay(relayFn);
   });
 
   afterEach(() => {
@@ -114,12 +115,14 @@ describe("AgentHookServer", () => {
       server.stop();
 
       const relay = vi.fn();
-      await server.start(relay);
+      await server.start();
+      server.setRelay(relay);
       expect(server.hookPort).toBeGreaterThan(0);
 
       server.stop();
 
-      await server.start(relay);
+      await server.start();
+      server.setRelay(relay);
       expect(server.hookPort).toBeGreaterThan(0);
     });
   });

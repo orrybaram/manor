@@ -51,10 +51,13 @@ export class AgentHookServer {
     return this.port;
   }
 
-  /** Start the HTTP server on a random port */
-  async start(relay: (paneId: string, status: AgentStatus) => void): Promise<void> {
+  /** Set or update the relay function (called when hook events arrive) */
+  setRelay(relay: (paneId: string, status: AgentStatus) => void): void {
     this.relayFn = relay;
+  }
 
+  /** Start the HTTP server on a random port */
+  async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
       if (!req.url) {
         res.writeHead(404);
@@ -78,6 +81,8 @@ export class AgentHookServer {
         res.end();
         return;
       }
+
+      console.log("Received hook event:--------------------------------------------------------", paneId, eventType);
 
       const status = mapEventToStatus(eventType);
       if (status) {

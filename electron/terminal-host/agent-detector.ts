@@ -143,7 +143,12 @@ export class AgentDetector {
     }
 
     this.lastHookTime = Date.now();
-    this.transition(status);
+
+    if (status === "complete") {
+      this.transitionToComplete();
+    } else {
+      this.transition(status);
+    }
 
     // Update tracked PID statuses
     for (const [pid, info] of this.trackedPids) {
@@ -166,7 +171,11 @@ export class AgentDetector {
     // Don't transition to the same status
     if (this.status === status) return;
 
-    this.transition(status);
+    if (status === "complete") {
+      this.transitionToComplete();
+    } else {
+      this.transition(status);
+    }
   }
 
   /**

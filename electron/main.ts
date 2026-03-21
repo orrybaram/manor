@@ -661,19 +661,25 @@ app.whenReady().then(async () => {
     initAutoUpdater(mainWindow);
   }
 
-  // Connect to daemon (spawns if needed)
+  // Start agent hook server FIRST to get the port number.
+  // The port must be in process.env BEFORE the daemon spawns,
+  // because the daemon inherits env at spawn time and passes it
+  // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
+  await agentHookServer.start();
+  process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+
+  // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
   try {
     await client.connect();
   } catch (err) {
     console.error("Failed to connect to terminal host daemon:", err);
   }
 
-  // Start agent hook server (receives lifecycle events from Claude Code, etc.)
-  // Must happen after daemon connect so the client is ready to relay events.
-  await agentHookServer.start((paneId, status) => {
+  // Set the relay callback now that the client is connected.
+  // Hook events route through the daemon's AgentDetector state machine.
+  agentHookServer.setRelay((paneId, status) => {
     client.relayAgentHook(paneId, status);
   });
-  process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

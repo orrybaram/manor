@@ -26,7 +26,7 @@ export function useTerminalStream(
 
     let kittyFlags = 0;
 
-    const unsubOutput = window.electronAPI.onPtyOutput(
+    const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
       (data: string) => {
         // Intercept kitty keyboard protocol sequences before xterm sees them
@@ -50,15 +50,15 @@ export function useTerminalStream(
       },
     );
 
-    const unsubExit = window.electronAPI.onPtyExit(paneId, () => {
+    const unsubExit = window.electronAPI.pty.onExit(paneId, () => {
       term.write("\r\n[Process exited]\r\n");
     });
 
-    const unsubCwd = window.electronAPI.onPtyCwd(paneId, (cwdPath: string) => {
+    const unsubCwd = window.electronAPI.pty.onCwd(paneId, (cwdPath: string) => {
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
     });
 
-    const unsubAgentStatus = window.electronAPI.onPtyAgentStatus(
+    const unsubAgentStatus = window.electronAPI.pty.onAgentStatus(
       paneId,
       (agent) => {
         useAppStore.getState().setPaneAgentStatus(paneId, agent);

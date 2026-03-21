@@ -362,7 +362,7 @@ export function ProjectItem({
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              window.electronAPI.openExternal(ws.pr!.url);
+                              window.electronAPI.shell.openExternal(ws.pr!.url);
                             }}
                           >
                             {ws.pr.state === "merged" ? (
@@ -390,7 +390,7 @@ export function ProjectItem({
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
                       onSelect={() =>
-                        window.electronAPI.openExternal(`file://${ws.path}`)
+                        window.electronAPI.shell.openExternal(`file://${ws.path}`)
                       }
                     >
                       Open in Finder

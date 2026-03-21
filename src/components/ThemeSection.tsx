@@ -39,8 +39,8 @@ export function ThemeSection() {
     setQuery("");
     didScrollRef.current = false;
     Promise.all([
-      window.electronAPI.hasGhosttyConfig(),
-      window.electronAPI.getAllThemeColors(),
+      window.electronAPI.theme.hasGhosttyConfig(),
+      window.electronAPI.theme.allColors(),
     ]).then(([ghostty, colors]) => {
       setHasGhostty(ghostty);
       setAllColors(colors);

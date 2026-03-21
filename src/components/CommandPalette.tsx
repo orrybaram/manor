@@ -111,7 +111,7 @@ export function CommandPalette({
   const { data: linearIssues = [], isLoading: linearLoading } = useQuery({
     queryKey: ["linear-issues", allTeamIds],
     queryFn: () =>
-      window.electronAPI.linearGetMyIssues(allTeamIds, {
+      window.electronAPI.linear.getMyIssues(allTeamIds, {
         stateTypes: ["unstarted", "backlog"],
         limit: 50,
       }),
@@ -188,7 +188,7 @@ export function CommandPalette({
 
   const handleOpenInBrowser = useCallback(
     (issue: LinearIssue) => {
-      window.electronAPI.openExternal(issue.url);
+      window.electronAPI.shell.openExternal(issue.url);
       onClose();
     },
     [onClose],

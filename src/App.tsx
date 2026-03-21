@@ -4,10 +4,8 @@ import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
-import {
-  WorkspaceEmptyState,
-  WelcomeEmptyState,
-} from "./components/EmptyState";
+import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
+import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";

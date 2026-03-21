@@ -45,18 +45,15 @@ export function Sidebar() {
   usePrWatcher();
 
   useEffect(() => {
-    // Load persisted layout FIRST so setActiveWorkspace can restore old pane IDs
-    loadPersistedLayout().then(() => {
-      loadProjects().then(() => {
-        const { projects, selectedProjectIndex } = useProjectStore.getState();
-        const project = projects[selectedProjectIndex];
-        if (project) {
-          const ws =
-            project.workspaces[project.selectedWorkspaceIndex] ??
-            project.workspaces[0];
-          if (ws) setActiveWorkspace(ws.path);
-        }
-      });
+    Promise.all([loadPersistedLayout(), loadProjects()]).then(() => {
+      const { projects, selectedProjectIndex } = useProjectStore.getState();
+      const project = projects[selectedProjectIndex];
+      if (project) {
+        const ws =
+          project.workspaces[project.selectedWorkspaceIndex] ??
+          project.workspaces[0];
+        if (ws) setActiveWorkspace(ws.path);
+      }
     });
   }, [loadProjects, loadPersistedLayout, setActiveWorkspace]);
 

@@ -38,24 +38,48 @@ function httpGet(port: number, path: string): Promise<{ status: number; body: st
 // ── Tests ──
 
 describe("mapEventToStatus", () => {
-  it("maps UserPromptSubmit to running", () => {
-    expect(mapEventToStatus("UserPromptSubmit")).toBe("running");
+  it("maps UserPromptSubmit to thinking", () => {
+    expect(mapEventToStatus("UserPromptSubmit")).toBe("thinking");
   });
 
-  it("maps PostToolUse to running", () => {
-    expect(mapEventToStatus("PostToolUse")).toBe("running");
+  it("maps PostToolUse to thinking", () => {
+    expect(mapEventToStatus("PostToolUse")).toBe("thinking");
   });
 
-  it("maps PostToolUseFailure to running", () => {
-    expect(mapEventToStatus("PostToolUseFailure")).toBe("running");
+  it("maps PostToolUseFailure to thinking", () => {
+    expect(mapEventToStatus("PostToolUseFailure")).toBe("thinking");
   });
 
-  it("maps Stop to waiting", () => {
-    expect(mapEventToStatus("Stop")).toBe("waiting");
+  it("maps PreToolUse to working", () => {
+    expect(mapEventToStatus("PreToolUse")).toBe("working");
   });
 
-  it("maps PermissionRequest to waiting", () => {
-    expect(mapEventToStatus("PermissionRequest")).toBe("waiting");
+  it("maps Stop to complete", () => {
+    expect(mapEventToStatus("Stop")).toBe("complete");
+  });
+
+  it("maps PermissionRequest to requires_input", () => {
+    expect(mapEventToStatus("PermissionRequest")).toBe("requires_input");
+  });
+
+  it("maps Notification to requires_input", () => {
+    expect(mapEventToStatus("Notification")).toBe("requires_input");
+  });
+
+  it("maps StopFailure to error", () => {
+    expect(mapEventToStatus("StopFailure")).toBe("error");
+  });
+
+  it("maps SubagentStart to working", () => {
+    expect(mapEventToStatus("SubagentStart")).toBe("working");
+  });
+
+  it("maps SubagentStop to thinking", () => {
+    expect(mapEventToStatus("SubagentStop")).toBe("thinking");
+  });
+
+  it("maps SessionEnd to idle", () => {
+    expect(mapEventToStatus("SessionEnd")).toBe("idle");
   });
 
   it("returns null for unknown event", () => {
@@ -152,7 +176,7 @@ describe("AgentHookServer", () => {
       expect(channel).toBe("pty-agent-status-abc");
       expect(payload).toMatchObject({
         kind: "claude",
-        status: "waiting",
+        status: "complete",
         processName: "claude",
       });
       expect(payload.since).toBeGreaterThanOrEqual(before);
@@ -181,8 +205,6 @@ describe("AgentHookServer", () => {
       server.stop();
 
       const nullServer = new AgentHookServer();
-      // Start with a real window then set it to null by stopping and restarting differently
-      // Actually, we test this by creating a server where the window gets destroyed
       const win = makeMockWindow({ isDestroyed: true });
       await nullServer.start(win);
 
@@ -254,7 +276,7 @@ describe("registerClaudeHooks", () => {
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks).toBeDefined();
-    expect(Object.keys(settings.hooks)).toHaveLength(5);
+    expect(Object.keys(settings.hooks)).toHaveLength(11);
   });
 
   it("creates hooks when file exists but has no hooks key", async () => {
@@ -279,7 +301,7 @@ describe("registerClaudeHooks", () => {
     registerClaudeHooks();
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    expect(Object.keys(settings.hooks)).toHaveLength(5);
+    expect(Object.keys(settings.hooks)).toHaveLength(11);
     // Stop should still have exactly 1 entry (not duplicated)
     expect(settings.hooks.Stop).toHaveLength(1);
   });
@@ -314,12 +336,16 @@ describe("registerClaudeHooks", () => {
     expect(settings.hooks).toBeDefined();
   });
 
-  it("registers all 5 event types", async () => {
+  it("registers all 11 event types", async () => {
     const { registerClaudeHooks } = await freshImport();
     registerClaudeHooks();
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    const expectedEvents = ["UserPromptSubmit", "Stop", "PostToolUse", "PostToolUseFailure", "PermissionRequest"];
+    const expectedEvents = [
+      "UserPromptSubmit", "Stop", "PostToolUse", "PostToolUseFailure",
+      "PermissionRequest", "PreToolUse", "Notification", "StopFailure",
+      "SubagentStart", "SubagentStop", "SessionEnd",
+    ];
     for (const event of expectedEvents) {
       expect(settings.hooks[event]).toBeDefined();
       expect(settings.hooks[event]).toHaveLength(1);

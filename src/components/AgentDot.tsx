@@ -29,26 +29,30 @@ export function AgentDot({ status, size }: AgentDotProps) {
   }
 
   const dotClass =
-    status === "running"
-      ? styles.dotRunning
-      : status === "waiting"
-        ? styles.dotWaiting
-        : status === "error"
-          ? styles.dotError
-          : status === "complete"
-            ? styles.dotComplete
-            : "";
+    status === "thinking"
+      ? styles.dotThinking
+      : status === "working"
+        ? styles.dotWorking
+        : status === "requires_input"
+          ? styles.dotRequiresInput
+          : status === "error"
+            ? styles.dotError
+            : status === "complete"
+              ? styles.dotComplete
+              : "";
 
   const label =
-    status === "running"
-      ? "Agent running"
-      : status === "waiting"
-        ? "Waiting for input"
-        : status === "error"
-          ? "Agent error"
-          : status === "complete"
-            ? "Agent complete"
-            : "";
+    status === "thinking"
+      ? "Agent thinking"
+      : status === "working"
+        ? "Agent working"
+        : status === "requires_input"
+          ? "Waiting for input"
+          : status === "error"
+            ? "Agent error"
+            : status === "complete"
+              ? "Agent complete"
+              : "";
 
   return (
     <span

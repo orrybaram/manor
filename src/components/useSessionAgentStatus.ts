@@ -3,8 +3,9 @@ import { allPaneIds } from "../store/pane-tree";
 import type { AgentStatus } from "../electron.d";
 
 export const STATUS_PRIORITY: Record<AgentStatus, number> = {
-  waiting: 4,
-  running: 3,
+  requires_input: 5,
+  working: 4,
+  thinking: 3,
   error: 2,
   complete: 1,
   idle: 0,

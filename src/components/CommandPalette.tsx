@@ -469,55 +469,63 @@ export function CommandPalette({
   // Build recent view commands from tracked views
   const recentCommands: CommandItem[] = useMemo(() => {
     const allWorkspaceSessions = useAppStore.getState().workspaceSessions;
-    return recentViews
-      .filter(
-        (rv: RecentView) =>
-          !(
-            rv.workspacePath === activeWorkspacePath &&
-            rv.sessionId === selectedSessionId
-          ),
-      )
-      .map((rv: RecentView) => {
-        const ws = allWorkspaceSessions[rv.workspacePath];
-        if (!ws) return null;
-        const session = ws.sessions.find((s) => s.id === rv.sessionId);
-        if (!session) return null;
-        // Find workspace display name from projects
-        const project = projects.find((p) =>
-          p.workspaces.some((w) => w.path === rv.workspacePath),
-        );
-        const workspace = project?.workspaces.find(
-          (w) => w.path === rv.workspacePath,
-        );
-        const wsName = workspace?.name || workspace?.branch || "main";
-        const projectName = project?.name ?? "";
-        const paneId = session.focusedPaneId;
-        const label =
-          recentPaneTitles[paneId] ||
-          recentPaneCwds[paneId]?.split("/").pop() ||
-          session.title;
-        return {
-          id: `recent-${rv.sessionId}`,
-          label,
-          icon: <Clock size={14} />,
-          group: `${projectName} / ${wsName}`,
-          action: () => {
-            if (rv.workspacePath !== activeWorkspacePath) {
-              const wi =
-                project?.workspaces.findIndex(
-                  (w) => w.path === rv.workspacePath,
-                ) ?? -1;
-              if (project && wi >= 0) {
-                selectWorkspace(project.id, wi);
-                setActiveWorkspace(rv.workspacePath);
-              }
+    const result: CommandItem[] = [];
+
+    for (const rv of recentViews) {
+      // Skip the current view
+      if (
+        rv.workspacePath === activeWorkspacePath &&
+        rv.sessionId === selectedSessionId
+      ) {
+        continue;
+      }
+
+      // Look up workspace/session data and skip if not found
+      const ws = allWorkspaceSessions[rv.workspacePath];
+      if (!ws) continue;
+
+      const session = ws.sessions.find((s) => s.id === rv.sessionId);
+      if (!session) continue;
+
+      // Build the CommandItem
+      // Find workspace display name from projects
+      const project = projects.find((p) =>
+        p.workspaces.some((w) => w.path === rv.workspacePath),
+      );
+      const workspace = project?.workspaces.find(
+        (w) => w.path === rv.workspacePath,
+      );
+      const wsName = workspace?.name || workspace?.branch || "main";
+      const projectName = project?.name ?? "";
+      const paneId = session.focusedPaneId;
+      const label =
+        recentPaneTitles[paneId] ||
+        recentPaneCwds[paneId]?.split("/").pop() ||
+        session.title;
+
+      result.push({
+        id: `recent-${rv.sessionId}`,
+        label,
+        icon: <Clock size={14} />,
+        group: `${projectName} / ${wsName}`,
+        action: () => {
+          if (rv.workspacePath !== activeWorkspacePath) {
+            const wi =
+              project?.workspaces.findIndex(
+                (w) => w.path === rv.workspacePath,
+              ) ?? -1;
+            if (project && wi >= 0) {
+              selectWorkspace(project.id, wi);
+              setActiveWorkspace(rv.workspacePath);
             }
-            selectSession(rv.sessionId);
-            onClose();
-          },
-        } satisfies CommandItem;
-      })
-      .filter(Boolean) as CommandItem[];
+          }
+          selectSession(rv.sessionId);
+          onClose();
+        },
+      } satisfies CommandItem);
+    }
+
+    return result;
   }, [
     recentViews,
     projects,

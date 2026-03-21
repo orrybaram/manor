@@ -17,6 +17,7 @@ import type {
   StreamEvent,
   SessionInfo,
   TerminalSnapshot,
+  AgentStatus,
 } from "./types";
 
 const MANOR_DIR = path.join(os.homedir(), ".manor");
@@ -194,6 +195,11 @@ export class TerminalHostClient {
   /** Write terminal input — fire-and-forget via stream socket */
   writeNoAck(sessionId: string, data: string): void {
     this.streamWrite({ type: "write", sessionId, data });
+  }
+
+  /** Relay an agent hook event to the daemon (fire-and-forget) */
+  relayAgentHook(sessionId: string, status: AgentStatus): void {
+    this.streamWrite({ type: "agentHook", sessionId, status });
   }
 
   /** Resize a session's terminal */

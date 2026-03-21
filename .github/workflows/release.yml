@@ -1,0 +1,64 @@
+# Release workflow — triggered on version tags (e.g. v0.1.0, v1.0.0-beta.1)
+#
+# Required secrets (configure in Settings > Secrets and variables > Actions):
+#
+# GH_TOKEN         — automatically provided by GitHub; no setup needed
+#
+# CSC_LINK         — base64-encoded .p12 signing certificate
+#   To create:
+#     1. Export your Developer ID Application certificate from Keychain Access
+#        (File > Export Items, choose .p12 format, set a password)
+#     2. Base64-encode it: base64 -i certificate.p12 | pbcopy
+#     3. Paste the result as the CSC_LINK secret value
+#
+# CSC_KEY_PASSWORD — the password you set when exporting the .p12 above
+#
+# APPLE_ID         — the Apple ID email used for your developer account
+#
+# APPLE_APP_SPECIFIC_PASSWORD — an app-specific password for notarization
+#   To create:
+#     1. Sign in at appleid.apple.com
+#     2. Go to Sign-In and Security > App-Specific Passwords
+#     3. Generate a new password and paste it as the secret value
+#
+# APPLE_TEAM_ID    — your 10-character Apple Developer Team ID
+#   Find it at developer.apple.com/account (top-right corner of the page)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build and publish
+        run: pnpm run build && electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

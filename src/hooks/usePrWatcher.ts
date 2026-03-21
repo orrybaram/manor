@@ -49,6 +49,7 @@ export function usePrWatcher() {
                     deletions: pr.deletions,
                     reviewDecision: pr.reviewDecision,
                     checks: pr.checks,
+                    unresolvedThreads: pr.unresolvedThreads,
                   }
                 : null,
             );

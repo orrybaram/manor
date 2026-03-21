@@ -20,6 +20,7 @@ interface PrInfo {
   deletions?: number;
   reviewDecision?: string | null;
   checks?: ChecksSummary | null;
+  unresolvedThreads?: number;
 }
 
 export class GitHubManager {
@@ -80,6 +81,8 @@ export class GitHubManager {
         checks = { total: pr.statusCheckRollup.length, passing, failing, pending };
       }
 
+      const unresolvedThreads = await this.getUnresolvedThreadCount(pr.url, pr.number);
+
       return {
         number: pr.number,
         state: (pr.state as string).toLowerCase(),
@@ -90,9 +93,49 @@ export class GitHubManager {
         deletions: pr.deletions,
         reviewDecision: pr.reviewDecision ?? null,
         checks,
+        unresolvedThreads,
       };
     } catch {
       return null;
+    }
+  }
+
+  private async getUnresolvedThreadCount(prUrl: string, prNumber: number): Promise<number | undefined> {
+    try {
+      const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
+      if (!match) return undefined;
+      const [, owner, repo] = match;
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } } } }`;
+      const { stdout } = await execFileAsync("gh", ["api", "graphql", "-f", `query=${query}`], {
+        encoding: "utf-8",
+        timeout: 10000,
+      });
+      const data = JSON.parse(stdout);
+      const threads = data?.data?.repository?.pullRequest?.reviewThreads?.nodes;
+      if (!Array.isArray(threads)) return undefined;
+      return threads.filter((t: any) => !t.isResolved).length;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async checkStatus(): Promise<{ installed: boolean; authenticated: boolean; username?: string }> {
+    try {
+      const { stdout, stderr } = await execFileAsync("gh", ["auth", "status", "--hostname", "github.com"], {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      // gh auth status outputs to stdout, parse username from "Logged in to github.com account username ..."
+      const combined = stdout + stderr;
+      const match = combined.match(/account\s+(\S+)/);
+      return { installed: true, authenticated: true, username: match?.[1] };
+    } catch (err: any) {
+      // gh exists but not authenticated → exit code 1
+      if (err.stderr?.includes("not logged in") || err.stdout?.includes("not logged in")) {
+        return { installed: true, authenticated: false };
+      }
+      // gh not found → ENOENT
+      return { installed: false, authenticated: false };
     }
   }
 }

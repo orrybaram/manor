@@ -494,6 +494,8 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
+
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
   assertString(apiKey, "apiKey");

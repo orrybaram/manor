@@ -48,6 +48,7 @@ export interface PrInfo {
   deletions?: number;
   reviewDecision?: string | null;
   checks?: { total: number; passing: number; failing: number; pending: number } | null;
+  unresolvedThreads?: number;
 }
 
 export interface WorkspaceInfo {

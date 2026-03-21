@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),
     getPrsForBranches: (repoPath: string, branches: string[]) =>
       ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
+    checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
   },
 
   linear: {

@@ -217,7 +217,9 @@ export interface ElectronAPI {
       deletions?: number;
       reviewDecision?: string | null;
       checks?: { total: number; passing: number; failing: number; pending: number } | null;
+      unresolvedThreads?: number;
     } | null][]>;
+    checkStatus: () => Promise<{ installed: boolean; authenticated: boolean; username?: string }>;
   };
 
   linear: {

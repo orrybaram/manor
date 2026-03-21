@@ -53,6 +53,17 @@ function App() {
     setInitialBranch("");
   }, []);
 
+  const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleNewWorkspace = useCallback(
+    (opts?: { projectId?: string; name?: string; branch?: string }) => {
+      if (opts?.projectId) setPreselectedProjectId(opts.projectId);
+      if (opts?.name) setInitialName(opts.name);
+      if (opts?.branch) setInitialBranch(opts.branch);
+      setNewWorkspaceOpen(true);
+    },
+    [],
+  );
+
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
@@ -169,17 +180,8 @@ function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={closePalette}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onNewWorkspace={(opts?: {
-          projectId?: string;
-          name?: string;
-          branch?: string;
-        }) => {
-          if (opts?.projectId) setPreselectedProjectId(opts.projectId);
-          if (opts?.name) setInitialName(opts.name);
-          if (opts?.branch) setInitialBranch(opts.branch);
-          setNewWorkspaceOpen(true);
-        }}
+        onOpenSettings={handleOpenSettings}
+        onNewWorkspace={handleNewWorkspace}
       />
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
       <NewWorkspaceDialog

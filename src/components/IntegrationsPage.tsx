@@ -23,11 +23,11 @@ function LinearIntegrationSection() {
   const loadProjects = useProjectStore((s) => s.loadProjects);
 
   useEffect(() => {
-    window.electronAPI.linearIsConnected().then(async (isConnected) => {
+    window.electronAPI.linear.isConnected().then(async (isConnected) => {
       setConnected(isConnected);
       if (isConnected) {
         try {
-          const v = await window.electronAPI.linearGetViewer();
+          const v = await window.electronAPI.linear.getViewer();
           setViewer(v);
         } catch {
           // token may be stale
@@ -41,12 +41,12 @@ function LinearIntegrationSection() {
     setLoading(true);
     setError(null);
     try {
-      const v = await window.electronAPI.linearConnect(apiKey.trim());
+      const v = await window.electronAPI.linear.connect(apiKey.trim());
       setViewer(v);
       setConnected(true);
       setApiKey("");
       // Auto-match projects
-      const matches = await window.electronAPI.linearAutoMatch();
+      const matches = await window.electronAPI.linear.autoMatch();
       const count = Object.keys(matches).length;
       setMatchCount(count);
       loadProjects();
@@ -58,7 +58,7 @@ function LinearIntegrationSection() {
   };
 
   const handleDisconnect = async () => {
-    await window.electronAPI.linearDisconnect();
+    await window.electronAPI.linear.disconnect();
     setConnected(false);
     setViewer(null);
     setMatchCount(null);
@@ -113,7 +113,7 @@ function LinearIntegrationSection() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                window.electronAPI.openExternal(
+                window.electronAPI.shell.openExternal(
                   "https://linear.app/trytango/settings/account/security",
                 );
               }}

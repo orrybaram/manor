@@ -28,20 +28,20 @@ export function usePortsData() {
   useEffect(() => {
     const currentPaths = pathsRef.current;
     if (currentPaths.length > 0) {
-      window.electronAPI.updateWorkspacePaths(currentPaths);
-      window.electronAPI.startPortScanner();
+      window.electronAPI.ports.updateWorkspacePaths(currentPaths);
+      window.electronAPI.ports.startScanner();
       // Do an immediate scan
-      window.electronAPI.scanPortsNow().then(setPorts);
+      window.electronAPI.ports.scanNow().then(setPorts);
     }
 
     return () => {
-      window.electronAPI.stopPortScanner();
+      window.electronAPI.ports.stopScanner();
     };
   }, [pathsKey]);
 
   // Subscribe to port change events
   useEffect(() => {
-    const unsubscribe = window.electronAPI.onPortsChanged((newPorts) => {
+    const unsubscribe = window.electronAPI.ports.onChange((newPorts) => {
       setPorts(newPorts as ActivePort[]);
     });
     return unsubscribe;

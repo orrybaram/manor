@@ -18,7 +18,7 @@ export function usePrWatcher() {
       const branches = nonMainWorkspaces.map((ws) => ws.branch);
 
       try {
-        const results = await window.electronAPI.getPrsForBranches(
+        const results = await window.electronAPI.github.getPrsForBranches(
           project.path,
           branches,
         );

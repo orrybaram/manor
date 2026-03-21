@@ -9,28 +9,28 @@ export function useTerminalConnection(paneId: string) {
   paneIdRef.current = paneId;
 
   const write = useCallback((data: string) => {
-    window.electronAPI.ptyWrite(paneIdRef.current, data);
+    window.electronAPI.pty.write(paneIdRef.current, data);
   }, []);
 
   const resize = useCallback((cols: number, rows: number) => {
-    window.electronAPI.ptyResize(paneIdRef.current, cols, rows);
+    window.electronAPI.pty.resize(paneIdRef.current, cols, rows);
   }, []);
 
   const create = useCallback(
     (cwd: string | null, cols: number, rows: number) => {
-      return window.electronAPI.ptyCreate(paneIdRef.current, cwd, cols, rows);
+      return window.electronAPI.pty.create(paneIdRef.current, cwd, cols, rows);
     },
     [],
   );
 
   /** Kill the PTY session in the daemon (user explicitly closed pane) */
   const close = useCallback(() => {
-    window.electronAPI.ptyClose(paneIdRef.current);
+    window.electronAPI.pty.close(paneIdRef.current);
   }, []);
 
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */
   const detach = useCallback(() => {
-    window.electronAPI.ptyDetach(paneIdRef.current);
+    window.electronAPI.pty.detach(paneIdRef.current);
   }, []);
 
   return { write, resize, create, close, detach };

@@ -168,11 +168,11 @@ function LinearProjectSection({ project }: { project: ProjectInfo }) {
   const selectedIds = new Set(project.linearAssociations.map((a) => a.teamId));
 
   useEffect(() => {
-    window.electronAPI.linearIsConnected().then(async (isConnected) => {
+    window.electronAPI.linear.isConnected().then(async (isConnected) => {
       setConnected(isConnected);
       if (isConnected) {
         try {
-          const t = await window.electronAPI.linearGetTeams();
+          const t = await window.electronAPI.linear.getTeams();
           setTeams(t);
         } catch {
           // ignore

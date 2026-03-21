@@ -164,7 +164,7 @@ function createWindow() {
 }
 
 // Managers
-const client = new TerminalHostClient();
+const client = new TerminalHostClient(app.getVersion());
 const layoutPersistence = new LayoutPersistence();
 const projectManager = new ProjectManager();
 const themeManager = new ThemeManager();

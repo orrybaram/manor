@@ -18,8 +18,6 @@ import {
   Clock,
 } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
-import type { AppState, RecentView } from "../store/app-store";
-import { shallow } from "zustand/shallow";
 import { useProjectStore } from "../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../electron.d";
 import styles from "./CommandPalette.module.css";
@@ -103,8 +101,8 @@ export function CommandPalette({
   // Check Linear connection status when palette opens
   useEffect(() => {
     if (!open) return;
-    window.electronAPI
-      .linearIsConnected()
+    window.electronAPI.linear
+      .isConnected()
       .then(setLinearConnected)
       .catch(() => setLinearConnected(false));
   }, [open]);
@@ -433,40 +431,9 @@ export function CommandPalette({
     return new Map(sorted);
   }, [workspaceCommands]);
 
-  const recentPaneIds = useMemo(() => {
-    const ids: string[] = [];
-    for (const rv of recentViews) {
-      const ws = useAppStore.getState().workspaceSessions[rv.workspacePath];
-      const session = ws?.sessions.find((s) => s.id === rv.sessionId);
-      if (session) ids.push(session.focusedPaneId);
-    }
-    return ids;
-  }, [recentViews]);
-
-  const recentPaneTitles = useAppStore(
-    useCallback((s: AppState) => {
-      const result: Record<string, string> = {};
-      for (const id of recentPaneIds) {
-        if (s.paneTitle[id]) result[id] = s.paneTitle[id];
-      }
-      return result;
-    }, [recentPaneIds]),
-    shallow
-  );
-
-  const recentPaneCwds = useAppStore(
-    useCallback((s: AppState) => {
-      const result: Record<string, string> = {};
-      for (const id of recentPaneIds) {
-        if (s.paneCwd[id]) result[id] = s.paneCwd[id];
-      }
-      return result;
-    }, [recentPaneIds]),
-    shallow
-  );
-
   const recentCommands: CommandItem[] = useMemo(() => {
-    const allWorkspaceSessions = useAppStore.getState().workspaceSessions;
+    const state = useAppStore.getState();
+    const allWorkspaceSessions = state.workspaceSessions;
     const result: CommandItem[] = [];
 
     for (const rv of recentViews) {
@@ -493,8 +460,8 @@ export function CommandPalette({
       const projectName = project?.name ?? "";
       const paneId = session.focusedPaneId;
       const label =
-        recentPaneTitles[paneId] ||
-        recentPaneCwds[paneId]?.split("/").pop() ||
+        state.paneTitle[paneId] ||
+        state.paneCwd[paneId]?.split("/").pop() ||
         session.title;
 
       result.push({
@@ -529,8 +496,6 @@ export function CommandPalette({
     setActiveWorkspace,
     selectSession,
     onClose,
-    recentPaneTitles,
-    recentPaneCwds,
   ]);
 
   const handleOpenChange = useCallback(

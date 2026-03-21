@@ -570,16 +570,15 @@ ipcMain.handle("dialog:openDirectory", async () => {
 
 // ── Shell ──
 ipcMain.handle("shell:openExternal", async (_event, url: string) => {
-  if (typeof url !== "string") {
-    throw new Error("Invalid URL: expected string");
-  }
+  assertString(url, "url");
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new Error("Invalid URL format");
   }
-  if (!["https:", "http:"].includes(parsed.protocol)) {
+  const allowed = ["https:", "http:", "file:"];
+  if (!allowed.includes(parsed.protocol)) {
     throw new Error(`Blocked protocol: ${parsed.protocol}`);
   }
   return shell.openExternal(url);

@@ -23,7 +23,7 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     vi.useRealTimers();
   });
 
-  it("Scenario 1: Normal Claude session (happy path)", () => {
+  it("Scenario 1: Normal Claude session (happy path) — Stop hook fires, then process exits", () => {
     const { detector, transitions } = createTestHarness();
 
     // 1. FG -> "claude"  (agent appears, transitions idle -> idle is no-op since already idle)
@@ -50,11 +50,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 8. Hook: Stop -> complete
     detector.setStatus("complete");
 
-    // 9. FG -> null (agent exits -> complete already, so goes to idle via timer)
+    // 9. FG -> null (agent exits -> complete already set, transitionToGone fires -> idle, kind=null)
     detector.updateForegroundProcess(null);
-
-    // 10. advance timer 3000ms -> idle
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toEqual([
       "thinking",
@@ -66,10 +63,13 @@ describe("Agent Lifecycle E2E Scenarios", () => {
       "idle",
     ]);
 
+    // The final idle has kind=null (process gone)
+    expect(transitions[transitions.length - 1].kind).toBeNull();
+
     detector.dispose();
   });
 
-  it("Scenario 2: Agent crash (no Stop hook)", () => {
+  it("Scenario 2: Agent crash (no Stop hook) — transitionToGone directly from thinking", () => {
     const { detector, transitions } = createTestHarness();
 
     // 1. FG -> "claude"
@@ -78,18 +78,18 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 2. Hook: UserPromptSubmit -> thinking
     detector.setStatus("thinking");
 
-    // 3. FG -> null (crash, no Stop received -> complete)
+    // 3. FG -> null (crash, no Stop received -> transitionToGone)
     detector.updateForegroundProcess(null);
 
-    // 4. advance 3000ms -> idle
-    vi.advanceTimersByTime(3000);
+    expect(statuses(transitions)).toEqual(["thinking", "idle"]);
 
-    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
+    // The idle has kind=null (process is gone)
+    expect(transitions[1].kind).toBeNull();
 
     detector.dispose();
   });
 
-  it("Scenario 3: Rapid agent restart", () => {
+  it("Scenario 3: Rapid agent restart after complete", () => {
     const { detector, transitions } = createTestHarness();
 
     // 1. FG -> "claude"
@@ -98,12 +98,12 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 2. Hook: UserPromptSubmit -> thinking
     detector.setStatus("thinking");
 
-    // 3. FG -> null -> complete
-    detector.updateForegroundProcess(null);
+    // 3. Hook: Stop -> complete (before process actually exits)
+    detector.setStatus("complete");
 
-    // 4. FG -> "claude" before timer fires -> same agent kind reappears
-    //    Since the kind hasn't changed, the detector doesn't reset to idle.
-    //    The complete-clear timer is still pending.
+    // 4. FG -> "claude" again (same agent kind reappears / restart)
+    //    Since kind is already "claude" and status is complete, updateForegroundProcess
+    //    sees the same agent kind — does not reset status (prevKind === agentKind).
     detector.updateForegroundProcess("claude");
 
     // 5. Hook: UserPromptSubmit -> thinking (transitions from complete to thinking)
@@ -168,11 +168,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 7. Hook: Stop -> complete
     detector.setStatus("complete");
 
-    // 8. FG -> null -> already complete, goes idle via timer
+    // 8. FG -> null -> complete already set -> transitionToGone
     detector.updateForegroundProcess(null);
-
-    // advance timer -> idle
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toEqual([
       "thinking",
@@ -183,6 +180,9 @@ describe("Agent Lifecycle E2E Scenarios", () => {
       "complete",
       "idle",
     ]);
+
+    // The final idle has kind=null
+    expect(transitions[transitions.length - 1].kind).toBeNull();
 
     detector.dispose();
   });
@@ -220,10 +220,11 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 2. advance 60000ms (still idle — no hook means no dot)
     vi.advanceTimersByTime(60000);
 
-    // 3. FG -> null (still idle — never was thinking/working, so no complete transition)
+    // 3. FG -> null (still idle — never was thinking/working, so no transition fires)
     detector.updateForegroundProcess(null);
 
-    // No transitions should have occurred
+    // No transitions should have occurred (was idle before, transitionToGone
+    // skips the transition call when already idle)
     expect(statuses(transitions)).toEqual([]);
 
     detector.dispose();
@@ -262,11 +263,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 3. Hook: Stop -> complete
     detector.setStatus("complete");
 
-    // 4. FG -> null -> already complete, goes idle via timer
+    // 4. FG -> null -> complete already set -> transitionToGone
     detector.updateForegroundProcess(null);
-
-    // 5. advance timer -> idle
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toEqual([
       "thinking",
@@ -274,9 +272,11 @@ describe("Agent Lifecycle E2E Scenarios", () => {
       "idle",
     ]);
 
-    // Verify kind was opencode throughout the thinking phase
+    // Verify kind was opencode throughout the thinking/complete phase
     expect(transitions[0].kind).toBe("opencode");
     expect(transitions[1].kind).toBe("opencode");
+    // Final idle has kind=null (process is gone)
+    expect(transitions[2].kind).toBeNull();
 
     detector.dispose();
   });

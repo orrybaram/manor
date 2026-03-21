@@ -41,18 +41,36 @@ describe("setPaneAgentStatus", () => {
     }
   });
 
-  it("removes entry when status is idle", () => {
+  it("idle with kind=null removes entry from store (agent truly gone)", () => {
     // First set a non-idle status
     useAppStore
       .getState()
       .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
 
-    // Set to idle — should remove the entry
+    // Set to idle with kind=null (transitionToGone) — should remove the entry
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle"));
+      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeUndefined();
+  });
+
+  it("idle with kind='claude' stays in store (setInputReceived path)", () => {
+    // Set to complete first
+    useAppStore
+      .getState()
+      .setPaneAgentStatus("pane-1", makeAgentState("complete", "claude"));
+    expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
+
+    // Set to idle with kind='claude' (from setInputReceived) — should STAY in store
+    useAppStore
+      .getState()
+      .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));
+
+    const entry = useAppStore.getState().paneAgentStatus["pane-1"];
+    expect(entry).toBeDefined();
+    expect(entry?.status).toBe("idle");
+    expect(entry?.kind).toBe("claude");
   });
 
   it("deduplicates: same status+kind produces no state update", () => {
@@ -159,7 +177,7 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     expect(best.status).toBe("requires_input");
   });
 
-  it("pane goes idle -> falls back to next highest", () => {
+  it("pane goes idle (kind=null) -> falls back to next highest", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
@@ -168,10 +186,10 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       .getState()
       .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
 
-    // Pane 1 goes idle (removed from store)
+    // Pane 1 goes idle with kind=null (removed from store)
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle"));
+      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     expect(paneStatus["pane-1"]).toBeUndefined();
@@ -181,7 +199,28 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     expect(remaining[0].status).toBe("thinking");
   });
 
-  it("all panes idle -> empty status map (returns null equivalent)", () => {
+  it("pane goes idle with kind='claude' (setInputReceived) -> stays in store", () => {
+    useAppStore.setState({ paneAgentStatus: {} });
+    useAppStore
+      .getState()
+      .setPaneAgentStatus("pane-1", makeAgentState("complete", "claude"));
+    useAppStore
+      .getState()
+      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
+
+    // Pane 1 goes idle with kind='claude' (from setInputReceived) — stays in store
+    useAppStore
+      .getState()
+      .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));
+
+    const paneStatus = useAppStore.getState().paneAgentStatus;
+    // Both panes are still in the store
+    expect(paneStatus["pane-1"]).toBeDefined();
+    expect(paneStatus["pane-1"]?.kind).toBe("claude");
+    expect(Object.keys(paneStatus)).toHaveLength(2);
+  });
+
+  it("all panes go idle (kind=null) -> empty status map", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
@@ -190,13 +229,13 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       .getState()
       .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
 
-    // Both go idle
+    // Both go idle with kind=null (truly gone)
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("idle"));
+      .setPaneAgentStatus("pane-1", makeAgentState("idle", null));
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("idle"));
+      .setPaneAgentStatus("pane-2", makeAgentState("idle", null));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     expect(Object.keys(paneStatus)).toHaveLength(0);

@@ -160,7 +160,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
       throw err;
     });
 
-    // 4. PID sweep detects dead process → idle
+    // 4. PID sweep detects dead process → transitionToGone → idle with kind=null
     detector.sweepStalePids();
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
@@ -169,6 +169,9 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
         "idle",
       ]
     `);
+
+    // PID sweep calls transitionToGone — kind should be null
+    expect(detector.getState().kind).toBeNull();
 
     killSpy.mockRestore();
     detector.dispose();
@@ -402,7 +405,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     expect(titleDetector.detect()).toBe("unknown");
   });
 
-  it("Regression: transition sequence snapshot — normal session with fallback", () => {
+  it("Regression: transition sequence snapshot — normal session (hooks fire Stop)", () => {
     const { detector, transitions } = createTestHarness();
 
     detector.updateForegroundProcess("claude");
@@ -412,8 +415,8 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.setStatus("requires_input");
     detector.setStatus("thinking");
     detector.setStatus("complete");
+    // Process exits after Stop hook — complete is already set, transitionToGone fires
     detector.updateForegroundProcess(null);
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
@@ -427,25 +430,29 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
       ]
     `);
 
+    // The idle from process exit has kind=null
+    expect(transitions[transitions.length - 1].kind).toBeNull();
+
     detector.dispose();
   });
 
-  it("Regression: transition sequence snapshot — crash recovery", () => {
+  it("Regression: transition sequence snapshot — crash recovery (no Stop hook)", () => {
     const { detector, transitions } = createTestHarness();
 
     detector.updateForegroundProcess("claude");
     detector.setStatus("thinking");
-    // Crash — FG disappears with no Stop hook
+    // Crash — FG disappears with no Stop hook → transitionToGone directly
     detector.updateForegroundProcess(null);
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
         "thinking",
-        "complete",
         "idle",
       ]
     `);
+
+    // The idle is from transitionToGone — kind is null
+    expect(transitions[transitions.length - 1].kind).toBeNull();
 
     detector.dispose();
   });
@@ -463,9 +470,8 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.setFallbackStatus("thinking");
     detector.setFallbackStatus("complete");
 
-    // Agent exits
+    // Agent exits → complete already set → transitionToGone
     detector.updateForegroundProcess(null);
-    vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
@@ -481,7 +487,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.dispose();
   });
 
-  it("Regression: shell becomes foreground — agent should transition to complete", () => {
+  it("Regression: shell becomes foreground — agent should transition to gone (idle, kind=null)", () => {
     const { detector, transitions } = createTestHarness();
 
     // Agent starts
@@ -492,16 +498,14 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     // Agent exits — shell becomes foreground (not null)
     detector.updateForegroundProcess("zsh");
 
-    expect(detector.getState().status).toBe("complete");
-
-    // After 3s, should go idle
-    vi.advanceTimersByTime(3000);
+    // transitionToGone — status=idle, kind=null
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
         "thinking",
         "working",
-        "complete",
         "idle",
       ]
     `);
@@ -509,42 +513,41 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.dispose();
   });
 
-  it("Regression: shell variants (bash, fish, etc.) trigger completion", () => {
+  it("Regression: shell variants (bash, fish, etc.) trigger gone transition", () => {
     for (const shell of ["bash", "sh", "fish", "nu", "pwsh", "zsh"]) {
       const { detector, transitions } = createTestHarness();
 
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
 
-      // Shell becomes foreground
+      // Shell becomes foreground → transitionToGone
       detector.updateForegroundProcess(shell);
 
-      expect(detector.getState().status).toBe("complete");
-      expect(statuses(transitions)).toContain("complete");
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
+      expect(statuses(transitions)).toContain("idle");
 
       detector.dispose();
     }
   });
 
-  it("Regression: full path shell name triggers completion", () => {
+  it("Regression: full path shell name triggers gone transition", () => {
     const { detector, transitions } = createTestHarness();
 
     detector.updateForegroundProcess("claude");
     detector.setStatus("thinking");
     detector.setStatus("working");
 
-    // Shell returned as full path
+    // Shell returned as full path → transitionToGone
     detector.updateForegroundProcess("/bin/zsh");
 
-    expect(detector.getState().status).toBe("complete");
-
-    vi.advanceTimersByTime(3000);
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
         "thinking",
         "working",
-        "complete",
         "idle",
       ]
     `);
@@ -567,7 +570,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.dispose();
   });
 
-  it("Regression: fallback working → shell foreground → complete", () => {
+  it("Regression: fallback working → shell foreground → gone (idle, kind=null)", () => {
     const { detector, transitions } = createTestHarness();
 
     detector.updateForegroundProcess("claude");
@@ -576,20 +579,59 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     // Fallback detects working (no hooks)
     detector.setFallbackStatus("working");
 
-    // Agent exits — shell returns
+    // Agent exits — shell returns → transitionToGone
     detector.updateForegroundProcess("bash");
 
-    expect(detector.getState().status).toBe("complete");
-
-    vi.advanceTimersByTime(3000);
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
 
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
+        "working",
+        "idle",
+      ]
+    `);
+
+    detector.dispose();
+  });
+
+  it("Lifecycle: detect → thinking → working → complete → setInputReceived → idle (kind kept) → process exit → gone (kind null)", () => {
+    const { detector, transitions } = createTestHarness();
+
+    // Agent appears
+    detector.updateForegroundProcess("claude");
+
+    // Active lifecycle
+    detector.setStatus("thinking");
+    detector.setStatus("working");
+    detector.setStatus("complete");
+
+    // User types → complete → idle, kind stays
+    detector.setInputReceived();
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBe("claude");
+
+    // Process actually exits → transitionToGone
+    detector.updateForegroundProcess(null);
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
+
+    // Only 4 transitions: transitionToGone skips callback when already idle
+    // (it clears kind/processName silently since status doesn't change)
+    expect(statuses(transitions)).toMatchInlineSnapshot(`
+      [
+        "thinking",
         "working",
         "complete",
         "idle",
       ]
     `);
+
+    // The idle from setInputReceived keeps kind
+    expect(transitions[3].kind).toBe("claude");
+    // After process exits, kind is cleared silently (no callback since already idle)
+    // Verify via getState() instead of transitions
+    expect(detector.getState().kind).toBeNull();
 
     detector.dispose();
   });
@@ -630,7 +672,7 @@ describe("Hook events routed through Session", () => {
     detector.dispose();
   });
 
-  it("Complete auto-transitions to idle after 3000ms timer", () => {
+  it("Complete is a stable state — no auto-timer fires", () => {
     const detector = new AgentDetector();
     const transitions: AgentState[] = [];
     detector.onStatusChange = (state) => transitions.push({ ...state });
@@ -643,14 +685,54 @@ describe("Hook events routed through Session", () => {
 
     expect(detector.getState().status).toBe("complete");
 
-    // Process exits (FG goes null) — this schedules the idle timer
-    detector.updateForegroundProcess(null);
+    // Advance way past old timer — complete should remain stable
+    vi.advanceTimersByTime(10000);
 
-    // Advance timer by 3000ms — should transition to idle
-    vi.advanceTimersByTime(3000);
+    expect(detector.getState().status).toBe("complete");
+    expect(statuses(transitions)).toEqual(["thinking", "complete"]);
+
+    detector.dispose();
+  });
+
+  it("setInputReceived after complete — transitions to idle keeping kind", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+    detector.setStatus("thinking");
+    detector.setStatus("complete");
+
+    expect(detector.getState().status).toBe("complete");
+
+    // User types → complete → idle (kind preserved)
+    detector.setInputReceived();
 
     expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBe("claude");
     expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
+
+    detector.dispose();
+  });
+
+  it("Process exits after complete → transitionToGone (kind=null)", () => {
+    const detector = new AgentDetector();
+    const transitions: AgentState[] = [];
+    detector.onStatusChange = (state) => transitions.push({ ...state });
+
+    detector.updateForegroundProcess("claude");
+    detector.setStatus("thinking");
+    detector.setStatus("complete");
+
+    // Process exits
+    detector.updateForegroundProcess(null);
+
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
+
+    // Verify the idle has kind=null
+    expect(transitions[2].kind).toBeNull();
 
     detector.dispose();
   });

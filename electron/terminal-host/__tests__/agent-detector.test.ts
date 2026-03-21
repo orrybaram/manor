@@ -129,28 +129,44 @@ describe("AgentDetector", () => {
       expect(detector.getState().status).toBe("idle");
       expect(onChange).not.toHaveBeenCalled();
     });
+
+    it('setStatus("idle") calls transitionToGone — kind becomes null', () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      onChange.mockClear();
+
+      detector.setStatus("idle");
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
+      expect(detector.getState().processName).toBeNull();
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange.mock.calls[0][0].kind).toBeNull();
+    });
   });
 
   // ── 4. Agent exit (foreground process disappears) ──
 
   describe("agent exit", () => {
-    it('agent thinking, FG becomes null -> "complete"', () => {
+    it('agent thinking, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
+      expect(detector.getState().processName).toBeNull();
     });
 
-    it('agent requires_input, FG becomes null -> "complete"', () => {
+    it('agent requires_input, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       detector.setStatus("requires_input");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
     });
 
     it("agent idle, FG becomes null -> stays idle (no complete flash)", () => {
@@ -167,21 +183,79 @@ describe("AgentDetector", () => {
       expect(completeCalls).toHaveLength(0);
     });
 
-    it("complete -> idle after COMPLETE_CLEAR_MS (3000ms)", () => {
+    it('agent complete, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
+      detector.setStatus("complete");
+      onChange.mockClear();
+
       detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
-
-      vi.advanceTimersByTime(2999);
-      expect(detector.getState().status).toBe("complete");
-
-      vi.advanceTimersByTime(1);
       expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
+    });
+
+    it("complete is a stable state — no auto-timer to idle", () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      detector.setStatus("complete");
+      onChange.mockClear();
+
+      // Advance way past any old timer duration
+      vi.advanceTimersByTime(10000);
+      expect(detector.getState().status).toBe("complete");
+      expect(onChange).not.toHaveBeenCalled();
     });
   });
 
-  // ── 5. Callback behavior ──
+  // ── 5. setInputReceived() ──
+
+  describe("setInputReceived()", () => {
+    it("complete + setInputReceived -> idle with kind/processName kept", () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      detector.setStatus("complete");
+      onChange.mockClear();
+
+      detector.setInputReceived();
+      expect(detector.getState().status).toBe("idle");
+      // kind and processName are preserved (transitionToIdle, not transitionToGone)
+      expect(detector.getState().kind).toBe("claude");
+      expect(detector.getState().processName).toBe("claude");
+      expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it("setInputReceived when status is thinking -> no-op", () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      onChange.mockClear();
+
+      detector.setInputReceived();
+      expect(detector.getState().status).toBe("thinking");
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("setInputReceived when status is idle -> no-op", () => {
+      detector.updateForegroundProcess("claude");
+      onChange.mockClear();
+
+      detector.setInputReceived();
+      expect(detector.getState().status).toBe("idle");
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("setInputReceived when status is requires_input -> no-op", () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      detector.setStatus("requires_input");
+      onChange.mockClear();
+
+      detector.setInputReceived();
+      expect(detector.getState().status).toBe("requires_input");
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── 6. Callback behavior ──
 
   describe("callback behavior", () => {
     it("onStatusChange fires on every actual transition", () => {
@@ -216,18 +290,15 @@ describe("AgentDetector", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it("fires for complete AND the subsequent idle (two callbacks)", () => {
+    it("process exit fires single idle callback (transitionToGone, not complete)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       onChange.mockClear();
 
       detector.updateForegroundProcess(null);
       expect(onChange).toHaveBeenCalledTimes(1);
-      expect(onChange.mock.calls[0][0].status).toBe("complete");
-
-      vi.advanceTimersByTime(3000);
-      expect(onChange).toHaveBeenCalledTimes(2);
-      expect(onChange.mock.calls[1][0].status).toBe("idle");
+      expect(onChange.mock.calls[0][0].status).toBe("idle");
+      expect(onChange.mock.calls[0][0].kind).toBeNull();
     });
 
     it("fires in correct order during rapid transitions", () => {
@@ -243,84 +314,6 @@ describe("AgentDetector", () => {
     });
   });
 
-  // ── 6. Timer behavior (fake timers) ──
-
-  describe("timer behavior", () => {
-    it("complete->idle timer is exactly 3000ms", () => {
-      detector.updateForegroundProcess("claude");
-      detector.setStatus("thinking");
-      detector.updateForegroundProcess(null);
-
-      vi.advanceTimersByTime(2999);
-      expect(detector.getState().status).toBe("complete");
-
-      vi.advanceTimersByTime(1);
-      expect(detector.getState().status).toBe("idle");
-    });
-
-    it("timer cleared when new agent appears during complete", () => {
-      detector.updateForegroundProcess("claude");
-      detector.setStatus("thinking");
-      detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
-
-      // New agent appears before timer fires
-      detector.updateForegroundProcess("opencode");
-
-      vi.advanceTimersByTime(5000);
-      // Should not have auto-transitioned to idle from old timer
-      // It went idle because the new agent detection resets to idle
-      expect(detector.getState().status).toBe("idle");
-      expect(detector.getState().kind).toBe("opencode");
-    });
-
-    it("timer cleared on dispose()", () => {
-      detector.updateForegroundProcess("claude");
-      detector.setStatus("thinking");
-      detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
-
-      detector.dispose();
-      onChange.mockClear();
-
-      vi.advanceTimersByTime(5000);
-      // No idle callback should have fired after dispose
-      expect(onChange).not.toHaveBeenCalled();
-      // Status stays complete since timer was cleared
-      expect(detector.getState().status).toBe("complete");
-    });
-
-    it("rapid exits don't stack timers (only one pending at a time)", () => {
-      // First agent session
-      detector.updateForegroundProcess("claude");
-      detector.setStatus("thinking");
-      detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
-
-      // Advance partway, then start and exit a new session
-      vi.advanceTimersByTime(1000);
-
-      // Complete -> idle happens from timer of first complete
-      vi.advanceTimersByTime(2000); // first timer fires -> idle
-      expect(detector.getState().status).toBe("idle");
-
-      detector.updateForegroundProcess("opencode");
-      detector.setStatus("thinking");
-      detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
-
-      onChange.mockClear();
-      vi.advanceTimersByTime(3000);
-      expect(detector.getState().status).toBe("idle");
-
-      // Only one idle transition should have fired
-      const idleCalls = onChange.mock.calls.filter(
-        ([s]: [AgentState]) => s.status === "idle"
-      );
-      expect(idleCalls).toHaveLength(1);
-    });
-  });
-
   // ── 7. Edge cases ──
 
   describe("edge cases", () => {
@@ -330,9 +323,11 @@ describe("AgentDetector", () => {
 
       // Claude exits
       detector.updateForegroundProcess(null);
-      expect(detector.getState().status).toBe("complete");
+      // Gone — no complete flash
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
 
-      // opencode starts immediately (before complete timer fires)
+      // opencode starts immediately
       detector.updateForegroundProcess("opencode");
       expect(detector.getState().kind).toBe("opencode");
       expect(detector.getState().status).toBe("idle");
@@ -376,10 +371,12 @@ describe("AgentDetector", () => {
   // ── 8. Transition sequence capture ──
 
   describe("transition sequence capture", () => {
-    it("records exact lifecycle: idle -> thinking -> requires_input -> thinking -> complete -> idle", () => {
+    it("records exact lifecycle: idle -> thinking -> requires_input -> thinking -> complete, then setInputReceived -> idle (kind kept)", () => {
       const transitions: AgentStatus[] = [];
+      const kindAtIdle: (string | null)[] = [];
       detector.onStatusChange = (state: AgentState) => {
         transitions.push(state.status);
+        if (state.status === "idle") kindAtIdle.push(state.kind);
       };
 
       // Start idle (initial state, no callback)
@@ -398,11 +395,11 @@ describe("AgentDetector", () => {
       // Hook: thinking (permission granted)
       detector.setStatus("thinking");
 
-      // Agent exits -> complete
-      detector.updateForegroundProcess(null);
+      // Hook: complete (Stop hook)
+      detector.setStatus("complete");
 
-      // Timer fires -> idle
-      vi.advanceTimersByTime(3000);
+      // User types -> complete -> idle (kind kept)
+      detector.setInputReceived();
 
       expect(transitions).toEqual([
         "thinking",
@@ -411,6 +408,26 @@ describe("AgentDetector", () => {
         "complete",
         "idle",
       ]);
+
+      // idle from setInputReceived keeps the kind
+      expect(kindAtIdle[0]).toBe("claude");
+    });
+
+    it("records process exit lifecycle: thinking -> gone (idle with kind=null)", () => {
+      const transitions: AgentState[] = [];
+      detector.onStatusChange = (state: AgentState) => {
+        transitions.push({ ...state });
+      };
+
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+
+      // Process exits
+      detector.updateForegroundProcess(null);
+
+      expect(transitions.map((t) => t.status)).toEqual(["thinking", "idle"]);
+      // The idle from process exit has kind=null (truly gone)
+      expect(transitions[1].kind).toBeNull();
     });
   });
 });

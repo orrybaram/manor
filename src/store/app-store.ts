@@ -170,7 +170,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadPersistedLayout: async () => {
     try {
-      const layout = await window.electronAPI?.loadLayout();
+      const layout = await window.electronAPI?.layout.load();
       if (layout) {
         _cachedLayout = layout;
 
@@ -728,7 +728,7 @@ function saveActiveWorkspaceLayout(): void {
       pinnedSessionIds: ws.pinnedSessionIds,
     };
 
-    window.electronAPI?.saveLayout(persisted);
+    window.electronAPI?.layout.save(persisted);
   }, 500);
 }
 

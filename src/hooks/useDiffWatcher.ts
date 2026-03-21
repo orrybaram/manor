@@ -32,15 +32,15 @@ export function useDiffWatcher() {
   useEffect(() => {
     if (Object.keys(workspaceMap).length === 0) return;
 
-    window.electronAPI.startDiffWatcher(workspaceMap);
+    window.electronAPI.diffs.start(workspaceMap);
 
     return () => {
-      window.electronAPI.stopDiffWatcher();
+      window.electronAPI.diffs.stop();
     };
   }, [workspaceMap]);
 
   useEffect(() => {
-    const unsubscribe = window.electronAPI.onDiffsChanged((diffs) => {
+    const unsubscribe = window.electronAPI.diffs.onChange((diffs) => {
       // Get all workspace paths to clear stats for workspaces with no diff
       const allPaths = Object.keys(prevMapRef.current);
       for (const wsPath of allPaths) {

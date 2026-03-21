@@ -22,16 +22,16 @@ export function useBranchWatcher() {
   useEffect(() => {
     if (paths.length === 0) return;
 
-    window.electronAPI.startBranchWatcher(paths);
+    window.electronAPI.branches.start(paths);
 
     return () => {
-      window.electronAPI.stopBranchWatcher();
+      window.electronAPI.branches.stop();
     };
   }, [paths]);
 
   // Subscribe to branch change events
   useEffect(() => {
-    const unsubscribe = window.electronAPI.onBranchesChanged((branches) => {
+    const unsubscribe = window.electronAPI.branches.onChange((branches) => {
       for (const [wsPath, branch] of Object.entries(branches)) {
         updateWorkspaceBranch(wsPath, branch);
       }

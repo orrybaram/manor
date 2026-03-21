@@ -145,8 +145,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadProjects: async () => {
     set({ loading: true });
     try {
-      const projects = await window.electronAPI.getProjects();
-      const selectedIndex = await window.electronAPI.getSelectedProjectIndex();
+      const projects = await window.electronAPI.projects.getAll();
+      const selectedIndex = await window.electronAPI.projects.getSelectedIndex();
       set({ projects, selectedProjectIndex: selectedIndex, loading: false });
     } catch {
       set({ loading: false });
@@ -154,7 +154,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addProject: async (name: string, path: string) => {
-    const project = await window.electronAPI.addProject(name, path);
+    const project = await window.electronAPI.projects.add(name, path);
     set((s) => ({
       projects: [...s.projects, project],
       selectedProjectIndex: s.projects.length,
@@ -162,7 +162,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addProjectFromDirectory: async () => {
-    const selected = await window.electronAPI.openDirectory();
+    const selected = await window.electronAPI.dialog.openDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";
       await get().addProject(name, selected);
@@ -170,7 +170,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   removeProject: async (projectId: string) => {
-    await window.electronAPI.removeProject(projectId);
+    await window.electronAPI.projects.remove(projectId);
     set((s) => {
       const projects = s.projects.filter((p) => p.id !== projectId);
       return {
@@ -184,12 +184,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   selectProject: (index: number) => {
-    window.electronAPI.selectProject(index);
+    window.electronAPI.projects.select(index);
     set({ selectedProjectIndex: index });
   },
 
   selectWorkspace: (projectId: string, workspaceIndex: number) => {
-    window.electronAPI.selectWorkspace(projectId, workspaceIndex);
+    window.electronAPI.projects.selectWorkspace(projectId, workspaceIndex);
     const projectIndex = get().projects.findIndex((p) => p.id === projectId);
     set((s) => ({
       selectedProjectIndex:
@@ -205,7 +205,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createWorktree: async (projectId: string, name: string, branch?: string) => {
     let updated;
     try {
-      updated = await window.electronAPI.createWorktree(
+      updated = await window.electronAPI.projects.createWorktree(
         projectId,
         name,
         branch,
@@ -254,18 +254,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     worktreePath: string,
     deleteBranch?: boolean,
   ) => {
-    await window.electronAPI.removeWorktree(
+    await window.electronAPI.projects.removeWorktree(
       projectId,
       worktreePath,
       deleteBranch,
     );
     // Refresh projects to get updated worktree list
-    const projects = await window.electronAPI.getProjects();
+    const projects = await window.electronAPI.projects.getAll();
     set({ projects });
   },
 
   reorderProjects: async (orderedIds: string[]) => {
-    await window.electronAPI.reorderProjects(orderedIds);
+    await window.electronAPI.projects.reorder(orderedIds);
     set((s) => {
       const selectedId = s.projects[s.selectedProjectIndex]?.id;
       const byId = new Map(s.projects.map((p) => [p.id, p]));
@@ -287,7 +287,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   reorderWorkspaces: async (projectId: string, orderedPaths: string[]) => {
-    await window.electronAPI.reorderWorkspaces(projectId, orderedPaths);
+    await window.electronAPI.projects.reorderWorkspaces(projectId, orderedPaths);
     set((s) => ({
       projects: s.projects.map((p) => {
         if (p.id !== projectId) return p;
@@ -310,7 +310,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     workspacePath: string,
     newName: string,
   ) => {
-    await window.electronAPI.renameWorkspace(projectId, workspacePath, newName);
+    await window.electronAPI.projects.renameWorkspace(projectId, workspacePath, newName);
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -328,7 +328,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
-    const updated = await window.electronAPI.updateProject(projectId, updates);
+    const updated = await window.electronAPI.projects.update(projectId, updates);
     if (updated) {
       set((s) => ({
         projects: s.projects.map((p) => (p.id === projectId ? updated : p)),

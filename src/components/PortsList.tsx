@@ -89,7 +89,7 @@ function PortGroup({ group }: { group: WorkspacePortGroup }) {
 
 function PortBadge({ port }: { port: import("../electron.d.ts").ActivePort }) {
   const handleOpen = useCallback(() => {
-    window.electronAPI.openExternal(`http://localhost:${port.port}`);
+    window.electronAPI.shell.openExternal(`http://localhost:${port.port}`);
   }, [port.port]);
 
   return (

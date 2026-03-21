@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   ShieldQuestion,
+  MessageSquare,
 } from "lucide-react";
 import type { PrInfo } from "../store/project-store";
 import styles from "./Sidebar.module.css";
@@ -133,6 +134,17 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
     );
   }
 
+  // Unresolved comments
+  let commentsElement: React.ReactNode = null;
+  if (pr.unresolvedThreads != null && pr.unresolvedThreads > 0) {
+    commentsElement = (
+      <div className={styles.prPopoverRow} style={{ color: "var(--yellow, #eab308)" }}>
+        <MessageSquare size={12} />
+        <span>{pr.unresolvedThreads} unresolved</span>
+      </div>
+    );
+  }
+
   // Diff stats
   let diffElement: React.ReactNode = null;
   if (pr.additions != null || pr.deletions != null) {
@@ -187,6 +199,7 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
 
           {checksElement}
           {reviewElement}
+          {commentsElement}
           {diffElement}
 
           <div className={styles.prPopoverFooter}>Open in GitHub</div>

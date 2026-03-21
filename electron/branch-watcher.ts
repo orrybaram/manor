@@ -6,16 +6,23 @@ export class BranchWatcher {
   private workspacePaths: string[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastBranches: Record<string, string> = {};
+  private scanning = false;
 
   start(window: BrowserWindow, paths: string[]): void {
     this.stop();
     this.workspacePaths = paths;
 
-    const tick = () => {
-      const branches = this.scan();
-      if (JSON.stringify(branches) !== JSON.stringify(this.lastBranches)) {
-        window.webContents.send("branches-changed", branches);
-        this.lastBranches = branches;
+    const tick = async () => {
+      if (this.scanning) return;
+      this.scanning = true;
+      try {
+        const branches = await this.scan();
+        if (JSON.stringify(branches) !== JSON.stringify(this.lastBranches)) {
+          window.webContents.send("branches-changed", branches);
+          this.lastBranches = branches;
+        }
+      } finally {
+        this.scanning = false;
       }
     };
     tick();
@@ -29,7 +36,7 @@ export class BranchWatcher {
     }
   }
 
-  private scan(): Record<string, string> {
+  private async scan(): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
 
     const paths = this.workspacePaths;
@@ -37,7 +44,7 @@ export class BranchWatcher {
 
     for (const wsPath of paths) {
       try {
-        const branch = this.readBranch(wsPath);
+        const branch = await this.readBranch(wsPath);
         if (branch) result[wsPath] = branch;
       } catch {
         // Not a git repo or unreadable — skip
@@ -47,12 +54,12 @@ export class BranchWatcher {
     return result;
   }
 
-  private readBranch(wsPath: string): string | null {
+  private async readBranch(wsPath: string): Promise<string | null> {
     const gitPath = path.join(wsPath, ".git");
 
     let stat: fs.Stats;
     try {
-      stat = fs.statSync(gitPath);
+      stat = await fs.promises.stat(gitPath);
     } catch {
       return null;
     }
@@ -63,7 +70,7 @@ export class BranchWatcher {
       headPath = path.join(gitPath, "HEAD");
     } else if (stat.isFile()) {
       // Worktree: .git is a file containing "gitdir: <path>"
-      const content = fs.readFileSync(gitPath, "utf-8").trim();
+      const content = (await fs.promises.readFile(gitPath, "utf-8")).trim();
       const match = content.match(/^gitdir:\s*(.+)$/);
       if (!match) return null;
       const gitdir = path.isAbsolute(match[1])
@@ -76,7 +83,7 @@ export class BranchWatcher {
 
     let head: string;
     try {
-      head = fs.readFileSync(headPath, "utf-8").trim();
+      head = (await fs.promises.readFile(headPath, "utf-8")).trim();
     } catch {
       return null;
     }

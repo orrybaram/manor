@@ -5,6 +5,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { shallow } from "zustand/shallow";
 import { useQuery } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
@@ -18,7 +19,7 @@ import {
   Clock,
 } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
-import type { RecentView } from "../store/app-store";
+import type { AppState, RecentView } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../electron.d";
 import styles from "./CommandPalette.module.css";
@@ -81,8 +82,6 @@ export function CommandPalette({
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const recentViews = useAppStore((s) => s.recentViews);
   const selectSession = useAppStore((s) => s.selectSession);
-  const paneTitle = useAppStore((s) => s.paneTitle);
-  const paneCwd = useAppStore((s) => s.paneCwd);
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
@@ -434,6 +433,39 @@ export function CommandPalette({
     return new Map(sorted);
   }, [workspaceCommands]);
 
+  // Derive the specific pane IDs we need from recent views
+  const recentPaneIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const rv of recentViews) {
+      const ws = useAppStore.getState().workspaceSessions[rv.workspacePath];
+      const session = ws?.sessions.find((s) => s.id === rv.sessionId);
+      if (session) ids.push(session.focusedPaneId);
+    }
+    return ids;
+  }, [recentViews]);
+
+  const recentPaneTitles = useAppStore(
+    useCallback((s: AppState) => {
+      const result: Record<string, string> = {};
+      for (const id of recentPaneIds) {
+        if (s.paneTitle[id]) result[id] = s.paneTitle[id];
+      }
+      return result;
+    }, [recentPaneIds]),
+    shallow
+  );
+
+  const recentPaneCwds = useAppStore(
+    useCallback((s: AppState) => {
+      const result: Record<string, string> = {};
+      for (const id of recentPaneIds) {
+        if (s.paneCwd[id]) result[id] = s.paneCwd[id];
+      }
+      return result;
+    }, [recentPaneIds]),
+    shallow
+  );
+
   // Build recent view commands from tracked views
   const recentCommands: CommandItem[] = useMemo(() => {
     const allWorkspaceSessions = useAppStore.getState().workspaceSessions;
@@ -461,8 +493,8 @@ export function CommandPalette({
         const projectName = project?.name ?? "";
         const paneId = session.focusedPaneId;
         const label =
-          paneTitle[paneId] ||
-          paneCwd[paneId]?.split("/").pop() ||
+          recentPaneTitles[paneId] ||
+          recentPaneCwds[paneId]?.split("/").pop() ||
           session.title;
         return {
           id: `recent-${rv.sessionId}`,
@@ -495,8 +527,8 @@ export function CommandPalette({
     setActiveWorkspace,
     selectSession,
     onClose,
-    paneTitle,
-    paneCwd,
+    recentPaneTitles,
+    recentPaneCwds,
   ]);
 
   const handleOpenChange = useCallback(

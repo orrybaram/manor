@@ -2,22 +2,24 @@ import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { X } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
-import { allPaneIds } from "../store/pane-tree";
 import type { AgentStatus } from "../electron.d";
 import { AgentDot } from "./AgentDot";
 import styles from "./TabBar.module.css";
 
 function useSessionTitle(sessionId: string): string {
-  const session = useAppStore((s) =>
-    selectActiveWorkspace(s)?.sessions.find((t) => t.id === sessionId),
-  );
-  const paneCwd = useAppStore((s) => s.paneCwd);
-  const paneTitle = useAppStore((s) => s.paneTitle);
-  if (!session) return "Terminal";
+  // First, resolve which pane ID we care about
+  const focusedPaneId = useAppStore((s) => {
+    const ws = selectActiveWorkspace(s);
+    const session = ws?.sessions.find((t) => t.id === sessionId);
+    return session?.focusedPaneId ?? null;
+  });
+
+  // Then subscribe narrowly to just that pane's title and CWD
+  const title = useAppStore((s) => focusedPaneId ? s.paneTitle[focusedPaneId] ?? null : null);
+  const cwd = useAppStore((s) => focusedPaneId ? s.paneCwd[focusedPaneId] ?? null : null);
 
   // Prefer terminal title (from OSC sequences — reflects the running process)
   // But if it's just a default shell "user@host:path" title, extract the project name
-  const title = paneTitle[session.focusedPaneId];
   if (title) {
     const cwdMatch = title.match(/^.+@.+:(.+)$/);
     if (cwdMatch) {
@@ -29,23 +31,12 @@ function useSessionTitle(sessionId: string): string {
   }
 
   // Fall back to CWD of the focused pane
-  const cwd = paneCwd[session.focusedPaneId];
   if (cwd) {
     const parts = cwd.split("/");
     return parts[parts.length - 1] || parts[parts.length - 2] || cwd;
   }
-  // Try any pane in the session
-  const ids = allPaneIds(session.rootNode);
-  for (const id of ids) {
-    const t = paneTitle[id];
-    if (t) return t;
-    const c = paneCwd[id];
-    if (c) {
-      const parts = c.split("/");
-      return parts[parts.length - 1] || parts[parts.length - 2] || c;
-    }
-  }
-  return session.title;
+
+  return "Terminal";
 }
 
 const STATUS_PRIORITY: Record<AgentStatus, number> = {

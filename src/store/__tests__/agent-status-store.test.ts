@@ -24,8 +24,9 @@ describe("setPaneAgentStatus", () => {
 
   it("updates store for each status value", () => {
     const statuses: AgentStatus[] = [
-      "running",
-      "waiting",
+      "thinking",
+      "working",
+      "requires_input",
       "complete",
       "error",
     ];
@@ -44,7 +45,7 @@ describe("setPaneAgentStatus", () => {
     // First set a non-idle status
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
 
     // Set to idle — should remove the entry
@@ -55,7 +56,7 @@ describe("setPaneAgentStatus", () => {
   });
 
   it("deduplicates: same status+kind produces no state update", () => {
-    const agent = makeAgentState("running");
+    const agent = makeAgentState("thinking");
     useAppStore.getState().setPaneAgentStatus("pane-1", agent);
 
     const stateAfterFirst = useAppStore.getState().paneAgentStatus;
@@ -63,7 +64,7 @@ describe("setPaneAgentStatus", () => {
     // Set same status+kind again
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
 
     // Should be the exact same object reference (zustand skips update)
     expect(useAppStore.getState().paneAgentStatus).toBe(stateAfterFirst);
@@ -72,22 +73,22 @@ describe("setPaneAgentStatus", () => {
   it("different paneIds are independent", () => {
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("waiting"));
+      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
 
     const state = useAppStore.getState().paneAgentStatus;
-    expect(state["pane-1"]?.status).toBe("running");
-    expect(state["pane-2"]?.status).toBe("waiting");
+    expect(state["pane-1"]?.status).toBe("thinking");
+    expect(state["pane-2"]?.status).toBe("requires_input");
   });
 
   it("handles rapid updates without lost writes", () => {
     const sequence: AgentStatus[] = [
-      "running",
-      "waiting",
-      "running",
-      "waiting",
+      "thinking",
+      "requires_input",
+      "thinking",
+      "requires_input",
       "complete",
     ];
 
@@ -104,11 +105,14 @@ describe("setPaneAgentStatus", () => {
 });
 
 describe("STATUS_PRIORITY aggregation logic", () => {
-  it("priority order: waiting > running > error > complete > idle", () => {
-    expect(STATUS_PRIORITY["waiting"]).toBeGreaterThan(
-      STATUS_PRIORITY["running"],
+  it("priority order: requires_input > working > thinking > error > complete > idle", () => {
+    expect(STATUS_PRIORITY["requires_input"]).toBeGreaterThan(
+      STATUS_PRIORITY["working"],
     );
-    expect(STATUS_PRIORITY["running"]).toBeGreaterThan(
+    expect(STATUS_PRIORITY["working"]).toBeGreaterThan(
+      STATUS_PRIORITY["thinking"],
+    );
+    expect(STATUS_PRIORITY["thinking"]).toBeGreaterThan(
       STATUS_PRIORITY["error"],
     );
     expect(STATUS_PRIORITY["error"]).toBeGreaterThan(
@@ -123,22 +127,22 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     const statuses = Object.values(paneStatus);
     expect(statuses).toHaveLength(1);
-    expect(statuses[0].status).toBe("running");
+    expect(statuses[0].status).toBe("thinking");
   });
 
   it("multiple panes: highest priority wins", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("waiting"));
+      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
     useAppStore
       .getState()
       .setPaneAgentStatus("pane-3", makeAgentState("complete"));
@@ -152,17 +156,17 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       { status: null as AgentStatus | null, priority: 0 },
     );
 
-    expect(best.status).toBe("waiting");
+    expect(best.status).toBe("requires_input");
   });
 
   it("pane goes idle -> falls back to next highest", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("waiting"));
+      .setPaneAgentStatus("pane-1", makeAgentState("requires_input"));
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("running"));
+      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
 
     // Pane 1 goes idle (removed from store)
     useAppStore
@@ -174,17 +178,17 @@ describe("STATUS_PRIORITY aggregation logic", () => {
 
     const remaining = Object.values(paneStatus);
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].status).toBe("running");
+    expect(remaining[0].status).toBe("thinking");
   });
 
   it("all panes idle -> empty status map (returns null equivalent)", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-1", makeAgentState("running"));
+      .setPaneAgentStatus("pane-1", makeAgentState("thinking"));
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("waiting"));
+      .setPaneAgentStatus("pane-2", makeAgentState("requires_input"));
 
     // Both go idle
     useAppStore
@@ -207,7 +211,7 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     // Add a new pane with higher priority
     useAppStore
       .getState()
-      .setPaneAgentStatus("pane-2", makeAgentState("running"));
+      .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
 
     const paneStatus = useAppStore.getState().paneAgentStatus;
     const best = Object.values(paneStatus).reduce(
@@ -218,6 +222,6 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       { status: null as AgentStatus | null, priority: 0 },
     );
 
-    expect(best.status).toBe("running");
+    expect(best.status).toBe("thinking");
   });
 });

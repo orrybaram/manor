@@ -15,17 +15,29 @@ import * as path from "node:path";
 import type { BrowserWindow } from "electron";
 
 // Map hook event names to our status
-type PaneStatus = "running" | "waiting" | "idle";
+import type { AgentStatus } from "./terminal-host/types";
+
+type PaneStatus = AgentStatus;
 
 export function mapEventToStatus(eventType: string): PaneStatus | null {
   switch (eventType) {
     case "UserPromptSubmit":
     case "PostToolUse":
     case "PostToolUseFailure":
-      return "running";
-    case "Stop":
+    case "SubagentStop":
+      return "thinking";
+    case "PreToolUse":
+    case "SubagentStart":
+      return "working";
     case "PermissionRequest":
-      return "waiting";
+    case "Notification":
+      return "requires_input";
+    case "Stop":
+      return "complete";
+    case "StopFailure":
+      return "error";
+    case "SessionEnd":
+      return "idle";
     default:
       return null;
   }
@@ -135,6 +147,30 @@ const MANOR_HOOK_ENTRIES = [
   {
     event: "PermissionRequest",
     matcher: "*",
+  },
+  {
+    event: "PreToolUse",
+    matcher: "*",
+  },
+  {
+    event: "Notification",
+    matcher: "permission_prompt",
+  },
+  {
+    event: "StopFailure",
+    matcher: undefined,
+  },
+  {
+    event: "SubagentStart",
+    matcher: undefined,
+  },
+  {
+    event: "SubagentStop",
+    matcher: undefined,
+  },
+  {
+    event: "SessionEnd",
+    matcher: undefined,
   },
 ];
 

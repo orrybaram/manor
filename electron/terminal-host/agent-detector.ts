@@ -4,7 +4,7 @@
  * hook events from the agent CLI, not by this detector.
  *
  * This detector is responsible for:
- * - Detecting when an agent process appears → transition to "running"
+ * - Detecting when an agent process appears → track it (stay idle until hooks fire)
  * - Detecting when an agent process exits → transition to "complete" → "idle"
  */
 
@@ -46,9 +46,12 @@ export class AgentDetector {
 
     if (!name) {
       // Shell is foreground — agent is gone
-      if (prevKind && (prevStatus === "running" || prevStatus === "waiting")) {
+      if (prevKind && (prevStatus === "thinking" || prevStatus === "working" || prevStatus === "requires_input")) {
         this.transitionToComplete();
-      } else if (prevStatus !== "complete" && prevStatus !== "error") {
+      } else if (prevStatus === "complete") {
+        // Stop hook already set complete — just start the idle timer
+        this.scheduleIdleAfterComplete();
+      } else if (prevStatus !== "error") {
         this.transitionToIdle();
       }
       return;
@@ -72,7 +75,7 @@ export class AgentDetector {
       }
     } else if (
       this.kind &&
-      (this.status === "running" || this.status === "waiting")
+      (this.status === "thinking" || this.status === "working" || this.status === "requires_input")
     ) {
       // Agent was running but now a different process is foreground
       // (e.g. agent spawned a child) — keep tracking
@@ -108,7 +111,12 @@ export class AgentDetector {
   private transitionToComplete(): void {
     this.clearTimers();
     this.transition("complete");
+    this.scheduleIdleAfterComplete();
+  }
 
+  /** Start the timer to transition from complete → idle */
+  private scheduleIdleAfterComplete(): void {
+    if (this.completeClearTimer) return; // already scheduled
     this.completeClearTimer = setTimeout(() => {
       this.completeClearTimer = null;
       this.transitionToIdle();

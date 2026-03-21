@@ -40,7 +40,7 @@ export interface ActivePort {
 }
 
 export type AgentKind = "claude" | "opencode" | "codex";
-export type AgentStatus = "idle" | "running" | "waiting" | "complete" | "error";
+export type AgentStatus = "idle" | "thinking" | "working" | "complete" | "requires_input" | "error";
 
 export interface AgentState {
   kind: AgentKind | null;

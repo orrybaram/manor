@@ -8,13 +8,18 @@
   flex-shrink: 0;
 }
 
-.dotRunning {
+.dotThinking {
+  background: var(--blue, #89b4fa);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.dotWorking {
   background: var(--yellow, #f9e2af);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-.dotWaiting {
-  background: var(--green, #a6e3a1);
+.dotRequiresInput {
+  background: var(--peach, #fab387);
 }
 
 .dotComplete {

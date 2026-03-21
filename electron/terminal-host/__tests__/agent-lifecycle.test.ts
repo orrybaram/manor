@@ -29,40 +29,39 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"  (agent appears, transitions idle -> idle is no-op since already idle)
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
-    // 3. Hook: PostToolUse -> running (no-op, already running)
-    detector.setStatus("running");
+    // 3. Hook: PostToolUse -> thinking (no-op, already thinking)
+    detector.setStatus("thinking");
 
-    // 4. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 4. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // 5. Hook: UserPromptSubmit -> running (another prompt)
-    detector.setStatus("running");
+    // 5. Hook: UserPromptSubmit -> thinking (another prompt)
+    detector.setStatus("thinking");
 
-    // 6. Hook: PermissionRequest -> waiting
-    detector.setStatus("waiting");
+    // 6. Hook: PermissionRequest -> requires_input
+    detector.setStatus("requires_input");
 
-    // 7. Hook: PostToolUse -> running (permission granted, tool ran)
-    detector.setStatus("running");
+    // 7. Hook: PostToolUse -> thinking (permission granted, tool ran)
+    detector.setStatus("thinking");
 
-    // 8. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 8. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // 9. FG -> null (agent exits -> complete)
+    // 9. FG -> null (agent exits -> complete already, so goes to idle via timer)
     detector.updateForegroundProcess(null);
 
     // 10. advance timer 3000ms -> idle
     vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toEqual([
-      "running",
-      "waiting",
-      "running",
-      "waiting",
-      "running",
-      "waiting",
+      "thinking",
+      "complete",
+      "thinking",
+      "requires_input",
+      "thinking",
       "complete",
       "idle",
     ]);
@@ -76,8 +75,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
     // 3. FG -> null (crash, no Stop received -> complete)
     detector.updateForegroundProcess(null);
@@ -85,7 +84,7 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 4. advance 3000ms -> idle
     vi.advanceTimersByTime(3000);
 
-    expect(statuses(transitions)).toEqual(["running", "complete", "idle"]);
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
 
     detector.dispose();
   });
@@ -96,8 +95,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
     // 3. FG -> null -> complete
     detector.updateForegroundProcess(null);
@@ -107,13 +106,13 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     //    The complete-clear timer is still pending.
     detector.updateForegroundProcess("claude");
 
-    // 5. Hook: UserPromptSubmit -> running (transitions from complete to running)
-    detector.setStatus("running");
+    // 5. Hook: UserPromptSubmit -> thinking (transitions from complete to thinking)
+    detector.setStatus("thinking");
 
     expect(statuses(transitions)).toEqual([
-      "running",
+      "thinking",
       "complete",
-      "running",
+      "thinking",
     ]);
 
     detector.dispose();
@@ -125,8 +124,8 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
     // 3. FG -> "git" (no change — agent spawned git)
     detector.updateForegroundProcess("git");
@@ -134,13 +133,13 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 4. FG -> "node" (no change — still agent's child)
     detector.updateForegroundProcess("node");
 
-    // 5. FG -> "claude" (no change — still running)
+    // 5. FG -> "claude" (no change — still thinking)
     detector.updateForegroundProcess("claude");
 
-    // 6. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 6. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    expect(statuses(transitions)).toEqual(["running", "waiting"]);
+    expect(statuses(transitions)).toEqual(["thinking", "complete"]);
 
     detector.dispose();
   });
@@ -151,35 +150,38 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
-    // 3. Hook: PermissionRequest -> waiting
-    detector.setStatus("waiting");
+    // 3. Hook: PermissionRequest -> requires_input
+    detector.setStatus("requires_input");
 
-    // 4. Hook: PostToolUse -> running (user approved, tool ran)
-    detector.setStatus("running");
+    // 4. Hook: PostToolUse -> thinking (user approved, tool ran)
+    detector.setStatus("thinking");
 
-    // 5. Hook: PermissionRequest -> waiting (another permission)
-    detector.setStatus("waiting");
+    // 5. Hook: PermissionRequest -> requires_input (another permission)
+    detector.setStatus("requires_input");
 
-    // 6. Hook: PostToolUse -> running
-    detector.setStatus("running");
+    // 6. Hook: PostToolUse -> thinking
+    detector.setStatus("thinking");
 
-    // 7. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 7. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // 8. FG -> null -> complete
+    // 8. FG -> null -> already complete, goes idle via timer
     detector.updateForegroundProcess(null);
 
+    // advance timer -> idle
+    vi.advanceTimersByTime(3000);
+
     expect(statuses(transitions)).toEqual([
-      "running",
-      "waiting",
-      "running",
-      "waiting",
-      "running",
-      "waiting",
+      "thinking",
+      "requires_input",
+      "thinking",
+      "requires_input",
+      "thinking",
       "complete",
+      "idle",
     ]);
 
     detector.dispose();
@@ -191,20 +193,20 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
-    // 3-6. Hook: PostToolUse / PostToolUseFailure -> running (no-op, already running)
-    detector.setStatus("running");
-    detector.setStatus("running");
-    detector.setStatus("running");
-    detector.setStatus("running");
+    // 3-6. Hook: PostToolUse -> thinking (no-op, already thinking)
+    detector.setStatus("thinking");
+    detector.setStatus("thinking");
+    detector.setStatus("thinking");
+    detector.setStatus("thinking");
 
-    // 7. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 7. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // Only two transitions: running and waiting
-    expect(statuses(transitions)).toEqual(["running", "waiting"]);
+    // Only two transitions: thinking and complete
+    expect(statuses(transitions)).toEqual(["thinking", "complete"]);
 
     detector.dispose();
   });
@@ -218,7 +220,7 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 2. advance 60000ms (still idle — no hook means no dot)
     vi.advanceTimersByTime(60000);
 
-    // 3. FG -> null (still idle — never was running, so no complete transition)
+    // 3. FG -> null (still idle — never was thinking/working, so no complete transition)
     detector.updateForegroundProcess(null);
 
     // No transitions should have occurred
@@ -231,16 +233,16 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     const { detector, transitions } = createTestHarness();
 
     // 1. Hook: UserPromptSubmit (ignored — no agent kind set)
-    detector.setStatus("running");
+    detector.setStatus("thinking");
 
     // 2. FG -> "claude" (idle)
     detector.updateForegroundProcess("claude");
 
-    // 3. Hook: UserPromptSubmit -> running (now it works)
-    detector.setStatus("running");
+    // 3. Hook: UserPromptSubmit -> thinking (now it works)
+    detector.setStatus("thinking");
 
     // The first setStatus should be ignored, only the second produces a transition
-    expect(statuses(transitions)).toEqual(["running"]);
+    expect(statuses(transitions)).toEqual(["thinking"]);
 
     detector.dispose();
   });
@@ -251,29 +253,28 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "opencode"
     detector.updateForegroundProcess("opencode");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
     // Verify it's detected as opencode
     expect(detector.getState().kind).toBe("opencode");
 
-    // 3. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 3. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // 4. FG -> null -> complete
+    // 4. FG -> null -> already complete, goes idle via timer
     detector.updateForegroundProcess(null);
 
     // 5. advance timer -> idle
     vi.advanceTimersByTime(3000);
 
     expect(statuses(transitions)).toEqual([
-      "running",
-      "waiting",
+      "thinking",
       "complete",
       "idle",
     ]);
 
-    // Verify kind was opencode throughout the running/waiting phases
+    // Verify kind was opencode throughout the thinking phase
     expect(transitions[0].kind).toBe("opencode");
     expect(transitions[1].kind).toBe("opencode");
 
@@ -286,32 +287,32 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 1. FG -> "claude"
     detector.updateForegroundProcess("claude");
 
-    // 2. Hook: UserPromptSubmit -> running
-    detector.setStatus("running");
+    // 2. Hook: UserPromptSubmit -> thinking
+    detector.setStatus("thinking");
 
-    // 3. Hook: PermissionRequest -> waiting
-    detector.setStatus("waiting");
+    // 3. Hook: PermissionRequest -> requires_input
+    detector.setStatus("requires_input");
 
-    // 4. Hook: UserPromptSubmit -> running (user responded instantly)
-    detector.setStatus("running");
+    // 4. Hook: UserPromptSubmit -> thinking (user responded instantly)
+    detector.setStatus("thinking");
 
-    // 5. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 5. Hook: Stop -> complete
+    detector.setStatus("complete");
 
-    // 6. Hook: UserPromptSubmit -> running (rapid follow-up)
-    detector.setStatus("running");
+    // 6. Hook: UserPromptSubmit -> thinking (rapid follow-up)
+    detector.setStatus("thinking");
 
-    // 7. Hook: Stop -> waiting
-    detector.setStatus("waiting");
+    // 7. Hook: Stop -> complete
+    detector.setStatus("complete");
 
     // Verify no transitions were lost or coalesced
     expect(statuses(transitions)).toEqual([
-      "running",
-      "waiting",
-      "running",
-      "waiting",
-      "running",
-      "waiting",
+      "thinking",
+      "requires_input",
+      "thinking",
+      "complete",
+      "thinking",
+      "complete",
     ]);
 
     // Verify each transition has a unique timestamp or at least they're all recorded

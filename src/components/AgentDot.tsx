@@ -1,13 +1,18 @@
 import type { AgentStatus } from "../electron.d";
+import { SpinnerLoader } from "./SpinnerLoader";
 import styles from "./AgentDot.module.css";
 
 interface AgentDotProps {
   status?: AgentStatus;
-  size: "pane" | "tab";
+  size: "pane" | "tab" | "sidebar";
 }
 
 export function AgentDot({ status, size }: AgentDotProps) {
   if (!status || status === "idle") return null;
+
+  if (status === "working") {
+    return <SpinnerLoader size={size} />;
+  }
 
   if (status === "complete" && size === "pane") {
     return (
@@ -31,28 +36,24 @@ export function AgentDot({ status, size }: AgentDotProps) {
   const dotClass =
     status === "thinking"
       ? styles.dotThinking
-      : status === "working"
-        ? styles.dotWorking
-        : status === "requires_input"
-          ? styles.dotRequiresInput
-          : status === "error"
-            ? styles.dotError
-            : status === "complete"
-              ? styles.dotComplete
-              : "";
+      : status === "requires_input"
+        ? styles.dotRequiresInput
+        : status === "error"
+          ? styles.dotError
+          : status === "complete"
+            ? styles.dotComplete
+            : "";
 
   const label =
     status === "thinking"
       ? "Agent thinking"
-      : status === "working"
-        ? "Agent working"
-        : status === "requires_input"
-          ? "Waiting for input"
-          : status === "error"
-            ? "Agent error"
-            : status === "complete"
-              ? "Agent complete"
-              : "";
+      : status === "requires_input"
+        ? "Waiting for input"
+        : status === "error"
+          ? "Agent error"
+          : status === "complete"
+            ? "Agent complete"
+            : "";
 
   return (
     <span

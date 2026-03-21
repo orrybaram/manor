@@ -7,12 +7,14 @@ import React, {
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   Plus,
-  ChevronDown,
   ChevronRight,
   House,
   FolderGit2,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
+import { useAppStore } from "../store/app-store";
+import { useWorkspaceAgents, type WorkspaceAgent } from "../hooks/useWorkspaceAgents";
+import { AgentDot } from "./AgentDot";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -94,12 +96,8 @@ export function ProjectItem({
             onPointerDown={onDragStart}
             style={{ touchAction: "none" }}
           >
-            <span className={styles.projectChevron}>
-              {expanded ? (
-                <ChevronDown size={12} />
-              ) : (
-                <ChevronRight size={12} />
-              )}
+            <span className={`${styles.projectChevron} ${expanded ? styles.projectChevronOpen : ""}`}>
+              <ChevronRight size={12} />
             </span>
             <span className={styles.projectName} title={project.path}>
               {project.name}
@@ -230,56 +228,67 @@ export function ProjectItem({
             );
 
             return (
-              <ContextMenu.Root key={ws.path}>
-                <ContextMenu.Trigger asChild>{workspaceEl}</ContextMenu.Trigger>
-                <ContextMenu.Portal>
-                  <ContextMenu.Content className={styles.contextMenu}>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={() =>
-                        window.electronAPI.shell.openExternal(`file://${ws.path}`)
-                      }
-                    >
-                      Open in Finder
-                    </ContextMenu.Item>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={() =>
-                        navigator.clipboard.writeText(ws.branch || "main")
-                      }
-                    >
-                      Copy Branch Name
-                    </ContextMenu.Item>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={() => navigator.clipboard.writeText(ws.path)}
-                    >
-                      Copy Path
-                    </ContextMenu.Item>
-                    {!ws.isMain && (
-                      <>
-                        <ContextMenu.Separator
-                          className={styles.contextMenuSeparator}
-                        />
-                        <ContextMenu.Item
-                          className={styles.contextMenuItem}
-                          onSelect={() => startRename(ws)}
-                        >
-                          Rename Workspace
-                        </ContextMenu.Item>
-                        <ContextMenu.Item
-                          className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                          onSelect={() => {
-                            setConfirmDeleteWorktree(ws);
-                          }}
-                        >
-                          Delete Workspace
-                        </ContextMenu.Item>
-                      </>
-                    )}
-                  </ContextMenu.Content>
-                </ContextMenu.Portal>
-              </ContextMenu.Root>
+              <React.Fragment key={ws.path}>
+                <ContextMenu.Root>
+                  <ContextMenu.Trigger asChild>{workspaceEl}</ContextMenu.Trigger>
+                  <ContextMenu.Portal>
+                    <ContextMenu.Content className={styles.contextMenu}>
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() =>
+                          window.electronAPI.shell.openExternal(`file://${ws.path}`)
+                        }
+                      >
+                        Open in Finder
+                      </ContextMenu.Item>
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() =>
+                          navigator.clipboard.writeText(ws.branch || "main")
+                        }
+                      >
+                        Copy Branch Name
+                      </ContextMenu.Item>
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() => navigator.clipboard.writeText(ws.path)}
+                      >
+                        Copy Path
+                      </ContextMenu.Item>
+                      {!ws.isMain && (
+                        <>
+                          <ContextMenu.Separator
+                            className={styles.contextMenuSeparator}
+                          />
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => startRename(ws)}
+                          >
+                            Rename Workspace
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                            onSelect={() => {
+                              setConfirmDeleteWorktree(ws);
+                            }}
+                          >
+                            Delete Workspace
+                          </ContextMenu.Item>
+                        </>
+                      )}
+                    </ContextMenu.Content>
+                  </ContextMenu.Portal>
+                </ContextMenu.Root>
+                <WorkspaceAgentList
+                  workspacePath={ws.path}
+                  onNavigate={(agent) => {
+                    onSelectWorkspace(idx);
+                    const store = useAppStore.getState();
+                    store.selectSession(agent.sessionId);
+                    store.focusPane(agent.paneId);
+                  }}
+                />
+              </React.Fragment>
             );
           })}
         </div>
@@ -317,6 +326,81 @@ export function ProjectItem({
           onRemoveWorktree(ws, deleteBranch);
         }}
       />
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  thinking: "Thinking",
+  working: "Working",
+  complete: "Done",
+  requires_input: "Waiting",
+  error: "Error",
+};
+
+/** Strip braille spinners and done markers from an OSC title,
+ *  returning null if the result is empty or just the generic agent name. */
+function cleanAgentTitle(title: string | null | undefined): string | null {
+  if (!title) return null;
+  // Strip braille spinner chars (U+2800–U+28FF) and known done/brand markers
+  let cleaned = title
+    .replace(/[\u2800-\u28FF]/g, "")
+    .replace(/[✳✻✽✶✢]/g, "")
+    .trim();
+  if (!cleaned) return null;
+  // Ignore generic agent names — not useful as a display label
+  const lower = cleaned.toLowerCase();
+  if (lower === "claude code" || lower === "claude" || lower === "opencode" || lower === "codex") {
+    return null;
+  }
+  return cleaned;
+}
+
+function WorkspaceAgentList({
+  workspacePath,
+  onNavigate,
+}: {
+  workspacePath: string;
+  onNavigate: (agent: WorkspaceAgent) => void;
+}) {
+  const agents = useWorkspaceAgents(workspacePath);
+  const [expanded, setExpanded] = useState(true);
+
+  if (agents.length === 0) return null;
+
+  return (
+    <div className={styles.agentAccordion}>
+      <button
+        className={styles.agentToggle}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span
+          className={`${styles.agentToggleChevron} ${expanded ? styles.agentToggleChevronOpen : ""}`}
+        >
+          <ChevronRight size={10} />
+        </span>
+        <span>Tasks</span>
+        <span className={styles.agentCount}>{agents.length}</span>
+      </button>
+      {expanded && (
+        <div className={styles.agentList}>
+          {agents.map((a) => (
+            <button
+              key={a.paneId}
+              className={styles.agentItem}
+              onClick={() => onNavigate(a)}
+            >
+              <AgentDot status={a.agent.status} size="sidebar" />
+              <span className={styles.agentName}>
+                {cleanAgentTitle(a.agent.title) || a.agent.kind || "Agent"}
+              </span>
+              <span className={styles.agentStatusLabel}>
+                {STATUS_LABEL[a.agent.status] ?? a.agent.status}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

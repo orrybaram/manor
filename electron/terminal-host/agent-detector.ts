@@ -18,6 +18,11 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
   codex: "codex",
 };
 
+/** Titles that are just the agent binary name — not useful as a task label */
+const GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
+
+const KNOWN_SHELLS = new Set(["zsh", "bash", "sh", "fish", "nu", "pwsh", "powershell"]);
+
 const COMPLETE_CLEAR_MS = 3000;
 const HOOK_DEBOUNCE_MS = 2000;
 
@@ -26,11 +31,16 @@ export class AgentDetector {
   private status: AgentStatus = "idle";
   private processName: string | null = null;
   private since: number = Date.now();
+  private title: string | null = null;
   private completeClearTimer: ReturnType<typeof setTimeout> | null = null;
   private _onStatusChange: ((state: AgentState) => void) | null = null;
 
   /** Timestamp of the last hook-driven status update */
   private lastHookTime = 0;
+
+  /** Whether the agent has been active (thinking/working) in this session.
+   *  Prevents spurious Stop hooks during startup from showing "complete". */
+  private hasBeenActive = false;
 
   /** Tracked agent PIDs for stale sweep */
   private trackedPids = new Map<number, { kind: AgentKind; status: AgentStatus }>();
@@ -45,7 +55,15 @@ export class AgentDetector {
       status: this.status,
       processName: this.processName,
       since: this.since,
+      title: this.title,
     };
+  }
+
+  /** Update the terminal title (from OSC 0/2 sequences) */
+  setTitle(title: string | null): void {
+    if (this.title === title) return;
+    this.title = title;
+    this._onStatusChange?.(this.getState());
   }
 
   /** Called when foreground process info changes (from polling) */
@@ -89,10 +107,17 @@ export class AgentDetector {
       }
     } else if (
       this.kind &&
-      (this.status === "thinking" || this.status === "working" || this.status === "requires_input")
+      (this.status === "thinking" || this.status === "working" || this.status === "requires_input") &&
+      !KNOWN_SHELLS.has(basename)
     ) {
       // Agent was running but now a different process is foreground
       // (e.g. agent spawned a child) — keep tracking
+    } else if (
+      this.kind &&
+      (this.status === "thinking" || this.status === "working" || this.status === "requires_input")
+    ) {
+      // Shell returned to foreground — agent exited
+      this.transitionToComplete();
     } else {
       this.transitionToIdle();
     }
@@ -105,6 +130,18 @@ export class AgentDetector {
       // This shouldn't normally happen, but be defensive.
       return;
     }
+
+    // Track when the agent first becomes active
+    if (status === "thinking" || status === "working" || status === "requires_input") {
+      this.hasBeenActive = true;
+    }
+
+    // Ignore complete/error if the agent was never active in this session.
+    // This prevents spurious Stop hooks during CLI startup from showing "complete".
+    if ((status === "complete" || status === "error") && !this.hasBeenActive) {
+      return;
+    }
+
     this.lastHookTime = Date.now();
     this.transition(status);
 
@@ -200,6 +237,8 @@ export class AgentDetector {
     this.clearTimers();
     this.kind = null;
     this.processName = null;
+    this.title = null;
+    this.hasBeenActive = false;
     if (this.status === "idle") return;
     this.transition("idle");
   }

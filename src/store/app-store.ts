@@ -165,9 +165,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (layout) {
         _cachedLayout = layout;
 
-        // Pre-populate paneCwd and paneTitle from persisted data
+        // Pre-populate paneCwd, paneTitle, and paneAgentStatus from persisted data
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
+        const agents: Record<string, AgentState> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
             for (const [paneId, paneSession] of Object.entries(
@@ -179,6 +180,9 @@ export const useAppStore = create<AppState>((set, get) => ({
               if (paneSession.lastTitle) {
                 titles[paneId] = paneSession.lastTitle;
               }
+              if (paneSession.lastAgentStatus && paneSession.lastAgentStatus.status !== "idle") {
+                agents[paneId] = paneSession.lastAgentStatus as AgentState;
+              }
             }
           }
         }
@@ -187,6 +191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           layoutLoaded: true,
           paneCwd: { ...get().paneCwd, ...cwds },
           paneTitle: { ...get().paneTitle, ...titles },
+          paneAgentStatus: { ...get().paneAgentStatus, ...agents },
         });
       } else {
         set({ layoutLoaded: true });
@@ -580,7 +585,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (
         current &&
         current.status === agent.status &&
-        current.kind === agent.kind
+        current.kind === agent.kind &&
+        current.since === agent.since &&
+        current.title === agent.title &&
+        current.processName === agent.processName
       )
         return state;
       if (agent.status === "idle") {
@@ -684,6 +692,7 @@ function saveActiveWorkspaceLayout(): void {
             daemonSessionId: string;
             lastCwd: string | null;
             lastTitle: string | null;
+            lastAgentStatus?: AgentState | null;
           }
         > = {};
         for (const pid of paneIds) {
@@ -691,6 +700,7 @@ function saveActiveWorkspaceLayout(): void {
             daemonSessionId: pid,
             lastCwd: state.paneCwd[pid] ?? null,
             lastTitle: state.paneTitle[pid] ?? null,
+            lastAgentStatus: state.paneAgentStatus[pid] ?? null,
           };
         }
         return {
@@ -713,7 +723,8 @@ function saveActiveWorkspaceLayout(): void {
 useAppStore.subscribe((state, prevState) => {
   if (
     state.workspaceSessions !== prevState.workspaceSessions ||
-    state.activeWorkspacePath !== prevState.activeWorkspacePath
+    state.activeWorkspacePath !== prevState.activeWorkspacePath ||
+    state.paneAgentStatus !== prevState.paneAgentStatus
   ) {
     saveActiveWorkspaceLayout();
   }

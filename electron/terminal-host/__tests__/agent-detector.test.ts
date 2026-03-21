@@ -35,6 +35,7 @@ describe("AgentDetector", () => {
         status: "idle",
         processName: null,
         since: expect.any(Number),
+        title: null,
       });
     });
   });
@@ -202,6 +203,7 @@ describe("AgentDetector", () => {
         status: "thinking",
         processName: "claude",
         since: expect.any(Number),
+        title: null,
       });
     });
 

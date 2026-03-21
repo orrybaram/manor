@@ -1,0 +1,93 @@
+.panel {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 9999;
+  min-width: 320px;
+  max-width: 420px;
+  background: rgba(30, 30, 46, 0.92);
+  border: 1px solid rgba(108, 112, 134, 0.35);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 11px;
+  color: #cdd6f4;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.header {
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a6adc8;
+  border-bottom: 1px solid rgba(108, 112, 134, 0.25);
+  background: rgba(24, 24, 37, 0.6);
+}
+
+.body {
+  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  line-height: 1.4;
+}
+
+.row:hover {
+  background: rgba(108, 112, 134, 0.1);
+}
+
+.paneId {
+  color: #7f849c;
+  font-size: 10px;
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status {
+  min-width: 90px;
+  font-weight: 500;
+}
+
+.kind {
+  color: #7f849c;
+  min-width: 50px;
+}
+
+.elapsed {
+  color: #585b70;
+  font-size: 10px;
+}
+
+.title {
+  color: #a6adc8;
+  font-size: 10px;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.empty {
+  padding: 8px 10px;
+  color: #585b70;
+  font-style: italic;
+}

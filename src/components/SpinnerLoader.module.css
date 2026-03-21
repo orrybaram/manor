@@ -1,0 +1,44 @@
+/* ── Spinning Yellow Loader ── */
+
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--yellow, #f9e2af) transparent var(--yellow, #f9e2af) transparent;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.pane {
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+  margin-right: 6px;
+}
+
+.tab {
+  width: 6px;
+  height: 6px;
+  border-width: 1px;
+}
+
+.debug {
+  width: 6px;
+  height: 6px;
+  border-width: 1px;
+}
+
+.sidebar {
+  width: 6px;
+  height: 6px;
+  border-width: 1px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

@@ -517,6 +517,13 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "linear:getIssueDetail",
+  async (_event, issueId: string) => {
+    return linearManager.getIssueDetail(issueId);
+  },
+);
+
 ipcMain.handle("linear:autoMatch", async () => {
   const projects = projectManager.getProjects();
   const teams = await linearManager.getTeams();

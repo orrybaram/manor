@@ -183,6 +183,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     teamIds: string[],
     options?: { stateTypes?: string[]; limit?: number },
   ) => ipcRenderer.invoke("linear:getMyIssues", teamIds, options),
+  linearGetIssueDetail: (issueId: string) =>
+    ipcRenderer.invoke("linear:getIssueDetail", issueId),
   linearAutoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
 
   // Dialog

@@ -124,10 +124,17 @@ export class AgentDetector {
   }
 
   /** Called by hook events to update status directly (highest priority) */
-  setStatus(status: AgentStatus): void {
+  setStatus(status: AgentStatus, kind?: AgentKind): void {
+    // If kind is provided and we don't have one yet, set it.
+    // Hook events know which agent they came from (e.g. "claude").
+    if (kind && !this.kind) {
+      this.kind = kind;
+      this.processName = kind; // best we know without process detection
+    }
+
     if (this.status === "idle" && status !== "idle" && !this.kind) {
-      // Agent hook fired but process detection hasn't caught up yet — set kind
-      // This shouldn't normally happen, but be defensive.
+      // Agent hook fired but process detection hasn't caught up yet
+      // and no kind was provided — can't track without knowing the agent.
       return;
     }
 

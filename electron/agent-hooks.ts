@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 // Map hook event names to our status
-import type { AgentStatus } from "./terminal-host/types";
+import type { AgentStatus, AgentKind } from "./terminal-host/types";
 
 type PaneStatus = AgentStatus;
 
@@ -45,14 +45,14 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn: ((paneId: string, status: AgentStatus) => void) | null = null;
+  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind) => void) | null = null;
 
   get hookPort(): number {
     return this.port;
   }
 
   /** Set or update the relay function (called when hook events arrive) */
-  setRelay(relay: (paneId: string, status: AgentStatus) => void): void {
+  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind) => void): void {
     this.relayFn = relay;
   }
 
@@ -82,11 +82,10 @@ export class AgentHookServer {
         return;
       }
 
-      console.log("Received hook event:--------------------------------------------------------", paneId, eventType);
-
       const status = mapEventToStatus(eventType);
       if (status) {
-        this.relayFn?.(paneId, status);
+        // Hooks registered in ~/.claude/settings.json are Claude-specific
+        this.relayFn?.(paneId, status, "claude");
       }
 
       res.writeHead(200);

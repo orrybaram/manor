@@ -192,7 +192,7 @@ async function handleStreamMessage(
       host.detach(command.sessionId, socket);
       break;
     case "agentHook":
-      host.setAgentHookStatus(command.sessionId, command.status);
+      host.setAgentHookStatus(command.sessionId, command.status, command.kind);
       break;
   }
 }

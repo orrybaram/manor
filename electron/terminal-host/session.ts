@@ -33,6 +33,7 @@ import type {
   StreamEvent,
   PtySpawnPayload,
   AgentStatus,
+  AgentKind,
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
 
@@ -291,8 +292,8 @@ export class Session {
   }
 
   /** Called when a hook event arrives for this session */
-  setAgentHookStatus(status: AgentStatus): void {
-    this.agentDetector.setStatus(status);
+  setAgentHookStatus(status: AgentStatus, kind: AgentKind): void {
+    this.agentDetector.setStatus(status, kind);
   }
 
   /** Write terminal input to the subprocess */

@@ -1,5 +1,4 @@
 import {
-  type ReactNode,
   useState,
   useEffect,
   useCallback,
@@ -9,22 +8,14 @@ import {
   Terminal,
   Search,
   Trash2,
-  FolderDown,
   ExternalLink,
 } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
 import type { LinearIssue } from "../electron.d";
+import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import styles from "./EmptyState.module.css";
-
-interface ActionItem {
-  icon: ReactNode;
-  label: string;
-  keys: string[];
-  action: () => void;
-  variant?: "danger";
-}
 
 /** Shown when the active workspace has no sessions (all tabs closed). */
 export function WorkspaceEmptyState() {
@@ -171,105 +162,4 @@ export function WorkspaceEmptyState() {
     ) : null;
 
   return <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />;
-}
-
-/** Shown when there are no projects at all. */
-export function WelcomeEmptyState() {
-  const addProjectFromDirectory = useProjectStore(
-    (s) => s.addProjectFromDirectory,
-  );
-
-  const actions: ActionItem[] = [
-    {
-      icon: <FolderDown size={16} />,
-      label: "Import Project",
-      keys: [],
-      action: addProjectFromDirectory,
-    },
-  ];
-
-  return (
-    <EmptyStateShell
-      subtitle="Open a project to get started"
-      actions={actions}
-    />
-  );
-}
-
-function EmptyStateShell({
-  subtitle,
-  actions,
-  ticketsSection,
-}: {
-  subtitle?: string;
-  actions: ActionItem[];
-  ticketsSection?: ReactNode;
-}) {
-  return (
-    <div className={styles.container}>
-      <div className={styles.content}>
-        <div className={styles.logo}>
-          <ManorLogo />
-          {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
-        </div>
-        {ticketsSection}
-        <div className={styles.actions}>
-          {actions.map((item) => (
-            <button
-              key={item.label}
-              className={`${styles.action} ${item.variant === "danger" ? styles.actionDanger : ""}`}
-              onClick={item.action}
-            >
-              <span className={styles.actionIcon}>{item.icon}</span>
-              <span className={styles.actionLabel}>{item.label}</span>
-              {item.keys.length > 0 && (
-                <span className={styles.actionKeys}>
-                  {item.keys.map((key) => (
-                    <kbd key={key} className={styles.kbd}>
-                      {key}
-                    </kbd>
-                  ))}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ManorLogo() {
-  const s = 8;
-  const g = 2;
-  const step = s + g;
-  const fill = "var(--text-primary)";
-  // M on a 7-col x 5-row pixel grid
-  const pixels = [
-    [0, 0], [6, 0],
-    [0, 1], [1, 1], [5, 1], [6, 1],
-    [0, 2], [2, 2], [4, 2], [6, 2],
-    [0, 3], [3, 3], [6, 3],
-    [0, 4], [6, 4],
-  ];
-  return (
-    <svg
-      width={7 * s + 6 * g}
-      height={5 * s + 4 * g}
-      viewBox={`0 0 ${7 * s + 6 * g} ${5 * s + 4 * g}`}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {pixels.map(([col, row]) => (
-        <rect
-          key={`${col}-${row}`}
-          x={col * step}
-          y={row * step}
-          width={s}
-          height={s}
-          fill={fill}
-        />
-      ))}
-    </svg>
-  );
 }

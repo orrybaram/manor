@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { TaskInfo } from "../electron.d";
+import { useToastStore } from "./toast-store";
+import { navigateToTask } from "../utils/task-navigation";
 
 interface TaskState {
   tasks: TaskInfo[];
@@ -70,6 +72,37 @@ export const useTaskStore = create<TaskState>((set, get) => {
     },
 
     receiveTaskUpdate: (task: TaskInfo) => {
+      const s = get();
+      const idx = s.tasks.findIndex((t) => t.id === task.id);
+
+      // Fire toasts only when updating an existing task (idx >= 0)
+      if (idx >= 0) {
+        const prevTask = s.tasks[idx];
+        const prevStatus = prevTask.lastAgentStatus;
+        const nextStatus = task.lastAgentStatus;
+
+        if (prevStatus !== nextStatus) {
+          if (nextStatus === "complete") {
+            useToastStore.getState().addToast({
+              id: `task-done-${task.id}`,
+              message: `Task completed: ${task.name || "Agent"}`,
+              status: "success",
+            });
+          } else if (nextStatus === "requires_input") {
+            useToastStore.getState().addToast({
+              id: `task-input-${task.id}`,
+              message: `Task needs input: ${task.name || "Agent"}`,
+              status: "loading",
+              persistent: true,
+              action: {
+                label: "Go to task",
+                onClick: () => navigateToTask(task),
+              },
+            });
+          }
+        }
+      }
+
       set((s) => {
         const idx = s.tasks.findIndex((t) => t.id === task.id);
         let tasks: TaskInfo[];

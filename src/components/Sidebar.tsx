@@ -4,7 +4,7 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Plus, Boxes } from "lucide-react";
+import { Plus, Boxes, ChevronRight } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
@@ -44,6 +44,7 @@ export function Sidebar({ onShowTasks }: SidebarProps) {
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
   useDiffWatcher();
@@ -232,82 +233,102 @@ export function Sidebar({ onShowTasks }: SidebarProps) {
       <div className={styles.titlebar} />
       <div className={styles.content}>
         <div>
-          <div className={styles.sectionHeader}>
+          <div
+            className={styles.sectionHeader}
+            style={{ cursor: "pointer" }}
+            onClick={() => setProjectsCollapsed(!projectsCollapsed)}
+          >
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span
+                className={`${styles.projectChevron} ${!projectsCollapsed ? styles.projectChevronOpen : ""}`}
+              >
+                <ChevronRight size={12} />
+              </span>
               <Boxes size={12} />
               Projects
             </span>
-            <button className={styles.action} onClick={handleAddProject}>
+            <button
+              className={styles.action}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAddProject();
+              }}
+            >
               <Plus size={14} />
             </button>
           </div>
-          {projects.length === 0 && (
-            <div className={styles.empty}>
-              No projects yet.
-              <br />
-              <button className={styles.link} onClick={handleAddProject}>
-                Open a folder
-              </button>
-            </div>
-          )}
-          <div className={styles.projects}>
-            {projects.map((project, idx) => (
-              <React.Fragment key={project.id}>
-                {idx > 0 && <div className={styles.projectSeparator} />}
-                <div
-                  ref={(el) => {
-                    if (el) projItemRefs.current.set(idx, el);
-                    else projItemRefs.current.delete(idx);
-                  }}
-                  style={getProjectTransformStyle(idx)}
-                  className={
-                    projDragIndex === idx ? styles.projectDragging : undefined
-                  }
-                >
-                  <ProjectItem
-                    project={project}
-                    isSelected={idx === selectedProjectIndex}
-                    collapsed={collapsedProjectIds.has(project.id)}
-                    onToggleCollapsed={() => {
-                      if (!projJustDragged.current)
-                        toggleProjectCollapsed(project.id);
-                    }}
-                    onSelect={() => {
-                      if (projJustDragged.current) return;
-                      selectProject(idx);
-                      setProjectExpanded(project.id);
-                      const ws =
-                        project.workspaces[project.selectedWorkspaceIndex] ??
-                        project.workspaces[0];
-                      if (ws) setActiveWorkspace(ws.path);
-                    }}
-                    onRemove={() => removeProject(project.id)}
-                    onSelectWorkspace={(wsIdx) => {
-                      selectWorkspace(project.id, wsIdx);
-                      const ws = project.workspaces[wsIdx];
-                      if (ws) setActiveWorkspace(ws.path);
-                    }}
-                    onRemoveWorktree={(ws, deleteBranch) => {
-                      removeWorktreeWithToast(project, ws, deleteBranch);
-                    }}
-                    onRenameWorkspace={(ws, newName) =>
-                      renameWorkspace(project.id, ws.path, newName)
-                    }
-                    onReorderWorkspaces={(orderedPaths) =>
-                      reorderWorkspaces(project.id, orderedPaths)
-                    }
-                    onCreateWorktree={(name, branch) =>
-                      createWorktree(project.id, name, branch)
-                    }
-                    onDragStart={(e) => handleProjectDragStart(idx, e)}
-                  />
+          {!projectsCollapsed && (
+            <>
+              {projects.length === 0 && (
+                <div className={styles.empty}>
+                  No projects yet.
+                  <br />
+                  <button className={styles.link} onClick={handleAddProject}>
+                    Open a folder
+                  </button>
                 </div>
-              </React.Fragment>
-            ))}
-          </div>
+              )}
+              <div className={styles.projectsScroll}>
+                <div className={styles.projects}>
+                  {projects.map((project, idx) => (
+                    <React.Fragment key={project.id}>
+                      {idx > 0 && <div className={styles.projectSeparator} />}
+                      <div
+                        ref={(el) => {
+                          if (el) projItemRefs.current.set(idx, el);
+                          else projItemRefs.current.delete(idx);
+                        }}
+                        style={getProjectTransformStyle(idx)}
+                        className={
+                          projDragIndex === idx ? styles.projectDragging : undefined
+                        }
+                      >
+                        <ProjectItem
+                          project={project}
+                          isSelected={idx === selectedProjectIndex}
+                          collapsed={collapsedProjectIds.has(project.id)}
+                          onToggleCollapsed={() => {
+                            if (!projJustDragged.current)
+                              toggleProjectCollapsed(project.id);
+                          }}
+                          onSelect={() => {
+                            if (projJustDragged.current) return;
+                            selectProject(idx);
+                            setProjectExpanded(project.id);
+                            const ws =
+                              project.workspaces[project.selectedWorkspaceIndex] ??
+                              project.workspaces[0];
+                            if (ws) setActiveWorkspace(ws.path);
+                          }}
+                          onRemove={() => removeProject(project.id)}
+                          onSelectWorkspace={(wsIdx) => {
+                            selectWorkspace(project.id, wsIdx);
+                            const ws = project.workspaces[wsIdx];
+                            if (ws) setActiveWorkspace(ws.path);
+                          }}
+                          onRemoveWorktree={(ws, deleteBranch) => {
+                            removeWorktreeWithToast(project, ws, deleteBranch);
+                          }}
+                          onRenameWorkspace={(ws, newName) =>
+                            renameWorkspace(project.id, ws.path, newName)
+                          }
+                          onReorderWorkspaces={(orderedPaths) =>
+                            reorderWorkspaces(project.id, orderedPaths)
+                          }
+                          onCreateWorktree={(name, branch) =>
+                            createWorktree(project.id, name, branch)
+                          }
+                          onDragStart={(e) => handleProjectDragStart(idx, e)}
+                        />
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
-      <TasksList onShowAll={onShowTasks} />
+        <TasksList onShowAll={onShowTasks} />
       <PortsList />
 
       <div

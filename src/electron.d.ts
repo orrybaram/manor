@@ -8,6 +8,7 @@ export interface TaskInfo {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
   workspacePath: string | null;

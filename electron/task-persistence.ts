@@ -18,6 +18,7 @@ export interface TaskInfo {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
   workspacePath: string | null;
@@ -72,13 +73,14 @@ export class TaskManager {
     }, 500);
   }
 
-  createTask(data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt">): TaskInfo {
+  createTask(data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): TaskInfo {
     const now = new Date().toISOString();
     const task: TaskInfo = {
       ...data,
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
+      activatedAt: null,
     };
     this.tasks.set(task.claudeSessionId, task);
     this.saveState();

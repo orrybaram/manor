@@ -79,15 +79,32 @@ async function detectAgentFromChildArgs(shellPid: number): Promise<string | null
 
     if (allPids.length === 0) return null;
 
+    // Filter out PIDs that have already exited to narrow the race window
+    // between pgrep and ps calls. process.kill(pid, 0) throws if the process
+    // no longer exists.
+    const livePids = allPids.filter((pid) => {
+      try {
+        process.kill(Number(pid.trim()), 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    if (livePids.length === 0) return null;
+
     // Build ps args: -o args= -p PID1 -p PID2 ...
     const psArgs = ["-o", "args="];
-    for (const pid of allPids) {
+    for (const pid of livePids) {
       psArgs.push("-p", pid.trim());
     }
 
+    // Use 500ms timeout (matching polling interval) to reduce SIGTERM kills
+    // under load. ps failures due to PIDs exiting between pgrep and ps are an
+    // expected race condition and not worth logging as errors.
     const { stdout: result } = await execFileAsync("ps", psArgs, {
       encoding: "utf-8",
-      timeout: 200,
+      timeout: 500,
     });
 
     for (const line of result.trim().split("\n")) {
@@ -98,8 +115,9 @@ async function detectAgentFromChildArgs(shellPid: number): Promise<string | null
         }
       }
     }
-  } catch (err) {
-    console.error(`[DEBUG:detectAgent] error:`, err);
+  } catch {
+    // Silently ignore errors — ps failures are an expected race condition when
+    // child processes exit between the pgrep call and the ps call.
   }
   return null;
 }

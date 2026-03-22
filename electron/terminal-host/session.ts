@@ -107,7 +107,7 @@ export class Session {
     }
 
     // Agent detection
-    this.agentDetector = new AgentDetector();
+    this.agentDetector = new AgentDetector(sessionId);
     this.agentDetector.onStatusChange = (state) => {
       this.broadcastEvent({
         type: "agentStatus",

@@ -246,6 +246,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: {
+            ...ws,
             sessions: [...ws.sessions, session],
             selectedSessionId: session.id,
           },
@@ -594,9 +595,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         return state;
       // Remove from store only when agent is truly gone (kind is null)
       if (agent.status === "idle" && agent.kind === null) {
+        console.debug(`[agent-status] store: pane=${paneId} → REMOVED (gone)`);
         const { [paneId]: _, ...rest } = state.paneAgentStatus;
         return { paneAgentStatus: rest };
       }
+      console.debug(`[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`);
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
 

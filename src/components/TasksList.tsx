@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react";
-import { ChevronRight, ListChecks } from "lucide-react";
+import { ChevronRight, ListChecks, X } from "lucide-react";
 import type { AgentStatus, TaskInfo, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
-import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { AgentDot } from "./AgentDot";
 import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
 import { allPaneIds } from "../store/pane-tree";
+import { navigateToTask } from "../utils/task-navigation";
 import styles from "./Sidebar.module.css";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,49 +39,29 @@ function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   return statusMap[task.status];
 }
 
-function navigateToTask(task: TaskInfo) {
-  const { selectProject, setProjectExpanded, selectWorkspace, projects } =
-    useProjectStore.getState();
-  const { setActiveWorkspace, selectSession, focusPane, workspaceSessions } =
-    useAppStore.getState();
+/** Priority order for picking the "most relevant" agent status to show collapsed */
+const STATUS_PRIORITY: Record<string, number> = {
+  error: 0,
+  requires_input: 1,
+  thinking: 2,
+  working: 3,
+  complete: 4,
+  idle: 5,
+};
 
-  // Find the project by projectId
-  const projectIndex = projects.findIndex((p) => p.id === task.projectId);
-  if (projectIndex < 0) return;
-  const project = projects[projectIndex];
-
-  // Find the workspace index by workspacePath
-  const workspaceIndex = project.workspaces.findIndex(
-    (ws) => ws.path === task.workspacePath,
-  );
-  if (workspaceIndex < 0) return;
-
-  // Find the session containing task.paneId
-  let sessionId: string | null = null;
-  if (task.paneId && task.workspacePath) {
-    const wsSessions = workspaceSessions[task.workspacePath];
-    if (wsSessions) {
-      for (const session of wsSessions.sessions) {
-        if (allPaneIds(session.rootNode).includes(task.paneId)) {
-          sessionId = session.id;
-          break;
-        }
-      }
+function mostRelevantStatus(tasks: TaskInfo[]): AgentStatus | undefined {
+  let best: AgentStatus | undefined;
+  let bestPri = Infinity;
+  for (const task of tasks) {
+    const s = taskAgentStatus(task);
+    if (!s) continue;
+    const pri = STATUS_PRIORITY[s] ?? 99;
+    if (pri < bestPri) {
+      bestPri = pri;
+      best = s;
     }
   }
-
-  selectProject(projectIndex);
-  setProjectExpanded(project.id);
-  selectWorkspace(project.id, workspaceIndex);
-  if (task.workspacePath) {
-    setActiveWorkspace(task.workspacePath);
-  }
-  if (sessionId) {
-    selectSession(sessionId);
-  }
-  if (task.paneId) {
-    focusPane(task.paneId);
-  }
+  return best;
 }
 
 export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
@@ -128,6 +108,11 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
     return map;
   }, [visibleTasks]);
 
+  const collapsedStatus = useMemo(
+    () => (collapsed ? mostRelevantStatus(visibleTasks) : undefined),
+    [collapsed, visibleTasks],
+  );
+
   return (
     <div className={styles.tasksSection}>
       <div
@@ -143,8 +128,11 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </span>
           <ListChecks size={12} />
           Tasks
-          {visibleTasks.length > 0 && (
-            <span className={styles.portCount}>{visibleTasks.length}</span>
+          {collapsed && collapsedStatus && (
+            <>
+              <AgentDot status={collapsedStatus} size="sidebar" />
+              <AgentItemLabel status={collapsedStatus} />
+            </>
           )}
         </span>
         {onShowAll && (
@@ -178,7 +166,18 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
                     <span className={styles.agentName}>
                       {task.name || "Agent"}
                     </span>
-                    {agentStatus && <AgentItemLabel status={agentStatus} />}
+                    {task.paneId && (
+                      <span
+                        className={styles.taskClose}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useAppStore.getState().closePaneById(task.paneId!);
+                        }}
+                        title="Close session"
+                      >
+                        <X size={12} />
+                      </span>
+                    )}
                   </button>
                 );
               })}

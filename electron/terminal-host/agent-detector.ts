@@ -49,6 +49,12 @@ export class AgentDetector {
   /** Tracked agent PIDs for stale sweep */
   private trackedPids = new Map<number, { kind: AgentKind; status: AgentStatus }>();
 
+  /** Timer to auto-transition from "complete" to "gone" after a brief display period */
+  private completeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** How long to show "complete" before auto-cleaning up (ms) */
+  private static readonly COMPLETE_LINGER_MS = 5000;
+
   constructor(label = "unknown") {
     this.label = label;
   }
@@ -282,11 +288,13 @@ export class AgentDetector {
   }
 
   dispose(): void {
+    this.clearCompleteTimer();
     this.trackedPids.clear();
   }
 
   private transitionToComplete(): void {
     this.transition("complete");
+    this.scheduleCompleteCleanup();
   }
 
   /** Transition to gone — clears all agent state and emits idle with kind=null.
@@ -306,8 +314,31 @@ export class AgentDetector {
     this.transition("idle");
   }
 
+  /** Schedule auto-cleanup from "complete" to "gone" after a brief linger period */
+  private scheduleCompleteCleanup(): void {
+    this.clearCompleteTimer();
+    this.completeTimer = setTimeout(() => {
+      this.completeTimer = null;
+      if (this.status === "complete") {
+        this.log("completeTimer: linger expired → gone");
+        this.transitionToGone();
+      }
+    }, AgentDetector.COMPLETE_LINGER_MS);
+  }
+
+  private clearCompleteTimer(): void {
+    if (this.completeTimer !== null) {
+      clearTimeout(this.completeTimer);
+      this.completeTimer = null;
+    }
+  }
+
   private transition(newStatus: AgentStatus): void {
     if (this.status === newStatus) return;
+    // Clear the complete-linger timer when transitioning away from complete
+    if (this.status === "complete" && newStatus !== "complete") {
+      this.clearCompleteTimer();
+    }
     const prev = this.status;
     this.status = newStatus;
     this.since = Date.now();

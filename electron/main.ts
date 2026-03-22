@@ -739,7 +739,10 @@ app.whenReady().then(async () => {
     client.relayAgentHook(paneId, status, kind);
 
     // Task persistence: create or update task for this session
-    if (!sessionId) return;
+    if (!sessionId) {
+      console.debug(`[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`);
+      return;
+    }
 
     const sessionState = getOrCreateSessionState(sessionId);
 

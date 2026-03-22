@@ -16,6 +16,7 @@ import type { AgentStatus } from "../electron.d";
 import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
 import { useAppStore } from "../store/app-store";
 import { useWorkspaceAgents, type WorkspaceAgent } from "../hooks/useWorkspaceAgents";
+import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { AgentDot } from "./AgentDot";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
@@ -68,6 +69,8 @@ export function ProjectItem({
       editingPath,
     });
 
+  const projectStatus = useProjectAgentStatus(project);
+
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
     setEditValue(ws.name || ws.branch || "");
@@ -104,6 +107,9 @@ export function ProjectItem({
             <span className={styles.projectName} title={project.path}>
               {project.name}
             </span>
+            {collapsed && projectStatus && (
+              <AgentDot status={projectStatus} size="sidebar" />
+            )}
             <button
               className={styles.projectAction}
               onPointerDown={(e) => e.stopPropagation()}

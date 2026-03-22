@@ -172,6 +172,17 @@ export class TaskManager {
     return null;
   }
 
+  deleteTask(id: string): boolean {
+    for (const [sessionId, task] of this.tasks) {
+      if (task.id === id) {
+        this.tasks.delete(sessionId);
+        this.saveState();
+        return true;
+      }
+    }
+    return false;
+  }
+
   unlinkPane(paneId: string): void {
     let changed = false;
     for (const [sessionId, task] of this.tasks) {

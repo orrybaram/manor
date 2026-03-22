@@ -1,6 +1,6 @@
 import { useState, useCallback, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import type { TaskInfo, AgentStatus, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
 import { AgentDot } from "./AgentDot";
@@ -18,8 +18,6 @@ const BUCKET_ORDER: DateBucket[] = [
   "This Month",
   "Older",
 ];
-
-const PAGE_SIZE = 50;
 
 function getDateBucket(dateStr: string): DateBucket {
   const date = new Date(dateStr);
@@ -84,9 +82,10 @@ function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
 interface TaskRowProps {
   task: TaskInfo;
   onResumeTask: (task: TaskInfo) => void;
+  onRemoveTask: (taskId: string) => void;
 }
 
-const TaskRow = memo(function TaskRow({ task, onResumeTask }: TaskRowProps) {
+const TaskRow = memo(function TaskRow({ task, onResumeTask, onRemoveTask }: TaskRowProps) {
   const agentStatus = mapTaskStatusToAgentStatus(task);
 
   return (
@@ -104,6 +103,23 @@ const TaskRow = memo(function TaskRow({ task, onResumeTask }: TaskRowProps) {
       <span className={styles.taskTime}>
         {formatRelativeTime(task.updatedAt)}
       </span>
+      <span
+        role="button"
+        tabIndex={0}
+        className={styles.removeButton}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemoveTask(task.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation();
+            onRemoveTask(task.id);
+          }
+        }}
+      >
+        <Trash2 size={12} />
+      </span>
     </button>
   );
 });
@@ -117,14 +133,8 @@ interface TasksModalProps {
 }
 
 export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
-  const { tasks, loading, loaded, loadMoreTasks } = useTaskStore();
+  const { tasks, loading, loaded, removeTask } = useTaskStore();
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [offset, setOffset] = useState(PAGE_SIZE);
-
-  const handleLoadMore = useCallback(() => {
-    loadMoreTasks(offset);
-    setOffset((prev) => prev + PAGE_SIZE);
-  }, [offset, loadMoreTasks]);
 
   const handleResume = useCallback(
     (task: TaskInfo) => {
@@ -223,6 +233,7 @@ export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
                             key={task.id}
                             task={task}
                             onResumeTask={handleResume}
+                            onRemoveTask={removeTask}
                           />
                         ))}
                       </div>
@@ -232,15 +243,6 @@ export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
               );
             })}
 
-            {loaded && filtered.length > 0 && (
-              <button
-                className={styles.loadMore}
-                onClick={handleLoadMore}
-                disabled={loading}
-              >
-                {loading ? "Loading..." : "Load more"}
-              </button>
-            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

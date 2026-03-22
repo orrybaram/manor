@@ -14,6 +14,7 @@ import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
+import { useTaskCommands } from "./useTaskCommands";
 import { LinearIcon } from "./LinearIcon";
 import { LinearIssuesView } from "./LinearIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
@@ -29,6 +30,8 @@ export function CommandPalette({
   onClose,
   onOpenSettings,
   onNewWorkspace,
+  onResumeTask,
+  onViewAllTasks,
 }: CommandPaletteProps) {
   const addSession = useAppStore((s) => s.addSession);
   const closePane = useAppStore((s) => s.closePane);
@@ -131,6 +134,12 @@ export function CommandPalette({
     setShowGhosts,
   });
 
+  const taskCommands = useTaskCommands({
+    onResumeTask,
+    onViewAllTasks,
+    onClose,
+  });
+
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) onClose();
@@ -212,6 +221,22 @@ export function CommandPalette({
 
               {view === "root" && (
                 <>
+                  <Command.Group heading="Tasks" className={styles.group}>
+                    {taskCommands.map((cmd) => (
+                      <Command.Item
+                        key={cmd.id}
+                        value={cmd.label}
+                        onSelect={cmd.action}
+                        className={styles.item}
+                      >
+                        {cmd.icon && (
+                          <span className={styles.icon}>{cmd.icon}</span>
+                        )}
+                        <span className={styles.label}>{cmd.label}</span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                  <Command.Separator className={styles.separator} />
                   {[...workspaceGroups.entries()].map(([groupName, items]) => (
                     <Command.Group
                       key={groupName}

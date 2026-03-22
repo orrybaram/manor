@@ -630,6 +630,11 @@ ipcMain.handle("tasks:update", (_event, taskId: string, updates: Record<string, 
   return taskManager.updateTask(taskId, updates);
 });
 
+ipcMain.handle("tasks:delete", (_event, taskId: string) => {
+  assertString(taskId, "taskId");
+  return taskManager.deleteTask(taskId);
+});
+
 ipcMain.handle("tasks:setPaneContext", (_event, paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => {
   assertString(paneId, "paneId");
   assertString(context.projectId, "projectId");
@@ -731,6 +736,10 @@ app.whenReady().then(async () => {
   }
   const sessionStateMap = new Map<string, SessionState>();
 
+  // Maps paneId to the first (root) sessionId seen on that pane.
+  // Used to skip task persistence for subagent sessions.
+  const paneRootSessionMap = new Map<string, string>();
+
   const ACTIVE_STATUSES: Set<AgentStatus> = new Set(["thinking", "working", "requires_input"]);
 
   function getOrCreateSessionState(sessionId: string): SessionState {
@@ -758,6 +767,16 @@ app.whenReady().then(async () => {
     // Task persistence: create or update task for this session
     if (!sessionId) {
       console.debug(`[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`);
+      return;
+    }
+
+    // Root session tracking: first sessionId on a pane is the root (parent).
+    // Any different sessionId on the same pane is a subagent — skip task persistence.
+    const rootSession = paneRootSessionMap.get(paneId);
+    if (!rootSession) {
+      paneRootSessionMap.set(paneId, sessionId);
+    } else if (rootSession !== sessionId) {
+      console.debug(`[task-lifecycle] Subagent session ${sessionId} on pane ${paneId} (root=${rootSession}) — skipping task persistence`);
       return;
     }
 
@@ -864,6 +883,8 @@ app.whenReady().then(async () => {
         if (task) broadcastTask(task);
       }
       sessionStateMap.delete(sessionId);
+      // Allow pane to accept a new root session
+      paneRootSessionMap.delete(paneId);
     } else if (eventType === "StopFailure") {
       // Error — transition regardless of subagent state
       if (task) {

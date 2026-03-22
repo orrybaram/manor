@@ -219,6 +219,8 @@ function App() {
         onClose={closePalette}
         onOpenSettings={handleOpenSettings}
         onNewWorkspace={handleNewWorkspace}
+        onResumeTask={handleResumeTask}
+        onViewAllTasks={() => setTasksOpen(true)}
       />
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
       <TasksModal

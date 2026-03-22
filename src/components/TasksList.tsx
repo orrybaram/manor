@@ -86,17 +86,37 @@ function navigateToTask(task: TaskInfo) {
 
 export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
   const { tasks } = useTaskStore();
+  const workspaceSessions = useAppStore((s) => s.workspaceSessions);
   const [collapsed, setCollapsed] = useState(false);
 
-  const activeTasks = useMemo(
-    () => tasks.filter((t) => t.status === "active"),
-    [tasks],
+  // Collect all active pane IDs across all workspace sessions
+  const activePaneIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of Object.values(workspaceSessions)) {
+      for (const session of ws.sessions) {
+        for (const id of allPaneIds(session.rootNode)) {
+          ids.add(id);
+        }
+      }
+    }
+    return ids;
+  }, [workspaceSessions]);
+
+  // Show active tasks always; show completed/error/abandoned only if their pane is still active
+  const visibleTasks = useMemo(
+    () =>
+      tasks.filter(
+        (t) =>
+          t.status === "active" ||
+          (t.paneId != null && activePaneIds.has(t.paneId)),
+      ),
+    [tasks, activePaneIds],
   );
 
   // Group tasks by projectName
   const groups = useMemo(() => {
     const map = new Map<string, TaskInfo[]>();
-    for (const task of activeTasks) {
+    for (const task of visibleTasks) {
       const key = task.projectName ?? "Unknown";
       let list = map.get(key);
       if (!list) {
@@ -106,7 +126,7 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
       list.push(task);
     }
     return map;
-  }, [activeTasks]);
+  }, [visibleTasks]);
 
   return (
     <div className={styles.tasksSection}>
@@ -123,8 +143,8 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </span>
           <ListChecks size={12} />
           Tasks
-          {activeTasks.length > 0 && (
-            <span className={styles.portCount}>{activeTasks.length}</span>
+          {visibleTasks.length > 0 && (
+            <span className={styles.portCount}>{visibleTasks.length}</span>
           )}
         </span>
         {onShowAll && (
@@ -141,7 +161,7 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </button>
         )}
       </div>
-      {!collapsed && activeTasks.length > 0 && (
+      {!collapsed && visibleTasks.length > 0 && (
         <div className={styles.taskGroups}>
           {Array.from(groups.entries()).map(([projectName, groupTasks]) => (
             <div key={projectName} className={styles.taskGroup}>

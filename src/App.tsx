@@ -43,7 +43,11 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsProjectId(null);
+  }, []);
   const [tasksOpen, setTasksOpen] = useState(false);
   const closeTasks = useCallback(() => setTasksOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -60,6 +64,10 @@ function App() {
   }, []);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleOpenProjectSettings = useCallback((projectId: string) => {
+    setSettingsProjectId(projectId);
+    setSettingsOpen(true);
+  }, []);
   const handleNewWorkspace = useCallback(
     (opts?: { projectId?: string; name?: string; branch?: string }) => {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
@@ -174,19 +182,46 @@ function App() {
         );
         if (!selectedSession) return;
         const paneId = selectedSession.focusedPaneId;
+        const taskProject = projects.find((p) =>
+          p.workspaces.some((w) => w.path === task.workspacePath),
+        );
+        const baseCommand =
+          taskProject?.agentCommand?.split(" ")[0] ?? "claude";
         window.electronAPI.pty.write(
           paneId,
-          `claude --resume ${task.claudeSessionId}\r`,
+          `${baseCommand} --resume ${task.claudeSessionId}\r`,
         );
       }, 150);
     },
-    [setActiveWorkspace, addSession],
+    [setActiveWorkspace, addSession, projects],
   );
+
+  const handleNewTask = useCallback(() => {
+    addSession();
+    setTimeout(() => {
+      const state = useAppStore.getState();
+      const activePath = state.activeWorkspacePath;
+      if (!activePath) return;
+      const wsState = state.workspaceSessions[activePath];
+      if (!wsState) return;
+      const selectedSession = wsState.sessions.find(
+        (s) => s.id === wsState.selectedSessionId,
+      );
+      if (!selectedSession) return;
+      const paneId = selectedSession.focusedPaneId;
+      const currentProject = projects.find((p) =>
+        p.workspaces.some((w) => w.path === activeWorkspacePath),
+      );
+      const command =
+        currentProject?.agentCommand ?? "claude --dangerously-skip-permissions";
+      window.electronAPI.pty.write(paneId, command + "\r");
+    }, 150);
+  }, [addSession, projects, activeWorkspacePath]);
 
   return (
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} />}
+        {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} onOpenProjectSettings={handleOpenProjectSettings} />}
         <div className="main-content">
           {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
@@ -221,8 +256,9 @@ function App() {
         onNewWorkspace={handleNewWorkspace}
         onResumeTask={handleResumeTask}
         onViewAllTasks={() => setTasksOpen(true)}
+        onNewTask={handleNewTask}
       />
-      <SettingsModal open={settingsOpen} onClose={closeSettings} />
+      <SettingsModal open={settingsOpen} onClose={closeSettings} initialProjectId={settingsProjectId} />
       <TasksModal
         open={tasksOpen}
         onClose={closeTasks}

@@ -2,13 +2,14 @@ import styles from "./SpinnerLoader.module.css";
 
 interface SpinnerLoaderProps {
   size: "pane" | "tab" | "sidebar" | "debug";
+  variant?: "working" | "thinking";
 }
 
-export function SpinnerLoader({ size }: SpinnerLoaderProps) {
+export function SpinnerLoader({ size, variant = "working" }: SpinnerLoaderProps) {
   return (
     <span
-      className={`${styles.spinner} ${styles[size]}`}
-      title="Agent working"
+      className={`${styles.spinner} ${styles[size]} ${styles[variant]}`}
+      title={variant === "thinking" ? "Agent thinking" : "Agent working"}
     />
   );
 }

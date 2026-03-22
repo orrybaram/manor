@@ -12,6 +12,8 @@ import {
   FolderGit2,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
+import type { AgentStatus } from "../electron.d";
+import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
 import { useAppStore } from "../store/app-store";
 import { useWorkspaceAgents, type WorkspaceAgent } from "../hooks/useWorkspaceAgents";
 import { AgentDot } from "./AgentDot";
@@ -338,6 +340,15 @@ const STATUS_LABEL: Record<string, string> = {
   error: "Error",
 };
 
+function AgentItemLabel({ status }: { status: import("../electron.d").AgentStatus }) {
+  const debounced = useDebouncedAgentStatus(status);
+  return (
+    <span className={styles.agentStatusLabel}>
+      {STATUS_LABEL[debounced ?? ""] ?? debounced}
+    </span>
+  );
+}
+
 /** Strip braille spinners and done markers from an OSC title,
  *  returning null if the result is empty or just the generic agent name. */
 function cleanAgentTitle(title: string | null | undefined): string | null {
@@ -354,6 +365,28 @@ function cleanAgentTitle(title: string | null | undefined): string | null {
     return null;
   }
   return cleaned;
+}
+
+const STATUS_PRIORITY: AgentStatus[] = [
+  "error",
+  "requires_input",
+  "working",
+  "thinking",
+  "complete",
+  "idle",
+];
+
+function aggregateStatus(agents: WorkspaceAgent[]): AgentStatus | undefined {
+  let best: AgentStatus | undefined;
+  let bestRank = STATUS_PRIORITY.length;
+  for (const a of agents) {
+    const rank = STATUS_PRIORITY.indexOf(a.agent.status);
+    if (rank !== -1 && rank < bestRank) {
+      bestRank = rank;
+      best = a.agent.status;
+    }
+  }
+  return best;
 }
 
 function WorkspaceAgentList({
@@ -380,6 +413,7 @@ function WorkspaceAgentList({
           <ChevronRight size={10} />
         </span>
         <span>Tasks</span>
+        {!expanded && <AgentDot status={aggregateStatus(agents)} size="sidebar" />}
         <span className={styles.agentCount}>{agents.length}</span>
       </button>
       {expanded && (
@@ -394,9 +428,7 @@ function WorkspaceAgentList({
               <span className={styles.agentName}>
                 {cleanAgentTitle(a.agent.title) || a.agent.kind || "Agent"}
               </span>
-              <span className={styles.agentStatusLabel}>
-                {STATUS_LABEL[a.agent.status] ?? a.agent.status}
-              </span>
+              <AgentItemLabel status={a.agent.status} />
             </button>
           ))}
         </div>

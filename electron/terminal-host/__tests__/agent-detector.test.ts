@@ -207,51 +207,39 @@ describe("AgentDetector", () => {
     });
   });
 
-  // ── 5. setInputReceived() ──
+  // ── 5. Title clearing on new turn ──
 
-  describe("setInputReceived()", () => {
-    it("complete + setInputReceived -> idle with kind/processName kept", () => {
+  describe("title clearing on new turn", () => {
+    it("thinking clears title for new turn", () => {
+      detector.updateForegroundProcess("claude");
+      detector.setStatus("thinking");
+      detector.setTitle("Working on feature X");
+      detector.setStatus("complete");
+      expect(detector.getState().title).toBe("Working on feature X");
+
+      // New turn starts — title should be cleared
+      detector.setStatus("thinking");
+      expect(detector.getState().title).toBeNull();
+      expect(detector.getState().kind).toBe("claude");
+      expect(detector.getState().status).toBe("thinking");
+    });
+
+    it("complete persists through user typing (no input detection)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       detector.setStatus("complete");
-      onChange.mockClear();
-
-      detector.setInputReceived();
-      expect(detector.getState().status).toBe("idle");
-      // kind and processName are preserved (transitionToIdle, not transitionToGone)
-      expect(detector.getState().kind).toBe("claude");
-      expect(detector.getState().processName).toBe("claude");
-      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(detector.getState().status).toBe("complete");
+      // No setInputReceived method — complete persists until next turn or exit
     });
 
-    it("setInputReceived when status is thinking -> no-op", () => {
+    it("title preserved during working/requires_input transitions", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
-      onChange.mockClear();
-
-      detector.setInputReceived();
-      expect(detector.getState().status).toBe("thinking");
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it("setInputReceived when status is idle -> no-op", () => {
-      detector.updateForegroundProcess("claude");
-      onChange.mockClear();
-
-      detector.setInputReceived();
-      expect(detector.getState().status).toBe("idle");
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it("setInputReceived when status is requires_input -> no-op", () => {
-      detector.updateForegroundProcess("claude");
-      detector.setStatus("thinking");
+      detector.setTitle("Working on feature X");
+      detector.setStatus("working");
+      expect(detector.getState().title).toBe("Working on feature X");
       detector.setStatus("requires_input");
-      onChange.mockClear();
-
-      detector.setInputReceived();
-      expect(detector.getState().status).toBe("requires_input");
-      expect(onChange).not.toHaveBeenCalled();
+      expect(detector.getState().title).toBe("Working on feature X");
     });
   });
 
@@ -371,12 +359,10 @@ describe("AgentDetector", () => {
   // ── 8. Transition sequence capture ──
 
   describe("transition sequence capture", () => {
-    it("records exact lifecycle: idle -> thinking -> requires_input -> thinking -> complete, then setInputReceived -> idle (kind kept)", () => {
+    it("records exact lifecycle: idle -> thinking -> requires_input -> thinking -> complete -> thinking (new turn, title cleared)", () => {
       const transitions: AgentStatus[] = [];
-      const kindAtIdle: (string | null)[] = [];
       detector.onStatusChange = (state: AgentState) => {
         transitions.push(state.status);
-        if (state.status === "idle") kindAtIdle.push(state.kind);
       };
 
       // Start idle (initial state, no callback)
@@ -395,22 +381,19 @@ describe("AgentDetector", () => {
       // Hook: thinking (permission granted)
       detector.setStatus("thinking");
 
-      // Hook: complete (Stop hook)
+      // Hook: complete (Stop hook) — persists
       detector.setStatus("complete");
 
-      // User types -> complete -> idle (kind kept)
-      detector.setInputReceived();
+      // New turn starts — title cleared
+      detector.setStatus("thinking");
 
       expect(transitions).toEqual([
         "thinking",
         "requires_input",
         "thinking",
         "complete",
-        "idle",
+        "thinking",
       ]);
-
-      // idle from setInputReceived keeps the kind
-      expect(kindAtIdle[0]).toBe("claude");
     });
 
     it("records process exit lifecycle: thinking -> gone (idle with kind=null)", () => {

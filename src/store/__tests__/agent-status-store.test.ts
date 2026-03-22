@@ -55,14 +55,14 @@ describe("setPaneAgentStatus", () => {
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeUndefined();
   });
 
-  it("idle with kind='claude' stays in store (setInputReceived path)", () => {
+  it("idle with kind='claude' stays in store (agent still present)", () => {
     // Set to complete first
     useAppStore
       .getState()
       .setPaneAgentStatus("pane-1", makeAgentState("complete", "claude"));
     expect(useAppStore.getState().paneAgentStatus["pane-1"]).toBeDefined();
 
-    // Set to idle with kind='claude' (from setInputReceived) — should STAY in store
+    // Set to idle with kind='claude' — should STAY in store (agent still running)
     useAppStore
       .getState()
       .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));
@@ -199,7 +199,7 @@ describe("STATUS_PRIORITY aggregation logic", () => {
     expect(remaining[0].status).toBe("thinking");
   });
 
-  it("pane goes idle with kind='claude' (setInputReceived) -> stays in store", () => {
+  it("pane goes idle with kind='claude' (agent still present) -> stays in store", () => {
     useAppStore.setState({ paneAgentStatus: {} });
     useAppStore
       .getState()
@@ -208,7 +208,7 @@ describe("STATUS_PRIORITY aggregation logic", () => {
       .getState()
       .setPaneAgentStatus("pane-2", makeAgentState("thinking"));
 
-    // Pane 1 goes idle with kind='claude' (from setInputReceived) — stays in store
+    // Pane 1 goes idle with kind='claude' — stays in store
     useAppStore
       .getState()
       .setPaneAgentStatus("pane-1", makeAgentState("idle", "claude"));

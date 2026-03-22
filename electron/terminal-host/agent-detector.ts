@@ -152,6 +152,10 @@ export class AgentDetector {
       return;
     }
 
+    if (status === "thinking") {
+      this.title = null; // Clear title for new turn
+    }
+
     this.lastHookTime = Date.now();
 
     if (status === "complete") {
@@ -222,13 +226,6 @@ export class AgentDetector {
     }
   }
 
-  /** Called when terminal input is received — transitions complete→idle */
-  setInputReceived(): void {
-    if (this.status === "complete") {
-      this.transitionToIdle();
-    }
-  }
-
   /** Called when terminal output is received — no-op, hooks handle status */
   processOutput(_data: string): void {
     // Kept for API compatibility; hook events drive status transitions now.
@@ -254,12 +251,6 @@ export class AgentDetector {
     this.processName = null;
     this.title = null;
     this.hasBeenActive = false;
-    if (this.status === "idle") return;
-    this.transition("idle");
-  }
-
-  /** Transition to idle while keeping agent state (kind/processName/title) intact. */
-  private transitionToIdle(): void {
     if (this.status === "idle") return;
     this.transition("idle");
   }

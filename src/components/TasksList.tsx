@@ -27,7 +27,7 @@ function AgentItemLabel({ status }: { status: AgentStatus }) {
 
 function cleanAgentTitle(title: string | null | undefined): string | null {
   if (!title) return null;
-  let cleaned = title
+  const cleaned = title
     .replace(/[\u2800-\u28FF]/g, "")
     .replace(/[✳✻✽✶✢]/g, "")
     .trim();

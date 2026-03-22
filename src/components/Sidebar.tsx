@@ -14,6 +14,7 @@ import { usePrWatcher } from "../hooks/usePrWatcher";
 import { useMountEffect } from "../hooks/useMountEffect";
 import { ProjectItem } from "./ProjectItem";
 import { PortsList } from "./PortsList";
+import { TasksList } from "./TasksList";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar() {
@@ -302,6 +303,7 @@ export function Sidebar() {
           </div>
         </div>
       </div>
+      <TasksList />
       <PortsList />
 
       <div

@@ -8,7 +8,6 @@ import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
-import { AgentDebugPanel } from "./components/AgentDebugPanel";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
@@ -208,7 +207,6 @@ function App() {
         }}
       />
       <ToastContainer />
-      <AgentDebugPanel />
     </div>
   );
 }

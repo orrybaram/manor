@@ -45,14 +45,14 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind) => void) | null = null;
+  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null) => void) | null = null;
 
   get hookPort(): number {
     return this.port;
   }
 
   /** Set or update the relay function (called when hook events arrive) */
-  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind) => void): void {
+  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null) => void): void {
     this.relayFn = relay;
   }
 
@@ -75,6 +75,7 @@ export class AgentHookServer {
 
       const paneId = url.searchParams.get("paneId");
       const eventType = url.searchParams.get("eventType");
+      const sessionId = url.searchParams.get("sessionId");
 
       if (!paneId || !eventType) {
         res.writeHead(400);
@@ -83,9 +84,10 @@ export class AgentHookServer {
       }
 
       const status = mapEventToStatus(eventType);
+      console.debug(`[agent-status] hook HTTP: paneId=${paneId} event=${eventType} → status=${status ?? "unmapped"}`);
       if (status) {
         // Hooks registered in ~/.claude/settings.json are Claude-specific
-        this.relayFn?.(paneId, status, "claude");
+        this.relayFn?.(paneId, status, "claude", sessionId);
       }
 
       res.writeHead(200);
@@ -182,12 +184,20 @@ EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]
 [ -z "$MANOR_PANE_ID" ] && exit 0
 [ -z "$MANOR_HOOK_PORT" ] && exit 0
 
+# Extract session id
+SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+
 # Notify the app
-curl -sG "http://127.0.0.1:\${MANOR_HOOK_PORT}/hook/event" \\
-  --connect-timeout 1 --max-time 2 \\
-  --data-urlencode "paneId=$MANOR_PANE_ID" \\
-  --data-urlencode "eventType=$EVENT_TYPE" \\
-  > /dev/null 2>&1
+CURL_ARGS=(
+  -sG "http://127.0.0.1:\${MANOR_HOOK_PORT}/hook/event"
+  --connect-timeout 1 --max-time 2
+  --data-urlencode "paneId=$MANOR_PANE_ID"
+  --data-urlencode "eventType=$EVENT_TYPE"
+)
+if [ -n "$SESSION_ID" ]; then
+  CURL_ARGS+=(--data-urlencode "sessionId=$SESSION_ID")
+fi
+curl "\${CURL_ARGS[@]}" > /dev/null 2>&1
 
 exit 0
 `;

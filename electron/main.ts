@@ -677,7 +677,7 @@ app.whenReady().then(async () => {
 
   // Set the relay callback now that the client is connected.
   // Hook events route through the daemon's AgentDetector state machine.
-  agentHookServer.setRelay((paneId, status, kind) => {
+  agentHookServer.setRelay((paneId, status, kind, sessionId) => {
     client.relayAgentHook(paneId, status, kind);
   });
 

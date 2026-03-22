@@ -11,6 +11,7 @@ import type { Terminal } from "@xterm/xterm";
 const APP_SHORTCUTS: Record<string, boolean | ((e: KeyboardEvent) => boolean)> =
   {
     t: true,
+    n: true,
     k: true,
     d: true,
     D: true,

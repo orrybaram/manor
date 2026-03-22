@@ -9,38 +9,38 @@
 }
 
 .working {
-  border-color: var(--yellow, #f9e2af) transparent var(--yellow, #f9e2af) transparent;
+  border-color: var(--red, #f38ba8) color-mix(in srgb, var(--red, #f38ba8) 25%, transparent) var(--red, #f38ba8) color-mix(in srgb, var(--red, #f38ba8) 25%, transparent);
   animation: spin 0.8s linear infinite;
 }
 
 .thinking {
-  border-color: var(--blue, #89b4fa) transparent var(--blue, #89b4fa) transparent;
+  border-color: var(--yellow, #f9e2af) color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent) var(--yellow, #f9e2af) color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent);
   animation: spin 1.6s linear infinite, breathe 2.4s ease-in-out infinite;
 }
 
 .pane {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-width: 1.5px;
   margin-right: 6px;
 }
 
 .tab {
-  width: 6px;
-  height: 6px;
-  border-width: 1px;
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
 }
 
 .debug {
-  width: 6px;
-  height: 6px;
-  border-width: 1px;
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
 }
 
 .sidebar {
-  width: 6px;
-  height: 6px;
-  border-width: 1px;
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
 }
 
 @keyframes spin {

@@ -41,6 +41,7 @@ export function useTaskCommands({
         id: "new-task",
         label: "New Task",
         icon: <Plus size={14} />,
+        shortcut: "⌘N",
         action: () => {
           onClose();
           onNewTask();

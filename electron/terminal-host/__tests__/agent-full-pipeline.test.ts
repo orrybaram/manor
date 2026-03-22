@@ -595,7 +595,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.dispose();
   });
 
-  it("Lifecycle: detect → thinking → working → complete → setInputReceived → idle (kind kept) → process exit → gone (kind null)", () => {
+  it("Lifecycle: detect → thinking → working → complete (persists) → thinking (new turn, title cleared) → process exit → gone", () => {
     const { detector, transitions } = createTestHarness();
 
     // Agent appears
@@ -606,32 +606,28 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     detector.setStatus("working");
     detector.setStatus("complete");
 
-    // User types → complete → idle, kind stays
-    detector.setInputReceived();
-    expect(detector.getState().status).toBe("idle");
+    // Complete persists — no input detection
+    expect(detector.getState().status).toBe("complete");
+
+    // New turn starts
+    detector.setStatus("thinking");
+    expect(detector.getState().status).toBe("thinking");
     expect(detector.getState().kind).toBe("claude");
 
-    // Process actually exits → transitionToGone
+    // Process exits → transitionToGone
     detector.updateForegroundProcess(null);
     expect(detector.getState().status).toBe("idle");
     expect(detector.getState().kind).toBeNull();
 
-    // Only 4 transitions: transitionToGone skips callback when already idle
-    // (it clears kind/processName silently since status doesn't change)
     expect(statuses(transitions)).toMatchInlineSnapshot(`
       [
         "thinking",
         "working",
         "complete",
+        "thinking",
         "idle",
       ]
     `);
-
-    // The idle from setInputReceived keeps kind
-    expect(transitions[3].kind).toBe("claude");
-    // After process exits, kind is cleared silently (no callback since already idle)
-    // Verify via getState() instead of transitions
-    expect(detector.getState().kind).toBeNull();
 
     detector.dispose();
   });
@@ -694,7 +690,7 @@ describe("Hook events routed through Session", () => {
     detector.dispose();
   });
 
-  it("setInputReceived after complete — transitions to idle keeping kind", () => {
+  it("complete persists through user typing — no input detection", () => {
     const detector = new AgentDetector();
     const transitions: AgentState[] = [];
     detector.onStatusChange = (state) => transitions.push({ ...state });
@@ -705,12 +701,9 @@ describe("Hook events routed through Session", () => {
 
     expect(detector.getState().status).toBe("complete");
 
-    // User types → complete → idle (kind preserved)
-    detector.setInputReceived();
-
-    expect(detector.getState().status).toBe("idle");
-    expect(detector.getState().kind).toBe("claude");
-    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
+    // Complete persists — no setInputReceived to clear it
+    // Only a new thinking hook or process exit changes the status
+    expect(statuses(transitions)).toEqual(["thinking", "complete"]);
 
     detector.dispose();
   });

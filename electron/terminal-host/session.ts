@@ -299,15 +299,12 @@ export class Session {
   /** Write terminal input to the subprocess */
   write(data: string): void {
     if (!this._alive || !this.subprocess) return;
-    // User input while agent completed → back to idle (agent still present)
-    if (this.agentDetector.getState().status === "complete") {
-      this.agentDetector.setInputReceived();
-    }
     this.writeToSubprocess(encodeFrame(MSG.WRITE, data));
   }
 
   /** Resize the PTY */
   resize(cols: number, rows: number): void {
+    if (this.cols === cols && this.rows === rows) return;
     this.cols = cols;
     this.rows = rows;
     this.headless.resize(cols, rows);

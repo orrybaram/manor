@@ -54,13 +54,6 @@
   text-overflow: ellipsis;
 }
 
-.statusDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .status {
   min-width: 90px;
   font-weight: 500;

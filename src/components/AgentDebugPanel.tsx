@@ -1,17 +1,8 @@
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
-import type { AgentState, AgentStatus } from "../electron.d";
-import { SpinnerLoader } from "./SpinnerLoader";
+import type { AgentState } from "../electron.d";
+import { AgentDot } from "./AgentDot";
 import styles from "./AgentDebugPanel.module.css";
-
-const STATUS_COLORS: Record<AgentStatus, string> = {
-  idle: "#6c7086",
-  thinking: "#89b4fa",
-  working: "#f9e2af",
-  complete: "#a6e3a1",
-  requires_input: "#fab387",
-  error: "#f38ba8",
-};
 
 function formatElapsed(since: number): string {
   const ms = Date.now() - since;
@@ -22,23 +13,11 @@ function formatElapsed(since: number): string {
   return `${m}m ${s % 60}s`;
 }
 
-function StatusDot({ status }: { status: AgentStatus }) {
-  if (status === "working") {
-    return <SpinnerLoader size="debug" />;
-  }
-  return (
-    <span
-      className={styles.statusDot}
-      style={{ background: STATUS_COLORS[status] }}
-    />
-  );
-}
-
 function PaneRow({ paneId, agent }: { paneId: string; agent: AgentState }) {
   return (
     <div className={styles.row}>
       <span className={styles.paneId}>{paneId.slice(0, 12)}</span>
-      <StatusDot status={agent.status} />
+      <AgentDot status={agent.status} size="debug" />
       <span className={styles.status}>{agent.status}</span>
       <span className={styles.kind}>{agent.kind ?? "—"}</span>
       <span className={styles.elapsed}>{formatElapsed(agent.since)}</span>
@@ -85,7 +64,7 @@ export function AgentDebugPanel() {
         {idlePanes.map((paneId) => (
           <div key={paneId} className={styles.row}>
             <span className={styles.paneId}>{paneId.slice(0, 12)}</span>
-            <StatusDot status="idle" />
+            <AgentDot status="idle" size="debug" />
             <span className={styles.status}>idle</span>
             <span className={styles.kind}>—</span>
             <span className={styles.elapsed}>—</span>

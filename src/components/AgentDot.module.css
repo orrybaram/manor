@@ -8,11 +8,6 @@
   flex-shrink: 0;
 }
 
-.dotThinking {
-  background: var(--blue, #89b4fa);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
 .dotRequiresInput {
   background: var(--peach, #fab387);
 }
@@ -21,7 +16,6 @@
   border-radius: 0;
   background: none;
   color: var(--green, #a6e3a1);
-  animation: fadeOut 3s ease-out forwards;
 }
 
 .dotError {
@@ -46,30 +40,17 @@
   height: 6px;
 }
 
+.debug {
+  width: 6px;
+  height: 6px;
+}
+
 /* Check icon needs auto sizing */
 .pane.dotComplete,
 .tab.dotComplete,
-.sidebar.dotComplete {
+.sidebar.dotComplete,
+.debug.dotComplete {
   width: auto;
   height: auto;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
-@keyframes fadeOut {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}

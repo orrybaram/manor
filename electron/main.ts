@@ -32,6 +32,7 @@ import {
 } from "./agent-hooks";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
+import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 
@@ -222,12 +223,28 @@ client.onEvent((event: StreamEvent) => {
           event.message,
         );
         break;
-      case "agentStatus":
+      case "agentStatus": {
         mainWindow.webContents.send(
           `pty-agent-status-${event.sessionId}`,
           event.agent,
         );
+        // Update persisted task name from agent title
+        const cleaned = cleanAgentTitle(event.agent.title);
+        if (cleaned) {
+          const task = taskManager.getTaskByPaneId(event.sessionId);
+          if (task && !task.name) {
+            const updated = taskManager.updateTask(task.id, { name: cleaned });
+            if (updated && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+              try {
+                mainWindow.webContents.send("task-updated", updated);
+              } catch {
+                // Render frame disposed — safe to ignore
+              }
+            }
+          }
+        }
         break;
+      }
     }
   } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore

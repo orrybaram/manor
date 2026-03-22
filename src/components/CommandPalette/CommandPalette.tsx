@@ -32,6 +32,7 @@ export function CommandPalette({
   onNewWorkspace,
   onResumeTask,
   onViewAllTasks,
+  onNewTask,
 }: CommandPaletteProps) {
   const addSession = useAppStore((s) => s.addSession);
   const closePane = useAppStore((s) => s.closePane);
@@ -138,6 +139,7 @@ export function CommandPalette({
     onResumeTask,
     onViewAllTasks,
     onClose,
+    onNewTask,
   });
 
   const handleOpenChange = useCallback(

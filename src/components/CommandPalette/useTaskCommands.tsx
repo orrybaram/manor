@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ListTodo } from "lucide-react";
+import { ListTodo, Plus } from "lucide-react";
 import { useTaskStore } from "../../store/task-store";
 import { AgentDot } from "../AgentDot";
 import type { TaskInfo, TaskStatus, AgentStatus } from "../../electron.d";
@@ -24,17 +24,31 @@ interface UseTaskCommandsParams {
   onResumeTask: (task: TaskInfo) => void;
   onViewAllTasks: () => void;
   onClose: () => void;
+  onNewTask: () => void;
 }
 
 export function useTaskCommands({
   onResumeTask,
   onViewAllTasks,
   onClose,
+  onNewTask,
 }: UseTaskCommandsParams): CommandItem[] {
   const tasks = useTaskStore((s) => s.tasks);
 
   return useMemo(() => {
-    const items: CommandItem[] = tasks.slice(0, 5).map((task) => ({
+    const items: CommandItem[] = [
+      {
+        id: "new-task",
+        label: "New Task",
+        icon: <Plus size={14} />,
+        action: () => {
+          onClose();
+          onNewTask();
+        },
+      },
+    ];
+
+    items.push(...tasks.slice(0, 5).map((task) => ({
       id: `task-${task.id}`,
       label: task.name || "Untitled Session",
       icon: <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />,
@@ -42,7 +56,7 @@ export function useTaskCommands({
         onClose();
         onResumeTask(task);
       },
-    }));
+    })));
 
     items.push({
       id: "view-all-tasks",
@@ -55,5 +69,5 @@ export function useTaskCommands({
     });
 
     return items;
-  }, [tasks, onResumeTask, onViewAllTasks, onClose]);
+  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask]);
 }

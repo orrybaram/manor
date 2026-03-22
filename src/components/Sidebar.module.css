@@ -84,6 +84,11 @@
 }
 
 .project {
+  border-left: 2px solid transparent;
+}
+
+.projectSelected {
+  border-left-color: var(--project-color, var(--accent));
 }
 
 .projectDragging {
@@ -113,7 +118,7 @@
 }
 
 .projectSelected > .projectHeader {
-  color: var(--text-selected);
+  color: var(--project-color, var(--accent));
 }
 
 .projectChevron {
@@ -200,6 +205,25 @@
   flex-shrink: 0;
 }
 
+.taskClose {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  opacity: 0;
+  border-radius: 3px;
+  padding: 1px;
+}
+
+.agentItem:hover .taskClose {
+  opacity: 1;
+}
+
+.taskClose:hover {
+  color: var(--text-selected);
+  background: var(--surface);
+}
+
 .workspace {
   display: flex;
   align-items: flex-start;
@@ -236,7 +260,7 @@
 }
 
 .workspaceActive .workspaceIcon {
-  color: var(--accent);
+  color: var(--project-color, var(--accent));
 }
 
 .workspaceIcon {
@@ -683,7 +707,7 @@
 
 .tasksSection {
   padding: 4px 0;
-  margin-top: 4px;
+  margin-top: 24px;
 }
 
 .taskGroups {

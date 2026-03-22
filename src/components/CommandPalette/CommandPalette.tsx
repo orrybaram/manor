@@ -235,6 +235,11 @@ export function CommandPalette({
                           <span className={styles.icon}>{cmd.icon}</span>
                         )}
                         <span className={styles.label}>{cmd.label}</span>
+                        {cmd.shortcut && (
+                          <span className={styles.shortcut}>
+                            {cmd.shortcut}
+                          </span>
+                        )}
                       </Command.Item>
                     ))}
                   </Command.Group>

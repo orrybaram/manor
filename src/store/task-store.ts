@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { TaskInfo } from "../electron.d";
 import { useToastStore } from "./toast-store";
+import { useAppStore, selectActiveWorkspace } from "./app-store";
 import { navigateToTask } from "../utils/task-navigation";
 
 interface TaskState {
@@ -74,29 +75,41 @@ export const useTaskStore = create<TaskState>((set, get) => {
     receiveTaskUpdate: (task: TaskInfo) => {
       const s = get();
       const idx = s.tasks.findIndex((t) => t.id === task.id);
+      const prevStatus = idx >= 0 ? s.tasks[idx].lastAgentStatus : null;
+      const nextStatus = task.lastAgentStatus;
 
-      // Fire toasts only when updating an existing task (idx >= 0)
-      if (idx >= 0) {
-        const prevTask = s.tasks[idx];
-        const prevStatus = prevTask.lastAgentStatus;
-        const nextStatus = task.lastAgentStatus;
+      if (prevStatus !== nextStatus) {
+        if (nextStatus === "complete") {
+          useToastStore.getState().addToast({
+            id: `task-done-${task.id}`,
+            message: "Task completed",
+            detail: task.name || "Agent",
+            status: "success",
+          });
+        } else if (nextStatus === "requires_input") {
+          // Don't show if the task's pane is already focused
+          const appState = useAppStore.getState();
+          const activeWs = selectActiveWorkspace(appState);
+          const activeSession = activeWs?.sessions.find(
+            (s) => s.id === activeWs.selectedSessionId,
+          );
+          const isAlreadyFocused =
+            task.paneId && activeSession?.focusedPaneId === task.paneId;
 
-        if (prevStatus !== nextStatus) {
-          if (nextStatus === "complete") {
+          if (!isAlreadyFocused) {
+            const toastId = `task-input-${task.id}`;
             useToastStore.getState().addToast({
-              id: `task-done-${task.id}`,
-              message: `Task completed: ${task.name || "Agent"}`,
-              status: "success",
-            });
-          } else if (nextStatus === "requires_input") {
-            useToastStore.getState().addToast({
-              id: `task-input-${task.id}`,
-              message: `Task needs input: ${task.name || "Agent"}`,
+              id: toastId,
+              message: "Task needs input",
+              detail: task.name || "Agent",
               status: "loading",
               persistent: true,
               action: {
                 label: "Go to task",
-                onClick: () => navigateToTask(task),
+                onClick: () => {
+                  navigateToTask(task);
+                  useToastStore.getState().removeToast(toastId);
+                },
               },
             });
           }

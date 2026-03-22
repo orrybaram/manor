@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
           teamName: string;
           teamKey: string;
         }>;
+        color: string | null;
       }>,
     ) => ipcRenderer.invoke("projects:update", projectId, updates),
   },

@@ -108,6 +108,7 @@ function App() {
   activeSessionRef.current = activeSession;
   const wsRef = useRef(ws);
   wsRef.current = ws;
+  const handleNewTaskRef = useRef<() => void>(() => {});
 
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -151,6 +152,9 @@ function App() {
       } else if (e.key === "\\") {
         e.preventDefault();
         toggleSidebar();
+      } else if (e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        handleNewTaskRef.current();
       } else if (e.key >= "1" && e.key <= "9" && !e.shiftKey) {
         e.preventDefault();
         const index = parseInt(e.key, 10) - 1;
@@ -217,6 +221,7 @@ function App() {
       window.electronAPI.pty.write(paneId, command + "\r");
     }, 150);
   }, [addSession, projects, activeWorkspacePath]);
+  handleNewTaskRef.current = handleNewTask;
 
   return (
     <div className="app">

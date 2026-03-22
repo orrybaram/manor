@@ -9,7 +9,17 @@
 }
 
 .dotRequiresInput {
-  background: var(--peach, #fab387);
+  background: none;
+  border-radius: 0;
+  animation: wave 1s ease-in-out infinite;
+  transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(20deg); }
+  50% { transform: rotate(-15deg); }
+  75% { transform: rotate(10deg); }
 }
 
 .dotComplete {
@@ -25,32 +35,45 @@
 /* ── Sizes ── */
 
 .pane {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   margin-right: 6px;
 }
 
 .tab {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 .sidebar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 .debug {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
-/* Check icon needs auto sizing */
+/* Check icon / hand emoji need auto sizing */
 .pane.dotComplete,
 .tab.dotComplete,
 .sidebar.dotComplete,
-.debug.dotComplete {
+.debug.dotComplete,
+.pane.dotRequiresInput,
+.tab.dotRequiresInput,
+.sidebar.dotRequiresInput,
+.debug.dotRequiresInput {
   width: auto;
   height: auto;
+}
+
+.dotRequiresInput .handEmoji {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pane .handEmoji {
+  font-size: 14px;
 }
 

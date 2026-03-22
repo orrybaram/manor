@@ -3,7 +3,7 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -44,20 +44,24 @@ export function useTerminalLifecycle(
   useTerminalResize(containerRef, fitAddon);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active session.
-  // Uses a store subscription so we don't need useEffect with changing deps.
-  useMountEffect(() => {
-    let wasFocused = false;
-    return useAppStore.subscribe((state) => {
-      const path = state.activeWorkspacePath;
-      const ws = path ? state.workspaceSessions[path] : undefined;
-      const session = ws?.sessions.find((t) => t.id === ws?.selectedSessionId);
-      const isFocused = session?.focusedPaneId === paneId;
-      if (isFocused && !wasFocused && termRef.current) {
-        termRef.current.focus();
-      }
-      wasFocused = !!isFocused;
-    });
+  // Uses a selector + useEffect so focus() runs after React commits DOM changes
+  // (the container's visibility must be "visible" before focus can succeed).
+  const isFocusedPane = useAppStore((state) => {
+    const path = state.activeWorkspacePath;
+    const ws = path ? state.workspaceSessions[path] : undefined;
+    const session = ws?.sessions.find((t) => t.id === ws?.selectedSessionId);
+    return session?.focusedPaneId === paneId;
   });
+
+  useEffect(() => {
+    if (!isFocusedPane || !termRef.current) return;
+    const t = termRef.current;
+    // Focus the terminal for keyboard input
+    t.focus();
+    // Force a full viewport refresh — TUIs (neovim, claude code) using the
+    // WebGL renderer can have a stale canvas after being visibility:hidden.
+    t.refresh(0, t.rows - 1);
+  }, [isFocusedPane]);
 
   // Update font size without recreating — store subscription
   useMountEffect(() => {

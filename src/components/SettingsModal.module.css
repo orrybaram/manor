@@ -329,6 +329,36 @@
   width: 16px;
 }
 
+/* ── Color picker ── */
+
+.colorPicker {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.colorOption {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 100ms ease, border-color 100ms ease;
+}
+
+.colorOption:hover {
+  transform: scale(1.15);
+  border-color: var(--text-dim);
+}
+
+.colorOptionSelected {
+  border-color: var(--text-selected);
+}
+
 /* ── Linear integration ── */
 
 .linearConnected {

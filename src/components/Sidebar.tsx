@@ -19,9 +19,10 @@ import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
   onShowTasks?: () => void;
+  onOpenProjectSettings?: (projectId: string) => void;
 }
 
-export function Sidebar({ onShowTasks }: SidebarProps) {
+export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const loadProjects = useProjectStore((s) => s.loadProjects);
@@ -318,6 +319,7 @@ export function Sidebar({ onShowTasks }: SidebarProps) {
                           onCreateWorktree={(name, branch) =>
                             createWorktree(project.id, name, branch)
                           }
+                          onOpenSettings={() => onOpenProjectSettings?.(project.id)}
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
                         />
                       </div>

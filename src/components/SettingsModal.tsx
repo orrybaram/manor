@@ -17,6 +17,7 @@ import styles from "./SettingsModal.module.css";
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  initialProjectId?: string | null;
 }
 
 type SettingsPage =
@@ -24,14 +25,18 @@ type SettingsPage =
   | { type: "integrations" }
   | { type: "project"; projectId: string };
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, initialProjectId }: SettingsModalProps) {
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "app" });
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
-    setPage({ type: "app" });
+    if (initialProjectId) {
+      setPage({ type: "project", projectId: initialProjectId });
+    } else {
+      setPage({ type: "app" });
+    }
     setProjectsExpanded(true);
   }
   prevOpenRef.current = open;

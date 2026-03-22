@@ -35,24 +35,21 @@ export function AgentDot({ status: rawStatus, size }: AgentDotProps) {
     );
   }
 
-  const dotClass =
-    status === "requires_input"
-      ? styles.dotRequiresInput
-      : status === "error"
-        ? styles.dotError
-        : "";
-
-  const label =
-    status === "requires_input"
-      ? "Waiting for input"
-      : status === "error"
-        ? "Agent error"
-        : "";
+  if (status === "requires_input") {
+    return (
+      <span
+        className={`${styles.dot} ${styles[size]} ${styles.dotRequiresInput}`}
+        title="Waiting for input"
+      >
+        <span className={styles.handEmoji}>👋</span>
+      </span>
+    );
+  }
 
   return (
     <span
-      className={`${styles.dot} ${styles[size]} ${dotClass}`}
-      title={label}
+      className={`${styles.dot} ${styles[size]} ${status === "error" ? styles.dotError : ""}`}
+      title={status === "error" ? "Agent error" : ""}
     />
   );
 }

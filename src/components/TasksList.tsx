@@ -129,10 +129,7 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           <ListChecks size={12} />
           Tasks
           {collapsed && collapsedStatus && (
-            <>
-              <AgentDot status={collapsedStatus} size="sidebar" />
-              <AgentItemLabel status={collapsedStatus} />
-            </>
+            <AgentDot status={collapsedStatus} size="sidebar" />
           )}
         </span>
         {onShowAll && (

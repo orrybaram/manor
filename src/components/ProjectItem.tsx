@@ -10,6 +10,7 @@ import {
   ChevronRight,
   House,
   FolderGit2,
+  Settings,
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
@@ -33,6 +34,7 @@ export function ProjectItem({
   onRenameWorkspace,
   onReorderWorkspaces,
   onCreateWorktree,
+  onOpenSettings,
   onDragStart,
 }: {
   project: ProjectInfo;
@@ -46,6 +48,7 @@ export function ProjectItem({
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onReorderWorkspaces: (orderedPaths: string[]) => void;
   onCreateWorktree: (name: string, branch: string) => Promise<string | null>;
+  onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
 }) {
   const expanded = !collapsed;
@@ -86,7 +89,10 @@ export function ProjectItem({
 
 
   return (
-    <div className={styles.project}>
+    <div
+      className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
+      style={project.color ? { "--project-color": `var(--${project.color})` } as React.CSSProperties : undefined}
+    >
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
@@ -127,6 +133,13 @@ export function ProjectItem({
             >
               New Workspace
             </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => onOpenSettings?.()}
+            >
+              Project Settings
+            </ContextMenu.Item>
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
               onSelect={() => setConfirmRemove(true)}

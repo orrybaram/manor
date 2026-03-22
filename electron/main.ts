@@ -31,6 +31,7 @@ import {
   registerClaudeHooks,
 } from "./agent-hooks";
 import { assertString, assertPositiveInt } from "./ipc-validate";
+import { TaskManager } from "./task-persistence";
 import type { StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 
@@ -178,6 +179,8 @@ const githubManager = new GitHubManager();
 const linearManager = new LinearManager();
 
 const agentHookServer = new AgentHookServer();
+const taskManager = new TaskManager();
+const paneContextMap = new Map<string, { projectId: string; projectName: string; workspacePath: string }>();
 
 // Ensure shell integration and agent hooks are set up
 ShellManager.setupZdotdir();
@@ -593,6 +596,31 @@ ipcMain.handle("shell:openExternal", async (_event, url: string) => {
   return shell.openExternal(url);
 });
 
+// ── Task Persistence IPC ──
+ipcMain.handle("tasks:getAll", (_event, opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => {
+  return taskManager.getAllTasks(opts);
+});
+
+ipcMain.handle("tasks:get", (_event, taskId: string) => {
+  assertString(taskId, "taskId");
+  // Find task by id (getAllTasks returns all; search through them)
+  const all = taskManager.getAllTasks();
+  return all.find((t) => t.id === taskId) ?? null;
+});
+
+ipcMain.handle("tasks:update", (_event, taskId: string, updates: Record<string, unknown>) => {
+  assertString(taskId, "taskId");
+  return taskManager.updateTask(taskId, updates);
+});
+
+ipcMain.handle("tasks:setPaneContext", (_event, paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => {
+  assertString(paneId, "paneId");
+  assertString(context.projectId, "projectId");
+  assertString(context.projectName, "projectName");
+  assertString(context.workspacePath, "workspacePath");
+  paneContextMap.set(paneId, context);
+});
+
 // ── App lifecycle ──
 app.whenReady().then(async () => {
   // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
@@ -679,6 +707,54 @@ app.whenReady().then(async () => {
   // Hook events route through the daemon's AgentDetector state machine.
   agentHookServer.setRelay((paneId, status, kind, sessionId) => {
     client.relayAgentHook(paneId, status, kind);
+
+    // Task persistence: create or update task for this session
+    if (sessionId) {
+      let task = taskManager.getTaskBySessionId(sessionId);
+
+      if (!task) {
+        const paneContext = paneContextMap.get(paneId);
+        task = taskManager.createTask({
+          claudeSessionId: sessionId,
+          name: null,
+          status: "active",
+          completedAt: null,
+          projectId: paneContext?.projectId ?? null,
+          projectName: paneContext?.projectName ?? null,
+          workspacePath: paneContext?.workspacePath ?? null,
+          cwd: paneContext?.workspacePath ?? "",
+          agentKind: kind,
+          paneId,
+          lastAgentStatus: status,
+        });
+      } else {
+        // Determine new task status based on agent hook status
+        let taskStatus: "active" | "completed" | "error" | "abandoned" = task.status;
+        if (status === "complete") {
+          taskStatus = "completed";
+        } else if (status === "error") {
+          taskStatus = "error";
+        } else if (status === "idle") {
+          // SessionEnd maps to idle → treat as completed
+          taskStatus = "completed";
+        }
+
+        task = taskManager.updateTask(task.id, {
+          lastAgentStatus: status,
+          status: taskStatus,
+          ...(taskStatus !== "active" ? { completedAt: new Date().toISOString() } : {}),
+        });
+      }
+
+      // Broadcast updated task to renderer
+      if (task && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+        try {
+          mainWindow.webContents.send("task-updated", task);
+        } catch {
+          // Render frame disposed — safe to ignore
+        }
+      }
+    }
   });
 
   app.on("activate", () => {

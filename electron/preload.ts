@@ -175,4 +175,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onError: (callback: (message: string) => void) =>
       onChannel("updater:error", callback),
   },
+
+  tasks: {
+    getAll: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) =>
+      ipcRenderer.invoke("tasks:getAll", opts),
+    get: (taskId: string) =>
+      ipcRenderer.invoke("tasks:get", taskId),
+    update: (taskId: string, updates: object) =>
+      ipcRenderer.invoke("tasks:update", taskId, updates),
+    setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) =>
+      ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
+    onUpdate: (callback: (task: unknown) => void) =>
+      onChannel("task-updated", callback),
+  },
 });

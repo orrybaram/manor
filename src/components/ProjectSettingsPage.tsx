@@ -1,7 +1,18 @@
 import { useRef, useCallback } from "react";
+import { Check } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { LinearProjectSection } from "./LinearProjectSection";
 import styles from "./SettingsModal.module.css";
+
+const PROJECT_COLORS = [
+  { value: null, label: "Default", cssVar: "--accent" },
+  { value: "red", label: "Red", cssVar: "--red" },
+  { value: "green", label: "Green", cssVar: "--green" },
+  { value: "yellow", label: "Yellow", cssVar: "--yellow" },
+  { value: "blue", label: "Blue", cssVar: "--blue" },
+  { value: "magenta", label: "Magenta", cssVar: "--magenta" },
+  { value: "cyan", label: "Cyan", cssVar: "--cyan" },
+] as const;
 
 const scriptFields: Array<{
   field: "defaultRunCommand";
@@ -45,6 +56,7 @@ function defaultWorktreePath(projectName: string): string {
 export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const updateProject = useProjectStore((s) => s.updateProject);
   const nameRef = useRef<HTMLInputElement>(null);
+  const agentCommandRef = useRef<HTMLInputElement>(null);
   const worktreePathRef = useRef<HTMLInputElement>(null);
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
@@ -52,6 +64,7 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
     (
       field:
         | "name"
+        | "agentCommand"
         | "worktreePath"
         | "defaultRunCommand"
         | "worktreeStartScript"
@@ -63,6 +76,13 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         const trimmed = el.value.trim();
         if (trimmed && trimmed !== project.name) {
           updateProject(project.id, { name: trimmed });
+        }
+      } else if (field === "agentCommand") {
+        const el = agentCommandRef.current;
+        if (!el) return;
+        const normalized = el.value.trim() || null;
+        if (normalized !== (project.agentCommand ?? null)) {
+          updateProject(project.id, { agentCommand: normalized });
         }
       } else if (field === "worktreePath") {
         const el = worktreePathRef.current;
@@ -98,6 +118,35 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         <div className={styles.fieldStatic}>{project.path}</div>
         <label className={styles.fieldLabel}>Default Branch</label>
         <div className={styles.fieldStatic}>{project.defaultBranch}</div>
+        <label className={styles.fieldLabel}>Color</label>
+        <div className={styles.colorPicker}>
+          {PROJECT_COLORS.map((c) => {
+            const isSelected = (project.color ?? null) === c.value;
+            return (
+              <button
+                key={c.value ?? "default"}
+                className={`${styles.colorOption} ${isSelected ? styles.colorOptionSelected : ""}`}
+                style={{ background: `var(${c.cssVar})` }}
+                title={c.label}
+                onClick={() => updateProject(project.id, { color: c.value })}
+              >
+                {isSelected && <Check size={10} strokeWidth={3} color="var(--bg)" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Agent</div>
+        <label className={styles.fieldLabel}>Agent Command</label>
+        <input
+          ref={agentCommandRef}
+          className={styles.fieldInput}
+          defaultValue={project.agentCommand ?? ""}
+          onBlur={() => handleBlur("agentCommand")}
+          placeholder="claude --dangerously-skip-permissions"
+        />
       </div>
 
       <div className={styles.settingsGroup}>

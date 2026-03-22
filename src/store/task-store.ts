@@ -7,6 +7,7 @@ interface TaskState {
   loaded: boolean;
   loadTasks: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<void>;
   loadMoreTasks: (offset: number) => Promise<void>;
+  removeTask: (taskId: string) => Promise<void>;
   receiveTaskUpdate: (task: TaskInfo) => void;
 }
 
@@ -56,6 +57,15 @@ export const useTaskStore = create<TaskState>((set, get) => {
         });
       } catch {
         set({ loading: false });
+      }
+    },
+
+    removeTask: async (taskId: string) => {
+      const success = await window.electronAPI.tasks.delete(taskId);
+      if (success) {
+        set((s) => ({
+          tasks: s.tasks.filter((t) => t.id !== taskId),
+        }));
       }
     },
 

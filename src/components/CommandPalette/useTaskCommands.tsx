@@ -1,0 +1,59 @@
+import { useMemo } from "react";
+import { ListTodo } from "lucide-react";
+import { useTaskStore } from "../../store/task-store";
+import { AgentDot } from "../AgentDot";
+import type { TaskInfo, TaskStatus, AgentStatus } from "../../electron.d";
+import type { CommandItem } from "./types";
+
+function mapTaskStatusToAgentStatus(task: TaskInfo): AgentStatus | undefined {
+  if (task.status === "active" && task.lastAgentStatus) {
+    return task.lastAgentStatus as AgentStatus;
+  }
+
+  const statusMap: Record<TaskStatus, AgentStatus> = {
+    active: "working",
+    completed: "complete",
+    error: "error",
+    abandoned: "idle",
+  };
+
+  return statusMap[task.status];
+}
+
+interface UseTaskCommandsParams {
+  onResumeTask: (task: TaskInfo) => void;
+  onViewAllTasks: () => void;
+  onClose: () => void;
+}
+
+export function useTaskCommands({
+  onResumeTask,
+  onViewAllTasks,
+  onClose,
+}: UseTaskCommandsParams): CommandItem[] {
+  const tasks = useTaskStore((s) => s.tasks);
+
+  return useMemo(() => {
+    const items: CommandItem[] = tasks.slice(0, 5).map((task) => ({
+      id: `task-${task.id}`,
+      label: task.name || "Untitled Session",
+      icon: <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />,
+      action: () => {
+        onClose();
+        onResumeTask(task);
+      },
+    }));
+
+    items.push({
+      id: "view-all-tasks",
+      label: "View All Tasks...",
+      icon: <ListTodo size={14} />,
+      action: () => {
+        onClose();
+        onViewAllTasks();
+      },
+    });
+
+    return items;
+  }, [tasks, onResumeTask, onViewAllTasks, onClose]);
+}

@@ -180,6 +180,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+.removeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.removeButton:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.taskRow:hover .removeButton {
+  opacity: 1;
+}
+
 .loadMore {
   display: block;
   width: 100%;

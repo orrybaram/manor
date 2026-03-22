@@ -19,6 +19,8 @@ export interface CommandPaletteProps {
     name?: string;
     branch?: string;
   }) => void;
+  onResumeTask: (task: import("../../electron.d").TaskInfo) => void;
+  onViewAllTasks: () => void;
 }
 
 export type PaletteView = "root" | "linear" | "issue-detail";

@@ -183,6 +183,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("tasks:get", taskId),
     update: (taskId: string, updates: object) =>
       ipcRenderer.invoke("tasks:update", taskId, updates),
+    delete: (taskId: string) =>
+      ipcRenderer.invoke("tasks:delete", taskId),
     setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) =>
       ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
     onUpdate: (callback: (task: unknown) => void) =>

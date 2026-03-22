@@ -279,6 +279,7 @@ export interface ElectronAPI {
     getAll: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<TaskInfo[]>;
     get: (taskId: string) => Promise<TaskInfo | null>;
     update: (taskId: string, updates: Partial<TaskInfo>) => Promise<TaskInfo | null>;
+    delete: (taskId: string) => Promise<boolean>;
     setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => Promise<void>;
     onUpdate: (callback: (task: TaskInfo) => void) => () => void;
   };

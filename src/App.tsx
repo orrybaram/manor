@@ -8,11 +8,13 @@ import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
+import { TasksView } from "./components/TasksView";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
+import type { TaskInfo } from "./electron.d";
 import "./App.css";
 
 const SESSION_BASE_STYLE: React.CSSProperties = {
@@ -38,6 +40,7 @@ function App() {
 
   useAutoUpdate();
 
+  const [viewMode, setViewMode] = useState<"terminal" | "tasks">("terminal");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -71,6 +74,7 @@ function App() {
   const ws = useAppStore(selectActiveWorkspace);
   const selectedSessionId = ws?.selectedSessionId ?? null;
 
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
   const selectSession = useAppStore((s) => s.selectSession);
@@ -152,13 +156,47 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
+  const handleResumeTask = useCallback(
+    (task: TaskInfo) => {
+      if (task.workspacePath) {
+        setActiveWorkspace(task.workspacePath);
+      }
+      addSession();
+      setViewMode("terminal");
+      setTimeout(() => {
+        const state = useAppStore.getState();
+        const activePath = state.activeWorkspacePath;
+        if (!activePath) return;
+        const wsState = state.workspaceSessions[activePath];
+        if (!wsState) return;
+        const selectedSession = wsState.sessions.find(
+          (s) => s.id === wsState.selectedSessionId,
+        );
+        if (!selectedSession) return;
+        const paneId = selectedSession.focusedPaneId;
+        window.electronAPI.pty.write(
+          paneId,
+          `claude --resume ${task.claudeSessionId}\r`,
+        );
+      }, 150);
+    },
+    [setActiveWorkspace, addSession],
+  );
+
   return (
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && <Sidebar />}
+        {sidebarVisible && <Sidebar onShowTasks={() => setViewMode("tasks")} />}
         <div className="main-content">
           {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
+            {viewMode === "tasks" ? (
+              <>
+                <div className="drag-region" />
+                <TasksView onResumeTask={handleResumeTask} />
+              </>
+            ) : (
+              <>
             {/* Render all sessions across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
             {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
@@ -180,6 +218,8 @@ function App() {
             )}
             {!hasSessions &&
               (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
+              </>
+            )}
           </div>
         </div>
       </div>

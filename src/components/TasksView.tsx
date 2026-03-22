@@ -1,9 +1,8 @@
-import { useMemo, useState, useCallback, memo } from "react";
+import { useState, useCallback, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { TaskInfo, AgentStatus, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
-import { useAllAgents } from "../hooks/useAllAgents";
 import { AgentDot } from "./AgentDot";
 import styles from "./TasksView.module.css";
 
@@ -73,20 +72,6 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function cleanTitle(title: string | null | undefined): string | null {
-  if (!title) return null;
-  const cleaned = title
-    .replace(/[\u2800-\u28FF]/g, "")
-    .replace(/[✳✻✽✶✢]/g, "")
-    .trim();
-  if (!cleaned) return null;
-  const lower = cleaned.toLowerCase();
-  if (lower === "claude code" || lower === "claude" || lower === "opencode" || lower === "codex") {
-    return null;
-  }
-  return cleaned;
-}
-
 function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "active") return task.status === "active";
@@ -133,46 +118,8 @@ interface TasksModalProps {
 
 export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
   const { tasks, loading, loaded, loadMoreTasks } = useTaskStore();
-  const liveAgents = useAllAgents();
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [offset, setOffset] = useState(PAGE_SIZE);
-
-  // Merge persisted tasks with live active agents.
-  // Live agents are the source of truth for "currently active" —
-  // create synthetic TaskInfo entries for agents not yet in the persisted store.
-  const mergedTasks = useMemo(() => {
-    const bySessionId = new Map(
-      tasks.filter((t) => t.claudeSessionId).map((t) => [t.claudeSessionId, t]),
-    );
-    const byPaneId = new Map(
-      tasks.filter((t) => t.paneId).map((t) => [t.paneId, t]),
-    );
-
-    const result = [...tasks];
-    for (const agent of liveAgents) {
-      // Skip if already tracked by paneId or sessionId
-      if (byPaneId.has(agent.paneId)) continue;
-      // Add as a synthetic active task
-      result.push({
-        id: `live-${agent.paneId}`,
-        claudeSessionId: "",
-        name: cleanTitle(agent.agent.title) || agent.agent.kind || "Agent",
-        status: "active",
-        createdAt: new Date(agent.agent.since).toISOString(),
-        updatedAt: new Date(agent.agent.since).toISOString(),
-        completedAt: null,
-        projectId: null,
-        projectName: agent.projectName,
-        workspacePath: agent.workspacePath,
-        cwd: agent.workspacePath,
-        agentKind: agent.agent.kind ?? "claude",
-        paneId: agent.paneId,
-        lastAgentStatus: agent.agent.status,
-      } as TaskInfo);
-    }
-    result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return result;
-  }, [tasks, liveAgents]);
 
   const handleLoadMore = useCallback(() => {
     loadMoreTasks(offset);
@@ -194,7 +141,7 @@ export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
     [onClose],
   );
 
-  const filtered = mergedTasks.filter((t) => matchesFilter(t, filter));
+  const filtered = tasks.filter((t) => matchesFilter(t, filter));
 
   // Group by date bucket, then by project within each bucket
   const grouped = new Map<DateBucket, Map<string, TaskInfo[]>>();

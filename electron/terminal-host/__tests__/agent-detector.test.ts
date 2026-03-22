@@ -194,16 +194,22 @@ describe("AgentDetector", () => {
       expect(detector.getState().kind).toBeNull();
     });
 
-    it("complete is a stable state — no auto-timer to idle", () => {
+    it("complete lingers for 5s then auto-transitions to idle (gone)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       detector.setStatus("complete");
       onChange.mockClear();
 
-      // Advance way past any old timer duration
-      vi.advanceTimersByTime(10000);
+      // Still complete before linger expires
+      vi.advanceTimersByTime(4999);
       expect(detector.getState().status).toBe("complete");
       expect(onChange).not.toHaveBeenCalled();
+
+      // Linger expires → transitions to idle (gone)
+      vi.advanceTimersByTime(1);
+      expect(detector.getState().status).toBe("idle");
+      expect(detector.getState().kind).toBeNull();
+      expect(onChange).toHaveBeenCalledTimes(1);
     });
   });
 

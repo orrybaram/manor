@@ -668,7 +668,7 @@ describe("Hook events routed through Session", () => {
     detector.dispose();
   });
 
-  it("Complete is a stable state — no auto-timer fires", () => {
+  it("Complete lingers for 5s then auto-transitions to idle (gone)", () => {
     const detector = new AgentDetector();
     const transitions: AgentState[] = [];
     detector.onStatusChange = (state) => transitions.push({ ...state });
@@ -681,11 +681,15 @@ describe("Hook events routed through Session", () => {
 
     expect(detector.getState().status).toBe("complete");
 
-    // Advance way past old timer — complete should remain stable
-    vi.advanceTimersByTime(10000);
-
+    // Still complete before linger expires
+    vi.advanceTimersByTime(4999);
     expect(detector.getState().status).toBe("complete");
-    expect(statuses(transitions)).toEqual(["thinking", "complete"]);
+
+    // Linger expires → transitions to idle (gone)
+    vi.advanceTimersByTime(1);
+    expect(detector.getState().status).toBe("idle");
+    expect(detector.getState().kind).toBeNull();
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
 
     detector.dispose();
   });

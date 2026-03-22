@@ -84,7 +84,7 @@ export class AgentHookServer {
       }
 
       const status = mapEventToStatus(eventType);
-      console.debug(`[agent-status] hook HTTP: paneId=${paneId} event=${eventType} → status=${status ?? "unmapped"}`);
+      console.debug(`[agent-status] hook HTTP: paneId=${paneId} event=${eventType} sessionId=${sessionId} → status=${status ?? "unmapped"}`);
       if (status) {
         // Hooks registered in ~/.claude/settings.json are Claude-specific
         this.relayFn?.(paneId, status, "claude", sessionId, eventType);
@@ -99,6 +99,8 @@ export class AgentHookServer {
         const addr = this.server!.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
+          fs.mkdirSync(path.dirname(HOOK_PORT_FILE), { recursive: true });
+          fs.writeFileSync(HOOK_PORT_FILE, String(this.port));
         }
         resolve();
       });
@@ -108,6 +110,11 @@ export class AgentHookServer {
   stop(): void {
     this.server?.close();
     this.server = null;
+    try {
+      fs.unlinkSync(HOOK_PORT_FILE);
+    } catch {
+      // File may not exist; ignore
+    }
   }
 }
 
@@ -167,6 +174,12 @@ const HOOK_SCRIPT_PATH = path.join(
   "notify.sh",
 );
 
+const HOOK_PORT_FILE = path.join(
+  process.env.HOME || "/tmp",
+  ".manor",
+  "hook-port",
+);
+
 const HOOK_SCRIPT = `#!/bin/bash
 # Manor agent hook — notifies the app of agent lifecycle events.
 # Called by Claude Code (and other agent CLIs) via their hook system.
@@ -178,18 +191,26 @@ else
   INPUT=$(cat)
 fi
 
+# Debug: log first 500 chars of input to help diagnose session_id extraction
+echo "[manor-hook] INPUT_KEYS=$(echo "$INPUT" | grep -oE '"[^"]*"[[:space:]]*:' | head -20)" >> /tmp/manor-hook-debug.log 2>&1
+
+# Resolve hook port: prefer file, fall back to env var
+PORT=$(cat "$HOME/.manor/hook-port" 2>/dev/null || echo "$MANOR_HOOK_PORT")
+
 # Extract event type
 EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 [ -z "$EVENT_TYPE" ] && exit 0
 [ -z "$MANOR_PANE_ID" ] && exit 0
-[ -z "$MANOR_HOOK_PORT" ] && exit 0
+[ -z "$PORT" ] && exit 0
 
 # Extract session id
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 
+echo "[manor-hook] EVENT=$EVENT_TYPE SESSION_ID=$SESSION_ID PANE=$MANOR_PANE_ID" >> /tmp/manor-hook-debug.log 2>&1
+
 # Notify the app
 CURL_ARGS=(
-  -sG "http://127.0.0.1:\${MANOR_HOOK_PORT}/hook/event"
+  -sG "http://127.0.0.1:\${PORT}/hook/event"
   --connect-timeout 1 --max-time 2
   --data-urlencode "paneId=$MANOR_PANE_ID"
   --data-urlencode "eventType=$EVENT_TYPE"

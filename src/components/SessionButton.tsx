@@ -6,30 +6,13 @@ import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar.module.css";
 
 /**
- * Shorten a title to fit in a pinned tab (~50px).
- * Strategy: first letter of each word for multi-word titles,
- * or first 3 chars for single words.
+ * Shorten a title to fit in a pinned tab (~40px).
+ * Truncates to 5 characters.
  */
 function shortenTitle(title: string): string {
   const trimmed = title.trim();
   if (!trimmed) return "";
-
-  // Split on common separators: spaces, hyphens, underscores, camelCase
-  const words = trimmed
-    .replace(/([a-z])([A-Z])/g, "$1 $2") // camelCase → camel Case
-    .split(/[\s\-_]+/)
-    .filter(Boolean);
-
-  if (words.length > 1) {
-    // Use first letter of each word (up to 4)
-    return words
-      .slice(0, 4)
-      .map((w) => w[0].toUpperCase())
-      .join("");
-  }
-
-  // Single word: take first 3 chars
-  return trimmed.length <= 3 ? trimmed : trimmed.slice(0, 3);
+  return trimmed.length <= 5 ? trimmed : trimmed.slice(0, 5);
 }
 
 export function SessionButton({

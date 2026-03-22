@@ -200,6 +200,7 @@ export class TerminalHostClient {
 
   /** Relay an agent hook event to the daemon (fire-and-forget) */
   relayAgentHook(sessionId: string, status: AgentStatus, kind: AgentKind): void {
+    console.debug(`[agent-status] client relay: session=${sessionId} status=${status} kind=${kind}`);
     this.streamWrite({ type: "agentHook", sessionId, status, kind });
   }
 

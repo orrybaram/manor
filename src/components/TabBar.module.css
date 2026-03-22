@@ -18,13 +18,16 @@
 .sessions {
   display: flex;
   gap: 2px;
-  overflow-x: auto;
+  overflow: hidden;
   align-items: center;
+  min-width: 0;
+  flex: 1 1 0;
   -webkit-app-region: no-drag;
 }
 
 .spacer {
-  flex: 1;
+  flex: 0 0 auto;
+  min-width: 32px;
   -webkit-app-region: drag;
 }
 
@@ -40,6 +43,8 @@
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
+  min-width: 48px;
+  flex: 0 1 160px;
   transition:
     background 0.15s,
     color 0.15s;
@@ -61,9 +66,10 @@
 }
 
 .sessionTitle {
-  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .sessionClose {
@@ -87,9 +93,9 @@
 }
 
 .sessionPinned {
-  width: 50px;
-  min-width: 50px;
-  max-width: 50px;
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
   justify-content: center;
   padding: 4px 0;
   gap: 0;
@@ -159,6 +165,7 @@
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 6px;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
   transition:
     background 0.15s,

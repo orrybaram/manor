@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "electron-rebuild",
-    "kill-daemon": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock"
+    "kill": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.2.16",

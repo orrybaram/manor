@@ -329,6 +329,7 @@ export function Sidebar({ onShowTasks }: SidebarProps) {
           )}
         </div>
         <TasksList onShowAll={onShowTasks} />
+      </div>
       <PortsList />
 
       <div

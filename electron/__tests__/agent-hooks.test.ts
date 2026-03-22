@@ -160,7 +160,7 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
 
       expect(relayFn).toHaveBeenCalledTimes(1);
-      expect(relayFn).toHaveBeenCalledWith("abc", "complete", "claude");
+      expect(relayFn).toHaveBeenCalledWith("abc", "complete", "claude", null, "Stop");
     });
 
     it("calls relay with correct paneId for each request", async () => {
@@ -168,8 +168,8 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=pane-2&eventType=UserPromptSubmit");
 
       expect(relayFn).toHaveBeenCalledTimes(2);
-      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete", "claude");
-      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking", "claude");
+      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete", "claude", null, "Stop");
+      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking", "claude", null, "UserPromptSubmit");
     });
 
     it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {

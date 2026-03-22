@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback, memo } from "react";
+import { useMemo, useState, useCallback, memo } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
 import type { TaskInfo, AgentStatus, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
+import { useAllAgents } from "../hooks/useAllAgents";
 import { AgentDot } from "./AgentDot";
 import styles from "./TasksView.module.css";
 
@@ -27,7 +30,6 @@ function getDateBucket(dateStr: string): DateBucket {
   const startOfYesterday = new Date(startOfToday);
   startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
-  // Start of week (Sunday)
   const startOfWeek = new Date(startOfToday);
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
 
@@ -41,7 +43,6 @@ function getDateBucket(dateStr: string): DateBucket {
 }
 
 function mapTaskStatusToAgentStatus(task: TaskInfo): AgentStatus | undefined {
-  // If task is active and has a granular lastAgentStatus, prefer it
   if (task.status === "active" && task.lastAgentStatus) {
     return task.lastAgentStatus as AgentStatus;
   }
@@ -70,6 +71,20 @@ function formatRelativeTime(dateStr: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
 
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function cleanTitle(title: string | null | undefined): string | null {
+  if (!title) return null;
+  const cleaned = title
+    .replace(/[\u2800-\u28FF]/g, "")
+    .replace(/[✳✻✽✶✢]/g, "")
+    .trim();
+  if (!cleaned) return null;
+  const lower = cleaned.toLowerCase();
+  if (lower === "claude code" || lower === "claude" || lower === "opencode" || lower === "codex") {
+    return null;
+  }
+  return cleaned;
 }
 
 function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
@@ -108,29 +123,78 @@ const TaskRow = memo(function TaskRow({ task, onResumeTask }: TaskRowProps) {
   );
 });
 
-// ── Main Component ──
+// ── Modal Component ──
 
-interface TasksViewProps {
+interface TasksModalProps {
+  open: boolean;
+  onClose: () => void;
   onResumeTask: (task: TaskInfo) => void;
 }
 
-export function TasksView({ onResumeTask }: TasksViewProps) {
-  const { tasks, loading, loaded, loadTasks, loadMoreTasks } = useTaskStore();
+export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
+  const { tasks, loading, loaded, loadMoreTasks } = useTaskStore();
+  const liveAgents = useAllAgents();
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [offset, setOffset] = useState(PAGE_SIZE);
 
-  useEffect(() => {
-    if (!loaded) {
-      loadTasks({ limit: PAGE_SIZE });
+  // Merge persisted tasks with live active agents.
+  // Live agents are the source of truth for "currently active" —
+  // create synthetic TaskInfo entries for agents not yet in the persisted store.
+  const mergedTasks = useMemo(() => {
+    const bySessionId = new Map(
+      tasks.filter((t) => t.claudeSessionId).map((t) => [t.claudeSessionId, t]),
+    );
+    const byPaneId = new Map(
+      tasks.filter((t) => t.paneId).map((t) => [t.paneId, t]),
+    );
+
+    const result = [...tasks];
+    for (const agent of liveAgents) {
+      // Skip if already tracked by paneId or sessionId
+      if (byPaneId.has(agent.paneId)) continue;
+      // Add as a synthetic active task
+      result.push({
+        id: `live-${agent.paneId}`,
+        claudeSessionId: "",
+        name: cleanTitle(agent.agent.title) || agent.agent.kind || "Agent",
+        status: "active",
+        createdAt: new Date(agent.agent.since).toISOString(),
+        updatedAt: new Date(agent.agent.since).toISOString(),
+        completedAt: null,
+        projectId: null,
+        projectName: agent.projectName,
+        workspacePath: agent.workspacePath,
+        cwd: agent.workspacePath,
+        agentKind: agent.agent.kind ?? "claude",
+        paneId: agent.paneId,
+        lastAgentStatus: agent.agent.status,
+      } as TaskInfo);
     }
-  }, [loaded, loadTasks]);
+    result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return result;
+  }, [tasks, liveAgents]);
 
   const handleLoadMore = useCallback(() => {
     loadMoreTasks(offset);
     setOffset((prev) => prev + PAGE_SIZE);
   }, [offset, loadMoreTasks]);
 
-  const filtered = tasks.filter((t) => matchesFilter(t, filter));
+  const handleResume = useCallback(
+    (task: TaskInfo) => {
+      onClose();
+      onResumeTask(task);
+    },
+    [onClose, onResumeTask],
+  );
+
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen) onClose();
+    },
+    [onClose],
+  );
+
+  const filtered = mergedTasks.filter((t) => matchesFilter(t, filter));
 
   // Group by date bucket, then by project within each bucket
   const grouped = new Map<DateBucket, Map<string, TaskInfo[]>>();
@@ -152,65 +216,87 @@ export function TasksView({ onResumeTask }: TasksViewProps) {
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.filterTabs}>
-        {(["all", "active", "completed"] as const).map((f) => (
-          <button
-            key={f}
-            className={`${styles.filterTab} ${filter === f ? styles.filterTabActive : ""}`}
-            onClick={() => setFilter(f)}
-          >
-            {f === "all" ? "All" : f === "active" ? "Active" : "Completed"}
-          </button>
-        ))}
-      </div>
-
-      <div className={styles.scrollArea}>
-        {loading && !loaded && (
-          <div className={styles.loading}>Loading tasks...</div>
-        )}
-
-        {loaded && filtered.length === 0 && (
-          <div className={styles.empty}>No tasks found.</div>
-        )}
-
-        {BUCKET_ORDER.map((bucket) => {
-          const projectMap = grouped.get(bucket);
-          if (!projectMap) return null;
-
-          return (
-            <div key={bucket} className={styles.dateGroup}>
-              <div className={styles.dateGroupHeader}>{bucket}</div>
-              {Array.from(projectMap.entries()).map(
-                ([projectName, projectTasks]) => (
-                  <div key={projectName} className={styles.projectGroup}>
-                    <div className={styles.projectGroupHeader}>
-                      {projectName}
-                    </div>
-                    {projectTasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        onResumeTask={onResumeTask}
-                      />
-                    ))}
-                  </div>
-                ),
-              )}
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={styles.overlay} />
+        <Dialog.Content
+          className={styles.modal}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            document
+              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+              ?.focus();
+          }}
+        >
+          <div className={styles.header}>
+            <Dialog.Title className={styles.title}>Tasks</Dialog.Title>
+            <div className={styles.filterTabs}>
+              {(["all", "active", "completed"] as const).map((f) => (
+                <button
+                  key={f}
+                  className={`${styles.filterTab} ${filter === f ? styles.filterTabActive : ""}`}
+                  onClick={() => setFilter(f)}
+                >
+                  {f === "all" ? "All" : f === "active" ? "Active" : "Completed"}
+                </button>
+              ))}
             </div>
-          );
-        })}
+            <Dialog.Close asChild>
+              <button className={styles.closeButton}>
+                <X size={16} />
+              </button>
+            </Dialog.Close>
+          </div>
 
-        {loaded && filtered.length > 0 && (
-          <button
-            className={styles.loadMore}
-            onClick={handleLoadMore}
-            disabled={loading}
-          >
-            {loading ? "Loading..." : "Load more"}
-          </button>
-        )}
-      </div>
-    </div>
+          <div className={styles.scrollArea}>
+            {loading && !loaded && (
+              <div className={styles.loading}>Loading tasks...</div>
+            )}
+
+            {loaded && filtered.length === 0 && (
+              <div className={styles.empty}>No tasks found.</div>
+            )}
+
+            {BUCKET_ORDER.map((bucket) => {
+              const projectMap = grouped.get(bucket);
+              if (!projectMap) return null;
+
+              return (
+                <div key={bucket} className={styles.dateGroup}>
+                  <div className={styles.dateGroupHeader}>{bucket}</div>
+                  {Array.from(projectMap.entries()).map(
+                    ([projectName, projectTasks]) => (
+                      <div key={projectName} className={styles.projectGroup}>
+                        <div className={styles.projectGroupHeader}>
+                          {projectName}
+                        </div>
+                        {projectTasks.map((task) => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            onResumeTask={handleResume}
+                          />
+                        ))}
+                      </div>
+                    ),
+                  )}
+                </div>
+              );
+            })}
+
+            {loaded && filtered.length > 0 && (
+              <button
+                className={styles.loadMore}
+                onClick={handleLoadMore}
+                disabled={loading}
+              >
+                {loading ? "Loading..." : "Load more"}
+              </button>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

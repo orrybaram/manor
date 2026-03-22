@@ -58,7 +58,7 @@ function navigateToAgent(agent: GlobalAgent) {
   focusPane(agent.paneId);
 }
 
-export function TasksList() {
+export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
   const agents = useAllAgents();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -92,6 +92,19 @@ export function TasksList() {
           Tasks
           <span className={styles.portCount}>{agents.length}</span>
         </span>
+        {onShowAll && (
+          <button
+            className={styles.action}
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowAll();
+            }}
+            title="View all tasks"
+            style={{ fontSize: 10, opacity: 0.6 }}
+          >
+            View All
+          </button>
+        )}
       </div>
       {!collapsed && (
         <div className={styles.taskGroups}>

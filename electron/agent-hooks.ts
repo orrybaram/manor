@@ -45,14 +45,14 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null) => void) | null = null;
+  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string) => void) | null = null;
 
   get hookPort(): number {
     return this.port;
   }
 
   /** Set or update the relay function (called when hook events arrive) */
-  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null) => void): void {
+  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string) => void): void {
     this.relayFn = relay;
   }
 
@@ -87,7 +87,7 @@ export class AgentHookServer {
       console.debug(`[agent-status] hook HTTP: paneId=${paneId} event=${eventType} → status=${status ?? "unmapped"}`);
       if (status) {
         // Hooks registered in ~/.claude/settings.json are Claude-specific
-        this.relayFn?.(paneId, status, "claude", sessionId);
+        this.relayFn?.(paneId, status, "claude", sessionId, eventType);
       }
 
       res.writeHead(200);

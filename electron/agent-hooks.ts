@@ -191,9 +191,6 @@ else
   INPUT=$(cat)
 fi
 
-# Debug: log first 500 chars of input to help diagnose session_id extraction
-echo "[manor-hook] INPUT_KEYS=$(echo "$INPUT" | grep -oE '"[^"]*"[[:space:]]*:' | head -20)" >> /tmp/manor-hook-debug.log 2>&1
-
 # Resolve hook port: prefer file, fall back to env var
 PORT=$(cat "$HOME/.manor/hook-port" 2>/dev/null || echo "$MANOR_HOOK_PORT")
 
@@ -205,8 +202,6 @@ EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]
 
 # Extract session id
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-
-echo "[manor-hook] EVENT=$EVENT_TYPE SESSION_ID=$SESSION_ID PANE=$MANOR_PANE_ID" >> /tmp/manor-hook-debug.log 2>&1
 
 # Notify the app
 CURL_ARGS=(

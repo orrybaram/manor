@@ -78,6 +78,8 @@ export interface ProjectInfo {
   worktreeStartScript: string | null;
   worktreeTeardownScript: string | null;
   linearAssociations: LinearAssociation[];
+  color: string | null;
+  agentCommand: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -89,6 +91,8 @@ export type ProjectUpdatableFields = Partial<
     | "worktreeStartScript"
     | "worktreeTeardownScript"
     | "linearAssociations"
+    | "color"
+    | "agentCommand"
   >
 >;
 

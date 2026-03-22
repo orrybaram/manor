@@ -45,6 +45,8 @@ export interface ProjectInfo {
   worktreeStartScript: string | null;
   worktreeTeardownScript: string | null;
   linearAssociations: LinearAssociation[];
+  color: string | null;
+  agentCommand: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -56,6 +58,8 @@ export type ProjectUpdatableFields = Partial<
     | "worktreeStartScript"
     | "worktreeTeardownScript"
     | "linearAssociations"
+    | "color"
+    | "agentCommand"
   >
 >;
 
@@ -73,6 +77,8 @@ interface PersistedProject {
   linearAssociations?: LinearAssociation[];
   workspaceNames?: Record<string, string>;
   workspaceOrder?: string[];
+  color?: string | null;
+  agentCommand?: string | null;
 }
 
 interface PersistedState {
@@ -140,6 +146,8 @@ export class ProjectManager {
       worktreePath: null,
       worktreeStartScript: null,
       worktreeTeardownScript: null,
+      color: null,
+      agentCommand: null,
     };
     this.state.projects.push(project);
     this.state.selectedProjectIndex = this.state.projects.length - 1;
@@ -161,6 +169,8 @@ export class ProjectManager {
       worktreeStartScript: null,
       worktreeTeardownScript: null,
       linearAssociations: [],
+      color: null,
+      agentCommand: null,
     };
   }
 
@@ -245,6 +255,8 @@ export class ProjectManager {
       worktreeStartScript: p.worktreeStartScript ?? null,
       worktreeTeardownScript: p.worktreeTeardownScript ?? null,
       linearAssociations: p.linearAssociations ?? [],
+      color: p.color ?? null,
+      agentCommand: p.agentCommand ?? null,
     };
   }
 

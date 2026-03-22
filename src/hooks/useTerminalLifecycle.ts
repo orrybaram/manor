@@ -15,6 +15,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { useAppStore } from "../store/app-store";
+import { useProjectStore } from "../store/project-store";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -154,6 +155,22 @@ export function useTerminalLifecycle(
           if (result.snapshot) {
             t.write(result.snapshot);
           }
+
+          // Set pane context for task association
+          if (cwd) {
+            const projects = useProjectStore.getState().projects;
+            const project = projects.find((p) =>
+              p.workspaces.some((ws) => ws.path === cwd)
+            );
+
+            // Fire-and-forget call to set pane context
+            window.electronAPI.tasks.setPaneContext(paneId, {
+              projectId: project?.id || null,
+              projectName: project?.name || null,
+              workspacePath: cwd,
+            });
+          }
+
           // Check for pending startup command (e.g. worktree start script)
           const store = useAppStore.getState();
           const wsPath = store.activeWorkspacePath;

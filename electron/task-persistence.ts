@@ -165,6 +165,13 @@ export class TaskManager {
     this.saveState();
   }
 
+  getTaskByPaneId(paneId: string): TaskInfo | null {
+    for (const task of this.tasks.values()) {
+      if (task.paneId === paneId) return task;
+    }
+    return null;
+  }
+
   unlinkPane(paneId: string): void {
     let changed = false;
     for (const [sessionId, task] of this.tasks) {

@@ -12,20 +12,25 @@ interface TaskState {
 
 export const useTaskStore = create<TaskState>((set, get) => {
   // Subscribe to live task updates on store creation
-  window.electronAPI.tasks.onUpdate((task) => {
+  window.electronAPI?.tasks.onUpdate((task) => {
     get().receiveTaskUpdate(task);
   });
 
+  // Eagerly load all tasks on store creation
+  window.electronAPI?.tasks.getAll().then((tasks) => {
+    tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    set({ tasks, loading: false, loaded: true });
+  }).catch(() => {});
+
   return {
     tasks: [],
-    loading: false,
+    loading: true,
     loaded: false,
 
     loadTasks: async (opts) => {
       set({ loading: true });
       try {
         const tasks = await window.electronAPI.tasks.getAll(opts);
-        // Sort by createdAt descending (most recent first)
         tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         set({ tasks, loading: false, loaded: true });
       } catch {

@@ -4,7 +4,7 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Plus, Boxes, ListTodo } from "lucide-react";
+import { Plus, Boxes } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
@@ -307,19 +307,7 @@ export function Sidebar({ onShowTasks }: SidebarProps) {
           </div>
         </div>
       </div>
-      <TasksList />
-      <div className={styles.tasksSection}>
-        <button
-          className={styles.sectionHeader}
-          onClick={onShowTasks}
-          style={{ width: "100%", cursor: "pointer", background: "transparent", border: "none", color: "inherit", fontFamily: "inherit" }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <ListTodo size={12} />
-            Tasks
-          </span>
-        </button>
-      </div>
+      <TasksList onShowAll={onShowTasks} />
       <PortsList />
 
       <div

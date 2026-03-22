@@ -8,7 +8,7 @@ import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
-import { TasksView } from "./components/TasksView";
+import { TasksModal } from "./components/TasksView";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
@@ -40,11 +40,12 @@ function App() {
 
   useAutoUpdate();
 
-  const [viewMode, setViewMode] = useState<"terminal" | "tasks">("terminal");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const closeTasks = useCallback(() => setTasksOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [preselectedProjectId, setPreselectedProjectId] = useState<
     string | null
@@ -162,7 +163,6 @@ function App() {
         setActiveWorkspace(task.workspacePath);
       }
       addSession();
-      setViewMode("terminal");
       setTimeout(() => {
         const state = useAppStore.getState();
         const activePath = state.activeWorkspacePath;
@@ -186,17 +186,10 @@ function App() {
   return (
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && <Sidebar onShowTasks={() => setViewMode("tasks")} />}
+        {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} />}
         <div className="main-content">
           {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
-            {viewMode === "tasks" ? (
-              <>
-                <div className="drag-region" />
-                <TasksView onResumeTask={handleResumeTask} />
-              </>
-            ) : (
-              <>
             {/* Render all sessions across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
             {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
@@ -218,8 +211,6 @@ function App() {
             )}
             {!hasSessions &&
               (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -230,6 +221,11 @@ function App() {
         onNewWorkspace={handleNewWorkspace}
       />
       <SettingsModal open={settingsOpen} onClose={closeSettings} />
+      <TasksModal
+        open={tasksOpen}
+        onClose={closeTasks}
+        onResumeTask={handleResumeTask}
+      />
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
         onClose={closeNewWorkspace}

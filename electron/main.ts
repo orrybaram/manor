@@ -31,8 +31,8 @@ import {
   registerClaudeHooks,
 } from "./agent-hooks";
 import { assertString, assertPositiveInt } from "./ipc-validate";
-import { TaskManager } from "./task-persistence";
-import type { StreamEvent } from "./terminal-host/types";
+import { TaskManager, type TaskInfo } from "./task-persistence";
+import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
@@ -705,12 +705,73 @@ app.whenReady().then(async () => {
 
   // Set the relay callback now that the client is connected.
   // Hook events route through the daemon's AgentDetector state machine.
-  agentHookServer.setRelay((paneId, status, kind, sessionId) => {
+
+  // Session state map for activity gating and subagent tracking
+  interface SessionState {
+    subagentCount: number;
+    parentComplete: boolean;
+    hasBeenActive: boolean;
+  }
+  const sessionStateMap = new Map<string, SessionState>();
+
+  const ACTIVE_STATUSES: Set<AgentStatus> = new Set(["thinking", "working", "requires_input"]);
+
+  function getOrCreateSessionState(sessionId: string): SessionState {
+    let state = sessionStateMap.get(sessionId);
+    if (!state) {
+      state = { subagentCount: 0, parentComplete: false, hasBeenActive: false };
+      sessionStateMap.set(sessionId, state);
+    }
+    return state;
+  }
+
+  function broadcastTask(task: TaskInfo): void {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      try {
+        mainWindow.webContents.send("task-updated", task);
+      } catch {
+        // Render frame disposed — safe to ignore
+      }
+    }
+  }
+
+  agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
     client.relayAgentHook(paneId, status, kind);
 
     // Task persistence: create or update task for this session
-    if (sessionId) {
+    if (!sessionId) return;
+
+    const sessionState = getOrCreateSessionState(sessionId);
+
+    // ── Active statuses: thinking, working, requires_input ──
+    if (ACTIVE_STATUSES.has(status)) {
+      sessionState.hasBeenActive = true;
+
+      // Subagent tracking on active events
+      if (eventType === "SubagentStart") {
+        sessionState.subagentCount++;
+      } else if (eventType === "SubagentStop") {
+        sessionState.subagentCount = Math.max(0, sessionState.subagentCount - 1);
+
+        // If parent already completed and last subagent finished, transition to completed
+        if (sessionState.subagentCount === 0 && sessionState.parentComplete) {
+          let task = taskManager.getTaskBySessionId(sessionId);
+          if (task) {
+            task = taskManager.updateTask(task.id, {
+              lastAgentStatus: status,
+              status: "completed",
+              completedAt: new Date().toISOString(),
+            });
+            if (task) broadcastTask(task);
+          }
+          sessionStateMap.delete(sessionId);
+          return;
+        }
+      }
+
+      // Create or update task
       let task = taskManager.getTaskBySessionId(sessionId);
+      const now = new Date().toISOString();
 
       if (!task) {
         const paneContext = paneContextMap.get(paneId);
@@ -727,33 +788,73 @@ app.whenReady().then(async () => {
           paneId,
           lastAgentStatus: status,
         });
+        // Set activatedAt immediately after creation
+        task = taskManager.updateTask(task.id, { activatedAt: now });
       } else {
-        // Determine new task status based on agent hook status
-        let taskStatus: "active" | "completed" | "error" | "abandoned" = task.status;
-        if (status === "complete") {
-          taskStatus = "completed";
-        } else if (status === "error") {
-          taskStatus = "error";
-        } else if (status === "idle") {
-          // SessionEnd maps to idle → treat as completed
-          taskStatus = "completed";
-        }
-
         task = taskManager.updateTask(task.id, {
           lastAgentStatus: status,
-          status: taskStatus,
-          ...(taskStatus !== "active" ? { completedAt: new Date().toISOString() } : {}),
+          status: "active",
+          ...(task.activatedAt ? {} : { activatedAt: now }),
         });
       }
 
-      // Broadcast updated task to renderer
-      if (task && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-        try {
-          mainWindow.webContents.send("task-updated", task);
-        } catch {
-          // Render frame disposed — safe to ignore
+      if (task) broadcastTask(task);
+      return;
+    }
+
+    // ── Terminal / completion statuses: complete, error, idle ──
+
+    // Activity gating: if session was never active, skip
+    if (!sessionState.hasBeenActive) {
+      console.debug(`[task-lifecycle] Skipping ${status} for session ${sessionId} — never activated`);
+      return;
+    }
+
+    let task = taskManager.getTaskBySessionId(sessionId);
+
+    if (eventType === "Stop") {
+      // Parent stop — check subagent count
+      if (sessionState.subagentCount > 0) {
+        // Subagents still running: mark parent as complete but keep task active
+        sessionState.parentComplete = true;
+        if (task) {
+          task = taskManager.updateTask(task.id, { lastAgentStatus: status });
+          if (task) broadcastTask(task);
         }
+      } else {
+        // No subagents: transition to completed
+        if (task) {
+          task = taskManager.updateTask(task.id, {
+            lastAgentStatus: status,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          });
+          if (task) broadcastTask(task);
+        }
+        sessionStateMap.delete(sessionId);
       }
+    } else if (eventType === "SessionEnd") {
+      // Session truly over — always complete
+      if (task) {
+        task = taskManager.updateTask(task.id, {
+          lastAgentStatus: status,
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        });
+        if (task) broadcastTask(task);
+      }
+      sessionStateMap.delete(sessionId);
+    } else if (eventType === "StopFailure") {
+      // Error — transition regardless of subagent state
+      if (task) {
+        task = taskManager.updateTask(task.id, {
+          lastAgentStatus: status,
+          status: "error",
+          completedAt: new Date().toISOString(),
+        });
+        if (task) broadcastTask(task);
+      }
+      sessionStateMap.delete(sessionId);
     }
   });
 

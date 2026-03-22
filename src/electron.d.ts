@@ -1,3 +1,22 @@
+export type TaskStatus = "active" | "completed" | "error" | "abandoned";
+
+export interface TaskInfo {
+  id: string;
+  claudeSessionId: string;
+  name: string | null;
+  status: TaskStatus;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  workspacePath: string | null;
+  cwd: string;
+  agentKind: "claude" | "opencode" | "codex";
+  paneId: string | null;
+  lastAgentStatus: string | null;
+}
+
 export interface LinearTeam {
   id: string;
   name: string;
@@ -253,6 +272,14 @@ export interface ElectronAPI {
 
   shell: {
     openExternal: (url: string) => Promise<void>;
+  };
+
+  tasks: {
+    getAll: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<TaskInfo[]>;
+    get: (taskId: string) => Promise<TaskInfo | null>;
+    update: (taskId: string, updates: Partial<TaskInfo>) => Promise<TaskInfo | null>;
+    setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => Promise<void>;
+    onUpdate: (callback: (task: TaskInfo) => void) => () => void;
   };
 }
 

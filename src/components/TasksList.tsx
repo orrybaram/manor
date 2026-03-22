@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { ChevronRight, ListChecks } from "lucide-react";
-import type { AgentStatus } from "../electron.d";
-import { useAllAgents, type GlobalAgent } from "../hooks/useAllAgents";
+import type { AgentStatus, TaskInfo, TaskStatus } from "../electron.d";
+import { useTaskStore } from "../store/task-store";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { AgentDot } from "./AgentDot";
 import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
+import { allPaneIds } from "../store/pane-tree";
 import styles from "./Sidebar.module.css";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -25,55 +26,87 @@ function AgentItemLabel({ status }: { status: AgentStatus }) {
   );
 }
 
-function cleanAgentTitle(title: string | null | undefined): string | null {
-  if (!title) return null;
-  const cleaned = title
-    .replace(/[\u2800-\u28FF]/g, "")
-    .replace(/[✳✻✽✶✢]/g, "")
-    .trim();
-  if (!cleaned) return null;
-  const lower = cleaned.toLowerCase();
-  if (lower === "claude code" || lower === "claude" || lower === "opencode" || lower === "codex") {
-    return null;
+function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
+  if (task.status === "active" && task.lastAgentStatus) {
+    return task.lastAgentStatus as AgentStatus;
   }
-  return cleaned;
+  const statusMap: Record<TaskStatus, AgentStatus> = {
+    active: "working",
+    completed: "complete",
+    error: "error",
+    abandoned: "idle",
+  };
+  return statusMap[task.status];
 }
 
-function navigateToAgent(agent: GlobalAgent) {
-  const { selectProject, setProjectExpanded, selectWorkspace } =
+function navigateToTask(task: TaskInfo) {
+  const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
-  const { setActiveWorkspace, selectSession, focusPane } =
+  const { setActiveWorkspace, selectSession, focusPane, workspaceSessions } =
     useAppStore.getState();
 
-  selectProject(agent.projectIndex);
-  setProjectExpanded(
-    useProjectStore.getState().projects[agent.projectIndex].id,
+  // Find the project by projectId
+  const projectIndex = projects.findIndex((p) => p.id === task.projectId);
+  if (projectIndex < 0) return;
+  const project = projects[projectIndex];
+
+  // Find the workspace index by workspacePath
+  const workspaceIndex = project.workspaces.findIndex(
+    (ws) => ws.path === task.workspacePath,
   );
-  selectWorkspace(
-    useProjectStore.getState().projects[agent.projectIndex].id,
-    agent.workspaceIndex,
-  );
-  setActiveWorkspace(agent.workspacePath);
-  selectSession(agent.sessionId);
-  focusPane(agent.paneId);
+  if (workspaceIndex < 0) return;
+
+  // Find the session containing task.paneId
+  let sessionId: string | null = null;
+  if (task.paneId && task.workspacePath) {
+    const wsSessions = workspaceSessions[task.workspacePath];
+    if (wsSessions) {
+      for (const session of wsSessions.sessions) {
+        if (allPaneIds(session.rootNode).includes(task.paneId)) {
+          sessionId = session.id;
+          break;
+        }
+      }
+    }
+  }
+
+  selectProject(projectIndex);
+  setProjectExpanded(project.id);
+  selectWorkspace(project.id, workspaceIndex);
+  if (task.workspacePath) {
+    setActiveWorkspace(task.workspacePath);
+  }
+  if (sessionId) {
+    selectSession(sessionId);
+  }
+  if (task.paneId) {
+    focusPane(task.paneId);
+  }
 }
 
 export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
-  const agents = useAllAgents();
+  const { tasks } = useTaskStore();
   const [collapsed, setCollapsed] = useState(false);
 
-  if (agents.length === 0) return null;
+  const activeTasks = useMemo(
+    () => tasks.filter((t) => t.status === "active"),
+    [tasks],
+  );
 
-  // Group agents by projectName
-  const groups = new Map<string, GlobalAgent[]>();
-  for (const agent of agents) {
-    let list = groups.get(agent.projectName);
-    if (!list) {
-      list = [];
-      groups.set(agent.projectName, list);
+  // Group tasks by projectName
+  const groups = useMemo(() => {
+    const map = new Map<string, TaskInfo[]>();
+    for (const task of activeTasks) {
+      const key = task.projectName ?? "Unknown";
+      let list = map.get(key);
+      if (!list) {
+        list = [];
+        map.set(key, list);
+      }
+      list.push(task);
     }
-    list.push(agent);
-  }
+    return map;
+  }, [activeTasks]);
 
   return (
     <div className={styles.tasksSection}>
@@ -90,7 +123,9 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </span>
           <ListChecks size={12} />
           Tasks
-          <span className={styles.portCount}>{agents.length}</span>
+          {activeTasks.length > 0 && (
+            <span className={styles.portCount}>{activeTasks.length}</span>
+          )}
         </span>
         {onShowAll && (
           <button
@@ -106,24 +141,27 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </button>
         )}
       </div>
-      {!collapsed && (
+      {!collapsed && activeTasks.length > 0 && (
         <div className={styles.taskGroups}>
-          {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
+          {Array.from(groups.entries()).map(([projectName, groupTasks]) => (
             <div key={projectName} className={styles.taskGroup}>
               <div className={styles.taskGroupHeader}>{projectName}</div>
-              {groupAgents.map((a) => (
-                <button
-                  key={a.paneId}
-                  className={styles.agentItem}
-                  onClick={() => navigateToAgent(a)}
-                >
-                  <AgentDot status={a.agent.status} size="sidebar" />
-                  <span className={styles.agentName}>
-                    {cleanAgentTitle(a.agent.title) || a.agent.kind || "Agent"}
-                  </span>
-                  <AgentItemLabel status={a.agent.status} />
-                </button>
-              ))}
+              {groupTasks.map((task) => {
+                const agentStatus = taskAgentStatus(task);
+                return (
+                  <button
+                    key={task.id}
+                    className={styles.agentItem}
+                    onClick={() => navigateToTask(task)}
+                  >
+                    <AgentDot status={agentStatus} size="sidebar" />
+                    <span className={styles.agentName}>
+                      {task.name || "Agent"}
+                    </span>
+                    {agentStatus && <AgentItemLabel status={agentStatus} />}
+                  </button>
+                );
+              })}
             </div>
           ))}
         </div>

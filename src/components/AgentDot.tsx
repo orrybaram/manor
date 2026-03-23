@@ -16,6 +16,15 @@ export function AgentDot({ status: rawStatus, size }: AgentDotProps) {
     return <SpinnerLoader size={size} variant={status} />;
   }
 
+  if (status === "responded") {
+    return (
+      <span
+        className={`${styles.dot} ${styles[size]} ${styles.dotResponded}`}
+        title="Agent responded"
+      />
+    );
+  }
+
   if (status === "complete") {
     return (
       <span

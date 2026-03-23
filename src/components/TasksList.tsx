@@ -12,6 +12,7 @@ import styles from "./Sidebar.module.css";
 const STATUS_LABEL: Record<string, string> = {
   thinking: "Thinking",
   working: "Working",
+  responded: "Ready",
   complete: "Done",
   requires_input: "Waiting",
   error: "Error",
@@ -45,8 +46,9 @@ const STATUS_PRIORITY: Record<string, number> = {
   requires_input: 1,
   thinking: 2,
   working: 3,
-  complete: 4,
-  idle: 5,
+  responded: 4,
+  complete: 5,
+  idle: 6,
 };
 
 function mostRelevantStatus(tasks: TaskInfo[]): AgentStatus | undefined {

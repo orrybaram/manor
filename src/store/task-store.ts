@@ -110,6 +110,10 @@ export const useTaskStore = create<TaskState>((set, get) => {
           }
         }
 
+        if (isAlreadyVisible && (nextStatus === "responded" || nextStatus === "requires_input")) {
+          window.electronAPI?.tasks.markSeen(task.id);
+        }
+
         if (nextStatus === "requires_input") {
           if (!isAlreadyVisible) {
             const toastId = `task-input-${task.id}`;

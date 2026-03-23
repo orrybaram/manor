@@ -32,7 +32,7 @@ Native dependencies (`node-pty`, `electron`) are rebuilt automatically during in
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/manor.git
+git clone https://github.com/orrybaram/manor.git
 cd manor
 
 # Install dependencies

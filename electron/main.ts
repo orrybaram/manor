@@ -792,18 +792,16 @@ app.whenReady().then(async () => {
       } else if (eventType === "SubagentStop") {
         sessionState.subagentCount = Math.max(0, sessionState.subagentCount - 1);
 
-        // If parent already completed and last subagent finished, transition to completed
+        // If parent already completed and last subagent finished, set responded and keep active
         if (sessionState.subagentCount === 0 && sessionState.parentComplete) {
           let task = taskManager.getTaskBySessionId(sessionId);
           if (task) {
             task = taskManager.updateTask(task.id, {
-              lastAgentStatus: status,
-              status: "completed",
-              completedAt: new Date().toISOString(),
+              lastAgentStatus: "responded",
+              status: "active",
             });
             if (task) broadcastTask(task);
           }
-          sessionStateMap.delete(sessionId);
           return;
         }
       }
@@ -861,22 +859,20 @@ app.whenReady().then(async () => {
           if (task) broadcastTask(task);
         }
       } else {
-        // No subagents: transition to completed
+        // No subagents: set responded and keep task active
         if (task) {
           task = taskManager.updateTask(task.id, {
-            lastAgentStatus: status,
-            status: "completed",
-            completedAt: new Date().toISOString(),
+            lastAgentStatus: "responded",
+            status: "active",
           });
           if (task) broadcastTask(task);
         }
-        sessionStateMap.delete(sessionId);
       }
     } else if (eventType === "SessionEnd") {
       // Session truly over — always complete
       if (task) {
         task = taskManager.updateTask(task.id, {
-          lastAgentStatus: status,
+          lastAgentStatus: "complete",
           status: "completed",
           completedAt: new Date().toISOString(),
         });

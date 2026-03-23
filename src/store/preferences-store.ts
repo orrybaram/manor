@@ -9,6 +9,9 @@ interface PreferencesState {
 
 const defaultPreferences: AppPreferences = {
   dockBadgeEnabled: true,
+  notifyOnResponse: true,
+  notifyOnRequiresInput: true,
+  notificationSound: true,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

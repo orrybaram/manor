@@ -14,7 +14,7 @@ export const CATEGORY_LABELS: Record<KeybindingCategory, string> = {
   terminal: "Terminal",
 };
 
-export const CATEGORY_ORDER: KeybindingCategory[] = ["app", "workspace", "terminal"];
+export const CATEGORY_ORDER: KeybindingCategory[] = ["workspace", "terminal", "app"];
 
 export interface KeybindingDef {
   id: string;

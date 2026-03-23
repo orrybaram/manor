@@ -296,6 +296,10 @@ export interface ElectronAPI {
     set: (key: keyof AppPreferences, value: AppPreferences[keyof AppPreferences]) => Promise<void>;
     onChange: (callback: (prefs: AppPreferences) => void) => () => void;
   };
+
+  notifications: {
+    onNavigateToTask: (callback: (taskId: string) => void) => () => void;
+  };
 }
 
 declare global {

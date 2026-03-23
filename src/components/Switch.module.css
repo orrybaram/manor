@@ -1,0 +1,35 @@
+.root {
+  all: unset;
+  width: 34px;
+  height: 18px;
+  background: var(--surface);
+  border-radius: 9px;
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 150ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.root:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.root[data-state="checked"] {
+  background: var(--accent);
+}
+
+.thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  background: var(--text-selected);
+  border-radius: 50%;
+  transition: transform 150ms ease;
+  transform: translateX(2px);
+}
+
+.thumb[data-state="checked"] {
+  transform: translateX(18px);
+}

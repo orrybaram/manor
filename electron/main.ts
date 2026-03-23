@@ -186,6 +186,23 @@ const taskManager = new TaskManager();
 const preferencesManager = new PreferencesManager();
 const paneContextMap = new Map<string, { projectId: string; projectName: string; workspacePath: string }>();
 
+const unseenRespondedTasks = new Set<string>();
+const unseenInputTasks = new Set<string>();
+
+function updateDockBadge(): void {
+  if (!preferencesManager.get("dockBadgeEnabled")) {
+    app.dock?.setBadge("");
+    return;
+  }
+  if (unseenInputTasks.size > 0) {
+    app.dock?.setBadge(unseenInputTasks.size.toString());
+  } else if (unseenRespondedTasks.size > 0) {
+    app.dock?.setBadge("●");
+  } else {
+    app.dock?.setBadge("");
+  }
+}
+
 // Ensure shell integration and agent hooks are set up
 ShellManager.setupZdotdir();
 ensureHookScript();
@@ -635,7 +652,18 @@ ipcMain.handle("tasks:update", (_event, taskId: string, updates: Record<string, 
 
 ipcMain.handle("tasks:delete", (_event, taskId: string) => {
   assertString(taskId, "taskId");
-  return taskManager.deleteTask(taskId);
+  unseenRespondedTasks.delete(taskId);
+  unseenInputTasks.delete(taskId);
+  const result = taskManager.deleteTask(taskId);
+  updateDockBadge();
+  return result;
+});
+
+ipcMain.handle("tasks:markSeen", (_event, taskId: string) => {
+  assertString(taskId, "taskId");
+  unseenRespondedTasks.delete(taskId);
+  unseenInputTasks.delete(taskId);
+  updateDockBadge();
 });
 
 ipcMain.handle("tasks:setPaneContext", (_event, paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => {
@@ -808,18 +836,6 @@ app.whenReady().then(async () => {
     return state;
   }
 
-  function updateDockBadge(): void {
-    if (!preferencesManager.get("dockBadgeEnabled")) {
-      app.dock?.setBadge("");
-      return;
-    }
-    const allTasks = taskManager.getAllTasks();
-    const count = allTasks.filter(
-      (t) => t.status === "active" && t.lastAgentStatus === "responded",
-    ).length;
-    app.dock?.setBadge(count > 0 ? count.toString() : "");
-  }
-
   function broadcastTask(task: TaskInfo): void {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       try {
@@ -835,13 +851,6 @@ app.whenReady().then(async () => {
   preferencesManager.onChange(() => {
     updateDockBadge();
   });
-
-  // Clear dock badge when the window gains focus
-  if (mainWindow) {
-    mainWindow.on("focus", () => {
-      app.dock?.setBadge("");
-    });
-  }
 
   agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
     client.relayAgentHook(paneId, status, kind);
@@ -884,6 +893,7 @@ app.whenReady().then(async () => {
               status: "active",
             });
             if (task) {
+              unseenRespondedTasks.add(task.id);
               maybeSendNotification(task, prevStatus, "responded");
               broadcastTask(task);
             }
@@ -913,6 +923,9 @@ app.whenReady().then(async () => {
         });
         // Set activatedAt immediately after creation
         task = taskManager.updateTask(task.id, { activatedAt: now });
+        if (task && status === "requires_input") {
+          unseenInputTasks.add(task.id);
+        }
       } else {
         const prevStatus = task.lastAgentStatus;
         task = taskManager.updateTask(task.id, {
@@ -920,7 +933,12 @@ app.whenReady().then(async () => {
           status: "active",
           ...(task.activatedAt ? {} : { activatedAt: now }),
         });
-        if (task) maybeSendNotification(task, prevStatus, status);
+        if (task) {
+          if (status === "requires_input") {
+            unseenInputTasks.add(task.id);
+          }
+          maybeSendNotification(task, prevStatus, status);
+        }
       }
 
       if (task) broadcastTask(task);
@@ -955,6 +973,7 @@ app.whenReady().then(async () => {
             status: "active",
           });
           if (task) {
+            unseenRespondedTasks.add(task.id);
             maybeSendNotification(task, prevStatus, "responded");
             broadcastTask(task);
           }
@@ -968,7 +987,11 @@ app.whenReady().then(async () => {
           status: "completed",
           completedAt: new Date().toISOString(),
         });
-        if (task) broadcastTask(task);
+        if (task) {
+          unseenRespondedTasks.delete(task.id);
+          unseenInputTasks.delete(task.id);
+          broadcastTask(task);
+        }
       }
       sessionStateMap.delete(sessionId);
       // Allow pane to accept a new root session
@@ -981,7 +1004,11 @@ app.whenReady().then(async () => {
           status: "error",
           completedAt: new Date().toISOString(),
         });
-        if (task) broadcastTask(task);
+        if (task) {
+          unseenRespondedTasks.delete(task.id);
+          unseenInputTasks.delete(task.id);
+          broadcastTask(task);
+        }
       }
       sessionStateMap.delete(sessionId);
     }

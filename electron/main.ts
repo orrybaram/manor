@@ -32,6 +32,7 @@ import {
 } from "./agent-hooks";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
+import { PreferencesManager } from "./preferences";
 import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
@@ -123,7 +124,7 @@ function createWindow() {
     ...(useSaved ? { x: saved.x, y: saved.y } : {}),
     minWidth: 400,
     minHeight: 300,
-    icon: path.join(__dirname, "../build/icon.png"),
+    icon: path.join(__dirname, "../build/dev-icon.png"),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",
@@ -181,6 +182,7 @@ const linearManager = new LinearManager();
 
 const agentHookServer = new AgentHookServer();
 const taskManager = new TaskManager();
+const preferencesManager = new PreferencesManager();
 const paneContextMap = new Map<string, { projectId: string; projectName: string; workspacePath: string }>();
 
 // Ensure shell integration and agent hooks are set up
@@ -643,6 +645,33 @@ ipcMain.handle("tasks:setPaneContext", (_event, paneId: string, context: { proje
   paneContextMap.set(paneId, context);
 });
 
+// ── Preferences IPC ──
+ipcMain.handle("preferences:getAll", () => {
+  return preferencesManager.getAll();
+});
+
+ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
+  assertString(key, "key");
+  preferencesManager.set(
+    key as keyof import("./preferences").AppPreferences,
+    value as never,
+  );
+});
+
+preferencesManager.onChange((prefs) => {
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed()
+  ) {
+    try {
+      mainWindow.webContents.send("preferences-changed", prefs);
+    } catch {
+      // Render frame disposed — safe to ignore
+    }
+  }
+});
+
 // ── App lifecycle ──
 app.whenReady().then(async () => {
   // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
@@ -698,7 +727,7 @@ app.whenReady().then(async () => {
 
   // Set Dock icon on macOS
   if (process.platform === "darwin") {
-    const iconPath = path.join(__dirname, "../build/icon.png");
+    const iconPath = path.join(__dirname, "../build/dev-icon.png");
     if (fs.existsSync(iconPath)) {
       app.dock.setIcon(nativeImage.createFromPath(iconPath));
     }

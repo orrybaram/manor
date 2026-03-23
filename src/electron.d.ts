@@ -1,3 +1,7 @@
+export interface AppPreferences {
+  dockBadgeEnabled: boolean;
+}
+
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";
 
 export interface TaskInfo {
@@ -282,6 +286,12 @@ export interface ElectronAPI {
     delete: (taskId: string) => Promise<boolean>;
     setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => Promise<void>;
     onUpdate: (callback: (task: TaskInfo) => void) => () => void;
+  };
+
+  preferences: {
+    getAll: () => Promise<AppPreferences>;
+    set: (key: keyof AppPreferences, value: AppPreferences[keyof AppPreferences]) => Promise<void>;
+    onChange: (callback: (prefs: AppPreferences) => void) => () => void;
   };
 }
 

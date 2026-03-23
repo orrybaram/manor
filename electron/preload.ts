@@ -199,4 +199,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onChange: (callback: (prefs: unknown) => void) =>
       onChannel("preferences-changed", callback),
   },
+
+  notifications: {
+    onNavigateToTask: (callback: (taskId: string) => void) =>
+      onChannel("notification:navigate-to-task", callback),
+  },
 });

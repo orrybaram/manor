@@ -63,19 +63,6 @@ export function useTerminalLifecycle(
     t.refresh(0, t.rows - 1);
   }, [isFocusedPane]);
 
-  // Update font size without recreating — store subscription
-  useMountEffect(() => {
-    let prevFontSize = useAppStore.getState().fontSize;
-    return useAppStore.subscribe((state) => {
-      if (state.fontSize !== prevFontSize) {
-        prevFontSize = state.fontSize;
-        if (termRef.current) {
-          termRef.current.options.fontSize = state.fontSize;
-        }
-      }
-    });
-  });
-
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.
   const prevThemeRef = useRef<ITheme | null>(theme);
@@ -92,13 +79,8 @@ export function useTerminalLifecycle(
     const container = containerRef.current;
     if (!container) return;
 
-    const currentTheme = useAppStore.getState();
-
     const t = new Terminal(
-      terminalOptions({
-        fontSize: currentTheme.fontSize,
-        ...(theme ? { theme } : {}),
-      }),
+      terminalOptions(theme ? { theme } : {}),
     );
 
     const fit = new FitAddon();

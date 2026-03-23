@@ -100,9 +100,6 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
-  const zoomIn = useAppStore((s) => s.zoomIn);
-  const zoomOut = useAppStore((s) => s.zoomOut);
-  const resetZoom = useAppStore((s) => s.resetZoom);
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
   const hasProjects = projects.length > 0;
@@ -134,9 +131,6 @@ function App() {
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
     "new-task": () => handleNewTaskRef.current(),
-    "zoom-in": () => zoomIn(),
-    "zoom-out": () => zoomOut(),
-    "zoom-reset": () => resetZoom(),
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-session-${i + 1}`,

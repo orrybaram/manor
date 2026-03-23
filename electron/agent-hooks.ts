@@ -32,7 +32,7 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
     case "Notification":
       return "requires_input";
     case "Stop":
-      return "complete";
+      return "responded";
     case "StopFailure":
       return "error";
     case "SessionEnd":

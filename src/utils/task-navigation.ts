@@ -6,7 +6,7 @@ import { allPaneIds } from "../store/pane-tree";
 export function navigateToTask(task: TaskInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
-  const { setActiveWorkspace, selectSession, focusPane, workspaceSessions } =
+  const { setActiveWorkspace, workspaceSessions } =
     useAppStore.getState();
 
   // Find the project by projectId
@@ -38,12 +38,38 @@ export function navigateToTask(task: TaskInfo) {
   setProjectExpanded(project.id);
   selectWorkspace(project.id, workspaceIndex);
   if (task.workspacePath) {
+    // Activate workspace first (may create workspace state via IPC)
     setActiveWorkspace(task.workspacePath);
-  }
-  if (sessionId) {
-    selectSession(sessionId);
-  }
-  if (task.paneId) {
-    focusPane(task.paneId);
+
+    // Then select session + focus pane in a single atomic update so they
+    // read the correct activeWorkspacePath and selectedSessionId
+    if (sessionId || task.paneId) {
+      useAppStore.setState((state) => {
+        const wsPath = task.workspacePath!;
+        const ws = state.workspaceSessions[wsPath];
+        if (!ws) return state;
+
+        const updatedWs = { ...ws };
+        if (sessionId) {
+          updatedWs.selectedSessionId = sessionId;
+        }
+        if (task.paneId) {
+          const targetSessionId = sessionId ?? ws.selectedSessionId;
+          updatedWs.sessions = updatedWs.sessions.map((s) =>
+            s.id === targetSessionId
+              ? { ...s, focusedPaneId: task.paneId! }
+              : s,
+          );
+        }
+
+        return {
+          activeWorkspacePath: wsPath,
+          workspaceSessions: {
+            ...state.workspaceSessions,
+            [wsPath]: updatedWs,
+          },
+        };
+      });
+    }
   }
 }

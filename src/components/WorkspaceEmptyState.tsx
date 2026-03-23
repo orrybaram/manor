@@ -8,6 +8,7 @@ import {
   Search,
   Trash2,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -113,6 +114,16 @@ export function WorkspaceEmptyState() {
   );
 
   const actions: ActionItem[] = [
+    {
+      icon: <Plus size={16} />,
+      label: "New Task",
+      keys: ["⌘", "N"],
+      action: () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "n", metaKey: true }),
+        );
+      },
+    },
     {
       icon: <Terminal size={16} />,
       label: "Open Terminal",

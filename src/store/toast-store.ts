@@ -6,6 +6,8 @@ export interface Toast {
   status: "loading" | "success" | "error";
   detail?: string;
   persistent?: boolean;
+  /** Custom auto-dismiss duration in ms (overrides default) */
+  duration?: number;
   action?: { label: string; onClick: () => void };
 }
 

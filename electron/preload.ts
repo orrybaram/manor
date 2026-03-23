@@ -201,6 +201,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("preferences-changed", callback),
   },
 
+  keybindings: {
+    getAll: () => ipcRenderer.invoke("keybindings:getAll"),
+    set: (commandId: string, combo: string) => ipcRenderer.invoke("keybindings:set", commandId, combo),
+    reset: (commandId: string) => ipcRenderer.invoke("keybindings:reset", commandId),
+    resetAll: () => ipcRenderer.invoke("keybindings:resetAll"),
+    onChange: (callback: (overrides: Record<string, string>) => void) =>
+      onChannel("keybindings-changed", callback),
+  },
+
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) =>
       onChannel("notification:navigate-to-task", callback),

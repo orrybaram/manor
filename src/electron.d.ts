@@ -298,6 +298,14 @@ export interface ElectronAPI {
     onChange: (callback: (prefs: AppPreferences) => void) => () => void;
   };
 
+  keybindings: {
+    getAll: () => Promise<Record<string, string>>;
+    set: (commandId: string, combo: string) => Promise<void>;
+    reset: (commandId: string) => Promise<void>;
+    resetAll: () => Promise<void>;
+    onChange: (callback: (overrides: Record<string, string>) => void) => () => void;
+  };
+
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
   };

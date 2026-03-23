@@ -165,18 +165,20 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
                     <span className={styles.agentName}>
                       {task.name || "Agent"}
                     </span>
-                    {task.paneId && (
-                      <span
-                        className={styles.taskClose}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          useAppStore.getState().closePaneById(task.paneId!);
-                        }}
-                        title="Close session"
-                      >
-                        <X size={12} />
-                      </span>
-                    )}
+                    <span
+                      className={styles.taskClose}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (task.paneId) {
+                          useAppStore.getState().closePaneById(task.paneId);
+                        } else {
+                          useTaskStore.getState().removeTask(task.id);
+                        }
+                      }}
+                      title="Close session"
+                    >
+                      <X size={12} />
+                    </span>
                   </button>
                 );
               })}

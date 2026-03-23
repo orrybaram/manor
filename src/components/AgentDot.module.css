@@ -28,6 +28,10 @@
   color: var(--green, #a6e3a1);
 }
 
+.dotResponded {
+  background: var(--blue, #89b4fa);
+}
+
 .dotError {
   background: var(--red, #f38ba8);
 }

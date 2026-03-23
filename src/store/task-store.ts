@@ -98,12 +98,12 @@ export const useTaskStore = create<TaskState>((set, get) => {
           }
         }
 
-        if (nextStatus === "complete") {
+        if (nextStatus === "responded") {
           if (!isAlreadyVisible) {
             const toastId = `task-done-${task.id}`;
             useToastStore.getState().addToast({
               id: toastId,
-              message: "Task completed",
+              message: "Agent responded",
               detail: task.name || "Agent",
               status: "success",
               duration: 10_000,

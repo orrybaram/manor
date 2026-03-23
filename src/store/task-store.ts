@@ -9,10 +9,12 @@ interface TaskState {
   tasks: TaskInfo[];
   loading: boolean;
   loaded: boolean;
+  seenTaskIds: Set<string>;
   loadTasks: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<void>;
   loadMoreTasks: (offset: number) => Promise<void>;
   removeTask: (taskId: string) => Promise<void>;
   receiveTaskUpdate: (task: TaskInfo) => void;
+  markTaskSeen: (taskId: string) => void;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => {
@@ -43,6 +45,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
     tasks: [],
     loading: true,
     loaded: false,
+    seenTaskIds: new Set<string>(),
 
     loadTasks: async (opts) => {
       set({ loading: true });
@@ -85,6 +88,15 @@ export const useTaskStore = create<TaskState>((set, get) => {
       }
     },
 
+    markTaskSeen: (taskId: string) => {
+      const s = get();
+      if (!s.seenTaskIds.has(taskId)) {
+        const next = new Set(s.seenTaskIds);
+        next.add(taskId);
+        set({ seenTaskIds: next });
+      }
+    },
+
     receiveTaskUpdate: (task: TaskInfo) => {
       const s = get();
       const idx = s.tasks.findIndex((t) => t.id === task.id);
@@ -92,6 +104,13 @@ export const useTaskStore = create<TaskState>((set, get) => {
       const nextStatus = task.lastAgentStatus;
 
       if (prevStatus !== nextStatus) {
+        // Clear seen flag when status changes so a new response pulses again
+        if (s.seenTaskIds.has(task.id)) {
+          const next = new Set(s.seenTaskIds);
+          next.delete(task.id);
+          set({ seenTaskIds: next });
+        }
+
         // Don't show toasts if the task's pane is visible in the active session
         const appState = useAppStore.getState();
         let isAlreadyVisible = false;
@@ -112,6 +131,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
 
         if (isAlreadyVisible && (nextStatus === "responded" || nextStatus === "requires_input")) {
           window.electronAPI?.tasks.markSeen(task.id);
+          get().markTaskSeen(task.id);
         }
 
         if (nextStatus === "requires_input") {

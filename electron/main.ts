@@ -852,7 +852,6 @@ app.whenReady().then(async () => {
   // Session state map for activity gating and subagent tracking
   interface SessionState {
     subagentCount: number;
-    parentComplete: boolean;
     hasBeenActive: boolean;
   }
   const sessionStateMap = new Map<string, SessionState>();
@@ -866,7 +865,7 @@ app.whenReady().then(async () => {
   function getOrCreateSessionState(sessionId: string): SessionState {
     let state = sessionStateMap.get(sessionId);
     if (!state) {
-      state = { subagentCount: 0, parentComplete: false, hasBeenActive: false };
+      state = { subagentCount: 0, hasBeenActive: false };
       sessionStateMap.set(sessionId, state);
     }
     return state;
@@ -918,24 +917,6 @@ app.whenReady().then(async () => {
         sessionState.subagentCount++;
       } else if (eventType === "SubagentStop") {
         sessionState.subagentCount = Math.max(0, sessionState.subagentCount - 1);
-
-        // If parent already completed and last subagent finished, set responded and keep active
-        if (sessionState.subagentCount === 0 && sessionState.parentComplete) {
-          let task = taskManager.getTaskBySessionId(sessionId);
-          if (task) {
-            const prevStatus = task.lastAgentStatus;
-            task = taskManager.updateTask(task.id, {
-              lastAgentStatus: "responded",
-              status: "active",
-            });
-            if (task) {
-              unseenRespondedTasks.add(task.id);
-              maybeSendNotification(task, prevStatus, "responded");
-              broadcastTask(task);
-            }
-          }
-          return;
-        }
       }
 
       // Create or update task
@@ -992,27 +973,23 @@ app.whenReady().then(async () => {
     let task = taskManager.getTaskBySessionId(sessionId);
 
     if (eventType === "Stop") {
-      // Parent stop — check subagent count
+      // If subagents are still running, this Stop is from a subagent — ignore it.
+      // The parent's real Stop will arrive once subagentCount reaches 0.
       if (sessionState.subagentCount > 0) {
-        // Subagents still running: mark parent as complete but keep task active
-        sessionState.parentComplete = true;
+        return;
+      }
+
+      // No subagents: set responded and keep task active
+      if (task) {
+        const prevStatus = task.lastAgentStatus;
+        task = taskManager.updateTask(task.id, {
+          lastAgentStatus: "responded",
+          status: "active",
+        });
         if (task) {
-          task = taskManager.updateTask(task.id, { lastAgentStatus: status });
-          if (task) broadcastTask(task);
-        }
-      } else {
-        // No subagents: set responded and keep task active
-        if (task) {
-          const prevStatus = task.lastAgentStatus;
-          task = taskManager.updateTask(task.id, {
-            lastAgentStatus: "responded",
-            status: "active",
-          });
-          if (task) {
-            unseenRespondedTasks.add(task.id);
-            maybeSendNotification(task, prevStatus, "responded");
-            broadcastTask(task);
-          }
+          unseenRespondedTasks.add(task.id);
+          maybeSendNotification(task, prevStatus, "responded");
+          broadcastTask(task);
         }
       }
     } else if (eventType === "SessionEnd") {

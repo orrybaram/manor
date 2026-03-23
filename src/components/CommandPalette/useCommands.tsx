@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import type { CommandItem } from "./useWorkspaceCommands";
+import { useKeybindingsStore } from "../../store/keybindings-store";
+import { formatCombo } from "../../lib/keybindings";
 
 interface UseCommandsParams {
   addSession: () => void;
@@ -40,12 +42,16 @@ export function useCommands({
   selectedSessionId,
   setShowGhosts,
 }: UseCommandsParams): CommandItem[] {
+  const bindings = useKeybindingsStore((s) => s.bindings);
+  const platform = navigator.platform.toLowerCase().includes("mac") ? "mac" as const : "other" as const;
+  const fmt = (id: string) => bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+
   return useMemo(
     () => [
       {
         id: "new-session",
         label: "New Session",
-        shortcut: "⌘T",
+        shortcut: fmt("new-session"),
         action: () => {
           addSession();
           onClose();
@@ -54,7 +60,7 @@ export function useCommands({
       {
         id: "close-pane",
         label: "Close Pane",
-        shortcut: "⌘W",
+        shortcut: fmt("close-pane"),
         action: () => {
           closePane();
           onClose();
@@ -63,7 +69,7 @@ export function useCommands({
       {
         id: "close-session",
         label: "Close Session",
-        shortcut: "⌘⇧W",
+        shortcut: fmt("close-session"),
         action: () => {
           const session = sessions.find((s) => s.id === selectedSessionId);
           if (session) closeSession(session.id);
@@ -73,7 +79,7 @@ export function useCommands({
       {
         id: "split-h",
         label: "Split Horizontal",
-        shortcut: "⌘D",
+        shortcut: fmt("split-h"),
         action: () => {
           splitPane("horizontal");
           onClose();
@@ -82,7 +88,7 @@ export function useCommands({
       {
         id: "split-v",
         label: "Split Vertical",
-        shortcut: "⌘⇧D",
+        shortcut: fmt("split-v"),
         action: () => {
           splitPane("vertical");
           onClose();
@@ -91,7 +97,7 @@ export function useCommands({
       {
         id: "next-session",
         label: "Next Session",
-        shortcut: "⌘⇧]",
+        shortcut: fmt("next-session"),
         action: () => {
           selectNextSession();
           onClose();
@@ -100,7 +106,7 @@ export function useCommands({
       {
         id: "prev-session",
         label: "Previous Session",
-        shortcut: "⌘⇧[",
+        shortcut: fmt("prev-session"),
         action: () => {
           selectPrevSession();
           onClose();
@@ -109,7 +115,7 @@ export function useCommands({
       {
         id: "next-pane",
         label: "Next Pane",
-        shortcut: "⌘]",
+        shortcut: fmt("next-pane"),
         action: () => {
           focusNextPane();
           onClose();
@@ -118,7 +124,7 @@ export function useCommands({
       {
         id: "prev-pane",
         label: "Previous Pane",
-        shortcut: "⌘[",
+        shortcut: fmt("prev-pane"),
         action: () => {
           focusPrevPane();
           onClose();
@@ -127,7 +133,7 @@ export function useCommands({
       {
         id: "toggle-sidebar",
         label: "Toggle Sidebar",
-        shortcut: "⌘\\",
+        shortcut: fmt("toggle-sidebar"),
         action: () => {
           toggleSidebar();
           onClose();
@@ -136,7 +142,7 @@ export function useCommands({
       {
         id: "zoom-in",
         label: "Zoom In",
-        shortcut: "⌘=",
+        shortcut: fmt("zoom-in"),
         action: () => {
           zoomIn();
           onClose();
@@ -145,7 +151,7 @@ export function useCommands({
       {
         id: "zoom-out",
         label: "Zoom Out",
-        shortcut: "⌘-",
+        shortcut: fmt("zoom-out"),
         action: () => {
           zoomOut();
           onClose();
@@ -154,7 +160,7 @@ export function useCommands({
       {
         id: "zoom-reset",
         label: "Reset Zoom",
-        shortcut: "⌘0",
+        shortcut: fmt("zoom-reset"),
         action: () => {
           resetZoom();
           onClose();
@@ -163,7 +169,7 @@ export function useCommands({
       {
         id: "settings",
         label: "Settings",
-        shortcut: "⌘,",
+        shortcut: fmt("settings"),
         action: () => {
           onOpenSettings?.();
           onClose();
@@ -198,6 +204,7 @@ export function useCommands({
       sessions,
       selectedSessionId,
       setShowGhosts,
+      bindings,
     ],
   );
 }

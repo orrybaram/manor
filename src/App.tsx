@@ -11,6 +11,8 @@ import { ToastContainer } from "./components/Toast";
 import { TasksModal } from "./components/TasksView";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
+import { useKeybindingsStore } from "./store/keybindings-store";
+import { comboFromEvent, comboMatches } from "./lib/keybindings";
 import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
@@ -98,6 +100,9 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
+  const zoomIn = useAppStore((s) => s.zoomIn);
+  const zoomOut = useAppStore((s) => s.zoomOut);
+  const resetZoom = useAppStore((s) => s.resetZoom);
 
   const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
   const hasProjects = projects.length > 0;
@@ -110,57 +115,54 @@ function App() {
   wsRef.current = ws;
   const handleNewTaskRef = useRef<() => void>(() => {});
 
+  // Handler map: command ID → action
+  const handlersRef = useRef<Record<string, () => void>>({});
+  handlersRef.current = {
+    "settings": () => setSettingsOpen((v) => !v),
+    "command-palette": () => setPaletteOpen((v) => !v),
+    "new-session": () => addSession(),
+    "split-h": () => splitPane("horizontal"),
+    "split-v": () => splitPane("vertical"),
+    "close-pane": () => closePane(),
+    "close-session": () => {
+      const session = activeSessionRef.current;
+      if (session) closeSession(session.id);
+    },
+    "next-session": () => selectNextSession(),
+    "prev-session": () => selectPrevSession(),
+    "next-pane": () => focusNextPane(),
+    "prev-pane": () => focusPrevPane(),
+    "toggle-sidebar": () => toggleSidebar(),
+    "new-task": () => handleNewTaskRef.current(),
+    "zoom-in": () => zoomIn(),
+    "zoom-out": () => zoomOut(),
+    "zoom-reset": () => resetZoom(),
+    ...Object.fromEntries(
+      Array.from({ length: 9 }, (_, i) => [
+        `select-session-${i + 1}`,
+        () => {
+          const sessions = wsRef.current?.sessions;
+          if (sessions && i < sessions.length) {
+            selectSession(sessions[i].id);
+          }
+        },
+      ]),
+    ),
+  };
+
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (!e.metaKey) return;
-      const activeSession = activeSessionRef.current;
-      const ws = wsRef.current;
+      // Skip plain keys with no modifier — custom bindings always use at least one
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) return;
 
-      if (e.key === "," && !e.shiftKey) {
-        e.preventDefault();
-        setSettingsOpen((v) => !v);
-      } else if (e.key === "k" && !e.shiftKey) {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-      } else if (e.key === "t" && !e.shiftKey) {
-        e.preventDefault();
-        addSession();
-      } else if (e.key === "d" && !e.shiftKey) {
-        e.preventDefault();
-        splitPane("horizontal");
-      } else if (e.key === "D" || (e.key === "d" && e.shiftKey)) {
-        e.preventDefault();
-        splitPane("vertical");
-      } else if (e.key === "w" && !e.shiftKey) {
-        e.preventDefault();
-        closePane();
-      } else if (e.key === "W" || (e.key === "w" && e.shiftKey)) {
-        e.preventDefault();
-        if (activeSession) closeSession(activeSession.id);
-      } else if (e.key === "]" && e.shiftKey) {
-        e.preventDefault();
-        selectNextSession();
-      } else if (e.key === "[" && e.shiftKey) {
-        e.preventDefault();
-        selectPrevSession();
-      } else if (e.key === "]" && !e.shiftKey) {
-        e.preventDefault();
-        focusNextPane();
-      } else if (e.key === "[" && !e.shiftKey) {
-        e.preventDefault();
-        focusPrevPane();
-      } else if (e.key === "\\") {
-        e.preventDefault();
-        toggleSidebar();
-      } else if (e.key === "n" && !e.shiftKey) {
-        e.preventDefault();
-        handleNewTaskRef.current();
-      } else if (e.key >= "1" && e.key <= "9" && !e.shiftKey) {
-        e.preventDefault();
-        const index = parseInt(e.key, 10) - 1;
-        const sessions = ws?.sessions;
-        if (sessions && index < sessions.length) {
-          selectSession(sessions[index].id);
+      const combo = comboFromEvent(e);
+      const bindings = useKeybindingsStore.getState().bindings;
+
+      for (const [commandId, boundCombo] of Object.entries(bindings)) {
+        if (comboMatches(combo, boundCombo)) {
+          e.preventDefault();
+          handlersRef.current[commandId]?.();
+          return;
         }
       }
     }

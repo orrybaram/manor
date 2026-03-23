@@ -7,6 +7,9 @@ import {
   comboFromEvent,
   comboMatches,
   formatCombo,
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  KeybindingCategory,
 } from "../lib/keybindings";
 import styles from "./SettingsModal.module.css";
 
@@ -98,71 +101,86 @@ export function KeybindingsPage() {
         />
 
         <div className={styles.keybindingsList}>
-          {filtered.map((def) => {
-            const isRecording = recordingId === def.id;
-            const isOverridden = overriddenIds.has(def.id);
-            const combo = bindings[def.id];
+          {CATEGORY_ORDER.map((category: KeybindingCategory, categoryIndex: number) => {
+            const categoryDefs = filtered.filter((def) => def.category === category);
+            if (categoryDefs.length === 0) return null;
 
             return (
-              <div
-                key={def.id}
-                className={`${styles.keybindingRow} ${isOverridden ? styles.keybindingModified : ""}`}
-              >
-                <span className={styles.keybindingLabel}>{def.label}</span>
+              <div key={category}>
+                <div
+                  className={styles.keybindingCategory}
+                  style={categoryIndex === 0 ? { marginTop: 0 } : undefined}
+                >
+                  {CATEGORY_LABELS[category]}
+                </div>
+                {categoryDefs.map((def) => {
+                  const isRecording = recordingId === def.id;
+                  const isOverridden = overriddenIds.has(def.id);
+                  const combo = bindings[def.id];
 
-                {isRecording ? (
-                  <div className={styles.keybindingActions}>
-                    <span
-                      className={`${styles.keybindingShortcut} ${styles.keybindingRecording}`}
+                  return (
+                    <div
+                      key={def.id}
+                      className={`${styles.keybindingRow} ${isOverridden ? styles.keybindingModified : ""}`}
                     >
-                      {recordedCombo
-                        ? formatCombo(recordedCombo, platform)
-                        : "Press keys..."}
-                    </span>
-                    <button
-                      className={styles.keybindingActionBtn}
-                      onClick={confirmRecording}
-                      title="Confirm"
-                      disabled={!recordedCombo}
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      className={styles.keybindingActionBtn}
-                      onClick={cancelRecording}
-                      title="Cancel"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.keybindingActions}>
-                    <button
-                      className={styles.keybindingShortcut}
-                      onClick={() => {
-                        setRecordingId(def.id);
-                        setRecordedCombo(null);
-                        setConflict(null);
-                      }}
-                      title="Click to edit"
-                    >
-                      {combo ? formatCombo(combo, platform) : "—"}
-                    </button>
-                    {isOverridden && (
-                      <button
-                        className={styles.keybindingActionBtn}
-                        onClick={() => store.reset(def.id)}
-                        title="Reset to default"
-                      >
-                        <RotateCcw size={13} />
-                      </button>
-                    )}
-                  </div>
-                )}
+                      <span className={styles.keybindingLabel}>{def.label}</span>
 
-                {isRecording && conflict && (
-                  <span className={styles.keybindingConflict}>{conflict}</span>
-                )}
+                      {isRecording ? (
+                        <div className={styles.keybindingActions}>
+                          <span
+                            className={`${styles.keybindingShortcut} ${styles.keybindingRecording}`}
+                          >
+                            {recordedCombo
+                              ? formatCombo(recordedCombo, platform)
+                              : "Press keys..."}
+                          </span>
+                          <button
+                            className={styles.keybindingActionBtn}
+                            onClick={confirmRecording}
+                            title="Confirm"
+                            disabled={!recordedCombo || !!conflict}
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            className={styles.keybindingActionBtn}
+                            onClick={cancelRecording}
+                            title="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.keybindingActions}>
+                          <button
+                            className={styles.keybindingShortcut}
+                            onClick={() => {
+                              setRecordingId(def.id);
+                              setRecordedCombo(null);
+                              setConflict(null);
+                            }}
+                            title="Click to edit"
+                          >
+                            {combo ? formatCombo(combo, platform) : "—"}
+                          </button>
+                          {isOverridden && (
+                            <button
+                              className={styles.keybindingActionBtn}
+                              onClick={() => store.reset(def.id)}
+                              title="Reset to default"
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {isRecording && conflict && (
+                        <span className={styles.keybindingConflict}>{conflict}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}

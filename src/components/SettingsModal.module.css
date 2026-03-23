@@ -597,6 +597,16 @@
   margin-bottom: 12px;
 }
 
+.keybindingCategory {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+
 .keybindingsList {
   display: flex;
   flex-direction: column;

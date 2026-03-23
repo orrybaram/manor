@@ -21,6 +21,18 @@ export const useTaskStore = create<TaskState>((set, get) => {
     get().receiveTaskUpdate(task);
   });
 
+  // Navigate to task when a desktop notification is clicked
+  window.electronAPI?.notifications.onNavigateToTask(async (taskId) => {
+    const tasks = get().tasks;
+    let task = tasks.find((t) => t.id === taskId) ?? null;
+    if (!task) {
+      task = await window.electronAPI.tasks.get(taskId);
+    }
+    if (task) {
+      navigateToTask(task);
+    }
+  });
+
   // Eagerly load all tasks on store creation
   window.electronAPI?.tasks.getAll().then((tasks) => {
     tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -98,25 +110,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
           }
         }
 
-        if (nextStatus === "responded") {
-          if (!isAlreadyVisible) {
-            const toastId = `task-done-${task.id}`;
-            useToastStore.getState().addToast({
-              id: toastId,
-              message: "Agent responded",
-              detail: task.name || "Agent",
-              status: "success",
-              duration: 10_000,
-              action: {
-                label: "Go to task",
-                onClick: () => {
-                  navigateToTask(task);
-                  useToastStore.getState().removeToast(toastId);
-                },
-              },
-            });
-          }
-        } else if (nextStatus === "requires_input") {
+        if (nextStatus === "requires_input") {
           if (!isAlreadyVisible) {
             const toastId = `task-input-${task.id}`;
             useToastStore.getState().addToast({

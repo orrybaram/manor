@@ -13,12 +13,6 @@ export function AppSettingsPage() {
         </div>
       </div>
 
-      <div className={styles.settingsGroup}>
-        <div className={styles.sectionTitle}>Keybindings</div>
-        <div className={styles.placeholder}>
-          Custom keyboard shortcuts coming soon.
-        </div>
-      </div>
     </div>
   );
 }

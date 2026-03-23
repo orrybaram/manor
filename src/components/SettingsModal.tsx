@@ -5,12 +5,14 @@ import {
   ChevronDown,
   ChevronRight,
   Palette,
+  Keyboard,
   Bell,
   FolderOpen,
   Link,
 } from "lucide-react";
 import { useProjectStore } from "../store/project-store";
 import { AppSettingsPage } from "./AppSettingsPage";
+import { KeybindingsPage } from "./KeybindingsPage";
 import { NotificationsPage } from "./NotificationsPage";
 import { IntegrationsPage } from "./IntegrationsPage";
 import { ProjectSettingsPage } from "./ProjectSettingsPage";
@@ -24,6 +26,7 @@ interface SettingsModalProps {
 
 type SettingsPage =
   | { type: "app" }
+  | { type: "keybindings" }
   | { type: "notifications" }
   | { type: "integrations" }
   | { type: "project"; projectId: string };
@@ -90,6 +93,14 @@ export function SettingsModal({ open, onClose, initialProjectId }: SettingsModal
               </button>
 
               <button
+                className={`${styles.navItem} ${page.type === "keybindings" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "keybindings" })}
+              >
+                <Keyboard size={14} />
+                <span>Keybindings</span>
+              </button>
+
+              <button
                 className={`${styles.navItem} ${page.type === "notifications" ? styles.navItemActive : ""}`}
                 onClick={() => setPage({ type: "notifications" })}
               >
@@ -141,6 +152,7 @@ export function SettingsModal({ open, onClose, initialProjectId }: SettingsModal
             {/* Content */}
             <div className={styles.content}>
               {page.type === "app" && <AppSettingsPage />}
+              {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
               {page.type === "project" && currentProject && (

@@ -590,6 +590,117 @@
   font-size: 13px;
 }
 
+/* ── Keybindings ── */
+
+.keybindingsSearch {
+  composes: fieldInput;
+  margin-bottom: 12px;
+}
+
+.keybindingsList {
+  display: flex;
+  flex-direction: column;
+}
+
+.keybindingRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--surface);
+  flex-wrap: wrap;
+}
+
+.keybindingRow:last-child {
+  border-bottom: none;
+}
+
+.keybindingLabel {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.keybindingShortcut {
+  font-size: 12px;
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+  padding: 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--surface);
+  border-radius: 4px;
+  color: var(--text-selected);
+  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
+}
+
+.keybindingShortcut:hover {
+  border-color: var(--text-dim);
+}
+
+.keybindingRecording {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: keybindingPulse 1.5s ease-in-out infinite;
+}
+
+.keybindingConflict {
+  font-size: 11px;
+  color: var(--red, #f38ba8);
+  width: 100%;
+}
+
+.keybindingActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.keybindingActionBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.keybindingActionBtn:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.keybindingModified .keybindingLabel::after {
+  content: "\2022";
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+.keybindingResetAll {
+  margin-top: 16px;
+  align-self: flex-end;
+  padding: 8px 14px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.keybindingResetAll:hover {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+@keyframes keybindingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

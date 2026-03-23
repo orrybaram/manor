@@ -7,6 +7,7 @@ import {
   shell,
   screen,
   nativeImage,
+  Notification,
 } from "electron";
 import fs from "node:fs";
 import os from "node:os";
@@ -672,6 +673,33 @@ preferencesManager.onChange((prefs) => {
   }
 });
 
+function maybeSendNotification(task: TaskInfo, prevStatus: string | null | undefined, newStatus: AgentStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isFocused()) return;
+
+  let title: string;
+  if (newStatus === "responded" && prevStatus !== "responded" && preferencesManager.get("notifyOnResponse")) {
+    title = "Agent responded";
+  } else if (newStatus === "requires_input" && prevStatus !== "requires_input" && preferencesManager.get("notifyOnRequiresInput")) {
+    title = "Agent needs input";
+  } else {
+    return;
+  }
+
+  const notification = new Notification({
+    title,
+    body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
+    silent: !preferencesManager.get("notificationSound"),
+  });
+  notification.on("click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send("notification:navigate-to-task", task.id);
+  });
+  notification.show();
+}
+
 // ── App lifecycle ──
 app.whenReady().then(async () => {
   // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
@@ -808,6 +836,13 @@ app.whenReady().then(async () => {
     updateDockBadge();
   });
 
+  // Clear dock badge when the window gains focus
+  if (mainWindow) {
+    mainWindow.on("focus", () => {
+      app.dock?.setBadge("");
+    });
+  }
+
   agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
     client.relayAgentHook(paneId, status, kind);
 
@@ -843,11 +878,15 @@ app.whenReady().then(async () => {
         if (sessionState.subagentCount === 0 && sessionState.parentComplete) {
           let task = taskManager.getTaskBySessionId(sessionId);
           if (task) {
+            const prevStatus = task.lastAgentStatus;
             task = taskManager.updateTask(task.id, {
               lastAgentStatus: "responded",
               status: "active",
             });
-            if (task) broadcastTask(task);
+            if (task) {
+              maybeSendNotification(task, prevStatus, "responded");
+              broadcastTask(task);
+            }
           }
           return;
         }
@@ -875,11 +914,13 @@ app.whenReady().then(async () => {
         // Set activatedAt immediately after creation
         task = taskManager.updateTask(task.id, { activatedAt: now });
       } else {
+        const prevStatus = task.lastAgentStatus;
         task = taskManager.updateTask(task.id, {
           lastAgentStatus: status,
           status: "active",
           ...(task.activatedAt ? {} : { activatedAt: now }),
         });
+        if (task) maybeSendNotification(task, prevStatus, status);
       }
 
       if (task) broadcastTask(task);
@@ -908,11 +949,15 @@ app.whenReady().then(async () => {
       } else {
         // No subagents: set responded and keep task active
         if (task) {
+          const prevStatus = task.lastAgentStatus;
           task = taskManager.updateTask(task.id, {
             lastAgentStatus: "responded",
             status: "active",
           });
-          if (task) broadcastTask(task);
+          if (task) {
+            maybeSendNotification(task, prevStatus, "responded");
+            broadcastTask(task);
+          }
         }
       }
     } else if (eventType === "SessionEnd") {

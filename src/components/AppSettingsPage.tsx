@@ -11,9 +11,9 @@ export function AppSettingsPage() {
     <div className={styles.pageContent}>
       <ThemeSection />
 
-      {isMac && (
-        <div className={styles.settingsGroup}>
-          <div className={styles.sectionTitle}>Notifications</div>
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Notifications</div>
+        {isMac && (
           <label className={styles.toggleRow}>
             <input
               type="checkbox"
@@ -22,8 +22,32 @@ export function AppSettingsPage() {
             />
             <span>Show dock badge for agent responses</span>
           </label>
-        </div>
-      )}
+        )}
+        <label className={styles.toggleRow}>
+          <input
+            type="checkbox"
+            checked={preferences.notifyOnResponse}
+            onChange={(e) => set("notifyOnResponse", e.target.checked)}
+          />
+          <span>Notify when agent responds</span>
+        </label>
+        <label className={styles.toggleRow}>
+          <input
+            type="checkbox"
+            checked={preferences.notifyOnRequiresInput}
+            onChange={(e) => set("notifyOnRequiresInput", e.target.checked)}
+          />
+          <span>Notify when agent needs input</span>
+        </label>
+        <label className={styles.toggleRow}>
+          <input
+            type="checkbox"
+            checked={preferences.notificationSound}
+            onChange={(e) => set("notificationSound", e.target.checked)}
+          />
+          <span>Play notification sound</span>
+        </label>
+      </div>
 
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Font</div>

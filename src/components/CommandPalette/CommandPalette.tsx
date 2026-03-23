@@ -45,9 +45,6 @@ export function CommandPalette({
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const closeSession = useAppStore((s) => s.closeSession);
-  const zoomIn = useAppStore((s) => s.zoomIn);
-  const zoomOut = useAppStore((s) => s.zoomOut);
-  const resetZoom = useAppStore((s) => s.resetZoom);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
@@ -125,9 +122,6 @@ export function CommandPalette({
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
-    zoomIn,
-    zoomOut,
-    resetZoom,
     onClose,
     onOpenSettings,
     sessions,

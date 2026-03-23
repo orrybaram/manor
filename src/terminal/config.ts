@@ -12,11 +12,14 @@ export const FONT_FAMILY = [
   "monospace",
 ].join(", ");
 
+const DEFAULT_FONT_SIZE = 13;
+
 export function terminalOptions(
   overrides: Partial<ITerminalOptions> = {},
 ): ITerminalOptions {
   return {
     fontFamily: FONT_FAMILY,
+    fontSize: DEFAULT_FONT_SIZE,
     cursorBlink: false,
     cursorStyle: "block",
     cursorInactiveStyle: "outline",

@@ -43,11 +43,12 @@ export function useCommands({
   setShowGhosts,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
-  const platform = navigator.platform.toLowerCase().includes("mac") ? "mac" as const : "other" as const;
-  const fmt = (id: string) => bindings[id] ? formatCombo(bindings[id], platform) : undefined;
 
   return useMemo(
-    () => [
+    () => {
+    const platform = navigator.platform.toLowerCase().includes("mac") ? "mac" as const : "other" as const;
+    const fmt = (id: string) => bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+    return [
       {
         id: "new-session",
         label: "New Session",
@@ -185,7 +186,8 @@ export function useCommands({
           setTimeout(() => setShowGhosts(false), 5000);
         },
       },
-    ],
+    ];
+    },
     [
       addSession,
       closePane,

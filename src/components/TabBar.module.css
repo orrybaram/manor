@@ -21,13 +21,12 @@
   overflow: hidden;
   align-items: center;
   min-width: 0;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   -webkit-app-region: no-drag;
 }
 
 .spacer {
-  flex: 0 0 auto;
-  min-width: 32px;
+  flex: 1 0 32px;
   -webkit-app-region: drag;
 }
 

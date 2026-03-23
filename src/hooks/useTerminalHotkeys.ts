@@ -1,40 +1,28 @@
 /**
  * useTerminalHotkeys — custom key event handler for xterm.
  *
- * Intercepts app-level shortcuts (Cmd+T, Cmd+W, etc.) before the terminal
- * swallows them, and re-dispatches them on window for the app to handle.
+ * Intercepts app-level shortcuts before the terminal swallows them,
+ * and re-dispatches them on window for the app to handle.
+ *
+ * The set of intercepted keys is derived dynamically from the keybindings store,
+ * so user-customized shortcuts are correctly intercepted.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
-
-const APP_SHORTCUTS: Record<string, boolean | ((e: KeyboardEvent) => boolean)> =
-  {
-    t: true,
-    n: true,
-    k: true,
-    d: true,
-    D: true,
-    w: true,
-    W: true,
-    "\\": true,
-    "=": true,
-    "-": true,
-    "0": true,
-    "1": true,
-    "2": true,
-    "3": true,
-    "4": true,
-    "5": true,
-    "6": true,
-    "7": true,
-    "8": true,
-    "9": true,
-    "]": true,
-    "[": true,
-  };
+import { useKeybindingsStore } from "../store/keybindings-store";
+import { comboFromEvent, comboMatches } from "../lib/keybindings";
 
 export function useTerminalHotkeys() {
+  const bindingsRef = useRef(useKeybindingsStore.getState().bindings);
+
+  // Keep ref up to date
+  useEffect(() => {
+    return useKeybindingsStore.subscribe((s) => {
+      bindingsRef.current = s.bindings;
+    });
+  }, []);
+
   const attachHandler = useCallback(
     (term: Terminal, ptyWrite: (data: string) => void) => {
       term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
@@ -53,15 +41,16 @@ export function useTerminalHotkeys() {
           return false;
         }
 
-        if (!e.metaKey) return true;
+        // No modifier? Let terminal handle it
+        if (!e.metaKey && !e.ctrlKey && !e.altKey) return true;
 
-        const check = APP_SHORTCUTS[e.key];
-        const isAppShortcut = typeof check === "function" ? check(e) : !!check;
-
-        if (isAppShortcut) {
-          // Return false to tell xterm not to handle this key —
-          // the original event will bubble up to window where App.tsx handles it.
-          return false;
+        // Check if this combo matches any app keybinding
+        const combo = comboFromEvent(e);
+        const bindings = bindingsRef.current;
+        for (const bound of Object.values(bindings)) {
+          if (comboMatches(combo, bound)) {
+            return false; // Let it bubble to window
+          }
         }
 
         return true;

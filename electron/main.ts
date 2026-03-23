@@ -197,7 +197,7 @@ function updateDockBadge(): void {
   if (unseenInputTasks.size > 0) {
     app.dock?.setBadge(unseenInputTasks.size.toString());
   } else if (unseenRespondedTasks.size > 0) {
-    app.dock?.setBadge("●");
+    app.dock?.setBadge("·");
   } else {
     app.dock?.setBadge("");
   }

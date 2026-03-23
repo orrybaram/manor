@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Unlink } from "lucide-react";
 import { useProjectStore } from "../store/project-store";
+import { useToastStore } from "../store/toast-store";
 import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./SettingsModal.module.css";
 
@@ -14,6 +15,7 @@ export function LinearIntegrationSection() {
   const [error, setError] = useState<string | null>(null);
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const loadProjects = useProjectStore((s) => s.loadProjects);
+  const addToast = useToastStore((s) => s.addToast);
 
   useMountEffect(() => {
     window.electronAPI.linear.isConnected().then(async (isConnected) => {
@@ -43,6 +45,12 @@ export function LinearIntegrationSection() {
       const count = Object.keys(matches).length;
       setMatchCount(count);
       loadProjects();
+      addToast({
+        id: "linear-connected",
+        message: "Linear connected",
+        detail: count > 0 ? `Auto-matched ${count} project${count !== 1 ? "s" : ""}` : undefined,
+        status: "success",
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect");
     } finally {
@@ -60,6 +68,9 @@ export function LinearIntegrationSection() {
   return (
     <div className={styles.settingsGroup}>
       <div className={styles.sectionTitle}>Linear</div>
+      <div className={styles.sectionDescription}>
+        Connect Linear to sync issues, track project progress, and auto-match teams to your projects.
+      </div>
       {connected ? (
         <div className={styles.linearConnected}>
           <div className={styles.linearStatus}>

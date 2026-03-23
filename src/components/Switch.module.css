@@ -1,9 +1,9 @@
 .root {
   all: unset;
-  width: 34px;
-  height: 18px;
+  width: 28px;
+  height: 16px;
   background: var(--surface);
-  border-radius: 9px;
+  border-radius: 8px;
   position: relative;
   cursor: pointer;
   flex-shrink: 0;
@@ -22,8 +22,8 @@
 
 .thumb {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   background: var(--text-selected);
   border-radius: 50%;
   transition: transform 150ms ease;
@@ -31,5 +31,5 @@
 }
 
 .thumb[data-state="checked"] {
-  transform: translateX(18px);
+  transform: translateX(14px);
 }

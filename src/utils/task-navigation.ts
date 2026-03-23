@@ -1,6 +1,7 @@
 import type { TaskInfo } from "../electron.d";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
+import { useTaskStore } from "../store/task-store";
 import { allPaneIds } from "../store/pane-tree";
 
 export function navigateToTask(task: TaskInfo) {
@@ -73,4 +74,5 @@ export function navigateToTask(task: TaskInfo) {
     }
   }
   window.electronAPI?.tasks.markSeen(task.id);
+  useTaskStore.getState().markTaskSeen(task.id);
 }

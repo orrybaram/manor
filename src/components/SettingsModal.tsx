@@ -4,12 +4,14 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Settings,
+  Palette,
+  Bell,
   FolderOpen,
   Link,
 } from "lucide-react";
 import { useProjectStore } from "../store/project-store";
 import { AppSettingsPage } from "./AppSettingsPage";
+import { NotificationsPage } from "./NotificationsPage";
 import { IntegrationsPage } from "./IntegrationsPage";
 import { ProjectSettingsPage } from "./ProjectSettingsPage";
 import styles from "./SettingsModal.module.css";
@@ -22,6 +24,7 @@ interface SettingsModalProps {
 
 type SettingsPage =
   | { type: "app" }
+  | { type: "notifications" }
   | { type: "integrations" }
   | { type: "project"; projectId: string };
 
@@ -82,8 +85,16 @@ export function SettingsModal({ open, onClose, initialProjectId }: SettingsModal
                 className={`${styles.navItem} ${page.type === "app" ? styles.navItemActive : ""}`}
                 onClick={() => setPage({ type: "app" })}
               >
-                <Settings size={14} />
-                <span>App Settings</span>
+                <Palette size={14} />
+                <span>Appearance</span>
+              </button>
+
+              <button
+                className={`${styles.navItem} ${page.type === "notifications" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "notifications" })}
+              >
+                <Bell size={14} />
+                <span>Notifications</span>
               </button>
 
               <button
@@ -130,6 +141,7 @@ export function SettingsModal({ open, onClose, initialProjectId }: SettingsModal
             {/* Content */}
             <div className={styles.content}>
               {page.type === "app" && <AppSettingsPage />}
+              {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage

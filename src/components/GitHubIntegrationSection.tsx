@@ -23,6 +23,11 @@ export function GitHubIntegrationSection() {
   return (
     <div className={styles.settingsGroup}>
       <div className={styles.sectionTitle}>GitHub</div>
+      <div className={styles.sectionDescription}>
+        Shows live PR status badges in the sidebar for each branch — including CI
+        checks, review decisions, and unresolved comments. Requires the GitHub CLI
+        (<code>gh</code>) to be installed and authenticated.
+      </div>
       {status?.installed && status?.authenticated ? (
         <div className={styles.linearConnected}>
           <div className={styles.linearStatus}>

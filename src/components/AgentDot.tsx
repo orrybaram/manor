@@ -6,9 +6,10 @@ import styles from "./AgentDot.module.css";
 interface AgentDotProps {
   status?: AgentStatus;
   size: "pane" | "tab" | "sidebar" | "debug";
+  pulse?: boolean;
 }
 
-export function AgentDot({ status: rawStatus, size }: AgentDotProps) {
+export function AgentDot({ status: rawStatus, size, pulse = true }: AgentDotProps) {
   const status = useDebouncedAgentStatus(rawStatus);
   if (!status || status === "idle") return null;
 
@@ -17,9 +18,10 @@ export function AgentDot({ status: rawStatus, size }: AgentDotProps) {
   }
 
   if (status === "responded") {
+    const respondedClass = pulse ? styles.dotResponded : styles.dotRespondedStatic;
     return (
       <span
-        className={`${styles.dot} ${styles[size]} ${styles.dotResponded}`}
+        className={`${styles.dot} ${styles[size]} ${respondedClass}`}
         title="Agent responded"
       />
     );

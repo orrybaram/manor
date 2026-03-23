@@ -74,9 +74,9 @@
 
 .actionButton {
   flex-shrink: 0;
-  background: var(--accent);
-  color: var(--text-on-accent, #fff);
-  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 3px 8px;
   font-size: 11px;
@@ -84,11 +84,12 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .actionButton:hover {
-  opacity: 0.85;
+  background: var(--border);
+  color: var(--text-selected);
 }
 
 @keyframes slideIn {

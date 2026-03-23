@@ -16,7 +16,7 @@ export function ToastItem({ toast }: { toast: ToastData }) {
     if (toast.persistent) return;
 
     const delay =
-      toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS;
+      toast.duration ?? (toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS);
     dismissRef.current = setTimeout(() => {
       setExiting(true);
       exitRef.current = setTimeout(() => removeToast(toast.id), 200);

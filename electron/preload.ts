@@ -191,4 +191,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdate: (callback: (task: unknown) => void) =>
       onChannel("task-updated", callback),
   },
+
+  preferences: {
+    getAll: () => ipcRenderer.invoke("preferences:getAll"),
+    set: (key: string, value: unknown) =>
+      ipcRenderer.invoke("preferences:set", key, value),
+    onChange: (callback: (prefs: unknown) => void) =>
+      onChannel("preferences-changed", callback),
+  },
 });

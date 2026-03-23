@@ -72,4 +72,5 @@ export function navigateToTask(task: TaskInfo) {
       });
     }
   }
+  window.electronAPI?.tasks.markSeen(task.id);
 }

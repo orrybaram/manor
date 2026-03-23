@@ -1,5 +1,8 @@
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
+  notifyOnResponse: boolean;
+  notifyOnRequiresInput: boolean;
+  notificationSound: boolean;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";

@@ -11,10 +11,16 @@ function manorDataDir(): string {
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
+  notifyOnResponse: boolean;
+  notifyOnRequiresInput: boolean;
+  notificationSound: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
   dockBadgeEnabled: true,
+  notifyOnResponse: true,
+  notifyOnRequiresInput: true,
+  notificationSound: true,
 };
 
 export class PreferencesManager {

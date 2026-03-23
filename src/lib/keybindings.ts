@@ -6,10 +6,21 @@ export interface KeyCombo {
   alt: boolean;
 }
 
+export type KeybindingCategory = "app" | "workspace" | "terminal";
+
+export const CATEGORY_LABELS: Record<KeybindingCategory, string> = {
+  app: "App",
+  workspace: "Workspace",
+  terminal: "Terminal",
+};
+
+export const CATEGORY_ORDER: KeybindingCategory[] = ["app", "workspace", "terminal"];
+
 export interface KeybindingDef {
   id: string;
   label: string;
   defaultCombo: KeyCombo;
+  category: KeybindingCategory;
 }
 
 // Helper to create a meta-based combo (macOS convention)
@@ -27,87 +38,104 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     id: "new-session",
     label: "New Session",
     defaultCombo: metaCombo("t"),
+    category: "workspace",
   },
   {
     id: "close-pane",
     label: "Close Pane",
     defaultCombo: metaCombo("w"),
+    category: "terminal",
   },
   {
     id: "close-session",
     label: "Close Session",
     defaultCombo: metaCombo("w", true),
+    category: "workspace",
   },
   {
     id: "split-h",
     label: "Split Horizontal",
     defaultCombo: metaCombo("d"),
+    category: "terminal",
   },
   {
     id: "split-v",
     label: "Split Vertical",
     defaultCombo: metaCombo("d", true),
+    category: "terminal",
   },
   {
     id: "next-session",
     label: "Next Session",
     defaultCombo: metaCombo("]", true),
+    category: "workspace",
   },
   {
     id: "prev-session",
     label: "Previous Session",
     defaultCombo: metaCombo("[", true),
+    category: "workspace",
   },
   {
     id: "next-pane",
     label: "Next Pane",
     defaultCombo: metaCombo("]"),
+    category: "terminal",
   },
   {
     id: "prev-pane",
     label: "Previous Pane",
     defaultCombo: metaCombo("["),
+    category: "terminal",
   },
   {
     id: "toggle-sidebar",
     label: "Toggle Sidebar",
     defaultCombo: metaCombo("\\"),
+    category: "app",
   },
   {
     id: "new-task",
     label: "New Task",
     defaultCombo: metaCombo("n"),
+    category: "workspace",
   },
   // select-session-1 through select-session-9
   ...Array.from({ length: 9 }, (_, i) => ({
     id: `select-session-${i + 1}`,
     label: `Select Session ${i + 1}`,
     defaultCombo: metaCombo(String(i + 1)),
+    category: "workspace" as KeybindingCategory,
   })),
   {
     id: "settings",
     label: "Settings",
     defaultCombo: metaCombo(","),
+    category: "app",
   },
   {
     id: "command-palette",
     label: "Command Palette",
     defaultCombo: metaCombo("k"),
+    category: "app",
   },
   {
     id: "zoom-in",
     label: "Zoom In",
     defaultCombo: metaCombo("="),
+    category: "app",
   },
   {
     id: "zoom-out",
     label: "Zoom Out",
     defaultCombo: metaCombo("-"),
+    category: "app",
   },
   {
     id: "zoom-reset",
     label: "Reset Zoom",
     defaultCombo: metaCombo("0"),
+    category: "app",
   },
 ];
 

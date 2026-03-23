@@ -185,6 +185,16 @@
   margin-bottom: 10px;
 }
 
+.toggleRow {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
 .placeholder {
   font-size: 13px;
   color: var(--text-dim);

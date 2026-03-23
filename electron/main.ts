@@ -34,6 +34,7 @@ import {
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
+import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
@@ -184,6 +185,7 @@ const linearManager = new LinearManager();
 const agentHookServer = new AgentHookServer();
 const taskManager = new TaskManager();
 const preferencesManager = new PreferencesManager();
+const keybindingsManager = new KeybindingsManager();
 const paneContextMap = new Map<string, { projectId: string; projectName: string; workspacePath: string }>();
 
 const unseenRespondedTasks = new Set<string>();
@@ -695,6 +697,40 @@ preferencesManager.onChange((prefs) => {
   ) {
     try {
       mainWindow.webContents.send("preferences-changed", prefs);
+    } catch {
+      // Render frame disposed — safe to ignore
+    }
+  }
+});
+
+// ── Keybindings IPC ──
+ipcMain.handle("keybindings:getAll", () => {
+  return keybindingsManager.getAll();
+});
+
+ipcMain.handle("keybindings:set", (_event, commandId: string, combo: string) => {
+  assertString(commandId, "commandId");
+  assertString(combo, "combo");
+  keybindingsManager.set(commandId, combo);
+});
+
+ipcMain.handle("keybindings:reset", (_event, commandId: string) => {
+  assertString(commandId, "commandId");
+  keybindingsManager.reset(commandId);
+});
+
+ipcMain.handle("keybindings:resetAll", () => {
+  keybindingsManager.resetAll();
+});
+
+keybindingsManager.onChange((overrides) => {
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed()
+  ) {
+    try {
+      mainWindow.webContents.send("keybindings-changed", overrides);
     } catch {
       // Render frame disposed — safe to ignore
     }

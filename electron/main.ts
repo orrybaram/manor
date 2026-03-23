@@ -780,6 +780,18 @@ app.whenReady().then(async () => {
     return state;
   }
 
+  function updateDockBadge(): void {
+    if (!preferencesManager.get("dockBadgeEnabled")) {
+      app.dock?.setBadge("");
+      return;
+    }
+    const allTasks = taskManager.getAllTasks();
+    const count = allTasks.filter(
+      (t) => t.status === "active" && t.lastAgentStatus === "responded",
+    ).length;
+    app.dock?.setBadge(count > 0 ? count.toString() : "");
+  }
+
   function broadcastTask(task: TaskInfo): void {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       try {
@@ -788,7 +800,13 @@ app.whenReady().then(async () => {
         // Render frame disposed — safe to ignore
       }
     }
+    updateDockBadge();
   }
+
+  // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
+  preferencesManager.onChange(() => {
+    updateDockBadge();
+  });
 
   agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
     client.relayAgentHook(paneId, status, kind);

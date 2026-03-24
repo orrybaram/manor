@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { PaneDragProvider } from "./contexts/PaneDragContext";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
 import { PaneLayout } from "./components/PaneLayout";
@@ -236,6 +237,7 @@ function App() {
     <div className="app">
       <div className="app-body">
         {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} onOpenProjectSettings={handleOpenProjectSettings} />}
+        <PaneDragProvider>
         <div className="main-content">
           {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
@@ -263,6 +265,7 @@ function App() {
           </div>
           <StatusBar />
         </div>
+        </PaneDragProvider>
       </div>
       <CommandPalette
         open={paletteOpen}

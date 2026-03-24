@@ -14,7 +14,7 @@ import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { useMountEffect } from "../hooks/useMountEffect";
-import type { LinearIssue } from "../electron.d";
+import type { LinearIssue, GitHubIssue } from "../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import styles from "./EmptyState.module.css";
 
@@ -39,6 +39,11 @@ export function WorkspaceEmptyState() {
   const [tickets, setTickets] = useState<LinearIssue[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [loadingTicketId, setLoadingTicketId] = useState<string | null>(null);
+
+  const [githubAvailable, setGithubAvailable] = useState(false);
+  const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([]);
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [loadingGitHubIssueNumber, setLoadingGitHubIssueNumber] = useState<number | null>(null);
 
   useMountEffect(() => {
     let cancelled = false;
@@ -78,6 +83,34 @@ export function WorkspaceEmptyState() {
       }
     });
 
+    // Fetch GitHub issues
+    const fetchGitHubIssues = async () => {
+      const state = useProjectStore.getState();
+      const proj = state.projects[state.selectedProjectIndex];
+      const repoPath = proj?.path;
+      if (!repoPath) return;
+      try {
+        const status = await window.electronAPI.github.checkStatus();
+        if (cancelled) return;
+        if (status.installed && status.authenticated) {
+          setGithubAvailable(true);
+          setGithubLoading(true);
+          try {
+            const issues = await window.electronAPI.github.getMyIssues(repoPath, 5);
+            if (!cancelled) setGithubIssues(issues);
+          } catch (err) {
+            console.error("[EmptyState] Failed to fetch GitHub issues:", err);
+          } finally {
+            if (!cancelled) setGithubLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error("[EmptyState] Failed to check GitHub status:", err);
+      }
+    };
+
+    fetchGitHubIssues();
+
     return () => {
       cancelled = true;
       unsub();
@@ -108,6 +141,37 @@ export function WorkspaceEmptyState() {
         await createWorktree(projectId, issue.identifier, issue.branchName);
       } finally {
         setLoadingTicketId(null);
+      }
+    },
+    [projectId, selectWorkspace, createWorktree, setActiveWorkspace],
+  );
+
+  const handleGitHubIssueClick = useCallback(
+    async (issue: GitHubIssue) => {
+      if (!projectId) return;
+      setLoadingGitHubIssueNumber(issue.number);
+      try {
+        const slugifiedTitle = issue.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        const branchName = `${issue.number}-${slugifiedTitle}`;
+        // Check if a workspace with matching branch already exists
+        const current = useProjectStore
+          .getState()
+          .projects.find((p) => p.id === projectId);
+        const existingIdx =
+          current?.workspaces.findIndex((ws) => ws.branch === branchName) ?? -1;
+        if (existingIdx >= 0) {
+          selectWorkspace(projectId, existingIdx);
+          const existingWs = current?.workspaces[existingIdx];
+          if (existingWs) setActiveWorkspace(existingWs.path);
+          return;
+        }
+        // Create new worktree (store handles selection and activation)
+        await createWorktree(projectId, issue.title, branchName);
+      } finally {
+        setLoadingGitHubIssueNumber(null);
       }
     },
     [projectId, selectWorkspace, createWorktree, setActiveWorkspace],
@@ -152,7 +216,7 @@ export function WorkspaceEmptyState() {
     });
   }
 
-  const ticketsSection =
+  const linearSection =
     tickets.length > 0 ? (
       <div className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Tickets</div>
@@ -191,6 +255,53 @@ export function WorkspaceEmptyState() {
           <div key={i} className={styles.ticketLoading} />
         ))}
       </div>
+    ) : null;
+
+  const githubSection =
+    githubAvailable && githubIssues.length > 0 ? (
+      <div className={styles.ticketsSection}>
+        <div className={styles.ticketsSectionHeader}>Your Issues</div>
+        {githubIssues.map((issue) => (
+          <div key={issue.number} className={styles.ticketRow}>
+            <button
+              className={styles.ticket}
+              onClick={() => handleGitHubIssueClick(issue)}
+              disabled={loadingGitHubIssueNumber === issue.number}
+            >
+              <span className={styles.ticketIdentifier}>#{issue.number}</span>
+              <span className={styles.ticketTitle}>{issue.title}</span>
+              {loadingGitHubIssueNumber === issue.number && (
+                <span className={styles.ticketSpinner} />
+              )}
+            </button>
+            <button
+              className={styles.ticketLink}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.electronAPI.shell.openExternal(issue.url);
+              }}
+              title="View on GitHub"
+            >
+              <ExternalLink size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    ) : githubAvailable && githubLoading ? (
+      <div className={styles.ticketsSection}>
+        <div className={styles.ticketsSectionHeader}>Your Issues</div>
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className={styles.ticketLoading} />
+        ))}
+      </div>
+    ) : null;
+
+  const ticketsSection =
+    linearSection || githubSection ? (
+      <>
+        {linearSection}
+        {githubSection}
+      </>
     ) : null;
 
   return <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />;

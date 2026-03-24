@@ -260,9 +260,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Mark all panes in the closing session as explicitly closed
       const closingSession = ws.sessions.find((s) => s.id === sessionId);
       const deadPaneIds: string[] = [];
+      const newClosedPaneIds = new Set(state.closedPaneIds);
       if (closingSession) {
         for (const pid of allPaneIds(closingSession.rootNode)) {
-          state.closedPaneIds.add(pid);
+          newClosedPaneIds.add(pid);
           deadPaneIds.push(pid);
         }
       }
@@ -287,6 +288,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       return {
+        closedPaneIds: newClosedPaneIds,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
@@ -574,7 +576,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!sourceSession || !targetSession || sourceSession.id === targetSession.id) return state;
 
       // Single-pane session: delegate to movePaneToTarget logic inline
-      const sourceIds = allPaneIds(sourceSession.rootNode);
       if (sourceSession.rootNode.type === "leaf") {
         const sourcePaneId = sourceSession.rootNode.paneId;
         const newTargetRoot = insertSplitAt(
@@ -607,6 +608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Multi-pane session: insert entire subtree
+      const sourceIds = allPaneIds(sourceSession.rootNode);
       const newTargetRoot = insertSubtreeAt(
         targetSession.rootNode,
         targetPaneId,
@@ -717,13 +719,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
     if (!session) return;
 
-    state.closedPaneIds.add(paneId);
-
     const remaining = removePane(session.rootNode, paneId);
     if (remaining === null) {
+      const newClosedPaneIds = new Set(state.closedPaneIds);
       for (const pid of allPaneIds(session.rootNode)) {
-        state.closedPaneIds.add(pid);
+        newClosedPaneIds.add(pid);
       }
+      set({ closedPaneIds: newClosedPaneIds });
       get().closeSession(session.id);
       return;
     }
@@ -735,6 +737,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const currentWs = s.workspaceSessions[path];
       if (!currentWs) return s;
+      const newClosedPaneIds = new Set(s.closedPaneIds);
+      newClosedPaneIds.add(paneId);
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
       const newAgentStatus = { ...s.paneAgentStatus };
@@ -742,6 +746,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
       return {
+        closedPaneIds: newClosedPaneIds,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
@@ -889,10 +894,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Mark all panes as closed so terminals get killed
+      const newClosedPaneIds = new Set(state.closedPaneIds);
       const deadPaneIds: string[] = [];
       for (const session of ws.sessions) {
         for (const pid of allPaneIds(session.rootNode)) {
-          state.closedPaneIds.add(pid);
+          newClosedPaneIds.add(pid);
           deadPaneIds.push(pid);
         }
       }
@@ -909,6 +915,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const { [workspacePath]: _, ...rest } = state.workspaceSessions;
       return {
+        closedPaneIds: newClosedPaneIds,
         workspaceSessions: rest,
         paneCwd: newCwd,
         paneTitle: newTitle,

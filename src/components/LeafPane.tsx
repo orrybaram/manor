@@ -80,20 +80,27 @@ export function LeafPane({
       }
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       statusBarEl.removeEventListener("pointermove", onMove);
       statusBarEl.removeEventListener("pointerup", onUp);
-      statusBarEl.removeEventListener("lostpointercapture", onUp);
+      statusBarEl.removeEventListener("lostpointercapture", onCaptureLost);
+    };
 
-      if (dragActive.current) {
-        // Global cleanup handles endDrag if drop zone didn't
-      }
+    const onUp = () => {
+      cleanup();
       dragActive.current = false;
+    };
+
+    // When pointer capture is released to start the drag, clean up status bar
+    // listeners but keep dragActive true so the global cleanup can handle
+    // drops that land outside any drop zone.
+    const onCaptureLost = () => {
+      cleanup();
     };
 
     statusBarEl.addEventListener("pointermove", onMove);
     statusBarEl.addEventListener("pointerup", onUp);
-    statusBarEl.addEventListener("lostpointercapture", onUp);
+    statusBarEl.addEventListener("lostpointercapture", onCaptureLost);
 
     // Global listener to end drag if user drops outside any pane/tab bar
     const globalCleanup = (_ev: PointerEvent) => {

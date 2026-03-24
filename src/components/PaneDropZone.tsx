@@ -48,13 +48,9 @@ function highlightStyle(zone: DropZone): React.CSSProperties {
 function dividerStyle(zone: DropZone): React.CSSProperties {
   switch (zone.direction) {
     case "horizontal":
-      return zone.position === "first"
-        ? { left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1 }
-        : { left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1 };
+      return { left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1 };
     case "vertical":
-      return zone.position === "first"
-        ? { top: "50%", left: 0, right: 0, height: 2, marginTop: -1 }
-        : { top: "50%", left: 0, right: 0, height: 2, marginTop: -1 };
+      return { top: "50%", left: 0, right: 0, height: 2, marginTop: -1 };
   }
 }
 
@@ -78,17 +74,28 @@ export function PaneDropZone({ paneId }: { paneId: string }) {
     [],
   );
 
-  const handlePointerUp = useCallback(() => {
-    const currentZone = zoneRef.current;
-    if (currentZone && drag) {
-      if (drag.type === "pane") {
-        movePaneToTarget(drag.paneId, paneId, currentZone.direction, currentZone.position);
-      } else if (drag.type === "tab") {
-        moveSessionToPane(drag.sessionId, paneId, currentZone.direction, currentZone.position);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      let currentZone = zoneRef.current;
+      // If pointerMove never fired (fast drag), compute zone from the up event
+      if (!currentZone) {
+        const el = overlayRef.current;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          currentZone = zoneFromPointer(rect, e.clientX, e.clientY);
+        }
       }
-    }
-    endDrag();
-  }, [drag, paneId, movePaneToTarget, moveSessionToPane, endDrag]);
+      if (currentZone && drag) {
+        if (drag.type === "pane") {
+          movePaneToTarget(drag.paneId, paneId, currentZone.direction, currentZone.position);
+        } else if (drag.type === "tab") {
+          moveSessionToPane(drag.sessionId, paneId, currentZone.direction, currentZone.position);
+        }
+      }
+      endDrag();
+    },
+    [drag, paneId, movePaneToTarget, moveSessionToPane, endDrag],
+  );
 
   const handlePointerLeave = useCallback(() => {
     setZone(null);

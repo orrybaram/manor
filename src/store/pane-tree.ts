@@ -97,9 +97,61 @@ export function movePane(
   direction: SplitDirection,
   position: "first" | "second",
 ): PaneNode | null {
+  // When source and target are direct leaf siblings, swap in-place
+  const swapped = swapSiblings(node, sourcePaneId, targetPaneId, direction, position);
+  if (swapped) return swapped;
+
   const afterRemove = removePane(node, sourcePaneId);
   if (!afterRemove) return null;
   return insertSplitAt(afterRemove, targetPaneId, direction, sourcePaneId, position);
+}
+
+/**
+ * If source and target are direct leaf children of the same split, swap them.
+ * When the drop direction matches the split direction, always swap positions
+ * (the user's intent is to reorder, not to nest). When the direction differs,
+ * use the drop position to place the source in the new orientation.
+ */
+function swapSiblings(
+  node: PaneNode,
+  sourcePaneId: string,
+  targetPaneId: string,
+  direction: SplitDirection,
+  position: "first" | "second",
+): PaneNode | null {
+  if (node.type === "leaf") return null;
+
+  if (node.first.type === "leaf" && node.second.type === "leaf") {
+    const firstId = node.first.paneId;
+    const secondId = node.second.paneId;
+    if (
+      (firstId === sourcePaneId && secondId === targetPaneId) ||
+      (firstId === targetPaneId && secondId === sourcePaneId)
+    ) {
+      if (direction === node.direction) {
+        // Same direction: always swap positions
+        return { ...node, first: node.second, second: node.first };
+      }
+      // Different direction: respect position for the new orientation
+      const sourceLeaf: PaneNode = { type: "leaf", paneId: sourcePaneId };
+      const targetLeaf: PaneNode = { type: "leaf", paneId: targetPaneId };
+      return {
+        ...node,
+        direction,
+        first: position === "first" ? sourceLeaf : targetLeaf,
+        second: position === "second" ? sourceLeaf : targetLeaf,
+      };
+    }
+  }
+
+  // Recurse into children
+  const fromFirst = swapSiblings(node.first, sourcePaneId, targetPaneId, direction, position);
+  if (fromFirst) return { ...node, first: fromFirst };
+
+  const fromSecond = swapSiblings(node.second, sourcePaneId, targetPaneId, direction, position);
+  if (fromSecond) return { ...node, second: fromSecond };
+
+  return null;
 }
 
 /** Insert an entire subtree at the given paneId with explicit position control. */

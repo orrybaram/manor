@@ -3,6 +3,7 @@ import {
   allPaneIds,
   insertSplit,
   removePane,
+  movePane,
   nextPaneId,
   updateRatio,
   type PaneNode,
@@ -182,5 +183,104 @@ describe("updateRatio", () => {
     if (result.type === "split") {
       expect(result.ratio).toBe(0.5);
     }
+  });
+});
+
+describe("movePane", () => {
+  it("swaps direct siblings when dropping in the same direction", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.6,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    // Drag "a" to the left side of "b" (same direction, position first)
+    // Should still swap, not be a no-op
+    const result = movePane(tree, "a", "b", "horizontal", "first");
+    expect(result).not.toBeNull();
+    expect(allPaneIds(result!)).toEqual(["b", "a"]);
+    // Should preserve the original ratio
+    if (result!.type === "split") {
+      expect(result!.ratio).toBe(0.6);
+    }
+  });
+
+  it("swaps direct siblings when dropping on the opposite side", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    // Drag "a" to the right side of "b" (same direction, position second)
+    const result = movePane(tree, "a", "b", "horizontal", "second");
+    expect(result).not.toBeNull();
+    expect(allPaneIds(result!)).toEqual(["b", "a"]);
+  });
+
+  it("changes direction when siblings are dropped in a different orientation", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    // Drag "a" to the top of "b" (vertical, first) — changes to vertical, a on top
+    const result = movePane(tree, "a", "b", "vertical", "first");
+    expect(result).not.toBeNull();
+    if (result!.type === "split") {
+      expect(result!.direction).toBe("vertical");
+      expect(allPaneIds(result!)).toEqual(["a", "b"]);
+    }
+  });
+
+  it("falls back to remove+insert for non-sibling panes", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", paneId: "a" },
+        second: { type: "leaf", paneId: "b" },
+      },
+      second: { type: "leaf", paneId: "c" },
+    };
+    // Drag "a" to "c" — not siblings, uses general path
+    const result = movePane(tree, "a", "c", "horizontal", "second");
+    expect(result).not.toBeNull();
+    expect(allPaneIds(result!)).toContain("a");
+    expect(allPaneIds(result!)).toContain("b");
+    expect(allPaneIds(result!)).toContain("c");
+  });
+
+  it("swaps nested siblings correctly", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", paneId: "a" },
+        second: { type: "leaf", paneId: "b" },
+      },
+      second: { type: "leaf", paneId: "c" },
+    };
+    // Drag "a" to "b" — they are siblings in the inner split
+    const result = movePane(tree, "a", "b", "vertical", "first");
+    expect(result).not.toBeNull();
+    // Inner split should be swapped: b first, a second
+    if (result!.type === "split" && result!.first.type === "split") {
+      expect(allPaneIds(result!.first)).toEqual(["b", "a"]);
+    }
+    // Outer structure unchanged
+    expect(allPaneIds(result!)).toEqual(["b", "a", "c"]);
   });
 });

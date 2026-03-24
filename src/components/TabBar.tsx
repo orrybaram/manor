@@ -222,12 +222,14 @@ export function TabBar() {
       onPointerUp={isPaneDragActive ? handleTabBarDrop : undefined}
     >
       <div ref={sessionsRef} className={styles.sessions}>
-        {sessions.map((session, idx) => (
+        {sessions.map((session, idx) => {
+          const isPinned = pinnedSessionIds.includes(session.id);
+          return (
           <SessionButton
             key={session.id}
             sessionId={session.id}
             isActive={session.id === selectedSessionId}
-            isPinned={pinnedSessionIds.includes(session.id)}
+            isPinned={isPinned}
             canClose={true}
             isDragging={dragIndex === idx}
             onSelect={() => {
@@ -235,14 +237,15 @@ export function TabBar() {
             }}
             onClose={() => closeSession(session.id)}
             onTogglePin={() => togglePinSession(session.id)}
-            onPointerDown={pinnedSessionIds.includes(session.id) ? undefined : (e) => handleDragStart(idx, e)}
+            onPointerDown={isPinned ? undefined : (e) => handleDragStart(idx, e)}
             style={getTransformStyle(idx)}
             buttonRef={(el) => {
               if (el) itemRefs.current.set(idx, el);
               else itemRefs.current.delete(idx);
             }}
           />
-        ))}
+          );
+        })}
         <button className={styles.addButton} onClick={addSession}>
           <Plus size={14} />
         </button>

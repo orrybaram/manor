@@ -104,6 +104,7 @@ export interface ProjectInfo {
   color: string | null;
   agentCommand: string | null;
   commands: CustomCommand[];
+  themeName: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -118,6 +119,7 @@ export type ProjectUpdatableFields = Partial<
     | "color"
     | "agentCommand"
     | "commands"
+    | "themeName"
   >
 >;
 

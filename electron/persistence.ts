@@ -54,6 +54,7 @@ export interface ProjectInfo {
   color: string | null;
   agentCommand: string | null;
   commands: CustomCommand[];
+  themeName: string | null;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -68,6 +69,7 @@ export type ProjectUpdatableFields = Partial<
     | "color"
     | "agentCommand"
     | "commands"
+    | "themeName"
   >
 >;
 
@@ -88,6 +90,7 @@ interface PersistedProject {
   color?: string | null;
   agentCommand?: string | null;
   commands?: CustomCommand[];
+  themeName?: string | null;
 }
 
 interface PersistedState {
@@ -158,6 +161,7 @@ export class ProjectManager {
       color: null,
       agentCommand: null,
       commands: [],
+      themeName: null,
     };
 
     // Seed commands from package.json if present
@@ -205,6 +209,7 @@ export class ProjectManager {
       color: null,
       agentCommand: null,
       commands: project.commands ?? [],
+      themeName: null,
     };
   }
 
@@ -292,6 +297,7 @@ export class ProjectManager {
       color: p.color ?? null,
       agentCommand: p.agentCommand ?? null,
       commands: p.commands ?? [],
+      themeName: p.themeName ?? null,
     };
   }
 

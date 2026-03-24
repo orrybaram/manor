@@ -59,11 +59,12 @@ export function LeafPane({
     if (target.closest("button")) return;
 
     const statusBarEl = e.currentTarget;
+    const pointerId = e.pointerId;
     dragStartX.current = e.clientX;
     dragStartY.current = e.clientY;
     dragActive.current = false;
 
-    statusBarEl.setPointerCapture(e.pointerId);
+    statusBarEl.setPointerCapture(pointerId);
 
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - dragStartX.current;
@@ -73,6 +74,8 @@ export function LeafPane({
 
       if (!dragActive.current) {
         dragActive.current = true;
+        // Release pointer capture so drop zones on other panes can receive events
+        try { statusBarEl.releasePointerCapture(pointerId); } catch { /* may already be released */ }
         startDrag({ type: "pane", paneId });
       }
     };
@@ -83,7 +86,7 @@ export function LeafPane({
       statusBarEl.removeEventListener("lostpointercapture", onUp);
 
       if (dragActive.current) {
-        endDrag();
+        // Global cleanup handles endDrag if drop zone didn't
       }
       dragActive.current = false;
     };
@@ -91,6 +94,19 @@ export function LeafPane({
     statusBarEl.addEventListener("pointermove", onMove);
     statusBarEl.addEventListener("pointerup", onUp);
     statusBarEl.addEventListener("lostpointercapture", onUp);
+
+    // Global listener to end drag if user drops outside any pane/tab bar
+    const globalCleanup = (_ev: PointerEvent) => {
+      if (!dragActive.current) {
+        document.removeEventListener("pointerup", globalCleanup);
+        return;
+      }
+      requestAnimationFrame(() => {
+        endDrag();
+      });
+      document.removeEventListener("pointerup", globalCleanup);
+    };
+    document.addEventListener("pointerup", globalCleanup);
   };
 
   const isThisPaneDragging = drag?.type === "pane" && drag.paneId === paneId;

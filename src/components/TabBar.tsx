@@ -26,7 +26,8 @@ export function TabBar() {
   const togglePinSession = useAppStore((s) => s.togglePinSession);
   const pinnedSessionIds = useMemo(() => ws?.pinnedSessionIds ?? [], [ws?.pinnedSessionIds]);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
-  const { startDrag, endDrag } = usePaneDrag();
+  const { drag, startDrag, endDrag } = usePaneDrag();
+  const extractPaneToSession = useAppStore((s) => s.extractPaneToSession);
 
   const sessionsRef = useRef<HTMLDivElement>(null);
   const handedOffToPaneDrop = useRef(false);
@@ -203,9 +204,22 @@ export function TabBar() {
     return { transition: "transform 150ms ease" };
   };
 
+  const isPaneDragActive = drag?.type === "pane";
+
+  const handleTabBarDrop = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isPaneDragActive || !drag) return;
+      e.stopPropagation();
+      extractPaneToSession(drag.paneId);
+      endDrag();
+    },
+    [isPaneDragActive, drag, extractPaneToSession, endDrag],
+  );
+
   return (
     <div
-      className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}
+      className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isPaneDragActive ? styles.sessionBarDropTarget : ""}`}
+      onPointerUp={isPaneDragActive ? handleTabBarDrop : undefined}
     >
       <div ref={sessionsRef} className={styles.sessions}>
         {sessions.map((session, idx) => (

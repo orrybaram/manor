@@ -107,6 +107,7 @@ export interface AppState {
   splitPaneAt: (targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
   movePaneToTarget: (sourcePaneId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
   moveSessionToPane: (sessionId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
+  extractPaneToSession: (paneId: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
   focusPane: (paneId: string) => void;
@@ -631,6 +632,63 @@ export const useAppStore = create<AppState>((set, get) => ({
             sessions: newSessions,
             selectedSessionId: newSelectedSessionId,
             pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id),
+          },
+        },
+      };
+    }),
+
+  extractPaneToSession: (paneId: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+
+      const sourceSession = ws.sessions.find((s) =>
+        allPaneIds(s.rootNode).includes(paneId),
+      );
+      if (!sourceSession) return state;
+
+      // If the pane is the only pane in its session, just select that session
+      if (sourceSession.rootNode.type === "leaf" && sourceSession.rootNode.paneId === paneId) {
+        return {
+          workspaceSessions: {
+            ...state.workspaceSessions,
+            [path]: { ...ws, selectedSessionId: sourceSession.id },
+          },
+        };
+      }
+
+      // Remove the pane from the source session
+      const remaining = removePane(sourceSession.rootNode, paneId);
+      if (!remaining) return state;
+
+      const ids = allPaneIds(remaining);
+      const newFocused =
+        sourceSession.focusedPaneId === paneId ? ids[0] : sourceSession.focusedPaneId;
+
+      // Create a new session with the extracted pane
+      const newSession: Session = {
+        id: newSessionId(),
+        title: "Terminal",
+        rootNode: { type: "leaf", paneId },
+        focusedPaneId: paneId,
+      };
+
+      const newSessions = ws.sessions.map((s) =>
+        s.id === sourceSession.id
+          ? { ...s, rootNode: remaining, focusedPaneId: newFocused }
+          : s,
+      );
+      newSessions.push(newSession);
+
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: newSessions,
+            selectedSessionId: newSession.id,
           },
         },
       };

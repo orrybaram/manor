@@ -14,6 +14,10 @@
   padding-left: 78px;
 }
 
+.sessionBarDropTarget {
+  background: color-mix(in srgb, var(--accent) 10%, var(--dim));
+}
+
 .sessions {
   display: flex;
   gap: 2px;

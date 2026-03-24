@@ -167,55 +167,41 @@ function App() {
 
   const handleResumeTask = useCallback(
     (task: TaskInfo) => {
-      if (task.workspacePath) {
-        setActiveWorkspace(task.workspacePath);
+      const wsPath = task.workspacePath;
+      if (wsPath) {
+        setActiveWorkspace(wsPath);
       }
-      addSession();
-      setTimeout(() => {
-        const state = useAppStore.getState();
-        const activePath = state.activeWorkspacePath;
-        if (!activePath) return;
-        const wsState = state.workspaceSessions[activePath];
-        if (!wsState) return;
-        const selectedSession = wsState.sessions.find(
-          (s) => s.id === wsState.selectedSessionId,
-        );
-        if (!selectedSession) return;
-        const paneId = selectedSession.focusedPaneId;
+      const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
+      if (activePath) {
         const taskProject = projects.find((p) =>
-          p.workspaces.some((w) => w.path === task.workspacePath),
+          p.workspaces.some((w) => w.path === wsPath),
         );
         const baseCommand =
           taskProject?.agentCommand?.split(" ")[0] ?? "claude";
-        window.electronAPI.pty.write(
-          paneId,
-          `${baseCommand} --resume ${task.claudeSessionId}\r`,
-        );
-      }, 150);
+        useAppStore
+          .getState()
+          .setPendingStartupCommand(
+            activePath,
+            `${baseCommand} --resume ${task.claudeSessionId}`,
+          );
+      }
+      addSession();
     },
     [setActiveWorkspace, addSession, projects],
   );
 
   const handleNewTask = useCallback(() => {
-    addSession();
-    setTimeout(() => {
-      const state = useAppStore.getState();
-      const activePath = state.activeWorkspacePath;
-      if (!activePath) return;
-      const wsState = state.workspaceSessions[activePath];
-      if (!wsState) return;
-      const selectedSession = wsState.sessions.find(
-        (s) => s.id === wsState.selectedSessionId,
-      );
-      if (!selectedSession) return;
-      const paneId = selectedSession.focusedPaneId;
+    if (activeWorkspacePath) {
       const currentProject = projects.find((p) =>
         p.workspaces.some((w) => w.path === activeWorkspacePath),
       );
       const command =
         currentProject?.agentCommand ?? "claude --dangerously-skip-permissions";
-      window.electronAPI.pty.write(paneId, command + "\r");
-    }, 150);
+      useAppStore
+        .getState()
+        .setPendingStartupCommand(activeWorkspacePath, command);
+    }
+    addSession();
   }, [addSession, projects, activeWorkspacePath]);
   handleNewTaskRef.current = handleNewTask;
 

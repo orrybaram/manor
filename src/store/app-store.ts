@@ -116,12 +116,6 @@ export interface AppState {
   // Agent status tracking
   setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
 
-  // Zoom
-  fontSize: number;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  resetZoom: () => void;
-
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
   consumePendingStartupCommand: (workspacePath: string) => string | null;
@@ -141,10 +135,6 @@ export function selectActiveWorkspace(
   return state.workspaceSessions[state.activeWorkspacePath] ?? null;
 }
 
-const DEFAULT_FONT_SIZE = 13;
-const MIN_FONT_SIZE = 8;
-const MAX_FONT_SIZE = 32;
-
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
 
@@ -154,7 +144,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneCwd: {},
   paneTitle: {},
   paneAgentStatus: {},
-  fontSize: DEFAULT_FONT_SIZE,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
@@ -602,12 +591,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.debug(`[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`);
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
-
-  zoomIn: () =>
-    set((state) => ({ fontSize: Math.min(state.fontSize + 1, MAX_FONT_SIZE) })),
-  zoomOut: () =>
-    set((state) => ({ fontSize: Math.max(state.fontSize - 1, MIN_FONT_SIZE) })),
-  resetZoom: () => set({ fontSize: DEFAULT_FONT_SIZE }),
 
   setPendingStartupCommand: (workspacePath: string, command: string) =>
     set((state) => ({

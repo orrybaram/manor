@@ -119,24 +119,6 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("k"),
     category: "app",
   },
-  {
-    id: "zoom-in",
-    label: "Zoom In",
-    defaultCombo: metaCombo("="),
-    category: "app",
-  },
-  {
-    id: "zoom-out",
-    label: "Zoom Out",
-    defaultCombo: metaCombo("-"),
-    category: "app",
-  },
-  {
-    id: "zoom-reset",
-    label: "Reset Zoom",
-    defaultCombo: metaCombo("0"),
-    category: "app",
-  },
 ];
 
 /**

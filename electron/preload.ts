@@ -138,6 +138,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getPrsForBranches: (repoPath: string, branches: string[]) =>
       ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
+    getMyIssues: (repoPath: string, limit?: number) =>
+      ipcRenderer.invoke("github:getMyIssues", repoPath, limit),
+    getAllIssues: (repoPath: string, limit?: number) =>
+      ipcRenderer.invoke("github:getAllIssues", repoPath, limit),
+    getIssueDetail: (repoPath: string, issueNumber: number) =>
+      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
   },
 
   linear: {
@@ -153,6 +159,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => ipcRenderer.invoke("linear:getMyIssues", teamIds, options),
     getIssueDetail: (issueId: string) =>
       ipcRenderer.invoke("linear:getIssueDetail", issueId),
+    getAllIssues: (
+      teamIds: string[],
+      options?: { stateTypes?: string[]; limit?: number },
+    ) => ipcRenderer.invoke("linear:getAllIssues", teamIds, options),
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
   },
 

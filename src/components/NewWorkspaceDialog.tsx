@@ -77,11 +77,12 @@ export function NewWorkspaceDialog({
         setError("Name is required");
         return;
       }
-      if (trimmedName.length > 64) {
-        setError("Name must be 64 characters or fewer");
+      if (trimmedName.length > 200) {
+        setError("Name must be 200 characters or fewer");
         return;
       }
-      const branchName = slugify(branch.trim() || trimmedName);
+      const trimmedBranch = branch.trim();
+      const branchName = trimmedBranch || slugify(trimmedName);
       if (!branchName) {
         setError("Could not derive a valid branch name");
         return;

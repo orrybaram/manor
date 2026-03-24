@@ -272,6 +272,7 @@ export function registerClaudeHooks(): void {
 
   if (modified) {
     settings.hooks = hooks;
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
 }

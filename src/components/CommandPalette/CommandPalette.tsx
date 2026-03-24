@@ -3,6 +3,7 @@ import {
   useCallback,
   useState,
   useEffect,
+  Fragment,
 } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
@@ -24,7 +25,7 @@ import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
-import type { CommandPaletteProps, PaletteView } from "./types";
+import type { CommandPaletteProps, PaletteView, CategoryConfig, CommandItem } from "./types";
 import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
@@ -221,6 +222,71 @@ export function CommandPalette({
   const isIssueListView = view === "linear" || view === "linear-all" || view === "github" || view === "github-all";
   const isDetailView = view === "issue-detail" || view === "github-issue-detail";
 
+  const categories = useMemo<CategoryConfig[]>(() => {
+    const workspaceCategories: CategoryConfig[] = [...workspaceGroups.entries()].map(
+      ([groupName, items]) => ({
+        id: `workspace-${groupName}`,
+        heading: groupName,
+        visible: true,
+        items,
+      })
+    );
+
+    const linearItems: CommandItem[] = [
+      {
+        id: "linear-my-issues",
+        label: "My Issues",
+        icon: <LinearIcon size={14} />,
+        suffix: <ChevronRight size={14} />,
+        action: navigateToLinear,
+      },
+      {
+        id: "linear-all-issues",
+        label: "All Issues",
+        icon: <LinearIcon size={14} />,
+        suffix: <ChevronRight size={14} />,
+        action: navigateToLinearAll,
+      },
+    ];
+
+    const githubItems: CommandItem[] = [
+      {
+        id: "github-my-issues",
+        label: "My Issues",
+        icon: <GitHubIcon size={14} />,
+        suffix: <ChevronRight size={14} />,
+        action: navigateToGitHub,
+      },
+      {
+        id: "github-all-issues",
+        label: "All Issues",
+        icon: <GitHubIcon size={14} />,
+        suffix: <ChevronRight size={14} />,
+        action: navigateToGitHubAll,
+      },
+    ];
+
+    return [
+      { id: "tasks", heading: "Tasks", visible: true, items: taskCommands },
+      { id: "run", heading: "Run", visible: customCommands.length > 0, items: customCommands },
+      ...workspaceCategories,
+      { id: "commands", heading: "Commands", visible: true, items: commands },
+      { id: "linear", heading: "Linear", visible: showLinear, items: linearItems },
+      { id: "github", heading: "GitHub", visible: showGitHub, items: githubItems },
+    ];
+  }, [
+    taskCommands,
+    customCommands,
+    workspaceGroups,
+    commands,
+    showLinear,
+    showGitHub,
+    navigateToLinear,
+    navigateToLinearAll,
+    navigateToGitHub,
+    navigateToGitHubAll,
+  ]);
+
   return (
     <>
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -265,158 +331,27 @@ export function CommandPalette({
 
               {view === "root" && (
                 <>
-                  <Command.Group heading="Tasks" className={styles.group}>
-                    {taskCommands.map((cmd) => (
-                      <Command.Item
-                        key={cmd.id}
-                        value={cmd.label}
-                        onSelect={cmd.action}
-                        className={styles.item}
-                      >
-                        {cmd.icon && (
-                          <span className={styles.icon}>{cmd.icon}</span>
-                        )}
-                        <span className={styles.label}>{cmd.label}</span>
-                        {cmd.shortcut && (
-                          <span className={styles.shortcut}>
-                            {cmd.shortcut}
-                          </span>
-                        )}
-                      </Command.Item>
-                    ))}
-                  </Command.Group>
-                  {customCommands.length > 0 && (
-                    <>
-                      <Command.Separator className={styles.separator} />
-                      <Command.Group heading="Run" className={styles.group}>
-                        {customCommands.map((cmd) => (
+                  {categories.filter(c => c.visible).map((cat, i) => (
+                    <Fragment key={cat.id}>
+                      {i > 0 && <Command.Separator className={styles.separator} />}
+                      <Command.Group heading={cat.heading} className={styles.group}>
+                        {cat.items.map((cmd) => (
                           <Command.Item
                             key={cmd.id}
-                            value={cmd.label}
+                            value={`${cat.heading} ${cmd.label}`}
                             onSelect={cmd.action}
-                            className={styles.item}
+                            className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
                           >
-                            {cmd.icon && (
-                              <span className={styles.icon}>{cmd.icon}</span>
-                            )}
+                            {cmd.icon && <span className={styles.icon}>{cmd.icon}</span>}
                             <span className={styles.label}>{cmd.label}</span>
+                            {cmd.shortcut && <span className={styles.shortcut}>{cmd.shortcut}</span>}
+                            {cmd.isActive && <span className={styles.activeBadge}>current</span>}
+                            {cmd.suffix && <span className={styles.chevron}>{cmd.suffix}</span>}
                           </Command.Item>
                         ))}
                       </Command.Group>
-                    </>
-                  )}
-                  <Command.Separator className={styles.separator} />
-                  {[...workspaceGroups.entries()].map(([groupName, items]) => (
-                    <Command.Group
-                      key={groupName}
-                      heading={groupName}
-                      className={styles.group}
-                    >
-                      {items.map((cmd) => (
-                        <Command.Item
-                          key={cmd.id}
-                          value={`${groupName} ${cmd.label}`}
-                          onSelect={cmd.action}
-                          className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
-                        >
-                          {cmd.icon && (
-                            <span className={styles.icon}>{cmd.icon}</span>
-                          )}
-                          <span className={styles.label}>{cmd.label}</span>
-                          {cmd.isActive && (
-                            <span className={styles.activeBadge}>current</span>
-                          )}
-                        </Command.Item>
-                      ))}
-                    </Command.Group>
+                    </Fragment>
                   ))}
-                  <Command.Separator className={styles.separator} />
-                  <Command.Group heading="Commands" className={styles.group}>
-                    {commands.map((cmd) => (
-                      <Command.Item
-                        key={cmd.id}
-                        value={cmd.label}
-                        onSelect={cmd.action}
-                        className={styles.item}
-                      >
-                        {cmd.icon && (
-                          <span className={styles.icon}>{cmd.icon}</span>
-                        )}
-                        <span className={styles.label}>{cmd.label}</span>
-                        {cmd.shortcut && (
-                          <span className={styles.shortcut}>
-                            {cmd.shortcut}
-                          </span>
-                        )}
-                      </Command.Item>
-                    ))}
-                  </Command.Group>
-                  {showLinear && (
-                    <>
-                      <Command.Separator className={styles.separator} />
-                      <Command.Group heading="Linear" className={styles.group}>
-                        <Command.Item
-                          value="Linear My Issues"
-                          onSelect={navigateToLinear}
-                          className={styles.item}
-                        >
-                          <span className={styles.icon}>
-                            <LinearIcon size={14} />
-                          </span>
-                          <span className={styles.label}>My Issues</span>
-                          <span className={styles.chevron}>
-                            <ChevronRight size={14} />
-                          </span>
-                        </Command.Item>
-                        <Command.Item
-                          value="Linear All Issues"
-                          onSelect={navigateToLinearAll}
-                          className={styles.item}
-                        >
-                          <span className={styles.icon}>
-                            <LinearIcon size={14} />
-                          </span>
-                          <span className={styles.label}>All Issues</span>
-                          <span className={styles.chevron}>
-                            <ChevronRight size={14} />
-                          </span>
-                        </Command.Item>
-                      </Command.Group>
-                    </>
-                  )}
-                  {showGitHub && (
-                    <>
-                      <Command.Separator className={styles.separator} />
-                      <Command.Group heading="GitHub" className={styles.group}>
-                        <Command.Item
-                          value="GitHub My Issues"
-                          onSelect={navigateToGitHub}
-                          className={styles.item}
-                        >
-                          <span className={styles.icon}>
-                            <GitHubIcon size={14} />
-                          </span>
-                          <span className={styles.label}>My Issues</span>
-                          <span className={styles.chevron}>
-                            <ChevronRight size={14} />
-                          </span>
-                        </Command.Item>
-                        <Command.Item
-                          value="GitHub All Issues"
-                          onSelect={navigateToGitHubAll}
-                          className={styles.item}
-                        >
-                          <span className={styles.icon}>
-                            <GitHubIcon size={14} />
-                          </span>
-                          <span className={styles.label}>All Issues</span>
-                          <span className={styles.chevron}>
-                            <ChevronRight size={14} />
-                          </span>
-                        </Command.Item>
-                      </Command.Group>
-                    </>
-                  )}
                 </>
               )}
 

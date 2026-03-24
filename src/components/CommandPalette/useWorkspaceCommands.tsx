@@ -1,16 +1,7 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { House, FolderGit2, Plus } from "lucide-react";
 import type { ProjectInfo } from "../../store/project-store";
-
-export interface CommandItem {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-  shortcut?: string;
-  group?: string;
-  isActive?: boolean;
-  action: () => void;
-}
+import type { CommandItem } from "./types";
 
 interface UseWorkspaceCommandsParams {
   projects: ProjectInfo[];

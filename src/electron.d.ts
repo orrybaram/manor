@@ -202,7 +202,7 @@ export interface ElectronAPI {
     hasGhosttyConfig: () => Promise<boolean>;
     preview: (
       name: string,
-    ) => Promise<import("./store/theme-store").Theme | null>;
+    ) => Promise<import("./store/theme-store").Theme>;
     allColors: () => Promise<
       Record<
         string,

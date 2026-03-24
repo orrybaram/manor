@@ -477,9 +477,7 @@ ipcMain.handle("theme:hasGhosttyConfig", () => {
 });
 
 ipcMain.handle("theme:preview", (_event, name: string) => {
-  if (name === "__ghostty__") return themeManager.loadGhosttyConfigTheme();
-  if (name === "__default__") return null; // use DEFAULT_THEME on renderer
-  return themeManager.loadGhosttyTheme(name);
+  return themeManager.getThemeByName(name);
 });
 
 ipcMain.handle("theme:allColors", async () => {

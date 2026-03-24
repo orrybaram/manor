@@ -28,11 +28,13 @@ export interface Theme {
 interface ThemeState {
   theme: Theme | null;
   selectedThemeName: string;
+  projectThemeOverride: string | null;
   loadTheme: () => Promise<void>;
   setTheme: (name: string) => Promise<void>;
+  applyProjectTheme: (themeName: string | null) => Promise<void>;
 }
 
-function applyCssVars(theme: Theme) {
+export function applyCssVars(theme: Theme) {
   const root = document.documentElement;
   root.style.setProperty("--bg", theme.background);
   root.style.setProperty("--fg", theme.foreground);
@@ -74,9 +76,10 @@ function applyCssVars(theme: Theme) {
   }
 }
 
-export const useThemeStore = create<ThemeState>((set) => ({
+export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: null,
   selectedThemeName: "__ghostty__",
+  projectThemeOverride: null,
 
   loadTheme: async () => {
     const [theme, selectedThemeName] = await Promise.all([
@@ -91,6 +94,17 @@ export const useThemeStore = create<ThemeState>((set) => ({
     const theme = await window.electronAPI.theme.setSelected(name);
     set({ theme, selectedThemeName: name });
     applyCssVars(theme);
+  },
+
+  applyProjectTheme: async (themeName: string | null) => {
+    if (themeName !== null) {
+      const theme = await window.electronAPI.theme.preview(themeName);
+      set({ theme, projectThemeOverride: themeName });
+      applyCssVars(theme);
+    } else {
+      set({ projectThemeOverride: null });
+      await get().loadTheme();
+    }
   },
 }));
 

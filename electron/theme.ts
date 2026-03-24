@@ -265,18 +265,22 @@ export class ThemeManager {
     return buildTheme(directConfig, palette);
   }
 
+  /** Resolve a theme by name, handling special values __ghostty__ and __default__ */
+  getThemeByName(name: string): Theme {
+    if (!name || name === "__ghostty__") {
+      return this.loadGhosttyConfigTheme();
+    }
+    if (name === "__default__") {
+      return DEFAULT_THEME;
+    }
+    return this.loadGhosttyTheme(name) ?? DEFAULT_THEME;
+  }
+
   /** Get the active theme based on saved settings */
   getTheme(): Theme {
     const settings = loadSettings();
     const themeName = settings.themeName;
-
-    if (!themeName || themeName === "__ghostty__") {
-      return this.loadGhosttyConfigTheme();
-    }
-    if (themeName === "__default__") {
-      return DEFAULT_THEME;
-    }
-    return this.loadGhosttyTheme(themeName) ?? DEFAULT_THEME;
+    return this.getThemeByName(themeName ?? "__ghostty__");
   }
 
   /** Load color palettes for all themes (cached after first call) */

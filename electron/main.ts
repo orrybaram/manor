@@ -680,6 +680,11 @@ ipcMain.handle("shell:openExternal", async (_event, url: string) => {
   return shell.openExternal(url);
 });
 
+ipcMain.handle("shell:openPath", async (_event, path: string) => {
+  assertString(path, "path");
+  return shell.openPath(path);
+});
+
 // ── Task Persistence IPC ──
 ipcMain.handle("tasks:getAll", (_event, opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => {
   return taskManager.getAllTasks(opts);

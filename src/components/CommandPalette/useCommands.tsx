@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
+import { useAppStore } from "../../store/app-store";
 
 interface UseCommandsParams {
   addSession: () => void;
@@ -37,6 +38,7 @@ export function useCommands({
   setShowGhosts,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
   return useMemo(
     () => {
@@ -144,6 +146,16 @@ export function useCommands({
         },
       },
       {
+        id: "open-in-editor",
+        label: "Open in Editor",
+        action: () => {
+          if (activeWorkspacePath) {
+            window.electronAPI.shell.openPath(activeWorkspacePath);
+          }
+          onClose();
+        },
+      },
+      {
         id: "ghosts",
         label: "Ghosts!?",
         icon: <span>👻</span>,
@@ -171,6 +183,7 @@ export function useCommands({
       selectedSessionId,
       setShowGhosts,
       bindings,
+      activeWorkspacePath,
     ],
   );
 }

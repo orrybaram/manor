@@ -353,6 +353,14 @@ export function ProjectItem({
                       <ContextMenu.Item
                         className={styles.contextMenuItem}
                         onSelect={() =>
+                          window.electronAPI.shell.openPath(ws.path)
+                        }
+                      >
+                        Open in Editor
+                      </ContextMenu.Item>
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() =>
                           navigator.clipboard.writeText(ws.branch || "main")
                         }
                       >

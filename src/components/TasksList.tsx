@@ -187,9 +187,8 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
                         e.stopPropagation();
                         if (task.paneId) {
                           useAppStore.getState().closePaneById(task.paneId);
-                        } else {
-                          useTaskStore.getState().removeTask(task.id);
                         }
+                        useTaskStore.getState().removeTask(task.id);
                       }}
                       title="Close session"
                     >

@@ -7,7 +7,15 @@ export interface CommandItem {
   shortcut?: string;
   group?: string;
   isActive?: boolean;
+  suffix?: ReactNode;
   action: () => void;
+}
+
+export interface CategoryConfig {
+  id: string;
+  heading: string;
+  visible: boolean;
+  items: CommandItem[];
 }
 
 export interface CommandPaletteProps {

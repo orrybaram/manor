@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { CommandItem } from "./useWorkspaceCommands";
+import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 

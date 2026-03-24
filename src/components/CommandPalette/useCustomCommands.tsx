@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Terminal } from "lucide-react";
 import { useProjectStore } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
-import type { CommandItem } from "./useWorkspaceCommands";
+import type { CommandItem } from "./types";
 
 interface UseCustomCommandsParams {
   onClose: () => void;

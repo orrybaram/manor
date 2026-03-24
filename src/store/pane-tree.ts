@@ -60,6 +60,75 @@ export function removePane(
   return { ...node, first, second };
 }
 
+/** Insert a split at the given paneId with explicit position control for the new pane. */
+export function insertSplitAt(
+  node: PaneNode,
+  targetPaneId: string,
+  direction: SplitDirection,
+  newPaneId: string,
+  position: "first" | "second",
+): PaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId === targetPaneId) {
+      const existing = node;
+      const newLeaf: PaneNode = { type: "leaf", paneId: newPaneId };
+      return {
+        type: "split",
+        direction,
+        ratio: 0.5,
+        first: position === "first" ? newLeaf : existing,
+        second: position === "first" ? existing : newLeaf,
+      };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    first: insertSplitAt(node.first, targetPaneId, direction, newPaneId, position),
+    second: insertSplitAt(node.second, targetPaneId, direction, newPaneId, position),
+  };
+}
+
+/** Move a pane within the tree by removing it and reinserting at the target position. */
+export function movePane(
+  node: PaneNode,
+  sourcePaneId: string,
+  targetPaneId: string,
+  direction: SplitDirection,
+  position: "first" | "second",
+): PaneNode | null {
+  const afterRemove = removePane(node, sourcePaneId);
+  if (!afterRemove) return null;
+  return insertSplitAt(afterRemove, targetPaneId, direction, sourcePaneId, position);
+}
+
+/** Insert an entire subtree at the given paneId with explicit position control. */
+export function insertSubtreeAt(
+  node: PaneNode,
+  targetPaneId: string,
+  direction: SplitDirection,
+  subtree: PaneNode,
+  position: "first" | "second",
+): PaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId === targetPaneId) {
+      return {
+        type: "split",
+        direction,
+        ratio: 0.5,
+        first: position === "first" ? subtree : node,
+        second: position === "first" ? node : subtree,
+      };
+    }
+    return node;
+  }
+  return {
+    ...node,
+    first: insertSubtreeAt(node.first, targetPaneId, direction, subtree, position),
+    second: insertSubtreeAt(node.second, targetPaneId, direction, subtree, position),
+  };
+}
+
 /** Update the split ratio at the split that directly contains targetPaneId as first child. */
 export function updateRatio(
   node: PaneNode,

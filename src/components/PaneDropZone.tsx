@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback } from "react";
 import { usePaneDrag } from "../contexts/PaneDragContext";
+import { useAppStore } from "../store/app-store";
 import type { SplitDirection } from "../store/pane-tree";
 import styles from "./PaneLayout.module.css";
 
@@ -59,22 +60,35 @@ function dividerStyle(zone: DropZone): React.CSSProperties {
 
 export function PaneDropZone({ paneId }: { paneId: string }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const { endDrag } = usePaneDrag();
+  const { drag, endDrag } = usePaneDrag();
+  const movePaneToTarget = useAppStore((s) => s.movePaneToTarget);
+  const moveSessionToPane = useAppStore((s) => s.moveSessionToPane);
   const [zone, setZone] = useState<DropZone | null>(null);
+  const zoneRef = useRef<DropZone | null>(null);
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       const el = overlayRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      setZone(zoneFromPointer(rect, e.clientX, e.clientY));
+      const newZone = zoneFromPointer(rect, e.clientX, e.clientY);
+      zoneRef.current = newZone;
+      setZone(newZone);
     },
     [],
   );
 
   const handlePointerUp = useCallback(() => {
+    const currentZone = zoneRef.current;
+    if (currentZone && drag) {
+      if (drag.type === "pane") {
+        movePaneToTarget(drag.paneId, paneId, currentZone.direction, currentZone.position);
+      } else if (drag.type === "tab") {
+        moveSessionToPane(drag.sessionId, paneId, currentZone.direction, currentZone.position);
+      }
+    }
     endDrag();
-  }, [endDrag]);
+  }, [drag, paneId, movePaneToTarget, moveSessionToPane, endDrag]);
 
   const handlePointerLeave = useCallback(() => {
     setZone(null);

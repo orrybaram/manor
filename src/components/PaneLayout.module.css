@@ -32,6 +32,15 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
+  cursor: grab;
+}
+
+.paneStatusBarDragging {
+  cursor: grabbing;
+}
+
+.leafDragging {
+  opacity: 0.5;
 }
 
 .paneStatusBarFocused {

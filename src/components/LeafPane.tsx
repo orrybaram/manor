@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
@@ -23,8 +24,12 @@ export function LeafPane({
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
-  const { drag } = usePaneDrag();
+  const { drag, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
+
+  const dragStartX = useRef(0);
+  const dragStartY = useRef(0);
+  const dragActive = useRef(false);
 
   const showDropZone =
     drag !== null &&
@@ -47,13 +52,57 @@ export function LeafPane({
     closePane();
   };
 
+  const handleStatusBarPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    // Don't start drag when clicking a button
+    const target = e.target as HTMLElement;
+    if (target.closest("button")) return;
+
+    const statusBarEl = e.currentTarget;
+    dragStartX.current = e.clientX;
+    dragStartY.current = e.clientY;
+    dragActive.current = false;
+
+    statusBarEl.setPointerCapture(e.pointerId);
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - dragStartX.current;
+      const dy = ev.clientY - dragStartY.current;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (!dragActive.current && dist < 4) return;
+
+      if (!dragActive.current) {
+        dragActive.current = true;
+        startDrag({ type: "pane", paneId });
+      }
+    };
+
+    const onUp = () => {
+      statusBarEl.removeEventListener("pointermove", onMove);
+      statusBarEl.removeEventListener("pointerup", onUp);
+      statusBarEl.removeEventListener("lostpointercapture", onUp);
+
+      if (dragActive.current) {
+        endDrag();
+      }
+      dragActive.current = false;
+    };
+
+    statusBarEl.addEventListener("pointermove", onMove);
+    statusBarEl.addEventListener("pointerup", onUp);
+    statusBarEl.addEventListener("lostpointercapture", onUp);
+  };
+
+  const isThisPaneDragging = drag?.type === "pane" && drag.paneId === paneId;
+
   return (
     <div
-      className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""}`}
+      className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""} ${isThisPaneDragging ? styles.leafDragging : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >
       <div
-        className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""}`}
+        className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""}`}
+        onPointerDown={handleStatusBarPointerDown}
       >
         <span className={styles.paneStatusTitle}>{title}</span>
         <div className={styles.paneStatusActions}>

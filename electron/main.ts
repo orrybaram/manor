@@ -9,6 +9,7 @@ import {
   nativeImage,
   Notification,
 } from "electron";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -735,6 +736,10 @@ ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
   );
 });
 
+ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
+  execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+});
+
 preferencesManager.onChange((prefs) => {
   if (
     mainWindow &&
@@ -799,7 +804,7 @@ function maybeSendNotification(task: TaskInfo, prevStatus: string | null | undef
   const notification = new Notification({
     title,
     body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
-    silent: !preferencesManager.get("notificationSound"),
+    silent: true,
   });
   notification.on("click", () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -808,6 +813,10 @@ function maybeSendNotification(task: TaskInfo, prevStatus: string | null | undef
     mainWindow.webContents.send("notification:navigate-to-task", task.id);
   });
   notification.show();
+  const soundName = preferencesManager.get("notificationSound");
+  if (typeof soundName === "string") {
+    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+  }
 }
 
 // ── App lifecycle ──

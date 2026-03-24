@@ -213,6 +213,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("preferences:set", key, value),
     onChange: (callback: (prefs: unknown) => void) =>
       onChannel("preferences-changed", callback),
+    playSound: (name: string) => ipcRenderer.invoke("preferences:playSound", name),
   },
 
   keybindings: {

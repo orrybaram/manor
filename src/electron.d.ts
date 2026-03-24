@@ -319,6 +319,7 @@ export interface ElectronAPI {
     getAll: () => Promise<AppPreferences>;
     set: (key: keyof AppPreferences, value: AppPreferences[keyof AppPreferences]) => Promise<void>;
     onChange: (callback: (prefs: AppPreferences) => void) => () => void;
+    playSound: (name: string) => Promise<void>;
   };
 
   keybindings: {

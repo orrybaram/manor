@@ -60,6 +60,7 @@ export function CommandPalette({
   const [githubConnected, setGithubConnected] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<number | null>(null);
+  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
   const [showGhosts, setShowGhosts] = useState(false);
 
   // Get all team IDs from projects with Linear associations
@@ -131,17 +132,12 @@ export function CommandPalette({
     setView("root");
   }, []);
 
-  const navigateToLinearList = useCallback(() => {
+  const navigateBackToList = useCallback(() => {
     setSearch("");
     setSelectedIssueId(null);
-    setView("linear");
-  }, []);
-
-  const navigateToGitHubList = useCallback(() => {
-    setSearch("");
     setSelectedGitHubIssueNumber(null);
-    setView("github");
-  }, []);
+    setView(issueListOrigin);
+  }, [issueListOrigin]);
 
   const { workspaceGroups } = useWorkspaceCommands({
     projects,
@@ -197,14 +193,9 @@ export function CommandPalette({
 
   const handleEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (view === "issue-detail") {
+      if (view === "issue-detail" || view === "github-issue-detail") {
         e.preventDefault();
-        navigateToLinearList();
-        return;
-      }
-      if (view === "github-issue-detail") {
-        e.preventDefault();
-        navigateToGitHubList();
+        navigateBackToList();
         return;
       }
       if (view !== "root") {
@@ -213,7 +204,7 @@ export function CommandPalette({
         return;
       }
     },
-    [view, navigateToRoot, navigateToLinearList, navigateToGitHubList],
+    [view, navigateToRoot, navigateBackToList],
   );
 
   const showLinear = linearConnected && allTeamIds.length > 0;
@@ -410,6 +401,7 @@ export function CommandPalette({
                   allTeamIds={allTeamIds}
                   allIssues={view === "linear-all"}
                   onSelectIssue={(issueId) => {
+                    setIssueListOrigin(view);
                     setSelectedIssueId(issueId);
                     setSearch("");
                     setView("issue-detail");
@@ -422,6 +414,7 @@ export function CommandPalette({
                   repoPath={repoPath}
                   allIssues={view === "github-all"}
                   onSelectIssue={(issueNumber) => {
+                    setIssueListOrigin(view);
                     setSelectedGitHubIssueNumber(issueNumber);
                     setSearch("");
                     setView("github-issue-detail");
@@ -432,7 +425,7 @@ export function CommandPalette({
             {view === "issue-detail" && selectedIssueId && (
               <IssueDetailView
                 issueId={selectedIssueId}
-                onBack={navigateToLinearList}
+                onBack={navigateBackToList}
                 onClose={onClose}
                 onNewWorkspace={onNewWorkspace}
               />
@@ -441,7 +434,7 @@ export function CommandPalette({
               <GitHubIssueDetailView
                 repoPath={repoPath}
                 issueNumber={selectedGitHubIssueNumber}
-                onBack={navigateToGitHubList}
+                onBack={navigateBackToList}
                 onClose={onClose}
                 onNewWorkspace={onNewWorkspace}
               />

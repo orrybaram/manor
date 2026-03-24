@@ -159,6 +159,29 @@ export class ProjectManager {
       agentCommand: null,
       commands: [],
     };
+
+    // Seed commands from package.json if present
+    const packageJsonPath = path.join(projectPath, "package.json");
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+        if (packageJson.scripts && typeof packageJson.scripts === "object") {
+          const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
+            ? "pnpm run"
+            : fs.existsSync(path.join(projectPath, "yarn.lock"))
+              ? "yarn"
+              : "npm run";
+          project.commands = Object.keys(packageJson.scripts).map((scriptName) => ({
+            id: crypto.randomUUID(),
+            name: scriptName,
+            command: `${runner} ${scriptName}`,
+          }));
+        }
+      } catch (err) {
+        console.error("[ProjectManager] failed to read package.json:", err instanceof Error ? err.message : err);
+      }
+    }
+
     this.state.projects.push(project);
     this.state.selectedProjectIndex = this.state.projects.length - 1;
     this.saveState();
@@ -181,7 +204,7 @@ export class ProjectManager {
       linearAssociations: [],
       color: null,
       agentCommand: null,
-      commands: [],
+      commands: project.commands ?? [],
     };
   }
 

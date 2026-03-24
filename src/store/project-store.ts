@@ -115,6 +115,7 @@ interface ProjectState {
     projectId: string,
     name: string,
     branch?: string,
+    agentCommand?: string,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -212,7 +213,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  createWorktree: async (projectId: string, name: string, branch?: string) => {
+  createWorktree: async (projectId: string, name: string, branch?: string, agentCommand?: string) => {
     let updated;
     try {
       updated = await window.electronAPI.projects.createWorktree(
@@ -249,10 +250,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // Select the new workspace and switch to it
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
-      if (updated.worktreeStartScript) {
+      const startScript = updated.worktreeStartScript;
+      const command = startScript && agentCommand
+        ? `${startScript} && ${agentCommand}`
+        : agentCommand || startScript || null;
+      if (command) {
         useAppStore
           .getState()
-          .setPendingStartupCommand(wsPath, updated.worktreeStartScript);
+          .setPendingStartupCommand(wsPath, command);
       }
       useAppStore.getState().setActiveWorkspace(wsPath);
     }

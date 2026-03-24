@@ -287,19 +287,18 @@ function App() {
         initialName={initialName}
         initialBranch={initialBranch}
         onSubmit={async (projectId, name, branch) => {
-          const result = await createWorktree(projectId, name, branch);
-          if (result && agentPrompt) {
+          let agentCommand: string | undefined;
+          if (agentPrompt) {
             const project = projects.find((p) => p.id === projectId);
-            if (project?.agentCommand) {
-              const escaped = agentPrompt
-                .replace(/\\/g, "\\\\")
-                .replace(/"/g, '\\"')
-                .replace(/\$/g, "\\$")
-                .replace(/`/g, "\\`");
-              const command = `${project.agentCommand} "${escaped}"`;
-              useAppStore.getState().setPendingStartupCommand(result, command);
-            }
+            const baseCommand = project?.agentCommand ?? "claude --dangerously-skip-permissions";
+            const escaped = agentPrompt
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"')
+              .replace(/\$/g, "\\$")
+              .replace(/`/g, "\\`");
+            agentCommand = `${baseCommand} "${escaped}"`;
           }
+          const result = await createWorktree(projectId, name, branch, agentCommand);
           if (result) {
             setNewWorkspaceOpen(false);
           }

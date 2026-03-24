@@ -38,6 +38,7 @@ const SESSION_HIDDEN_STYLE: React.CSSProperties = {
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
+  const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   useMountEffect(() => {
     loadTheme();
   });
@@ -51,7 +52,13 @@ function App() {
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
-  }, []);
+    // Revert to the active project's theme in case settings was previewing
+    // a different project's theme
+    const activeTheme = useProjectStore.getState().projects[
+      useProjectStore.getState().selectedProjectIndex
+    ]?.themeName ?? null;
+    applyProjectTheme(activeTheme);
+  }, [applyProjectTheme]);
   const [tasksOpen, setTasksOpen] = useState(false);
   const closeTasks = useCallback(() => setTasksOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -103,6 +110,14 @@ function App() {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
+
+  // Reactively apply project theme whenever the selected project changes
+  const currentProjectThemeName = projects[selectedProjectIndex]?.themeName ?? null;
+  const prevThemeRef = useRef(currentProjectThemeName);
+  if (currentProjectThemeName !== prevThemeRef.current) {
+    prevThemeRef.current = currentProjectThemeName;
+    applyProjectTheme(currentProjectThemeName);
+  }
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 

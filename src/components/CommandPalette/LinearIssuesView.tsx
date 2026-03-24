@@ -35,6 +35,12 @@ export function LinearIssuesView({
     return <IssueListSkeleton />;
   }
 
+  if (linearIssues.length === 0) {
+    return (
+      <div className={styles.empty}>No issues found</div>
+    );
+  }
+
   return (
     <Command.Group heading={allIssues ? "All Issues" : "My Issues"} className={styles.group}>
       {linearIssues.map((issue) => (

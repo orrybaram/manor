@@ -11,7 +11,7 @@ const defaultPreferences: AppPreferences = {
   dockBadgeEnabled: true,
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
-  notificationSound: true,
+  notificationSound: "Glass",
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

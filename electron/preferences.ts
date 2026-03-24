@@ -13,14 +13,14 @@ export interface AppPreferences {
   dockBadgeEnabled: boolean;
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
-  notificationSound: boolean;
+  notificationSound: string | false;
 }
 
 const DEFAULTS: AppPreferences = {
   dockBadgeEnabled: true,
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
-  notificationSound: true,
+  notificationSound: "Glass",
 };
 
 export class PreferencesManager {
@@ -41,7 +41,14 @@ export class PreferencesManager {
   private loadState(): AppPreferences {
     try {
       const data = fs.readFileSync(this.prefsFilePath(), "utf-8");
-      const parsed = JSON.parse(data) as Partial<AppPreferences>;
+      const parsed = JSON.parse(data) as Partial<AppPreferences> & { notificationSound?: unknown };
+      // Migration: convert legacy boolean notificationSound to string | false
+      const rawSound = (parsed as Record<string, unknown>).notificationSound;
+      if (rawSound === true) {
+        parsed.notificationSound = "Glass";
+      } else if (rawSound === false) {
+        parsed.notificationSound = false;
+      }
       return { ...DEFAULTS, ...parsed };
     } catch {
       return { ...DEFAULTS };

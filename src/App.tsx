@@ -58,11 +58,13 @@ function App() {
   >(null);
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
+  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
     setInitialName("");
     setInitialBranch("");
+    setAgentPrompt(null);
   }, []);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
@@ -71,10 +73,11 @@ function App() {
     setSettingsOpen(true);
   }, []);
   const handleNewWorkspace = useCallback(
-    (opts?: { projectId?: string; name?: string; branch?: string }) => {
+    (opts?: { projectId?: string; name?: string; branch?: string; agentPrompt?: string }) => {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
       if (opts?.name) setInitialName(opts.name);
       if (opts?.branch) setInitialBranch(opts.branch);
+      if (opts?.agentPrompt) setAgentPrompt(opts.agentPrompt);
       setNewWorkspaceOpen(true);
     },
     [],
@@ -261,6 +264,18 @@ function App() {
         initialBranch={initialBranch}
         onSubmit={async (projectId, name, branch) => {
           const result = await createWorktree(projectId, name, branch);
+          if (result && agentPrompt) {
+            const project = projects.find((p) => p.id === projectId);
+            if (project?.agentCommand) {
+              const escaped = agentPrompt
+                .replace(/\\/g, "\\\\")
+                .replace(/"/g, '\\"')
+                .replace(/\$/g, "\\$")
+                .replace(/`/g, "\\`");
+              const command = `${project.agentCommand} "${escaped}"`;
+              useAppStore.getState().setPendingStartupCommand(result, command);
+            }
+          }
           if (result) {
             setNewWorkspaceOpen(false);
           }

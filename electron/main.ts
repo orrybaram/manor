@@ -561,6 +561,13 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "github:assignIssue",
+  (_event, repoPath: string, issueNumber: number) => {
+    return githubManager.assignIssue(repoPath, issueNumber);
+  },
+);
+
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
   assertString(apiKey, "apiKey");
@@ -616,6 +623,13 @@ ipcMain.handle(
     options?: { stateTypes?: string[]; limit?: number },
   ) => {
     return linearManager.getAllIssues(teamIds, options);
+  },
+);
+
+ipcMain.handle(
+  "linear:startIssue",
+  async (_event, issueId: string) => {
+    return linearManager.startIssue(issueId);
   },
 );
 

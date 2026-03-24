@@ -239,6 +239,53 @@ export class LinearManager {
     return { ...raw, labels: raw.labels.nodes };
   }
 
+  async startIssue(issueId: string): Promise<void> {
+    try {
+      // Get issue's team workflow states and current assignee
+      const data = await this.graphql<{
+        issue: {
+          assignee: { id: string } | null;
+          team: {
+            states: {
+              nodes: Array<{ id: string; name: string; type: string }>;
+            };
+          };
+        };
+        viewer: { id: string };
+      }>(
+        `query($id: String!) {
+          issue(id: $id) {
+            assignee { id }
+            team {
+              states { nodes { id name type } }
+            }
+          }
+          viewer { id }
+        }`,
+        { id: issueId },
+      );
+
+      const startedState = data.issue.team.states.nodes.find(
+        (s) => s.type === "started",
+      );
+      if (!startedState) return;
+
+      const input: Record<string, string> = { stateId: startedState.id };
+      if (!data.issue.assignee) {
+        input.assigneeId = data.viewer.id;
+      }
+
+      await this.graphql(
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) { success }
+        }`,
+        { id: issueId, input },
+      );
+    } catch {
+      // fire-and-forget; failures should not block workspace creation
+    }
+  }
+
   autoMatchProjects(
     projects: { id: string; name: string }[],
     teams: LinearTeam[],

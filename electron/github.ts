@@ -23,6 +23,20 @@ interface PrInfo {
   unresolvedThreads?: number;
 }
 
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  labels: Array<{ name: string; color: string }>;
+  assignees: Array<{ login: string }>;
+}
+
+export interface GitHubIssueDetail extends GitHubIssue {
+  body: string | null;
+  milestone: { title: string } | null;
+}
+
 export class GitHubManager {
   async getPrForBranch(repoPath: string, branch: string): Promise<PrInfo | null> {
     return this.getPrForBranchInner(repoPath, branch);
@@ -117,6 +131,41 @@ export class GitHubManager {
     } catch {
       return undefined;
     }
+  }
+
+  async getMyIssues(repoPath: string, limit = 50): Promise<GitHubIssue[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        "gh",
+        ["issue", "list", "--assignee", "@me", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--limit", String(limit)],
+        { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
+      );
+      return JSON.parse(stdout);
+    } catch {
+      return [];
+    }
+  }
+
+  async getAllIssues(repoPath: string, limit = 50): Promise<GitHubIssue[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        "gh",
+        ["issue", "list", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--sort", "created", "--limit", String(limit)],
+        { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
+      );
+      return JSON.parse(stdout);
+    } catch {
+      return [];
+    }
+  }
+
+  async getIssueDetail(repoPath: string, issueNumber: number): Promise<GitHubIssueDetail> {
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["issue", "view", String(issueNumber), "--json", "number,title,url,state,body,labels,assignees,milestone"],
+      { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
+    );
+    return JSON.parse(stdout);
   }
 
   async checkStatus(): Promise<{ installed: boolean; authenticated: boolean; username?: string }> {

@@ -540,6 +540,27 @@ ipcMain.handle(
 
 ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
 
+ipcMain.handle(
+  "github:getMyIssues",
+  (_event, repoPath: string, limit?: number) => {
+    return githubManager.getMyIssues(repoPath, limit);
+  },
+);
+
+ipcMain.handle(
+  "github:getAllIssues",
+  (_event, repoPath: string, limit?: number) => {
+    return githubManager.getAllIssues(repoPath, limit);
+  },
+);
+
+ipcMain.handle(
+  "github:getIssueDetail",
+  (_event, repoPath: string, issueNumber: number) => {
+    return githubManager.getIssueDetail(repoPath, issueNumber);
+  },
+);
+
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
   assertString(apiKey, "apiKey");
@@ -584,6 +605,17 @@ ipcMain.handle(
   "linear:getIssueDetail",
   async (_event, issueId: string) => {
     return linearManager.getIssueDetail(issueId);
+  },
+);
+
+ipcMain.handle(
+  "linear:getAllIssues",
+  async (
+    _event,
+    teamIds: string[],
+    options?: { stateTypes?: string[]; limit?: number },
+  ) => {
+    return linearManager.getAllIssues(teamIds, options);
   },
 );
 

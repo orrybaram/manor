@@ -4,7 +4,11 @@ import { useToastStore } from "./toast-store";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
+const PORTS_HEIGHT_KEY = "manor:portsHeight";
 const DEFAULT_SIDEBAR_WIDTH = 220;
+const DEFAULT_PORTS_HEIGHT = 200;
+const MIN_PORTS_HEIGHT = 60;
+const MAX_PORTS_HEIGHT = 500;
 
 function loadSidebarWidth(): number {
   try {
@@ -17,6 +21,19 @@ function loadSidebarWidth(): number {
     /* ignore */
   }
   return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function loadPortsHeight(): number {
+  try {
+    const raw = localStorage.getItem(PORTS_HEIGHT_KEY);
+    if (raw) {
+      const height = Number(raw);
+      if (Number.isFinite(height) && height >= MIN_PORTS_HEIGHT && height <= MAX_PORTS_HEIGHT) return height;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PORTS_HEIGHT;
 }
 
 function loadCollapsedIds(): Set<string> {
@@ -101,6 +118,7 @@ interface ProjectState {
   selectedProjectIndex: number;
   sidebarVisible: boolean;
   sidebarWidth: number;
+  portsHeight: number;
   loading: boolean;
   collapsedProjectIds: Set<string>;
 
@@ -140,6 +158,7 @@ interface ProjectState {
   updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
+  setPortsHeight: (height: number) => void;
   toggleProjectCollapsed: (projectId: string) => void;
   setProjectExpanded: (projectId: string) => void;
 }
@@ -149,6 +168,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   selectedProjectIndex: 0,
   sidebarVisible: true,
   sidebarWidth: loadSidebarWidth(),
+  portsHeight: loadPortsHeight(),
   loading: false,
   collapsedProjectIds: loadCollapsedIds(),
 
@@ -390,6 +410,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setSidebarWidth: (width: number) => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
     set({ sidebarWidth: width });
+  },
+
+  setPortsHeight: (height: number) => {
+    const clamped = Math.max(MIN_PORTS_HEIGHT, Math.min(MAX_PORTS_HEIGHT, height));
+    localStorage.setItem(PORTS_HEIGHT_KEY, String(clamped));
+    set({ portsHeight: clamped });
   },
 
   toggleProjectCollapsed: (projectId: string) =>

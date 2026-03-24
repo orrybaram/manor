@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
+import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
 import { AgentDot } from "./AgentDot";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
@@ -21,6 +22,126 @@ import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { useWorkspaceDrag } from "../hooks/useWorkspaceDrag";
 import styles from "./Sidebar.module.css";
+
+function WorkspaceItem({
+  ws,
+  idx,
+  isSelected,
+  selectedWorkspaceIndex,
+  isDragging,
+  isDeleting,
+  isEditing,
+  editValue,
+  editRef,
+  displayName,
+  getTransformStyle,
+  justDragged,
+  itemRefCallback,
+  onSelectWorkspace,
+  onDoubleClick,
+  onPointerDown,
+  onEditChange,
+  onEditBlur,
+  onEditKeyDown,
+  onEditClick,
+  onEditPointerDown,
+}: {
+  ws: WorkspaceInfo;
+  idx: number;
+  isSelected: boolean;
+  selectedWorkspaceIndex: number;
+  isDragging: boolean;
+  isDeleting: boolean;
+  isEditing: boolean;
+  editValue: string;
+  editRef: React.RefObject<HTMLInputElement | null>;
+  displayName: string;
+  getTransformStyle: (idx: number) => React.CSSProperties | undefined;
+  justDragged: React.RefObject<boolean>;
+  itemRefCallback: (el: HTMLDivElement | null) => void;
+  onSelectWorkspace: (index: number) => void;
+  onDoubleClick: (e: React.MouseEvent) => void;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onEditChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onEditBlur: () => void;
+  onEditKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onEditClick: (e: React.MouseEvent) => void;
+  onEditPointerDown: (e: React.PointerEvent) => void;
+}) {
+  const workspaceStatus = useWorkspaceAgentStatus(ws.path);
+
+  return (
+    <div
+      ref={itemRefCallback}
+      className={`${styles.workspace} ${
+        isSelected && idx === selectedWorkspaceIndex
+          ? styles.workspaceActive
+          : ""
+      } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}`}
+      style={getTransformStyle(idx)}
+      onClick={() => {
+        if (!justDragged.current) onSelectWorkspace(idx);
+      }}
+      onDoubleClick={onDoubleClick}
+      onPointerDown={onPointerDown}
+    >
+      {isEditing ? (
+        <input
+          ref={editRef}
+          className={styles.workspaceNameInput}
+          value={editValue}
+          onChange={onEditChange}
+          onBlur={onEditBlur}
+          onKeyDown={onEditKeyDown}
+          onClick={onEditClick}
+          onPointerDown={onEditPointerDown}
+        />
+      ) : (
+        <>
+          <span className={styles.workspaceIcon}>
+            {workspaceStatus ? (
+              <AgentDot status={workspaceStatus} size="sidebar" />
+            ) : ws.isMain ? (
+              <House size={12} />
+            ) : (
+              <FolderGit2 size={12} />
+            )}
+          </span>
+          <div className={styles.workspaceLabel}>
+            <div className={styles.workspaceNameRow}>
+              <span className={styles.workspaceName}>
+                {displayName}
+              </span>
+              {ws.diffStats && (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
+                <span className={styles.diffStats}>
+                  {ws.diffStats.added > 0 && (
+                    <span className={styles.diffAdded}>+{ws.diffStats.added}</span>
+                  )}
+                  {ws.diffStats.removed > 0 && (
+                    <span className={styles.diffRemoved}>-{ws.diffStats.removed}</span>
+                  )}
+                </span>
+              )}
+            </div>
+            <div className={styles.workspaceBranchRow}>
+              <span className={styles.workspaceBranch}>
+                {ws.branch || "main"}
+              </span>
+              {ws.pr && (
+                <PrPopover
+                  pr={ws.pr}
+                  onOpen={() =>
+                    window.electronAPI.shell.openExternal(ws.pr!.url)
+                  }
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function ProjectItem({
   project,
@@ -160,88 +281,44 @@ export function ProjectItem({
             const isDeleting = deletingPaths.has(ws.path);
 
             const workspaceEl = (
-              <div
+              <WorkspaceItem
                 key={ws.path}
-                ref={(el) => {
+                ws={ws}
+                idx={idx}
+                isSelected={isSelected}
+                selectedWorkspaceIndex={project.selectedWorkspaceIndex}
+                isDragging={isDragging}
+                isDeleting={isDeleting}
+                isEditing={isEditing}
+                editValue={editValue}
+                editRef={editRef}
+                displayName={displayName}
+                getTransformStyle={getTransformStyle}
+                justDragged={justDragged}
+                itemRefCallback={(el) => {
                   if (el) itemRefs.current.set(idx, el);
                   else itemRefs.current.delete(idx);
                 }}
-                className={`${styles.workspace} ${
-                  isSelected && idx === project.selectedWorkspaceIndex
-                    ? styles.workspaceActive
-                    : ""
-                } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}`}
-                style={getTransformStyle(idx)}
-                onClick={() => {
-                  if (!justDragged.current) onSelectWorkspace(idx);
-                }}
+                onSelectWorkspace={onSelectWorkspace}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   startRename(ws);
                 }}
                 onPointerDown={(e) => handleDragStart(idx, e)}
-              >
-                {isEditing ? (
-                  <input
-                    ref={editRef}
-                    className={styles.workspaceNameInput}
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={() => {
-                      if (editingPath) commitRename(ws);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitRename(ws);
-                      if (e.key === "Escape") {
-                        setEditingPath(null);
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <>
-                    <span className={styles.workspaceIcon}>
-                      {ws.isMain ? (
-                        <House size={12} />
-                      ) : (
-                        <FolderGit2 size={12} />
-                      )}
-                    </span>
-                    <div className={styles.workspaceLabel}>
-                      <div className={styles.workspaceNameRow}>
-                        <span className={styles.workspaceName}>
-                          {displayName}
-                        </span>
-                        {ws.diffStats && (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                          <span className={styles.diffStats}>
-                            {ws.diffStats.added > 0 && (
-                              <span className={styles.diffAdded}>+{ws.diffStats.added}</span>
-                            )}
-                            {ws.diffStats.removed > 0 && (
-                              <span className={styles.diffRemoved}>-{ws.diffStats.removed}</span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      <div className={styles.workspaceBranchRow}>
-                        <span className={styles.workspaceBranch}>
-                          {ws.branch || "main"}
-                        </span>
-                        {ws.pr && (
-                          <PrPopover
-                            pr={ws.pr}
-                            onOpen={() =>
-                              window.electronAPI.shell.openExternal(ws.pr!.url)
-                            }
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+                onEditChange={(e) => setEditValue(e.target.value)}
+                onEditBlur={() => {
+                  if (editingPath) commitRename(ws);
+                }}
+                onEditKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename(ws);
+                  if (e.key === "Escape") {
+                    setEditingPath(null);
+                    e.currentTarget.blur();
+                  }
+                }}
+                onEditClick={(e) => e.stopPropagation()}
+                onEditPointerDown={(e) => e.stopPropagation()}
+              />
             );
 
             return (

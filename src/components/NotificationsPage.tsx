@@ -50,13 +50,36 @@ export function NotificationsPage() {
           />
         </label>
 
-        <label className={styles.notifRow}>
-          <span>Play notification sound</span>
-          <Switch
-            checked={preferences.notificationSound}
-            onCheckedChange={(checked) => set("notificationSound", checked)}
-          />
-        </label>
+        <div className={styles.notifRow}>
+          <span>Notification sound</span>
+          <select
+            className={styles.soundSelect}
+            value={preferences.notificationSound === false ? "none" : preferences.notificationSound}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val !== "none") {
+                window.electronAPI.preferences.playSound(val);
+              }
+              set("notificationSound", val === "none" ? false : val);
+            }}
+          >
+            <option value="none">None</option>
+            <option value="Basso">Basso</option>
+            <option value="Blow">Blow</option>
+            <option value="Bottle">Bottle</option>
+            <option value="Frog">Frog</option>
+            <option value="Funk">Funk</option>
+            <option value="Glass">Glass</option>
+            <option value="Hero">Hero</option>
+            <option value="Morse">Morse</option>
+            <option value="Ping">Ping</option>
+            <option value="Pop">Pop</option>
+            <option value="Purr">Purr</option>
+            <option value="Sosumi">Sosumi</option>
+            <option value="Submarine">Submarine</option>
+            <option value="Tink">Tink</option>
+          </select>
+        </div>
 
         {isMac && (
           <label className={styles.notifRow}>

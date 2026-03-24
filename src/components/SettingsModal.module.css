@@ -258,6 +258,22 @@
   color: var(--text-selected);
 }
 
+.soundSelect {
+  padding: 5px 8px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.soundSelect:focus {
+  border-color: var(--accent);
+}
+
 /* ── Form fields ── */
 
 .fieldLabel {

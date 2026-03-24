@@ -67,7 +67,9 @@ export function GitHubIssueDetailView({
       projectId: project.id,
       name: issueDetail.title,
       branch: branchName,
+      agentPrompt: issueDetail.title + "\n\n" + (issueDetail.body ?? ""),
     });
+    window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
   }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace]);
 
   const handleOpenInBrowser = useCallback(() => {
@@ -182,7 +184,7 @@ export function GitHubIssueDetailView({
       <div className={styles.detailFooter}>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>Enter</kbd>
-          <span>Create Workspace</span>
+          <span>Start Work</span>
         </span>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>&#8984;O</kbd>

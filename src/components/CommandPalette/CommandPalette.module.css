@@ -247,7 +247,6 @@
 
 .paletteWide {
   width: 700px;
-  min-height: 500px;
   max-height: 500px;
 }
 
@@ -275,7 +274,7 @@
 .detailMain {
   padding: 12px 24px 24px;
   overflow-y: auto;
-  min-height: 0;
+  min-height: 400px;
 }
 
 .detailTitle {

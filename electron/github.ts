@@ -168,6 +168,16 @@ export class GitHubManager {
     return JSON.parse(stdout);
   }
 
+  async assignIssue(repoPath: string, issueNumber: number): Promise<void> {
+    try {
+      await execFileAsync("gh", ["issue", "edit", String(issueNumber), "--add-assignee", "@me"], {
+        cwd: repoPath, encoding: "utf-8", timeout: 10000,
+      });
+    } catch {
+      // fire-and-forget; failures should not block workspace creation
+    }
+  }
+
   async checkStatus(): Promise<{ installed: boolean; authenticated: boolean; username?: string }> {
     try {
       const { stdout, stderr } = await execFileAsync("gh", ["auth", "status", "--hostname", "github.com"], {

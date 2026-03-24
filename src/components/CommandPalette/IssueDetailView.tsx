@@ -65,7 +65,9 @@ export function IssueDetailView({
         projectId: project.id,
         name: issue.title,
         branch: issue.branchName,
+        agentPrompt: issue.title + "\n\n" + (issueDetailRef.current?.description ?? ""),
       });
+      window.electronAPI.linear.startIssue(issue.id);
     },
     [
       findProjectForIssue,
@@ -199,7 +201,7 @@ export function IssueDetailView({
       <div className={styles.detailFooter}>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>Enter</kbd>
-          <span>Create Workspace</span>
+          <span>Start Work</span>
         </span>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>&#8984;O</kbd>

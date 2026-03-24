@@ -18,6 +18,7 @@ export interface CommandPaletteProps {
     projectId?: string;
     name?: string;
     branch?: string;
+    agentPrompt?: string;
   }) => void;
   onResumeTask: (task: import("../../electron.d").TaskInfo) => void;
   onViewAllTasks: () => void;

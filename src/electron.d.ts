@@ -266,6 +266,7 @@ export interface ElectronAPI {
     getMyIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
     getAllIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
     getIssueDetail: (repoPath: string, issueNumber: number) => Promise<GitHubIssueDetail>;
+    assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
   };
 
   linear: {
@@ -284,6 +285,7 @@ export interface ElectronAPI {
       options?: { stateTypes?: string[]; limit?: number },
     ) => Promise<LinearIssue[]>;
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
+    startIssue: (issueId: string) => Promise<void>;
   };
 
   updater: {

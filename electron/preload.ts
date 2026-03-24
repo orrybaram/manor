@@ -144,6 +144,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("github:getAllIssues", repoPath, limit),
     getIssueDetail: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
+    assignIssue: (repoPath: string, issueNumber: number) =>
+      ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
   },
 
   linear: {
@@ -164,6 +166,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       options?: { stateTypes?: string[]; limit?: number },
     ) => ipcRenderer.invoke("linear:getAllIssues", teamIds, options),
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
+    startIssue: (issueId: string) =>
+      ipcRenderer.invoke("linear:startIssue", issueId),
   },
 
   dialog: {

@@ -82,6 +82,8 @@ export interface AppState {
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, AgentState>;
+  paneContentType: Record<string, "terminal" | "browser">;
+  paneUrl: Record<string, string>;
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
@@ -95,6 +97,7 @@ export interface AppState {
 
   // Session operations
   addSession: () => void;
+  addBrowserSession: (url: string) => void;
   closeSession: (sessionId: string) => void;
   selectSession: (sessionId: string) => void;
   selectNextSession: () => void;
@@ -151,6 +154,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneCwd: {},
   paneTitle: {},
   paneAgentStatus: {},
+  paneContentType: {},
+  paneUrl: {},
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
@@ -250,6 +255,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  addBrowserSession: (url: string) =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const paneId = newPaneId();
+      let title: string;
+      try {
+        const parsed = new URL(url);
+        title = parsed.host || url;
+      } catch {
+        title = url;
+      }
+      const session: Session = {
+        id: newSessionId(),
+        title,
+        rootNode: { type: "leaf", paneId, contentType: "browser", url },
+        focusedPaneId: paneId,
+      };
+      return {
+        paneContentType: { ...state.paneContentType, [paneId]: "browser" },
+        paneUrl: { ...state.paneUrl, [paneId]: url },
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: [...ws.sessions, session],
+            selectedSessionId: session.id,
+          },
+        },
+      };
+    }),
+
   closeSession: (sessionId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
@@ -281,10 +320,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newCwd = { ...state.paneCwd };
       const newTitle = { ...state.paneTitle };
       const newAgentStatus = { ...state.paneAgentStatus };
+      const newContentType = { ...state.paneContentType };
+      const newPaneUrl = { ...state.paneUrl };
       for (const pid of deadPaneIds) {
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
+        delete newContentType[pid];
+        delete newPaneUrl[pid];
       }
 
       return {
@@ -292,6 +335,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
+        paneContentType: newContentType,
+        paneUrl: newPaneUrl,
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: {
@@ -742,14 +787,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
       const newAgentStatus = { ...s.paneAgentStatus };
+      const newContentType = { ...s.paneContentType };
+      const newPaneUrl = { ...s.paneUrl };
       delete newCwd[paneId];
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
+      delete newContentType[paneId];
+      delete newPaneUrl[paneId];
       return {
         closedPaneIds: newClosedPaneIds,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
+        paneContentType: newContentType,
+        paneUrl: newPaneUrl,
         workspaceSessions: {
           ...s.workspaceSessions,
           [path]: {
@@ -907,10 +958,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newCwd = { ...state.paneCwd };
       const newTitle = { ...state.paneTitle };
       const newAgentStatus = { ...state.paneAgentStatus };
+      const newContentType = { ...state.paneContentType };
+      const newPaneUrl = { ...state.paneUrl };
       for (const pid of deadPaneIds) {
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
+        delete newContentType[pid];
+        delete newPaneUrl[pid];
       }
 
       const { [workspacePath]: _, ...rest } = state.workspaceSessions;
@@ -920,6 +975,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
+        paneContentType: newContentType,
+        paneUrl: newPaneUrl,
       };
     }),
 

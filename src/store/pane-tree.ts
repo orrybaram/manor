@@ -3,7 +3,7 @@
 export type SplitDirection = "horizontal" | "vertical";
 
 export type PaneNode =
-  | { type: "leaf"; paneId: string }
+  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser"; url?: string }
   | {
       type: "split";
       direction: SplitDirection;

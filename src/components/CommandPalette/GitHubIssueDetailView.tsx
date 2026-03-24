@@ -14,6 +14,7 @@ interface GitHubIssueDetailViewProps {
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
+  onNewTaskWithPrompt?: (prompt: string) => void;
 }
 
 function slugify(title: string): string {
@@ -30,6 +31,7 @@ export function GitHubIssueDetailView({
   onBack,
   onClose,
   onNewWorkspace,
+  onNewTaskWithPrompt,
 }: GitHubIssueDetailViewProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -78,10 +80,20 @@ export function GitHubIssueDetailView({
     onClose();
   }, [issueDetail, onClose]);
 
+  const handleNewTask = useCallback(() => {
+    if (!issueDetail) return;
+    const prompt = issueDetail.title + "\n\n" + (issueDetail.body ?? "");
+    onNewTaskWithPrompt?.(prompt);
+    window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
+    onClose();
+  }, [issueDetail, onNewTaskWithPrompt, repoPath, onClose]);
+
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
   handleOpenInBrowserRef.current = handleOpenInBrowser;
+  const handleNewTaskRef = useRef(handleNewTask);
+  handleNewTaskRef.current = handleNewTask;
 
   useMountEffect(() => {
     let ready = false;
@@ -90,7 +102,10 @@ export function GitHubIssueDetailView({
     });
     const onKeyUp = (e: globalThis.KeyboardEvent) => {
       if (!ready) return;
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && e.shiftKey) {
+        e.preventDefault();
+        handleNewTaskRef.current();
+      } else if (e.key === "Enter") {
         e.preventDefault();
         handleCreateWorkspaceRef.current();
       }
@@ -185,6 +200,10 @@ export function GitHubIssueDetailView({
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>Enter</kbd>
           <span>Start Work</span>
+        </span>
+        <span className={styles.footerHint}>
+          <kbd className={styles.kbd}>Shift+Enter</kbd>
+          <span>New Task</span>
         </span>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>&#8984;O</kbd>

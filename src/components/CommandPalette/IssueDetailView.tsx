@@ -15,6 +15,7 @@ interface IssueDetailViewProps {
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
+  onNewTaskWithPrompt?: (prompt: string) => void;
 }
 
 export function IssueDetailView({
@@ -22,6 +23,7 @@ export function IssueDetailView({
   onBack,
   onClose,
   onNewWorkspace,
+  onNewTaskWithPrompt,
 }: IssueDetailViewProps) {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
@@ -86,6 +88,16 @@ export function IssueDetailView({
     [onClose],
   );
 
+  const handleNewTask = useCallback(
+    (issue: LinearIssue) => {
+      const prompt = issue.title + "\n\n" + (issueDetailRef.current?.description ?? "");
+      onNewTaskWithPrompt?.(prompt);
+      window.electronAPI.linear.startIssue(issue.id);
+      onClose();
+    },
+    [onNewTaskWithPrompt, onClose],
+  );
+
   // Keyboard shortcuts — refs hold latest values so the mount effect never re-subscribes.
   const issueDetailRef = useRef(issueDetail);
   issueDetailRef.current = issueDetail;
@@ -93,6 +105,8 @@ export function IssueDetailView({
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
   handleOpenInBrowserRef.current = handleOpenInBrowser;
+  const handleNewTaskRef = useRef(handleNewTask);
+  handleNewTaskRef.current = handleNewTask;
 
   // The Enter keyup from the list selection can arrive after this effect
   // registers its listener, so we gate on a `ready` flag set after a frame.
@@ -103,7 +117,10 @@ export function IssueDetailView({
     });
     const onKeyUp = (e: globalThis.KeyboardEvent) => {
       if (!ready || !issueDetailRef.current) return;
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && e.shiftKey) {
+        e.preventDefault();
+        handleNewTaskRef.current(issueDetailRef.current);
+      } else if (e.key === "Enter") {
         e.preventDefault();
         handleCreateWorkspaceRef.current(issueDetailRef.current);
       }
@@ -202,6 +219,10 @@ export function IssueDetailView({
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>Enter</kbd>
           <span>Start Work</span>
+        </span>
+        <span className={styles.footerHint}>
+          <kbd className={styles.kbd}>Shift+Enter</kbd>
+          <span>New Task</span>
         </span>
         <span className={styles.footerHint}>
           <kbd className={styles.kbd}>&#8984;O</kbd>

@@ -23,6 +23,7 @@ export interface CommandPaletteProps {
   onResumeTask: (task: import("../../electron.d").TaskInfo) => void;
   onViewAllTasks: () => void;
   onNewTask: () => void;
+  onNewTaskWithPrompt?: (prompt: string) => void;
 }
 
 export type PaletteView =

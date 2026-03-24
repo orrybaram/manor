@@ -36,6 +36,7 @@ export function CommandPalette({
   onResumeTask,
   onViewAllTasks,
   onNewTask,
+  onNewTaskWithPrompt,
 }: CommandPaletteProps) {
   const addSession = useAppStore((s) => s.addSession);
   const closePane = useAppStore((s) => s.closePane);
@@ -427,6 +428,7 @@ export function CommandPalette({
                 onBack={navigateBackToList}
                 onClose={onClose}
                 onNewWorkspace={onNewWorkspace}
+                onNewTaskWithPrompt={onNewTaskWithPrompt}
               />
             )}
             {view === "github-issue-detail" && selectedGitHubIssueNumber != null && repoPath && (
@@ -436,6 +438,7 @@ export function CommandPalette({
                 onBack={navigateBackToList}
                 onClose={onClose}
                 onNewWorkspace={onNewWorkspace}
+                onNewTaskWithPrompt={onNewTaskWithPrompt}
               />
             )}
           </Command>

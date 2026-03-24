@@ -208,6 +208,29 @@ function App() {
   }, [addSession, projects, activeWorkspacePath]);
   handleNewTaskRef.current = handleNewTask;
 
+  const handleNewTaskWithPrompt = useCallback(
+    (prompt: string) => {
+      if (activeWorkspacePath) {
+        const currentProject = projects.find((p) =>
+          p.workspaces.some((w) => w.path === activeWorkspacePath),
+        );
+        const baseCommand =
+          currentProject?.agentCommand ?? "claude --dangerously-skip-permissions";
+        const escaped = prompt
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\$/g, "\\$")
+          .replace(/`/g, "\\`");
+        const command = `${baseCommand} "${escaped}"`;
+        useAppStore
+          .getState()
+          .setPendingStartupCommand(activeWorkspacePath, command);
+      }
+      addSession();
+    },
+    [addSession, projects, activeWorkspacePath],
+  );
+
   return (
     <div className="app">
       <div className="app-body">
@@ -247,6 +270,7 @@ function App() {
         onResumeTask={handleResumeTask}
         onViewAllTasks={() => setTasksOpen(true)}
         onNewTask={handleNewTask}
+        onNewTaskWithPrompt={handleNewTaskWithPrompt}
       />
       <SettingsModal open={settingsOpen} onClose={closeSettings} initialProjectId={settingsProjectId} />
       <TasksModal

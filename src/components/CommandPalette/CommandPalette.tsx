@@ -61,6 +61,7 @@ export function CommandPalette({
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<number | null>(null);
   const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
+  const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
 
   // Get all team IDs from projects with Linear associations
@@ -102,6 +103,7 @@ export function CommandPalette({
       setSearch("");
       setSelectedIssueId(null);
       setSelectedGitHubIssueNumber(null);
+      setIssueListEmpty(false);
     }
   }, [open]);
 
@@ -241,10 +243,12 @@ export function CommandPalette({
                 </span>
               </div>
             )}
-            {!isDetailView && !isIssueListView && (
+            {!isDetailView && !(isIssueListView && issueListEmpty) && (
               <Command.Input
                 className={styles.input}
-                placeholder="Type a command..."
+                placeholder={
+                  isIssueListView ? "Search issues..." : "Type a command..."
+                }
                 autoFocus
                 value={search}
                 onValueChange={setSearch}
@@ -393,6 +397,7 @@ export function CommandPalette({
                 <LinearIssuesView
                   allTeamIds={allTeamIds}
                   allIssues={view === "linear-all"}
+                  onEmptyChange={setIssueListEmpty}
                   onSelectIssue={(issueId) => {
                     setIssueListOrigin(view);
                     setSelectedIssueId(issueId);
@@ -406,6 +411,7 @@ export function CommandPalette({
                 <GitHubIssuesView
                   repoPath={repoPath}
                   allIssues={view === "github-all"}
+                  onEmptyChange={setIssueListEmpty}
                   onSelectIssue={(issueNumber) => {
                     setIssueListOrigin(view);
                     setSelectedGitHubIssueNumber(issueNumber);

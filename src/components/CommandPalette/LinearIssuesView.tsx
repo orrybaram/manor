@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import { IssueListSkeleton } from "./IssueListSkeleton";
@@ -7,12 +8,14 @@ interface LinearIssuesViewProps {
   allTeamIds: string[];
   allIssues?: boolean;
   onSelectIssue: (issueId: string) => void;
+  onEmptyChange?: (empty: boolean) => void;
 }
 
 export function LinearIssuesView({
   allTeamIds,
   allIssues,
   onSelectIssue,
+  onEmptyChange,
 }: LinearIssuesViewProps) {
   const { data: linearIssues = [], isLoading } = useQuery({
     queryKey: [allIssues ? "linear-all-issues" : "linear-issues", allTeamIds],
@@ -31,11 +34,17 @@ export function LinearIssuesView({
     refetchOnMount: "always",
   });
 
+  const isEmpty = !isLoading && linearIssues.length === 0;
+
+  useEffect(() => {
+    onEmptyChange?.(isEmpty);
+  }, [isEmpty, onEmptyChange]);
+
   if (isLoading) {
     return <IssueListSkeleton />;
   }
 
-  if (linearIssues.length === 0) {
+  if (isEmpty) {
     return (
       <div className={styles.empty}>No issues found</div>
     );

@@ -6,10 +6,35 @@ export const PRIORITY_LABELS: Record<number, { label: string; color: string }> =
   4: { label: "Low", color: "#8da4ef" },
 };
 
+const isSubsequence = (hay: string, needle: string): boolean => {
+  let j = 0;
+  for (let i = 0; i < hay.length && j < needle.length; i++) {
+    if (hay[i] === needle[j]) j++;
+  }
+  return j === needle.length;
+};
+
 export const wordPrefixFilter = (value: string, search: string) => {
-  const words = value.toLowerCase().split(/\s+/);
+  const val = value.toLowerCase();
   const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
-  return terms.every((t) => words.some((w) => w.startsWith(t))) ? 1 : 0;
+  const words = val.split(/\s+/);
+
+  let score = 0;
+  for (const t of terms) {
+    if (words.some((w) => w === t)) {
+      score += 1;
+    } else if (words.some((w) => w.startsWith(t))) {
+      score += 0.8;
+    } else if (words.some((w) => w.includes(t))) {
+      score += 0.6;
+    } else if (isSubsequence(val, t)) {
+      score += 0.4;
+    } else {
+      return 0;
+    }
+  }
+
+  return score / terms.length;
 };
 
 export function stripMarkdown(text: string): string {

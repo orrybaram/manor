@@ -7,7 +7,6 @@ import {
   Palette,
   Keyboard,
   Bell,
-  FolderOpen,
   Link,
 } from "lucide-react";
 import { useProjectStore } from "../store/project-store";
@@ -140,7 +139,6 @@ export function SettingsModal({ open, onClose, initialProjectId }: SettingsModal
                       setPage({ type: "project", projectId: project.id })
                     }
                   >
-                    <FolderOpen size={13} />
                     <span className={styles.navItemLabel}>{project.name}</span>
                   </button>
                 ))}

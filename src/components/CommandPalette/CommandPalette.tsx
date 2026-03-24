@@ -331,7 +331,14 @@ export function CommandPalette({
 
               {view === "root" && (
                 <>
-                  {categories.filter(c => c.visible).map((cat, i) => (
+                  {categories.filter(c => c.visible).sort((a, b) => {
+                    if (!search) return 0;
+                    const bestScore = (cat: CategoryConfig) =>
+                      Math.max(0, ...cat.items.map((cmd) =>
+                        wordPrefixFilter(`${cat.heading} ${cmd.label}`, search)
+                      ));
+                    return bestScore(b) - bestScore(a);
+                  }).map((cat, i) => (
                     <Fragment key={cat.id}>
                       {i > 0 && <Command.Separator className={styles.separator} />}
                       <Command.Group heading={cat.heading} className={styles.group}>

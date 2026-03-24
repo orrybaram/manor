@@ -277,6 +277,8 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         <ProjectThemeSelector project={project} />
       </div>
 
+      <LinearProjectSection project={project} />
+
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Agent</div>
         <label className={styles.fieldLabel}>Agent Command</label>
@@ -406,7 +408,6 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         ))}
       </div>
 
-      <LinearProjectSection project={project} />
     </div>
   );
 }

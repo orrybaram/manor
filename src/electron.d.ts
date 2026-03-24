@@ -59,6 +59,20 @@ export interface LinearIssueDetail extends LinearIssue {
   } | null;
 }
 
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  labels: Array<{ name: string; color: string }>;
+  assignees: Array<{ login: string }>;
+}
+
+export interface GitHubIssueDetail extends GitHubIssue {
+  body: string | null;
+  milestone: { title: string } | null;
+}
+
 export interface ActivePort {
   port: number;
   processName: string;
@@ -249,6 +263,9 @@ export interface ElectronAPI {
       unresolvedThreads?: number;
     } | null][]>;
     checkStatus: () => Promise<{ installed: boolean; authenticated: boolean; username?: string }>;
+    getMyIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
+    getAllIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
+    getIssueDetail: (repoPath: string, issueNumber: number) => Promise<GitHubIssueDetail>;
   };
 
   linear: {
@@ -262,6 +279,10 @@ export interface ElectronAPI {
       options?: { stateTypes?: string[]; limit?: number },
     ) => Promise<LinearIssue[]>;
     getIssueDetail: (issueId: string) => Promise<LinearIssueDetail>;
+    getAllIssues: (
+      teamIds: string[],
+      options?: { stateTypes?: string[]; limit?: number },
+    ) => Promise<LinearIssue[]>;
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
   };
 

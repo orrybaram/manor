@@ -13,9 +13,6 @@ interface UseCommandsParams {
   focusNextPane: () => void;
   focusPrevPane: () => void;
   toggleSidebar: () => void;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  resetZoom: () => void;
   onClose: () => void;
   onOpenSettings?: () => void;
   sessions: { id: string }[];
@@ -33,9 +30,6 @@ export function useCommands({
   focusNextPane,
   focusPrevPane,
   toggleSidebar,
-  zoomIn,
-  zoomOut,
-  resetZoom,
   onClose,
   onOpenSettings,
   sessions,
@@ -141,33 +135,6 @@ export function useCommands({
         },
       },
       {
-        id: "zoom-in",
-        label: "Zoom In",
-        shortcut: fmt("zoom-in"),
-        action: () => {
-          zoomIn();
-          onClose();
-        },
-      },
-      {
-        id: "zoom-out",
-        label: "Zoom Out",
-        shortcut: fmt("zoom-out"),
-        action: () => {
-          zoomOut();
-          onClose();
-        },
-      },
-      {
-        id: "zoom-reset",
-        label: "Reset Zoom",
-        shortcut: fmt("zoom-reset"),
-        action: () => {
-          resetZoom();
-          onClose();
-        },
-      },
-      {
         id: "settings",
         label: "Settings",
         shortcut: fmt("settings"),
@@ -198,9 +165,6 @@ export function useCommands({
       focusNextPane,
       focusPrevPane,
       toggleSidebar,
-      zoomIn,
-      zoomOut,
-      resetZoom,
       onClose,
       onOpenSettings,
       sessions,

@@ -158,6 +158,62 @@ export class LinearManager {
     return issues.slice(0, limit);
   }
 
+  async getAllIssues(
+    teamIds: string[],
+    options?: GetMyIssuesOptions,
+  ): Promise<LinearIssue[]> {
+    if (teamIds.length === 0) return [];
+
+    const stateTypes = options?.stateTypes ?? ["unstarted"];
+    const limit = options?.limit ?? 50;
+    const fetchLimit = Math.min(limit * 2, 50);
+
+    type RawIssue = Omit<LinearIssue, "labels"> & {
+      labels: { nodes: Array<{ name: string; color: string }> };
+    };
+    const data = await this.graphql<{
+      issues: {
+        nodes: RawIssue[];
+      };
+    }>(
+      `query($teamIds: [ID!]!, $stateTypes: [String!]!, $first: Int!) {
+        issues(
+          filter: {
+            team: { id: { in: $teamIds } }
+            state: { type: { in: $stateTypes } }
+          }
+          first: $first
+          orderBy: priority
+        ) {
+          nodes {
+            id
+            identifier
+            title
+            url
+            branchName
+            priority
+            state { name type }
+            labels { nodes { name color } }
+          }
+        }
+      }`,
+      { teamIds, stateTypes, first: fetchLimit },
+    );
+    const stateOrder: Record<string, number> = { unstarted: 0, backlog: 1 };
+    const issues: LinearIssue[] = data.issues.nodes.map(
+      (raw) => ({ ...raw, labels: raw.labels.nodes }),
+    );
+    issues.sort((a, b) => {
+      const sa = stateOrder[a.state.type] ?? 2;
+      const sb = stateOrder[b.state.type] ?? 2;
+      if (sa !== sb) return sa - sb;
+      const pa = a.priority || 5;
+      const pb = b.priority || 5;
+      return pa - pb;
+    });
+    return issues.slice(0, limit);
+  }
+
   async getIssueDetail(issueId: string): Promise<LinearIssueDetail> {
     type RawDetail = Omit<LinearIssueDetail, "labels"> & {
       labels: { nodes: Array<{ id: string; name: string; color: string }> };

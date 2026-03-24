@@ -16,8 +16,11 @@ import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
 import { useTaskCommands } from "./useTaskCommands";
 import { LinearIcon } from "./LinearIcon";
+import { GitHubIcon } from "./GitHubIcon";
 import { LinearIssuesView } from "./LinearIssuesView";
+import { GitHubIssuesView } from "./GitHubIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
+import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type { CommandPaletteProps, PaletteView } from "./types";
@@ -45,9 +48,6 @@ export function CommandPalette({
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const closeSession = useAppStore((s) => s.closeSession);
-  const zoomIn = useAppStore((s) => s.zoomIn);
-  const zoomOut = useAppStore((s) => s.zoomOut);
-  const resetZoom = useAppStore((s) => s.resetZoom);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
@@ -57,7 +57,11 @@ export function CommandPalette({
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
   const [linearConnected, setLinearConnected] = useState(false);
+  const [githubConnected, setGithubConnected] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<number | null>(null);
+  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
+  const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
 
   // Get all team IDs from projects with Linear associations
@@ -71,13 +75,25 @@ export function CommandPalette({
     return [...ids];
   }, [projects]);
 
-  // Check Linear connection status when palette opens
+  // Derive repoPath from the active project
+  const repoPath = useMemo(() => {
+    const project = projects.find((p) =>
+      p.workspaces.some((ws) => ws.path === activeWorkspacePath),
+    );
+    return project?.path ?? null;
+  }, [projects, activeWorkspacePath]);
+
+  // Check connection status when palette opens
   useEffect(() => {
     if (!open) return;
     window.electronAPI.linear
       .isConnected()
       .then(setLinearConnected)
       .catch(() => setLinearConnected(false));
+    window.electronAPI.github
+      .checkStatus()
+      .then((s) => setGithubConnected(s.installed && s.authenticated))
+      .catch(() => setGithubConnected(false));
   }, [open]);
 
   // Reset state when palette closes
@@ -86,6 +102,8 @@ export function CommandPalette({
       setView("root");
       setSearch("");
       setSelectedIssueId(null);
+      setSelectedGitHubIssueNumber(null);
+      setIssueListEmpty(false);
     }
   }, [open]);
 
@@ -94,17 +112,34 @@ export function CommandPalette({
     setView("linear");
   }, []);
 
+  const navigateToLinearAll = useCallback(() => {
+    setSearch("");
+    setView("linear-all");
+  }, []);
+
+  const navigateToGitHub = useCallback(() => {
+    setSearch("");
+    setView("github");
+  }, []);
+
+  const navigateToGitHubAll = useCallback(() => {
+    setSearch("");
+    setView("github-all");
+  }, []);
+
   const navigateToRoot = useCallback(() => {
     setSearch("");
     setSelectedIssueId(null);
+    setSelectedGitHubIssueNumber(null);
     setView("root");
   }, []);
 
-  const navigateToLinearList = useCallback(() => {
+  const navigateBackToList = useCallback(() => {
     setSearch("");
     setSelectedIssueId(null);
-    setView("linear");
-  }, []);
+    setSelectedGitHubIssueNumber(null);
+    setView(issueListOrigin);
+  }, [issueListOrigin]);
 
   const { workspaceGroups } = useWorkspaceCommands({
     projects,
@@ -125,9 +160,6 @@ export function CommandPalette({
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
-    zoomIn,
-    zoomOut,
-    resetZoom,
     onClose,
     onOpenSettings,
     sessions,
@@ -163,9 +195,9 @@ export function CommandPalette({
 
   const handleEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (view === "issue-detail") {
+      if (view === "issue-detail" || view === "github-issue-detail") {
         e.preventDefault();
-        navigateToLinearList();
+        navigateBackToList();
         return;
       }
       if (view !== "root") {
@@ -174,10 +206,13 @@ export function CommandPalette({
         return;
       }
     },
-    [view, navigateToRoot, navigateToLinearList],
+    [view, navigateToRoot, navigateBackToList],
   );
 
   const showLinear = linearConnected && allTeamIds.length > 0;
+  const showGitHub = githubConnected && !!repoPath;
+  const isIssueListView = view === "linear" || view === "linear-all" || view === "github" || view === "github-all";
+  const isDetailView = view === "issue-detail" || view === "github-issue-detail";
 
   return (
     <>
@@ -185,14 +220,14 @@ export function CommandPalette({
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
-          className={`${styles.palette} ${view === "issue-detail" ? styles.paletteWide : ""}`}
+          className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""}`}
           onOpenAutoFocus={handleOpenAutoFocus}
           onCloseAutoFocus={handleCloseAutoFocus}
           onEscapeKeyDown={handleEscapeKeyDown}
         >
           <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
           <Command className={styles.command} loop filter={wordPrefixFilter}>
-            {view === "linear" && (
+            {isIssueListView && (
               <div className={styles.breadcrumb}>
                 <button
                   className={styles.breadcrumbBack}
@@ -200,26 +235,26 @@ export function CommandPalette({
                 >
                   <ArrowLeft size={14} />
                 </button>
-                <span className={styles.breadcrumbLabel}>Linear Issues</span>
+                <span className={styles.breadcrumbLabel}>
+                  {view === "linear" && "Linear — My Issues"}
+                  {view === "linear-all" && "Linear — All Issues"}
+                  {view === "github" && "GitHub — My Issues"}
+                  {view === "github-all" && "GitHub — All Issues"}
+                </span>
               </div>
             )}
-            {view !== "issue-detail" && (
+            {!isDetailView && !(isIssueListView && issueListEmpty) && (
               <Command.Input
                 className={styles.input}
                 placeholder={
-                  view === "linear" ? "Search issues..." : "Type a command..."
+                  isIssueListView ? "Search issues..." : "Type a command..."
                 }
                 autoFocus
                 value={search}
                 onValueChange={setSearch}
               />
             )}
-            <Command.List className={styles.list} style={view === "issue-detail" ? HIDDEN_STYLE : undefined}>
-              {view === "linear" && (
-                <Command.Empty className={styles.empty}>
-                  No matching issues
-                </Command.Empty>
-              )}
+            <Command.List className={styles.list} style={isDetailView ? HIDDEN_STYLE : undefined}>
 
               {view === "root" && (
                 <>
@@ -294,7 +329,7 @@ export function CommandPalette({
                       <Command.Separator className={styles.separator} />
                       <Command.Group heading="Linear" className={styles.group}>
                         <Command.Item
-                          value="Linear Issues"
+                          value="Linear My Issues"
                           onSelect={navigateToLinear}
                           className={styles.item}
                         >
@@ -306,19 +341,82 @@ export function CommandPalette({
                             <ChevronRight size={14} />
                           </span>
                         </Command.Item>
+                        <Command.Item
+                          value="Linear All Issues"
+                          onSelect={navigateToLinearAll}
+                          className={styles.item}
+                        >
+                          <span className={styles.icon}>
+                            <LinearIcon size={14} />
+                          </span>
+                          <span className={styles.label}>All Issues</span>
+                          <span className={styles.chevron}>
+                            <ChevronRight size={14} />
+                          </span>
+                        </Command.Item>
+                      </Command.Group>
+                    </>
+                  )}
+                  {showGitHub && (
+                    <>
+                      <Command.Separator className={styles.separator} />
+                      <Command.Group heading="GitHub" className={styles.group}>
+                        <Command.Item
+                          value="GitHub My Issues"
+                          onSelect={navigateToGitHub}
+                          className={styles.item}
+                        >
+                          <span className={styles.icon}>
+                            <GitHubIcon size={14} />
+                          </span>
+                          <span className={styles.label}>My Issues</span>
+                          <span className={styles.chevron}>
+                            <ChevronRight size={14} />
+                          </span>
+                        </Command.Item>
+                        <Command.Item
+                          value="GitHub All Issues"
+                          onSelect={navigateToGitHubAll}
+                          className={styles.item}
+                        >
+                          <span className={styles.icon}>
+                            <GitHubIcon size={14} />
+                          </span>
+                          <span className={styles.label}>All Issues</span>
+                          <span className={styles.chevron}>
+                            <ChevronRight size={14} />
+                          </span>
+                        </Command.Item>
                       </Command.Group>
                     </>
                   )}
                 </>
               )}
 
-              {view === "linear" && (
+              {(view === "linear" || view === "linear-all") && (
                 <LinearIssuesView
                   allTeamIds={allTeamIds}
+                  allIssues={view === "linear-all"}
+                  onEmptyChange={setIssueListEmpty}
                   onSelectIssue={(issueId) => {
+                    setIssueListOrigin(view);
                     setSelectedIssueId(issueId);
                     setSearch("");
                     setView("issue-detail");
+                  }}
+                />
+              )}
+
+              {(view === "github" || view === "github-all") && repoPath && (
+                <GitHubIssuesView
+                  repoPath={repoPath}
+                  allIssues={view === "github-all"}
+                  onEmptyChange={setIssueListEmpty}
+                  onSelectIssue={(issueNumber) => {
+                    setIssueListOrigin(view);
+                    setSelectedGitHubIssueNumber(issueNumber);
+                    setSearch("");
+                    setView("github-issue-detail");
                   }}
                 />
               )}
@@ -326,7 +424,16 @@ export function CommandPalette({
             {view === "issue-detail" && selectedIssueId && (
               <IssueDetailView
                 issueId={selectedIssueId}
-                onBack={navigateToLinearList}
+                onBack={navigateBackToList}
+                onClose={onClose}
+                onNewWorkspace={onNewWorkspace}
+              />
+            )}
+            {view === "github-issue-detail" && selectedGitHubIssueNumber != null && repoPath && (
+              <GitHubIssueDetailView
+                repoPath={repoPath}
+                issueNumber={selectedGitHubIssueNumber}
+                onBack={navigateBackToList}
                 onClose={onClose}
                 onNewWorkspace={onNewWorkspace}
               />

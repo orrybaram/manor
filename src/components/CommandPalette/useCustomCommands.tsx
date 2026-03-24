@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Terminal } from "lucide-react";
 import { useProjectStore } from "../../store/project-store";
-import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import type { CommandItem } from "./useWorkspaceCommands";
 
 interface UseCustomCommandsParams {
@@ -11,9 +11,7 @@ interface UseCustomCommandsParams {
 
 export function useCustomCommands({ onClose, activeWorkspacePath }: UseCustomCommandsParams): CommandItem[] {
   const projects = useProjectStore((s) => s.projects);
-  const ws = useAppStore(selectActiveWorkspace);
-  const selectedSession = ws?.sessions.find((s) => s.id === ws.selectedSessionId);
-  const focusedPaneId = selectedSession?.focusedPaneId ?? null;
+  const addSession = useAppStore((s) => s.addSession);
 
   return useMemo(() => {
     if (!activeWorkspacePath) return [];
@@ -27,11 +25,10 @@ export function useCustomCommands({ onClose, activeWorkspacePath }: UseCustomCom
       label: cmd.name || cmd.command,
       icon: <Terminal size={14} />,
       action: () => {
-        if (focusedPaneId) {
-          window.electronAPI.pty.write(focusedPaneId, cmd.command + "\r");
-        }
+        useAppStore.getState().setPendingStartupCommand(activeWorkspacePath, cmd.command);
+        addSession();
         onClose();
       },
     }));
-  }, [projects, activeWorkspacePath, focusedPaneId, onClose]);
+  }, [projects, activeWorkspacePath, addSession, onClose]);
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import { IssueListSkeleton } from "./IssueListSkeleton";
@@ -30,9 +30,11 @@ export function GitHubIssuesView({
 
   const isEmpty = !isLoading && issues.length === 0;
 
-  useEffect(() => {
+  const prevEmptyRef = useRef<boolean | undefined>(undefined);
+  if (isEmpty !== prevEmptyRef.current) {
+    prevEmptyRef.current = isEmpty;
     onEmptyChange?.(isEmpty);
-  }, [isEmpty, onEmptyChange]);
+  }
 
   if (isLoading) {
     return <IssueListSkeleton />;

@@ -176,7 +176,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
-    openPath: (path: string) => ipcRenderer.invoke("shell:openPath", path),
+    openInEditor: (path: string) => ipcRenderer.invoke("shell:openInEditor", path),
   },
 
   updater: {

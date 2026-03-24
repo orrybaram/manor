@@ -14,6 +14,7 @@ export interface AppPreferences {
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
   notificationSound: string | false;
+  defaultEditor: string;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -21,6 +22,7 @@ const DEFAULTS: AppPreferences = {
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
   notificationSound: "Glass",
+  defaultEditor: "",
 };
 
 export class PreferencesManager {

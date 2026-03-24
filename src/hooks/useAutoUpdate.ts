@@ -1,10 +1,10 @@
-import { useEffect } from "react";
 import { useToastStore } from "../store/toast-store";
+import { useMountEffect } from "./useMountEffect";
 
 export function useAutoUpdate() {
   const addToast = useToastStore((s) => s.addToast);
 
-  useEffect(() => {
+  useMountEffect(() => {
     if (!window.electronAPI?.updater?.onUpdateDownloaded) return;
 
     const cleanup = window.electronAPI.updater.onUpdateDownloaded(
@@ -23,5 +23,5 @@ export function useAutoUpdate() {
     );
 
     return cleanup;
-  }, [addToast]);
+  });
 }

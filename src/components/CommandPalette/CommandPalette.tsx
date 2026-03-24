@@ -2,7 +2,7 @@ import {
   useMemo,
   useCallback,
   useState,
-  useEffect,
+  useRef,
   Fragment,
 } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -86,9 +86,9 @@ export function CommandPalette({
     return project?.path ?? null;
   }, [projects, activeWorkspacePath]);
 
-  // Check connection status when palette opens
-  useEffect(() => {
-    if (!open) return;
+  // Check connection status when palette opens (render-time, ref-guarded)
+  const prevOpenRef = useRef(false);
+  if (open && !prevOpenRef.current) {
     window.electronAPI.linear
       .isConnected()
       .then(setLinearConnected)
@@ -97,18 +97,17 @@ export function CommandPalette({
       .checkStatus()
       .then((s) => setGithubConnected(s.installed && s.authenticated))
       .catch(() => setGithubConnected(false));
-  }, [open]);
+  }
+  prevOpenRef.current = open;
 
-  // Reset state when palette closes
-  useEffect(() => {
-    if (!open) {
-      setView("root");
-      setSearch("");
-      setSelectedIssueId(null);
-      setSelectedGitHubIssueNumber(null);
-      setIssueListEmpty(false);
-    }
-  }, [open]);
+  const handleClose = useCallback(() => {
+    setView("root");
+    setSearch("");
+    setSelectedIssueId(null);
+    setSelectedGitHubIssueNumber(null);
+    setIssueListEmpty(false);
+    onClose();
+  }, [onClose]);
 
   const navigateToLinear = useCallback(() => {
     setSearch("");

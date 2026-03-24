@@ -150,7 +150,7 @@ export function useCommands({
         label: "Open in Editor",
         action: () => {
           if (activeWorkspacePath) {
-            window.electronAPI.shell.openPath(activeWorkspacePath);
+            window.electronAPI.shell.openInEditor(activeWorkspacePath);
           }
           onClose();
         },

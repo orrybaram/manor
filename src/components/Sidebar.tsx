@@ -7,7 +7,6 @@ import React, {
 import { Plus, Boxes, ChevronRight } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
-import { useThemeStore } from "../store/theme-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../hooks/useDiffWatcher";
@@ -46,7 +45,6 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
-  const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
@@ -57,7 +55,6 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
     Promise.all([loadPersistedLayout(), loadProjects()]).then(() => {
       const { projects, selectedProjectIndex } = useProjectStore.getState();
       const project = projects[selectedProjectIndex];
-      applyProjectTheme(project?.themeName ?? null);
       if (project) {
         const ws =
           project.workspaces[project.selectedWorkspaceIndex] ??
@@ -299,7 +296,6 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                             if (projJustDragged.current) return;
                             selectProject(idx);
                             setProjectExpanded(project.id);
-                            applyProjectTheme(project.themeName);
                             const ws =
                               project.workspaces[project.selectedWorkspaceIndex] ??
                               project.workspaces[0];
@@ -308,7 +304,6 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                           onRemove={() => removeProject(project.id)}
                           onSelectWorkspace={(wsIdx) => {
                             selectWorkspace(project.id, wsIdx);
-                            applyProjectTheme(project.themeName);
                             const ws = project.workspaces[wsIdx];
                             if (ws) setActiveWorkspace(ws.path);
                           }}

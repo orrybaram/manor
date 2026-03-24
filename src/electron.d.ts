@@ -3,6 +3,7 @@ export interface AppPreferences {
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
   notificationSound: string | false;
+  defaultEditor: string;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";
@@ -303,7 +304,7 @@ export interface ElectronAPI {
 
   shell: {
     openExternal: (url: string) => Promise<void>;
-    openPath: (path: string) => Promise<string>;
+    openInEditor: (path: string) => Promise<string>;
   };
 
   tasks: {

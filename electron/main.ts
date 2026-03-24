@@ -680,9 +680,17 @@ ipcMain.handle("shell:openExternal", async (_event, url: string) => {
   return shell.openExternal(url);
 });
 
-ipcMain.handle("shell:openPath", async (_event, path: string) => {
-  assertString(path, "path");
-  return shell.openPath(path);
+ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
+  assertString(dirPath, "dirPath");
+  const editor = preferencesManager.get("defaultEditor");
+  if (!editor) {
+    return shell.openPath(dirPath);
+  }
+  return new Promise<string>((resolve) => {
+    execFile(editor, [dirPath], (err) => {
+      resolve(err ? err.message : "");
+    });
+  });
 });
 
 // ── Task Persistence IPC ──

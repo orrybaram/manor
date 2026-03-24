@@ -162,6 +162,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
               message: "Task responded",
               detail: task.name || "Agent",
               status: "success",
+              duration: 10_000,
               action: {
                 label: "Go to task",
                 onClick: () => {
@@ -181,13 +182,6 @@ export const useTaskStore = create<TaskState>((set, get) => {
               message: "Task completed",
               detail: task.name || "Agent",
               status: "success",
-              action: {
-                label: "Go to task",
-                onClick: () => {
-                  navigateToTask(task);
-                  useToastStore.getState().removeToast(toastId);
-                },
-              },
             });
           }
         }

@@ -8,6 +8,7 @@ import {
 import { Plus } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { usePaneDrag } from "../contexts/PaneDragContext";
 import { SessionButton } from "./SessionButton";
 import styles from "./TabBar.module.css";
 
@@ -25,6 +26,11 @@ export function TabBar() {
   const togglePinSession = useAppStore((s) => s.togglePinSession);
   const pinnedSessionIds = useMemo(() => ws?.pinnedSessionIds ?? [], [ws?.pinnedSessionIds]);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
+  const { startDrag, endDrag } = usePaneDrag();
+
+  const sessionsRef = useRef<HTMLDivElement>(null);
+  const handedOffToPaneDrop = useRef(false);
+  const draggedPointerId = useRef(0);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -48,6 +54,8 @@ export function TabBar() {
       dragStartX.current = e.clientX;
       dragActive.current = false;
       dragCleanedUp.current = false;
+      draggedPointerId.current = e.pointerId;
+      handedOffToPaneDrop.current = false;
 
       // Snapshot item widths
       const widths: number[] = [];
@@ -97,9 +105,47 @@ export function TabBar() {
         targetIdx = Math.max(minIdx, Math.min(maxIdx, targetIdx));
         dropIndexRef.current = targetIdx;
         setDropIndex(targetIdx);
+
+        // Check if pointer has left the tab bar area (dragged down into pane area)
+        const sessionsEl = sessionsRef.current;
+        if (sessionsEl && dragActive.current) {
+          const barRect = sessionsEl.getBoundingClientRect();
+          if (ev.clientY > barRect.bottom + 20) {
+            // Release pointer capture so pane drop zones can receive events
+            try { tabEl.releasePointerCapture(draggedPointerId.current); } catch {}
+            startDrag({ type: "tab", sessionId: sessions[idx].id });
+            handedOffToPaneDrop.current = true;
+            // Clean up tab bar drag visuals
+            setDragIndex(null);
+            setDropIndex(null);
+            setDragOffset(0);
+
+            // Global listener to end drag if user drops outside any pane
+            const globalCleanup = () => {
+              requestAnimationFrame(() => {
+                endDrag();
+              });
+              document.removeEventListener("pointerup", globalCleanup);
+            };
+            document.addEventListener("pointerup", globalCleanup);
+          }
+        }
       };
 
       const onUp = () => {
+        if (handedOffToPaneDrop.current) {
+          handedOffToPaneDrop.current = false;
+          tabEl.removeEventListener("pointermove", onMove);
+          tabEl.removeEventListener("pointerup", onUp);
+          tabEl.removeEventListener("lostpointercapture", onUp);
+          dragActive.current = false;
+          dropIndexRef.current = null;
+          setDragIndex(null);
+          setDropIndex(null);
+          setDragOffset(0);
+          return;
+        }
+
         if (dragCleanedUp.current) return;
         dragCleanedUp.current = true;
 
@@ -131,7 +177,7 @@ export function TabBar() {
       tabEl.addEventListener("pointerup", onUp);
       tabEl.addEventListener("lostpointercapture", onUp);
     },
-    [sessions, reorderSessions, pinnedSessionIds],
+    [sessions, reorderSessions, pinnedSessionIds, startDrag, endDrag],
   );
 
   const getTransformStyle = (idx: number): React.CSSProperties => {
@@ -161,7 +207,7 @@ export function TabBar() {
     <div
       className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""}`}
     >
-      <div className={styles.sessions}>
+      <div ref={sessionsRef} className={styles.sessions}>
         {sessions.map((session, idx) => (
           <SessionButton
             key={session.id}

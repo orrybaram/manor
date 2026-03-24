@@ -1,6 +1,6 @@
 import { useRef, useCallback } from "react";
-import { Check } from "lucide-react";
-import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import { Check, Trash2, Plus } from "lucide-react";
+import { useProjectStore, type ProjectInfo, type CustomCommand } from "../store/project-store";
 import { LinearProjectSection } from "./LinearProjectSection";
 import styles from "./SettingsModal.module.css";
 
@@ -147,6 +147,63 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           onBlur={() => handleBlur("agentCommand")}
           placeholder="claude --dangerously-skip-permissions"
         />
+      </div>
+
+      <div className={styles.settingsGroup}>
+        <div className={styles.sectionTitle}>Commands</div>
+        {(project.commands ?? []).map((cmd: CustomCommand) => (
+          <div key={cmd.id} className={styles.commandRow}>
+            <input
+              className={styles.commandNameInput}
+              defaultValue={cmd.name}
+              placeholder="Name"
+              onBlur={(e) => {
+                const updatedCommands = (project.commands ?? []).map((c) =>
+                  c.id === cmd.id ? { ...c, name: e.target.value } : c
+                );
+                updateProject(project.id, { commands: updatedCommands });
+              }}
+            />
+            <input
+              className={styles.commandCmdInput}
+              defaultValue={cmd.command}
+              placeholder="Command"
+              onBlur={(e) => {
+                const updatedCommands = (project.commands ?? []).map((c) =>
+                  c.id === cmd.id ? { ...c, command: e.target.value } : c
+                );
+                updateProject(project.id, { commands: updatedCommands });
+              }}
+            />
+            <button
+              className={styles.commandDeleteBtn}
+              onClick={() => {
+                const filtered = (project.commands ?? []).filter(
+                  (c) => c.id !== cmd.id
+                );
+                updateProject(project.id, { commands: filtered });
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+        <button
+          className={styles.addCommandBtn}
+          onClick={() => {
+            const newCommand: CustomCommand = {
+              id: crypto.randomUUID(),
+              name: "",
+              command: "",
+            };
+            updateProject(project.id, {
+              commands: [...(project.commands ?? []), newCommand],
+            });
+          }}
+        >
+          <Plus size={12} />
+          Add Command
+        </button>
       </div>
 
       <div className={styles.settingsGroup}>

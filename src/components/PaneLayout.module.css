@@ -123,3 +123,26 @@
 .dividerActive {
   background: var(--accent);
 }
+
+/* ── Drop Zone Overlay ── */
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.dropZoneHighlight {
+  position: absolute;
+  background: var(--accent);
+  opacity: 0.15;
+  transition: all 100ms ease;
+}
+
+.dropZoneDivider {
+  position: absolute;
+  background: var(--accent);
+  opacity: 0.8;
+  z-index: 21;
+}

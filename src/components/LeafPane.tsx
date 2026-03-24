@@ -1,5 +1,7 @@
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
+import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
+import { PaneDropZone } from "./PaneDropZone";
 
 import styles from "./PaneLayout.module.css";
 
@@ -21,7 +23,12 @@ export function LeafPane({
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
+  const { drag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
+
+  const showDropZone =
+    drag !== null &&
+    !(drag.type === "pane" && drag.paneId === paneId);
 
   let title =
     paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
@@ -105,6 +112,7 @@ export function LeafPane({
       <div className={styles.leafTerminal}>
         <TerminalPane paneId={paneId} cwd={workspacePath} />
       </div>
+      {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>
   );
 }

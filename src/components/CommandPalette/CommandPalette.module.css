@@ -247,7 +247,8 @@
 
 .paletteWide {
   width: 700px;
-  max-height: 480px;
+  min-height: 500px;
+  max-height: 500px;
 }
 
 .detailBody {

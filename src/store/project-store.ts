@@ -7,7 +7,7 @@ const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
 const PORTS_HEIGHT_KEY = "manor:portsHeight";
 const DEFAULT_SIDEBAR_WIDTH = 220;
 const DEFAULT_PORTS_HEIGHT = 200;
-const MIN_PORTS_HEIGHT = 60;
+export const MIN_PORTS_HEIGHT = 60;
 const MAX_PORTS_HEIGHT = 500;
 
 function loadSidebarWidth(): number {
@@ -48,6 +48,12 @@ function loadCollapsedIds(): Set<string> {
 
 function saveCollapsedIds(ids: Set<string>): void {
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+}
+
+export interface CustomCommand {
+  id: string;
+  name: string;
+  command: string;
 }
 
 export interface DiffStats {
@@ -97,6 +103,7 @@ export interface ProjectInfo {
   linearAssociations: LinearAssociation[];
   color: string | null;
   agentCommand: string | null;
+  commands: CustomCommand[];
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -110,6 +117,7 @@ export type ProjectUpdatableFields = Partial<
     | "linearAssociations"
     | "color"
     | "agentCommand"
+    | "commands"
   >
 >;
 

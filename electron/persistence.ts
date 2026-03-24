@@ -26,6 +26,12 @@ function manorDataDir(): string {
   return path.join(os.homedir(), ".local", "share", "Manor");
 }
 
+export interface CustomCommand {
+  id: string;
+  name: string;
+  command: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -47,6 +53,7 @@ export interface ProjectInfo {
   linearAssociations: LinearAssociation[];
   color: string | null;
   agentCommand: string | null;
+  commands: CustomCommand[];
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -60,6 +67,7 @@ export type ProjectUpdatableFields = Partial<
     | "linearAssociations"
     | "color"
     | "agentCommand"
+    | "commands"
   >
 >;
 
@@ -79,6 +87,7 @@ interface PersistedProject {
   workspaceOrder?: string[];
   color?: string | null;
   agentCommand?: string | null;
+  commands?: CustomCommand[];
 }
 
 interface PersistedState {
@@ -148,6 +157,7 @@ export class ProjectManager {
       worktreeTeardownScript: null,
       color: null,
       agentCommand: null,
+      commands: [],
     };
     this.state.projects.push(project);
     this.state.selectedProjectIndex = this.state.projects.length - 1;
@@ -171,6 +181,7 @@ export class ProjectManager {
       linearAssociations: [],
       color: null,
       agentCommand: null,
+      commands: [],
     };
   }
 
@@ -257,6 +268,7 @@ export class ProjectManager {
       linearAssociations: p.linearAssociations ?? [],
       color: p.color ?? null,
       agentCommand: p.agentCommand ?? null,
+      commands: p.commands ?? [],
     };
   }
 

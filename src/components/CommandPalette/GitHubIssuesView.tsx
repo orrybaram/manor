@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import { IssueListSkeleton } from "./IssueListSkeleton";
@@ -7,12 +8,14 @@ interface GitHubIssuesViewProps {
   repoPath: string;
   allIssues?: boolean;
   onSelectIssue: (issueNumber: number) => void;
+  onEmptyChange?: (empty: boolean) => void;
 }
 
 export function GitHubIssuesView({
   repoPath,
   allIssues,
   onSelectIssue,
+  onEmptyChange,
 }: GitHubIssuesViewProps) {
   const { data: issues = [], isLoading } = useQuery({
     queryKey: ["github-issues", repoPath, allIssues],
@@ -25,11 +28,17 @@ export function GitHubIssuesView({
     refetchOnMount: "always",
   });
 
+  const isEmpty = !isLoading && issues.length === 0;
+
+  useEffect(() => {
+    onEmptyChange?.(isEmpty);
+  }, [isEmpty, onEmptyChange]);
+
   if (isLoading) {
     return <IssueListSkeleton />;
   }
 
-  if (issues.length === 0) {
+  if (isEmpty) {
     return (
       <div className={styles.empty}>No issues found</div>
     );

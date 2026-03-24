@@ -24,4 +24,11 @@ export interface CommandPaletteProps {
   onNewTask: () => void;
 }
 
-export type PaletteView = "root" | "linear" | "issue-detail";
+export type PaletteView =
+  | "root"
+  | "linear"
+  | "linear-all"
+  | "github"
+  | "github-all"
+  | "issue-detail"
+  | "github-issue-detail";

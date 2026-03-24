@@ -5,20 +5,27 @@ import styles from "./CommandPalette.module.css";
 
 interface LinearIssuesViewProps {
   allTeamIds: string[];
+  allIssues?: boolean;
   onSelectIssue: (issueId: string) => void;
 }
 
 export function LinearIssuesView({
   allTeamIds,
+  allIssues,
   onSelectIssue,
 }: LinearIssuesViewProps) {
   const { data: linearIssues = [], isLoading } = useQuery({
-    queryKey: ["linear-issues", allTeamIds],
+    queryKey: [allIssues ? "linear-all-issues" : "linear-issues", allTeamIds],
     queryFn: () =>
-      window.electronAPI.linear.getMyIssues(allTeamIds, {
-        stateTypes: ["unstarted", "backlog"],
-        limit: 50,
-      }),
+      allIssues
+        ? window.electronAPI.linear.getAllIssues(allTeamIds, {
+            stateTypes: ["unstarted", "backlog"],
+            limit: 50,
+          })
+        : window.electronAPI.linear.getMyIssues(allTeamIds, {
+            stateTypes: ["unstarted", "backlog"],
+            limit: 50,
+          }),
     enabled: allTeamIds.length > 0,
     staleTime: 0,
     refetchOnMount: "always",
@@ -29,7 +36,7 @@ export function LinearIssuesView({
   }
 
   return (
-    <Command.Group heading="My Issues" className={styles.group}>
+    <Command.Group heading={allIssues ? "All Issues" : "My Issues"} className={styles.group}>
       {linearIssues.map((issue) => (
         <Command.Item
           key={issue.id}

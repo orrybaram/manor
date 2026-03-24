@@ -104,10 +104,10 @@ export function GitHubIssueDetailView({
       if (!ready) return;
       if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
-        handleNewTaskRef.current();
+        handleCreateWorkspaceRef.current();
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleCreateWorkspaceRef.current();
+        handleNewTaskRef.current();
       }
     };
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -197,18 +197,18 @@ export function GitHubIssueDetailView({
         </div>
       </div>
       <div className={styles.detailFooter}>
-        <span className={styles.footerHint}>
+        <button className={styles.footerHint} onClick={handleNewTask}>
           <kbd className={styles.kbd}>Enter</kbd>
-          <span>Start Work</span>
-        </span>
-        <span className={styles.footerHint}>
-          <kbd className={styles.kbd}>Shift+Enter</kbd>
           <span>New Task</span>
-        </span>
-        <span className={styles.footerHint}>
+        </button>
+        <button className={styles.footerHint} onClick={handleCreateWorkspace}>
+          <kbd className={styles.kbd}>Shift+Enter</kbd>
+          <span>Create Workspace</span>
+        </button>
+        <button className={styles.footerHint} onClick={handleOpenInBrowser}>
           <kbd className={styles.kbd}>&#8984;O</kbd>
           <span>Open in Browser</span>
-        </span>
+        </button>
       </div>
     </>
   );

@@ -119,10 +119,10 @@ export function IssueDetailView({
       if (!ready || !issueDetailRef.current) return;
       if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
-        handleNewTaskRef.current(issueDetailRef.current);
+        handleCreateWorkspaceRef.current(issueDetailRef.current);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleCreateWorkspaceRef.current(issueDetailRef.current);
+        handleNewTaskRef.current(issueDetailRef.current);
       }
     };
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -216,18 +216,18 @@ export function IssueDetailView({
         </div>
       </div>
       <div className={styles.detailFooter}>
-        <span className={styles.footerHint}>
+        <button className={styles.footerHint} onClick={() => handleNewTask(issueDetail)}>
           <kbd className={styles.kbd}>Enter</kbd>
-          <span>Start Work</span>
-        </span>
-        <span className={styles.footerHint}>
-          <kbd className={styles.kbd}>Shift+Enter</kbd>
           <span>New Task</span>
-        </span>
-        <span className={styles.footerHint}>
+        </button>
+        <button className={styles.footerHint} onClick={() => handleCreateWorkspace(issueDetail)}>
+          <kbd className={styles.kbd}>Shift+Enter</kbd>
+          <span>Create Workspace</span>
+        </button>
+        <button className={styles.footerHint} onClick={() => handleOpenInBrowser(issueDetail)}>
           <kbd className={styles.kbd}>&#8984;O</kbd>
           <span>Open in Browser</span>
-        </span>
+        </button>
       </div>
     </>
   );

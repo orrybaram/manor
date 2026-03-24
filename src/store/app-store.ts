@@ -4,6 +4,9 @@ import {
   type SplitDirection,
   allPaneIds,
   insertSplit,
+  insertSplitAt,
+  movePane,
+  insertSubtreeAt,
   removePane,
   nextPaneId,
   prevPaneId,
@@ -101,6 +104,9 @@ export interface AppState {
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
+  splitPaneAt: (targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
+  movePaneToTarget: (sourcePaneId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
+  moveSessionToPane: (sessionId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
   focusPane: (paneId: string) => void;
@@ -420,6 +426,211 @@ export const useAppStore = create<AppState>((set, get) => ({
                 ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
                 : s,
             ),
+          },
+        },
+      };
+    }),
+
+  splitPaneAt: (targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const session = ws.sessions.find((s) =>
+        allPaneIds(s.rootNode).includes(targetPaneId),
+      );
+      if (!session) return state;
+      const newPane = newPaneId();
+      const newRoot = insertSplitAt(
+        session.rootNode,
+        targetPaneId,
+        direction,
+        newPane,
+        position,
+      );
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: ws.sessions.map((s) =>
+              s.id === session.id
+                ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
+                : s,
+            ),
+          },
+        },
+      };
+    }),
+
+  movePaneToTarget: (sourcePaneId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+
+      const sourceSession = ws.sessions.find((s) =>
+        allPaneIds(s.rootNode).includes(sourcePaneId),
+      );
+      const targetSession = ws.sessions.find((s) =>
+        allPaneIds(s.rootNode).includes(targetPaneId),
+      );
+      if (!sourceSession || !targetSession) return state;
+
+      if (sourceSession.id === targetSession.id) {
+        // Same-session move
+        const newRoot = movePane(
+          sourceSession.rootNode,
+          sourcePaneId,
+          targetPaneId,
+          direction,
+          position,
+        );
+        if (newRoot === null) return state;
+        return {
+          workspaceSessions: {
+            ...state.workspaceSessions,
+            [path]: {
+              ...ws,
+              sessions: ws.sessions.map((s) =>
+                s.id === sourceSession.id
+                  ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId }
+                  : s,
+              ),
+            },
+          },
+        };
+      }
+
+      // Cross-session move
+      const sourceRootAfterRemove = removePane(sourceSession.rootNode, sourcePaneId);
+      const newTargetRoot = insertSplitAt(
+        targetSession.rootNode,
+        targetPaneId,
+        direction,
+        sourcePaneId,
+        position,
+      );
+
+      let newSessions: Session[];
+      if (sourceRootAfterRemove === null) {
+        // Source session had only one pane — close it
+        newSessions = ws.sessions
+          .filter((s) => s.id !== sourceSession.id)
+          .map((s) =>
+            s.id === targetSession.id
+              ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
+              : s,
+          );
+      } else {
+        newSessions = ws.sessions.map((s) => {
+          if (s.id === sourceSession.id) {
+            const ids = allPaneIds(sourceRootAfterRemove);
+            const newFocused =
+              s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId;
+            return { ...s, rootNode: sourceRootAfterRemove, focusedPaneId: newFocused };
+          }
+          if (s.id === targetSession.id) {
+            return { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId };
+          }
+          return s;
+        });
+      }
+
+      const newSelectedSessionId =
+        ws.selectedSessionId === sourceSession.id && sourceRootAfterRemove === null
+          ? targetSession.id
+          : ws.selectedSessionId;
+
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: newSessions,
+            selectedSessionId: newSelectedSessionId,
+            pinnedSessionIds: sourceRootAfterRemove === null
+              ? (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id)
+              : ws.pinnedSessionIds,
+          },
+        },
+      };
+    }),
+
+  moveSessionToPane: (sessionId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+
+      const sourceSession = ws.sessions.find((s) => s.id === sessionId);
+      const targetSession = ws.sessions.find((s) =>
+        allPaneIds(s.rootNode).includes(targetPaneId),
+      );
+      if (!sourceSession || !targetSession || sourceSession.id === targetSession.id) return state;
+
+      // Single-pane session: delegate to movePaneToTarget logic inline
+      const sourceIds = allPaneIds(sourceSession.rootNode);
+      if (sourceSession.rootNode.type === "leaf") {
+        const sourcePaneId = sourceSession.rootNode.paneId;
+        const newTargetRoot = insertSplitAt(
+          targetSession.rootNode,
+          targetPaneId,
+          direction,
+          sourcePaneId,
+          position,
+        );
+        const newSessions = ws.sessions
+          .filter((s) => s.id !== sourceSession.id)
+          .map((s) =>
+            s.id === targetSession.id
+              ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
+              : s,
+          );
+        const newSelectedSessionId =
+          ws.selectedSessionId === sourceSession.id ? targetSession.id : ws.selectedSessionId;
+        return {
+          workspaceSessions: {
+            ...state.workspaceSessions,
+            [path]: {
+              ...ws,
+              sessions: newSessions,
+              selectedSessionId: newSelectedSessionId,
+              pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id),
+            },
+          },
+        };
+      }
+
+      // Multi-pane session: insert entire subtree
+      const newTargetRoot = insertSubtreeAt(
+        targetSession.rootNode,
+        targetPaneId,
+        direction,
+        sourceSession.rootNode,
+        position,
+      );
+      const focusedPaneId = sourceIds[0];
+      const newSessions = ws.sessions
+        .filter((s) => s.id !== sourceSession.id)
+        .map((s) =>
+          s.id === targetSession.id
+            ? { ...s, rootNode: newTargetRoot, focusedPaneId }
+            : s,
+        );
+      const newSelectedSessionId =
+        ws.selectedSessionId === sourceSession.id ? targetSession.id : ws.selectedSessionId;
+      return {
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: newSessions,
+            selectedSessionId: newSelectedSessionId,
+            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id),
           },
         },
       };

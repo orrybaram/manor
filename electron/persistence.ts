@@ -313,8 +313,8 @@ export class ProjectManager {
             branchName = line.slice(18);
           }
         }
-      } catch {
-        /* proceed without branch deletion */
+      } catch (err) {
+        console.error("[ProjectManager] failed to detect branch for worktree:", err instanceof Error ? err.message : err);
       }
     }
 
@@ -325,8 +325,8 @@ export class ProjectManager {
           cwd: worktreePath,
           timeout: 30000,
         });
-      } catch {
-        /* teardown script failure should not block removal */
+      } catch (err) {
+        console.error("[ProjectManager] worktree teardown script failed:", err instanceof Error ? err.message : err);
       }
     }
 
@@ -338,15 +338,16 @@ export class ProjectManager {
           timeout: 30000,
         },
       );
-    } catch {
+    } catch (err) {
+      console.error("[ProjectManager] git worktree remove failed:", err instanceof Error ? err.message : err);
       // Worktree may already be gone — prune stale entries and continue
       try {
         await execAsync("git worktree prune", {
           cwd: project.path,
           timeout: 10000,
         });
-      } catch {
-        /* best effort */
+      } catch (pruneErr) {
+        console.error("[ProjectManager] git worktree prune failed:", pruneErr instanceof Error ? pruneErr.message : pruneErr);
       }
     }
 
@@ -367,8 +368,8 @@ export class ProjectManager {
           cwd: project.path,
           timeout: 10000,
         });
-      } catch {
-        /* branch may already be gone or is checked out elsewhere */
+      } catch (err) {
+        console.error("[ProjectManager] git branch -D failed:", err instanceof Error ? err.message : err);
       }
     }
   }
@@ -394,8 +395,8 @@ export class ProjectManager {
         cwd: project.path,
         timeout: 10000,
       });
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      console.error("[ProjectManager] git worktree prune failed:", err instanceof Error ? err.message : err);
     }
 
     try {
@@ -407,16 +408,22 @@ export class ProjectManager {
           timeout: 15000,
         },
       );
-    } catch {
+    } catch (createErr) {
+      console.error("[ProjectManager] git worktree add -b failed:", createErr instanceof Error ? createErr.message : createErr);
       // Branch already exists — create worktree checking out the existing branch
-      await execFileAsync(
-        "git",
-        ["worktree", "add", worktreePath, branchName],
-        {
-          cwd: project.path,
-          timeout: 15000,
-        },
-      );
+      try {
+        await execFileAsync(
+          "git",
+          ["worktree", "add", worktreePath, branchName],
+          {
+            cwd: project.path,
+            timeout: 15000,
+          },
+        );
+      } catch (fallbackErr) {
+        console.error("[ProjectManager] git worktree add (fallback) also failed:", fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
+        throw fallbackErr;
+      }
     }
 
     // Set custom name only if it differs from the branch

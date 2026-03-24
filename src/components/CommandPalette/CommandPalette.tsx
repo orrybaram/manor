@@ -268,8 +268,8 @@ export function CommandPalette({
 
     return [
       { id: "tasks", heading: "Tasks", visible: true, items: taskCommands },
-      { id: "run", heading: "Run", visible: customCommands.length > 0, items: customCommands },
       ...workspaceCategories,
+      { id: "run", heading: "Run", visible: customCommands.length > 0, items: customCommands },
       { id: "commands", heading: "Commands", visible: true, items: commands },
       { id: "linear", heading: "Linear", visible: showLinear, items: linearItems },
       { id: "github", heading: "GitHub", visible: showGitHub, items: githubItems },

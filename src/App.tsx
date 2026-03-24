@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import { Breadcrumbs } from "./components/Breadcrumbs";
 import { TabBar } from "./components/TabBar";
+import { StatusBar } from "./components/StatusBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
@@ -237,7 +237,6 @@ function App() {
       <div className="app-body">
         {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} onOpenProjectSettings={handleOpenProjectSettings} />}
         <div className="main-content">
-          <Breadcrumbs />
           {hasSessions ? <TabBar /> : <div className="drag-region" />}
           <div className="terminal-container">
             {/* Render all sessions across all workspaces — only show the active one.
@@ -262,6 +261,7 @@ function App() {
             {!hasSessions &&
               (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
           </div>
+          <StatusBar />
         </div>
       </div>
       <CommandPalette

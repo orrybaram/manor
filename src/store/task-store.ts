@@ -153,6 +153,44 @@ export const useTaskStore = create<TaskState>((set, get) => {
             });
           }
         }
+
+        if (nextStatus === "responded") {
+          if (!isAlreadyVisible) {
+            const toastId = `task-responded-${task.id}`;
+            useToastStore.getState().addToast({
+              id: toastId,
+              message: "Task responded",
+              detail: task.name || "Agent",
+              status: "success",
+              action: {
+                label: "Go to task",
+                onClick: () => {
+                  navigateToTask(task);
+                  useToastStore.getState().removeToast(toastId);
+                },
+              },
+            });
+          }
+        }
+
+        if (nextStatus === "complete") {
+          if (!isAlreadyVisible) {
+            const toastId = `task-complete-${task.id}`;
+            useToastStore.getState().addToast({
+              id: toastId,
+              message: "Task completed",
+              detail: task.name || "Agent",
+              status: "success",
+              action: {
+                label: "Go to task",
+                onClick: () => {
+                  navigateToTask(task);
+                  useToastStore.getState().removeToast(toastId);
+                },
+              },
+            });
+          }
+        }
       }
 
       set((s) => {

@@ -150,7 +150,7 @@ export class GitHubManager {
     try {
       const { stdout } = await execFileAsync(
         "gh",
-        ["issue", "list", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--sort", "created", "--limit", String(limit)],
+        ["issue", "list", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--limit", String(limit)],
         { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
       return JSON.parse(stdout);

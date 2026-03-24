@@ -1,0 +1,75 @@
+/* ── Browser Pane ── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 4px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.toolbarFocused {
+  background: var(--surface);
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.navBtn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.navBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.urlInput {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-dim);
+  outline: none;
+  padding: 0 4px;
+  font-family: inherit;
+}
+
+.urlInput:focus {
+  color: var(--text);
+}
+
+.webviewContainer {
+  flex: 1;
+  min-height: 0;
+}
+
+.webviewContainer webview {
+  width: 100%;
+  height: 100%;
+}

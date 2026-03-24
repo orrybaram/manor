@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
+import { BrowserPane } from "./BrowserPane";
 import { PaneDropZone } from "./PaneDropZone";
 
 import styles from "./PaneLayout.module.css";
@@ -20,6 +21,8 @@ export function LeafPane({
   });
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
+  const contentType = useAppStore((s) => s.paneContentType[paneId]);
+  const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -182,7 +185,11 @@ export function LeafPane({
         </div>
       </div>
       <div className={styles.leafTerminal}>
-        <TerminalPane paneId={paneId} cwd={workspacePath} />
+        {contentType === "browser" ? (
+          <BrowserPane paneId={paneId} initialUrl={paneUrl ?? "about:blank"} />
+        ) : (
+          <TerminalPane paneId={paneId} cwd={workspacePath} />
+        )}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>

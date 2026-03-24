@@ -336,6 +336,11 @@
 
 /* ── Commands ── */
 
+.commandList {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .commandRow {
   display: flex;
   align-items: center;
@@ -357,7 +362,7 @@
 .commandDeleteBtn {
   background: none;
   border: none;
-  color: var(--dimmer);
+  color: var(--text-dim);
   cursor: pointer;
   padding: 4px;
   display: flex;
@@ -370,9 +375,9 @@
 }
 
 .addCommandBtn {
-  background: none;
-  border: 1px dashed var(--dimmer);
-  color: var(--dim);
+  background: var(--dim);
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 4px;
@@ -386,8 +391,8 @@
 }
 
 .addCommandBtn:hover {
-  border-color: var(--fg);
-  color: var(--fg);
+  border-color: var(--fg-a50);
+  color: var(--fg-a50);
 }
 
 /* ── Theme picker ── */

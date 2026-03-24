@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState } from "react";
 import { Check, Trash2, Plus } from "lucide-react";
 import { useProjectStore, type ProjectInfo, type CustomCommand } from "../store/project-store";
 import { LinearProjectSection } from "./LinearProjectSection";
@@ -59,6 +59,7 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
   const agentCommandRef = useRef<HTMLInputElement>(null);
   const worktreePathRef = useRef<HTMLInputElement>(null);
   const fieldRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const [newCommandId, setNewCommandId] = useState<string | null>(null);
 
   const handleBlur = useCallback(
     (
@@ -151,9 +152,16 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
 
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Commands</div>
+        <div className={styles.commandList}>
         {(project.commands ?? []).map((cmd: CustomCommand) => (
           <div key={cmd.id} className={styles.commandRow}>
             <input
+              ref={(el) => {
+                if (el && cmd.id === newCommandId) {
+                  el.focus();
+                  setNewCommandId(null);
+                }
+              }}
               className={styles.commandNameInput}
               defaultValue={cmd.name}
               placeholder="Name"
@@ -191,19 +199,22 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
         <button
           className={styles.addCommandBtn}
           onClick={() => {
+            const id = crypto.randomUUID();
             const newCommand: CustomCommand = {
-              id: crypto.randomUUID(),
+              id,
               name: "",
               command: "",
             };
             updateProject(project.id, {
               commands: [...(project.commands ?? []), newCommand],
             });
+            setNewCommandId(id);
           }}
         >
           <Plus size={12} />
           Add Command
         </button>
+        </div>
       </div>
 
       <div className={styles.settingsGroup}>

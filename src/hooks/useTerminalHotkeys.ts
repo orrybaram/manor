@@ -8,20 +8,15 @@
  * so user-customized shortcuts are correctly intercepted.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useKeybindingsStore } from "../store/keybindings-store";
 import { comboFromEvent, comboMatches } from "../lib/keybindings";
 
 export function useTerminalHotkeys() {
-  const bindingsRef = useRef(useKeybindingsStore.getState().bindings);
-
-  // Keep ref up to date
-  useEffect(() => {
-    return useKeybindingsStore.subscribe((s) => {
-      bindingsRef.current = s.bindings;
-    });
-  }, []);
+  const bindings = useKeybindingsStore((s) => s.bindings);
+  const bindingsRef = useRef(bindings);
+  bindingsRef.current = bindings;
 
   const attachHandler = useCallback(
     (term: Terminal, ptyWrite: (data: string) => void) => {

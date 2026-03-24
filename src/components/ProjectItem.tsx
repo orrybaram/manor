@@ -23,29 +23,7 @@ import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { useWorkspaceDrag } from "../hooks/useWorkspaceDrag";
 import styles from "./Sidebar.module.css";
 
-function WorkspaceItem({
-  ws,
-  idx,
-  isSelected,
-  selectedWorkspaceIndex,
-  isDragging,
-  isDeleting,
-  isEditing,
-  editValue,
-  editRef,
-  displayName,
-  getTransformStyle,
-  justDragged,
-  itemRefCallback,
-  onSelectWorkspace,
-  onDoubleClick,
-  onPointerDown,
-  onEditChange,
-  onEditBlur,
-  onEditKeyDown,
-  onEditClick,
-  onEditPointerDown,
-}: {
+interface WorkspaceItemProps {
   ws: WorkspaceInfo;
   idx: number;
   isSelected: boolean;
@@ -67,23 +45,60 @@ function WorkspaceItem({
   onEditKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onEditClick: (e: React.MouseEvent) => void;
   onEditPointerDown: (e: React.PointerEvent) => void;
-}) {
+}
+
+const WorkspaceItem = React.forwardRef<HTMLDivElement, WorkspaceItemProps & React.HTMLAttributes<HTMLDivElement>>(function WorkspaceItem({
+  ws,
+  idx,
+  isSelected,
+  selectedWorkspaceIndex,
+  isDragging,
+  isDeleting,
+  isEditing,
+  editValue,
+  editRef,
+  displayName,
+  getTransformStyle,
+  justDragged,
+  itemRefCallback,
+  onSelectWorkspace,
+  onDoubleClick,
+  onPointerDown,
+  onEditChange,
+  onEditBlur,
+  onEditKeyDown,
+  onEditClick,
+  onEditPointerDown,
+  ...rest
+}, forwardedRef) {
   const workspaceStatus = useWorkspaceAgentStatus(ws.path);
 
   return (
     <div
-      ref={itemRefCallback}
+      ref={(el) => {
+        itemRefCallback(el);
+        if (typeof forwardedRef === "function") forwardedRef(el);
+        else if (forwardedRef) forwardedRef.current = el;
+      }}
+      {...rest}
       className={`${styles.workspace} ${
         isSelected && idx === selectedWorkspaceIndex
           ? styles.workspaceActive
           : ""
-      } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}`}
-      style={getTransformStyle(idx)}
-      onClick={() => {
+      } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+      style={{ ...getTransformStyle(idx), ...rest.style }}
+      onClick={(e) => {
         if (!justDragged.current) onSelectWorkspace(idx);
+        rest.onClick?.(e);
       }}
-      onDoubleClick={onDoubleClick}
-      onPointerDown={onPointerDown}
+      onDoubleClick={(e) => {
+        onDoubleClick(e);
+        rest.onDoubleClick?.(e);
+      }}
+      onPointerDown={(e) => {
+        onPointerDown(e);
+        rest.onPointerDown?.(e);
+      }}
     >
       {isEditing ? (
         <input
@@ -141,7 +156,7 @@ function WorkspaceItem({
       )}
     </div>
   );
-}
+});
 
 export function ProjectItem({
   project,

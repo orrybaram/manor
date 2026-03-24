@@ -15,6 +15,7 @@ import { useProjectStore } from "../../store/project-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
 import { useTaskCommands } from "./useTaskCommands";
+import { useCustomCommands } from "./useCustomCommands";
 import { LinearIcon } from "./LinearIcon";
 import { GitHubIcon } from "./GitHubIcon";
 import { LinearIssuesView } from "./LinearIssuesView";
@@ -175,6 +176,11 @@ export function CommandPalette({
     onNewTask,
   });
 
+  const customCommands = useCustomCommands({
+    onClose,
+    activeWorkspacePath,
+  });
+
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) onClose();
@@ -279,6 +285,26 @@ export function CommandPalette({
                       </Command.Item>
                     ))}
                   </Command.Group>
+                  {customCommands.length > 0 && (
+                    <>
+                      <Command.Separator className={styles.separator} />
+                      <Command.Group heading="Run" className={styles.group}>
+                        {customCommands.map((cmd) => (
+                          <Command.Item
+                            key={cmd.id}
+                            value={cmd.label}
+                            onSelect={cmd.action}
+                            className={styles.item}
+                          >
+                            {cmd.icon && (
+                              <span className={styles.icon}>{cmd.icon}</span>
+                            )}
+                            <span className={styles.label}>{cmd.label}</span>
+                          </Command.Item>
+                        ))}
+                      </Command.Group>
+                    </>
+                  )}
                   <Command.Separator className={styles.separator} />
                   {[...workspaceGroups.entries()].map(([groupName, items]) => (
                     <Command.Group

@@ -1,0 +1,30 @@
+/* ── Breadcrumbs ── */
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--dim);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+  gap: 6px;
+}
+
+.segment {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.separator {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  opacity: 0.5;
+  flex-shrink: 0;
+}

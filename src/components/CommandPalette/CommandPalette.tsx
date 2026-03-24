@@ -148,7 +148,7 @@ export function CommandPalette({
     activeWorkspacePath,
     selectWorkspace,
     setActiveWorkspace,
-    onClose,
+    onClose: handleClose,
     onNewWorkspace,
   });
 
@@ -162,7 +162,7 @@ export function CommandPalette({
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
-    onClose,
+    onClose: handleClose,
     onOpenSettings,
     sessions,
     selectedSessionId,
@@ -172,20 +172,20 @@ export function CommandPalette({
   const taskCommands = useTaskCommands({
     onResumeTask,
     onViewAllTasks,
-    onClose,
+    onClose: handleClose,
     onNewTask,
   });
 
   const customCommands = useCustomCommands({
-    onClose,
+    onClose: handleClose,
     activeWorkspacePath,
   });
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (!isOpen) onClose();
+      if (!isOpen) handleClose();
     },
-    [onClose],
+    [handleClose],
   );
 
   const handleOpenAutoFocus = useCallback((e: Event) => {
@@ -393,7 +393,7 @@ export function CommandPalette({
               <IssueDetailView
                 issueId={selectedIssueId}
                 onBack={navigateBackToList}
-                onClose={onClose}
+                onClose={handleClose}
                 onNewWorkspace={onNewWorkspace}
                 onNewTaskWithPrompt={onNewTaskWithPrompt}
               />
@@ -403,7 +403,7 @@ export function CommandPalette({
                 repoPath={repoPath}
                 issueNumber={selectedGitHubIssueNumber}
                 onBack={navigateBackToList}
-                onClose={onClose}
+                onClose={handleClose}
                 onNewWorkspace={onNewWorkspace}
                 onNewTaskWithPrompt={onNewTaskWithPrompt}
               />

@@ -1,6 +1,8 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useMemo } from "react";
 import { Check, Trash2, Plus } from "lucide-react";
 import { useProjectStore, type ProjectInfo, type CustomCommand } from "../store/project-store";
+import { useThemeStore, type Theme } from "../store/theme-store";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import styles from "./SettingsModal.module.css";
 
@@ -42,6 +44,142 @@ const worktreeScriptFields: Array<{
     placeholder: "Runs before a worktree is deleted",
   },
 ];
+
+type ThemeColors = Pick<
+  Theme,
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "magenta"
+  | "cyan"
+  | "background"
+  | "foreground"
+>;
+
+interface ThemeEntry {
+  name: string;
+  displayName: string;
+  badge?: string;
+}
+
+function ProjectThemeSelector({ project }: { project: ProjectInfo }) {
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
+  const [hasGhostty, setHasGhostty] = useState(false);
+  const [query, setQuery] = useState("");
+  const [allColors, setAllColors] = useState<Record<string, ThemeColors>>({});
+
+  useMountEffect(() => {
+    setQuery("");
+    Promise.all([
+      window.electronAPI.theme.hasGhosttyConfig(),
+      window.electronAPI.theme.allColors(),
+    ]).then(([ghostty, colors]) => {
+      setHasGhostty(ghostty);
+      setAllColors(colors);
+    });
+  });
+
+  const entries: ThemeEntry[] = useMemo(() => {
+    const result: ThemeEntry[] = [];
+    result.push({ name: "__global__", displayName: "Global theme", badge: "Default" });
+    if (hasGhostty) {
+      result.push({ name: "__ghostty__", displayName: "Match Ghostty", badge: "Ghostty" });
+    }
+    result.push({ name: "__default__", displayName: "Catppuccin Mocha", badge: "Built-in" });
+    for (const n of Object.keys(allColors).sort()) {
+      result.push({ name: n, displayName: n });
+    }
+    return result;
+  }, [allColors, hasGhostty]);
+
+  const filtered = useMemo(() => {
+    if (!query) return entries;
+    const q = query.toLowerCase();
+    return entries.filter((e) => e.displayName.toLowerCase().includes(q));
+  }, [query, entries]);
+
+  const selectedName = project.themeName ?? "__global__";
+
+  const handleSelect = useCallback(
+    (name: string) => {
+      const themeValue = name === "__global__" ? null : name;
+      updateProject(project.id, { themeName: themeValue });
+      applyProjectTheme(themeValue);
+    },
+    [project.id, updateProject, applyProjectTheme],
+  );
+
+  return (
+    <div>
+      <label className={styles.fieldLabel}>Theme</label>
+      <input
+        className={styles.themeSearch}
+        type="text"
+        placeholder="Search themes..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div style={{ maxHeight: 300, overflowY: "auto" }}>
+        <div className={styles.themeList}>
+          {filtered.map((entry) => {
+            const isSelected = entry.name === selectedName;
+            const colors = allColors[entry.name] ?? null;
+            const dotColors = colors
+              ? [
+                  colors.red,
+                  colors.green,
+                  colors.yellow,
+                  colors.blue,
+                  colors.magenta,
+                  colors.cyan,
+                ]
+              : null;
+            return (
+              <div
+                key={entry.name}
+                className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""}`}
+                onClick={() => handleSelect(entry.name)}
+              >
+                <span className={styles.checkmark}>
+                  {isSelected ? <Check size={14} /> : ""}
+                </span>
+                <span className={styles.themeItemLabel}>{entry.displayName}</span>
+                {entry.badge && (
+                  <span className={styles.themeItemBadge}>{entry.badge}</span>
+                )}
+                {dotColors && (
+                  <div className={styles.themePreview}>
+                    {dotColors.map((c, i) => (
+                      <div
+                        key={i}
+                        className={styles.colorDot}
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div
+              style={{
+                padding: 16,
+                textAlign: "center",
+                color: "var(--text-dim)",
+                fontSize: 13,
+              }}
+            >
+              No matching themes
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function defaultWorktreePath(projectName: string): string {
   const slug = projectName
@@ -136,6 +274,7 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
             );
           })}
         </div>
+        <ProjectThemeSelector project={project} />
       </div>
 
       <div className={styles.settingsGroup}>

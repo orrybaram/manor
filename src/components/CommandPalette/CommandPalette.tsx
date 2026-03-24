@@ -241,23 +241,16 @@ export function CommandPalette({
                 </span>
               </div>
             )}
-            {!isDetailView && (
+            {!isDetailView && !isIssueListView && (
               <Command.Input
                 className={styles.input}
-                placeholder={
-                  isIssueListView ? "Search issues..." : "Type a command..."
-                }
+                placeholder="Type a command..."
                 autoFocus
                 value={search}
                 onValueChange={setSearch}
               />
             )}
             <Command.List className={styles.list} style={isDetailView ? HIDDEN_STYLE : undefined}>
-              {isIssueListView && (
-                <Command.Empty className={styles.empty}>
-                  No matching issues
-                </Command.Empty>
-              )}
 
               {view === "root" && (
                 <>

@@ -29,6 +29,12 @@ export function GitHubIssuesView({
     return <IssueListSkeleton />;
   }
 
+  if (issues.length === 0) {
+    return (
+      <div className={styles.empty}>No issues found</div>
+    );
+  }
+
   return (
     <Command.Group heading={allIssues ? "All Issues" : "My Issues"} className={styles.group}>
       {issues.map((issue) => (

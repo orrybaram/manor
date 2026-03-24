@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { ChevronRight, EthernetPort } from "lucide-react";
 import { usePortsData } from "../hooks/usePortsData";
-import { useProjectStore } from "../store/project-store";
+import { useProjectStore, MIN_PORTS_HEIGHT } from "../store/project-store";
 import { PortGroup } from "./PortGroup";
 import styles from "./Sidebar.module.css";
 
@@ -24,7 +24,13 @@ export function PortsList() {
       const onMouseMove = (ev: MouseEvent) => {
         // Dragging up increases height, dragging down decreases
         const delta = startY.current - ev.clientY;
-        setPortsHeight(startHeight.current + delta);
+        const newHeight = startHeight.current + delta;
+        if (newHeight < MIN_PORTS_HEIGHT) {
+          setCollapsed(true);
+        } else {
+          setCollapsed(false);
+          setPortsHeight(newHeight);
+        }
       };
 
       const onMouseUp = () => {
@@ -62,7 +68,7 @@ export function PortsList() {
         </span>
       </div>
       {!collapsed && (
-        <div className={styles.portGroups} style={{ maxHeight: portsHeight }}>
+        <div className={styles.portGroups} style={{ height: portsHeight }}>
           {workspacePortGroups.map((group) => (
             <PortGroup key={group.workspacePath} group={group} />
           ))}

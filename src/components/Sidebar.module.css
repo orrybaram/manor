@@ -749,12 +749,22 @@
   height: 6px;
   cursor: row-resize;
   z-index: 20;
+}
+
+.portsResizeHandle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
   background: transparent;
   transition: background 0.15s ease;
 }
 
-.portsResizeHandle:hover,
-.portsResizeHandleActive {
+.portsResizeHandle:hover::after,
+.portsResizeHandleActive::after {
   background: var(--accent);
 }
 

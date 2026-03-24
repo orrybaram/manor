@@ -112,7 +112,7 @@ export function TabBar() {
           const barRect = sessionsEl.getBoundingClientRect();
           if (ev.clientY > barRect.bottom + 20) {
             // Release pointer capture so pane drop zones can receive events
-            try { tabEl.releasePointerCapture(draggedPointerId.current); } catch {}
+            try { tabEl.releasePointerCapture(draggedPointerId.current); } catch { /* pointer may already be released */ }
             startDrag({ type: "tab", sessionId: sessions[idx].id });
             handedOffToPaneDrop.current = true;
             // Clean up tab bar drag visuals

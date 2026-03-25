@@ -241,6 +241,7 @@ export interface ElectronAPI {
         isMain: boolean;
       }>,
     ) => Promise<void>;
+    killPort: (pid: number) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };

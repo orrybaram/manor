@@ -548,6 +548,18 @@ ipcMain.handle("ports:scanNow", async () => {
   return enrichPorts(ports);
 });
 
+ipcMain.handle("ports:killPort", async (_event, pid: number) => {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Process may have already exited — ignore
+  }
+  // Re-scan immediately so UI updates
+  const ports = await portScanner.scanNow();
+  const enriched = enrichPorts(ports);
+  mainWindow?.webContents.send("ports-changed", enriched);
+});
+
 // ── Branch Watcher IPC ──
 ipcMain.handle("branches:start", (_event, paths: string[]) => {
   branchWatcher.start(mainWindow!, paths);

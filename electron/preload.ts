@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         isMain: boolean;
       }>,
     ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
+    killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),

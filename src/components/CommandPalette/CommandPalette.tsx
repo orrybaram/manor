@@ -37,6 +37,7 @@ export function CommandPalette({
   onNewTaskWithPrompt,
 }: CommandPaletteProps) {
   const addSession = useAppStore((s) => s.addSession);
+  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const closePane = useAppStore((s) => s.closePane);
   const splitPane = useAppStore((s) => s.splitPane);
   const selectNextSession = useAppStore((s) => s.selectNextSession);
@@ -152,6 +153,7 @@ export function CommandPalette({
 
   const commands = useCommands({
     addSession,
+    addBrowserSession,
     closePane,
     closeSession,
     splitPane,

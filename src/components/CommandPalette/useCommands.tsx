@@ -6,6 +6,7 @@ import { useAppStore } from "../../store/app-store";
 
 interface UseCommandsParams {
   addSession: () => void;
+  addBrowserSession: (url: string) => void;
   closePane: () => void;
   closeSession: (sessionId: string) => void;
   splitPane: (direction: "horizontal" | "vertical") => void;
@@ -23,6 +24,7 @@ interface UseCommandsParams {
 
 export function useCommands({
   addSession,
+  addBrowserSession,
   closePane,
   closeSession,
   splitPane,
@@ -53,6 +55,14 @@ export function useCommands({
         shortcut: fmt("new-session"),
         action: () => {
           addSession();
+          onClose();
+        },
+      },
+      {
+        id: "new-browser",
+        label: "New Browser Window",
+        action: () => {
+          addBrowserSession("about:blank");
           onClose();
         },
       },
@@ -170,6 +180,7 @@ export function useCommands({
     ];
   }, [
     addSession,
+    addBrowserSession,
     closePane,
     closeSession,
     splitPane,

@@ -13,6 +13,20 @@ export function useSessionTitle(sessionId: string): string {
   const cwd = useAppStore((s) =>
     focusedPaneId ? (s.paneCwd[focusedPaneId] ?? null) : null,
   );
+  const contentType = useAppStore((s) =>
+    focusedPaneId ? (s.paneContentType[focusedPaneId] ?? null) : null,
+  );
+  const paneUrl = useAppStore((s) =>
+    focusedPaneId ? (s.paneUrl[focusedPaneId] ?? null) : null,
+  );
+
+  // For browser panes, use the URL
+  if (contentType === "browser" && paneUrl) {
+    // Strip protocol prefix (e.g., "https://", "http://")
+    const urlWithoutProtocol = paneUrl.replace(/^https?:\/\//, "");
+    return urlWithoutProtocol;
+  }
+
   if (title) {
     const cwdMatch = title.match(/^.+@.+:(.+)$/);
     if (cwdMatch) {

@@ -1,5 +1,8 @@
 {
   "permissions": {
-    "allow": ["Bash(bun run:*)"]
+    "allow": [
+      "Bash(bun run:*)",
+      "mcp__manor-webview__list_webviews"
+    ]
   }
 }

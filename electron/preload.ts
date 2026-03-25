@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ),
     createWorktree: (projectId: string, name: string, branch?: string) =>
       ipcRenderer.invoke("projects:createWorktree", projectId, name, branch),
+    listRemoteBranches: (projectId: string) =>
+      ipcRenderer.invoke("projects:listRemoteBranches", projectId),
     renameWorkspace: (
       projectId: string,
       workspacePath: string,
@@ -267,6 +269,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("webview:unregister", paneId),
     startPicker: (paneId: string) =>
       ipcRenderer.invoke("webview:start-picker", paneId),
+    cancelPicker: (paneId: string) =>
+      ipcRenderer.invoke("webview:cancel-picker", paneId),
     onPickerResult: (
       callback: (paneId: string, result: unknown) => void,
     ) => {

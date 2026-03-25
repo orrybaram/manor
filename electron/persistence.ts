@@ -439,6 +439,33 @@ export class ProjectManager {
     }
   }
 
+  async listRemoteBranches(projectId: string): Promise<string[]> {
+    const project = this.findProject(projectId);
+    if (!project) return [];
+
+    try {
+      const { stdout } = await execAsync("git ls-remote --heads origin", {
+        cwd: project.path,
+        timeout: 15000,
+      });
+
+      const branches = stdout
+        .split("\n")
+        .filter((line) => line.includes("\trefs/heads/"))
+        .map((line) => line.split("\trefs/heads/")[1])
+        .filter((branch): branch is string => Boolean(branch))
+        .sort();
+
+      return branches;
+    } catch (err) {
+      console.error(
+        "[ProjectManager] git ls-remote --heads origin failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return [];
+    }
+  }
+
   async createWorktree(
     projectId: string,
     name: string,

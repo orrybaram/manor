@@ -189,6 +189,7 @@ export interface ElectronAPI {
       name: string,
       branch?: string,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
+    listRemoteBranches: (projectId: string) => Promise<string[]>;
     renameWorkspace: (
       projectId: string,
       workspacePath: string,
@@ -410,6 +411,7 @@ export interface ElectronAPI {
     register: (paneId: string, webContentsId: number) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;
     startPicker: (paneId: string) => Promise<void>;
+    cancelPicker: (paneId: string) => Promise<void>;
     onPickerResult: (
       callback: (paneId: string, result: PickedElementResult) => void,
     ) => () => void;

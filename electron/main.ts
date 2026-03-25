@@ -453,6 +453,10 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("projects:listRemoteBranches", (_e, projectId: string) =>
+  projectManager.listRemoteBranches(projectId),
+);
+
 ipcMain.handle(
   "projects:renameWorkspace",
   (_event, projectId: string, workspacePath: string, newName: string) => {
@@ -949,6 +953,17 @@ ipcMain.handle("webview:start-picker", async (_event, paneId: string) => {
   };
 
   wc.on("console-message", listener);
+});
+
+ipcMain.handle("webview:cancel-picker", async (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  const webContentsId = webviewRegistry.get(paneId);
+  if (!webContentsId) return;
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) return;
+  await wc.executeJavaScript(
+    "if (window.__manor_picker_cancel__) window.__manor_picker_cancel__();",
+  );
 });
 
 keybindingsManager.onChange((overrides) => {

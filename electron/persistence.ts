@@ -444,17 +444,21 @@ export class ProjectManager {
     if (!project) return [];
 
     try {
-      const { stdout } = await execAsync("git ls-remote --heads origin", {
+      // Fetch latest remote refs so for-each-ref has up-to-date data
+      await execAsync("git fetch origin --prune", {
         cwd: project.path,
-        timeout: 15000,
+        timeout: 30000,
       });
+
+      const { stdout } = await execAsync(
+        'git for-each-ref --sort=-creatordate --format="%(refname:strip=3)" refs/remotes/origin',
+        { cwd: project.path, timeout: 15000 },
+      );
 
       const branches = stdout
         .split("\n")
-        .filter((line) => line.includes("\trefs/heads/"))
-        .map((line) => line.split("\trefs/heads/")[1])
-        .filter((branch): branch is string => Boolean(branch))
-        .sort();
+        .map((line) => line.trim())
+        .filter((b) => b && b !== "HEAD");
 
       return branches;
     } catch (err) {

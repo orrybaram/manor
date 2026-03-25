@@ -21,7 +21,7 @@ import {
 import { ScrollbackWriter } from "./terminal-host/scrollback";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
-import { PortScanner } from "./ports";
+import { PortScanner, type ActivePort } from "./ports";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
@@ -42,6 +42,16 @@ import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
+import { portlessManager } from "./portless";
+
+interface WorkspaceMeta {
+  path: string;
+  projectName: string | null;
+  branch: string | null;
+  isMain: boolean;
+}
+
+let workspaceMeta: WorkspaceMeta[] = [];
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -491,8 +501,26 @@ ipcMain.handle("theme:allColors", async () => {
 });
 
 // ── Port Scanner IPC ──
+function enrichPorts(ports: ActivePort[]): ActivePort[] {
+  const routes: { hostname: string; port: number }[] = [];
+  for (const port of ports) {
+    const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
+    if (meta) {
+      port.hostname = portlessManager.hostnameForPort(
+        meta.path,
+        meta.projectName,
+        meta.branch,
+        meta.isMain,
+      );
+      routes.push({ hostname: port.hostname, port: port.port });
+    }
+  }
+  portlessManager.updateRoutes(routes);
+  return ports;
+}
+
 ipcMain.handle("ports:startScanner", () => {
-  portScanner.start(mainWindow!);
+  portScanner.start(mainWindow!, enrichPorts);
 });
 
 ipcMain.handle("ports:stopScanner", () => {
@@ -503,8 +531,13 @@ ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
   portScanner.updateWorkspacePaths(paths);
 });
 
-ipcMain.handle("ports:scanNow", () => {
-  return portScanner.scanNow();
+ipcMain.handle("ports:updateWorkspaceMetadata", (_event, meta: WorkspaceMeta[]) => {
+  workspaceMeta = meta;
+});
+
+ipcMain.handle("ports:scanNow", async () => {
+  const ports = await portScanner.scanNow();
+  return enrichPorts(ports);
 });
 
 // ── Branch Watcher IPC ──
@@ -928,6 +961,7 @@ app.whenReady().then(async () => {
   process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
 
   await webviewServer.start();
+  await portlessManager.start();
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
   try {
@@ -1129,6 +1163,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   agentHookServer.stop();
   webviewServer.stop();
+  portlessManager.stop();
 });
 
 // Note: We intentionally do NOT disconnect the client or kill the daemon on quit.

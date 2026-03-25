@@ -79,6 +79,7 @@ export interface ActivePort {
   processName: string;
   pid: number;
   workspacePath: string | null;
+  hostname: string | null;
 }
 
 export type AgentKind = "claude" | "opencode" | "codex";
@@ -226,6 +227,7 @@ export interface ElectronAPI {
     startScanner: () => Promise<void>;
     stopScanner: () => Promise<void>;
     updateWorkspacePaths: (paths: string[]) => Promise<void>;
+    updateWorkspaceMetadata: (meta: Array<{ path: string; projectName: string | null; branch: string | null; isMain: boolean }>) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };

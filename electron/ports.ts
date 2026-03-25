@@ -5,11 +5,12 @@ import type { BrowserWindow } from "electron";
 
 const execFileAsync = promisify(execFile);
 
-interface ActivePort {
+export interface ActivePort {
   port: number;
   processName: string;
   pid: number;
   workspacePath: string | null;
+  hostname: string | null;
 }
 
 export class PortScanner {
@@ -18,7 +19,7 @@ export class PortScanner {
   private lastPorts: ActivePort[] = [];
   private scanning = false;
 
-  start(window: BrowserWindow): void {
+  start(window: BrowserWindow, onScan?: (ports: ActivePort[]) => ActivePort[]): void {
     this.stop();
 
     this.timer = setInterval(async () => {
@@ -26,9 +27,10 @@ export class PortScanner {
       this.scanning = true;
       try {
         const ports = await this.scan();
-        if (JSON.stringify(ports) !== JSON.stringify(this.lastPorts)) {
-          window.webContents.send("ports-changed", ports);
-          this.lastPorts = ports;
+        const enriched = onScan ? onScan(ports) : ports;
+        if (JSON.stringify(enriched) !== JSON.stringify(this.lastPorts)) {
+          window.webContents.send("ports-changed", enriched);
+          this.lastPorts = enriched;
         }
       } finally {
         this.scanning = false;
@@ -120,6 +122,7 @@ export class PortScanner {
                 processName: currentCmd,
                 pid: currentPid,
                 workspacePath: null,
+                hostname: null,
               });
             }
           }

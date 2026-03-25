@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     stopScanner: () => ipcRenderer.invoke("ports:stopScanner"),
     updateWorkspacePaths: (paths: string[]) =>
       ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
+    updateWorkspaceMetadata: (meta: Array<{ path: string; projectName: string | null; branch: string | null; isMain: boolean }>) =>
+      ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),

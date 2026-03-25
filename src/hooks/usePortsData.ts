@@ -24,11 +24,22 @@ export function usePortsData() {
         .getState()
         .projects.flatMap((p) => p.workspaces.map((ws) => ws.path));
 
+    const getMeta = () =>
+      useProjectStore.getState().projects.flatMap((p) =>
+        p.workspaces.map((ws) => ({
+          path: ws.path,
+          projectName: p.name,
+          branch: ws.branch ?? null,
+          isMain: ws.isMain,
+        })),
+      );
+
     let currentPathsKey = "";
 
     const setup = (paths: string[]) => {
       if (paths.length > 0) {
         window.electronAPI.ports.updateWorkspacePaths(paths);
+        window.electronAPI.ports.updateWorkspaceMetadata(getMeta());
         window.electronAPI.ports.startScanner();
         window.electronAPI.ports.scanNow().then(setPorts);
       }

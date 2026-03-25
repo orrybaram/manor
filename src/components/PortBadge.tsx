@@ -27,9 +27,9 @@ export function PortBadge({
     window.electronAPI.ports.killPort(port.pid);
   }, [port.pid]);
 
-  // Extract project name from hostname (remove .localhost suffix)
+  // Extract project name from hostname (remove .localhost:port suffix)
   const projectName = port.hostname
-    ? port.hostname.replace(/\.localhost$/, "")
+    ? port.hostname.replace(/\.localhost(:\d+)?$/, "")
     : null;
 
   // Determine title and display labels

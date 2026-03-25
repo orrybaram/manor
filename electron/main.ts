@@ -507,17 +507,20 @@ ipcMain.handle("theme:allColors", async () => {
 
 // ── Port Scanner IPC ──
 function enrichPorts(ports: ActivePort[]): ActivePort[] {
+  const proxyPort = portlessManager.proxyPort;
   const routes: { hostname: string; port: number }[] = [];
   for (const port of ports) {
     const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
-    if (meta) {
-      port.hostname = portlessManager.hostnameForPort(
+    if (meta && proxyPort) {
+      const hostname = portlessManager.hostnameForPort(
         meta.path,
         meta.projectName,
         meta.branch,
         meta.isMain,
       );
-      routes.push({ hostname: port.hostname, port: port.port });
+      routes.push({ hostname, port: port.port });
+      // Include proxy port in hostname so renderer can build correct URLs
+      port.hostname = `${hostname}:${proxyPort}`;
     }
   }
   portlessManager.updateRoutes(routes);

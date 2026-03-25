@@ -51,6 +51,7 @@ function isPortInUse(port: number): Promise<boolean> {
 export class PortlessManager {
   routes: RouteInfo[] = [];
   server: ProxyServer | null = null;
+  proxyPort: number | null = null;
 
   /** Start the proxy server. Falls back to a random free port if 1355 is in use. */
   async start(proxyPort?: number): Promise<void> {
@@ -74,6 +75,7 @@ export class PortlessManager {
       this.server!.once("error", onError);
       this.server!.listen(port, () => {
         this.server!.off("error", onError);
+        this.proxyPort = port;
         fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });
         fs.writeFileSync(PORT_FILE, String(port));
         resolve();
@@ -85,6 +87,7 @@ export class PortlessManager {
   stop(): void {
     this.server?.close();
     this.server = null;
+    this.proxyPort = null;
     try {
       fs.unlinkSync(PORT_FILE);
     } catch {

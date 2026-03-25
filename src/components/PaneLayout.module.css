@@ -85,8 +85,48 @@
   color: var(--text-selected);
 }
 
-.paneStatusBtn:last-child:hover {
+.paneStatusBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.paneStatusBtn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.paneStatusActions .paneStatusBtn:last-child:hover {
   color: var(--danger);
+}
+
+.paneStatusBtnActive {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.paneNavControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.paneUrlInput {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-dim);
+  outline: none;
+  padding: 0 4px;
+  font-family: inherit;
+}
+
+.paneUrlInput:focus {
+  color: var(--text);
 }
 
 .split {

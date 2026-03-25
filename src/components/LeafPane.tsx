@@ -1,9 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
-import { BrowserPane } from "./BrowserPane";
+import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane";
 import { PaneDropZone } from "./PaneDropZone";
+import { Tooltip } from "./Tooltip";
 
 import styles from "./PaneLayout.module.css";
 
@@ -29,6 +31,9 @@ export function LeafPane({
   const closePane = useAppStore((s) => s.closePane);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
+
+  const browserRef = useRef<BrowserPaneRef>(null);
+  const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
 
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
@@ -135,7 +140,59 @@ export function LeafPane({
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""}`}
         onPointerDown={handleStatusBarPointerDown}
       >
-        <span className={styles.paneStatusTitle}>{title}</span>
+        {contentType === "browser" ? (
+          <div className={styles.paneNavControls}>
+            <Tooltip label="Back">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={() => browserRef.current?.goBack()}
+                disabled={!navState?.canGoBack}
+                title="Back"
+              >
+                <ArrowLeft size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Forward">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={() => browserRef.current?.goForward()}
+                disabled={!navState?.canGoForward}
+                title="Forward"
+              >
+                <ArrowRight size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Reload">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={() => browserRef.current?.reload()}
+                title="Reload"
+              >
+                <RotateCw size={12} />
+              </button>
+            </Tooltip>
+            <input
+              className={styles.paneUrlInput}
+              value={navState?.url ?? ""}
+              onChange={browserRef.current?.urlInputHandlers.onChange ?? (() => {})}
+              onKeyDown={browserRef.current?.urlInputHandlers.onKeyDown}
+              onBlur={browserRef.current?.urlInputHandlers.onBlur}
+              onFocus={browserRef.current?.urlInputHandlers.onFocus}
+              placeholder="Enter URL"
+            />
+            <Tooltip label="Pick element">
+              <button
+                className={`${styles.paneStatusBtn} ${navState?.pickerActive ? styles.paneStatusBtnActive : ""}`}
+                onClick={() => browserRef.current?.startPicker()}
+                title="Pick element"
+              >
+                <Crosshair size={12} />
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
+          <span className={styles.paneStatusTitle}>{title}</span>
+        )}
         <div className={styles.paneStatusActions}>
           <button
             className={styles.paneStatusBtn}
@@ -191,7 +248,12 @@ export function LeafPane({
       </div>
       <div className={styles.leafTerminal}>
         {contentType === "browser" ? (
-          <BrowserPane paneId={paneId} initialUrl={paneUrl ?? "about:blank"} />
+          <BrowserPane
+            ref={browserRef}
+            paneId={paneId}
+            initialUrl={paneUrl ?? "about:blank"}
+            onNavStateChange={setNavState}
+          />
         ) : (
           <TerminalPane paneId={paneId} cwd={workspacePath} />
         )}

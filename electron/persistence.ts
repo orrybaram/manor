@@ -519,11 +519,25 @@ export class ProjectManager {
           },
         );
       } catch (fallbackErr) {
-        console.error(
-          "[ProjectManager] git worktree add (fallback) also failed:",
-          fallbackErr instanceof Error ? fallbackErr.message : fallbackErr,
-        );
-        throw fallbackErr;
+        // Neither new branch nor existing local branch — try remote tracking branch
+        try {
+          await execFileAsync(
+            "git",
+            ["fetch", "origin", branchName],
+            { cwd: project.path, timeout: 30000 },
+          );
+          await execFileAsync(
+            "git",
+            ["worktree", "add", worktreePath, "-b", branchName, `origin/${branchName}`],
+            { cwd: project.path, timeout: 15000 },
+          );
+        } catch (remoteErr) {
+          console.error(
+            "[ProjectManager] git worktree add from remote also failed:",
+            remoteErr instanceof Error ? remoteErr.message : remoteErr,
+          );
+          throw remoteErr;
+        }
       }
     }
 

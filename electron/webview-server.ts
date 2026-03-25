@@ -20,6 +20,29 @@ interface ConsoleEntry {
 
 const MAX_CONSOLE_ENTRIES = 200;
 
+/** Capture a cropped region of the webview, clamped to viewport bounds. */
+async function captureElementRegion(
+  wc: Electron.WebContents,
+  boundingBox: { x: number; y: number; width: number; height: number },
+): Promise<string> {
+  // Multiply by zoom factor for correct capture region
+  const zoomFactor = wc.getZoomFactor();
+
+  const rawX = boundingBox.x * zoomFactor;
+  const rawY = boundingBox.y * zoomFactor;
+  const rawW = boundingBox.width * zoomFactor;
+  const rawH = boundingBox.height * zoomFactor;
+
+  // Clamp origin to non-negative values
+  const x = Math.max(0, Math.round(rawX));
+  const y = Math.max(0, Math.round(rawY));
+  const width = Math.max(1, Math.round(rawW));
+  const height = Math.max(1, Math.round(rawH));
+
+  const image = await wc.capturePage({ x, y, width, height });
+  return image.toPNG().toString("base64");
+}
+
 const PORT_FILE = path.join(
   process.env.HOME || "/tmp",
   ".manor",
@@ -445,7 +468,25 @@ export class WebviewServer {
           });
         });
 
-        json(200, result);
+        // If the result has a bounding box, capture a cropped screenshot
+        if (
+          result !== null &&
+          typeof result === "object" &&
+          "boundingBox" in result &&
+          result.boundingBox !== null &&
+          typeof result.boundingBox === "object"
+        ) {
+          const bb = result.boundingBox as {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+          };
+          const screenshot = await captureElementRegion(wc, bb);
+          json(200, { ...result, screenshot });
+        } else {
+          json(200, result);
+        }
         return;
       }
 
@@ -578,7 +619,8 @@ export class WebviewServer {
           if (metadata === null) {
             json(404, { error: "Element not found for selector" });
           } else {
-            json(200, metadata);
+            const screenshot = await captureElementRegion(wc, metadata.boundingBox);
+            json(200, { ...metadata, screenshot });
           }
         } catch (err) {
           json(400, { error: String(err) });

@@ -279,6 +279,7 @@ interface ElementContext {
   boundingBox: { x: number; y: number; width: number; height: number };
   accessibility: Record<string, string>;
   reactComponents?: ReactComponent[];
+  screenshot?: string;
 }
 
 function formatElementContext(paneId: string, ctx: ElementContext): string {
@@ -455,7 +456,17 @@ async function handleTool(
         if ("cancelled" in result && result.cancelled) {
           return text("Element picker was cancelled by the user.");
         }
-        return text(formatElementContext(id, result as ElementContext));
+        const ctx = result as ElementContext;
+        const content: Array<{
+          type: string;
+          text?: string;
+          data?: string;
+          mimeType?: string;
+        }> = [{ type: "text", text: formatElementContext(id, ctx) }];
+        if (ctx.screenshot) {
+          content.push({ type: "image", data: ctx.screenshot, mimeType: "image/png" });
+        }
+        return { content };
       }
 
       case "get_element_context": {
@@ -464,7 +475,16 @@ async function handleTool(
           `/webview/${encodeURIComponent(id)}/element-context`,
           { selector: args.selector as string },
         )) as ElementContext;
-        return text(formatElementContext(id, result));
+        const ctxContent: Array<{
+          type: string;
+          text?: string;
+          data?: string;
+          mimeType?: string;
+        }> = [{ type: "text", text: formatElementContext(id, result) }];
+        if (result.screenshot) {
+          ctxContent.push({ type: "image", data: result.screenshot, mimeType: "image/png" });
+        }
+        return { content: ctxContent };
       }
 
       default:

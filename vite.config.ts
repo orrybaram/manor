@@ -74,6 +74,22 @@ export default defineConfig({
           },
         },
       },
+      {
+        // MCP webview server — runs as standalone Node.js process for Claude Code
+        entry: "electron/mcp-webview-server.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              external: ["@modelcontextprotocol/sdk"],
+              output: {
+                format: "cjs",
+                entryFileNames: "mcp-webview-server.js",
+              },
+            },
+          },
+        },
+      },
     ]),
     renderer(),
   ],

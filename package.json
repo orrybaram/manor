@@ -40,7 +40,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tree-kill": "^1.2.2",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",

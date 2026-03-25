@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
 import { useAppStore } from "../store/app-store";
+import type { PickedElementResult } from "../electron.d";
 
 import styles from "./BrowserPane.module.css";
 
@@ -33,7 +34,10 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   const [url, setUrl] = useState(initialUrl);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
+  const [pickerActive, setPickerActive] = useState(false);
   const setPaneTitle = useAppStore((s) => s.setPaneTitle);
+  const setPickedElement = useAppStore((s) => s.setPickedElement);
+  const clearPickedElement = useAppStore((s) => s.clearPickedElement);
 
   const focusedPaneId = useAppStore((s) => {
     const wsId = s.selectedWorkspaceId;
@@ -63,6 +67,7 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
     const onNavigate = (e: Event) => {
       setUrl((e as WebviewNavigateEvent).url);
       updateNavState();
+      clearPickedElement(paneId);
     };
 
     const onTitleUpdate = (e: Event) => {
@@ -79,14 +84,31 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
     wv.addEventListener("page-title-updated", onTitleUpdate);
     wv.addEventListener("did-attach", onDidAttach);
 
+    const unsubPickerResult = window.electronAPI.webview.onPickerResult(
+      (resultPaneId: string, result: PickedElementResult) => {
+        if (resultPaneId !== paneId) return;
+        setPickerActive(false);
+        setPickedElement(paneId, result);
+      },
+    );
+
+    const unsubPickerCancel = window.electronAPI.webview.onPickerCancel(
+      (cancelPaneId: string) => {
+        if (cancelPaneId !== paneId) return;
+        setPickerActive(false);
+      },
+    );
+
     return () => {
       wv.removeEventListener("did-navigate", onNavigate);
       wv.removeEventListener("did-navigate-in-page", onNavigate);
       wv.removeEventListener("page-title-updated", onTitleUpdate);
       wv.removeEventListener("did-attach", onDidAttach);
       window.electronAPI.webview.unregister(paneId);
+      unsubPickerResult();
+      unsubPickerCancel();
     };
-  }, [paneId, setPaneTitle, updateNavState]);
+  }, [paneId, setPaneTitle, updateNavState, setPickedElement, clearPickedElement]);
 
   const handleBack = () => {
     webviewRef.current?.goBack();
@@ -98,6 +120,12 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
 
   const handleReload = () => {
     webviewRef.current?.reload();
+  };
+
+  const handlePickElement = () => {
+    if (pickerActive) return;
+    setPickerActive(true);
+    window.electronAPI.webview.startPicker(paneId);
   };
 
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -137,6 +165,14 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
         </button>
         <button className={styles.navBtn} onClick={handleReload} title="Reload">
           <RotateCw size={12} />
+        </button>
+        <button
+          className={`${styles.navBtn} ${pickerActive ? styles.navBtnActive : ""}`}
+          onClick={handlePickElement}
+          title="Pick Element"
+          disabled={pickerActive}
+        >
+          <Crosshair size={12} />
         </button>
         <input
           className={styles.urlInput}

@@ -16,6 +16,7 @@ import type {
   PersistedSession,
   PersistedLayout,
   AgentState,
+  PickedElementResult,
 } from "../electron.d";
 
 function newPaneId(): string {
@@ -88,6 +89,7 @@ export interface AppState {
   paneAgentStatus: Record<string, AgentState>;
   paneContentType: Record<string, "terminal" | "browser">;
   paneUrl: Record<string, string>;
+  panePickedElement: Record<string, PickedElementResult>;
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
@@ -153,6 +155,10 @@ export interface AppState {
 
   // Resize
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
+
+  // Picked element
+  setPickedElement: (paneId: string, result: PickedElementResult) => void;
+  clearPickedElement: (paneId: string) => void;
 }
 
 // Selector for the active workspace's session state
@@ -174,6 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneAgentStatus: {},
   paneContentType: {},
   paneUrl: {},
+  panePickedElement: {},
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
@@ -1066,6 +1073,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       // TODO: implement ratio update via pane-tree.updateRatio
       return state;
+    }),
+
+  setPickedElement: (paneId: string, result: PickedElementResult) =>
+    set((state) => ({
+      panePickedElement: { ...state.panePickedElement, [paneId]: result },
+    })),
+
+  clearPickedElement: (paneId: string) =>
+    set((state) => {
+      const { [paneId]: _, ...rest } = state.panePickedElement;
+      return { panePickedElement: rest };
     }),
 }));
 

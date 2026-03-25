@@ -47,6 +47,13 @@
   cursor: default;
 }
 
+.navBtnActive {
+  background: var(--hover);
+  color: var(--text-selected);
+  opacity: 1 !important;
+  cursor: default;
+}
+
 .urlInput {
   flex: 1;
   min-width: 0;

@@ -405,7 +405,24 @@ export interface ElectronAPI {
   webview: {
     register: (paneId: string, webContentsId: number) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;
+    startPicker: (paneId: string) => Promise<void>;
+    onPickerResult: (
+      callback: (paneId: string, result: PickedElementResult) => void,
+    ) => () => void;
+    onPickerCancel: (callback: (paneId: string) => void) => () => void;
   };
+}
+
+export interface PickedElementResult {
+  outerHTML: string;
+  selector: string;
+  computedStyles: Record<string, string>;
+  boundingBox: { x: number; y: number; width: number; height: number };
+  accessibility: Record<string, string>;
+  reactComponents?: Array<{
+    name: string;
+    source?: { fileName: string; lineNumber: number };
+  }>;
 }
 
 declare global {

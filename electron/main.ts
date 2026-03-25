@@ -36,6 +36,7 @@ import {
 } from "./agent-hooks";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { WebviewServer } from "./webview-server";
+import { PICKER_SCRIPT } from "./picker-script";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -903,6 +904,45 @@ ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   webviewContextMenuCleanup.delete(paneId);
   webviewServer.detachConsoleListener(paneId);
   webviewRegistry.delete(paneId);
+});
+
+ipcMain.handle("webview:start-picker", async (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  const webContentsId = webviewRegistry.get(paneId);
+  if (!webContentsId) return;
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) return;
+
+  await wc.executeJavaScript(PICKER_SCRIPT);
+
+  const listener = (
+    _ev: Electron.Event,
+    _level: number,
+    message: string,
+  ) => {
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      !mainWindow.webContents.isDestroyed()
+    ) {
+      if (message.startsWith("__MANOR_PICK__:")) {
+        wc.off("console-message", listener);
+        try {
+          const result = JSON.parse(
+            message.slice("__MANOR_PICK__:".length),
+          );
+          mainWindow.webContents.send("webview:picker-result", paneId, result);
+        } catch {
+          // ignore parse errors
+        }
+      } else if (message === "__MANOR_PICK_CANCEL__") {
+        wc.off("console-message", listener);
+        mainWindow.webContents.send("webview:picker-cancel", paneId);
+      }
+    }
+  };
+
+  wc.on("console-message", listener);
 });
 
 keybindingsManager.onChange((overrides) => {

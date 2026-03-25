@@ -261,5 +261,28 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("webview:register", paneId, webContentsId),
     unregister: (paneId: string) =>
       ipcRenderer.invoke("webview:unregister", paneId),
+    startPicker: (paneId: string) =>
+      ipcRenderer.invoke("webview:start-picker", paneId),
+    onPickerResult: (
+      callback: (paneId: string, result: unknown) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+        result: unknown,
+      ) => callback(paneId, result);
+      ipcRenderer.on("webview:picker-result", listener);
+      return () =>
+        ipcRenderer.removeListener("webview:picker-result", listener);
+    },
+    onPickerCancel: (callback: (paneId: string) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+      ) => callback(paneId);
+      ipcRenderer.on("webview:picker-cancel", listener);
+      return () =>
+        ipcRenderer.removeListener("webview:picker-cancel", listener);
+    },
   },
 });

@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
+import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -499,7 +500,7 @@ export class WebviewServer {
           return;
         }
 
-        const extractScript = `(function() {
+        const extractScript = SYMBOLICATION_SCRIPT + '\n' + `(async function() {
           var el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return null;
 
@@ -558,7 +559,16 @@ export class WebviewServer {
             return attrs;
           }
 
-          function getReactFiberInfo(el) {
+          /** Returns true if the fileName looks like a bundle path that needs symbolication */
+          function looksLikeBundlePath(fileName) {
+            if (!fileName || typeof fileName !== 'string') return false;
+            return /\\/_next\\//.test(fileName) || /\\/chunks\\//.test(fileName) || /\\.js$/.test(fileName);
+          }
+
+          /** Attempt to extract React fiber info (async — may symbolicate stack frames) */
+          async function getReactFiberInfo(el) {
+            var sym = window.__manor_symbolication__;
+
             var fiberKey = Object.keys(el).find(function(k) {
               return k.startsWith('__reactFiber$');
             });
@@ -579,24 +589,61 @@ export class WebviewServer {
                 if (name) {
                   var entry = { name: name };
                   if (node._debugSource) {
-                    entry.source = {
-                      fileName: node._debugSource.fileName,
-                      lineNumber: node._debugSource.lineNumber
-                    };
-                  } else if (node._debugStack && node._debugStack.stack) {
-                    var frames = node._debugStack.stack.split('\n');
-                    for (var fi = 0; fi < frames.length; fi++) {
-                      var frame = frames[fi].trim();
-                      var m = frame.match(/\((?:webpack:\/\/\/|[a-z]+:\/\/[^/]+)?(\/[^:)]+):(\d+):\d+\)/) ||
-                              frame.match(/\(([^:)][^:]*):(\d+):\d+\)/);
-                      if (m) {
-                        entry.source = {
-                          fileName: m[1],
-                          lineNumber: parseInt(m[2], 10)
-                        };
-                        break;
-                      }
+                    var dsFileName = node._debugSource.fileName;
+                    var dsLineNumber = node._debugSource.lineNumber;
+                    // Try to symbolicate if the fileName looks like a bundle path
+                    if (sym && looksLikeBundlePath(dsFileName)) {
+                      try {
+                        var dsResult = await sym.symbolicateFrame(dsFileName, dsLineNumber, 1);
+                        if (dsResult) {
+                          dsFileName = dsResult.fileName;
+                          dsLineNumber = dsResult.lineNumber;
+                        }
+                      } catch (_e) { /* graceful fallback — keep original values */ }
                     }
+                    entry.source = {
+                      fileName: sym ? sym.normalizeFileName(dsFileName) : dsFileName,
+                      lineNumber: dsLineNumber
+                    };
+                  } else if (node._debugStack) {
+                    try {
+                      var stackStr = typeof node._debugStack === 'string'
+                        ? node._debugStack
+                        : (node._debugStack.stack || String(node._debugStack));
+                      var frames = stackStr.split('\\n');
+                      var foundSource = false;
+                      for (var fi = 0; fi < frames.length && !foundSource; fi++) {
+                        var frame = frames[fi].trim();
+                        var m = frame.match(/\\((?:webpack:\\/\\/\\/|[a-z]+:\\/\\/[^/]+)?(\\/[^:)]+):(\\d+):(\\d+)\\)/) ||
+                                frame.match(/\\(([^:)][^:]*):(\\d+):(\\d+)\\)/);
+                        if (m) {
+                          var parsedFileName = m[1];
+                          var parsedLine = parseInt(m[2], 10);
+                          var parsedCol = parseInt(m[3], 10);
+                          // Attempt symbolication
+                          if (sym) {
+                            try {
+                              var symResult = await sym.symbolicateFrame(parsedFileName, parsedLine, parsedCol);
+                              if (symResult) {
+                                parsedFileName = symResult.fileName;
+                                parsedLine = symResult.lineNumber;
+                              }
+                            } catch (_e) { /* graceful fallback */ }
+                            var normalized = sym.normalizeFileName(parsedFileName);
+                            if (!sym.isSourceFile(normalized)) {
+                              // Skip this frame — not a user source file
+                              continue;
+                            }
+                            parsedFileName = normalized;
+                          }
+                          entry.source = {
+                            fileName: parsedFileName,
+                            lineNumber: parsedLine
+                          };
+                          foundSource = true;
+                        }
+                      }
+                    } catch (_e) { /* _debugStack shape unknown, skip */ }
                   }
                   components.push(entry);
                 }
@@ -620,7 +667,7 @@ export class WebviewServer {
             accessibility: getA11yAttributes(el)
           };
 
-          var reactInfo = getReactFiberInfo(el);
+          var reactInfo = await getReactFiberInfo(el);
           if (reactInfo) {
             result.reactComponents = reactInfo;
           }

@@ -23,6 +23,10 @@ export function PortBadge({
     window.electronAPI.shell.openExternal(url);
   }, [url]);
 
+  const handleKillPort = useCallback(() => {
+    window.electronAPI.ports.killPort(port.pid);
+  }, [port.pid]);
+
   // Extract project name from hostname (remove .localhost suffix)
   const projectName = port.hostname
     ? port.hostname.replace(/\.localhost$/, "")
@@ -61,6 +65,13 @@ export function PortBadge({
             onSelect={handleOpenExternal}
           >
             Open in Default Browser
+          </ContextMenu.Item>
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={handleKillPort}
+          >
+            Kill Port
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>

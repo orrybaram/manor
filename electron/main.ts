@@ -8,7 +8,6 @@ import {
   screen,
   nativeImage,
   Notification,
-  webContents,
 } from "electron";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -866,7 +865,6 @@ ipcMain.handle("keybindings:resetAll", () => {
 // ── Webview registry ──
 const webviewRegistry = new Map<string, number>();
 const webviewServer = new WebviewServer(webviewRegistry);
-const webviewContextMenuCleanup = new Map<string, () => void>();
 
 ipcMain.handle(
   "webview:register",
@@ -874,33 +872,11 @@ ipcMain.handle(
     assertString(paneId, "paneId");
     webviewRegistry.set(paneId, webContentsId);
     webviewServer.attachConsoleListener(paneId);
-
-    const wc = webContents.fromId(webContentsId);
-    if (wc) {
-      const handler = (
-        _ev: Electron.Event,
-        params: Electron.ContextMenuParams,
-      ) => {
-        const menu = Menu.buildFromTemplate([
-          {
-            label: "Inspect Element",
-            click: () => wc.inspectElement(params.x, params.y),
-          },
-        ]);
-        menu.popup();
-      };
-      wc.on("context-menu", handler);
-      webviewContextMenuCleanup.set(paneId, () => {
-        wc.off("context-menu", handler);
-      });
-    }
   },
 );
 
 ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   assertString(paneId, "paneId");
-  webviewContextMenuCleanup.get(paneId)?.();
-  webviewContextMenuCleanup.delete(paneId);
   webviewServer.detachConsoleListener(paneId);
   webviewRegistry.delete(paneId);
 });

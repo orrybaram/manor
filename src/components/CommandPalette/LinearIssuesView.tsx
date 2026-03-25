@@ -47,13 +47,14 @@ export function LinearIssuesView({
   }
 
   if (isEmpty) {
-    return (
-      <div className={styles.empty}>No issues found</div>
-    );
+    return <div className={styles.empty}>No issues found</div>;
   }
 
   return (
-    <Command.Group heading={allIssues ? "All Issues" : "My Issues"} className={styles.group}>
+    <Command.Group
+      heading={allIssues ? "All Issues" : "My Issues"}
+      className={styles.group}
+    >
       {linearIssues.map((issue) => (
         <Command.Item
           key={issue.id}

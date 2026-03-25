@@ -20,10 +20,7 @@ export function DeleteWorktreeDialog({
   );
 
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={onOpenChange}
-    >
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.confirmOverlay} />
         <Dialog.Content className={styles.confirmDialog}>
@@ -32,10 +29,8 @@ export function DeleteWorktreeDialog({
           </Dialog.Title>
           <Dialog.Description className={styles.confirmDescription}>
             Delete workspace{" "}
-            <strong>
-              {workspace?.name || workspace?.branch || ""}
-            </strong>
-            ? This will remove the worktree from disk.
+            <strong>{workspace?.name || workspace?.branch || ""}</strong>? This
+            will remove the worktree from disk.
           </Dialog.Description>
           {workspace?.branch && (
             <div className={styles.branchDeleteSection}>

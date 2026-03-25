@@ -24,7 +24,10 @@ export function TabBar() {
   const closeSession = useAppStore((s) => s.closeSession);
   const reorderSessions = useAppStore((s) => s.reorderSessions);
   const togglePinSession = useAppStore((s) => s.togglePinSession);
-  const pinnedSessionIds = useMemo(() => ws?.pinnedSessionIds ?? [], [ws?.pinnedSessionIds]);
+  const pinnedSessionIds = useMemo(
+    () => ws?.pinnedSessionIds ?? [],
+    [ws?.pinnedSessionIds],
+  );
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const extractPaneToSession = useAppStore((s) => s.extractPaneToSession);
@@ -113,7 +116,11 @@ export function TabBar() {
           const barRect = sessionsEl.getBoundingClientRect();
           if (ev.clientY > barRect.bottom + 20) {
             // Release pointer capture so pane drop zones can receive events
-            try { tabEl.releasePointerCapture(draggedPointerId.current); } catch { /* pointer may already be released */ }
+            try {
+              tabEl.releasePointerCapture(draggedPointerId.current);
+            } catch {
+              /* pointer may already be released */
+            }
             startDrag({ type: "tab", sessionId: sessions[idx].id });
             handedOffToPaneDrop.current = true;
             // Clean up tab bar drag visuals
@@ -225,25 +232,27 @@ export function TabBar() {
         {sessions.map((session, idx) => {
           const isPinned = pinnedSessionIds.includes(session.id);
           return (
-          <SessionButton
-            key={session.id}
-            sessionId={session.id}
-            isActive={session.id === selectedSessionId}
-            isPinned={isPinned}
-            canClose={true}
-            isDragging={dragIndex === idx}
-            onSelect={() => {
-              if (!justDragged.current) selectSession(session.id);
-            }}
-            onClose={() => closeSession(session.id)}
-            onTogglePin={() => togglePinSession(session.id)}
-            onPointerDown={isPinned ? undefined : (e) => handleDragStart(idx, e)}
-            style={getTransformStyle(idx)}
-            buttonRef={(el) => {
-              if (el) itemRefs.current.set(idx, el);
-              else itemRefs.current.delete(idx);
-            }}
-          />
+            <SessionButton
+              key={session.id}
+              sessionId={session.id}
+              isActive={session.id === selectedSessionId}
+              isPinned={isPinned}
+              canClose={true}
+              isDragging={dragIndex === idx}
+              onSelect={() => {
+                if (!justDragged.current) selectSession(session.id);
+              }}
+              onClose={() => closeSession(session.id)}
+              onTogglePin={() => togglePinSession(session.id)}
+              onPointerDown={
+                isPinned ? undefined : (e) => handleDragStart(idx, e)
+              }
+              style={getTransformStyle(idx)}
+              buttonRef={(el) => {
+                if (el) itemRefs.current.set(idx, el);
+                else itemRefs.current.delete(idx);
+              }}
+            />
           );
         })}
         <button className={styles.addButton} onClick={addSession}>

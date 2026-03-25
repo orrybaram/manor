@@ -59,7 +59,9 @@ export function PortsList() {
         onClick={() => setCollapsed(!collapsed)}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span className={`${styles.projectChevron} ${!collapsed ? styles.projectChevronOpen : ""}`}>
+          <span
+            className={`${styles.projectChevron} ${!collapsed ? styles.projectChevronOpen : ""}`}
+          >
             <ChevronRight size={12} />
           </span>
           <EthernetPort size={12} />

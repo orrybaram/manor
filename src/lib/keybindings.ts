@@ -14,7 +14,11 @@ export const CATEGORY_LABELS: Record<KeybindingCategory, string> = {
   terminal: "Terminal",
 };
 
-export const CATEGORY_ORDER: KeybindingCategory[] = ["workspace", "terminal", "app"];
+export const CATEGORY_ORDER: KeybindingCategory[] = [
+  "workspace",
+  "terminal",
+  "app",
+];
 
 export interface KeybindingDef {
   id: string;
@@ -126,11 +130,15 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
  * On non-macOS platforms, `meta` is swapped to `ctrl`.
  */
 export function platformDefaults(platform?: string): KeybindingDef[] {
-  const resolvedPlatform = platform ?? (typeof navigator !== "undefined" ? navigator.platform : "");
+  const resolvedPlatform =
+    platform ?? (typeof navigator !== "undefined" ? navigator.platform : "");
   const isMac = resolvedPlatform.toLowerCase().includes("mac");
 
   if (isMac) {
-    return DEFAULT_KEYBINDINGS.map((def) => ({ ...def, defaultCombo: { ...def.defaultCombo } }));
+    return DEFAULT_KEYBINDINGS.map((def) => ({
+      ...def,
+      defaultCombo: { ...def.defaultCombo },
+    }));
   }
 
   return DEFAULT_KEYBINDINGS.map((def) => ({
@@ -170,7 +178,10 @@ export function comboFromEvent(e: KeyboardEvent): KeyCombo {
  * On mac: ⌘⇧D
  * On other: Ctrl+Shift+D
  */
-export function formatCombo(combo: KeyCombo, platform: "mac" | "other"): string {
+export function formatCombo(
+  combo: KeyCombo,
+  platform: "mac" | "other",
+): string {
   if (platform === "mac") {
     const parts: string[] = [];
     if (combo.ctrl) parts.push("⌃");

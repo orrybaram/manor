@@ -133,7 +133,9 @@ export class ProjectManager {
   }
 
   async getProjects(): Promise<ProjectInfo[]> {
-    return Promise.all(this.state.projects.map((p) => this.buildProjectInfo(p)));
+    return Promise.all(
+      this.state.projects.map((p) => this.buildProjectInfo(p)),
+    );
   }
 
   getSelectedProjectIndex(): number {
@@ -168,21 +170,28 @@ export class ProjectManager {
     const packageJsonPath = path.join(projectPath, "package.json");
     if (fs.existsSync(packageJsonPath)) {
       try {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, "utf-8"),
+        );
         if (packageJson.scripts && typeof packageJson.scripts === "object") {
           const runner = fs.existsSync(path.join(projectPath, "pnpm-lock.yaml"))
             ? "pnpm run"
             : fs.existsSync(path.join(projectPath, "yarn.lock"))
               ? "yarn"
               : "npm run";
-          project.commands = Object.keys(packageJson.scripts).map((scriptName) => ({
-            id: crypto.randomUUID(),
-            name: scriptName,
-            command: `${runner} ${scriptName}`,
-          }));
+          project.commands = Object.keys(packageJson.scripts).map(
+            (scriptName) => ({
+              id: crypto.randomUUID(),
+              name: scriptName,
+              command: `${runner} ${scriptName}`,
+            }),
+          );
         }
       } catch (err) {
-        console.error("[ProjectManager] failed to read package.json:", err instanceof Error ? err.message : err);
+        console.error(
+          "[ProjectManager] failed to read package.json:",
+          err instanceof Error ? err.message : err,
+        );
       }
     }
 
@@ -355,7 +364,10 @@ export class ProjectManager {
           }
         }
       } catch (err) {
-        console.error("[ProjectManager] failed to detect branch for worktree:", err instanceof Error ? err.message : err);
+        console.error(
+          "[ProjectManager] failed to detect branch for worktree:",
+          err instanceof Error ? err.message : err,
+        );
       }
     }
 
@@ -367,7 +379,10 @@ export class ProjectManager {
           timeout: 30000,
         });
       } catch (err) {
-        console.error("[ProjectManager] worktree teardown script failed:", err instanceof Error ? err.message : err);
+        console.error(
+          "[ProjectManager] worktree teardown script failed:",
+          err instanceof Error ? err.message : err,
+        );
       }
     }
 
@@ -380,7 +395,10 @@ export class ProjectManager {
         },
       );
     } catch (err) {
-      console.error("[ProjectManager] git worktree remove failed:", err instanceof Error ? err.message : err);
+      console.error(
+        "[ProjectManager] git worktree remove failed:",
+        err instanceof Error ? err.message : err,
+      );
       // Worktree may already be gone — prune stale entries and continue
       try {
         await execAsync("git worktree prune", {
@@ -388,7 +406,10 @@ export class ProjectManager {
           timeout: 10000,
         });
       } catch (pruneErr) {
-        console.error("[ProjectManager] git worktree prune failed:", pruneErr instanceof Error ? pruneErr.message : pruneErr);
+        console.error(
+          "[ProjectManager] git worktree prune failed:",
+          pruneErr instanceof Error ? pruneErr.message : pruneErr,
+        );
       }
     }
 
@@ -410,7 +431,10 @@ export class ProjectManager {
           timeout: 10000,
         });
       } catch (err) {
-        console.error("[ProjectManager] git branch -D failed:", err instanceof Error ? err.message : err);
+        console.error(
+          "[ProjectManager] git branch -D failed:",
+          err instanceof Error ? err.message : err,
+        );
       }
     }
   }
@@ -437,7 +461,10 @@ export class ProjectManager {
         timeout: 10000,
       });
     } catch (err) {
-      console.error("[ProjectManager] git worktree prune failed:", err instanceof Error ? err.message : err);
+      console.error(
+        "[ProjectManager] git worktree prune failed:",
+        err instanceof Error ? err.message : err,
+      );
     }
 
     try {
@@ -450,7 +477,10 @@ export class ProjectManager {
         },
       );
     } catch (createErr) {
-      console.error("[ProjectManager] git worktree add -b failed:", createErr instanceof Error ? createErr.message : createErr);
+      console.error(
+        "[ProjectManager] git worktree add -b failed:",
+        createErr instanceof Error ? createErr.message : createErr,
+      );
       // Branch already exists — create worktree checking out the existing branch
       try {
         await execFileAsync(
@@ -462,7 +492,10 @@ export class ProjectManager {
           },
         );
       } catch (fallbackErr) {
-        console.error("[ProjectManager] git worktree add (fallback) also failed:", fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
+        console.error(
+          "[ProjectManager] git worktree add (fallback) also failed:",
+          fallbackErr instanceof Error ? fallbackErr.message : fallbackErr,
+        );
         throw fallbackErr;
       }
     }

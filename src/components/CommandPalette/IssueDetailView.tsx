@@ -51,9 +51,8 @@ export function IssueDetailView({
         .getState()
         .projects.find((p) => p.id === project.id);
       const existingIdx =
-        current?.workspaces.findIndex(
-          (ws) => ws.branch === issue.branchName,
-        ) ?? -1;
+        current?.workspaces.findIndex((ws) => ws.branch === issue.branchName) ??
+        -1;
       if (existingIdx >= 0) {
         selectWorkspace(project.id, existingIdx);
         const existingWs = current?.workspaces[existingIdx];
@@ -67,7 +66,8 @@ export function IssueDetailView({
         projectId: project.id,
         name: issue.title,
         branch: issue.branchName,
-        agentPrompt: issue.title + "\n\n" + (issueDetailRef.current?.description ?? ""),
+        agentPrompt:
+          issue.title + "\n\n" + (issueDetailRef.current?.description ?? ""),
       });
       window.electronAPI.linear.startIssue(issue.id);
     },
@@ -90,7 +90,8 @@ export function IssueDetailView({
 
   const handleNewTask = useCallback(
     (issue: LinearIssue) => {
-      const prompt = issue.title + "\n\n" + (issueDetailRef.current?.description ?? "");
+      const prompt =
+        issue.title + "\n\n" + (issueDetailRef.current?.description ?? "");
       onNewTaskWithPrompt?.(prompt);
       window.electronAPI.linear.startIssue(issue.id);
       onClose();
@@ -216,15 +217,24 @@ export function IssueDetailView({
         </div>
       </div>
       <div className={styles.detailFooter}>
-        <button className={styles.footerHint} onClick={() => handleNewTask(issueDetail)}>
+        <button
+          className={styles.footerHint}
+          onClick={() => handleNewTask(issueDetail)}
+        >
           <kbd className={styles.kbd}>Enter</kbd>
           <span>New Task</span>
         </button>
-        <button className={styles.footerHint} onClick={() => handleCreateWorkspace(issueDetail)}>
+        <button
+          className={styles.footerHint}
+          onClick={() => handleCreateWorkspace(issueDetail)}
+        >
           <kbd className={styles.kbd}>Shift+Enter</kbd>
           <span>Create Workspace</span>
         </button>
-        <button className={styles.footerHint} onClick={() => handleOpenInBrowser(issueDetail)}>
+        <button
+          className={styles.footerHint}
+          onClick={() => handleOpenInBrowser(issueDetail)}
+        >
           <kbd className={styles.kbd}>&#8984;O</kbd>
           <span>Open in Browser</span>
         </button>

@@ -19,7 +19,10 @@ export class PortScanner {
   private lastPorts: ActivePort[] = [];
   private scanning = false;
 
-  start(window: BrowserWindow, onScan?: (ports: ActivePort[]) => ActivePort[]): void {
+  start(
+    window: BrowserWindow,
+    onScan?: (ports: ActivePort[]) => ActivePort[],
+  ): void {
     this.stop();
 
     this.timer = setInterval(async () => {

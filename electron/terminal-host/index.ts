@@ -192,7 +192,9 @@ async function handleStreamMessage(
       host.detach(command.sessionId, socket);
       break;
     case "agentHook":
-      log(`[agent-status] relay: session=${command.sessionId} status=${command.status} kind=${command.kind}`);
+      log(
+        `[agent-status] relay: session=${command.sessionId} status=${command.status} kind=${command.kind}`,
+      );
       host.setAgentHookStatus(command.sessionId, command.status, command.kind);
       break;
   }

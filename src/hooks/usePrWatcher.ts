@@ -8,7 +8,9 @@ function computeFingerprint() {
   const projects = useProjectStore.getState().projects;
   return projects
     .flatMap((p) =>
-      p.workspaces.filter((ws) => !ws.isMain).map((ws) => `${p.path}:${ws.branch}`),
+      p.workspaces
+        .filter((ws) => !ws.isMain)
+        .map((ws) => `${p.path}:${ws.branch}`),
     )
     .join("|");
 }

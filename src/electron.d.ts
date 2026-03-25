@@ -83,7 +83,14 @@ export interface ActivePort {
 }
 
 export type AgentKind = "claude" | "opencode" | "codex";
-export type AgentStatus = "idle" | "thinking" | "working" | "complete" | "requires_input" | "error" | "responded";
+export type AgentStatus =
+  | "idle"
+  | "thinking"
+  | "working"
+  | "complete"
+  | "requires_input"
+  | "error"
+  | "responded";
 
 export interface AgentState {
   kind: AgentKind | null;
@@ -168,7 +175,10 @@ export interface ElectronAPI {
       path: string,
     ) => Promise<import("./store/project-store").ProjectInfo>;
     remove: (projectId: string) => Promise<void>;
-    selectWorkspace: (projectId: string, workspaceIndex: number) => Promise<void>;
+    selectWorkspace: (
+      projectId: string,
+      workspaceIndex: number,
+    ) => Promise<void>;
     removeWorktree: (
       projectId: string,
       worktreePath: string,
@@ -197,14 +207,10 @@ export interface ElectronAPI {
 
   theme: {
     get: () => Promise<import("./store/theme-store").Theme>;
-    setSelected: (
-      name: string,
-    ) => Promise<import("./store/theme-store").Theme>;
+    setSelected: (name: string) => Promise<import("./store/theme-store").Theme>;
     getSelectedName: () => Promise<string>;
     hasGhosttyConfig: () => Promise<boolean>;
-    preview: (
-      name: string,
-    ) => Promise<import("./store/theme-store").Theme>;
+    preview: (name: string) => Promise<import("./store/theme-store").Theme>;
     allColors: () => Promise<
       Record<
         string,
@@ -227,7 +233,14 @@ export interface ElectronAPI {
     startScanner: () => Promise<void>;
     stopScanner: () => Promise<void>;
     updateWorkspacePaths: (paths: string[]) => Promise<void>;
-    updateWorkspaceMetadata: (meta: Array<{ path: string; projectName: string | null; branch: string | null; isMain: boolean }>) => Promise<void>;
+    updateWorkspaceMetadata: (
+      meta: Array<{
+        path: string;
+        projectName: string | null;
+        branch: string | null;
+        isMain: boolean;
+      }>,
+    ) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
   };
@@ -244,7 +257,9 @@ export interface ElectronAPI {
     start: (workspaces: Record<string, string>) => Promise<void>;
     stop: () => Promise<void>;
     onChange: (
-      callback: (diffs: Record<string, { added: number; removed: number }>) => void,
+      callback: (
+        diffs: Record<string, { added: number; removed: number }>,
+      ) => void,
     ) => () => void;
   };
 
@@ -253,22 +268,39 @@ export interface ElectronAPI {
     getPrsForBranches: (
       repoPath: string,
       branches: string[],
-    ) => Promise<[string, {
-      number: number;
-      state: string;
-      title: string;
-      url: string;
-      isDraft?: boolean;
-      additions?: number;
-      deletions?: number;
-      reviewDecision?: string | null;
-      checks?: { total: number; passing: number; failing: number; pending: number } | null;
-      unresolvedThreads?: number;
-    } | null][]>;
-    checkStatus: () => Promise<{ installed: boolean; authenticated: boolean; username?: string }>;
+    ) => Promise<
+      [
+        string,
+        {
+          number: number;
+          state: string;
+          title: string;
+          url: string;
+          isDraft?: boolean;
+          additions?: number;
+          deletions?: number;
+          reviewDecision?: string | null;
+          checks?: {
+            total: number;
+            passing: number;
+            failing: number;
+            pending: number;
+          } | null;
+          unresolvedThreads?: number;
+        } | null,
+      ][]
+    >;
+    checkStatus: () => Promise<{
+      installed: boolean;
+      authenticated: boolean;
+      username?: string;
+    }>;
     getMyIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
     getAllIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
-    getIssueDetail: (repoPath: string, issueNumber: number) => Promise<GitHubIssueDetail>;
+    getIssueDetail: (
+      repoPath: string,
+      issueNumber: number,
+    ) => Promise<GitHubIssueDetail>;
     assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
   };
 
@@ -294,9 +326,20 @@ export interface ElectronAPI {
   updater: {
     checkForUpdates: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
-    onUpdateAvailable: (callback: (info: { version: string }) => void) => () => void;
-    onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
-    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
+    onUpdateAvailable: (
+      callback: (info: { version: string }) => void,
+    ) => () => void;
+    onUpdateDownloaded: (
+      callback: (info: { version: string }) => void,
+    ) => () => void;
+    onDownloadProgress: (
+      callback: (progress: {
+        percent: number;
+        bytesPerSecond: number;
+        transferred: number;
+        total: number;
+      }) => void,
+    ) => () => void;
     onError: (callback: (message: string) => void) => () => void;
   };
 
@@ -310,18 +353,36 @@ export interface ElectronAPI {
   };
 
   tasks: {
-    getAll: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<TaskInfo[]>;
+    getAll: (opts?: {
+      projectId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => Promise<TaskInfo[]>;
     get: (taskId: string) => Promise<TaskInfo | null>;
-    update: (taskId: string, updates: Partial<TaskInfo>) => Promise<TaskInfo | null>;
+    update: (
+      taskId: string,
+      updates: Partial<TaskInfo>,
+    ) => Promise<TaskInfo | null>;
     delete: (taskId: string) => Promise<boolean>;
-    setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => Promise<void>;
+    setPaneContext: (
+      paneId: string,
+      context: {
+        projectId: string;
+        projectName: string;
+        workspacePath: string;
+      },
+    ) => Promise<void>;
     markSeen: (taskId: string) => Promise<void>;
     onUpdate: (callback: (task: TaskInfo) => void) => () => void;
   };
 
   preferences: {
     getAll: () => Promise<AppPreferences>;
-    set: (key: keyof AppPreferences, value: AppPreferences[keyof AppPreferences]) => Promise<void>;
+    set: (
+      key: keyof AppPreferences,
+      value: AppPreferences[keyof AppPreferences],
+    ) => Promise<void>;
     onChange: (callback: (prefs: AppPreferences) => void) => () => void;
     playSound: (name: string) => Promise<void>;
   };
@@ -331,7 +392,9 @@ export interface ElectronAPI {
     set: (commandId: string, combo: string) => Promise<void>;
     reset: (commandId: string) => Promise<void>;
     resetAll: () => Promise<void>;
-    onChange: (callback: (overrides: Record<string, string>) => void) => () => void;
+    onChange: (
+      callback: (overrides: Record<string, string>) => void,
+    ) => () => void;
   };
 
   notifications: {

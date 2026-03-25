@@ -5,13 +5,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import {
-  Plus,
-  ChevronRight,
-  House,
-  FolderGit2,
-  Settings,
-} from "lucide-react";
+import { Plus, ChevronRight, House, FolderGit2, Settings } from "lucide-react";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
@@ -47,30 +41,36 @@ interface WorkspaceItemProps {
   onEditPointerDown: (e: React.PointerEvent) => void;
 }
 
-const WorkspaceItem = React.forwardRef<HTMLDivElement, WorkspaceItemProps & React.HTMLAttributes<HTMLDivElement>>(function WorkspaceItem({
-  ws,
-  idx,
-  isSelected,
-  selectedWorkspaceIndex,
-  isDragging,
-  isDeleting,
-  isEditing,
-  editValue,
-  editRef,
-  displayName,
-  getTransformStyle,
-  justDragged,
-  itemRefCallback,
-  onSelectWorkspace,
-  onDoubleClick,
-  onPointerDown,
-  onEditChange,
-  onEditBlur,
-  onEditKeyDown,
-  onEditClick,
-  onEditPointerDown,
-  ...rest
-}, forwardedRef) {
+const WorkspaceItem = React.forwardRef<
+  HTMLDivElement,
+  WorkspaceItemProps & React.HTMLAttributes<HTMLDivElement>
+>(function WorkspaceItem(
+  {
+    ws,
+    idx,
+    isSelected,
+    selectedWorkspaceIndex,
+    isDragging,
+    isDeleting,
+    isEditing,
+    editValue,
+    editRef,
+    displayName,
+    getTransformStyle,
+    justDragged,
+    itemRefCallback,
+    onSelectWorkspace,
+    onDoubleClick,
+    onPointerDown,
+    onEditChange,
+    onEditBlur,
+    onEditKeyDown,
+    onEditClick,
+    onEditPointerDown,
+    ...rest
+  },
+  forwardedRef,
+) {
   const workspaceStatus = useWorkspaceAgentStatus(ws.path);
 
   return (
@@ -124,19 +124,22 @@ const WorkspaceItem = React.forwardRef<HTMLDivElement, WorkspaceItemProps & Reac
           </span>
           <div className={styles.workspaceLabel}>
             <div className={styles.workspaceNameRow}>
-              <span className={styles.workspaceName}>
-                {displayName}
-              </span>
-              {ws.diffStats && (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                <span className={styles.diffStats}>
-                  {ws.diffStats.added > 0 && (
-                    <span className={styles.diffAdded}>+{ws.diffStats.added}</span>
-                  )}
-                  {ws.diffStats.removed > 0 && (
-                    <span className={styles.diffRemoved}>-{ws.diffStats.removed}</span>
-                  )}
-                </span>
-              )}
+              <span className={styles.workspaceName}>{displayName}</span>
+              {ws.diffStats &&
+                (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
+                  <span className={styles.diffStats}>
+                    {ws.diffStats.added > 0 && (
+                      <span className={styles.diffAdded}>
+                        +{ws.diffStats.added}
+                      </span>
+                    )}
+                    {ws.diffStats.removed > 0 && (
+                      <span className={styles.diffRemoved}>
+                        -{ws.diffStats.removed}
+                      </span>
+                    )}
+                  </span>
+                )}
             </div>
             <div className={styles.workspaceBranchRow}>
               <span className={styles.workspaceBranch}>
@@ -197,12 +200,17 @@ export function ProjectItem({
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   const editRef = useRef<HTMLInputElement>(null);
 
-  const { dragIndex, handleDragStart, getTransformStyle, justDragged, itemRefs } =
-    useWorkspaceDrag({
-      workspaces: project.workspaces,
-      onReorderWorkspaces,
-      editingPath,
-    });
+  const {
+    dragIndex,
+    handleDragStart,
+    getTransformStyle,
+    justDragged,
+    itemRefs,
+  } = useWorkspaceDrag({
+    workspaces: project.workspaces,
+    onReorderWorkspaces,
+    editingPath,
+  });
 
   const projectStatus = useProjectAgentStatus(project);
 
@@ -223,11 +231,16 @@ export function ProjectItem({
     [editValue, onRenameWorkspace],
   );
 
-
   return (
     <div
       className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
-      style={project.color ? { "--project-color": `var(--${project.color})` } as React.CSSProperties : undefined}
+      style={
+        project.color
+          ? ({
+              "--project-color": `var(--${project.color})`,
+            } as React.CSSProperties)
+          : undefined
+      }
     >
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
@@ -239,7 +252,9 @@ export function ProjectItem({
             onPointerDown={onDragStart}
             style={{ touchAction: "none" }}
           >
-            <span className={`${styles.projectChevron} ${expanded ? styles.projectChevronOpen : ""}`}>
+            <span
+              className={`${styles.projectChevron} ${expanded ? styles.projectChevronOpen : ""}`}
+            >
               <ChevronRight size={12} />
             </span>
             <span className={styles.projectName} title={project.path}>
@@ -339,13 +354,17 @@ export function ProjectItem({
             return (
               <React.Fragment key={ws.path}>
                 <ContextMenu.Root>
-                  <ContextMenu.Trigger asChild>{workspaceEl}</ContextMenu.Trigger>
+                  <ContextMenu.Trigger asChild>
+                    {workspaceEl}
+                  </ContextMenu.Trigger>
                   <ContextMenu.Portal>
                     <ContextMenu.Content className={styles.contextMenu}>
                       <ContextMenu.Item
                         className={styles.contextMenuItem}
                         onSelect={() =>
-                          window.electronAPI.shell.openExternal(`file://${ws.path}`)
+                          window.electronAPI.shell.openExternal(
+                            `file://${ws.path}`,
+                          )
                         }
                       >
                         Open in Finder

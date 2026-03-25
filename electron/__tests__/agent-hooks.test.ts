@@ -7,7 +7,10 @@ import * as http from "node:http";
 import { AgentHookServer, mapEventToStatus } from "../agent-hooks";
 import type { AgentStatus, AgentKind } from "../terminal-host/types";
 
-function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
+function httpGet(
+  port: number,
+  path: string,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.get(`http://127.0.0.1:${port}${path}`, (res) => {
       let body = "";
@@ -90,7 +93,11 @@ describe("AgentHookServer", () => {
 
   beforeEach(async () => {
     server = new AgentHookServer();
-    relayFn = vi.fn() as unknown as (paneId: string, status: AgentStatus, kind: AgentKind) => void;
+    relayFn = vi.fn() as unknown as (
+      paneId: string,
+      status: AgentStatus,
+      kind: AgentKind,
+    ) => void;
     await server.start();
     server.setRelay(relayFn);
   });
@@ -108,7 +115,9 @@ describe("AgentHookServer", () => {
       const port = server.hookPort;
       server.stop();
 
-      await expect(httpGet(port, "/hook/event?paneId=a&eventType=Stop")).rejects.toThrow();
+      await expect(
+        httpGet(port, "/hook/event?paneId=a&eventType=Stop"),
+      ).rejects.toThrow();
     });
 
     it("supports multiple start/stop cycles", async () => {
@@ -129,7 +138,10 @@ describe("AgentHookServer", () => {
 
   describe("HTTP request handling", () => {
     it("returns 200 for valid request", async () => {
-      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=UserPromptSubmit");
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=UserPromptSubmit",
+      );
       expect(res.status).toBe(200);
     });
 
@@ -149,7 +161,10 @@ describe("AgentHookServer", () => {
     });
 
     it("returns 200 for valid request with unknown eventType (accepted but relay not called)", async () => {
-      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=UnknownThing");
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=UnknownThing",
+      );
       expect(res.status).toBe(200);
       expect(relayFn).not.toHaveBeenCalled();
     });
@@ -160,20 +175,49 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
 
       expect(relayFn).toHaveBeenCalledTimes(1);
-      expect(relayFn).toHaveBeenCalledWith("abc", "complete", "claude", null, "Stop");
+      expect(relayFn).toHaveBeenCalledWith(
+        "abc",
+        "complete",
+        "claude",
+        null,
+        "Stop",
+      );
     });
 
     it("calls relay with correct paneId for each request", async () => {
-      await httpGet(server.hookPort, "/hook/event?paneId=pane-1&eventType=Stop");
-      await httpGet(server.hookPort, "/hook/event?paneId=pane-2&eventType=UserPromptSubmit");
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=pane-1&eventType=Stop",
+      );
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=pane-2&eventType=UserPromptSubmit",
+      );
 
       expect(relayFn).toHaveBeenCalledTimes(2);
-      expect(relayFn).toHaveBeenNthCalledWith(1, "pane-1", "complete", "claude", null, "Stop");
-      expect(relayFn).toHaveBeenNthCalledWith(2, "pane-2", "thinking", "claude", null, "UserPromptSubmit");
+      expect(relayFn).toHaveBeenNthCalledWith(
+        1,
+        "pane-1",
+        "complete",
+        "claude",
+        null,
+        "Stop",
+      );
+      expect(relayFn).toHaveBeenNthCalledWith(
+        2,
+        "pane-2",
+        "thinking",
+        "claude",
+        null,
+        "UserPromptSubmit",
+      );
     });
 
     it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {
-      await httpGet(server.hookPort, "/hook/event?paneId=pane-1&eventType=Stop");
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=pane-1&eventType=Stop",
+      );
 
       expect(relayFn).toHaveBeenCalledTimes(1);
       const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
@@ -183,11 +227,13 @@ describe("AgentHookServer", () => {
     });
 
     it("does not call relay for unknown eventType", async () => {
-      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=SomeUnknown");
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=SomeUnknown",
+      );
       expect(res.status).toBe(200);
       expect(relayFn).not.toHaveBeenCalled();
     });
-
   });
 });
 
@@ -212,7 +258,9 @@ describe("registerClaudeHooks", () => {
   // Re-import to pick up the changed HOME env
   async function freshImport() {
     // Clear module cache to pick up new HOME
-    const mod = await import(`../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`);
+    const mod = await import(
+      `../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`
+    );
     return mod;
   }
 
@@ -288,9 +336,17 @@ describe("registerClaudeHooks", () => {
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     const expectedEvents = [
-      "UserPromptSubmit", "Stop", "PostToolUse", "PostToolUseFailure",
-      "PermissionRequest", "PreToolUse", "Notification", "StopFailure",
-      "SubagentStart", "SubagentStop", "SessionEnd",
+      "UserPromptSubmit",
+      "Stop",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "PermissionRequest",
+      "PreToolUse",
+      "Notification",
+      "StopFailure",
+      "SubagentStart",
+      "SubagentStop",
+      "SessionEnd",
     ];
     for (const event of expectedEvents) {
       expect(settings.hooks[event]).toBeDefined();
@@ -316,7 +372,10 @@ describe("ensureHookScript", () => {
   let originalHome: string | undefined;
 
   beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `manor-hookscript-test-${crypto.randomUUID()}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-hookscript-test-${crypto.randomUUID()}`,
+    );
     originalHome = process.env.HOME;
     process.env.HOME = tmpDir;
   });
@@ -327,7 +386,9 @@ describe("ensureHookScript", () => {
   });
 
   async function freshImport() {
-    const mod = await import(`../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`);
+    const mod = await import(
+      `../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`
+    );
     return mod;
   }
 

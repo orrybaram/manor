@@ -75,9 +75,7 @@ interface WebviewInfo {
   title: string;
 }
 
-async function resolvePaneId(
-  paneId: string | undefined,
-): Promise<string> {
+async function resolvePaneId(paneId: string | undefined): Promise<string> {
   if (paneId) return paneId;
 
   const webviews = (await httpGet("/webviews")) as WebviewInfo[];
@@ -90,9 +88,7 @@ async function resolvePaneId(
   const listing = webviews
     .map((w) => `  - ${w.paneId}: ${w.title} (${w.url})`)
     .join("\n");
-  throw new Error(
-    `Multiple webviews open. Specify a paneId:\n${listing}`,
-  );
+  throw new Error(`Multiple webviews open. Specify a paneId:\n${listing}`);
 }
 
 // ── Tool definitions ──
@@ -100,7 +96,8 @@ async function resolvePaneId(
 const TOOLS = [
   {
     name: "list_webviews",
-    description: "List all open webview panes in Manor with their id, url, and title.",
+    description:
+      "List all open webview panes in Manor with their id, url, and title.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -112,7 +109,10 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
       },
     },
   },
@@ -122,17 +122,24 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
       },
     },
   },
   {
     name: "execute_js",
-    description: "Execute JavaScript code in the webview and return the result.",
+    description:
+      "Execute JavaScript code in the webview and return the result.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
         code: { type: "string", description: "JavaScript code to execute." },
       },
       required: ["code"],
@@ -140,12 +147,19 @@ const TOOLS = [
   },
   {
     name: "click_element",
-    description: "Click an element in the webview by CSS selector or coordinates.",
+    description:
+      "Click an element in the webview by CSS selector or coordinates.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
-        selector: { type: "string", description: "CSS selector of the element to click." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector of the element to click.",
+        },
         x: { type: "number", description: "X coordinate to click." },
         y: { type: "number", description: "Y coordinate to click." },
       },
@@ -157,8 +171,14 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
-        selector: { type: "string", description: "CSS selector of the element to type into." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector of the element to type into.",
+        },
         text: { type: "string", description: "Text to type." },
       },
       required: ["selector", "text"],
@@ -170,7 +190,10 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
         url: { type: "string", description: "URL to navigate to." },
       },
       required: ["url"],
@@ -182,7 +205,10 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
       },
     },
   },
@@ -192,7 +218,10 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        paneId: { type: "string", description: "Pane ID. Omit if only one webview is open." },
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
       },
     },
   },
@@ -203,7 +232,14 @@ const TOOLS = [
 async function handleTool(
   name: string,
   args: Record<string, unknown>,
-): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> }> {
+): Promise<{
+  content: Array<{
+    type: string;
+    text?: string;
+    data?: string;
+    mimeType?: string;
+  }>;
+}> {
   try {
     switch (name) {
       case "list_webviews": {
@@ -219,7 +255,9 @@ async function handleTool(
 
       case "screenshot_webview": {
         const id = await resolvePaneId(args.paneId as string | undefined);
-        const result = (await httpPost(`/webview/${encodeURIComponent(id)}/screenshot`)) as {
+        const result = (await httpPost(
+          `/webview/${encodeURIComponent(id)}/screenshot`,
+        )) as {
           image: string;
         };
         return {
@@ -235,7 +273,9 @@ async function handleTool(
 
       case "get_dom": {
         const id = await resolvePaneId(args.paneId as string | undefined);
-        const result = (await httpPost(`/webview/${encodeURIComponent(id)}/dom`)) as {
+        const result = (await httpPost(
+          `/webview/${encodeURIComponent(id)}/dom`,
+        )) as {
           html: string;
         };
         return text(result.html);
@@ -243,9 +283,12 @@ async function handleTool(
 
       case "execute_js": {
         const id = await resolvePaneId(args.paneId as string | undefined);
-        const result = (await httpPost(`/webview/${encodeURIComponent(id)}/execute-js`, {
-          code: args.code,
-        })) as { result: unknown };
+        const result = (await httpPost(
+          `/webview/${encodeURIComponent(id)}/execute-js`,
+          {
+            code: args.code,
+          },
+        )) as { result: unknown };
         return text(JSON.stringify(result.result, null, 2));
       }
 

@@ -109,11 +109,7 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 5. Hook: UserPromptSubmit -> thinking (transitions from complete to thinking)
     detector.setStatus("thinking");
 
-    expect(statuses(transitions)).toEqual([
-      "thinking",
-      "complete",
-      "thinking",
-    ]);
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "thinking"]);
 
     detector.dispose();
   });
@@ -266,11 +262,7 @@ describe("Agent Lifecycle E2E Scenarios", () => {
     // 4. FG -> null -> complete already set -> transitionToGone
     detector.updateForegroundProcess(null);
 
-    expect(statuses(transitions)).toEqual([
-      "thinking",
-      "complete",
-      "idle",
-    ]);
+    expect(statuses(transitions)).toEqual(["thinking", "complete", "idle"]);
 
     // Verify kind was opencode throughout the thinking/complete phase
     expect(transitions[0].kind).toBe("opencode");

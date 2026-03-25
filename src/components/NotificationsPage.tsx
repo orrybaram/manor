@@ -21,7 +21,9 @@ export function NotificationsPage() {
           </div>
         </div>
         <Switch
-          checked={preferences.notifyOnResponse || preferences.notifyOnRequiresInput}
+          checked={
+            preferences.notifyOnResponse || preferences.notifyOnRequiresInput
+          }
           onCheckedChange={(checked) => {
             set("notifyOnResponse", checked);
             set("notifyOnRequiresInput", checked);
@@ -44,9 +46,7 @@ export function NotificationsPage() {
           <span>Agent needs input</span>
           <Switch
             checked={preferences.notifyOnRequiresInput}
-            onCheckedChange={(checked) =>
-              set("notifyOnRequiresInput", checked)
-            }
+            onCheckedChange={(checked) => set("notifyOnRequiresInput", checked)}
           />
         </label>
 
@@ -54,7 +54,11 @@ export function NotificationsPage() {
           <span>Notification sound</span>
           <select
             className={styles.soundSelect}
-            value={preferences.notificationSound === false ? "none" : preferences.notificationSound}
+            value={
+              preferences.notificationSound === false
+                ? "none"
+                : preferences.notificationSound
+            }
             onChange={(e) => {
               const val = e.target.value;
               if (val !== "none") {

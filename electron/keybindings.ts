@@ -13,7 +13,8 @@ export class KeybindingsManager {
   private dataDir: string;
   private overrides: Record<string, string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private changeCallback: ((overrides: Record<string, string>) => void) | null = null;
+  private changeCallback: ((overrides: Record<string, string>) => void) | null =
+    null;
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? manorDataDir();

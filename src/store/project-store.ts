@@ -28,7 +28,12 @@ function loadPortsHeight(): number {
     const raw = localStorage.getItem(PORTS_HEIGHT_KEY);
     if (raw) {
       const height = Number(raw);
-      if (Number.isFinite(height) && height >= MIN_PORTS_HEIGHT && height <= MAX_PORTS_HEIGHT) return height;
+      if (
+        Number.isFinite(height) &&
+        height >= MIN_PORTS_HEIGHT &&
+        height <= MAX_PORTS_HEIGHT
+      )
+        return height;
     }
   } catch {
     /* ignore */
@@ -70,7 +75,12 @@ export interface PrInfo {
   additions?: number;
   deletions?: number;
   reviewDecision?: string | null;
-  checks?: { total: number; passing: number; failing: number; pending: number } | null;
+  checks?: {
+    total: number;
+    passing: number;
+    failing: number;
+    pending: number;
+  } | null;
   unresolvedThreads?: number;
 }
 
@@ -165,7 +175,10 @@ interface ProjectState {
     updates: ProjectUpdatableFields,
   ) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
-  updateWorkspaceDiffStats: (workspacePath: string, stats: DiffStats | null) => void;
+  updateWorkspaceDiffStats: (
+    workspacePath: string,
+    stats: DiffStats | null,
+  ) => void;
   updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -187,7 +200,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ loading: true });
     try {
       const projects = await window.electronAPI.projects.getAll();
-      const selectedIndex = await window.electronAPI.projects.getSelectedIndex();
+      const selectedIndex =
+        await window.electronAPI.projects.getSelectedIndex();
       set({ projects, selectedProjectIndex: selectedIndex, loading: false });
     } catch {
       set({ loading: false });
@@ -243,7 +257,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  createWorktree: async (projectId: string, name: string, branch?: string, agentCommand?: string) => {
+  createWorktree: async (
+    projectId: string,
+    name: string,
+    branch?: string,
+    agentCommand?: string,
+  ) => {
     let updated;
     try {
       updated = await window.electronAPI.projects.createWorktree(
@@ -281,13 +300,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
       const startScript = updated.worktreeStartScript;
-      const command = startScript && agentCommand
-        ? `${startScript} && ${agentCommand}`
-        : agentCommand || startScript || null;
+      const command =
+        startScript && agentCommand
+          ? `${startScript} && ${agentCommand}`
+          : agentCommand || startScript || null;
       if (command) {
-        useAppStore
-          .getState()
-          .setPendingStartupCommand(wsPath, command);
+        useAppStore.getState().setPendingStartupCommand(wsPath, command);
       }
       useAppStore.getState().setActiveWorkspace(wsPath);
     }
@@ -332,7 +350,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   reorderWorkspaces: async (projectId: string, orderedPaths: string[]) => {
-    await window.electronAPI.projects.reorderWorkspaces(projectId, orderedPaths);
+    await window.electronAPI.projects.reorderWorkspaces(
+      projectId,
+      orderedPaths,
+    );
     set((s) => ({
       projects: s.projects.map((p) => {
         if (p.id !== projectId) return p;
@@ -355,7 +376,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     workspacePath: string,
     newName: string,
   ) => {
-    await window.electronAPI.projects.renameWorkspace(projectId, workspacePath, newName);
+    await window.electronAPI.projects.renameWorkspace(
+      projectId,
+      workspacePath,
+      newName,
+    );
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -373,7 +398,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
-    const updated = await window.electronAPI.projects.update(projectId, updates);
+    const updated = await window.electronAPI.projects.update(
+      projectId,
+      updates,
+    );
     if (updated) {
       set((s) => ({
         projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
@@ -400,7 +428,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
         if (wsIdx === -1) return p;
         const ws = p.workspaces[wsIdx];
-        if (ws.diffStats?.added === stats?.added && ws.diffStats?.removed === stats?.removed) return p;
+        if (
+          ws.diffStats?.added === stats?.added &&
+          ws.diffStats?.removed === stats?.removed
+        )
+          return p;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, diffStats: stats };
         return { ...p, workspaces };
@@ -413,7 +445,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
         if (wsIdx === -1) return p;
         const ws = p.workspaces[wsIdx];
-        if (ws.pr?.number === pr?.number && ws.pr?.state === pr?.state) return p;
+        if (ws.pr?.number === pr?.number && ws.pr?.state === pr?.state)
+          return p;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, pr };
         return { ...p, workspaces };
@@ -428,7 +461,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setPortsHeight: (height: number) => {
-    const clamped = Math.max(MIN_PORTS_HEIGHT, Math.min(MAX_PORTS_HEIGHT, height));
+    const clamped = Math.max(
+      MIN_PORTS_HEIGHT,
+      Math.min(MAX_PORTS_HEIGHT, height),
+    );
     localStorage.setItem(PORTS_HEIGHT_KEY, String(clamped));
     set({ portsHeight: clamped });
   },

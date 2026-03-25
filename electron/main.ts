@@ -201,7 +201,10 @@ const agentHookServer = new AgentHookServer();
 const taskManager = new TaskManager();
 const preferencesManager = new PreferencesManager();
 const keybindingsManager = new KeybindingsManager();
-const paneContextMap = new Map<string, { projectId: string; projectName: string; workspacePath: string }>();
+const paneContextMap = new Map<
+  string,
+  { projectId: string; projectName: string; workspacePath: string }
+>();
 
 const unseenRespondedTasks = new Set<string>();
 const unseenInputTasks = new Set<string>();
@@ -273,7 +276,12 @@ client.onEvent((event: StreamEvent) => {
           const task = taskManager.getTaskByPaneId(event.sessionId);
           if (task && !task.name) {
             const updated = taskManager.updateTask(task.id, { name: cleaned });
-            if (updated && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+            if (
+              updated &&
+              mainWindow &&
+              !mainWindow.isDestroyed() &&
+              !mainWindow.webContents.isDestroyed()
+            ) {
               try {
                 mainWindow.webContents.send("task-updated", updated);
               } catch {
@@ -287,10 +295,7 @@ client.onEvent((event: StreamEvent) => {
     }
   } catch (err) {
     // Render frame disposed during window reload or close — safe to ignore
-    if (
-      !(err instanceof Error) ||
-      !err.message.includes("disposed")
-    ) {
+    if (!(err instanceof Error) || !err.message.includes("disposed")) {
       console.error("Error in stream event handler:", err);
     }
   }
@@ -531,9 +536,12 @@ ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
   portScanner.updateWorkspacePaths(paths);
 });
 
-ipcMain.handle("ports:updateWorkspaceMetadata", (_event, meta: WorkspaceMeta[]) => {
-  workspaceMeta = meta;
-});
+ipcMain.handle(
+  "ports:updateWorkspaceMetadata",
+  (_event, meta: WorkspaceMeta[]) => {
+    workspaceMeta = meta;
+  },
+);
 
 ipcMain.handle("ports:scanNow", async () => {
   const ports = await portScanner.scanNow();
@@ -550,12 +558,9 @@ ipcMain.handle("branches:stop", () => {
 });
 
 // ── Diff Watcher IPC ──
-ipcMain.handle(
-  "diffs:start",
-  (_event, workspaces: Record<string, string>) => {
-    diffWatcher.start(mainWindow!, workspaces);
-  },
-);
+ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
+  diffWatcher.start(mainWindow!, workspaces);
+});
 
 ipcMain.handle("diffs:stop", () => {
   diffWatcher.stop();
@@ -646,12 +651,9 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(
-  "linear:getIssueDetail",
-  async (_event, issueId: string) => {
-    return linearManager.getIssueDetail(issueId);
-  },
-);
+ipcMain.handle("linear:getIssueDetail", async (_event, issueId: string) => {
+  return linearManager.getIssueDetail(issueId);
+});
 
 ipcMain.handle(
   "linear:getAllIssues",
@@ -664,12 +666,9 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(
-  "linear:startIssue",
-  async (_event, issueId: string) => {
-    return linearManager.startIssue(issueId);
-  },
-);
+ipcMain.handle("linear:startIssue", async (_event, issueId: string) => {
+  return linearManager.startIssue(issueId);
+});
 
 ipcMain.handle("linear:autoMatch", async () => {
   const projects = await projectManager.getProjects();
@@ -733,9 +732,20 @@ ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
 });
 
 // ── Task Persistence IPC ──
-ipcMain.handle("tasks:getAll", (_event, opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => {
-  return taskManager.getAllTasks(opts);
-});
+ipcMain.handle(
+  "tasks:getAll",
+  (
+    _event,
+    opts?: {
+      projectId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    },
+  ) => {
+    return taskManager.getAllTasks(opts);
+  },
+);
 
 ipcMain.handle("tasks:get", (_event, taskId: string) => {
   assertString(taskId, "taskId");
@@ -744,10 +754,13 @@ ipcMain.handle("tasks:get", (_event, taskId: string) => {
   return all.find((t) => t.id === taskId) ?? null;
 });
 
-ipcMain.handle("tasks:update", (_event, taskId: string, updates: Record<string, unknown>) => {
-  assertString(taskId, "taskId");
-  return taskManager.updateTask(taskId, updates);
-});
+ipcMain.handle(
+  "tasks:update",
+  (_event, taskId: string, updates: Record<string, unknown>) => {
+    assertString(taskId, "taskId");
+    return taskManager.updateTask(taskId, updates);
+  },
+);
 
 ipcMain.handle("tasks:delete", (_event, taskId: string) => {
   assertString(taskId, "taskId");
@@ -765,13 +778,20 @@ ipcMain.handle("tasks:markSeen", (_event, taskId: string) => {
   updateDockBadge();
 });
 
-ipcMain.handle("tasks:setPaneContext", (_event, paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) => {
-  assertString(paneId, "paneId");
-  assertString(context.projectId, "projectId");
-  assertString(context.projectName, "projectName");
-  assertString(context.workspacePath, "workspacePath");
-  paneContextMap.set(paneId, context);
-});
+ipcMain.handle(
+  "tasks:setPaneContext",
+  (
+    _event,
+    paneId: string,
+    context: { projectId: string; projectName: string; workspacePath: string },
+  ) => {
+    assertString(paneId, "paneId");
+    assertString(context.projectId, "projectId");
+    assertString(context.projectName, "projectName");
+    assertString(context.workspacePath, "workspacePath");
+    paneContextMap.set(paneId, context);
+  },
+);
 
 // ── Preferences IPC ──
 ipcMain.handle("preferences:getAll", () => {
@@ -809,11 +829,14 @@ ipcMain.handle("keybindings:getAll", () => {
   return keybindingsManager.getAll();
 });
 
-ipcMain.handle("keybindings:set", (_event, commandId: string, combo: string) => {
-  assertString(commandId, "commandId");
-  assertString(combo, "combo");
-  keybindingsManager.set(commandId, combo);
-});
+ipcMain.handle(
+  "keybindings:set",
+  (_event, commandId: string, combo: string) => {
+    assertString(commandId, "commandId");
+    assertString(combo, "combo");
+    keybindingsManager.set(commandId, combo);
+  },
+);
 
 ipcMain.handle("keybindings:reset", (_event, commandId: string) => {
   assertString(commandId, "commandId");
@@ -828,11 +851,14 @@ ipcMain.handle("keybindings:resetAll", () => {
 const webviewRegistry = new Map<string, number>();
 const webviewServer = new WebviewServer(webviewRegistry);
 
-ipcMain.handle("webview:register", (_event, paneId: string, webContentsId: number) => {
-  assertString(paneId, "paneId");
-  webviewRegistry.set(paneId, webContentsId);
-  webviewServer.attachConsoleListener(paneId);
-});
+ipcMain.handle(
+  "webview:register",
+  (_event, paneId: string, webContentsId: number) => {
+    assertString(paneId, "paneId");
+    webviewRegistry.set(paneId, webContentsId);
+    webviewServer.attachConsoleListener(paneId);
+  },
+);
 
 ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   assertString(paneId, "paneId");
@@ -854,14 +880,26 @@ keybindingsManager.onChange((overrides) => {
   }
 });
 
-function maybeSendNotification(task: TaskInfo, prevStatus: string | null | undefined, newStatus: AgentStatus): void {
+function maybeSendNotification(
+  task: TaskInfo,
+  prevStatus: string | null | undefined,
+  newStatus: AgentStatus,
+): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isFocused()) return;
 
   let title: string;
-  if (newStatus === "responded" && prevStatus !== "responded" && preferencesManager.get("notifyOnResponse")) {
+  if (
+    newStatus === "responded" &&
+    prevStatus !== "responded" &&
+    preferencesManager.get("notifyOnResponse")
+  ) {
     title = "Agent responded";
-  } else if (newStatus === "requires_input" && prevStatus !== "requires_input" && preferencesManager.get("notifyOnRequiresInput")) {
+  } else if (
+    newStatus === "requires_input" &&
+    prevStatus !== "requires_input" &&
+    preferencesManager.get("notifyOnRequiresInput")
+  ) {
     title = "Agent needs input";
   } else {
     return;
@@ -913,7 +951,10 @@ app.whenReady().then(async () => {
           accelerator: "CmdOrCtrl+=",
           click: () => {
             if (mainWindow && !mainWindow.isDestroyed()) {
-              const next = Math.min(mainWindow.webContents.getZoomFactor() + 0.1, 3);
+              const next = Math.min(
+                mainWindow.webContents.getZoomFactor() + 0.1,
+                3,
+              );
               mainWindow.webContents.setZoomFactor(next);
               saveZoomLevel(next);
             }
@@ -924,7 +965,10 @@ app.whenReady().then(async () => {
           accelerator: "CmdOrCtrl+-",
           click: () => {
             if (mainWindow && !mainWindow.isDestroyed()) {
-              const next = Math.max(mainWindow.webContents.getZoomFactor() - 0.1, 0.3);
+              const next = Math.max(
+                mainWindow.webContents.getZoomFactor() - 0.1,
+                0.3,
+              );
               mainWindow.webContents.setZoomFactor(next);
               saveZoomLevel(next);
             }
@@ -984,7 +1028,11 @@ app.whenReady().then(async () => {
   // Used to skip task persistence for subagent sessions.
   const paneRootSessionMap = new Map<string, string>();
 
-  const ACTIVE_STATUSES: Set<AgentStatus> = new Set(["thinking", "working", "requires_input"]);
+  const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
+    "thinking",
+    "working",
+    "requires_input",
+  ]);
 
   function getOrCreateSessionState(sessionId: string): SessionState {
     let state = sessionStateMap.get(sessionId);
@@ -996,7 +1044,11 @@ app.whenReady().then(async () => {
   }
 
   function broadcastTask(task: TaskInfo): void {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      !mainWindow.webContents.isDestroyed()
+    ) {
       try {
         mainWindow.webContents.send("task-updated", task);
       } catch {
@@ -1016,7 +1068,9 @@ app.whenReady().then(async () => {
 
     // Task persistence: create or update task for this session
     if (!sessionId) {
-      console.debug(`[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`);
+      console.debug(
+        `[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`,
+      );
       return;
     }
 
@@ -1026,7 +1080,9 @@ app.whenReady().then(async () => {
     if (!rootSession) {
       paneRootSessionMap.set(paneId, sessionId);
     } else if (rootSession !== sessionId) {
-      console.debug(`[task-lifecycle] Subagent session ${sessionId} on pane ${paneId} (root=${rootSession}) — skipping task persistence`);
+      console.debug(
+        `[task-lifecycle] Subagent session ${sessionId} on pane ${paneId} (root=${rootSession}) — skipping task persistence`,
+      );
       return;
     }
 
@@ -1040,7 +1096,10 @@ app.whenReady().then(async () => {
       if (eventType === "SubagentStart") {
         sessionState.subagentCount++;
       } else if (eventType === "SubagentStop") {
-        sessionState.subagentCount = Math.max(0, sessionState.subagentCount - 1);
+        sessionState.subagentCount = Math.max(
+          0,
+          sessionState.subagentCount - 1,
+        );
       }
 
       // Create or update task
@@ -1090,7 +1149,9 @@ app.whenReady().then(async () => {
 
     // Activity gating: if session was never active, skip
     if (!sessionState.hasBeenActive) {
-      console.debug(`[task-lifecycle] Skipping ${status} for session ${sessionId} — never activated`);
+      console.debug(
+        `[task-lifecycle] Skipping ${status} for session ${sessionId} — never activated`,
+      );
       return;
     }
 

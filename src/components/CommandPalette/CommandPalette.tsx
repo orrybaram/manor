@@ -1,16 +1,7 @@
-import {
-  useMemo,
-  useCallback,
-  useState,
-  useRef,
-  Fragment,
-} from "react";
+import { useMemo, useCallback, useState, useRef, Fragment } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import {
-  ChevronRight,
-  ArrowLeft,
-} from "lucide-react";
+import { ChevronRight, ArrowLeft } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
@@ -25,7 +16,12 @@ import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
-import type { CommandPaletteProps, PaletteView, CategoryConfig, CommandItem } from "./types";
+import type {
+  CommandPaletteProps,
+  PaletteView,
+  CategoryConfig,
+  CommandItem,
+} from "./types";
 import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
@@ -62,7 +58,9 @@ export function CommandPalette({
   const [linearConnected, setLinearConnected] = useState(false);
   const [githubConnected, setGithubConnected] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<number | null>(null);
+  const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<
+    number | null
+  >(null);
   const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
   const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
@@ -218,18 +216,23 @@ export function CommandPalette({
 
   const showLinear = linearConnected && allTeamIds.length > 0;
   const showGitHub = githubConnected && !!repoPath;
-  const isIssueListView = view === "linear" || view === "linear-all" || view === "github" || view === "github-all";
-  const isDetailView = view === "issue-detail" || view === "github-issue-detail";
+  const isIssueListView =
+    view === "linear" ||
+    view === "linear-all" ||
+    view === "github" ||
+    view === "github-all";
+  const isDetailView =
+    view === "issue-detail" || view === "github-issue-detail";
 
   const categories = useMemo<CategoryConfig[]>(() => {
-    const workspaceCategories: CategoryConfig[] = [...workspaceGroups.entries()].map(
-      ([groupName, items]) => ({
-        id: `workspace-${groupName}`,
-        heading: groupName,
-        visible: true,
-        items,
-      })
-    );
+    const workspaceCategories: CategoryConfig[] = [
+      ...workspaceGroups.entries(),
+    ].map(([groupName, items]) => ({
+      id: `workspace-${groupName}`,
+      heading: groupName,
+      visible: true,
+      items,
+    }));
 
     const linearItems: CommandItem[] = [
       {
@@ -268,10 +271,25 @@ export function CommandPalette({
     return [
       { id: "tasks", heading: "Tasks", visible: true, items: taskCommands },
       ...workspaceCategories,
-      { id: "run", heading: "Run", visible: customCommands.length > 0, items: customCommands },
+      {
+        id: "run",
+        heading: "Run",
+        visible: customCommands.length > 0,
+        items: customCommands,
+      },
       { id: "commands", heading: "Commands", visible: true, items: commands },
-      { id: "linear", heading: "Linear", visible: showLinear, items: linearItems },
-      { id: "github", heading: "GitHub", visible: showGitHub, items: githubItems },
+      {
+        id: "linear",
+        heading: "Linear",
+        visible: showLinear,
+        items: linearItems,
+      },
+      {
+        id: "github",
+        heading: "GitHub",
+        visible: showGitHub,
+        items: githubItems,
+      },
     ];
   }, [
     taskCommands,
@@ -288,131 +306,167 @@ export function CommandPalette({
 
   return (
     <>
-    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
-          className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""}`}
-          onOpenAutoFocus={handleOpenAutoFocus}
-          onCloseAutoFocus={handleCloseAutoFocus}
-          onEscapeKeyDown={handleEscapeKeyDown}
-        >
-          <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-          <Command className={styles.command} loop filter={wordPrefixFilter}>
-            {isIssueListView && (
-              <div className={styles.breadcrumb}>
-                <button
-                  className={styles.breadcrumbBack}
-                  onClick={navigateToRoot}
-                >
-                  <ArrowLeft size={14} />
-                </button>
-                <span className={styles.breadcrumbLabel}>
-                  {view === "linear" && "Linear — My Issues"}
-                  {view === "linear-all" && "Linear — All Issues"}
-                  {view === "github" && "GitHub — My Issues"}
-                  {view === "github-all" && "GitHub — All Issues"}
-                </span>
-              </div>
-            )}
-            {!isDetailView && !(isIssueListView && issueListEmpty) && (
-              <Command.Input
-                className={styles.input}
-                placeholder={
-                  isIssueListView ? "Search issues..." : "Type a command..."
-                }
-                autoFocus
-                value={search}
-                onValueChange={setSearch}
-              />
-            )}
-            <Command.List className={styles.list} style={isDetailView ? HIDDEN_STYLE : undefined}>
-
-              {view === "root" && (
-                <>
-                  {categories.filter(c => c.visible).sort((a, b) => {
-                    if (!search) return 0;
-                    const bestScore = (cat: CategoryConfig) =>
-                      Math.max(0, ...cat.items.map((cmd) =>
-                        wordPrefixFilter(`${cat.heading} ${cmd.label}`, search)
-                      ));
-                    return bestScore(b) - bestScore(a);
-                  }).map((cat, i) => (
-                    <Fragment key={cat.id}>
-                      {i > 0 && <Command.Separator className={styles.separator} />}
-                      <Command.Group heading={cat.heading} className={styles.group}>
-                        {cat.items.map((cmd) => (
-                          <Command.Item
-                            key={cmd.id}
-                            value={`${cat.heading} ${cmd.label}`}
-                            onSelect={cmd.action}
-                            className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
+      <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.overlay} />
+          <Dialog.Content
+            className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""}`}
+            onOpenAutoFocus={handleOpenAutoFocus}
+            onCloseAutoFocus={handleCloseAutoFocus}
+            onEscapeKeyDown={handleEscapeKeyDown}
+          >
+            <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
+            <Command className={styles.command} loop filter={wordPrefixFilter}>
+              {isIssueListView && (
+                <div className={styles.breadcrumb}>
+                  <button
+                    className={styles.breadcrumbBack}
+                    onClick={navigateToRoot}
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+                  <span className={styles.breadcrumbLabel}>
+                    {view === "linear" && "Linear — My Issues"}
+                    {view === "linear-all" && "Linear — All Issues"}
+                    {view === "github" && "GitHub — My Issues"}
+                    {view === "github-all" && "GitHub — All Issues"}
+                  </span>
+                </div>
+              )}
+              {!isDetailView && !(isIssueListView && issueListEmpty) && (
+                <Command.Input
+                  className={styles.input}
+                  placeholder={
+                    isIssueListView ? "Search issues..." : "Type a command..."
+                  }
+                  autoFocus
+                  value={search}
+                  onValueChange={setSearch}
+                />
+              )}
+              <Command.List
+                className={styles.list}
+                style={isDetailView ? HIDDEN_STYLE : undefined}
+              >
+                {view === "root" && (
+                  <>
+                    {categories
+                      .filter((c) => c.visible)
+                      .sort((a, b) => {
+                        if (!search) return 0;
+                        const bestScore = (cat: CategoryConfig) =>
+                          Math.max(
+                            0,
+                            ...cat.items.map((cmd) =>
+                              wordPrefixFilter(
+                                `${cat.heading} ${cmd.label}`,
+                                search,
+                              ),
+                            ),
+                          );
+                        return bestScore(b) - bestScore(a);
+                      })
+                      .map((cat, i) => (
+                        <Fragment key={cat.id}>
+                          {i > 0 && (
+                            <Command.Separator className={styles.separator} />
+                          )}
+                          <Command.Group
+                            heading={cat.heading}
+                            className={styles.group}
                           >
-                            {cmd.icon && <span className={styles.icon}>{cmd.icon}</span>}
-                            <span className={styles.label}>{cmd.label}</span>
-                            {cmd.shortcut && <span className={styles.shortcut}>{cmd.shortcut}</span>}
-                            {cmd.isActive && <span className={styles.activeBadge}>current</span>}
-                            {cmd.suffix && <span className={styles.chevron}>{cmd.suffix}</span>}
-                          </Command.Item>
-                        ))}
-                      </Command.Group>
-                    </Fragment>
-                  ))}
-                </>
-              )}
+                            {cat.items.map((cmd) => (
+                              <Command.Item
+                                key={cmd.id}
+                                value={`${cat.heading} ${cmd.label}`}
+                                onSelect={cmd.action}
+                                className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
+                              >
+                                {cmd.icon && (
+                                  <span className={styles.icon}>
+                                    {cmd.icon}
+                                  </span>
+                                )}
+                                <span className={styles.label}>
+                                  {cmd.label}
+                                </span>
+                                {cmd.shortcut && (
+                                  <span className={styles.shortcut}>
+                                    {cmd.shortcut}
+                                  </span>
+                                )}
+                                {cmd.isActive && (
+                                  <span className={styles.activeBadge}>
+                                    current
+                                  </span>
+                                )}
+                                {cmd.suffix && (
+                                  <span className={styles.chevron}>
+                                    {cmd.suffix}
+                                  </span>
+                                )}
+                              </Command.Item>
+                            ))}
+                          </Command.Group>
+                        </Fragment>
+                      ))}
+                  </>
+                )}
 
-              {(view === "linear" || view === "linear-all") && (
-                <LinearIssuesView
-                  allTeamIds={allTeamIds}
-                  allIssues={view === "linear-all"}
-                  onEmptyChange={setIssueListEmpty}
-                  onSelectIssue={(issueId) => {
-                    setIssueListOrigin(view);
-                    setSelectedIssueId(issueId);
-                    setSearch("");
-                    setView("issue-detail");
-                  }}
+                {(view === "linear" || view === "linear-all") && (
+                  <LinearIssuesView
+                    allTeamIds={allTeamIds}
+                    allIssues={view === "linear-all"}
+                    onEmptyChange={setIssueListEmpty}
+                    onSelectIssue={(issueId) => {
+                      setIssueListOrigin(view);
+                      setSelectedIssueId(issueId);
+                      setSearch("");
+                      setView("issue-detail");
+                    }}
+                  />
+                )}
+
+                {(view === "github" || view === "github-all") && repoPath && (
+                  <GitHubIssuesView
+                    repoPath={repoPath}
+                    allIssues={view === "github-all"}
+                    onEmptyChange={setIssueListEmpty}
+                    onSelectIssue={(issueNumber) => {
+                      setIssueListOrigin(view);
+                      setSelectedGitHubIssueNumber(issueNumber);
+                      setSearch("");
+                      setView("github-issue-detail");
+                    }}
+                  />
+                )}
+              </Command.List>
+              {view === "issue-detail" && selectedIssueId && (
+                <IssueDetailView
+                  issueId={selectedIssueId}
+                  onBack={navigateBackToList}
+                  onClose={handleClose}
+                  onNewWorkspace={onNewWorkspace}
+                  onNewTaskWithPrompt={onNewTaskWithPrompt}
                 />
               )}
-
-              {(view === "github" || view === "github-all") && repoPath && (
-                <GitHubIssuesView
-                  repoPath={repoPath}
-                  allIssues={view === "github-all"}
-                  onEmptyChange={setIssueListEmpty}
-                  onSelectIssue={(issueNumber) => {
-                    setIssueListOrigin(view);
-                    setSelectedGitHubIssueNumber(issueNumber);
-                    setSearch("");
-                    setView("github-issue-detail");
-                  }}
-                />
-              )}
-            </Command.List>
-            {view === "issue-detail" && selectedIssueId && (
-              <IssueDetailView
-                issueId={selectedIssueId}
-                onBack={navigateBackToList}
-                onClose={handleClose}
-                onNewWorkspace={onNewWorkspace}
-                onNewTaskWithPrompt={onNewTaskWithPrompt}
-              />
-            )}
-            {view === "github-issue-detail" && selectedGitHubIssueNumber != null && repoPath && (
-              <GitHubIssueDetailView
-                repoPath={repoPath}
-                issueNumber={selectedGitHubIssueNumber}
-                onBack={navigateBackToList}
-                onClose={handleClose}
-                onNewWorkspace={onNewWorkspace}
-                onNewTaskWithPrompt={onNewTaskWithPrompt}
-              />
-            )}
-          </Command>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-    {showGhosts && <GhostOverlay />}
+              {view === "github-issue-detail" &&
+                selectedGitHubIssueNumber != null &&
+                repoPath && (
+                  <GitHubIssueDetailView
+                    repoPath={repoPath}
+                    issueNumber={selectedGitHubIssueNumber}
+                    onBack={navigateBackToList}
+                    onClose={handleClose}
+                    onNewWorkspace={onNewWorkspace}
+                    onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  />
+                )}
+            </Command>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      {showGhosts && <GhostOverlay />}
     </>
   );
 }

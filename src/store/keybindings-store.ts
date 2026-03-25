@@ -47,14 +47,23 @@ export const useKeybindingsStore = create<KeybindingsState>((set) => {
   const defaultBindings = buildDefaultBindings();
 
   // Load initial overrides on store creation
-  window.electronAPI?.keybindings.getAll().then((overrides) => {
-    const { bindings, overriddenIds } = mergeOverrides(defaultBindings, overrides);
-    set({ bindings, overriddenIds, loaded: true });
-  }).catch(() => {});
+  window.electronAPI?.keybindings
+    .getAll()
+    .then((overrides) => {
+      const { bindings, overriddenIds } = mergeOverrides(
+        defaultBindings,
+        overrides,
+      );
+      set({ bindings, overriddenIds, loaded: true });
+    })
+    .catch(() => {});
 
   // Subscribe to live keybinding updates
   window.electronAPI?.keybindings.onChange((overrides) => {
-    const { bindings, overriddenIds } = mergeOverrides(defaultBindings, overrides);
+    const { bindings, overriddenIds } = mergeOverrides(
+      defaultBindings,
+      overrides,
+    );
     set({ bindings, overriddenIds });
   });
 

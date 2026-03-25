@@ -45,14 +45,30 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn: ((paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string) => void) | null = null;
+  private relayFn:
+    | ((
+        paneId: string,
+        status: AgentStatus,
+        kind: AgentKind,
+        sessionId: string | null,
+        eventType: string,
+      ) => void)
+    | null = null;
 
   get hookPort(): number {
     return this.port;
   }
 
   /** Set or update the relay function (called when hook events arrive) */
-  setRelay(relay: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string) => void): void {
+  setRelay(
+    relay: (
+      paneId: string,
+      status: AgentStatus,
+      kind: AgentKind,
+      sessionId: string | null,
+      eventType: string,
+    ) => void,
+  ): void {
     this.relayFn = relay;
   }
 
@@ -84,7 +100,9 @@ export class AgentHookServer {
       }
 
       const status = mapEventToStatus(eventType);
-      console.debug(`[agent-status] hook HTTP: paneId=${paneId} event=${eventType} sessionId=${sessionId} → status=${status ?? "unmapped"}`);
+      console.debug(
+        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} sessionId=${sessionId} → status=${status ?? "unmapped"}`,
+      );
       if (status) {
         // Hooks registered in ~/.claude/settings.json are Claude-specific
         this.relayFn?.(paneId, status, "claude", sessionId, eventType);
@@ -225,24 +243,25 @@ export function ensureHookScript(): void {
   fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
 }
 
-/** Register the Manor webview MCP server in ~/.claude/settings.json */
+/** Register the Manor webview MCP server in ~/.claude.json (Claude Code's user config) */
 export function registerWebviewMcp(): void {
-  const settingsPath = path.join(
-    process.env.HOME || "/tmp",
-    ".claude",
-    "settings.json",
-  );
+  const configPath = path.join(process.env.HOME || "/tmp", ".claude.json");
 
-  let settings: Record<string, unknown> = {};
+  let config: Record<string, unknown> = {};
   try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
   } catch {
     // File doesn't exist or invalid JSON
   }
 
-  const mcpServers = (settings.mcpServers ?? {}) as Record<
+  const mcpServers = (config.mcpServers ?? {}) as Record<
     string,
-    { command: string; args: string[] }
+    {
+      type: string;
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    }
   >;
 
   const mcpServerScriptPath = path.join(__dirname, "mcp-webview-server.js");
@@ -255,12 +274,13 @@ export function registerWebviewMcp(): void {
 
   if (needsUpdate) {
     mcpServers["manor-webview"] = {
+      type: "stdio",
       command: "node",
       args: [mcpServerScriptPath],
+      env: {},
     };
-    settings.mcpServers = mcpServers;
-    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    config.mcpServers = mcpServers;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   }
 }
 

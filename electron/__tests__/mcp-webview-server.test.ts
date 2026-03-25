@@ -111,11 +111,21 @@ describe("MCP webview server logic", () => {
       const fn = mockWebContents[key] as ReturnType<typeof vi.fn>;
       fn.mockClear();
     }
-    (mockWebContents.getURL as ReturnType<typeof vi.fn>).mockReturnValue("https://example.com");
-    (mockWebContents.getTitle as ReturnType<typeof vi.fn>).mockReturnValue("Test Page");
-    (mockWebContents.isDestroyed as ReturnType<typeof vi.fn>).mockReturnValue(false);
-    (mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>).mockResolvedValue("result");
-    (mockWebContents.loadURL as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (mockWebContents.getURL as ReturnType<typeof vi.fn>).mockReturnValue(
+      "https://example.com",
+    );
+    (mockWebContents.getTitle as ReturnType<typeof vi.fn>).mockReturnValue(
+      "Test Page",
+    );
+    (mockWebContents.isDestroyed as ReturnType<typeof vi.fn>).mockReturnValue(
+      false,
+    );
+    (
+      mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>
+    ).mockResolvedValue("result");
+    (mockWebContents.loadURL as ReturnType<typeof vi.fn>).mockResolvedValue(
+      undefined,
+    );
 
     server = new WebviewServer(registry);
     await server.start();
@@ -199,7 +209,10 @@ describe("MCP webview server logic", () => {
   describe("tool response formatting", () => {
     it("list_webviews returns webview listing via HTTP", async () => {
       registry.set("pane-1", 101);
-      const webviews = (await mcpHttpGet(baseUrl, "/webviews")) as WebviewInfo[];
+      const webviews = (await mcpHttpGet(
+        baseUrl,
+        "/webviews",
+      )) as WebviewInfo[];
       expect(webviews).toHaveLength(1);
       expect(webviews[0].paneId).toBe("pane-1");
       expect(webviews[0].url).toBe("https://example.com");
@@ -208,13 +221,17 @@ describe("MCP webview server logic", () => {
 
     it("get_url returns URL string via HTTP", async () => {
       registry.set("pane-1", 101);
-      const result = (await mcpHttpGet(baseUrl, "/webview/pane-1/url")) as { url: string };
+      const result = (await mcpHttpGet(baseUrl, "/webview/pane-1/url")) as {
+        url: string;
+      };
       expect(result.url).toBe("https://example.com");
     });
 
     it("execute_js returns result via HTTP", async () => {
       registry.set("pane-1", 101);
-      (mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (
+        mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
         answer: 42,
       });
       const result = (await mcpHttpPost(baseUrl, "/webview/pane-1/execute-js", {
@@ -229,7 +246,9 @@ describe("MCP webview server logic", () => {
         url: "https://new-url.com",
       })) as { ok: boolean };
       expect(result.ok).toBe(true);
-      expect(mockWebContents.loadURL).toHaveBeenCalledWith("https://new-url.com");
+      expect(mockWebContents.loadURL).toHaveBeenCalledWith(
+        "https://new-url.com",
+      );
     });
   });
 });

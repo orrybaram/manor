@@ -24,7 +24,10 @@ describe("ProjectManager", () => {
 
   describe("addProject", () => {
     it("adds a project and persists it", async () => {
-      const project = await manager.addProject("My Project", "/tmp/fake-project");
+      const project = await manager.addProject(
+        "My Project",
+        "/tmp/fake-project",
+      );
 
       expect(project.name).toBe("My Project");
       expect(project.path).toBe("/tmp/fake-project");
@@ -92,7 +95,9 @@ describe("ProjectManager", () => {
     it("updates the project name", async () => {
       const project = await manager.addProject("Old Name", "/tmp/proj");
 
-      const updated = await manager.updateProject(project.id, { name: "New Name" });
+      const updated = await manager.updateProject(project.id, {
+        name: "New Name",
+      });
 
       expect(updated).not.toBeNull();
       expect(updated!.name).toBe("New Name");
@@ -102,9 +107,13 @@ describe("ProjectManager", () => {
     it("updates defaultRunCommand", async () => {
       const project = await manager.addProject("Proj", "/tmp/proj");
 
-      await manager.updateProject(project.id, { defaultRunCommand: "npm run dev" });
+      await manager.updateProject(project.id, {
+        defaultRunCommand: "npm run dev",
+      });
 
-      expect((await manager.getProjects())[0].defaultRunCommand).toBe("npm run dev");
+      expect((await manager.getProjects())[0].defaultRunCommand).toBe(
+        "npm run dev",
+      );
     });
 
     it("updates multiple fields at once", async () => {
@@ -123,14 +132,18 @@ describe("ProjectManager", () => {
     it("can set a field to null", async () => {
       const project = await manager.addProject("Proj", "/tmp/proj");
       await manager.updateProject(project.id, { defaultRunCommand: "initial" });
-      expect((await manager.getProjects())[0].defaultRunCommand).toBe("initial");
+      expect((await manager.getProjects())[0].defaultRunCommand).toBe(
+        "initial",
+      );
 
       await manager.updateProject(project.id, { defaultRunCommand: null });
       expect((await manager.getProjects())[0].defaultRunCommand).toBeNull();
     });
 
     it("returns null for unknown project id", async () => {
-      const result = await manager.updateProject("nonexistent-id", { name: "X" });
+      const result = await manager.updateProject("nonexistent-id", {
+        name: "X",
+      });
       expect(result).toBeNull();
     });
 

@@ -49,15 +49,19 @@ export function useTaskCommands({
       },
     ];
 
-    items.push(...tasks.slice(0, 5).map((task) => ({
-      id: `task-${task.id}`,
-      label: task.name || "Untitled Session",
-      icon: <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />,
-      action: () => {
-        onClose();
-        onResumeTask(task);
-      },
-    })));
+    items.push(
+      ...tasks.slice(0, 5).map((task) => ({
+        id: `task-${task.id}`,
+        label: task.name || "Untitled Session",
+        icon: (
+          <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />
+        ),
+        action: () => {
+          onClose();
+          onResumeTask(task);
+        },
+      })),
+    );
 
     items.push({
       id: "view-all-tasks",

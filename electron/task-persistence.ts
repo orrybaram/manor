@@ -73,7 +73,9 @@ export class TaskManager {
     }, 500);
   }
 
-  createTask(data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): TaskInfo {
+  createTask(
+    data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">,
+  ): TaskInfo {
     const now = new Date().toISOString();
     const task: TaskInfo = {
       ...data,

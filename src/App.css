@@ -40,8 +40,9 @@
   --danger: #ee5555;
   --danger-hover: #dd3333;
   --bg-deep: color-mix(in srgb, var(--bg) 80%, black);
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
 }
 
 * {

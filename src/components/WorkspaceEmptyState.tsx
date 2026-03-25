@@ -1,15 +1,5 @@
-import {
-  useState,
-  useCallback,
-  useMemo,
-} from "react";
-import {
-  Terminal,
-  Search,
-  Trash2,
-  ExternalLink,
-  Plus,
-} from "lucide-react";
+import { useState, useCallback, useMemo } from "react";
+import { Terminal, Search, Trash2, ExternalLink, Plus } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
@@ -43,7 +33,9 @@ export function WorkspaceEmptyState() {
   const [githubAvailable, setGithubAvailable] = useState(false);
   const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([]);
   const [githubLoading, setGithubLoading] = useState(false);
-  const [loadingGitHubIssueNumber, setLoadingGitHubIssueNumber] = useState<number | null>(null);
+  const [loadingGitHubIssueNumber, setLoadingGitHubIssueNumber] = useState<
+    number | null
+  >(null);
 
   useMountEffect(() => {
     let cancelled = false;
@@ -96,7 +88,10 @@ export function WorkspaceEmptyState() {
           setGithubAvailable(true);
           setGithubLoading(true);
           try {
-            const issues = await window.electronAPI.github.getMyIssues(repoPath, 5);
+            const issues = await window.electronAPI.github.getMyIssues(
+              repoPath,
+              5,
+            );
             if (!cancelled) setGithubIssues(issues);
           } catch (err) {
             console.error("[EmptyState] Failed to fetch GitHub issues:", err);

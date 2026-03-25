@@ -8,7 +8,9 @@ import type { AgentStatus } from "../electron.d";
  * Returns the highest-priority non-idle agent status across all workspaces
  * in a project, or null if no active agents exist.
  */
-export function useProjectAgentStatus(project: ProjectInfo): AgentStatus | null {
+export function useProjectAgentStatus(
+  project: ProjectInfo,
+): AgentStatus | null {
   return useAppStore((s) => {
     let best: AgentStatus | null = null;
     let bestPriority = 0;

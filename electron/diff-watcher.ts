@@ -15,10 +15,7 @@ export class DiffWatcher {
   private lastStats: Record<string, DiffStats> = {};
   private scanning = false;
 
-  start(
-    window: BrowserWindow,
-    workspaces: Record<string, string>,
-  ): void {
+  start(window: BrowserWindow, workspaces: Record<string, string>): void {
     this.stop();
     this.workspaces = new Map(Object.entries(workspaces));
 
@@ -36,7 +33,11 @@ export class DiffWatcher {
         this.scanning = false;
       }
     };
-    console.log("[DiffWatcher] started with", this.workspaces.size, "workspaces");
+    console.log(
+      "[DiffWatcher] started with",
+      this.workspaces.size,
+      "workspaces",
+    );
     tick();
     this.timer = setInterval(tick, 5000);
   }
@@ -68,7 +69,10 @@ export class DiffWatcher {
     return result;
   }
 
-  private async getDiffStats(wsPath: string, defaultBranch: string): Promise<DiffStats | null> {
+  private async getDiffStats(
+    wsPath: string,
+    defaultBranch: string,
+  ): Promise<DiffStats | null> {
     // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
@@ -101,7 +105,10 @@ export class DiffWatcher {
 
         return { added, removed };
       } catch (err) {
-        console.error(`[DiffWatcher] git diff failed for ${wsPath} with ref ${ref}:`, err instanceof Error ? err.message : err);
+        console.error(
+          `[DiffWatcher] git diff failed for ${wsPath} with ref ${ref}:`,
+          err instanceof Error ? err.message : err,
+        );
         continue;
       }
     }

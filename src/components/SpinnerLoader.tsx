@@ -5,7 +5,10 @@ interface SpinnerLoaderProps {
   variant?: "working" | "thinking";
 }
 
-export function SpinnerLoader({ size, variant = "working" }: SpinnerLoaderProps) {
+export function SpinnerLoader({
+  size,
+  variant = "working",
+}: SpinnerLoaderProps) {
   return (
     <span
       className={`${styles.spinner} ${styles[size]} ${styles[variant]}`}

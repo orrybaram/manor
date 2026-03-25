@@ -23,7 +23,9 @@ export function useWorkspaceCommands({
   setActiveWorkspace,
   onClose,
   onNewWorkspace,
-}: UseWorkspaceCommandsParams): { workspaceGroups: Map<string, CommandItem[]> } {
+}: UseWorkspaceCommandsParams): {
+  workspaceGroups: Map<string, CommandItem[]>;
+} {
   const workspaceCommands: CommandItem[] = useMemo(() => {
     const cmds: CommandItem[] = [];
     for (const project of projects) {

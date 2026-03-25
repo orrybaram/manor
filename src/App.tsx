@@ -48,15 +48,18 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
+  const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
+    null,
+  );
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
     // Revert to the active project's theme in case settings was previewing
     // a different project's theme
-    const activeTheme = useProjectStore.getState().projects[
-      useProjectStore.getState().selectedProjectIndex
-    ]?.themeName ?? null;
+    const activeTheme =
+      useProjectStore.getState().projects[
+        useProjectStore.getState().selectedProjectIndex
+      ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -82,7 +85,12 @@ function App() {
     setSettingsOpen(true);
   }, []);
   const handleNewWorkspace = useCallback(
-    (opts?: { projectId?: string; name?: string; branch?: string; agentPrompt?: string }) => {
+    (opts?: {
+      projectId?: string;
+      name?: string;
+      branch?: string;
+      agentPrompt?: string;
+    }) => {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
       if (opts?.name) setInitialName(opts.name);
       if (opts?.branch) setInitialBranch(opts.branch);
@@ -112,7 +120,8 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
 
   // Reactively apply project theme whenever the selected project changes
-  const currentProjectThemeName = projects[selectedProjectIndex]?.themeName ?? null;
+  const currentProjectThemeName =
+    projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(currentProjectThemeName);
   if (currentProjectThemeName !== prevThemeRef.current) {
     prevThemeRef.current = currentProjectThemeName;
@@ -135,7 +144,7 @@ function App() {
   // Handler map: command ID → action
   const handlersRef = useRef<Record<string, () => void>>({});
   handlersRef.current = {
-    "settings": () => setSettingsOpen((v) => !v),
+    settings: () => setSettingsOpen((v) => !v),
     "command-palette": () => setPaletteOpen((v) => !v),
     "new-session": () => addSession(),
     "split-h": () => splitPane("horizontal"),
@@ -232,7 +241,8 @@ function App() {
           p.workspaces.some((w) => w.path === activeWorkspacePath),
         );
         const baseCommand =
-          currentProject?.agentCommand ?? "claude --dangerously-skip-permissions";
+          currentProject?.agentCommand ??
+          "claude --dangerously-skip-permissions";
         const escaped = prompt
           .replace(/\\/g, "\\\\")
           .replace(/"/g, '\\"')
@@ -251,35 +261,43 @@ function App() {
   return (
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && <Sidebar onShowTasks={() => setTasksOpen(true)} onOpenProjectSettings={handleOpenProjectSettings} />}
+        {sidebarVisible && (
+          <Sidebar
+            onShowTasks={() => setTasksOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+          />
+        )}
         <PaneDragProvider>
-        <div className="main-content">
-          {hasSessions ? <TabBar /> : <div className="drag-region" />}
-          <div className="terminal-container">
-            {/* Render all sessions across all workspaces — only show the active one.
+          <div className="main-content">
+            {hasSessions ? <TabBar /> : <div className="drag-region" />}
+            <div className="terminal-container">
+              {/* Render all sessions across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
-            {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
-              wsState.sessions.map((session) => {
-                const isVisible =
-                  wpath === activeWorkspacePath &&
-                  session.id === selectedSessionId;
-                return (
-                  <div
-                    key={session.id}
-                    style={
-                      isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE
-                    }
-                  >
-                    <PaneLayout node={session.rootNode} workspacePath={wpath} />
-                  </div>
-                );
-              }),
-            )}
-            {!hasSessions &&
-              (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
+              {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
+                wsState.sessions.map((session) => {
+                  const isVisible =
+                    wpath === activeWorkspacePath &&
+                    session.id === selectedSessionId;
+                  return (
+                    <div
+                      key={session.id}
+                      style={
+                        isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE
+                      }
+                    >
+                      <PaneLayout
+                        node={session.rootNode}
+                        workspacePath={wpath}
+                      />
+                    </div>
+                  );
+                }),
+              )}
+              {!hasSessions &&
+                (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
+            </div>
+            <StatusBar />
           </div>
-          <StatusBar />
-        </div>
         </PaneDragProvider>
       </div>
       <CommandPalette
@@ -292,7 +310,11 @@ function App() {
         onNewTask={handleNewTask}
         onNewTaskWithPrompt={handleNewTaskWithPrompt}
       />
-      <SettingsModal open={settingsOpen} onClose={closeSettings} initialProjectId={settingsProjectId} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={closeSettings}
+        initialProjectId={settingsProjectId}
+      />
       <TasksModal
         open={tasksOpen}
         onClose={closeTasks}
@@ -310,7 +332,8 @@ function App() {
           let agentCommand: string | undefined;
           if (agentPrompt) {
             const project = projects.find((p) => p.id === projectId);
-            const baseCommand = project?.agentCommand ?? "claude --dangerously-skip-permissions";
+            const baseCommand =
+              project?.agentCommand ?? "claude --dangerously-skip-permissions";
             const escaped = agentPrompt
               .replace(/\\/g, "\\\\")
               .replace(/"/g, '\\"')
@@ -318,7 +341,12 @@ function App() {
               .replace(/`/g, "\\`");
             agentCommand = `${baseCommand} "${escaped}"`;
           }
-          const result = await createWorktree(projectId, name, branch, agentCommand);
+          const result = await createWorktree(
+            projectId,
+            name,
+            branch,
+            agentCommand,
+          );
           if (result) {
             setNewWorkspaceOpen(false);
           }

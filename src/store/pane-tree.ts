@@ -3,7 +3,12 @@
 export type SplitDirection = "horizontal" | "vertical";
 
 export type PaneNode =
-  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser"; url?: string }
+  | {
+      type: "leaf";
+      paneId: string;
+      contentType?: "terminal" | "browser";
+      url?: string;
+    }
   | {
       type: "split";
       direction: SplitDirection;
@@ -84,8 +89,20 @@ export function insertSplitAt(
   }
   return {
     ...node,
-    first: insertSplitAt(node.first, targetPaneId, direction, newPaneId, position),
-    second: insertSplitAt(node.second, targetPaneId, direction, newPaneId, position),
+    first: insertSplitAt(
+      node.first,
+      targetPaneId,
+      direction,
+      newPaneId,
+      position,
+    ),
+    second: insertSplitAt(
+      node.second,
+      targetPaneId,
+      direction,
+      newPaneId,
+      position,
+    ),
   };
 }
 
@@ -98,12 +115,24 @@ export function movePane(
   position: "first" | "second",
 ): PaneNode | null {
   // When source and target are direct leaf siblings, swap in-place
-  const swapped = swapSiblings(node, sourcePaneId, targetPaneId, direction, position);
+  const swapped = swapSiblings(
+    node,
+    sourcePaneId,
+    targetPaneId,
+    direction,
+    position,
+  );
   if (swapped) return swapped;
 
   const afterRemove = removePane(node, sourcePaneId);
   if (!afterRemove) return null;
-  return insertSplitAt(afterRemove, targetPaneId, direction, sourcePaneId, position);
+  return insertSplitAt(
+    afterRemove,
+    targetPaneId,
+    direction,
+    sourcePaneId,
+    position,
+  );
 }
 
 /**
@@ -145,10 +174,22 @@ function swapSiblings(
   }
 
   // Recurse into children
-  const fromFirst = swapSiblings(node.first, sourcePaneId, targetPaneId, direction, position);
+  const fromFirst = swapSiblings(
+    node.first,
+    sourcePaneId,
+    targetPaneId,
+    direction,
+    position,
+  );
   if (fromFirst) return { ...node, first: fromFirst };
 
-  const fromSecond = swapSiblings(node.second, sourcePaneId, targetPaneId, direction, position);
+  const fromSecond = swapSiblings(
+    node.second,
+    sourcePaneId,
+    targetPaneId,
+    direction,
+    position,
+  );
   if (fromSecond) return { ...node, second: fromSecond };
 
   return null;
@@ -176,8 +217,20 @@ export function insertSubtreeAt(
   }
   return {
     ...node,
-    first: insertSubtreeAt(node.first, targetPaneId, direction, subtree, position),
-    second: insertSubtreeAt(node.second, targetPaneId, direction, subtree, position),
+    first: insertSubtreeAt(
+      node.first,
+      targetPaneId,
+      direction,
+      subtree,
+      position,
+    ),
+    second: insertSubtreeAt(
+      node.second,
+      targetPaneId,
+      direction,
+      subtree,
+      position,
+    ),
   };
 }
 

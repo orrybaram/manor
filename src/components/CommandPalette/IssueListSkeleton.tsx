@@ -5,7 +5,9 @@ export function IssueListSkeleton() {
     <div>
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className={styles.skeletonRow}>
-          <div className={`${styles.skeletonBone} ${styles.skeletonIdentifier}`} />
+          <div
+            className={`${styles.skeletonBone} ${styles.skeletonIdentifier}`}
+          />
           <div
             className={`${styles.skeletonBone} ${styles.skeletonTitle}`}
             style={{ width: `${40 + ((i * 17) % 40)}%` }}

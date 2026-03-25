@@ -38,7 +38,10 @@ export interface GitHubIssueDetail extends GitHubIssue {
 }
 
 export class GitHubManager {
-  async getPrForBranch(repoPath: string, branch: string): Promise<PrInfo | null> {
+  async getPrForBranch(
+    repoPath: string,
+    branch: string,
+  ): Promise<PrInfo | null> {
     return this.getPrForBranchInner(repoPath, branch);
   }
 
@@ -60,11 +63,25 @@ export class GitHubManager {
     });
   }
 
-  private async getPrForBranchInner(repoPath: string, branch: string): Promise<PrInfo | null> {
+  private async getPrForBranchInner(
+    repoPath: string,
+    branch: string,
+  ): Promise<PrInfo | null> {
     try {
       const { stdout } = await execFileAsync(
         "gh",
-        ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup", "--limit", "1"],
+        [
+          "pr",
+          "list",
+          "--head",
+          branch,
+          "--state",
+          "all",
+          "--json",
+          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup",
+          "--limit",
+          "1",
+        ],
         { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
 
@@ -74,7 +91,10 @@ export class GitHubManager {
       const pr = prs[0];
 
       let checks: ChecksSummary | null = null;
-      if (Array.isArray(pr.statusCheckRollup) && pr.statusCheckRollup.length > 0) {
+      if (
+        Array.isArray(pr.statusCheckRollup) &&
+        pr.statusCheckRollup.length > 0
+      ) {
         let passing = 0;
         let failing = 0;
         let pending = 0;
@@ -92,10 +112,18 @@ export class GitHubManager {
             pending++;
           }
         }
-        checks = { total: pr.statusCheckRollup.length, passing, failing, pending };
+        checks = {
+          total: pr.statusCheckRollup.length,
+          passing,
+          failing,
+          pending,
+        };
       }
 
-      const unresolvedThreads = await this.getUnresolvedThreadCount(pr.url, pr.number);
+      const unresolvedThreads = await this.getUnresolvedThreadCount(
+        pr.url,
+        pr.number,
+      );
 
       return {
         number: pr.number,
@@ -114,20 +142,28 @@ export class GitHubManager {
     }
   }
 
-  private async getUnresolvedThreadCount(prUrl: string, prNumber: number): Promise<number | undefined> {
+  private async getUnresolvedThreadCount(
+    prUrl: string,
+    prNumber: number,
+  ): Promise<number | undefined> {
     try {
       const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
       if (!match) return undefined;
       const [, owner, repo] = match;
       const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } } } }`;
-      const { stdout } = await execFileAsync("gh", ["api", "graphql", "-f", `query=${query}`], {
-        encoding: "utf-8",
-        timeout: 10000,
-      });
+      const { stdout } = await execFileAsync(
+        "gh",
+        ["api", "graphql", "-f", `query=${query}`],
+        {
+          encoding: "utf-8",
+          timeout: 10000,
+        },
+      );
       const data = JSON.parse(stdout);
       const threads = data?.data?.repository?.pullRequest?.reviewThreads?.nodes;
       if (!Array.isArray(threads)) return undefined;
-      return threads.filter((t: { isResolved: boolean }) => !t.isResolved).length;
+      return threads.filter((t: { isResolved: boolean }) => !t.isResolved)
+        .length;
     } catch {
       return undefined;
     }
@@ -137,7 +173,18 @@ export class GitHubManager {
     try {
       const { stdout } = await execFileAsync(
         "gh",
-        ["issue", "list", "--assignee", "@me", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--limit", String(limit)],
+        [
+          "issue",
+          "list",
+          "--assignee",
+          "@me",
+          "--state",
+          "open",
+          "--json",
+          "number,title,url,state,labels,assignees",
+          "--limit",
+          String(limit),
+        ],
         { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
       return JSON.parse(stdout);
@@ -150,7 +197,16 @@ export class GitHubManager {
     try {
       const { stdout } = await execFileAsync(
         "gh",
-        ["issue", "list", "--state", "open", "--json", "number,title,url,state,labels,assignees", "--limit", String(limit)],
+        [
+          "issue",
+          "list",
+          "--state",
+          "open",
+          "--json",
+          "number,title,url,state,labels,assignees",
+          "--limit",
+          String(limit),
+        ],
         { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
       );
       return JSON.parse(stdout);
@@ -159,10 +215,19 @@ export class GitHubManager {
     }
   }
 
-  async getIssueDetail(repoPath: string, issueNumber: number): Promise<GitHubIssueDetail> {
+  async getIssueDetail(
+    repoPath: string,
+    issueNumber: number,
+  ): Promise<GitHubIssueDetail> {
     const { stdout } = await execFileAsync(
       "gh",
-      ["issue", "view", String(issueNumber), "--json", "number,title,url,state,body,labels,assignees,milestone"],
+      [
+        "issue",
+        "view",
+        String(issueNumber),
+        "--json",
+        "number,title,url,state,body,labels,assignees,milestone",
+      ],
       { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
     );
     return JSON.parse(stdout);
@@ -170,20 +235,34 @@ export class GitHubManager {
 
   async assignIssue(repoPath: string, issueNumber: number): Promise<void> {
     try {
-      await execFileAsync("gh", ["issue", "edit", String(issueNumber), "--add-assignee", "@me"], {
-        cwd: repoPath, encoding: "utf-8", timeout: 10000,
-      });
+      await execFileAsync(
+        "gh",
+        ["issue", "edit", String(issueNumber), "--add-assignee", "@me"],
+        {
+          cwd: repoPath,
+          encoding: "utf-8",
+          timeout: 10000,
+        },
+      );
     } catch {
       // fire-and-forget; failures should not block workspace creation
     }
   }
 
-  async checkStatus(): Promise<{ installed: boolean; authenticated: boolean; username?: string }> {
+  async checkStatus(): Promise<{
+    installed: boolean;
+    authenticated: boolean;
+    username?: string;
+  }> {
     try {
-      const { stdout, stderr } = await execFileAsync("gh", ["auth", "status", "--hostname", "github.com"], {
-        encoding: "utf-8",
-        timeout: 5000,
-      });
+      const { stdout, stderr } = await execFileAsync(
+        "gh",
+        ["auth", "status", "--hostname", "github.com"],
+        {
+          encoding: "utf-8",
+          timeout: 5000,
+        },
+      );
       // gh auth status outputs to stdout, parse username from "Logged in to github.com account username ..."
       const combined = stdout + stderr;
       const match = combined.match(/account\s+(\S+)/);
@@ -191,7 +270,10 @@ export class GitHubManager {
     } catch (err: unknown) {
       const e = err as { stderr?: string; stdout?: string };
       // gh exists but not authenticated → exit code 1
-      if (e.stderr?.includes("not logged in") || e.stdout?.includes("not logged in")) {
+      if (
+        e.stderr?.includes("not logged in") ||
+        e.stdout?.includes("not logged in")
+      ) {
         return { installed: true, authenticated: false };
       }
       // gh not found → ENOENT

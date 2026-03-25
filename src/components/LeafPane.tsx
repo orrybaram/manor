@@ -35,8 +35,7 @@ export function LeafPane({
   const dragActive = useRef(false);
 
   const showDropZone =
-    drag !== null &&
-    !(drag.type === "pane" && drag.paneId === paneId);
+    drag !== null && !(drag.type === "pane" && drag.paneId === paneId);
 
   let title =
     paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
@@ -55,7 +54,9 @@ export function LeafPane({
     closePane();
   };
 
-  const handleStatusBarPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleStatusBarPointerDown = (
+    e: React.PointerEvent<HTMLDivElement>,
+  ) => {
     if (e.button !== 0) return;
     // Don't start drag when clicking a button
     const target = e.target as HTMLElement;
@@ -78,7 +79,11 @@ export function LeafPane({
       if (!dragActive.current) {
         dragActive.current = true;
         // Release pointer capture so drop zones on other panes can receive events
-        try { statusBarEl.releasePointerCapture(pointerId); } catch { /* may already be released */ }
+        try {
+          statusBarEl.releasePointerCapture(pointerId);
+        } catch {
+          /* may already be released */
+        }
         startDrag({ type: "pane", paneId });
       }
     };

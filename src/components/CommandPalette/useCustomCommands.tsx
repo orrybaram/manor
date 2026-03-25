@@ -9,14 +9,17 @@ interface UseCustomCommandsParams {
   activeWorkspacePath: string | null;
 }
 
-export function useCustomCommands({ onClose, activeWorkspacePath }: UseCustomCommandsParams): CommandItem[] {
+export function useCustomCommands({
+  onClose,
+  activeWorkspacePath,
+}: UseCustomCommandsParams): CommandItem[] {
   const projects = useProjectStore((s) => s.projects);
   const addSession = useAppStore((s) => s.addSession);
 
   return useMemo(() => {
     if (!activeWorkspacePath) return [];
     const project = projects.find((p) =>
-      p.workspaces.some((w) => w.path === activeWorkspacePath)
+      p.workspaces.some((w) => w.path === activeWorkspacePath),
     );
     if (!project?.commands?.length) return [];
 
@@ -25,7 +28,9 @@ export function useCustomCommands({ onClose, activeWorkspacePath }: UseCustomCom
       label: cmd.name || cmd.command,
       icon: <Terminal size={14} />,
       action: () => {
-        useAppStore.getState().setPendingStartupCommand(activeWorkspacePath, cmd.command);
+        useAppStore
+          .getState()
+          .setPendingStartupCommand(activeWorkspacePath, cmd.command);
         addSession();
         onClose();
       },

@@ -46,7 +46,9 @@ const AGENT_PATTERNS: Array<[RegExp, string]> = [
  * command lines of the shell's child processes to identify known agent CLIs.
  * e.g. "node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.mjs"
  */
-async function detectAgentFromChildArgs(shellPid: number): Promise<string | null> {
+async function detectAgentFromChildArgs(
+  shellPid: number,
+): Promise<string | null> {
   try {
     // Use pgrep -g to find all processes in the same process group,
     // or fall back to -P for direct children, then check descendants too
@@ -54,10 +56,14 @@ async function detectAgentFromChildArgs(shellPid: number): Promise<string | null
 
     // First try direct children
     try {
-      const { stdout: raw } = await execFileAsync("pgrep", ["-P", String(shellPid)], {
-        encoding: "utf-8",
-        timeout: 200,
-      });
+      const { stdout: raw } = await execFileAsync(
+        "pgrep",
+        ["-P", String(shellPid)],
+        {
+          encoding: "utf-8",
+          timeout: 200,
+        },
+      );
       childPids = raw.trim().split("\n").filter(Boolean);
     } catch {
       // no direct children
@@ -67,10 +73,14 @@ async function detectAgentFromChildArgs(shellPid: number): Promise<string | null
     const allPids = [...childPids];
     for (const pid of childPids) {
       try {
-        const { stdout: raw } = await execFileAsync("pgrep", ["-P", pid.trim()], {
-          encoding: "utf-8",
-          timeout: 200,
-        });
+        const { stdout: raw } = await execFileAsync(
+          "pgrep",
+          ["-P", pid.trim()],
+          {
+            encoding: "utf-8",
+            timeout: 200,
+          },
+        );
         allPids.push(...raw.trim().split("\n").filter(Boolean));
       } catch {
         // no grandchildren for this pid
@@ -247,7 +257,10 @@ function pollForegroundProcess(): void {
         // process title (e.g. "2.1.80" for Claude Code) rather than the CLI
         // tool name. When the foreground process is a JS runtime or a version
         // string, inspect child process command lines to identify agents.
-        if (fgName && (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))) {
+        if (
+          fgName &&
+          (JS_RUNTIMES.has(fgName) || VERSION_STRING_RE.test(fgName))
+        ) {
           const agent = await detectAgentFromChildArgs(ptyProcess.pid);
           if (agent) fgName = agent;
         }

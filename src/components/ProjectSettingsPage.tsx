@@ -1,6 +1,10 @@
 import { useRef, useCallback, useState, useMemo } from "react";
 import { Check, Trash2, Plus } from "lucide-react";
-import { useProjectStore, type ProjectInfo, type CustomCommand } from "../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type CustomCommand,
+} from "../store/project-store";
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useMountEffect } from "../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
@@ -83,11 +87,23 @@ function ProjectThemeSelector({ project }: { project: ProjectInfo }) {
 
   const entries: ThemeEntry[] = useMemo(() => {
     const result: ThemeEntry[] = [];
-    result.push({ name: "__global__", displayName: "Global theme", badge: "Default" });
+    result.push({
+      name: "__global__",
+      displayName: "Global theme",
+      badge: "Default",
+    });
     if (hasGhostty) {
-      result.push({ name: "__ghostty__", displayName: "Match Ghostty", badge: "Ghostty" });
+      result.push({
+        name: "__ghostty__",
+        displayName: "Match Ghostty",
+        badge: "Ghostty",
+      });
     }
-    result.push({ name: "__default__", displayName: "Catppuccin Mocha", badge: "Built-in" });
+    result.push({
+      name: "__default__",
+      displayName: "Catppuccin Mocha",
+      badge: "Built-in",
+    });
     for (const n of Object.keys(allColors).sort()) {
       result.push({ name: n, displayName: n });
     }
@@ -145,7 +161,9 @@ function ProjectThemeSelector({ project }: { project: ProjectInfo }) {
                 <span className={styles.checkmark}>
                   {isSelected ? <Check size={14} /> : ""}
                 </span>
-                <span className={styles.themeItemLabel}>{entry.displayName}</span>
+                <span className={styles.themeItemLabel}>
+                  {entry.displayName}
+                </span>
                 {entry.badge && (
                   <span className={styles.themeItemBadge}>{entry.badge}</span>
                 )}
@@ -269,7 +287,9 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
                 title={c.label}
                 onClick={() => updateProject(project.id, { color: c.value })}
               >
-                {isSelected && <Check size={10} strokeWidth={3} color="var(--bg)" />}
+                {isSelected && (
+                  <Check size={10} strokeWidth={3} color="var(--bg)" />
+                )}
               </button>
             );
           })}
@@ -294,67 +314,67 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Commands</div>
         <div className={styles.commandList}>
-        {(project.commands ?? []).map((cmd: CustomCommand) => (
-          <div key={cmd.id} className={styles.commandRow}>
-            <input
-              ref={(el) => {
-                if (el && cmd.id === newCommandId) {
-                  el.focus();
-                  setNewCommandId(null);
-                }
-              }}
-              className={styles.commandNameInput}
-              defaultValue={cmd.name}
-              placeholder="Name"
-              onBlur={(e) => {
-                const updatedCommands = (project.commands ?? []).map((c) =>
-                  c.id === cmd.id ? { ...c, name: e.target.value } : c
-                );
-                updateProject(project.id, { commands: updatedCommands });
-              }}
-            />
-            <input
-              className={styles.commandCmdInput}
-              defaultValue={cmd.command}
-              placeholder="Command"
-              onBlur={(e) => {
-                const updatedCommands = (project.commands ?? []).map((c) =>
-                  c.id === cmd.id ? { ...c, command: e.target.value } : c
-                );
-                updateProject(project.id, { commands: updatedCommands });
-              }}
-            />
-            <button
-              className={styles.commandDeleteBtn}
-              onClick={() => {
-                const filtered = (project.commands ?? []).filter(
-                  (c) => c.id !== cmd.id
-                );
-                updateProject(project.id, { commands: filtered });
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
-        <button
-          className={styles.addCommandBtn}
-          onClick={() => {
-            const id = crypto.randomUUID();
-            const newCommand: CustomCommand = {
-              id,
-              name: "",
-              command: "",
-            };
-            updateProject(project.id, {
-              commands: [...(project.commands ?? []), newCommand],
-            });
-            setNewCommandId(id);
-          }}
-        >
-          <Plus size={12} />
-          Add Command
-        </button>
+          {(project.commands ?? []).map((cmd: CustomCommand) => (
+            <div key={cmd.id} className={styles.commandRow}>
+              <input
+                ref={(el) => {
+                  if (el && cmd.id === newCommandId) {
+                    el.focus();
+                    setNewCommandId(null);
+                  }
+                }}
+                className={styles.commandNameInput}
+                defaultValue={cmd.name}
+                placeholder="Name"
+                onBlur={(e) => {
+                  const updatedCommands = (project.commands ?? []).map((c) =>
+                    c.id === cmd.id ? { ...c, name: e.target.value } : c,
+                  );
+                  updateProject(project.id, { commands: updatedCommands });
+                }}
+              />
+              <input
+                className={styles.commandCmdInput}
+                defaultValue={cmd.command}
+                placeholder="Command"
+                onBlur={(e) => {
+                  const updatedCommands = (project.commands ?? []).map((c) =>
+                    c.id === cmd.id ? { ...c, command: e.target.value } : c,
+                  );
+                  updateProject(project.id, { commands: updatedCommands });
+                }}
+              />
+              <button
+                className={styles.commandDeleteBtn}
+                onClick={() => {
+                  const filtered = (project.commands ?? []).filter(
+                    (c) => c.id !== cmd.id,
+                  );
+                  updateProject(project.id, { commands: filtered });
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          <button
+            className={styles.addCommandBtn}
+            onClick={() => {
+              const id = crypto.randomUUID();
+              const newCommand: CustomCommand = {
+                id,
+                name: "",
+                command: "",
+              };
+              updateProject(project.id, {
+                commands: [...(project.commands ?? []), newCommand],
+              });
+              setNewCommandId(id);
+            }}
+          >
+            <Plus size={12} />
+            Add Command
+          </button>
         </div>
       </div>
 
@@ -407,7 +427,6 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           </div>
         ))}
       </div>
-
     </div>
   );
 }

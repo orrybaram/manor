@@ -200,9 +200,10 @@ export class LinearManager {
       { teamIds, stateTypes, first: fetchLimit },
     );
     const stateOrder: Record<string, number> = { unstarted: 0, backlog: 1 };
-    const issues: LinearIssue[] = data.issues.nodes.map(
-      (raw) => ({ ...raw, labels: raw.labels.nodes }),
-    );
+    const issues: LinearIssue[] = data.issues.nodes.map((raw) => ({
+      ...raw,
+      labels: raw.labels.nodes,
+    }));
     issues.sort((a, b) => {
       const sa = stateOrder[a.state.type] ?? 2;
       const sb = stateOrder[b.state.type] ?? 2;

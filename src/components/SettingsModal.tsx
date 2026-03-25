@@ -30,7 +30,11 @@ type SettingsPage =
   | { type: "integrations" }
   | { type: "project"; projectId: string };
 
-export function SettingsModal({ open, onClose, initialProjectId }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  onClose,
+  initialProjectId,
+}: SettingsModalProps) {
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "app" });
   const [projectsExpanded, setProjectsExpanded] = useState(true);

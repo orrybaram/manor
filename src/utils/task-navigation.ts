@@ -7,8 +7,7 @@ import { allPaneIds } from "../store/pane-tree";
 export function navigateToTask(task: TaskInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
-  const { setActiveWorkspace, workspaceSessions } =
-    useAppStore.getState();
+  const { setActiveWorkspace, workspaceSessions } = useAppStore.getState();
 
   // Find the project by projectId
   const projectIndex = projects.findIndex((p) => p.id === task.projectId);

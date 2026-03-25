@@ -62,17 +62,14 @@ export function PaneDropZone({ paneId }: { paneId: string }) {
   const [zone, setZone] = useState<DropZone | null>(null);
   const zoneRef = useRef<DropZone | null>(null);
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      const el = overlayRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const newZone = zoneFromPointer(rect, e.clientX, e.clientY);
-      zoneRef.current = newZone;
-      setZone(newZone);
-    },
-    [],
-  );
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const newZone = zoneFromPointer(rect, e.clientX, e.clientY);
+    zoneRef.current = newZone;
+    setZone(newZone);
+  }, []);
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -87,9 +84,19 @@ export function PaneDropZone({ paneId }: { paneId: string }) {
       }
       if (currentZone && drag) {
         if (drag.type === "pane") {
-          movePaneToTarget(drag.paneId, paneId, currentZone.direction, currentZone.position);
+          movePaneToTarget(
+            drag.paneId,
+            paneId,
+            currentZone.direction,
+            currentZone.position,
+          );
         } else if (drag.type === "tab") {
-          moveSessionToPane(drag.sessionId, paneId, currentZone.direction, currentZone.position);
+          moveSessionToPane(
+            drag.sessionId,
+            paneId,
+            currentZone.direction,
+            currentZone.position,
+          );
         }
       }
       endDrag();
@@ -115,10 +122,7 @@ export function PaneDropZone({ paneId }: { paneId: string }) {
             className={styles.dropZoneHighlight}
             style={highlightStyle(zone)}
           />
-          <div
-            className={styles.dropZoneDivider}
-            style={dividerStyle(zone)}
-          />
+          <div className={styles.dropZoneDivider} style={dividerStyle(zone)} />
         </>
       )}
     </div>

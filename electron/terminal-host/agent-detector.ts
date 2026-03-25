@@ -21,7 +21,15 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
 /** Titles that are just the agent binary name — not useful as a task label */
 const GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
 
-const KNOWN_SHELLS = new Set(["zsh", "bash", "sh", "fish", "nu", "pwsh", "powershell"]);
+const KNOWN_SHELLS = new Set([
+  "zsh",
+  "bash",
+  "sh",
+  "fish",
+  "nu",
+  "pwsh",
+  "powershell",
+]);
 
 const HOOK_DEBOUNCE_MS = 2000;
 
@@ -47,7 +55,10 @@ export class AgentDetector {
   private hasBeenActive = false;
 
   /** Tracked agent PIDs for stale sweep */
-  private trackedPids = new Map<number, { kind: AgentKind; status: AgentStatus }>();
+  private trackedPids = new Map<
+    number,
+    { kind: AgentKind; status: AgentStatus }
+  >();
 
   /** Timer to auto-transition from "complete" to "gone" after a brief display period */
   private completeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -89,11 +100,18 @@ export class AgentDetector {
     const prevKind = this.kind;
     const prevStatus = this.status;
 
-    this.log(`updateForegroundProcess: name=${name} pid=${pid} prev=[${prevKind}/${prevStatus}]`);
+    this.log(
+      `updateForegroundProcess: name=${name} pid=${pid} prev=[${prevKind}/${prevStatus}]`,
+    );
 
     if (!name) {
       // No foreground process — agent is gone regardless of prior status
-      if (prevKind && (prevStatus === "thinking" || prevStatus === "working" || prevStatus === "requires_input")) {
+      if (
+        prevKind &&
+        (prevStatus === "thinking" ||
+          prevStatus === "working" ||
+          prevStatus === "requires_input")
+      ) {
         this.log("  → no process, active agent → gone");
         this.transitionToGone();
       } else if (prevStatus === "complete") {
@@ -122,7 +140,9 @@ export class AgentDetector {
       }
 
       if (prevKind !== agentKind) {
-        this.log(`  → new agent kind ${agentKind} (was ${prevKind}), staying idle until hook`);
+        this.log(
+          `  → new agent kind ${agentKind} (was ${prevKind}), staying idle until hook`,
+        );
         // Just track the agent — stay idle (no dot) until a hook event
         // tells us the agent is actually thinking or responding.
         if (prevStatus !== "idle") {
@@ -131,15 +151,21 @@ export class AgentDetector {
       }
     } else if (
       this.kind &&
-      (this.status === "thinking" || this.status === "working" || this.status === "requires_input") &&
+      (this.status === "thinking" ||
+        this.status === "working" ||
+        this.status === "requires_input") &&
       !KNOWN_SHELLS.has(basename)
     ) {
       // Agent was running but now a different process is foreground
       // (e.g. agent spawned a child) — keep tracking
-      this.log(`  → non-shell child process "${basename}", keeping agent tracked`);
+      this.log(
+        `  → non-shell child process "${basename}", keeping agent tracked`,
+      );
     } else if (
       this.kind &&
-      (this.status === "thinking" || this.status === "working" || this.status === "requires_input")
+      (this.status === "thinking" ||
+        this.status === "working" ||
+        this.status === "requires_input")
     ) {
       // Shell returned to foreground — agent exited
       this.log(`  → shell "${basename}" returned to foreground → gone`);
@@ -152,7 +178,9 @@ export class AgentDetector {
 
   /** Called by hook events to update status directly (highest priority) */
   setStatus(status: AgentStatus, kind?: AgentKind): void {
-    this.log(`setStatus (hook): status=${status} kind=${kind} current=[${this.kind}/${this.status}] hasBeenActive=${this.hasBeenActive}`);
+    this.log(
+      `setStatus (hook): status=${status} kind=${kind} current=[${this.kind}/${this.status}] hasBeenActive=${this.hasBeenActive}`,
+    );
 
     // If kind is provided and we don't have one yet, set it.
     // Hook events know which agent they came from (e.g. "claude").
@@ -172,12 +200,18 @@ export class AgentDetector {
     if (this.status === "idle" && !this.kind) {
       // Agent hook fired but process detection hasn't caught up yet
       // and no kind was provided — can't track without knowing the agent.
-      this.log("  → DROPPED: no kind, still idle (process detection hasn't caught up)");
+      this.log(
+        "  → DROPPED: no kind, still idle (process detection hasn't caught up)",
+      );
       return;
     }
 
     // Track when the agent first becomes active
-    if (status === "thinking" || status === "working" || status === "requires_input") {
+    if (
+      status === "thinking" ||
+      status === "working" ||
+      status === "requires_input"
+    ) {
       this.hasBeenActive = true;
     }
 
@@ -213,21 +247,27 @@ export class AgentDetector {
   setFallbackStatus(status: AgentStatus): void {
     // Don't apply fallback if no agent is being tracked
     if (!this.kind) {
-      this.log(`setFallbackStatus: DROPPED status=${status} (no agent tracked)`);
+      this.log(
+        `setFallbackStatus: DROPPED status=${status} (no agent tracked)`,
+      );
       return;
     }
 
     // Don't override a recent hook-driven status
     const elapsed = Date.now() - this.lastHookTime;
     if (elapsed < HOOK_DEBOUNCE_MS) {
-      this.log(`setFallbackStatus: DEBOUNCED status=${status} (${elapsed}ms since last hook, need ${HOOK_DEBOUNCE_MS}ms)`);
+      this.log(
+        `setFallbackStatus: DEBOUNCED status=${status} (${elapsed}ms since last hook, need ${HOOK_DEBOUNCE_MS}ms)`,
+      );
       return;
     }
 
     // Don't transition to the same status
     if (this.status === status) return;
 
-    this.log(`setFallbackStatus: status=${status} current=[${this.kind}/${this.status}]`);
+    this.log(
+      `setFallbackStatus: status=${status} current=[${this.kind}/${this.status}]`,
+    );
 
     if (status === "complete") {
       this.transitionToComplete();
@@ -263,7 +303,9 @@ export class AgentDetector {
     }
 
     if (deadPids.length > 0) {
-      this.log(`sweepStalePids: dead PIDs=[${deadPids.join(",")}] remaining=${this.trackedPids.size - deadPids.length}`);
+      this.log(
+        `sweepStalePids: dead PIDs=[${deadPids.join(",")}] remaining=${this.trackedPids.size - deadPids.length}`,
+      );
     }
 
     for (const pid of deadPids) {
@@ -271,7 +313,11 @@ export class AgentDetector {
     }
 
     // If all tracked PIDs are dead and agent was not idle, force gone
-    if (deadPids.length > 0 && this.trackedPids.size === 0 && this.status !== "idle") {
+    if (
+      deadPids.length > 0 &&
+      this.trackedPids.size === 0 &&
+      this.status !== "idle"
+    ) {
       this.log("sweepStalePids: all PIDs dead, forcing gone");
       this.transitionToGone();
     }

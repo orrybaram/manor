@@ -9,13 +9,20 @@
 }
 
 .working {
-  border-color: var(--red, #f38ba8) color-mix(in srgb, var(--red, #f38ba8) 25%, transparent) var(--red, #f38ba8) color-mix(in srgb, var(--red, #f38ba8) 25%, transparent);
+  border-color: var(--red, #f38ba8)
+    color-mix(in srgb, var(--red, #f38ba8) 25%, transparent) var(--red, #f38ba8)
+    color-mix(in srgb, var(--red, #f38ba8) 25%, transparent);
   animation: spin 0.8s linear infinite;
 }
 
 .thinking {
-  border-color: var(--yellow, #f9e2af) color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent) var(--yellow, #f9e2af) color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent);
-  animation: spin 1.6s linear infinite, breathe 2.4s ease-in-out infinite;
+  border-color: var(--yellow, #f9e2af)
+    color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent)
+    var(--yellow, #f9e2af)
+    color-mix(in srgb, var(--yellow, #f9e2af) 25%, transparent);
+  animation:
+    spin 1.6s linear infinite,
+    breathe 2.4s ease-in-out infinite;
 }
 
 .pane {

@@ -1,5 +1,9 @@
 import { BrowserWindow } from "electron";
-import { autoUpdater, type UpdateInfo, type ProgressInfo } from "electron-updater";
+import {
+  autoUpdater,
+  type UpdateInfo,
+  type ProgressInfo,
+} from "electron-updater";
 
 export function initAutoUpdater(win: BrowserWindow): void {
   autoUpdater.autoDownload = true;

@@ -38,7 +38,10 @@ useEffect(() => {
 }, [todos, filter]);
 
 // ✅ GOOD: useMemo recalculates only when deps change
-const visibleTodos = useMemo(() => getFilteredTodos(todos, filter), [todos, filter]);
+const visibleTodos = useMemo(
+  () => getFilteredTodos(todos, filter),
+  [todos, filter],
+);
 ```
 
 #### Adjust partial state on prop change
@@ -62,7 +65,10 @@ const selection = items.find((item) => item.id === selectedId) ?? null;
 // ❌ BAD: State flag → effect relay
 const [liked, setLiked] = useState(false);
 useEffect(() => {
-  if (liked) { postLike(); setLiked(false); }
+  if (liked) {
+    postLike();
+    setLiked(false);
+  }
 }, [liked]);
 return <button onClick={() => setLiked(true)}>Like</button>;
 
@@ -77,7 +83,7 @@ return <button onClick={() => postLike()}>Like</button>;
 `useMountEffect` wraps `useEffect(..., [])` with explicit naming.
 
 ```tsx
-import { useMountEffect } from '@/hooks/useMountEffect';
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 function Widget() {
   useMountEffect(() => {
@@ -119,7 +125,9 @@ For work scoped to a specific DOM node, prefer a ref callback over `useMountEffe
 // ❌ BAD
 const ref = useRef<HTMLDivElement>(null);
 useMountEffect(() => {
-  const observer = new ResizeObserver(([entry]) => setHeight(entry.contentRect.height));
+  const observer = new ResizeObserver(([entry]) =>
+    setHeight(entry.contentRect.height),
+  );
   observer.observe(ref.current!);
   return () => observer.disconnect();
 });
@@ -127,7 +135,9 @@ return <div ref={ref} />;
 
 // ✅ GOOD: ref callback with cleanup
 const measuredRef = (node: HTMLDivElement) => {
-  const observer = new ResizeObserver(([entry]) => setHeight(entry.contentRect.height));
+  const observer = new ResizeObserver(([entry]) =>
+    setHeight(entry.contentRect.height),
+  );
   observer.observe(node);
   return () => observer.disconnect();
 };
@@ -138,7 +148,7 @@ When a ref callback has no deps on component state/props, extract it outside the
 
 ```tsx
 function scrollIntoView(node: HTMLElement) {
-  node.scrollIntoView({ behavior: 'smooth' });
+  node.scrollIntoView({ behavior: "smooth" });
 }
 // usage: <input ref={scrollIntoView} />
 ```
@@ -170,11 +180,11 @@ function useOnlineStatus() {
   const [isOnline, setIsOnline] = useState(true);
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
     return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
     };
   }, []);
   return isOnline;
@@ -184,9 +194,12 @@ function useOnlineStatus() {
 function useOnlineStatus() {
   return useSyncExternalStore(
     (cb) => {
-      window.addEventListener('online', cb);
-      window.addEventListener('offline', cb);
-      return () => { window.removeEventListener('online', cb); window.removeEventListener('offline', cb); };
+      window.addEventListener("online", cb);
+      window.addEventListener("offline", cb);
+      return () => {
+        window.removeEventListener("online", cb);
+        window.removeEventListener("offline", cb);
+      };
     },
     () => navigator.onLine,
     () => true,
@@ -214,7 +227,7 @@ function handleBuyClick() {
 }
 function handleCheckoutClick() {
   buyProduct();
-  navigateTo('/checkout');
+  navigateTo("/checkout");
 }
 ```
 
@@ -286,7 +299,9 @@ function Parent() {
 }
 function Child(props: ChildProps) {
   const data = useSomeAPI();
-  useEffect(() => { if (data) props.onFetched(data); }, [props.onFetched, data]);
+  useEffect(() => {
+    if (data) props.onFetched(data);
+  }, [props.onFetched, data]);
 }
 
 // ✅ GOOD: Parent owns the data

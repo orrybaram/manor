@@ -297,9 +297,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     const { detector, transitions } = createTestHarness();
 
     // Mock process.kill to simulate alive process
-    const killSpy = vi
-      .spyOn(process, "kill")
-      .mockImplementation(() => true);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
 
     // 1. FG → "claude" with PID
     detector.updateForegroundProcess("claude", 99999);

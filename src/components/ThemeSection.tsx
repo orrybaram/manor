@@ -78,7 +78,6 @@ export function ThemeSection() {
     return entries.filter((e) => e.displayName.toLowerCase().includes(q));
   }, [query, entries]);
 
-
   const handleSelect = useCallback(
     async (name: string) => {
       await setTheme(name);

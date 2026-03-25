@@ -9,7 +9,11 @@ interface AgentDotProps {
   pulse?: boolean;
 }
 
-export function AgentDot({ status: rawStatus, size, pulse = true }: AgentDotProps) {
+export function AgentDot({
+  status: rawStatus,
+  size,
+  pulse = true,
+}: AgentDotProps) {
   const status = useDebouncedAgentStatus(rawStatus);
   if (!status || status === "idle") return null;
 
@@ -18,7 +22,9 @@ export function AgentDot({ status: rawStatus, size, pulse = true }: AgentDotProp
   }
 
   if (status === "responded") {
-    const respondedClass = pulse ? styles.dotResponded : styles.dotRespondedStatic;
+    const respondedClass = pulse
+      ? styles.dotResponded
+      : styles.dotRespondedStatic;
     return (
       <span
         className={`${styles.dot} ${styles[size]} ${respondedClass}`}

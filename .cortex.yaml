@@ -4,8 +4,8 @@ project: null
 workspace: null
 path: manor
 include:
-- pattern: '**/*.md'
-  dest: .
+  - pattern: "**/*.md"
+    dest: .
 tags: []
 context:
   max_tokens: 4000

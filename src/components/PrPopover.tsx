@@ -72,10 +72,13 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
         : styles.prOpen;
 
   // Status dot on badge
-  const hasUnresolved = pr.unresolvedThreads != null && pr.unresolvedThreads > 0;
-  const allChecksPassing = pr.checks != null && pr.checks.failing === 0 && pr.checks.pending === 0;
+  const hasUnresolved =
+    pr.unresolvedThreads != null && pr.unresolvedThreads > 0;
+  const allChecksPassing =
+    pr.checks != null && pr.checks.failing === 0 && pr.checks.pending === 0;
   const isApproved = pr.reviewDecision === "APPROVED";
-  const isAllGreen = pr.state === "open" && allChecksPassing && isApproved && !hasUnresolved;
+  const isAllGreen =
+    pr.state === "open" && allChecksPassing && isApproved && !hasUnresolved;
 
   let dotClass: string | null = null;
   if (hasUnresolved) {
@@ -151,13 +154,15 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
   let commentsElement: React.ReactNode = null;
   if (pr.unresolvedThreads != null && pr.unresolvedThreads > 0) {
     commentsElement = (
-      <div className={styles.prPopoverRow} style={{ color: "var(--yellow, #eab308)" }}>
+      <div
+        className={styles.prPopoverRow}
+        style={{ color: "var(--yellow, #eab308)" }}
+      >
         <MessageSquare size={12} />
         <span>{pr.unresolvedThreads} unresolved</span>
       </div>
     );
   }
-
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -172,8 +177,7 @@ export function PrPopover({ pr, onOpen }: PrPopoverProps) {
             onOpen();
           }}
         >
-          <PrIcon size={10} />
-          #{pr.number}
+          <PrIcon size={10} />#{pr.number}
           {dotClass && <span className={dotClass} />}
         </span>
       </Popover.Trigger>

@@ -13,7 +13,10 @@ const RING_BUFFER_SIZE = 15;
 /** Strip ANSI escape sequences from a string */
 export function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[>=<]|\x1b\[[\?]?[0-9;]*[hlm]/g, "");
+  return str.replace(
+    /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[>=<]|\x1b\[[\?]?[0-9;]*[hlm]/g,
+    "",
+  );
 }
 
 /** Check if a line starts with box-drawing characters (skip these) */
@@ -36,10 +39,7 @@ function hasBrailleChars(str: string): boolean {
 
 // ── Busy patterns ──
 
-const BUSY_STRINGS = [
-  "ctrl+c to interrupt",
-  "esc to interrupt",
-];
+const BUSY_STRINGS = ["ctrl+c to interrupt", "esc to interrupt"];
 
 /** Whimsical action word pattern: word + "..." + "tokens" (e.g. "✢ Cerebrating... (53s, 749 tokens)") */
 const WHIMSICAL_PATTERN = /\w+\.{3}.*tokens/i;
@@ -109,7 +109,11 @@ export class OutputPatternMatcher {
 
     // Check the most recent lines first (last few are most relevant)
     // Scan in reverse so the most recent signal wins
-    for (let i = this.ringBuffer.length - 1; i >= Math.max(0, this.ringBuffer.length - 5); i--) {
+    for (
+      let i = this.ringBuffer.length - 1;
+      i >= Math.max(0, this.ringBuffer.length - 5);
+      i--
+    ) {
       const line = this.ringBuffer[i];
 
       if (isRequiresInputLine(line)) return "requires_input";

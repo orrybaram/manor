@@ -40,10 +40,12 @@ export function useCommands({
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
-  return useMemo(
-    () => {
-    const platform = navigator.platform.toLowerCase().includes("mac") ? "mac" as const : "other" as const;
-    const fmt = (id: string) => bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+  return useMemo(() => {
+    const platform = navigator.platform.toLowerCase().includes("mac")
+      ? ("mac" as const)
+      : ("other" as const);
+    const fmt = (id: string) =>
+      bindings[id] ? formatCombo(bindings[id], platform) : undefined;
     return [
       {
         id: "new-session",
@@ -166,24 +168,22 @@ export function useCommands({
         },
       },
     ];
-    },
-    [
-      addSession,
-      closePane,
-      closeSession,
-      splitPane,
-      selectNextSession,
-      selectPrevSession,
-      focusNextPane,
-      focusPrevPane,
-      toggleSidebar,
-      onClose,
-      onOpenSettings,
-      sessions,
-      selectedSessionId,
-      setShowGhosts,
-      bindings,
-      activeWorkspacePath,
-    ],
-  );
+  }, [
+    addSession,
+    closePane,
+    closeSession,
+    splitPane,
+    selectNextSession,
+    selectPrevSession,
+    focusNextPane,
+    focusPrevPane,
+    toggleSidebar,
+    onClose,
+    onOpenSettings,
+    sessions,
+    selectedSessionId,
+    setShowGhosts,
+    bindings,
+    activeWorkspacePath,
+  ]);
 }

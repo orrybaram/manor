@@ -7,8 +7,12 @@ export function useSessionTitle(sessionId: string): string {
     return session?.focusedPaneId ?? null;
   });
 
-  const title = useAppStore((s) => focusedPaneId ? s.paneTitle[focusedPaneId] ?? null : null);
-  const cwd = useAppStore((s) => focusedPaneId ? s.paneCwd[focusedPaneId] ?? null : null);
+  const title = useAppStore((s) =>
+    focusedPaneId ? (s.paneTitle[focusedPaneId] ?? null) : null,
+  );
+  const cwd = useAppStore((s) =>
+    focusedPaneId ? (s.paneCwd[focusedPaneId] ?? null) : null,
+  );
   if (title) {
     const cwdMatch = title.match(/^.+@.+:(.+)$/);
     if (cwdMatch) {

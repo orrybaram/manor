@@ -27,7 +27,8 @@ function findFreePort(): Promise<number> {
       const port = addr && typeof addr === "object" ? addr.port : null;
       server.close((err) => {
         if (err) reject(err);
-        else if (port == null) reject(new Error("Could not determine free port"));
+        else if (port == null)
+          reject(new Error("Could not determine free port"));
         else resolve(port);
       });
     });

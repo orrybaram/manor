@@ -23,7 +23,11 @@ function getDateBucket(dateStr: string): DateBucket {
   const date = new Date(dateStr);
   const now = new Date();
 
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
   const startOfYesterday = new Date(startOfToday);
   startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
@@ -73,7 +77,12 @@ function formatRelativeTime(dateStr: string): string {
 function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "active") return task.status === "active";
-  if (filter === "completed") return task.status === "completed" || task.status === "error" || task.status === "abandoned";
+  if (filter === "completed")
+    return (
+      task.status === "completed" ||
+      task.status === "error" ||
+      task.status === "abandoned"
+    );
   return true;
 }
 
@@ -85,18 +94,17 @@ interface TaskRowProps {
   onRemoveTask: (taskId: string) => void;
 }
 
-const TaskRow = memo(function TaskRow({ task, onResumeTask, onRemoveTask }: TaskRowProps) {
+const TaskRow = memo(function TaskRow({
+  task,
+  onResumeTask,
+  onRemoveTask,
+}: TaskRowProps) {
   const agentStatus = mapTaskStatusToAgentStatus(task);
 
   return (
-    <button
-      className={styles.taskRow}
-      onClick={() => onResumeTask(task)}
-    >
+    <button className={styles.taskRow} onClick={() => onResumeTask(task)}>
       <AgentDot status={agentStatus} size="sidebar" />
-      <span className={styles.taskName}>
-        {task.name || "Untitled Session"}
-      </span>
+      <span className={styles.taskName}>{task.name || "Untitled Session"}</span>
       <span className={styles.taskProject}>
         {task.projectName || "No Project"}
       </span>
@@ -195,7 +203,11 @@ export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
                   className={`${styles.filterTab} ${filter === f ? styles.filterTabActive : ""}`}
                   onClick={() => setFilter(f)}
                 >
-                  {f === "all" ? "All" : f === "active" ? "Active" : "Completed"}
+                  {f === "all"
+                    ? "All"
+                    : f === "active"
+                      ? "Active"
+                      : "Completed"}
                 </button>
               ))}
             </div>
@@ -242,7 +254,6 @@ export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
                 </div>
               );
             })}
-
           </div>
         </Dialog.Content>
       </Dialog.Portal>

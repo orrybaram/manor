@@ -10,7 +10,12 @@ interface TaskState {
   loading: boolean;
   loaded: boolean;
   seenTaskIds: Set<string>;
-  loadTasks: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) => Promise<void>;
+  loadTasks: (opts?: {
+    projectId?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) => Promise<void>;
   loadMoreTasks: (offset: number) => Promise<void>;
   removeTask: (taskId: string) => Promise<void>;
   receiveTaskUpdate: (task: TaskInfo) => void;
@@ -36,10 +41,13 @@ export const useTaskStore = create<TaskState>((set, get) => {
   });
 
   // Eagerly load all tasks on store creation
-  window.electronAPI?.tasks.getAll().then((tasks) => {
-    tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    set({ tasks, loading: false, loaded: true });
-  }).catch(() => {});
+  window.electronAPI?.tasks
+    .getAll()
+    .then((tasks) => {
+      tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      set({ tasks, loading: false, loaded: true });
+    })
+    .catch(() => {});
 
   return {
     tasks: [],
@@ -129,7 +137,10 @@ export const useTaskStore = create<TaskState>((set, get) => {
           }
         }
 
-        if (isAlreadyVisible && (nextStatus === "responded" || nextStatus === "requires_input")) {
+        if (
+          isAlreadyVisible &&
+          (nextStatus === "responded" || nextStatus === "requires_input")
+        ) {
           window.electronAPI?.tasks.markSeen(task.id);
           get().markTaskSeen(task.id);
         }

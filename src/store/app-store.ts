@@ -51,7 +51,11 @@ interface WorkspaceSessionState {
 
 function createWorkspaceState(): WorkspaceSessionState {
   const session = createSession();
-  return { sessions: [session], selectedSessionId: session.id, pinnedSessionIds: [] };
+  return {
+    sessions: [session],
+    selectedSessionId: session.id,
+    pinnedSessionIds: [],
+  };
 }
 
 /** Convert a PersistedWorkspace back into a WorkspaceSessionState */
@@ -107,9 +111,23 @@ export interface AppState {
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
-  splitPaneAt: (targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
-  movePaneToTarget: (sourcePaneId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
-  moveSessionToPane: (sessionId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") => void;
+  splitPaneAt: (
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) => void;
+  movePaneToTarget: (
+    sourcePaneId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) => void;
+  moveSessionToPane: (
+    sessionId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) => void;
   extractPaneToSession: (paneId: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
@@ -181,8 +199,13 @@ export const useAppStore = create<AppState>((set, get) => ({
               if (paneSession.lastTitle) {
                 titles[paneId] = paneSession.lastTitle;
               }
-              if (paneSession.lastAgentStatus &&
-                  !(paneSession.lastAgentStatus.status === "idle" && paneSession.lastAgentStatus.kind === null)) {
+              if (
+                paneSession.lastAgentStatus &&
+                !(
+                  paneSession.lastAgentStatus.status === "idle" &&
+                  paneSession.lastAgentStatus.kind === null
+                )
+              ) {
                 agents[paneId] = paneSession.lastAgentStatus as AgentState;
               }
             }
@@ -342,7 +365,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           [path]: {
             sessions: newSessions,
             selectedSessionId: newSelected,
-            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sessionId),
+            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
+              (id) => id !== sessionId,
+            ),
           },
         },
       };
@@ -432,14 +457,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!session) return state;
         const others = ws.sessions.filter((s) => s.id !== sessionId);
         const insertIdx = newPinned.length;
-        newSessions = [...others.slice(0, insertIdx), session, ...others.slice(insertIdx)];
+        newSessions = [
+          ...others.slice(0, insertIdx),
+          session,
+          ...others.slice(insertIdx),
+        ];
       } else {
         newPinned = [...pinned, sessionId];
         const session = ws.sessions.find((s) => s.id === sessionId);
         if (!session) return state;
         const others = ws.sessions.filter((s) => s.id !== sessionId);
         const insertIdx = pinned.length;
-        newSessions = [...others.slice(0, insertIdx), session, ...others.slice(insertIdx)];
+        newSessions = [
+          ...others.slice(0, insertIdx),
+          session,
+          ...others.slice(insertIdx),
+        ];
       }
       return {
         workspaceSessions: {
@@ -479,7 +512,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  splitPaneAt: (targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+  splitPaneAt: (
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
@@ -512,7 +549,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  movePaneToTarget: (sourcePaneId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+  movePaneToTarget: (
+    sourcePaneId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
@@ -553,7 +595,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Cross-session move
-      const sourceRootAfterRemove = removePane(sourceSession.rootNode, sourcePaneId);
+      const sourceRootAfterRemove = removePane(
+        sourceSession.rootNode,
+        sourcePaneId,
+      );
       const newTargetRoot = insertSplitAt(
         targetSession.rootNode,
         targetPaneId,
@@ -578,17 +623,26 @@ export const useAppStore = create<AppState>((set, get) => ({
             const ids = allPaneIds(sourceRootAfterRemove);
             const newFocused =
               s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId;
-            return { ...s, rootNode: sourceRootAfterRemove, focusedPaneId: newFocused };
+            return {
+              ...s,
+              rootNode: sourceRootAfterRemove,
+              focusedPaneId: newFocused,
+            };
           }
           if (s.id === targetSession.id) {
-            return { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId };
+            return {
+              ...s,
+              rootNode: newTargetRoot,
+              focusedPaneId: sourcePaneId,
+            };
           }
           return s;
         });
       }
 
       const newSelectedSessionId =
-        ws.selectedSessionId === sourceSession.id && sourceRootAfterRemove === null
+        ws.selectedSessionId === sourceSession.id &&
+        sourceRootAfterRemove === null
           ? targetSession.id
           : ws.selectedSessionId;
 
@@ -599,15 +653,23 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...ws,
             sessions: newSessions,
             selectedSessionId: newSelectedSessionId,
-            pinnedSessionIds: sourceRootAfterRemove === null
-              ? (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id)
-              : ws.pinnedSessionIds,
+            pinnedSessionIds:
+              sourceRootAfterRemove === null
+                ? (ws.pinnedSessionIds ?? []).filter(
+                    (id) => id !== sourceSession.id,
+                  )
+                : ws.pinnedSessionIds,
           },
         },
       };
     }),
 
-  moveSessionToPane: (sessionId: string, targetPaneId: string, direction: SplitDirection, position: "first" | "second") =>
+  moveSessionToPane: (
+    sessionId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    position: "first" | "second",
+  ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
@@ -618,7 +680,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const targetSession = ws.sessions.find((s) =>
         allPaneIds(s.rootNode).includes(targetPaneId),
       );
-      if (!sourceSession || !targetSession || sourceSession.id === targetSession.id) return state;
+      if (
+        !sourceSession ||
+        !targetSession ||
+        sourceSession.id === targetSession.id
+      )
+        return state;
 
       // Single-pane session: delegate to movePaneToTarget logic inline
       if (sourceSession.rootNode.type === "leaf") {
@@ -638,7 +705,9 @@ export const useAppStore = create<AppState>((set, get) => ({
               : s,
           );
         const newSelectedSessionId =
-          ws.selectedSessionId === sourceSession.id ? targetSession.id : ws.selectedSessionId;
+          ws.selectedSessionId === sourceSession.id
+            ? targetSession.id
+            : ws.selectedSessionId;
         return {
           workspaceSessions: {
             ...state.workspaceSessions,
@@ -646,7 +715,9 @@ export const useAppStore = create<AppState>((set, get) => ({
               ...ws,
               sessions: newSessions,
               selectedSessionId: newSelectedSessionId,
-              pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id),
+              pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
+                (id) => id !== sourceSession.id,
+              ),
             },
           },
         };
@@ -670,7 +741,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             : s,
         );
       const newSelectedSessionId =
-        ws.selectedSessionId === sourceSession.id ? targetSession.id : ws.selectedSessionId;
+        ws.selectedSessionId === sourceSession.id
+          ? targetSession.id
+          : ws.selectedSessionId;
       return {
         workspaceSessions: {
           ...state.workspaceSessions,
@@ -678,7 +751,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...ws,
             sessions: newSessions,
             selectedSessionId: newSelectedSessionId,
-            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter((id) => id !== sourceSession.id),
+            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
+              (id) => id !== sourceSession.id,
+            ),
           },
         },
       };
@@ -697,7 +772,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!sourceSession) return state;
 
       // If the pane is the only pane in its session, just select that session
-      if (sourceSession.rootNode.type === "leaf" && sourceSession.rootNode.paneId === paneId) {
+      if (
+        sourceSession.rootNode.type === "leaf" &&
+        sourceSession.rootNode.paneId === paneId
+      ) {
         return {
           workspaceSessions: {
             ...state.workspaceSessions,
@@ -712,7 +790,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const ids = allPaneIds(remaining);
       const newFocused =
-        sourceSession.focusedPaneId === paneId ? ids[0] : sourceSession.focusedPaneId;
+        sourceSession.focusedPaneId === paneId
+          ? ids[0]
+          : sourceSession.focusedPaneId;
 
       // Create a new session with the extracted pane
       const newSession: Session = {
@@ -913,7 +993,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         const { [paneId]: _, ...rest } = state.paneAgentStatus;
         return { paneAgentStatus: rest };
       }
-      console.debug(`[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`);
+      console.debug(
+        `[agent-status] store: pane=${paneId} → ${agent.kind}/${agent.status} (title=${agent.title})`,
+      );
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
 

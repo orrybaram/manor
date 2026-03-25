@@ -303,7 +303,7 @@
   gap: 3px;
   padding: 2px;
   border-radius: 4px;
-  background: var(--surface); 
+  background: var(--surface);
 }
 
 .diffAdded {

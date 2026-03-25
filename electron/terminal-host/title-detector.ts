@@ -95,7 +95,11 @@ export class OscTitleParser {
       } else if (byte === 0x1b) {
         // ESC
         this.buf = [byte];
-      } else if (this.buf.length === 1 && this.buf[0] === 0x1b && byte === 0x5d) {
+      } else if (
+        this.buf.length === 1 &&
+        this.buf[0] === 0x1b &&
+        byte === 0x5d
+      ) {
         // ESC ]
         this.buf.push(byte);
       } else if (this.buf.length === 2) {

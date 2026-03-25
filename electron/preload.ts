@@ -31,18 +31,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   layout: {
-    save: (workspace: unknown) =>
-      ipcRenderer.invoke("layout:save", workspace),
+    save: (workspace: unknown) => ipcRenderer.invoke("layout:save", workspace),
     load: () => ipcRenderer.invoke("layout:load"),
     getRestoredSessions: () => ipcRenderer.invoke("layout:getRestoredSessions"),
   },
 
   projects: {
     getAll: () => ipcRenderer.invoke("projects:getAll"),
-    getSelectedIndex: () =>
-      ipcRenderer.invoke("projects:getSelectedIndex"),
-    select: (index: number) =>
-      ipcRenderer.invoke("projects:select", index),
+    getSelectedIndex: () => ipcRenderer.invoke("projects:getSelectedIndex"),
+    select: (index: number) => ipcRenderer.invoke("projects:select", index),
     add: (name: string, path: string) =>
       ipcRenderer.invoke("projects:add", name, path),
     remove: (projectId: string) =>
@@ -110,16 +107,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
     stopScanner: () => ipcRenderer.invoke("ports:stopScanner"),
     updateWorkspacePaths: (paths: string[]) =>
       ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
-    updateWorkspaceMetadata: (meta: Array<{ path: string; projectName: string | null; branch: string | null; isMain: boolean }>) =>
-      ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
+    updateWorkspaceMetadata: (
+      meta: Array<{
+        path: string;
+        projectName: string | null;
+        branch: string | null;
+        isMain: boolean;
+      }>,
+    ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
     onChange: (callback: (ports: unknown[]) => void) =>
       onChannel("ports-changed", callback),
   },
 
   branches: {
-    start: (paths: string[]) =>
-      ipcRenderer.invoke("branches:start", paths),
+    start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
     stop: () => ipcRenderer.invoke("branches:stop"),
     onChange: (callback: (branches: Record<string, string>) => void) =>
       onChannel("branches-changed", callback),
@@ -130,7 +132,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("diffs:start", workspaces),
     stop: () => ipcRenderer.invoke("diffs:stop"),
     onChange: (
-      callback: (diffs: Record<string, { added: number; removed: number }>) => void,
+      callback: (
+        diffs: Record<string, { added: number; removed: number }>,
+      ) => void,
     ) => onChannel("diffs-changed", callback),
   },
 
@@ -151,8 +155,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   linear: {
-    connect: (apiKey: string) =>
-      ipcRenderer.invoke("linear:connect", apiKey),
+    connect: (apiKey: string) => ipcRenderer.invoke("linear:connect", apiKey),
     disconnect: () => ipcRenderer.invoke("linear:disconnect"),
     isConnected: () => ipcRenderer.invoke("linear:isConnected"),
     getViewer: () => ipcRenderer.invoke("linear:getViewer"),
@@ -177,8 +180,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   shell: {
-    openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
-    openInEditor: (path: string) => ipcRenderer.invoke("shell:openInEditor", path),
+    openExternal: (url: string) =>
+      ipcRenderer.invoke("shell:openExternal", url),
+    openInEditor: (path: string) =>
+      ipcRenderer.invoke("shell:openInEditor", path),
   },
 
   updater: {
@@ -188,23 +193,37 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("updater:update-available", callback),
     onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
       onChannel("updater:update-downloaded", callback),
-    onDownloadProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) =>
-      onChannel("updater:download-progress", callback),
+    onDownloadProgress: (
+      callback: (progress: {
+        percent: number;
+        bytesPerSecond: number;
+        transferred: number;
+        total: number;
+      }) => void,
+    ) => onChannel("updater:download-progress", callback),
     onError: (callback: (message: string) => void) =>
       onChannel("updater:error", callback),
   },
 
   tasks: {
-    getAll: (opts?: { projectId?: string; status?: string; limit?: number; offset?: number }) =>
-      ipcRenderer.invoke("tasks:getAll", opts),
-    get: (taskId: string) =>
-      ipcRenderer.invoke("tasks:get", taskId),
+    getAll: (opts?: {
+      projectId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => ipcRenderer.invoke("tasks:getAll", opts),
+    get: (taskId: string) => ipcRenderer.invoke("tasks:get", taskId),
     update: (taskId: string, updates: object) =>
       ipcRenderer.invoke("tasks:update", taskId, updates),
-    delete: (taskId: string) =>
-      ipcRenderer.invoke("tasks:delete", taskId),
-    setPaneContext: (paneId: string, context: { projectId: string; projectName: string; workspacePath: string }) =>
-      ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
+    delete: (taskId: string) => ipcRenderer.invoke("tasks:delete", taskId),
+    setPaneContext: (
+      paneId: string,
+      context: {
+        projectId: string;
+        projectName: string;
+        workspacePath: string;
+      },
+    ) => ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
     markSeen: (taskId: string) => ipcRenderer.invoke("tasks:markSeen", taskId),
     onUpdate: (callback: (task: unknown) => void) =>
       onChannel("task-updated", callback),
@@ -216,13 +235,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("preferences:set", key, value),
     onChange: (callback: (prefs: unknown) => void) =>
       onChannel("preferences-changed", callback),
-    playSound: (name: string) => ipcRenderer.invoke("preferences:playSound", name),
+    playSound: (name: string) =>
+      ipcRenderer.invoke("preferences:playSound", name),
   },
 
   keybindings: {
     getAll: () => ipcRenderer.invoke("keybindings:getAll"),
-    set: (commandId: string, combo: string) => ipcRenderer.invoke("keybindings:set", commandId, combo),
-    reset: (commandId: string) => ipcRenderer.invoke("keybindings:reset", commandId),
+    set: (commandId: string, combo: string) =>
+      ipcRenderer.invoke("keybindings:set", commandId, combo),
+    reset: (commandId: string) =>
+      ipcRenderer.invoke("keybindings:reset", commandId),
     resetAll: () => ipcRenderer.invoke("keybindings:resetAll"),
     onChange: (callback: (overrides: Record<string, string>) => void) =>
       onChannel("keybindings-changed", callback),

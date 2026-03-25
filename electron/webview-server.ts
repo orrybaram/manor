@@ -101,7 +101,11 @@ export class WebviewServer {
       3: "info",
     };
 
-    const listener = (_event: Electron.Event, level: number, message: string) => {
+    const listener = (
+      _event: Electron.Event,
+      level: number,
+      message: string,
+    ) => {
       const entries = this.consoleLogs.get(paneId);
       if (!entries) return;
 
@@ -136,7 +140,9 @@ export class WebviewServer {
   }
 
   /** Look up and validate webContents for a paneId */
-  private getWebContents(paneId: string): { wc: Electron.WebContents } | { error: string; status: number } {
+  private getWebContents(
+    paneId: string,
+  ): { wc: Electron.WebContents } | { error: string; status: number } {
     const wcId = this.registry.get(paneId);
     if (wcId == null) {
       return { error: "Webview not found", status: 404 };
@@ -152,7 +158,10 @@ export class WebviewServer {
     return { wc };
   }
 
-  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  private async handleRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
     if (!req.url) {
       res.writeHead(404);
       res.end();
@@ -342,7 +351,12 @@ export class WebviewServer {
           }
           const cx = Math.round(rect.x);
           const cy = Math.round(rect.y);
-          wc.sendInputEvent({ type: "mouseDown", x: cx, y: cy, button: "left" });
+          wc.sendInputEvent({
+            type: "mouseDown",
+            x: cx,
+            y: cy,
+            button: "left",
+          });
           wc.sendInputEvent({ type: "mouseUp", x: cx, y: cy, button: "left" });
         }
 

@@ -20,7 +20,8 @@ export function AppSettingsPage() {
           onChange={(e) => set("defaultEditor", e.target.value)}
         />
         <div className={styles.fieldHint}>
-          CLI command used to open workspaces. Leave empty to use the system default.
+          CLI command used to open workspaces. Leave empty to use the system
+          default.
         </div>
       </div>
 
@@ -30,7 +31,6 @@ export function AppSettingsPage() {
           Font family and size settings coming soon.
         </div>
       </div>
-
     </div>
   );
 }

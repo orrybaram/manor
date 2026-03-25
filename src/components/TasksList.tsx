@@ -88,7 +88,9 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
   const visiblePaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of Object.values(workspaceSessions)) {
-      const activeSession = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+      const activeSession = ws.sessions.find(
+        (s) => s.id === ws.selectedSessionId,
+      );
       if (activeSession) {
         for (const id of allPaneIds(activeSession.rootNode)) {
           ids.add(id);
@@ -169,7 +171,8 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
               <div className={styles.taskGroupHeader}>{projectName}</div>
               {groupTasks.map((task) => {
                 const agentStatus = taskAgentStatus(task);
-                const isVisible = task.paneId != null && visiblePaneIds.has(task.paneId);
+                const isVisible =
+                  task.paneId != null && visiblePaneIds.has(task.paneId);
                 const shouldPulse = !isVisible && !seenTaskIds.has(task.id);
                 return (
                   <button
@@ -177,7 +180,11 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
                     className={styles.agentItem}
                     onClick={() => navigateToTask(task)}
                   >
-                    <AgentDot status={agentStatus} size="sidebar" pulse={shouldPulse} />
+                    <AgentDot
+                      status={agentStatus}
+                      size="sidebar"
+                      pulse={shouldPulse}
+                    />
                     <span className={styles.agentName}>
                       {task.name || "Agent"}
                     </span>

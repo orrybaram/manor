@@ -21,8 +21,8 @@ export function RemoveProjectDialog({
             Remove Project
           </Dialog.Title>
           <Dialog.Description className={styles.confirmDescription}>
-            Remove <strong>{projectName}</strong> from the sidebar? This
-            won't delete any files on disk.
+            Remove <strong>{projectName}</strong> from the sidebar? This won't
+            delete any files on disk.
           </Dialog.Description>
           <div className={styles.confirmActions}>
             <button

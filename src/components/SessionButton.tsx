@@ -60,7 +60,9 @@ export function SessionButton({
         >
           <TabAgentDot sessionId={sessionId} />
           {isBrowser && <Globe size={12} className={styles.sessionIcon} />}
-          <span className={styles.sessionTitle}>{isPinned ? shortenTitle(title) : title}</span>
+          <span className={styles.sessionTitle}>
+            {isPinned ? shortenTitle(title) : title}
+          </span>
           {canClose && !isPinned && (
             <span
               className={styles.sessionClose}

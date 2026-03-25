@@ -34,8 +34,8 @@ Core principle: **Prefer declarative patterns and cleanup all side effects.**
 | Child-to-parent data | Lift fetching to parent, pass as prop         | Effect + onFetched callback        |
 | Expensive filtering  | Use `useDeferredValue`                        | Block typing with computation      |
 
-
 ## Component Props
+
 - Use `type` (not `interface`) for component props
 - Name the parameter `props`, destructure on the first line of the component body
 - Add a blank line after the props destructuring before the rest of the component logic
@@ -50,12 +50,20 @@ type MyComponentProps = {
 function MyComponent(props: MyComponentProps) {
   const { title, count } = props;
 
-  return <Text>{title}: {count}</Text>;
+  return (
+    <Text>
+      {title}: {count}
+    </Text>
+  );
 }
 
 // ❌ Bad: inline destructuring in parameter
 function MyComponent({ title, count }: MyComponentProps) {
-  return <Text>{title}: {count}</Text>;
+  return (
+    <Text>
+      {title}: {count}
+    </Text>
+  );
 }
 ```
 
@@ -90,9 +98,9 @@ When one piece of state can be computed from another, don't use two `useState` c
 ```tsx
 // ❌ Bad: two states that must stay in sync
 const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-const [page, setPage] = useState<'list' | 'detail'>('list');
+const [page, setPage] = useState<"list" | "detail">("list");
 
 // ✅ Good: derive page from selectedItem
 const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-const page = selectedItem ? 'detail' : 'list';
+const page = selectedItem ? "detail" : "list";
 ```

@@ -43,7 +43,9 @@ export class PreferencesManager {
   private loadState(): AppPreferences {
     try {
       const data = fs.readFileSync(this.prefsFilePath(), "utf-8");
-      const parsed = JSON.parse(data) as Partial<AppPreferences> & { notificationSound?: unknown };
+      const parsed = JSON.parse(data) as Partial<AppPreferences> & {
+        notificationSound?: unknown;
+      };
       // Migration: convert legacy boolean notificationSound to string | false
       const rawSound = (parsed as Record<string, unknown>).notificationSound;
       if (rawSound === true) {

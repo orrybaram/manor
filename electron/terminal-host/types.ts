@@ -73,7 +73,14 @@ export type ControlResponse =
 // ── Agent status types ──
 
 export type AgentKind = "claude" | "opencode" | "codex";
-export type AgentStatus = "idle" | "thinking" | "working" | "complete" | "requires_input" | "error" | "responded";
+export type AgentStatus =
+  | "idle"
+  | "thinking"
+  | "working"
+  | "complete"
+  | "requires_input"
+  | "error"
+  | "responded";
 
 export interface AgentState {
   kind: AgentKind | null;
@@ -98,7 +105,12 @@ export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
   | { type: "unsubscribe"; sessionId: string }
-  | { type: "agentHook"; sessionId: string; status: AgentStatus; kind: AgentKind };
+  | {
+      type: "agentHook";
+      sessionId: string;
+      status: AgentStatus;
+      kind: AgentKind;
+    };
 
 // ── PTY Subprocess spawn payload ──
 

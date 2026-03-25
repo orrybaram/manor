@@ -38,7 +38,8 @@ export function GitHubIssueDetailView({
 
   const { data: issueDetail, isLoading } = useQuery({
     queryKey: ["github-issue-detail", repoPath, issueNumber],
-    queryFn: () => window.electronAPI.github.getIssueDetail(repoPath, issueNumber),
+    queryFn: () =>
+      window.electronAPI.github.getIssueDetail(repoPath, issueNumber),
     staleTime: 60_000,
   });
 
@@ -131,9 +132,7 @@ export function GitHubIssueDetailView({
 
   if (!issueDetail) return null;
 
-  const description = issueDetail.body
-    ? stripMarkdown(issueDetail.body)
-    : null;
+  const description = issueDetail.body ? stripMarkdown(issueDetail.body) : null;
 
   return (
     <>

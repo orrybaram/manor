@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  vi,
+  afterEach,
+  type Mock,
+} from "vitest";
 import { OutputPatternMatcher, stripAnsi } from "../output-pattern-matcher";
 import { AgentDetector } from "../agent-detector";
 
@@ -243,11 +251,13 @@ describe("AgentDetector sweepStalePids", () => {
     changes.length = 0;
 
     // Mock process.kill to throw ESRCH
-    process.kill = vi.fn().mockImplementation((_pid: number, _signal?: number) => {
-      const err = new Error("No such process") as NodeJS.ErrnoException;
-      err.code = "ESRCH";
-      throw err;
-    }) as unknown as typeof process.kill;
+    process.kill = vi
+      .fn()
+      .mockImplementation((_pid: number, _signal?: number) => {
+        const err = new Error("No such process") as NodeJS.ErrnoException;
+        err.code = "ESRCH";
+        throw err;
+      }) as unknown as typeof process.kill;
 
     detector.sweepStalePids();
     expect(changes).toContain("idle");
@@ -262,7 +272,9 @@ describe("AgentDetector sweepStalePids", () => {
     changes.length = 0;
 
     // Mock process.kill to succeed (process is alive)
-    process.kill = vi.fn().mockImplementation(() => true) as unknown as typeof process.kill;
+    process.kill = vi
+      .fn()
+      .mockImplementation(() => true) as unknown as typeof process.kill;
 
     detector.sweepStalePids();
     expect(changes).toEqual([]);
@@ -277,11 +289,15 @@ describe("AgentDetector sweepStalePids", () => {
     changes.length = 0;
 
     // Mock process.kill to throw EPERM
-    process.kill = vi.fn().mockImplementation((_pid: number, _signal?: number) => {
-      const err = new Error("Operation not permitted") as NodeJS.ErrnoException;
-      err.code = "EPERM";
-      throw err;
-    }) as unknown as typeof process.kill;
+    process.kill = vi
+      .fn()
+      .mockImplementation((_pid: number, _signal?: number) => {
+        const err = new Error(
+          "Operation not permitted",
+        ) as NodeJS.ErrnoException;
+        err.code = "EPERM";
+        throw err;
+      }) as unknown as typeof process.kill;
 
     detector.sweepStalePids();
     expect(changes).toEqual([]);
@@ -309,11 +325,13 @@ describe("AgentDetector sweepStalePids", () => {
     changes.length = 0;
 
     // Mock: all PIDs are dead
-    process.kill = vi.fn().mockImplementation((_pid: number, _signal?: number) => {
-      const err = new Error("No such process") as NodeJS.ErrnoException;
-      err.code = "ESRCH";
-      throw err;
-    }) as unknown as typeof process.kill;
+    process.kill = vi
+      .fn()
+      .mockImplementation((_pid: number, _signal?: number) => {
+        const err = new Error("No such process") as NodeJS.ErrnoException;
+        err.code = "ESRCH";
+        throw err;
+      }) as unknown as typeof process.kill;
 
     detector.sweepStalePids();
     // Should transition to idle since all tracked PIDs are dead

@@ -85,7 +85,11 @@ export class TerminalHostClient {
     }
 
     // Check daemon version — if mismatched, restart daemon and reconnect
-    if (this.clientVersion && authResp.version && authResp.version !== this.clientVersion) {
+    if (
+      this.clientVersion &&
+      authResp.version &&
+      authResp.version !== this.clientVersion
+    ) {
       console.log(
         `Daemon version mismatch: daemon=${authResp.version}, client=${this.clientVersion}. Restarting daemon...`,
       );
@@ -199,8 +203,14 @@ export class TerminalHostClient {
   }
 
   /** Relay an agent hook event to the daemon (fire-and-forget) */
-  relayAgentHook(sessionId: string, status: AgentStatus, kind: AgentKind): void {
-    console.debug(`[agent-status] client relay: session=${sessionId} status=${status} kind=${kind}`);
+  relayAgentHook(
+    sessionId: string,
+    status: AgentStatus,
+    kind: AgentKind,
+  ): void {
+    console.debug(
+      `[agent-status] client relay: session=${sessionId} status=${status} kind=${kind}`,
+    );
     this.streamWrite({ type: "agentHook", sessionId, status, kind });
   }
 

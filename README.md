@@ -53,32 +53,32 @@ The output will be in the `dist/` directory.
 
 ## Scripts
 
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start the app in development mode with hot reload |
-| `pnpm build` | Build the renderer (frontend only) |
-| `pnpm package` | Build and package as a macOS distributable |
-| `pnpm test` | Run tests |
-| `pnpm test:watch` | Run tests in watch mode |
-| `pnpm lint` | Run ESLint |
-| `pnpm lint:fix` | Run ESLint with auto-fix |
-| `pnpm format` | Format code with Prettier |
-| `pnpm format:check` | Check formatting without writing |
+| Command             | Description                                       |
+| ------------------- | ------------------------------------------------- |
+| `pnpm dev`          | Start the app in development mode with hot reload |
+| `pnpm build`        | Build the renderer (frontend only)                |
+| `pnpm package`      | Build and package as a macOS distributable        |
+| `pnpm test`         | Run tests                                         |
+| `pnpm test:watch`   | Run tests in watch mode                           |
+| `pnpm lint`         | Run ESLint                                        |
+| `pnpm lint:fix`     | Run ESLint with auto-fix                          |
+| `pnpm format`       | Format code with Prettier                         |
+| `pnpm format:check` | Check formatting without writing                  |
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `Cmd+T` | New tab |
-| `Cmd+W` | Close pane |
-| `Cmd+Shift+W` | Close tab |
-| `Cmd+D` | Split pane horizontally |
-| `Cmd+Shift+D` | Split pane vertically |
-| `Cmd+[` / `Cmd+]` | Navigate tabs or panes |
-| `Cmd+1–9` | Switch to tab by number |
-| `Cmd+K` | Command palette |
-| `Cmd+,` | Settings |
-| `Cmd+\` | Toggle sidebar |
+| Shortcut                    | Action                           |
+| --------------------------- | -------------------------------- |
+| `Cmd+T`                     | New tab                          |
+| `Cmd+W`                     | Close pane                       |
+| `Cmd+Shift+W`               | Close tab                        |
+| `Cmd+D`                     | Split pane horizontally          |
+| `Cmd+Shift+D`               | Split pane vertically            |
+| `Cmd+[` / `Cmd+]`           | Navigate tabs or panes           |
+| `Cmd+1–9`                   | Switch to tab by number          |
+| `Cmd+K`                     | Command palette                  |
+| `Cmd+,`                     | Settings                         |
+| `Cmd+\`                     | Toggle sidebar                   |
 | `Cmd+0` / `Cmd++` / `Cmd+-` | Reset / increase / decrease zoom |
 
 ## Data Directories

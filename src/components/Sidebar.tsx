@@ -281,7 +281,9 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                         }}
                         style={getProjectTransformStyle(idx)}
                         className={
-                          projDragIndex === idx ? styles.projectDragging : undefined
+                          projDragIndex === idx
+                            ? styles.projectDragging
+                            : undefined
                         }
                       >
                         <ProjectItem
@@ -297,8 +299,9 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                             selectProject(idx);
                             setProjectExpanded(project.id);
                             const ws =
-                              project.workspaces[project.selectedWorkspaceIndex] ??
-                              project.workspaces[0];
+                              project.workspaces[
+                                project.selectedWorkspaceIndex
+                              ] ?? project.workspaces[0];
                             if (ws) setActiveWorkspace(ws.path);
                           }}
                           onRemove={() => removeProject(project.id)}
@@ -319,7 +322,9 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                           onCreateWorktree={(name, branch) =>
                             createWorktree(project.id, name, branch)
                           }
-                          onOpenSettings={() => onOpenProjectSettings?.(project.id)}
+                          onOpenSettings={() =>
+                            onOpenProjectSettings?.(project.id)
+                          }
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
                         />
                       </div>

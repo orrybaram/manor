@@ -147,7 +147,7 @@ describe("AgentDetector", () => {
   // ── 4. Agent exit (foreground process disappears) ──
 
   describe("agent exit", () => {
-    it('agent thinking, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
+    it("agent thinking, FG becomes null -> transitionToGone (status=idle, kind=null)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       onChange.mockClear();
@@ -158,7 +158,7 @@ describe("AgentDetector", () => {
       expect(detector.getState().processName).toBeNull();
     });
 
-    it('agent requires_input, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
+    it("agent requires_input, FG becomes null -> transitionToGone (status=idle, kind=null)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       detector.setStatus("requires_input");
@@ -178,12 +178,12 @@ describe("AgentDetector", () => {
       expect(detector.getState().status).toBe("idle");
       // Should not have transitioned through complete
       const completeCalls = onChange.mock.calls.filter(
-        ([s]: [AgentState]) => s.status === "complete"
+        ([s]: [AgentState]) => s.status === "complete",
       );
       expect(completeCalls).toHaveLength(0);
     });
 
-    it('agent complete, FG becomes null -> transitionToGone (status=idle, kind=null)', () => {
+    it("agent complete, FG becomes null -> transitionToGone (status=idle, kind=null)", () => {
       detector.updateForegroundProcess("claude");
       detector.setStatus("thinking");
       detector.setStatus("complete");
@@ -301,9 +301,7 @@ describe("AgentDetector", () => {
       detector.setStatus("requires_input");
       detector.setStatus("thinking");
 
-      const statuses = onChange.mock.calls.map(
-        ([s]: [AgentState]) => s.status
-      );
+      const statuses = onChange.mock.calls.map(([s]: [AgentState]) => s.status);
       expect(statuses).toEqual(["thinking", "requires_input", "thinking"]);
     });
   });

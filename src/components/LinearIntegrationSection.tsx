@@ -48,7 +48,10 @@ export function LinearIntegrationSection() {
       addToast({
         id: "linear-connected",
         message: "Linear connected",
-        detail: count > 0 ? `Auto-matched ${count} project${count !== 1 ? "s" : ""}` : undefined,
+        detail:
+          count > 0
+            ? `Auto-matched ${count} project${count !== 1 ? "s" : ""}`
+            : undefined,
         status: "success",
       });
     } catch (err) {
@@ -69,7 +72,8 @@ export function LinearIntegrationSection() {
     <div className={styles.settingsGroup}>
       <div className={styles.sectionTitle}>Linear</div>
       <div className={styles.sectionDescription}>
-        Connect Linear to sync issues, track project progress, and auto-match teams to your projects.
+        Connect Linear to sync issues, track project progress, and auto-match
+        teams to your projects.
       </div>
       {connected ? (
         <div className={styles.linearConnected}>

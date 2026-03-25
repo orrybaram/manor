@@ -79,9 +79,7 @@ export function useTerminalLifecycle(
     const container = containerRef.current;
     if (!container) return;
 
-    const t = new Terminal(
-      terminalOptions(theme ? { theme } : {}),
-    );
+    const t = new Terminal(terminalOptions(theme ? { theme } : {}));
 
     const fit = new FitAddon();
     t.loadAddon(fit);
@@ -146,7 +144,7 @@ export function useTerminalLifecycle(
           if (cwd) {
             const projects = useProjectStore.getState().projects;
             const project = projects.find((p) =>
-              p.workspaces.some((ws) => ws.path === cwd)
+              p.workspaces.some((ws) => ws.path === cwd),
             );
 
             // Fire-and-forget call to set pane context

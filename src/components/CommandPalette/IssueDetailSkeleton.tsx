@@ -11,16 +11,31 @@ export function IssueDetailSkeleton({ onBack }: { onBack: () => void }) {
           </button>
         </div>
         <div className={styles.detailMain}>
-          <div className={`${styles.skeletonBone} ${styles.skeletonDetailTitle}`} />
-          <div className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`} style={{ width: "90%" }} />
-          <div className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`} style={{ width: "75%" }} />
-          <div className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`} style={{ width: "60%" }} />
+          <div
+            className={`${styles.skeletonBone} ${styles.skeletonDetailTitle}`}
+          />
+          <div
+            className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`}
+            style={{ width: "90%" }}
+          />
+          <div
+            className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`}
+            style={{ width: "75%" }}
+          />
+          <div
+            className={`${styles.skeletonBone} ${styles.skeletonDetailLine}`}
+            style={{ width: "60%" }}
+          />
         </div>
         <div className={styles.detailSidebar}>
           {Array.from({ length: 4 }, (_, i) => (
             <div key={i} className={styles.sidebarField}>
-              <div className={`${styles.skeletonBone} ${styles.skeletonSidebarLabel}`} />
-              <div className={`${styles.skeletonBone} ${styles.skeletonSidebarValue}`} />
+              <div
+                className={`${styles.skeletonBone} ${styles.skeletonSidebarLabel}`}
+              />
+              <div
+                className={`${styles.skeletonBone} ${styles.skeletonSidebarValue}`}
+              />
             </div>
           ))}
         </div>

@@ -9,7 +9,13 @@ interface PaneLayoutProps {
 
 export function PaneLayout({ node, workspacePath }: PaneLayoutProps) {
   if (node.type === "leaf") {
-    return <LeafPane key={node.paneId} paneId={node.paneId} workspacePath={workspacePath} />;
+    return (
+      <LeafPane
+        key={node.paneId}
+        paneId={node.paneId}
+        workspacePath={workspacePath}
+      />
+    );
   }
 
   return (

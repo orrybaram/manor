@@ -4,7 +4,10 @@ import { AppPreferences } from "../electron.d";
 interface PreferencesState {
   preferences: AppPreferences;
   loaded: boolean;
-  set: (key: keyof AppPreferences, value: AppPreferences[keyof AppPreferences]) => void;
+  set: (
+    key: keyof AppPreferences,
+    value: AppPreferences[keyof AppPreferences],
+  ) => void;
 }
 
 const defaultPreferences: AppPreferences = {
@@ -17,9 +20,12 @@ const defaultPreferences: AppPreferences = {
 
 export const usePreferencesStore = create<PreferencesState>((set) => {
   // Load initial preferences on store creation
-  window.electronAPI?.preferences.getAll().then((preferences) => {
-    set({ preferences, loaded: true });
-  }).catch(() => {});
+  window.electronAPI?.preferences
+    .getAll()
+    .then((preferences) => {
+      set({ preferences, loaded: true });
+    })
+    .catch(() => {});
 
   // Subscribe to live preference updates
   window.electronAPI?.preferences.onChange((preferences) => {

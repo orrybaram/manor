@@ -67,6 +67,7 @@
 .webviewContainer {
   flex: 1;
   min-height: 0;
+  background: white;
 }
 
 .webviewContainer webview {

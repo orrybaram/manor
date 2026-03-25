@@ -31,11 +31,15 @@ interface BrowserPaneProps {
 
 export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   const webviewRef = useRef<WebviewElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState(initialUrl);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [pickerActive, setPickerActive] = useState(false);
+
+  const isBlank = url === "about:blank";
   const setPaneTitle = useAppStore((s) => s.setPaneTitle);
+  const setPaneUrl = useAppStore((s) => s.setPaneUrl);
   const setPickedElement = useAppStore((s) => s.setPickedElement);
   const clearPickedElement = useAppStore((s) => s.clearPickedElement);
 
@@ -61,11 +65,19 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   }, []);
 
   useEffect(() => {
+    if (isBlank) {
+      urlInputRef.current?.focus();
+    }
+  }, [isBlank]);
+
+  useEffect(() => {
     const wv = webviewRef.current;
     if (!wv) return;
 
     const onNavigate = (e: Event) => {
-      setUrl((e as WebviewNavigateEvent).url);
+      const newUrl = (e as WebviewNavigateEvent).url;
+      setUrl(newUrl);
+      setPaneUrl(paneId, newUrl);
       updateNavState();
       clearPickedElement(paneId);
     };
@@ -175,6 +187,7 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
           <Crosshair size={12} />
         </button>
         <input
+          ref={urlInputRef}
           className={styles.urlInput}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -187,6 +200,9 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
           ref={webviewRef as React.RefObject<HTMLElement>}
           src={initialUrl}
         />
+        {isBlank && (
+          <div className={styles.emptyState}>Enter a URL to get started</div>
+        )}
       </div>
     </div>
   );

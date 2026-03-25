@@ -54,12 +54,17 @@ async function httpGet(urlPath: string): Promise<unknown> {
 async function httpPost(
   urlPath: string,
   body?: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<unknown> {
-  const res = await fetch(`${BASE_URL}${urlPath}`, {
+  const init: RequestInit = {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
-  });
+  };
+  if (timeoutMs !== undefined) {
+    init.signal = AbortSignal.timeout(timeoutMs);
+  }
+  const res = await fetch(`${BASE_URL}${urlPath}`, init);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text}`);
@@ -225,7 +230,106 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "pick_element",
+    description:
+      "Activate element picker in a webview — the user selects an element and its context is returned.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
+    },
+  },
+  {
+    name: "get_element_context",
+    description:
+      "Get detailed context for a DOM element by CSS selector, without requiring user interaction.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector of the element to inspect.",
+        },
+      },
+      required: ["selector"],
+    },
+  },
 ];
+
+// ── Element context types and formatter ──
+
+interface ReactComponent {
+  name: string;
+  source?: { fileName: string; lineNumber: number };
+}
+
+interface ElementContext {
+  selector: string;
+  outerHTML: string;
+  computedStyles: Record<string, string>;
+  boundingBox: { x: number; y: number; width: number; height: number };
+  accessibility: Record<string, string>;
+  reactComponents?: ReactComponent[];
+}
+
+function formatElementContext(paneId: string, ctx: ElementContext): string {
+  const lines: string[] = [];
+
+  lines.push(`<picked_element pane="${paneId}">`);
+
+  lines.push("## Selector Path");
+  lines.push(ctx.selector);
+  lines.push("");
+
+  lines.push("## HTML");
+  lines.push(ctx.outerHTML);
+  lines.push("");
+
+  lines.push("## Computed Styles");
+  lines.push(
+    Object.entries(ctx.computedStyles)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("; "),
+  );
+  lines.push("");
+
+  const bb = ctx.boundingBox;
+  lines.push("## Bounding Box");
+  lines.push(`x: ${bb.x}, y: ${bb.y}, width: ${bb.width}, height: ${bb.height}`);
+  lines.push("");
+
+  lines.push("## Accessibility");
+  const a11y = Object.entries(ctx.accessibility);
+  lines.push(a11y.length > 0 ? a11y.map(([k, v]) => `${k}: ${v}`).join(", ") : "(none)");
+
+  if (ctx.reactComponents && ctx.reactComponents.length > 0) {
+    lines.push("");
+    lines.push("## React Context");
+    const [closest, ...parents] = ctx.reactComponents;
+    const sourceStr = closest.source
+      ? ` at ${closest.source.fileName}:${closest.source.lineNumber}`
+      : "";
+    lines.push(`Component: ${closest.name}${sourceStr}`);
+    if (parents.length > 0) {
+      const chain = [...parents].reverse().map((c) => c.name);
+      chain.push(closest.name);
+      lines.push(`Parent chain: ${chain.join(" > ")}`);
+    }
+  }
+
+  lines.push("</picked_element>");
+
+  return lines.join("\n");
+}
 
 // ── Tool handlers ──
 
@@ -339,6 +443,28 @@ async function handleTool(
           `/webview/${encodeURIComponent(id)}/url`,
         )) as { url: string };
         return text(result.url);
+      }
+
+      case "pick_element": {
+        const id = await resolvePaneId(args.paneId as string | undefined);
+        const result = (await httpPost(
+          `/webview/${encodeURIComponent(id)}/pick-element`,
+          undefined,
+          35_000,
+        )) as ElementContext | { cancelled: true };
+        if ("cancelled" in result && result.cancelled) {
+          return text("Element picker was cancelled by the user.");
+        }
+        return text(formatElementContext(id, result as ElementContext));
+      }
+
+      case "get_element_context": {
+        const id = await resolvePaneId(args.paneId as string | undefined);
+        const result = (await httpPost(
+          `/webview/${encodeURIComponent(id)}/element-context`,
+          { selector: args.selector as string },
+        )) as ElementContext;
+        return text(formatElementContext(id, result));
       }
 
       default:

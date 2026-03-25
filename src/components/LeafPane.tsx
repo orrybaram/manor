@@ -34,6 +34,7 @@ export function LeafPane({
   const isFocused = focusedPaneId === paneId;
 
   const browserRef = useRef<BrowserPaneRef>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
 
   const dragStartX = useRef(0);
@@ -173,6 +174,7 @@ export function LeafPane({
               </button>
             </Tooltip>
             <input
+              ref={urlInputRef}
               className={styles.paneUrlInput}
               value={navState?.url ?? ""}
               onChange={browserRef.current?.urlInputHandlers.onChange ?? (() => {})}
@@ -181,6 +183,7 @@ export function LeafPane({
               onFocus={browserRef.current?.urlInputHandlers.onFocus}
               placeholder="Enter URL"
               spellCheck={false}
+              autoFocus={!paneUrl || paneUrl === "about:blank"}
             />
             <Tooltip label="Pick element">
               <button

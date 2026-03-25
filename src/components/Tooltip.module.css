@@ -1,0 +1,26 @@
+.content {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text);
+  z-index: 200;
+  user-select: none;
+  animation: fadeIn 150ms ease;
+}
+
+.arrow {
+  fill: var(--surface);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -260,6 +260,7 @@ export function CommandPalette({
         icon: <GitHubIcon size={14} />,
         suffix: <ChevronRight size={14} />,
         action: navigateToGitHub,
+        keywords: ["ticket"],
       },
       {
         id: "github-all-issues",
@@ -267,6 +268,7 @@ export function CommandPalette({
         icon: <GitHubIcon size={14} />,
         suffix: <ChevronRight size={14} />,
         action: navigateToGitHubAll,
+        keywords: ["ticket"],
       },
     ];
 
@@ -305,6 +307,7 @@ export function CommandPalette({
     navigateToGitHub,
     navigateToGitHubAll,
   ]);
+
 
   return (
     <>
@@ -356,15 +359,18 @@ export function CommandPalette({
                       .filter((c) => c.visible)
                       .sort((a, b) => {
                         if (!search) return 0;
+                        console.log(a)
+                        
                         const bestScore = (cat: CategoryConfig) =>
                           Math.max(
                             0,
-                            ...cat.items.map((cmd) =>
-                              wordPrefixFilter(
-                                `${cat.heading} ${cmd.label}`,
+                            ...cat.items.map((cmd) => {
+                              
+                              return wordPrefixFilter(
+                                `${cat.heading} ${cmd.label} ${cmd.keywords?.join(" ") ?? ""}`,
                                 search,
-                              ),
-                            ),
+                              )
+                            }),
                           );
                         return bestScore(b) - bestScore(a);
                       })
@@ -380,9 +386,10 @@ export function CommandPalette({
                             {cat.items.map((cmd) => (
                               <Command.Item
                                 key={cmd.id}
-                                value={`${cat.heading} ${cmd.label}`}
+                                value={`${cat.heading} ${cmd.label} ${cmd.keywords?.join(" ") ?? ""}`}
                                 onSelect={cmd.action}
                                 className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
+                                keywords={cmd.keywords}
                               >
                                 {cmd.icon && (
                                   <span className={styles.icon}>

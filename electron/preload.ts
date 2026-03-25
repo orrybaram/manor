@@ -256,6 +256,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("notification:navigate-to-task", callback),
   },
 
+  clipboard: {
+    writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
+  },
+
   webview: {
     register: (paneId: string, webContentsId: number) =>
       ipcRenderer.invoke("webview:register", paneId, webContentsId),

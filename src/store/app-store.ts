@@ -143,6 +143,9 @@ export interface AppState {
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
 
+  // Browser URL tracking
+  setPaneUrl: (paneId: string, url: string) => void;
+
   // Agent status tracking
   setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
 
@@ -191,10 +194,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (layout) {
         _cachedLayout = layout;
 
-        // Pre-populate paneCwd, paneTitle, and paneAgentStatus from persisted data
+        // Pre-populate paneCwd, paneTitle, paneAgentStatus, paneContentType,
+        // and paneUrl from persisted data
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
         const agents: Record<string, AgentState> = {};
+        const contentTypes: Record<string, "terminal" | "browser"> = {};
+        const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
             for (const [paneId, paneSession] of Object.entries(
@@ -216,6 +222,21 @@ export const useAppStore = create<AppState>((set, get) => ({
                 agents[paneId] = paneSession.lastAgentStatus as AgentState;
               }
             }
+            // Extract contentType and url from leaf nodes in the pane tree
+            const extractLeafData = (node: PaneNode): void => {
+              if (node.type === "leaf") {
+                if (node.contentType) {
+                  contentTypes[node.paneId] = node.contentType;
+                }
+                if (node.url) {
+                  urls[node.paneId] = node.url;
+                }
+              } else {
+                extractLeafData(node.first);
+                extractLeafData(node.second);
+              }
+            };
+            extractLeafData(session.rootNode);
           }
         }
 
@@ -224,6 +245,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneCwd: { ...get().paneCwd, ...cwds },
           paneTitle: { ...get().paneTitle, ...titles },
           paneAgentStatus: { ...get().paneAgentStatus, ...agents },
+          paneContentType: { ...get().paneContentType, ...contentTypes },
+          paneUrl: { ...get().paneUrl, ...urls },
         });
       } else {
         set({ layoutLoaded: true });
@@ -980,6 +1003,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       if (state.paneTitle[paneId] === title) return state;
       return { paneTitle: { ...state.paneTitle, [paneId]: title } };
+    }),
+
+  setPaneUrl: (paneId: string, url: string) =>
+    set((state) => {
+      if (state.paneUrl[paneId] === url) return state;
+      // Update the paneUrl map
+      const newState: Partial<AppState> = {
+        paneUrl: { ...state.paneUrl, [paneId]: url },
+      };
+      // Also update the url in the rootNode leaf so it persists
+      const wsPath = state.activeWorkspacePath;
+      if (wsPath) {
+        const ws = state.workspaceSessions[wsPath];
+        if (ws) {
+          const updateLeafUrl = (node: PaneNode): PaneNode => {
+            if (node.type === "leaf") {
+              return node.paneId === paneId ? { ...node, url } : node;
+            }
+            const first = updateLeafUrl(node.first);
+            const second = updateLeafUrl(node.second);
+            if (first === node.first && second === node.second) return node;
+            return { ...node, first, second };
+          };
+          const updatedSessions = ws.sessions.map((s) => {
+            const newRoot = updateLeafUrl(s.rootNode);
+            return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
+          });
+          if (updatedSessions !== ws.sessions) {
+            newState.workspaceSessions = {
+              ...state.workspaceSessions,
+              [wsPath]: { ...ws, sessions: updatedSessions },
+            };
+          }
+        }
+      }
+      return newState;
     }),
 
   setPaneAgentStatus: (paneId: string, agent: AgentState) =>

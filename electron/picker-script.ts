@@ -127,8 +127,8 @@ export const PICKER_SCRIPT = `(function() {
             var frames = node._debugStack.stack.split('\n');
             for (var fi = 0; fi < frames.length; fi++) {
               var frame = frames[fi].trim();
-              var m = frame.match(/\((?:webpack:\/\/\/|[a-z]+:\/\/[^/]+)?(\/[^:)]+):(\d+):\d+\)/) ||
-                      frame.match(/\(([^:)][^:]*):(\d+):\d+\)/);
+              var m = frame.match(/\\((?:webpack:\\/\\/\\/|[a-z]+:\\/\\/[^/]+)?(\\/[^:)]+):(\\d+):\\d+\\)/) ||
+                      frame.match(/\\(([^:)][^:]*):(\\d+):\\d+\\)/);
               if (m) {
                 entry.source = {
                   fileName: m[1],

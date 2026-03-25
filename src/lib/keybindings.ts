@@ -123,6 +123,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("k"),
     category: "app",
   },
+  {
+    id: "new-browser",
+    label: "New Browser Window",
+    defaultCombo: metaCombo("b", true),
+    category: "workspace",
+  },
 ];
 
 /**

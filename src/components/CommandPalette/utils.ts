@@ -20,6 +20,8 @@ export const wordPrefixFilter = (value: string, search: string) => {
   const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
   const words = val.split(/\s+/);
 
+
+
   let score = 0;
   for (const t of terms) {
     if (words.some((w) => w === t)) {

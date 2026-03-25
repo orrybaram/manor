@@ -402,6 +402,10 @@ export interface ElectronAPI {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
   };
 
+  clipboard: {
+    writeText: (text: string) => Promise<void>;
+  };
+
   webview: {
     register: (paneId: string, webContentsId: number) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;

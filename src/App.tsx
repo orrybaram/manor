@@ -10,6 +10,7 @@ import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ToastContainer } from "./components/Toast";
+import { TooltipProvider } from "./components/Tooltip";
 import { TasksModal } from "./components/TasksView";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
@@ -19,6 +20,8 @@ import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import type { TaskInfo } from "./electron.d";
+import { navigateToTask } from "./utils/task-navigation";
+import { allPaneIds } from "./store/pane-tree";
 import "./App.css";
 
 const SESSION_BASE_STYLE: React.CSSProperties = {
@@ -113,6 +116,7 @@ function App() {
   const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
+  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
   const projects = useProjectStore((s) => s.projects);
@@ -160,6 +164,7 @@ function App() {
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
     "new-task": () => handleNewTaskRef.current(),
+    "new-browser": () => addBrowserSession("about:blank"),
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-session-${i + 1}`,
@@ -196,6 +201,21 @@ function App() {
 
   const handleResumeTask = useCallback(
     (task: TaskInfo) => {
+      // If the task is active and has a pane, switch to it instead of opening a new session
+      if (task.status === "active" && task.paneId && task.workspacePath) {
+        const wsSessions =
+          useAppStore.getState().workspaceSessions[task.workspacePath];
+        if (wsSessions) {
+          const paneExists = wsSessions.sessions.some((session) =>
+            allPaneIds(session.rootNode).includes(task.paneId!),
+          );
+          if (paneExists) {
+            navigateToTask(task);
+            return;
+          }
+        }
+      }
+
       const wsPath = task.workspacePath;
       if (wsPath) {
         setActiveWorkspace(wsPath);
@@ -259,6 +279,7 @@ function App() {
   );
 
   return (
+    <TooltipProvider>
     <div className="app">
       <div className="app-body">
         {sidebarVisible && (
@@ -355,6 +376,7 @@ function App() {
       />
       <ToastContainer />
     </div>
+    </TooltipProvider>
   );
 }
 

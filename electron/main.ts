@@ -9,6 +9,7 @@ import {
   nativeImage,
   Notification,
   webContents,
+  clipboard,
 } from "electron";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -746,6 +747,11 @@ ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
       resolve(err ? err.message : "");
     });
   });
+});
+
+// ── Clipboard IPC ──
+ipcMain.handle("clipboard:writeText", (_event, text: string) => {
+  clipboard.writeText(text);
 });
 
 // ── Task Persistence IPC ──

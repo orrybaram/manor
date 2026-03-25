@@ -160,6 +160,7 @@ export function useCommands({
       {
         id: "open-in-editor",
         label: "Open in Editor",
+        keywords: ["code"],
         action: () => {
           if (activeWorkspacePath) {
             window.electronAPI.shell.openInEditor(activeWorkspacePath);

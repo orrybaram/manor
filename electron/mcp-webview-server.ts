@@ -315,15 +315,11 @@ function formatElementContext(paneId: string, ctx: ElementContext): string {
   if (ctx.reactComponents && ctx.reactComponents.length > 0) {
     lines.push("");
     lines.push("## React Context");
-    const [closest, ...parents] = ctx.reactComponents;
-    const sourceStr = closest.source
-      ? ` at ${closest.source.fileName}:${closest.source.lineNumber}`
-      : "";
-    lines.push(`Component: ${closest.name}${sourceStr}`);
-    if (parents.length > 0) {
-      const chain = [...parents].reverse().map((c) => c.name);
-      chain.push(closest.name);
-      lines.push(`Parent chain: ${chain.join(" > ")}`);
+    for (const comp of ctx.reactComponents) {
+      const sourceStr = comp.source
+        ? ` (at ${comp.source.fileName}:${comp.source.lineNumber})`
+        : "";
+      lines.push(`  in ${comp.name}${sourceStr}`);
     }
   }
 

@@ -5,6 +5,7 @@ export interface CommandItem {
   label: string;
   icon?: ReactNode;
   shortcut?: string;
+  keywords?: string[];
   group?: string;
   isActive?: boolean;
   suffix?: ReactNode;

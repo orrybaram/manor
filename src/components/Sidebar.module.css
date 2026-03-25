@@ -844,6 +844,7 @@
 .portOpen {
   color: var(--text-dim);
   flex-shrink: 0;
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.15s;
 }

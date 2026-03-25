@@ -1,6 +1,7 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Globe, X } from "lucide-react";
+import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useSessionTitle } from "./useSessionTitle";
 import { TabAgentDot } from "./TabAgentDot";
@@ -64,18 +65,20 @@ export function SessionButton({
             {isPinned ? shortenTitle(title) : title}
           </span>
           {canClose && !isPinned && (
-            <span
-              className={styles.sessionClose}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose();
-              }}
-            >
-              <X size={12} />
-            </span>
+            <Tooltip label="Close Tab">
+              <span
+                className={styles.sessionClose}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+              >
+                <X size={12} />
+              </span>
+            </Tooltip>
           )}
         </div>
       </ContextMenu.Trigger>

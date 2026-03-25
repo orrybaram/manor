@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Plus } from "lucide-react";
+import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
@@ -255,9 +256,11 @@ export function TabBar() {
             />
           );
         })}
-        <button className={styles.addButton} onClick={addSession}>
-          <Plus size={14} />
-        </button>
+        <Tooltip label="New Tab">
+          <button className={styles.addButton} onClick={addSession}>
+            <Plus size={14} />
+          </button>
+        </Tooltip>
       </div>
       <div className={styles.spacer} />
     </div>

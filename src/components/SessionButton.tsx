@@ -1,6 +1,7 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { X } from "lucide-react";
+import { Globe, X } from "lucide-react";
+import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useSessionTitle } from "./useSessionTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar.module.css";
@@ -41,6 +42,12 @@ export function SessionButton({
   buttonRef: (el: HTMLDivElement | null) => void;
 }) {
   const title = useSessionTitle(sessionId);
+  const isBrowser = useAppStore((s) => {
+    const ws = selectActiveWorkspace(s);
+    const session = ws?.sessions.find((t) => t.id === sessionId);
+    const paneId = session?.focusedPaneId;
+    return paneId ? s.paneContentType[paneId] === "browser" : false;
+  });
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -52,6 +59,7 @@ export function SessionButton({
           style={style}
         >
           <TabAgentDot sessionId={sessionId} />
+          {isBrowser && <Globe size={12} className={styles.sessionIcon} />}
           <span className={styles.sessionTitle}>{isPinned ? shortenTitle(title) : title}</span>
           {canClose && !isPinned && (
             <span

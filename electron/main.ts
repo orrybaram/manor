@@ -32,6 +32,7 @@ import {
   ensureHookScript,
   registerClaudeHooks,
 } from "./agent-hooks";
+import { WebviewServer } from "./webview-server";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -788,14 +789,17 @@ ipcMain.handle("keybindings:resetAll", () => {
 
 // ── Webview registry ──
 const webviewRegistry = new Map<string, number>();
+const webviewServer = new WebviewServer(webviewRegistry);
 
 ipcMain.handle("webview:register", (_event, paneId: string, webContentsId: number) => {
   assertString(paneId, "paneId");
   webviewRegistry.set(paneId, webContentsId);
+  webviewServer.attachConsoleListener(paneId);
 });
 
 ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   assertString(paneId, "paneId");
+  webviewServer.detachConsoleListener(paneId);
   webviewRegistry.delete(paneId);
 });
 
@@ -918,6 +922,8 @@ app.whenReady().then(async () => {
   // to PTY sessions (which need MANOR_HOOK_PORT for hook scripts).
   await agentHookServer.start();
   process.env.MANOR_HOOK_PORT = String(agentHookServer.hookPort);
+
+  await webviewServer.start();
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
   try {
@@ -1118,6 +1124,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   agentHookServer.stop();
+  webviewServer.stop();
 });
 
 // Note: We intentionally do NOT disconnect the client or kill the daemon on quit.

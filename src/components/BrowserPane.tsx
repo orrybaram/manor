@@ -262,32 +262,16 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
             <RotateCw size={12} />
           </button>
         </Tooltip>
-        <div className={styles.urlWrapper}>
-          <input
-            ref={urlInputRef}
-            className={styles.urlInput}
-            value={url}
-            onChange={handleUrlChange}
-            onFocus={(e) => e.currentTarget.select()}
-            onKeyDown={handleUrlKeyDown}
-            onBlur={handleUrlBlur}
-            spellCheck={false}
-          />
-          {suggestions.length > 0 && (
-            <div className={styles.autocompleteDropdown}>
-              {suggestions.map((entry, idx) => (
-                <div
-                  key={entry.url}
-                  className={`${styles.autocompleteItem} ${idx === highlightIndex ? styles.autocompleteItemHighlighted : ""}`}
-                  onMouseDown={() => handleSuggestionMouseDown(entry)}
-                >
-                  <span className={styles.autocompleteTitle}>{entry.title || entry.url}</span>
-                  <span className={styles.autocompleteUrl}>{entry.url}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <input
+          ref={urlInputRef}
+          className={styles.urlInput}
+          value={url}
+          onChange={handleUrlChange}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={handleUrlKeyDown}
+          onBlur={handleUrlBlur}
+          spellCheck={false}
+        />
         <Tooltip label="Pick Element">
           <button
             className={`${styles.navBtn} ${pickerActive ? styles.navBtnActive : ""}`}
@@ -298,6 +282,20 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
           </button>
         </Tooltip>
       </div>
+      {suggestions.length > 0 && (
+        <div className={styles.autocompleteDropdown}>
+          {suggestions.map((entry, idx) => (
+            <div
+              key={entry.url}
+              className={`${styles.autocompleteItem} ${idx === highlightIndex ? styles.autocompleteItemHighlighted : ""}`}
+              onMouseDown={() => handleSuggestionMouseDown(entry)}
+            >
+              <span className={styles.autocompleteTitle}>{entry.title || entry.url}</span>
+              <span className={styles.autocompleteUrl}>{entry.url}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className={styles.webviewContainer}>
         <webview
           ref={webviewRef as React.RefObject<HTMLElement>}

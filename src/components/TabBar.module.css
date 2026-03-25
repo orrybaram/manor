@@ -23,14 +23,14 @@
   gap: 2px;
   overflow: hidden;
   align-items: center;
-  min-width: 0;
-  flex: 0 1 auto;
   -webkit-app-region: no-drag;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .spacer {
   flex: 1 1 0;
-  min-width: 32px;
+  min-width: 0;
   -webkit-app-region: drag;
 }
 
@@ -46,9 +46,9 @@
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
-  min-width: 48px;
-  max-width: 160px;
-  flex: 0 0 auto;
+  min-width: 32px;
+  max-width: 200px;
+  flex: 0 1 auto;
   transition:
     background 0.15s,
     color 0.15s;

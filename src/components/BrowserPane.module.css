@@ -55,8 +55,7 @@
 }
 
 .urlInput {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   height: 18px;
   border: none;
   background: transparent;
@@ -92,4 +91,57 @@
 .webviewContainer webview {
   width: 100%;
   height: 100%;
+}
+
+/* ── URL Autocomplete ── */
+
+.urlWrapper {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.autocompleteDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: fit-content;
+  overflow: hidden;
+}
+
+.autocompleteItem {
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.autocompleteItem:hover,
+.autocompleteItemHighlighted {
+  background: var(--hover);
+}
+
+.autocompleteTitle {
+  color: var(--text);
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autocompleteUrl {
+  color: var(--text-dim);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useToastStore } from "../store/toast-store";
+import { useBrowserHistoryStore, type HistoryEntry } from "../store/browser-history-store";
 import type { PickedElementResult } from "../electron.d";
 
 import { Tooltip } from "./Tooltip";
@@ -59,6 +60,10 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   const [pickerActive, setPickerActive] = useState(false);
 
   const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
+  const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const setPaneTitle = useAppStore((s) => s.setPaneTitle);
   const setPaneUrl = useAppStore((s) => s.setPaneUrl);
   const setPickedElement = useAppStore((s) => s.setPickedElement);
@@ -103,6 +108,8 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
       setPaneUrl(paneId, newUrl);
       updateNavState();
       clearPickedElement(paneId);
+      const title = useAppStore.getState().paneTitle[paneId] ?? newUrl;
+      useBrowserHistoryStore.getState().addEntry(newUrl, title);
     };
 
     const onTitleUpdate = (e: Event) => {
@@ -169,18 +176,62 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
     window.electronAPI.webview.startPicker(paneId);
   };
 
+  const navigateTo = useCallback((target: string) => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    let resolved = target;
+    if (!/^https?:\/\//i.test(resolved)) {
+      resolved = `https://${resolved}`;
+    }
+    wv.src = resolved;
+    setUrl(resolved);
+    setSuggestions([]);
+    setHighlightIndex(-1);
+  }, []);
+
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setUrl(value);
+    const results = useBrowserHistoryStore.getState().search(value);
+    setSuggestions(results);
+    setHighlightIndex(-1);
+  };
+
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      const wv = webviewRef.current;
-      if (wv) {
-        let target = url;
-        if (!/^https?:\/\//i.test(target)) {
-          target = `https://${target}`;
-        }
-        wv.src = target;
-        setUrl(target);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((prev) =>
+        suggestions.length === 0 ? -1 : Math.min(prev + 1, suggestions.length - 1)
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === "Escape") {
+      setSuggestions([]);
+      setHighlightIndex(-1);
+    } else if (e.key === "Enter") {
+      if (highlightIndex >= 0 && suggestions[highlightIndex]) {
+        navigateTo(suggestions[highlightIndex].url);
+      } else {
+        navigateTo(url);
       }
     }
+  };
+
+  const handleUrlBlur = () => {
+    blurTimerRef.current = setTimeout(() => {
+      setSuggestions([]);
+      setHighlightIndex(-1);
+    }, 150);
+  };
+
+  const handleSuggestionMouseDown = (entry: HistoryEntry) => {
+    // Cancel the blur timer so dropdown doesn't close before click registers
+    if (blurTimerRef.current) {
+      clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
+    }
+    navigateTo(entry.url);
   };
 
   return (
@@ -211,15 +262,32 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
             <RotateCw size={12} />
           </button>
         </Tooltip>
-        <input
-          ref={urlInputRef}
-          className={styles.urlInput}
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={handleUrlKeyDown}
-          spellCheck={false}
-        />
+        <div className={styles.urlWrapper}>
+          <input
+            ref={urlInputRef}
+            className={styles.urlInput}
+            value={url}
+            onChange={handleUrlChange}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={handleUrlKeyDown}
+            onBlur={handleUrlBlur}
+            spellCheck={false}
+          />
+          {suggestions.length > 0 && (
+            <div className={styles.autocompleteDropdown}>
+              {suggestions.map((entry, idx) => (
+                <div
+                  key={entry.url}
+                  className={`${styles.autocompleteItem} ${idx === highlightIndex ? styles.autocompleteItemHighlighted : ""}`}
+                  onMouseDown={() => handleSuggestionMouseDown(entry)}
+                >
+                  <span className={styles.autocompleteTitle}>{entry.title || entry.url}</span>
+                  <span className={styles.autocompleteUrl}>{entry.url}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <Tooltip label="Pick Element">
           <button
             className={`${styles.navBtn} ${pickerActive ? styles.navBtnActive : ""}`}

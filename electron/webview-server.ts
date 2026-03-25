@@ -583,6 +583,20 @@ export class WebviewServer {
                       fileName: node._debugSource.fileName,
                       lineNumber: node._debugSource.lineNumber
                     };
+                  } else if (node._debugStack && node._debugStack.stack) {
+                    var frames = node._debugStack.stack.split('\n');
+                    for (var fi = 0; fi < frames.length; fi++) {
+                      var frame = frames[fi].trim();
+                      var m = frame.match(/\((?:webpack:\/\/\/|[a-z]+:\/\/[^/]+)?(\/[^:)]+):(\d+):\d+\)/) ||
+                              frame.match(/\(([^:)][^:]*):(\d+):\d+\)/);
+                      if (m) {
+                        entry.source = {
+                          fileName: m[1],
+                          lineNumber: parseInt(m[2], 10)
+                        };
+                        break;
+                      }
+                    }
                   }
                   components.push(entry);
                 }

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
 import { useAppStore } from "../store/app-store";
+import { useToastStore } from "../store/toast-store";
 import type { PickedElementResult } from "../electron.d";
 
+import { Tooltip } from "./Tooltip";
 import styles from "./BrowserPane.module.css";
 
 /** Electron webview element with navigation methods. */
@@ -29,6 +31,25 @@ interface BrowserPaneProps {
   initialUrl: string;
 }
 
+function formatPickedElement(result: PickedElementResult): string {
+  const sections: string[] = [];
+
+  if (result.reactComponents && result.reactComponents.length > 0) {
+    const lines = result.reactComponents.map((c) => {
+      if (c.source) {
+        return `  in ${c.name} (at ${c.source.fileName}:${c.source.lineNumber})`;
+      }
+      return `  in ${c.name}`;
+    });
+    sections.push(`## React Context\n${lines.join("\n")}`);
+  }
+
+  sections.push(`## Selector\n${result.selector}`);
+  sections.push(`## HTML\n${result.outerHTML}`);
+
+  return sections.join("\n\n");
+}
+
 export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   const webviewRef = useRef<WebviewElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -37,7 +58,7 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
   const [canGoForward, setCanGoForward] = useState(false);
   const [pickerActive, setPickerActive] = useState(false);
 
-  const isBlank = url === "about:blank";
+  const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
   const setPaneTitle = useAppStore((s) => s.setPaneTitle);
   const setPaneUrl = useAppStore((s) => s.setPaneUrl);
   const setPickedElement = useAppStore((s) => s.setPickedElement);
@@ -66,6 +87,7 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
 
   useEffect(() => {
     if (isBlank) {
+      setUrl("");
       urlInputRef.current?.focus();
     }
   }, [isBlank]);
@@ -77,6 +99,7 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
     const onNavigate = (e: Event) => {
       const newUrl = (e as WebviewNavigateEvent).url;
       setUrl(newUrl);
+      setIsBlank(newUrl === "about:blank");
       setPaneUrl(paneId, newUrl);
       updateNavState();
       clearPickedElement(paneId);
@@ -101,6 +124,12 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
         if (resultPaneId !== paneId) return;
         setPickerActive(false);
         setPickedElement(paneId, result);
+        window.electronAPI.clipboard.writeText(formatPickedElement(result));
+        useToastStore.getState().addToast({
+          id: "picker-copied",
+          message: "Element copied to clipboard",
+          status: "success",
+        });
       },
     );
 
@@ -159,41 +188,47 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
       <div
         className={`${styles.toolbar} ${isFocused ? styles.toolbarFocused : ""}`}
       >
-        <button
-          className={styles.navBtn}
-          onClick={handleBack}
-          disabled={!canGoBack}
-          title="Back"
-        >
-          <ArrowLeft size={12} />
-        </button>
-        <button
-          className={styles.navBtn}
-          onClick={handleForward}
-          disabled={!canGoForward}
-          title="Forward"
-        >
-          <ArrowRight size={12} />
-        </button>
-        <button className={styles.navBtn} onClick={handleReload} title="Reload">
-          <RotateCw size={12} />
-        </button>
-        <button
-          className={`${styles.navBtn} ${pickerActive ? styles.navBtnActive : ""}`}
-          onClick={handlePickElement}
-          title="Pick Element"
-          disabled={pickerActive}
-        >
-          <Crosshair size={12} />
-        </button>
+        <Tooltip label="Back">
+          <button
+            className={styles.navBtn}
+            onClick={handleBack}
+            disabled={!canGoBack}
+          >
+            <ArrowLeft size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip label="Forward">
+          <button
+            className={styles.navBtn}
+            onClick={handleForward}
+            disabled={!canGoForward}
+          >
+            <ArrowRight size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip label="Reload">
+          <button className={styles.navBtn} onClick={handleReload}>
+            <RotateCw size={12} />
+          </button>
+        </Tooltip>
         <input
           ref={urlInputRef}
           className={styles.urlInput}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           onKeyDown={handleUrlKeyDown}
           spellCheck={false}
         />
+        <Tooltip label="Pick Element">
+          <button
+            className={`${styles.navBtn} ${pickerActive ? styles.navBtnActive : ""}`}
+            onClick={handlePickElement}
+            disabled={pickerActive}
+          >
+            <Crosshair size={12} />
+          </button>
+        </Tooltip>
       </div>
       <div className={styles.webviewContainer}>
         <webview

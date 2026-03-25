@@ -37,8 +37,8 @@
 .autocompleteDropdown {
   position: absolute;
   top: 25px;
-  left: 4px;
-  right: 4px;
+  left: 8px;
+  right: 8px;
   z-index: 100;
   background: var(--surface);
   border: 1px solid var(--border);

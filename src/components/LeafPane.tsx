@@ -8,6 +8,7 @@ import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "./Tooltip";
 
 import styles from "./PaneLayout.module.css";
+import browserStyles from "./BrowserPane.module.css";
 
 export function LeafPane({
   paneId,
@@ -65,7 +66,7 @@ export function LeafPane({
     if (e.button !== 0) return;
     // Don't start drag when clicking a button
     const target = e.target as HTMLElement;
-    if (target.closest("button")) return;
+    if (target.closest("button") || target.closest("input")) return;
 
     const statusBarEl = e.currentTarget;
     const pointerId = e.pointerId;
@@ -179,6 +180,7 @@ export function LeafPane({
               onBlur={browserRef.current?.urlInputHandlers.onBlur}
               onFocus={browserRef.current?.urlInputHandlers.onFocus}
               placeholder="Enter URL"
+              spellCheck={false}
             />
             <Tooltip label="Pick element">
               <button
@@ -246,6 +248,20 @@ export function LeafPane({
           </button>
         </div>
       </div>
+      {contentType === "browser" && navState && navState.suggestions.length > 0 && (
+        <div className={browserStyles.autocompleteDropdown}>
+          {navState.suggestions.map((entry, idx) => (
+            <div
+              key={entry.url}
+              className={`${browserStyles.autocompleteItem} ${idx === navState.highlightIndex ? browserStyles.autocompleteItemHighlighted : ""}`}
+              onMouseDown={() => browserRef.current?.onSuggestionMouseDown(entry)}
+            >
+              <span className={browserStyles.autocompleteTitle}>{entry.title || entry.url}</span>
+              <span className={browserStyles.autocompleteUrl}>{entry.url}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className={styles.leafTerminal}>
         {contentType === "browser" ? (
           <BrowserPane

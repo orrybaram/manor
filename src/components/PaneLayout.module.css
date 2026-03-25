@@ -33,6 +33,8 @@
   flex-shrink: 0;
   user-select: none;
   cursor: grab;
+  position: relative;
+  z-index: 10;
 }
 
 .paneStatusBarDragging {

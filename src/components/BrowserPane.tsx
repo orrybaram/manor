@@ -31,6 +31,8 @@ export interface BrowserPaneNavState {
   canGoForward: boolean;
   pickerActive: boolean;
   isBlank: boolean;
+  suggestions: HistoryEntry[];
+  highlightIndex: number;
 }
 
 export interface BrowserPaneRef {
@@ -49,6 +51,7 @@ export interface BrowserPaneRef {
     onBlur: () => void;
     onFocus: (e: React.FocusEvent<HTMLInputElement>) => void;
   };
+  onSuggestionMouseDown: (entry: HistoryEntry) => void;
 }
 
 interface BrowserPaneProps {
@@ -97,6 +100,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       canGoForward: false,
       pickerActive: false,
       isBlank: initialUrl === "about:blank",
+      suggestions: [],
+      highlightIndex: -1,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -132,7 +137,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       setUrl(resolved);
       setSuggestions([]);
       setHighlightIndex(-1);
-      fireNavStateChange({ url: resolved });
+      fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
     }, [fireNavStateChange]);
 
     // URL input handlers — kept here so url/nav state management stays in BrowserPane.
@@ -143,7 +148,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const results = useBrowserHistoryStore.getState().search(value);
       setSuggestions(results);
       setHighlightIndex(-1);
-    }, []);
+      fireNavStateChange({ url: value, suggestions: results, highlightIndex: -1 });
+    }, [fireNavStateChange]);
 
     const urlRef = useRef(url);
     useEffect(() => {
@@ -165,15 +171,18 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const currentHighlight = highlightIndexRef.current;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlightIndex((prev) =>
-          currentSuggestions.length === 0 ? -1 : Math.min(prev + 1, currentSuggestions.length - 1)
-        );
+        const next = currentSuggestions.length === 0 ? -1 : Math.min(currentHighlight + 1, currentSuggestions.length - 1);
+        setHighlightIndex(next);
+        fireNavStateChange({ highlightIndex: next });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlightIndex((prev) => Math.max(prev - 1, -1));
+        const next = Math.max(currentHighlight - 1, -1);
+        setHighlightIndex(next);
+        fireNavStateChange({ highlightIndex: next });
       } else if (e.key === "Escape") {
         setSuggestions([]);
         setHighlightIndex(-1);
+        fireNavStateChange({ suggestions: [], highlightIndex: -1 });
       } else if (e.key === "Enter") {
         if (currentHighlight >= 0 && currentSuggestions[currentHighlight]) {
           navigateTo(currentSuggestions[currentHighlight].url);
@@ -181,18 +190,27 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           navigateTo(urlRef.current);
         }
       }
-    }, [navigateTo]);
+    }, [navigateTo, fireNavStateChange]);
 
     const handleUrlBlur = useCallback(() => {
       blurTimerRef.current = setTimeout(() => {
         setSuggestions([]);
         setHighlightIndex(-1);
+        fireNavStateChange({ suggestions: [], highlightIndex: -1 });
       }, 150);
-    }, []);
+    }, [fireNavStateChange]);
 
     const handleUrlFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
       e.currentTarget.select();
     }, []);
+
+    const handleSuggestionMouseDown = useCallback((entry: HistoryEntry) => {
+      if (blurTimerRef.current) {
+        clearTimeout(blurTimerRef.current);
+        blurTimerRef.current = null;
+      }
+      navigateTo(entry.url);
+    }, [navigateTo]);
 
     useImperativeHandle(ref, () => ({
       goBack() {
@@ -224,7 +242,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         onBlur: handleUrlBlur,
         onFocus: handleUrlFocus,
       },
-    }), [paneId, navigateTo, fireNavStateChange, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus]);
+      onSuggestionMouseDown: handleSuggestionMouseDown,
+    }), [paneId, navigateTo, fireNavStateChange, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
     useEffect(() => {
       const wv = webviewRef.current;
@@ -289,31 +308,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       };
     }, [paneId, setPaneTitle, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
 
-    const handleSuggestionMouseDown = (entry: HistoryEntry) => {
-      // Cancel the blur timer so dropdown doesn't close before click registers
-      if (blurTimerRef.current) {
-        clearTimeout(blurTimerRef.current);
-        blurTimerRef.current = null;
-      }
-      navigateTo(entry.url);
-    };
-
     return (
       <div className={styles.container}>
-        {suggestions.length > 0 && (
-          <div className={styles.autocompleteDropdown}>
-            {suggestions.map((entry, idx) => (
-              <div
-                key={entry.url}
-                className={`${styles.autocompleteItem} ${idx === highlightIndex ? styles.autocompleteItemHighlighted : ""}`}
-                onMouseDown={() => handleSuggestionMouseDown(entry)}
-              >
-                <span className={styles.autocompleteTitle}>{entry.title || entry.url}</span>
-                <span className={styles.autocompleteUrl}>{entry.url}</span>
-              </div>
-            ))}
-          </div>
-        )}
         <div className={styles.webviewContainer}>
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}

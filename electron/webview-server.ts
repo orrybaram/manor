@@ -10,6 +10,7 @@ import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { webContents } from "electron";
+import { PICKER_SCRIPT } from "./picker-script";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -391,6 +392,197 @@ export class WebviewServer {
       // ── GET /webview/:id/url ──
       if (method === "GET" && action === "url") {
         json(200, { url: wc.getURL() });
+        return;
+      }
+
+      // ── POST /webview/:id/pick-element ──
+      if (method === "POST" && action === "pick-element") {
+        const PICK_TIMEOUT_MS = 30_000;
+
+        const result = await new Promise<unknown>((resolve, reject) => {
+          let settled = false;
+
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            wc.off("console-message", listener);
+            reject(new Error("pick-element timed out after 30s"));
+          }, PICK_TIMEOUT_MS);
+
+          const listener = (
+            _event: Electron.Event,
+            _level: number,
+            message: string,
+          ) => {
+            if (settled) return;
+
+            if (message.startsWith("__MANOR_PICK__:")) {
+              settled = true;
+              clearTimeout(timer);
+              wc.off("console-message", listener);
+              try {
+                resolve(JSON.parse(message.slice("__MANOR_PICK__:".length)));
+              } catch {
+                reject(new Error("Failed to parse pick result JSON"));
+              }
+            } else if (message === "__MANOR_PICK_CANCEL__") {
+              settled = true;
+              clearTimeout(timer);
+              wc.off("console-message", listener);
+              resolve({ cancelled: true });
+            }
+          };
+
+          wc.on("console-message", listener);
+
+          // Inject the picker script; ignore return value
+          wc.executeJavaScript(PICKER_SCRIPT).catch((err: unknown) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            wc.off("console-message", listener);
+            reject(err);
+          });
+        });
+
+        json(200, result);
+        return;
+      }
+
+      // ── POST /webview/:id/element-context ──
+      if (method === "POST" && action === "element-context") {
+        const body = await readBody();
+        const selector = body.selector;
+        if (typeof selector !== "string") {
+          json(400, { error: "Missing 'selector' string in request body" });
+          return;
+        }
+
+        const extractScript = `(function() {
+          var el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return null;
+
+          function getSelectorPath(el) {
+            var parts = [];
+            var node = el;
+            while (node && node.nodeType === 1) {
+              var seg = node.tagName.toLowerCase();
+              if (node.id) {
+                seg += '#' + CSS.escape(node.id);
+                parts.unshift(seg);
+                break;
+              }
+              if (node.className && typeof node.className === 'string') {
+                var classes = node.className.trim().split(/\\s+/).slice(0, 3);
+                seg += classes.map(function(c) { return '.' + CSS.escape(c); }).join('');
+              }
+              var parent = node.parentElement;
+              if (parent) {
+                var siblings = Array.from(parent.children).filter(function(s) {
+                  return s.tagName === node.tagName;
+                });
+                if (siblings.length > 1) {
+                  var idx = siblings.indexOf(node) + 1;
+                  seg += ':nth-child(' + idx + ')';
+                }
+              }
+              parts.unshift(seg);
+              node = parent;
+            }
+            return parts.join(' > ');
+          }
+
+          function getComputedStyleSubset(el) {
+            var props = [
+              'color', 'background', 'font-size', 'font-family',
+              'padding', 'margin', 'display', 'position', 'width', 'height'
+            ];
+            var computed = window.getComputedStyle(el);
+            var result = {};
+            for (var i = 0; i < props.length; i++) {
+              result[props[i]] = computed.getPropertyValue(props[i]);
+            }
+            return result;
+          }
+
+          function getA11yAttributes(el) {
+            var attrs = {};
+            var names = ['role', 'aria-label', 'aria-level', 'tabindex'];
+            for (var i = 0; i < names.length; i++) {
+              var val = el.getAttribute(names[i]);
+              if (val != null) {
+                attrs[names[i]] = val;
+              }
+            }
+            return attrs;
+          }
+
+          function getReactFiberInfo(el) {
+            var fiberKey = Object.keys(el).find(function(k) {
+              return k.startsWith('__reactFiber$');
+            });
+            if (!fiberKey) return null;
+            var fiber = el[fiberKey];
+            if (!fiber) return null;
+            var components = [];
+            var node = fiber;
+            var maxDepth = 20;
+            while (node && maxDepth-- > 0) {
+              if (typeof node.type === 'function' || typeof node.type === 'object') {
+                var name = null;
+                if (typeof node.type === 'function') {
+                  name = node.type.displayName || node.type.name || null;
+                } else if (node.type && typeof node.type === 'object') {
+                  name = node.type.displayName || node.type.name || null;
+                }
+                if (name) {
+                  var entry = { name: name };
+                  if (node._debugSource) {
+                    entry.source = {
+                      fileName: node._debugSource.fileName,
+                      lineNumber: node._debugSource.lineNumber
+                    };
+                  }
+                  components.push(entry);
+                }
+              }
+              node = node.return;
+            }
+            return components.length > 0 ? components : null;
+          }
+
+          var rect = el.getBoundingClientRect();
+          var result = {
+            outerHTML: el.outerHTML.slice(0, 2000),
+            selector: getSelectorPath(el),
+            computedStyles: getComputedStyleSubset(el),
+            boundingBox: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height
+            },
+            accessibility: getA11yAttributes(el)
+          };
+
+          var reactInfo = getReactFiberInfo(el);
+          if (reactInfo) {
+            result.reactComponents = reactInfo;
+          }
+
+          return result;
+        })()`;
+
+        try {
+          const metadata = await wc.executeJavaScript(extractScript);
+          if (metadata === null) {
+            json(404, { error: "Element not found for selector" });
+          } else {
+            json(200, metadata);
+          }
+        } catch (err) {
+          json(400, { error: String(err) });
+        }
         return;
       }
 

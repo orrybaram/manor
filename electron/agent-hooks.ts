@@ -225,6 +225,45 @@ export function ensureHookScript(): void {
   fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
 }
 
+/** Register the Manor webview MCP server in ~/.claude/settings.json */
+export function registerWebviewMcp(): void {
+  const settingsPath = path.join(
+    process.env.HOME || "/tmp",
+    ".claude",
+    "settings.json",
+  );
+
+  let settings: Record<string, unknown> = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+  } catch {
+    // File doesn't exist or invalid JSON
+  }
+
+  const mcpServers = (settings.mcpServers ?? {}) as Record<
+    string,
+    { command: string; args: string[] }
+  >;
+
+  const mcpServerScriptPath = path.join(__dirname, "mcp-webview-server.js");
+  const existing = mcpServers["manor-webview"];
+  const needsUpdate =
+    !existing ||
+    existing.command !== "node" ||
+    !existing.args ||
+    existing.args[0] !== mcpServerScriptPath;
+
+  if (needsUpdate) {
+    mcpServers["manor-webview"] = {
+      command: "node",
+      args: [mcpServerScriptPath],
+    };
+    settings.mcpServers = mcpServers;
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  }
+}
+
 /** Register Manor hooks in ~/.claude/settings.json */
 export function registerClaudeHooks(): void {
   const settingsPath = path.join(

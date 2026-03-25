@@ -3,11 +3,5 @@
     "allow": [
       "Bash(bun run:*)"
     ]
-  },
-  "mcpServers": {
-    "manor-webview": {
-      "command": "node",
-      "args": ["dist-electron/mcp-webview-server.js"]
-    }
   }
 }

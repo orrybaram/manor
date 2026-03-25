@@ -31,7 +31,9 @@ import {
   AgentHookServer,
   ensureHookScript,
   registerClaudeHooks,
+  registerWebviewMcp,
 } from "./agent-hooks";
+import { ensureWebviewCli } from "./webview-cli-script";
 import { WebviewServer } from "./webview-server";
 import { assertString, assertPositiveInt } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
@@ -211,7 +213,9 @@ function updateDockBadge(): void {
 // Ensure shell integration and agent hooks are set up
 ShellManager.setupZdotdir();
 ensureHookScript();
+ensureWebviewCli();
 registerClaudeHooks();
+registerWebviewMcp();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {

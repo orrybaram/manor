@@ -65,14 +65,14 @@ do_curl() {
   local curl_args=(-s -o /tmp/manor_webview_resp -w "%{http_code}"
     -X "$method"
     --connect-timeout 5 --max-time 30
-    "http://127.0.0.1:${port}${url_path}")
+    "http://127.0.0.1:\${port}\${url_path}")
 
   if [ -n "$body" ]; then
     curl_args+=(-H "Content-Type: application/json" -d "$body")
   fi
 
   local http_code
-  http_code=$(curl "${curl_args[@]}") || die "Cannot connect to Manor webview server"
+  http_code=$(curl "\${curl_args[@]}") || die "Cannot connect to Manor webview server"
 
   local resp
   resp=$(cat /tmp/manor_webview_resp 2>/dev/null)
@@ -176,7 +176,7 @@ case "$COMMAND" in
     else
       PANE_ID=$(auto_resolve_pane)
     fi
-    resp=$(do_curl POST "/webview/${PANE_ID}/screenshot")
+    resp=$(do_curl POST "/webview/\${PANE_ID}/screenshot")
     # Extract base64 image field
     echo "$resp" | grep -oE '"image"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"'
     ;;
@@ -188,7 +188,7 @@ case "$COMMAND" in
     else
       PANE_ID=$(auto_resolve_pane)
     fi
-    resp=$(do_curl POST "/webview/${PANE_ID}/dom")
+    resp=$(do_curl POST "/webview/\${PANE_ID}/dom")
     # Extract html field value (may be long — use python3 for reliability)
     echo "$resp" | python3 -c "
 import sys, json
@@ -211,7 +211,7 @@ print(data.get('html', ''))
       die "Usage: manor-webview exec-js [paneId] <code>"
     fi
     BODY=$(python3 -c "import json,sys; print(json.dumps({'code': sys.argv[1]}))" "$CODE")
-    resp=$(do_curl POST "/webview/${PANE_ID}/execute-js" "$BODY")
+    resp=$(do_curl POST "/webview/\${PANE_ID}/execute-js" "$BODY")
     echo "$resp" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -255,7 +255,7 @@ else:
       die "Usage: manor-webview click [paneId] --selector <s>  OR  --x <n> --y <n>"
     fi
 
-    do_curl POST "/webview/${PANE_ID}/click" "$BODY" > /dev/null
+    do_curl POST "/webview/\${PANE_ID}/click" "$BODY" > /dev/null
     echo "ok"
     ;;
 
@@ -287,7 +287,7 @@ else:
       BODY=$(python3 -c "import json,sys; print(json.dumps({'text': sys.argv[1]}))" "$TEXT")
     fi
 
-    do_curl POST "/webview/${PANE_ID}/type" "$BODY" > /dev/null
+    do_curl POST "/webview/\${PANE_ID}/type" "$BODY" > /dev/null
     echo "ok"
     ;;
 
@@ -304,7 +304,7 @@ else:
     fi
 
     BODY=$(python3 -c "import json,sys; print(json.dumps({'url': sys.argv[1]}))" "$NAV_URL")
-    do_curl POST "/webview/${PANE_ID}/navigate" "$BODY" > /dev/null
+    do_curl POST "/webview/\${PANE_ID}/navigate" "$BODY" > /dev/null
     echo "ok"
     ;;
 
@@ -315,7 +315,7 @@ else:
     else
       PANE_ID=$(auto_resolve_pane)
     fi
-    resp=$(do_curl GET "/webview/${PANE_ID}/console-logs")
+    resp=$(do_curl GET "/webview/\${PANE_ID}/console-logs")
     format_console_logs "$resp"
     ;;
 
@@ -326,7 +326,7 @@ else:
     else
       PANE_ID=$(auto_resolve_pane)
     fi
-    resp=$(do_curl GET "/webview/${PANE_ID}/url")
+    resp=$(do_curl GET "/webview/\${PANE_ID}/url")
     echo "$resp" | grep -oE '"url"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"'
     ;;
 

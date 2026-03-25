@@ -18,6 +18,7 @@
     "kill": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-popover": "^1.1.15",
@@ -37,11 +38,11 @@
     "electron-updater": "^6.3.4",
     "lucide-react": "^0.577.0",
     "node-pty": "^1.0.0",
+    "portless": "^0.7.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tree-kill": "^1.2.2",
-    "zustand": "^5.0.12",
-    "@modelcontextprotocol/sdk": "^1.12.1"
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",

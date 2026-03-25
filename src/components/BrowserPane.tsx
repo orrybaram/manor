@@ -12,6 +12,7 @@ interface WebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   reload(): void;
+  getWebContentsId(): number;
 }
 
 interface WebviewNavigateEvent extends Event {
@@ -68,14 +69,22 @@ export function BrowserPane({ paneId, initialUrl }: BrowserPaneProps) {
       setPaneTitle(paneId, (e as WebviewTitleEvent).title);
     };
 
+    const onDidAttach = () => {
+      const webContentsId = wv.getWebContentsId();
+      window.electronAPI.webview.register(paneId, webContentsId);
+    };
+
     wv.addEventListener("did-navigate", onNavigate);
     wv.addEventListener("did-navigate-in-page", onNavigate);
     wv.addEventListener("page-title-updated", onTitleUpdate);
+    wv.addEventListener("did-attach", onDidAttach);
 
     return () => {
       wv.removeEventListener("did-navigate", onNavigate);
       wv.removeEventListener("did-navigate-in-page", onNavigate);
       wv.removeEventListener("page-title-updated", onTitleUpdate);
+      wv.removeEventListener("did-attach", onDidAttach);
+      window.electronAPI.webview.unregister(paneId);
     };
   }, [paneId, setPaneTitle, updateNavState]);
 

@@ -230,4 +230,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onNavigateToTask: (callback: (taskId: string) => void) =>
       onChannel("notification:navigate-to-task", callback),
   },
+
+  webview: {
+    register: (paneId: string, webContentsId: number) =>
+      ipcRenderer.invoke("webview:register", paneId, webContentsId),
+    unregister: (paneId: string) =>
+      ipcRenderer.invoke("webview:unregister", paneId),
+  },
 });

@@ -335,6 +335,11 @@ export interface ElectronAPI {
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
   };
+
+  webview: {
+    register: (paneId: string, webContentsId: number) => Promise<void>;
+    unregister: (paneId: string) => Promise<void>;
+  };
 }
 
 declare global {

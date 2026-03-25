@@ -786,6 +786,19 @@ ipcMain.handle("keybindings:resetAll", () => {
   keybindingsManager.resetAll();
 });
 
+// ── Webview registry ──
+const webviewRegistry = new Map<string, number>();
+
+ipcMain.handle("webview:register", (_event, paneId: string, webContentsId: number) => {
+  assertString(paneId, "paneId");
+  webviewRegistry.set(paneId, webContentsId);
+});
+
+ipcMain.handle("webview:unregister", (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  webviewRegistry.delete(paneId);
+});
+
 keybindingsManager.onChange((overrides) => {
   if (
     mainWindow &&

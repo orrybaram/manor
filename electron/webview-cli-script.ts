@@ -47,6 +47,10 @@ die() {
 }
 
 get_port() {
+  if [ -n "$MANOR_WEBVIEW_PORT" ]; then
+    echo "$MANOR_WEBVIEW_PORT"
+    return
+  fi
   if [ ! -f "$PORT_FILE" ]; then
     die "Manor is not running or has no webview server active"
   fi

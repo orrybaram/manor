@@ -1208,6 +1208,8 @@ app.whenReady().then(async () => {
 
   await webviewServer.start();
   await portlessManager.start();
+  process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
+  process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
   try {

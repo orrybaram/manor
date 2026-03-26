@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
@@ -33,6 +34,7 @@ export function GitHubIssueDetailView({
   onNewWorkspace,
   onNewTaskWithPrompt,
 }: GitHubIssueDetailViewProps) {
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
@@ -61,6 +63,16 @@ export function GitHubIssueDetailView({
       current?.workspaces.findIndex((ws) => ws.branch === branchName) ?? -1;
     if (existingIdx >= 0) {
       selectWorkspace(project.id, existingIdx);
+      const existingWs = current?.workspaces[existingIdx];
+      if (existingWs) {
+        setActiveWorkspace(existingWs.path);
+        window.electronAPI.linear.linkIssueToWorkspace(project.id, existingWs.path, {
+          id: `gh-${issueDetail.number}`,
+          identifier: `#${issueDetail.number}`,
+          title: issueDetail.title,
+          url: issueDetail.url,
+        });
+      }
       onClose();
       return;
     }
@@ -71,9 +83,15 @@ export function GitHubIssueDetailView({
       name: issueDetail.title,
       branch: branchName,
       agentPrompt: issueDetail.title + "\n\n" + (issueDetail.body ?? ""),
+      linkedIssue: {
+        id: `gh-${issueDetail.number}`,
+        identifier: `#${issueDetail.number}`,
+        title: issueDetail.title,
+        url: issueDetail.url,
+      },
     });
     window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
-  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace]);
+  }, [issueDetail, findProject, selectWorkspace, setActiveWorkspace, onClose, onNewWorkspace]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;
@@ -87,6 +105,24 @@ export function GitHubIssueDetailView({
     onNewTaskWithPrompt?.(prompt);
     window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
     onClose();
+
+    const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
+    const allProjects = useProjectStore.getState().projects;
+    const project = allProjects.find((p) =>
+      p.workspaces.some((w) => w.path === activeWorkspacePath),
+    );
+    if (project && activeWorkspacePath) {
+      window.electronAPI.linear.linkIssueToWorkspace(
+        project.id,
+        activeWorkspacePath,
+        {
+          id: `gh-${issueDetail.number}`,
+          identifier: `#${issueDetail.number}`,
+          title: issueDetail.title,
+          url: issueDetail.url,
+        },
+      );
+    }
   }, [issueDetail, onNewTaskWithPrompt, repoPath, onClose]);
 
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);

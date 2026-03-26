@@ -44,6 +44,9 @@ export interface BrowserPaneRef {
   cancelPicker(): void;
   navigate(url: string): void;
   focusUrlInput(): void;
+  zoomIn(): void;
+  zoomOut(): void;
+  zoomReset(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
   getUrlInputValue(): string;
   /** Handlers for the URL input element rendered by LeafPane. */
@@ -239,6 +242,15 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       },
       focusUrlInput() {
         // URL input is rendered by LeafPane; no-op placeholder
+      },
+      zoomIn() {
+        window.electronAPI.webview.zoomIn(paneId);
+      },
+      zoomOut() {
+        window.electronAPI.webview.zoomOut(paneId);
+      },
+      zoomReset() {
+        window.electronAPI.webview.zoomReset(paneId);
       },
       getUrlInputValue() {
         return urlRef.current;

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, Crosshair, ZoomIn, ZoomOut } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
@@ -201,6 +201,24 @@ export function LeafPane({
                 title="Pick element"
               >
                 <Crosshair size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Zoom in">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={() => browserRef.current?.zoomIn()}
+                title="Zoom in"
+              >
+                <ZoomIn size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Zoom out">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={() => browserRef.current?.zoomOut()}
+                title="Zoom out"
+              >
+                <ZoomOut size={12} />
               </button>
             </Tooltip>
           </div>

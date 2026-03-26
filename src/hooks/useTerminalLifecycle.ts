@@ -80,7 +80,16 @@ export function useTerminalLifecycle(
     const container = containerRef.current;
     if (!container) return;
 
-    const t = new Terminal(terminalOptions(theme ? { theme } : {}));
+    const t = new Terminal(
+      terminalOptions({
+        ...(theme ? { theme } : {}),
+        linkHandler: {
+          activate: (_event, text) => {
+            window.electronAPI.shell.openExternal(text);
+          },
+        },
+      }),
+    );
 
     const fit = new FitAddon();
     t.loadAddon(fit);

@@ -427,6 +427,15 @@ export function ProjectItem({
                           >
                             Rename Workspace
                           </ContextMenu.Item>
+                          {(mergeState === null || mergeState.canMerge) && (
+                            <ContextMenu.Item
+                              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                              disabled={mergeState === null}
+                              onSelect={() => onQuickMergeWorktree?.(ws)}
+                            >
+                              Merge & Delete
+                            </ContextMenu.Item>
+                          )}
                           <ContextMenu.Item
                             className={`${styles.contextMenuItem} ${mergeState?.canMerge !== false ? styles.contextMenuItemDanger : ""}`}
                             disabled={!mergeState?.canMerge}

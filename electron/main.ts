@@ -742,7 +742,7 @@ ipcMain.handle("shell:openExternal", async (_event, url: string) => {
   } catch {
     throw new Error("Invalid URL format");
   }
-  const allowed = ["https:", "http:", "file:"];
+  const allowed = ["https:", "http:", "file:", "x-apple.systempreferences:"];
   if (!allowed.includes(parsed.protocol)) {
     throw new Error(`Blocked protocol: ${parsed.protocol}`);
   }
@@ -887,6 +887,7 @@ ipcMain.handle("keybindings:resetAll", () => {
 const webviewRegistry = new Map<string, number>();
 const webviewServer = new WebviewServer(webviewRegistry);
 const webviewContextMenuCleanup = new Map<string, () => void>();
+const webviewEscapeCleanup = new Map<string, () => void>();
 
 ipcMain.handle(
   "webview:register",
@@ -894,6 +895,8 @@ ipcMain.handle(
     assertString(paneId, "paneId");
     webviewRegistry.set(paneId, webContentsId);
     webviewServer.attachConsoleListener(paneId);
+
+    const rendererWebContents = _event.sender;
 
     const wc = webContents.fromId(webContentsId);
     if (wc) {
@@ -913,6 +916,34 @@ ipcMain.handle(
       webviewContextMenuCleanup.set(paneId, () => {
         wc.off("context-menu", handler);
       });
+
+      let lastEscapeTime = 0;
+      const escapeHandler = (
+        ev: Electron.Event,
+        input: Electron.Input,
+      ) => {
+        if (
+          input.key === "Escape" &&
+          input.type === "keyDown" &&
+          !input.alt &&
+          !input.control &&
+          !input.meta &&
+          !input.shift
+        ) {
+          const now = Date.now();
+          if (now - lastEscapeTime < 500) {
+            ev.preventDefault();
+            rendererWebContents.send("webview:escape", paneId);
+            lastEscapeTime = 0;
+          } else {
+            lastEscapeTime = now;
+          }
+        }
+      };
+      wc.on("before-input-event", escapeHandler);
+      webviewEscapeCleanup.set(paneId, () => {
+        wc.off("before-input-event", escapeHandler);
+      });
     }
   },
 );
@@ -921,6 +952,8 @@ ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   assertString(paneId, "paneId");
   webviewContextMenuCleanup.get(paneId)?.();
   webviewContextMenuCleanup.delete(paneId);
+  webviewEscapeCleanup.get(paneId)?.();
+  webviewEscapeCleanup.delete(paneId);
   webviewServer.detachConsoleListener(paneId);
   webviewRegistry.delete(paneId);
 });

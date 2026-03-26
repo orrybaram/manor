@@ -294,5 +294,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () =>
         ipcRenderer.removeListener("webview:picker-cancel", listener);
     },
+    onEscape: (callback: (paneId: string) => void) =>
+      onChannel('webview:escape', callback),
   },
 });

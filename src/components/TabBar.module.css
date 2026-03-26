@@ -129,7 +129,9 @@
 }
 
 .contextMenuItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 6px 12px;
   font-size: 12px;

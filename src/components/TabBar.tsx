@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Plus, Globe, ListTodo } from "lucide-react";
-import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as Popover from "@radix-ui/react-popover";
 import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -42,6 +42,7 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const dragStartX = useRef(0);
   const dragActive = useRef(false);
   const dragCleanedUp = useRef(false);
@@ -258,33 +259,51 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
             />
           );
         })}
-        <ContextMenu.Root>
-          <ContextMenu.Trigger asChild>
-            <Tooltip label="New Tab">
-              <button className={styles.addButton} onClick={addSession}>
+        <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+          <Tooltip label={addMenuOpen ? "" : "New Tab"}>
+            <Popover.Trigger asChild>
+              <button
+                className={styles.addButton}
+                onClick={addSession}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setAddMenuOpen(true);
+                }}
+              >
                 <Plus size={14} />
               </button>
-            </Tooltip>
-          </ContextMenu.Trigger>
-          <ContextMenu.Portal>
-            <ContextMenu.Content className={styles.contextMenu}>
-              <ContextMenu.Item
+            </Popover.Trigger>
+          </Tooltip>
+          <Popover.Portal>
+            <Popover.Content
+              className={styles.contextMenu}
+              side="bottom"
+              align="center"
+              sideOffset={4}
+            >
+              <button
                 className={styles.contextMenuItem}
-                onSelect={() => addBrowserSession("about:blank")}
+                onClick={() => {
+                  addBrowserSession("about:blank");
+                  setAddMenuOpen(false);
+                }}
               >
                 <Globe size={14} />
                 Browser
-              </ContextMenu.Item>
-              <ContextMenu.Item
+              </button>
+              <button
                 className={styles.contextMenuItem}
-                onSelect={onNewTask}
+                onClick={() => {
+                  onNewTask();
+                  setAddMenuOpen(false);
+                }}
               >
                 <ListTodo size={14} />
                 Task
-              </ContextMenu.Item>
-            </ContextMenu.Content>
-          </ContextMenu.Portal>
-        </ContextMenu.Root>
+              </button>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
       <div className={styles.spacer} />
     </div>

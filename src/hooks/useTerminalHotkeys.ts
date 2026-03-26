@@ -42,8 +42,11 @@ export function useTerminalHotkeys() {
         // Check if this combo matches any app keybinding
         const combo = comboFromEvent(e);
         const bindings = bindingsRef.current;
-        for (const bound of Object.values(bindings)) {
+        for (const [id, bound] of Object.entries(bindings)) {
           if (comboMatches(combo, bound)) {
+            // Browser-only bindings should not intercept terminal input —
+            // let the terminal handle these keys when a terminal is focused.
+            if (id.startsWith("browser-")) continue;
             return false; // Let it bubble to window
           }
         }

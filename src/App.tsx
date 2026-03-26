@@ -246,13 +246,13 @@ function App() {
 
       for (const [commandId, boundCombo] of Object.entries(bindings)) {
         if (comboMatches(combo, boundCombo)) {
-          // Browser commands are conditional — only fire when focused pane is a browser
+          // Browser commands are conditional — only fire when focused pane is a browser.
+          // When no browser is focused, skip this match entirely so the event
+          // reaches the native menu (app zoom) or terminal unimpeded.
           if (commandId.startsWith("browser-")) {
-            if (getFocusedBrowserRef()) {
-              e.preventDefault();
-              handlersRef.current[commandId]?.();
-            }
-            // If not a browser pane, don't preventDefault — let native menu handle it
+            if (!getFocusedBrowserRef()) continue;
+            e.preventDefault();
+            handlersRef.current[commandId]?.();
             return;
           }
           e.preventDefault();

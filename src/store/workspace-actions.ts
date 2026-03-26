@@ -40,10 +40,17 @@ export function removeWorktreeWithToast(
   const toastId = `toast-${crypto.randomUUID()}`;
   toastStore.addToast({
     id: toastId,
-    message: `Removing "${wsName}"...`,
+    message: `Removing "${wsName}"…`,
     status: "loading",
-    detail: "Tearing down worktree",
+    detail: "Starting…",
   });
+
+  // Listen for progress updates from the main process
+  const unsubProgress = window.electronAPI.projects.onRemoveWorktreeProgress(
+    (step) => {
+      toastStore.updateToast(toastId, { detail: step });
+    },
+  );
 
   projectStore
     .removeWorktree(project.id, ws.path, deleteBranch)
@@ -60,5 +67,8 @@ export function removeWorktreeWithToast(
         status: "error",
         detail: String(err),
       });
+    })
+    .finally(() => {
+      unsubProgress();
     });
 }

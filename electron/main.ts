@@ -448,8 +448,15 @@ ipcMain.handle(
 
 ipcMain.handle(
   "projects:removeWorktree",
-  (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-    return projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
+  (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+    return projectManager.removeWorktree(
+      projectId,
+      worktreePath,
+      deleteBranch,
+      (step: string) => {
+        event.sender.send("projects:removeWorktree:progress", step);
+      },
+    );
   },
 );
 

@@ -192,6 +192,7 @@ export interface ElectronAPI {
       worktreePath: string,
       deleteBranch?: boolean,
     ) => Promise<void>;
+    onRemoveWorktreeProgress: (callback: (step: string) => void) => () => void;
     createWorktree: (
       projectId: string,
       name: string,

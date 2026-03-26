@@ -3,7 +3,7 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -31,14 +31,19 @@ export function useTerminalLifecycle(
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
+  const [ptyError, setPtyError] = useState<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const { write, resize, create, close, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
 
+  const handlePtyError = useCallback((message: string) => {
+    setPtyError(message);
+  }, []);
+
   // Subscribe to stream events (pass write so the stream handler can
   // respond to kitty keyboard protocol queries on behalf of xterm.js)
-  useTerminalStream(paneId, term, write);
+  useTerminalStream(paneId, term, write, handlePtyError);
 
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);
@@ -134,7 +139,13 @@ export function useTerminalLifecycle(
     const rows = t.rows;
     let disposed = false;
     create(cwd ?? null, cols, rows).then(
-      (result: { ok: boolean; snapshot?: string | null }) => {
+      (result: { ok: boolean; snapshot?: string | null; error?: string }) => {
+        if (!disposed && !result.ok) {
+          setPtyError(
+            result.error ?? "Failed to create terminal session",
+          );
+          return;
+        }
         if (!disposed && result.ok) {
           if (result.snapshot) {
             t.write(result.snapshot);
@@ -211,5 +222,5 @@ export function useTerminalLifecycle(
     };
   });
 
-  return { term, fitAddon };
+  return { term, fitAddon, ptyError };
 }

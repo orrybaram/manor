@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel(`pty-cwd-${paneId}`, callback),
     onAgentStatus: (paneId: string, callback: (agent: unknown) => void) =>
       onChannel(`pty-agent-status-${paneId}`, callback),
+    onError: (paneId: string, callback: (message: string) => void) =>
+      onChannel(`pty-error-${paneId}`, callback),
   },
 
   layout: {

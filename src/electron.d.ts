@@ -158,6 +158,7 @@ export interface ElectronAPI {
       paneId: string,
       callback: (agent: AgentState) => void,
     ) => () => void;
+    onError: (paneId: string, callback: (message: string) => void) => () => void;
   };
 
   layout: {

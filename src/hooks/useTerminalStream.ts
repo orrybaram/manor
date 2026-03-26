@@ -21,11 +21,14 @@ export function useTerminalStream(
   paneId: string,
   term: Terminal | null,
   ptyWrite?: (data: string) => void,
+  onError?: (message: string) => void,
 ) {
   const termRef = useRef(term);
   termRef.current = term;
   const ptyWriteRef = useRef(ptyWrite);
   ptyWriteRef.current = ptyWrite;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useMountEffect(() => {
     let kittyFlags = 0;
@@ -72,11 +75,19 @@ export function useTerminalStream(
       },
     );
 
+    const unsubError = window.electronAPI.pty.onError(
+      paneId,
+      (message: string) => {
+        onErrorRef.current?.(message);
+      },
+    );
+
     return () => {
       unsubOutput();
       unsubExit();
       unsubCwd();
       unsubAgentStatus();
+      unsubError();
     };
   });
 }

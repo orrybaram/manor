@@ -226,7 +226,8 @@ function App() {
           p.workspaces.some((w) => w.path === wsPath),
         );
         const baseCommand =
-          taskProject?.agentCommand?.split(" ")[0] ?? "claude";
+          taskProject?.agentCommand?.split(" ")[0] ??
+          "claude --dangerously-skip-permissions";
         useAppStore
           .getState()
           .setPendingStartupCommand(

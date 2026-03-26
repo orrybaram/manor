@@ -5,8 +5,32 @@ import { ManorLogo } from "./ManorLogo";
 import { AboutModal } from "./AboutModal";
 import { LinkedIssuesPopover } from "./LinkedIssuesPopover";
 import { LinearIcon } from "./CommandPalette/LinearIcon";
+import { GitHubIcon } from "./CommandPalette/GitHubIcon";
+import type { LinkedIssue } from "../store/project-store";
 import type { CommandPaletteProps } from "./CommandPalette/types";
 import styles from "./StatusBar.module.css";
+
+function isGitHubIssue(issue: LinkedIssue): boolean {
+  return issue.id.startsWith("gh-");
+}
+
+function LinkedIssueIcon({ issues, size }: { issues: LinkedIssue[]; size: number }) {
+  const hasGitHub = issues.some(isGitHubIssue);
+  const hasLinear = issues.some((i) => !isGitHubIssue(i));
+
+  if (hasGitHub && hasLinear) {
+    return (
+      <>
+        <GitHubIcon size={size} />
+        <LinearIcon size={size} />
+      </>
+    );
+  }
+  if (hasGitHub) {
+    return <GitHubIcon size={size} />;
+  }
+  return <LinearIcon size={size} />;
+}
 
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
@@ -63,7 +87,7 @@ export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProp
                     className={styles.linearSection}
                     onClick={() => setPopoverOpen((prev) => !prev)}
                   >
-                    <LinearIcon size={12} />
+                    <LinkedIssueIcon issues={linkedIssues} size={12} />
                     <span>
                       {linkedIssues.length === 1
                         ? linkedIssues[0].identifier

@@ -17,6 +17,8 @@ import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
 import { comboFromEvent, comboMatches } from "./lib/keybindings";
+import { getBrowserPaneRef } from "./lib/browser-pane-registry";
+import type { BrowserPaneRef } from "./components/BrowserPane";
 import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
@@ -172,6 +174,19 @@ function App() {
   wsRef.current = ws;
   const handleNewTaskRef = useRef<() => void>(() => {});
 
+  // Helper to get the focused browser pane's ref (if focused pane is a browser)
+  function getFocusedBrowserRef(): BrowserPaneRef | undefined {
+    const state = useAppStore.getState();
+    const wsState = state.workspaceSessions[state.activeWorkspacePath ?? ""];
+    if (!wsState) return;
+    const session = wsState.sessions.find(s => s.id === wsState.selectedSessionId);
+    if (!session) return;
+    const focusedPaneId = session.focusedPaneId;
+    if (!focusedPaneId) return;
+    if (state.paneContentType[focusedPaneId] !== "browser") return;
+    return getBrowserPaneRef(focusedPaneId);
+  }
+
   // Handler map: command ID → action
   const handlersRef = useRef<Record<string, () => void>>({});
   handlersRef.current = {
@@ -193,6 +208,21 @@ function App() {
     "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
     "new-browser": () => addBrowserSession("about:blank"),
+    "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
+    "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
+    "browser-zoom-reset": () => getFocusedBrowserRef()?.zoomReset(),
+    "browser-reload": () => getFocusedBrowserRef()?.reload(),
+    "browser-focus-url": () => {
+      const state = useAppStore.getState();
+      const wsState = state.workspaceSessions[state.activeWorkspacePath ?? ""];
+      if (!wsState) return;
+      const session = wsState.sessions.find(s => s.id === wsState.selectedSessionId);
+      const focusedPaneId = session?.focusedPaneId;
+      if (!focusedPaneId || state.paneContentType[focusedPaneId] !== "browser") return;
+      const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
+      input?.focus();
+      input?.select();
+    },
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-session-${i + 1}`,
@@ -216,6 +246,15 @@ function App() {
 
       for (const [commandId, boundCombo] of Object.entries(bindings)) {
         if (comboMatches(combo, boundCombo)) {
+          // Browser commands are conditional — only fire when focused pane is a browser
+          if (commandId.startsWith("browser-")) {
+            if (getFocusedBrowserRef()) {
+              e.preventDefault();
+              handlersRef.current[commandId]?.();
+            }
+            // If not a browser pane, don't preventDefault — let native menu handle it
+            return;
+          }
           e.preventDefault();
           handlersRef.current[commandId]?.();
           return;

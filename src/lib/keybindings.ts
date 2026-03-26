@@ -6,17 +6,19 @@ export interface KeyCombo {
   alt: boolean;
 }
 
-export type KeybindingCategory = "app" | "workspace" | "terminal";
+export type KeybindingCategory = "app" | "workspace" | "terminal" | "browser";
 
 export const CATEGORY_LABELS: Record<KeybindingCategory, string> = {
   app: "App",
   workspace: "Workspace",
   terminal: "Terminal",
+  browser: "Browser",
 };
 
 export const CATEGORY_ORDER: KeybindingCategory[] = [
   "workspace",
   "terminal",
+  "browser",
   "app",
 ];
 
@@ -134,6 +136,36 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     label: "New Browser Window",
     defaultCombo: metaCombo("b", true),
     category: "workspace",
+  },
+  {
+    id: "browser-zoom-in",
+    label: "Browser Zoom In",
+    defaultCombo: metaCombo("="),
+    category: "browser",
+  },
+  {
+    id: "browser-zoom-out",
+    label: "Browser Zoom Out",
+    defaultCombo: metaCombo("-"),
+    category: "browser",
+  },
+  {
+    id: "browser-zoom-reset",
+    label: "Browser Zoom Reset",
+    defaultCombo: metaCombo("0"),
+    category: "browser",
+  },
+  {
+    id: "browser-reload",
+    label: "Browser Reload",
+    defaultCombo: metaCombo("r"),
+    category: "browser",
+  },
+  {
+    id: "browser-focus-url",
+    label: "Focus URL Bar",
+    defaultCombo: metaCombo("l"),
+    category: "browser",
   },
 ];
 

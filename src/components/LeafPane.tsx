@@ -6,6 +6,7 @@ import { TerminalPane } from "./TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "./Tooltip";
+import { registerBrowserPane, unregisterBrowserPane } from "../lib/browser-pane-registry";
 
 import styles from "./PaneLayout.module.css";
 import browserStyles from "./BrowserPane.module.css";
@@ -45,6 +46,20 @@ export function LeafPane({
     }
     prevFocusedRef.current = focused;
   }, [navState?.webviewFocused]);
+
+  useEffect(() => {
+    if (contentType !== "browser") return;
+    // Register once browserRef is populated (after first render)
+    const id = requestAnimationFrame(() => {
+      if (browserRef.current) {
+        registerBrowserPane(paneId, browserRef.current);
+      }
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      unregisterBrowserPane(paneId);
+    };
+  }, [contentType, paneId]);
 
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
@@ -184,6 +199,7 @@ export function LeafPane({
             </Tooltip>
             <input
               ref={urlInputRef}
+              data-pane-url-input={paneId}
               className={styles.paneUrlInput}
               value={navState?.url ?? ""}
               onChange={browserRef.current?.urlInputHandlers.onChange ?? (() => {})}

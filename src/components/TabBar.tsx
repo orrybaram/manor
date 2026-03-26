@@ -5,7 +5,8 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Globe, ListTodo } from "lucide-react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -16,12 +17,13 @@ import styles from "./TabBar.module.css";
 const EMPTY_STYLE: React.CSSProperties = {};
 const TAB_GAP = 2; // matches .sessions CSS gap
 
-export function TabBar() {
+export function TabBar({ onNewTask }: { onNewTask: () => void }) {
   const ws = useAppStore(selectActiveWorkspace);
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const selectSession = useAppStore((s) => s.selectSession);
   const addSession = useAppStore((s) => s.addSession);
+  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const closeSession = useAppStore((s) => s.closeSession);
   const reorderSessions = useAppStore((s) => s.reorderSessions);
   const togglePinSession = useAppStore((s) => s.togglePinSession);
@@ -256,11 +258,33 @@ export function TabBar() {
             />
           );
         })}
-        <Tooltip label="New Tab">
-          <button className={styles.addButton} onClick={addSession}>
-            <Plus size={14} />
-          </button>
-        </Tooltip>
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>
+            <Tooltip label="New Tab">
+              <button className={styles.addButton} onClick={addSession}>
+                <Plus size={14} />
+              </button>
+            </Tooltip>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content className={styles.contextMenu}>
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={() => addBrowserSession("about:blank")}
+              >
+                <Globe size={14} />
+                Browser
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={onNewTask}
+              >
+                <ListTodo size={14} />
+                Task
+              </ContextMenu.Item>
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
       </div>
       <div className={styles.spacer} />
     </div>

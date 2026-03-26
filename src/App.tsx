@@ -5,6 +5,7 @@ import { StatusBar } from "./components/StatusBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
 import { CommandPalette } from "./components/CommandPalette";
+import type { PaletteView } from "./components/CommandPalette/types";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
@@ -49,7 +50,15 @@ function App() {
   useAutoUpdate();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
+  const [paletteInitialIssueId, setPaletteInitialIssueId] = useState<string | null>(null);
+  const [paletteInitialGitHubIssueNumber, setPaletteInitialGitHubIssueNumber] = useState<number | null>(null);
+  const closePalette = useCallback(() => {
+    setPaletteOpen(false);
+    setPaletteInitialView(undefined);
+    setPaletteInitialIssueId(null);
+    setPaletteInitialGitHubIssueNumber(null);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
@@ -74,12 +83,14 @@ function App() {
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
     setInitialName("");
     setInitialBranch("");
     setAgentPrompt(null);
+    setPendingLinkedIssue(null);
   }, []);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
@@ -93,12 +104,28 @@ function App() {
       name?: string;
       branch?: string;
       agentPrompt?: string;
+      linkedIssue?: import("./store/project-store").LinkedIssue;
     }) => {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
       if (opts?.name) setInitialName(opts.name);
       if (opts?.branch) setInitialBranch(opts.branch);
       if (opts?.agentPrompt) setAgentPrompt(opts.agentPrompt);
+      if (opts?.linkedIssue) setPendingLinkedIssue(opts.linkedIssue);
       setNewWorkspaceOpen(true);
+    },
+    [],
+  );
+
+  const handleOpenIssueDetail = useCallback(
+    (opts: { type: "linear"; issueId: string } | { type: "github"; issueNumber: number }) => {
+      if (opts.type === "linear") {
+        setPaletteInitialView("issue-detail");
+        setPaletteInitialIssueId(opts.issueId);
+      } else {
+        setPaletteInitialView("github-issue-detail");
+        setPaletteInitialGitHubIssueNumber(opts.issueNumber);
+      }
+      setPaletteOpen(true);
     },
     [],
   );
@@ -164,6 +191,7 @@ function App() {
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
     "new-task": () => handleNewTaskRef.current(),
+    "new-workspace": () => setNewWorkspaceOpen(true),
     "new-browser": () => addBrowserSession("about:blank"),
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
@@ -316,7 +344,7 @@ function App() {
                 }),
               )}
               {!hasSessions &&
-                (hasProjects ? <WorkspaceEmptyState /> : <WelcomeEmptyState />)}
+                (hasProjects ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} /> : <WelcomeEmptyState />)}
             </div>
             <StatusBar />
           </div>
@@ -327,6 +355,9 @@ function App() {
         onClose={closePalette}
         onOpenSettings={handleOpenSettings}
         onNewWorkspace={handleNewWorkspace}
+        initialView={paletteInitialView}
+        initialIssueId={paletteInitialIssueId}
+        initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
         onResumeTask={handleResumeTask}
         onViewAllTasks={() => setTasksOpen(true)}
         onNewTask={handleNewTask}
@@ -368,6 +399,7 @@ function App() {
             name,
             branch,
             agentCommand,
+            pendingLinkedIssue ?? undefined,
           );
           if (result) {
             setNewWorkspaceOpen(false);

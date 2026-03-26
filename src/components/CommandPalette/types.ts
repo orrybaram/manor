@@ -28,11 +28,15 @@ export interface CommandPaletteProps {
     name?: string;
     branch?: string;
     agentPrompt?: string;
+    linkedIssue?: import("../../store/project-store").LinkedIssue;
   }) => void;
   onResumeTask: (task: import("../../electron.d").TaskInfo) => void;
   onViewAllTasks: () => void;
   onNewTask: () => void;
   onNewTaskWithPrompt?: (prompt: string) => void;
+  initialView?: PaletteView;
+  initialIssueId?: string | null;
+  initialGitHubIssueNumber?: number | null;
 }
 
 export type PaletteView =

@@ -522,6 +522,7 @@ export class ProjectManager {
     projectId: string,
     name: string,
     branch?: string,
+    linkedIssue?: LinkedIssue,
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
@@ -598,6 +599,16 @@ export class ProjectManager {
       if (!project.workspaceNames) project.workspaceNames = {};
       project.workspaceNames[worktreePath] = name;
     }
+
+    // Auto-link the issue if provided
+    if (linkedIssue) {
+      if (!project.workspaceIssues) project.workspaceIssues = {};
+      const existing = project.workspaceIssues[worktreePath] ?? [];
+      if (!existing.some((i) => i.id === linkedIssue.id)) {
+        project.workspaceIssues[worktreePath] = [...existing, linkedIssue];
+      }
+    }
+
     this.saveState();
 
     return this.buildProjectInfo(project);

@@ -56,7 +56,15 @@ export function IssueDetailView({
       if (existingIdx >= 0) {
         selectWorkspace(project.id, existingIdx);
         const existingWs = current?.workspaces[existingIdx];
-        if (existingWs) setActiveWorkspace(existingWs.path);
+        if (existingWs) {
+          setActiveWorkspace(existingWs.path);
+          window.electronAPI.linear.linkIssueToWorkspace(project.id, existingWs.path, {
+            id: issue.id,
+            identifier: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+          });
+        }
         onClose();
         return;
       }
@@ -68,6 +76,12 @@ export function IssueDetailView({
         branch: issue.branchName,
         agentPrompt:
           issue.title + "\n\n" + (issueDetailRef.current?.description ?? ""),
+        linkedIssue: {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          url: issue.url,
+        },
       });
       window.electronAPI.linear.startIssue(issue.id);
     },
@@ -95,6 +109,24 @@ export function IssueDetailView({
       onNewTaskWithPrompt?.(prompt);
       window.electronAPI.linear.startIssue(issue.id);
       onClose();
+
+      const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
+      const allProjects = useProjectStore.getState().projects;
+      const project = allProjects.find((p) =>
+        p.workspaces.some((w) => w.path === activeWorkspacePath),
+      );
+      if (project && activeWorkspacePath) {
+        window.electronAPI.linear.linkIssueToWorkspace(
+          project.id,
+          activeWorkspacePath,
+          {
+            id: issue.id,
+            identifier: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+          },
+        );
+      }
     },
     [onNewTaskWithPrompt, onClose],
   );

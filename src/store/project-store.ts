@@ -162,6 +162,7 @@ interface ProjectState {
     name: string,
     branch?: string,
     agentCommand?: string,
+    linkedIssue?: LinkedIssue,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -270,6 +271,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     name: string,
     branch?: string,
     agentCommand?: string,
+    linkedIssue?: LinkedIssue,
   ) => {
     let updated;
     try {
@@ -277,6 +279,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectId,
         name,
         branch,
+        linkedIssue,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

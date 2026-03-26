@@ -457,8 +457,8 @@ ipcMain.handle(
 
 ipcMain.handle(
   "projects:createWorktree",
-  (_event, projectId: string, name: string, branch?: string) => {
-    return projectManager.createWorktree(projectId, name, branch);
+  (_event, projectId: string, name: string, branch?: string, linkedIssue?: import("./linear").LinkedIssue) => {
+    return projectManager.createWorktree(projectId, name, branch, linkedIssue);
   },
 );
 

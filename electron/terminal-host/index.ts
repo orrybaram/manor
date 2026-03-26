@@ -17,9 +17,11 @@ import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
 
 const MANOR_DIR = path.join(os.homedir(), ".manor");
-const SOCKET_PATH = path.join(MANOR_DIR, "terminal-host.sock");
-const TOKEN_PATH = path.join(MANOR_DIR, "terminal-host.token");
-const PID_PATH = path.join(MANOR_DIR, "terminal-host.pid");
+const version = process.env.MANOR_VERSION || "unknown";
+const DAEMON_DIR = path.join(MANOR_DIR, "daemons", version);
+const SOCKET_PATH = path.join(DAEMON_DIR, "terminal-host.sock");
+const TOKEN_PATH = path.join(DAEMON_DIR, "terminal-host.token");
+const PID_PATH = path.join(DAEMON_DIR, "terminal-host.pid");
 
 const daemonVersion = process.env.MANOR_VERSION;
 
@@ -37,7 +39,7 @@ function log(msg: string): void {
 // ── Setup ──
 
 function setup(): void {
-  fs.mkdirSync(MANOR_DIR, { recursive: true });
+  fs.mkdirSync(DAEMON_DIR, { recursive: true });
 
   // Generate auth token
   const token = crypto.randomBytes(32).toString("hex");

@@ -183,7 +183,6 @@ export class LinearManager {
             state: { type: { in: $stateTypes } }
           }
           first: $first
-          orderBy: priority
         ) {
           nodes {
             id

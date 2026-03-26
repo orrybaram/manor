@@ -101,3 +101,13 @@ The output will be in the `dist/` directory.
 - **React Query** — Async data fetching
 - **node-pty** — Pseudo-terminal management
 - **electron-builder** — Packaging and distribution
+
+## Inspirations
+
+- [superset](https://github.com/superset-sh/superset)
+- [supacode](https://github.com/supabitapp/supacode)
+- [react-grab](https://github.com/aidenybai/react-grab)
+- [libghostty](https://github.com/ghostty-org/ghostty)
+- [xterm](https://github.com/xtermjs/xterm.js)
+- [t3code](https://github.com/pingdotgg/t3code)
+- [agent-deck](https://github.com/asheshgoplani/agent-deck)

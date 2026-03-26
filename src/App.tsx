@@ -346,7 +346,10 @@ function App() {
               {!hasSessions &&
                 (hasProjects ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} /> : <WelcomeEmptyState />)}
             </div>
-            <StatusBar />
+            <StatusBar
+              onNewWorkspace={handleNewWorkspace}
+              onNewTaskWithPrompt={handleNewTaskWithPrompt}
+            />
           </div>
         </PaneDragProvider>
       </div>

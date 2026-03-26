@@ -8,14 +8,21 @@ import type { LinearIssue, GitHubIssue } from "../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import styles from "./EmptyState.module.css";
 
+interface WorkspaceEmptyStateProps {
+  onOpenIssueDetail?: (opts: {
+    type: "linear";
+    issueId: string;
+  } | {
+    type: "github";
+    issueNumber: number;
+  }) => void;
+}
+
 /** Shown when the active workspace has no sessions (all tabs closed). */
-export function WorkspaceEmptyState() {
+export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStateProps) {
   const addSession = useAppStore((s) => s.addSession);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
-  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const createWorktree = useProjectStore((s) => s.createWorktree);
 
   const project = projects[selectedProjectIndex];
   const workspace = project?.workspaces[project.selectedWorkspaceIndex];
@@ -28,14 +35,10 @@ export function WorkspaceEmptyState() {
 
   const [tickets, setTickets] = useState<LinearIssue[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
-  const [loadingTicketId, setLoadingTicketId] = useState<string | null>(null);
 
   const [githubAvailable, setGithubAvailable] = useState(false);
   const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([]);
   const [githubLoading, setGithubLoading] = useState(false);
-  const [loadingGitHubIssueNumber, setLoadingGitHubIssueNumber] = useState<
-    number | null
-  >(null);
 
   useMountEffect(() => {
     let cancelled = false;
@@ -112,64 +115,18 @@ export function WorkspaceEmptyState() {
     };
   });
 
-  const projectId = project?.id;
   const handleTicketClick = useCallback(
-    async (issue: LinearIssue) => {
-      if (!projectId) return;
-      setLoadingTicketId(issue.id);
-      try {
-        // Check if a workspace with matching branch already exists
-        const current = useProjectStore
-          .getState()
-          .projects.find((p) => p.id === projectId);
-        const existingIdx =
-          current?.workspaces.findIndex(
-            (ws) => ws.branch === issue.branchName,
-          ) ?? -1;
-        if (existingIdx >= 0) {
-          selectWorkspace(projectId, existingIdx);
-          const existingWs = current?.workspaces[existingIdx];
-          if (existingWs) setActiveWorkspace(existingWs.path);
-          return;
-        }
-        // Create new worktree (store handles selection and activation)
-        await createWorktree(projectId, issue.identifier, issue.branchName);
-      } finally {
-        setLoadingTicketId(null);
-      }
+    (issue: LinearIssue) => {
+      onOpenIssueDetail?.({ type: "linear", issueId: issue.id });
     },
-    [projectId, selectWorkspace, createWorktree, setActiveWorkspace],
+    [onOpenIssueDetail],
   );
 
   const handleGitHubIssueClick = useCallback(
-    async (issue: GitHubIssue) => {
-      if (!projectId) return;
-      setLoadingGitHubIssueNumber(issue.number);
-      try {
-        const slugifiedTitle = issue.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
-        const branchName = `${issue.number}-${slugifiedTitle}`;
-        // Check if a workspace with matching branch already exists
-        const current = useProjectStore
-          .getState()
-          .projects.find((p) => p.id === projectId);
-        const existingIdx =
-          current?.workspaces.findIndex((ws) => ws.branch === branchName) ?? -1;
-        if (existingIdx >= 0) {
-          selectWorkspace(projectId, existingIdx);
-          const existingWs = current?.workspaces[existingIdx];
-          if (existingWs) setActiveWorkspace(existingWs.path);
-          return;
-        }
-        // Create new worktree (store handles selection and activation)
-        await createWorktree(projectId, issue.title, branchName);
-      } finally {
-        setLoadingGitHubIssueNumber(null);
-      }
+    (issue: GitHubIssue) => {
+      onOpenIssueDetail?.({ type: "github", issueNumber: issue.number });
     },
-    [projectId, selectWorkspace, createWorktree, setActiveWorkspace],
+    [onOpenIssueDetail],
   );
 
   const actions: ActionItem[] = [
@@ -220,15 +177,11 @@ export function WorkspaceEmptyState() {
             <button
               className={styles.ticket}
               onClick={() => handleTicketClick(issue)}
-              disabled={loadingTicketId === issue.id}
             >
               <span className={styles.ticketIdentifier}>
                 {issue.identifier}
               </span>
               <span className={styles.ticketTitle}>{issue.title}</span>
-              {loadingTicketId === issue.id && (
-                <span className={styles.ticketSpinner} />
-              )}
             </button>
             <button
               className={styles.ticketLink}
@@ -261,13 +214,9 @@ export function WorkspaceEmptyState() {
             <button
               className={styles.ticket}
               onClick={() => handleGitHubIssueClick(issue)}
-              disabled={loadingGitHubIssueNumber === issue.number}
             >
               <span className={styles.ticketIdentifier}>#{issue.number}</span>
               <span className={styles.ticketTitle}>{issue.title}</span>
-              {loadingGitHubIssueNumber === issue.number && (
-                <span className={styles.ticketSpinner} />
-              )}
             </button>
             <button
               className={styles.ticketLink}

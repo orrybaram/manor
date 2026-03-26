@@ -3,7 +3,7 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -37,13 +37,9 @@ export function useTerminalLifecycle(
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
 
-  const handlePtyError = useCallback((message: string) => {
-    setPtyError(message);
-  }, []);
-
   // Subscribe to stream events (pass write so the stream handler can
   // respond to kitty keyboard protocol queries on behalf of xterm.js)
-  useTerminalStream(paneId, term, write, handlePtyError);
+  useTerminalStream(paneId, term, write, setPtyError);
 
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);

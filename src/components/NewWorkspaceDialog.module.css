@@ -23,7 +23,6 @@
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
-  overflow: hidden;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;

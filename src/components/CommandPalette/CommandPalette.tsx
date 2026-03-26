@@ -8,6 +8,7 @@ import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
 import { useTaskCommands } from "./useTaskCommands";
 import { useCustomCommands } from "./useCustomCommands";
+import { usePortsData } from "../../hooks/usePortsData";
 import { LinearIcon } from "./LinearIcon";
 import { GitHubIcon } from "./GitHubIcon";
 import { LinearIssuesView } from "./LinearIssuesView";
@@ -35,6 +36,9 @@ export function CommandPalette({
   onViewAllTasks,
   onNewTask,
   onNewTaskWithPrompt,
+  initialView,
+  initialIssueId,
+  initialGitHubIssueNumber,
 }: CommandPaletteProps) {
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
@@ -53,6 +57,12 @@ export function CommandPalette({
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+
+  const { ports } = usePortsData();
+  const activePorts = useMemo(
+    () => ports.filter((p) => p.workspacePath === activeWorkspacePath),
+    [ports, activeWorkspacePath],
+  );
 
   const [view, setView] = useState<PaletteView>("root");
   const [search, setSearch] = useState("");
@@ -96,6 +106,14 @@ export function CommandPalette({
       .checkStatus()
       .then((s) => setGithubConnected(s.installed && s.authenticated))
       .catch(() => setGithubConnected(false));
+
+    // Apply initial view state if provided
+    if (initialView) {
+      setView(initialView);
+      if (initialIssueId != null) setSelectedIssueId(initialIssueId);
+      if (initialGitHubIssueNumber != null)
+        setSelectedGitHubIssueNumber(initialGitHubIssueNumber);
+    }
   }
   prevOpenRef.current = open;
 
@@ -167,6 +185,7 @@ export function CommandPalette({
     sessions,
     selectedSessionId,
     setShowGhosts,
+    activePorts,
   });
 
   const taskCommands = useTaskCommands({
@@ -359,7 +378,6 @@ export function CommandPalette({
                       .filter((c) => c.visible)
                       .sort((a, b) => {
                         if (!search) return 0;
-                        console.log(a)
                         
                         const bestScore = (cat: CategoryConfig) =>
                           Math.max(

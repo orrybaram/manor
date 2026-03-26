@@ -1,0 +1,197 @@
+/* ── Linked Issues Popover ── */
+
+.popover {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 320px;
+  max-height: 360px;
+  font-size: 11px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: popoverSlideUp 150ms ease-out;
+}
+
+@keyframes popoverSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── List view ── */
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.listScroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.issueRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-primary);
+  transition: background 100ms;
+}
+
+.issueRow:hover {
+  background: var(--hover);
+}
+
+.issueIdentifier {
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--text-selected);
+  font-size: 10px;
+}
+
+.issueTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issueStatus {
+  flex-shrink: 0;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+.issueAssignee {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Skeleton ── */
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.skeletonBone {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface);
+  animation: shimmer 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes shimmer {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.skeletonIdentifier {
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.skeletonTitle {
+  flex: 1;
+}
+
+.skeletonState {
+  width: 40px;
+  flex-shrink: 0;
+}
+
+/* ── Detail view ── */
+
+.detailView {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 360px;
+}
+
+.detailContent {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ── Context menu ── */
+
+.contextMenu {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 140px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  font-size: 11px;
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--hover);
+  outline: none;
+}
+
+.contextMenuItemDanger {
+  color: var(--red);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  color: var(--red);
+}

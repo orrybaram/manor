@@ -1,13 +1,21 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { ManorLogo } from "./ManorLogo";
 import { AboutModal } from "./AboutModal";
+import { LinkedIssuesPopover } from "./LinkedIssuesPopover";
 import { LinearIcon } from "./CommandPalette/LinearIcon";
+import type { CommandPaletteProps } from "./CommandPalette/types";
 import styles from "./StatusBar.module.css";
 
-export function StatusBar() {
+interface StatusBarProps {
+  onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
+  onNewTaskWithPrompt?: (prompt: string) => void;
+}
+
+export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProps) {
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const projects = useProjectStore((s) => s.projects);
 
@@ -25,9 +33,7 @@ export function StatusBar() {
 
   const linkedIssues = workspace?.linkedIssues ?? [];
 
-  const handleLinearClick = () => {
-    // Placeholder — popover wired in ticket 4
-  };
+  const handlePopoverClose = useCallback(() => setPopoverOpen(false), []);
 
   return (
     <div className={styles.statusBar}>
@@ -44,17 +50,27 @@ export function StatusBar() {
             {linkedIssues.length > 0 && (
               <>
                 <span className={styles.separator}>&gt;</span>
-                <button
-                  className={styles.linearSection}
-                  onClick={handleLinearClick}
+                <LinkedIssuesPopover
+                  issues={linkedIssues}
+                  isOpen={popoverOpen}
+                  onClose={handlePopoverClose}
+                  projectId={project.id}
+                  workspacePath={workspace!.path}
+                  onNewWorkspace={onNewWorkspace}
+                  onNewTaskWithPrompt={onNewTaskWithPrompt}
                 >
-                  <LinearIcon size={12} />
-                  <span>
-                    {linkedIssues.length === 1
-                      ? linkedIssues[0].identifier
-                      : `${linkedIssues.length} issues`}
-                  </span>
-                </button>
+                  <button
+                    className={styles.linearSection}
+                    onClick={() => setPopoverOpen((prev) => !prev)}
+                  >
+                    <LinearIcon size={12} />
+                    <span>
+                      {linkedIssues.length === 1
+                        ? linkedIssues[0].identifier
+                        : `${linkedIssues.length} issues`}
+                    </span>
+                  </button>
+                </LinkedIssuesPopover>
               </>
             )}
           </>

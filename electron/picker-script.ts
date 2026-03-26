@@ -33,6 +33,35 @@ const PICKER_IIFE = `(function() {
   ].join('; ');
   document.body.appendChild(overlay);
 
+  // ── Crosshair lines ──────────────────────────────────────────────────────
+  var vLine = document.createElement('div');
+  vLine.id = '__manor-picker-vline__';
+  vLine.style.cssText = [
+    'position: fixed',
+    'pointer-events: none',
+    'z-index: 2147483646',
+    'top: 0',
+    'left: -9999px',
+    'width: 1px',
+    'height: 100vh',
+    'background: rgba(79, 143, 247, 0.35)'
+  ].join('; ');
+  document.body.appendChild(vLine);
+
+  var hLine = document.createElement('div');
+  hLine.id = '__manor-picker-hline__';
+  hLine.style.cssText = [
+    'position: fixed',
+    'pointer-events: none',
+    'z-index: 2147483646',
+    'top: -9999px',
+    'left: 0',
+    'width: 100vw',
+    'height: 1px',
+    'background: rgba(79, 143, 247, 0.35)'
+  ].join('; ');
+  document.body.appendChild(hLine);
+
   var currentTarget = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -196,9 +225,14 @@ const PICKER_IIFE = `(function() {
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
+  function onMouseMove(e) {
+    vLine.style.left = e.clientX + 'px';
+    hLine.style.top = e.clientY + 'px';
+  }
+
   function onMouseOver(e) {
     var target = e.target;
-    if (!target || target === overlay || target === document.body || target === document.documentElement) return;
+    if (!target || target === overlay || target === vLine || target === hLine || target === document.body || target === document.documentElement) return;
     currentTarget = target;
     var rect = target.getBoundingClientRect();
     overlay.style.top = rect.top + 'px';
@@ -253,17 +287,26 @@ const PICKER_IIFE = `(function() {
   }
 
   function cleanup() {
+    document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mouseover', onMouseOver, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
-    if (overlay.parentNode) {
-      overlay.parentNode.removeChild(overlay);
-    }
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (vLine.parentNode) vLine.parentNode.removeChild(vLine);
+    if (hLine.parentNode) hLine.parentNode.removeChild(hLine);
     currentTarget = null;
     window.__manor_picker_active__ = false;
+    delete window.__manor_picker_cancel__;
   }
 
+  // Expose cancel function so the main process can programmatically cancel
+  window.__manor_picker_cancel__ = function() {
+    console.log('__MANOR_PICK_CANCEL__');
+    cleanup();
+  };
+
   // ── Attach listeners (capture phase to intercept before page handlers) ────
+  document.addEventListener('mousemove', onMouseMove, true);
   document.addEventListener('mouseover', onMouseOver, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);

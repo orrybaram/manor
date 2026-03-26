@@ -1,8 +1,10 @@
 import { useMemo } from "react";
+import { Globe } from "lucide-react";
 import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useAppStore } from "../../store/app-store";
+import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
   addSession: () => void;
@@ -20,6 +22,7 @@ interface UseCommandsParams {
   sessions: { id: string }[];
   selectedSessionId: string | null;
   setShowGhosts: (show: boolean) => void;
+  activePorts: ActivePort[];
 }
 
 export function useCommands({
@@ -38,6 +41,7 @@ export function useCommands({
   sessions,
   selectedSessionId,
   setShowGhosts,
+  activePorts,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -178,6 +182,36 @@ export function useCommands({
           setTimeout(() => setShowGhosts(false), 5000);
         },
       },
+      ...activePorts.map((p): CommandItem => {
+        const url = p.hostname
+          ? `http://${p.hostname}`
+          : `http://localhost:${p.port}`;
+        const displayName = p.hostname
+          ? p.hostname.replace(/\.localhost(:\d+)?$/, "")
+          : p.processName;
+        return {
+          id: `open-port-${p.port}`,
+          label: `Open Browser ${displayName}`,
+          icon: <Globe size={14} />,
+          keywords: [
+            "port",
+            "browser",
+            "localhost",
+            "server",
+            "web",
+            "preview",
+            "dev",
+            "open",
+            "launch",
+            String(p.port),
+            p.processName,
+          ],
+          action: () => {
+            addBrowserSession(url);
+            onClose();
+          },
+        };
+      }),
     ];
   }, [
     addSession,
@@ -197,5 +231,6 @@ export function useCommands({
     setShowGhosts,
     bindings,
     activeWorkspacePath,
+    activePorts,
   ]);
 }

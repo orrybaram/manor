@@ -278,9 +278,7 @@ export function NewWorkspaceDialog({
                     setTimeout(() => setShowDropdown(false), 150);
                   }}
                   onKeyDown={handleBranchKeyDown}
-                  placeholder={
-                    slugify(name.trim()) || "defaults to slugified name"
-                  }
+                  placeholder="Search branches..."
                   autoComplete="off"
                 />
                 {showDropdown && (

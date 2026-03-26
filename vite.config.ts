@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import electron from "vite-plugin-electron";
 import renderer from "vite-plugin-electron-renderer";
+import pkg from "./package.json";
 
 export default defineConfig({
   plugins: [
@@ -94,4 +95,5 @@ export default defineConfig({
     renderer(),
   ],
   clearScreen: false,
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 });

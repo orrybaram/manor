@@ -104,6 +104,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("n"),
     category: "workspace",
   },
+  {
+    id: "new-workspace",
+    label: "New Workspace",
+    defaultCombo: metaCombo("n", true),
+    category: "workspace",
+  },
   // select-session-1 through select-session-9
   ...Array.from({ length: 9 }, (_, i) => ({
     id: `select-session-${i + 1}`,

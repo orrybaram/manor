@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import "@xterm/xterm/css/xterm.css";
 import { useThemeStore } from "../store/theme-store";
 import { useTerminalLifecycle } from "../hooks/useTerminalLifecycle";
@@ -16,22 +17,21 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
   const { ptyError } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 0 }}>
-      <div
-        ref={containerRef}
-        className={styles.container}
-        style={{
-          width: "100%",
-          height: "100%",
-          minHeight: 0,
-          overflow: "hidden",
-        }}
-      />
-      {ptyError && (
-        <div className={styles.errorOverlay}>
-          <div className={styles.errorBox}>
-            <h2 className={styles.errorTitle}>Terminal failed to start</h2>
-            <p className={styles.errorMessage}>{ptyError}</p>
+    <div ref={containerRef} className={styles.container}>
+      <Dialog.Root open={!!ptyError}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.errorOverlay} />
+          <Dialog.Content
+            className={styles.errorBox}
+            onEscapeKeyDown={(e) => e.preventDefault()}
+            onInteractOutside={(e) => e.preventDefault()}
+          >
+            <Dialog.Title className={styles.errorTitle}>
+              Terminal failed to start
+            </Dialog.Title>
+            <Dialog.Description className={styles.errorMessage}>
+              {ptyError}
+            </Dialog.Description>
             <p className={styles.errorHint}>
               Manor may need Full Disk Access or Developer Tools permissions.
               Open <strong>System Settings &rarr; Privacy &amp; Security</strong> and
@@ -48,9 +48,9 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
             >
               Open Privacy &amp; Security
             </button>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

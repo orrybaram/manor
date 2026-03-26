@@ -1,98 +1,108 @@
-.container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
+/* ── About Modal ── */
 
-/* Force the canvas onto its own GPU compositing layer so it snaps to the
-   device pixel grid, preventing sub-pixel blurriness from fractional flex
-   positions. display:block removes the inline baseline descender gap. */
-.container canvas {
-  display: block;
-  transform: translateZ(0);
-}
-
-/* Error dialog — shown when PTY creation fails */
-.errorOverlay {
+.overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 200;
 }
 
-.errorOverlay[data-state="open"] {
+.overlay[data-state="open"] {
   animation: fadeIn 150ms ease-out;
 }
 
-.errorOverlay[data-state="closed"] {
+.overlay[data-state="closed"] {
   animation: fadeOut 100ms ease-in;
 }
 
-.errorBox {
+.dialog {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 201;
+  width: 320px;
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
-  padding: 28px 32px;
-  max-width: 420px;
-  width: 90%;
+  padding: 24px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  text-align: center;
 }
 
-.errorBox[data-state="open"] {
+.dialog[data-state="open"] {
   animation: scaleIn 150ms ease-out;
 }
 
-.errorBox[data-state="closed"] {
+.dialog[data-state="closed"] {
   animation: scaleOut 100ms ease-in;
 }
 
-.errorTitle {
-  margin: 0;
+.logo {
+  width: 48px;
+  height: 48px;
+  color: var(--text-selected);
+  margin-bottom: 8px;
+}
+
+.logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-selected);
+  margin: 0;
 }
 
-.errorMessage {
-  margin: 0;
-  font-size: 13px;
+.version {
+  font-size: 11px;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  word-break: break-word;
-}
-
-.errorHint {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-
-.errorButton {
   margin-top: 4px;
-  align-self: flex-start;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: none;
-  background: var(--accent);
-  color: var(--text-selected);
-  cursor: pointer;
 }
 
-.errorButton:hover {
-  opacity: 0.85;
+.divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+  margin: 16px 0;
+}
+
+.inspiredLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 10px;
+}
+
+.link {
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  transition: color 150ms;
+}
+
+.link:hover {
+  color: var(--text-selected);
 }
 
 @keyframes fadeIn {

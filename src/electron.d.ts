@@ -439,6 +439,7 @@ export interface ElectronAPI {
     ) => () => void;
     onPickerCancel: (callback: (paneId: string) => void) => () => void;
     onEscape: (callback: (paneId: string) => void) => () => void;
+    onFocusUrl: (callback: (paneId: string) => void) => () => void;
   };
 }
 

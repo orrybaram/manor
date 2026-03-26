@@ -328,6 +328,20 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubFocusUrl = window.electronAPI.webview.onFocusUrl(
+        (focusPaneId: string) => {
+          if (focusPaneId !== paneId) return;
+          wv.blur();
+          const input = document.querySelector<HTMLInputElement>(
+            `[data-pane-url-input="${paneId}"]`,
+          );
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        },
+      );
+
       return () => {
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
@@ -339,6 +353,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubPickerResult();
         unsubPickerCancel();
         unsubEscape();
+        unsubFocusUrl();
       };
     }, [paneId, setPaneTitle, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
 

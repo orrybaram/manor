@@ -323,5 +323,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     },
     onEscape: (callback: (paneId: string) => void) =>
       onChannel('webview:escape', callback),
+    onFocusUrl: (callback: (paneId: string) => void) =>
+      onChannel('webview:focus-url', callback),
   },
 });

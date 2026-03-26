@@ -932,9 +932,11 @@ ipcMain.handle(
         ev: Electron.Event,
         input: Electron.Input,
       ) => {
+        if (input.type !== "keyDown") return;
+
+        // Escape — double-tap to blur webview
         if (
           input.key === "Escape" &&
-          input.type === "keyDown" &&
           !input.alt &&
           !input.control &&
           !input.meta &&
@@ -947,6 +949,27 @@ ipcMain.handle(
             lastEscapeTime = 0;
           } else {
             lastEscapeTime = now;
+          }
+          return;
+        }
+
+        // Browser keybindings (Cmd only, no other modifiers)
+        if (input.meta && !input.alt && !input.control && !input.shift) {
+          if (input.key === "=") {
+            ev.preventDefault();
+            wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
+          } else if (input.key === "-") {
+            ev.preventDefault();
+            wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
+          } else if (input.key === "0") {
+            ev.preventDefault();
+            wc.setZoomLevel(0);
+          } else if (input.key === "r") {
+            ev.preventDefault();
+            wc.reload();
+          } else if (input.key === "l") {
+            ev.preventDefault();
+            rendererWebContents.send("webview:focus-url", paneId);
           }
         }
       };

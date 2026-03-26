@@ -25,6 +25,7 @@ import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { allPaneIds } from "./store/pane-tree";
+import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
 import "./App.css";
 
 const SESSION_BASE_STYLE: React.CSSProperties = {
@@ -294,12 +295,12 @@ function App() {
         );
         const baseCommand =
           taskProject?.agentCommand?.split(" ")[0] ??
-          "claude --dangerously-skip-permissions";
+          DEFAULT_AGENT_COMMAND;
         useAppStore
           .getState()
           .setPendingStartupCommand(
             activePath,
-            `${baseCommand} --resume ${task.claudeSessionId}`,
+            `${baseCommand} --resume ${task.agentSessionId}`,
           );
       }
       addSession();
@@ -313,7 +314,7 @@ function App() {
         p.workspaces.some((w) => w.path === activeWorkspacePath),
       );
       const command =
-        currentProject?.agentCommand ?? "claude --dangerously-skip-permissions";
+        currentProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
       useAppStore
         .getState()
         .setPendingStartupCommand(activeWorkspacePath, command);
@@ -330,7 +331,7 @@ function App() {
         );
         const baseCommand =
           currentProject?.agentCommand ??
-          "claude --dangerously-skip-permissions";
+          DEFAULT_AGENT_COMMAND;
         const escaped = prompt
           .replace(/\\/g, "\\\\")
           .replace(/"/g, '\\"')
@@ -428,7 +429,7 @@ function App() {
           if (agentPrompt) {
             const project = projects.find((p) => p.id === projectId);
             const baseCommand =
-              project?.agentCommand ?? "claude --dangerously-skip-permissions";
+              project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
             const escaped = agentPrompt
               .replace(/\\/g, "\\\\")
               .replace(/"/g, '\\"')

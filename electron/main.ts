@@ -32,8 +32,7 @@ import { ShellManager } from "./shell";
 import {
   AgentHookServer,
   ensureHookScript,
-  registerClaudeHooks,
-  registerWebviewMcp,
+  registerAllAgents,
 } from "./agent-hooks";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { WebviewServer } from "./webview-server";
@@ -239,8 +238,7 @@ function updateDockBadge(): void {
 ShellManager.setupZdotdir();
 ensureHookScript();
 ensureWebviewCli();
-registerClaudeHooks();
-registerWebviewMcp();
+registerAllAgents();
 
 // Set up stream event handler — forward events to renderer
 client.onEvent((event: StreamEvent) => {
@@ -1290,7 +1288,7 @@ app.whenReady().then(async () => {
       if (!task) {
         const paneContext = paneContextMap.get(paneId);
         task = taskManager.createTask({
-          claudeSessionId: sessionId,
+          agentSessionId: sessionId,
           name: null,
           status: "active",
           completedAt: null,

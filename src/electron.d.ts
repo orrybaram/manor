@@ -431,6 +431,9 @@ export interface ElectronAPI {
     unregister: (paneId: string) => Promise<void>;
     startPicker: (paneId: string) => Promise<void>;
     cancelPicker: (paneId: string) => Promise<void>;
+    zoomIn: (paneId: string) => Promise<void>;
+    zoomOut: (paneId: string) => Promise<void>;
+    zoomReset: (paneId: string) => Promise<void>;
     onPickerResult: (
       callback: (paneId: string, result: PickedElementResult) => void,
     ) => () => void;

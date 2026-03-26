@@ -295,6 +295,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("webview:start-picker", paneId),
     cancelPicker: (paneId: string) =>
       ipcRenderer.invoke("webview:cancel-picker", paneId),
+    zoomIn: (paneId: string) => ipcRenderer.invoke("webview:zoom-in", paneId),
+    zoomOut: (paneId: string) =>
+      ipcRenderer.invoke("webview:zoom-out", paneId),
+    zoomReset: (paneId: string) =>
+      ipcRenderer.invoke("webview:zoom-reset", paneId),
     onPickerResult: (
       callback: (paneId: string, result: unknown) => void,
     ) => {

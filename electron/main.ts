@@ -1020,6 +1020,33 @@ ipcMain.handle("webview:cancel-picker", async (_event, paneId: string) => {
   );
 });
 
+ipcMain.handle("webview:zoom-in", (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  const webContentsId = webviewRegistry.get(paneId);
+  if (!webContentsId) return;
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) return;
+  wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
+});
+
+ipcMain.handle("webview:zoom-out", (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  const webContentsId = webviewRegistry.get(paneId);
+  if (!webContentsId) return;
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) return;
+  wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
+});
+
+ipcMain.handle("webview:zoom-reset", (_event, paneId: string) => {
+  assertString(paneId, "paneId");
+  const webContentsId = webviewRegistry.get(paneId);
+  if (!webContentsId) return;
+  const wc = webContents.fromId(webContentsId);
+  if (!wc || wc.isDestroyed()) return;
+  wc.setZoomLevel(0);
+});
+
 keybindingsManager.onChange((overrides) => {
   if (
     mainWindow &&

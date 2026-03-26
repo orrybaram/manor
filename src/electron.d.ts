@@ -193,6 +193,14 @@ export interface ElectronAPI {
       deleteBranch?: boolean,
     ) => Promise<void>;
     onRemoveWorktreeProgress: (callback: (step: string) => void) => () => void;
+    canQuickMerge: (
+      projectId: string,
+      worktreePath: string,
+    ) => Promise<{ canMerge: boolean; reason?: string }>;
+    quickMergeWorktree: (
+      projectId: string,
+      worktreePath: string,
+    ) => Promise<void>;
     createWorktree: (
       projectId: string,
       name: string,

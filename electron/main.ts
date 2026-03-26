@@ -65,6 +65,36 @@ interface WindowBounds {
   isMaximized: boolean;
 }
 
+/** Read git branch synchronously from a repo or worktree root. */
+function readBranchSync(repoPath: string): string | null {
+  try {
+    const gitPath = path.join(repoPath, ".git");
+    const stat = fs.statSync(gitPath);
+
+    let headPath: string;
+    if (stat.isDirectory()) {
+      headPath = path.join(gitPath, "HEAD");
+    } else {
+      // Worktree: .git is a file containing "gitdir: <path>"
+      const content = fs.readFileSync(gitPath, "utf-8").trim();
+      const m = content.match(/^gitdir:\s*(.+)$/);
+      if (!m) return null;
+      const gitdir = path.isAbsolute(m[1])
+        ? m[1]
+        : path.resolve(repoPath, m[1]);
+      headPath = path.join(gitdir, "HEAD");
+    }
+
+    const head = fs.readFileSync(headPath, "utf-8").trim();
+    const refMatch = head.match(/^ref: refs\/heads\/(.+)$/);
+    if (refMatch) return refMatch[1];
+    if (/^[0-9a-f]{40}$/.test(head)) return head.slice(0, 7);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function manorDataDir(): string {
   return process.platform === "darwin"
     ? path.join(os.homedir(), "Library", "Application Support", "Manor")
@@ -457,6 +487,20 @@ ipcMain.handle(
         event.sender.send("projects:removeWorktree:progress", step);
       },
     );
+  },
+);
+
+ipcMain.handle(
+  "projects:canQuickMerge",
+  (_event, projectId: string, worktreePath: string) => {
+    return projectManager.canQuickMerge(projectId, worktreePath);
+  },
+);
+
+ipcMain.handle(
+  "projects:quickMergeWorktree",
+  (_event, projectId: string, worktreePath: string) => {
+    return projectManager.quickMergeWorktree(projectId, worktreePath);
   },
 );
 
@@ -1196,6 +1240,16 @@ app.whenReady().then(async () => {
     const iconPath = path.join(__dirname, "../build/dev-icon.png");
     if (fs.existsSync(iconPath)) {
       app.dock.setIcon(nativeImage.createFromPath(iconPath));
+    }
+  }
+
+  // In dev mode, include the git branch in the app name so multiple
+  // instances (e.g. from different worktrees) are distinguishable in
+  // the Dock and App Switcher.
+  if (!app.isPackaged) {
+    const branch = readBranchSync(process.cwd());
+    if (branch) {
+      app.name = `Manor (${branch})`;
     }
   }
 

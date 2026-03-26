@@ -385,6 +385,11 @@
   color: var(--text);
 }
 
+.footerLinked {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .kbd {
   display: inline-flex;
   align-items: center;

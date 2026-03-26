@@ -16,6 +16,7 @@ interface IssueDetailViewProps {
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
+  linkedTo?: string;
 }
 
 export function IssueDetailView({
@@ -24,6 +25,7 @@ export function IssueDetailView({
   onClose,
   onNewWorkspace,
   onNewTaskWithPrompt,
+  linkedTo,
 }: IssueDetailViewProps) {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
@@ -149,7 +151,7 @@ export function IssueDetailView({
       ready = true;
     });
     const onKeyUp = (e: globalThis.KeyboardEvent) => {
-      if (!ready || !issueDetailRef.current) return;
+      if (!ready || !issueDetailRef.current || linkedTo) return;
       if (e.key === "Enter" && e.shiftKey) {
         e.preventDefault();
         handleCreateWorkspaceRef.current(issueDetailRef.current);
@@ -249,20 +251,28 @@ export function IssueDetailView({
         </div>
       </div>
       <div className={styles.detailFooter}>
-        <button
-          className={styles.footerHint}
-          onClick={() => handleNewTask(issueDetail)}
-        >
-          <kbd className={styles.kbd}>Enter</kbd>
-          <span>New Task</span>
-        </button>
-        <button
-          className={styles.footerHint}
-          onClick={() => handleCreateWorkspace(issueDetail)}
-        >
-          <kbd className={styles.kbd}>Shift+Enter</kbd>
-          <span>Create Workspace</span>
-        </button>
+        {linkedTo ? (
+          <span className={styles.footerLinked}>
+            Linked to <strong>{linkedTo}</strong>
+          </span>
+        ) : (
+          <>
+            <button
+              className={styles.footerHint}
+              onClick={() => handleNewTask(issueDetail)}
+            >
+              <kbd className={styles.kbd}>Enter</kbd>
+              <span>New Task</span>
+            </button>
+            <button
+              className={styles.footerHint}
+              onClick={() => handleCreateWorkspace(issueDetail)}
+            >
+              <kbd className={styles.kbd}>Shift+Enter</kbd>
+              <span>Create Workspace</span>
+            </button>
+          </>
+        )}
         <button
           className={styles.footerHint}
           onClick={() => handleOpenInBrowser(issueDetail)}

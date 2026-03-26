@@ -143,15 +143,15 @@ export function LinkedIssuesPopover({
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
 
-  // Look up the project path (repoPath) for GitHub issue fetching
-  const repoPath = projects.find((p) => p.id === projectId)?.path ?? "";
+  // Look up project and workspace info
+  const project = projects.find((p) => p.id === projectId);
+  const repoPath = project?.path ?? "";
+  const workspace = project?.workspaces.find((w) => w.path === workspacePath);
+  const workspaceLabel = workspace?.name ?? workspace?.branch ?? "";
 
-  // Reset selected issue when popover closes (synchronous during render)
-  const prevOpenRef = useRef(isOpen);
-  if (prevOpenRef.current && !isOpen) {
-    setSelectedIssueId(null);
-  }
-  prevOpenRef.current = isOpen;
+  // Track popover open/close — but do NOT reset selectedIssueId here,
+  // because the popover closes when the dialog opens (focus steal).
+  // selectedIssueId is only cleared when the dialog itself closes.
 
   // Fetch live details for all linked issues
   const issueIds = issues.map((i) => i.id);
@@ -233,7 +233,8 @@ export function LinkedIssuesPopover({
 
   const handleRowClick = useCallback((issueId: string) => {
     setSelectedIssueId(issueId);
-  }, []);
+    onClose(); // close popover, dialog takes over
+  }, [onClose]);
 
   const handleDialogClose = useCallback(() => {
     setSelectedIssueId(null);
@@ -305,6 +306,7 @@ export function LinkedIssuesPopover({
                   onClose={handleCloseAll}
                   onNewWorkspace={onNewWorkspace}
                   onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  linkedTo={workspaceLabel}
                 />
               ) : (
                 <IssueDetailView
@@ -313,6 +315,7 @@ export function LinkedIssuesPopover({
                   onClose={handleCloseAll}
                   onNewWorkspace={onNewWorkspace}
                   onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  linkedTo={workspaceLabel}
                 />
               )
             )}

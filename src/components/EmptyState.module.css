@@ -9,8 +9,9 @@
 .content {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 48px;
+  width: 480px;
 }
 
 .logo {
@@ -32,7 +33,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 320px;
+  width: 100%;
 }
 
 .action {
@@ -87,8 +88,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 320px;
-  max-width: 480px;
+  width: 100%;
 }
 
 .ticketsSectionHeader {
@@ -174,14 +174,25 @@
   color: var(--text-dim);
 }
 
-.ticketSpinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--text-dim);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-  flex-shrink: 0;
+.viewAll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.viewAll:hover {
+  background: var(--hover);
+  color: var(--text-selected);
 }
 
 .ticketLoading {
@@ -191,12 +202,6 @@
   background: var(--surface);
   opacity: 0.3;
   animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes pulse {

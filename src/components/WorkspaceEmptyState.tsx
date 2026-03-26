@@ -6,20 +6,25 @@ import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { useMountEffect } from "../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
+import type { PaletteView } from "./CommandPalette/types";
 import styles from "./EmptyState.module.css";
 
+const INLINE_LIMIT = 5;
+
 interface WorkspaceEmptyStateProps {
-  onOpenIssueDetail?: (opts: {
-    type: "linear";
-    issueId: string;
-  } | {
-    type: "github";
-    issueNumber: number;
-  }) => void;
+  onOpenIssueDetail?: (
+    opts:
+      | { type: "linear"; issueId: string }
+      | { type: "github"; issueNumber: number },
+  ) => void;
+  onOpenPaletteView?: (view: PaletteView) => void;
 }
 
 /** Shown when the active workspace has no sessions (all tabs closed). */
-export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStateProps) {
+export function WorkspaceEmptyState({
+  onOpenIssueDetail,
+  onOpenPaletteView,
+}: WorkspaceEmptyStateProps) {
   const addSession = useAppStore((s) => s.addSession);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
@@ -78,7 +83,6 @@ export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStatePr
       }
     });
 
-    // Fetch GitHub issues
     const fetchGitHubIssues = async () => {
       const state = useProjectStore.getState();
       const proj = state.projects[state.selectedProjectIndex];
@@ -93,7 +97,7 @@ export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStatePr
           try {
             const issues = await window.electronAPI.github.getMyIssues(
               repoPath,
-              5,
+              INLINE_LIMIT,
             );
             if (!cancelled) setGithubIssues(issues);
           } catch (err) {
@@ -168,11 +172,14 @@ export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStatePr
     });
   }
 
+  const inlineLinear = tickets.slice(0, INLINE_LIMIT);
+  const hasMoreLinear = tickets.length > INLINE_LIMIT;
+
   const linearSection =
-    tickets.length > 0 ? (
+    inlineLinear.length > 0 ? (
       <div className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Tickets</div>
-        {tickets.map((issue) => (
+        {inlineLinear.map((issue) => (
           <div key={issue.id} className={styles.ticketRow}>
             <button
               className={styles.ticket}
@@ -195,6 +202,14 @@ export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStatePr
             </button>
           </div>
         ))}
+        {hasMoreLinear && (
+          <button
+            className={styles.viewAll}
+            onClick={() => onOpenPaletteView?.("linear")}
+          >
+            View All Tickets
+          </button>
+        )}
       </div>
     ) : ticketsLoading && teamIds.length > 0 ? (
       <div className={styles.ticketsSection}>
@@ -230,6 +245,12 @@ export function WorkspaceEmptyState({ onOpenIssueDetail }: WorkspaceEmptyStatePr
             </button>
           </div>
         ))}
+        <button
+          className={styles.viewAll}
+          onClick={() => onOpenPaletteView?.("github")}
+        >
+          View All Issues
+        </button>
       </div>
     ) : githubAvailable && githubLoading ? (
       <div className={styles.ticketsSection}>

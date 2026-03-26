@@ -538,18 +538,34 @@ export class ProjectManager {
       );
     }
 
-    // Check for uncommitted changes
+    // Check for uncommitted changes in source worktree
     try {
       const { stdout } = await execAsync("git status --porcelain", {
         cwd: worktreePath,
         timeout: 10000,
       });
       if (stdout.trim().length > 0) {
-        return { canMerge: false, reason: "Uncommitted changes" };
+        return { canMerge: false, reason: "Uncommitted changes in workspace" };
       }
     } catch (err) {
       console.error(
         "[ProjectManager] canQuickMerge: failed to check git status:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // Check for uncommitted changes in main worktree (merge target)
+    try {
+      const { stdout } = await execAsync("git status --porcelain", {
+        cwd: project.path,
+        timeout: 10000,
+      });
+      if (stdout.trim().length > 0) {
+        return { canMerge: false, reason: "Uncommitted changes in main workspace" };
+      }
+    } catch (err) {
+      console.error(
+        "[ProjectManager] canQuickMerge: failed to check main worktree git status:",
         err instanceof Error ? err.message : err,
       );
     }

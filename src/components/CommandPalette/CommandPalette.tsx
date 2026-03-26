@@ -75,6 +75,7 @@ export function CommandPalette({
   const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
   const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Derive the active project from the active workspace
   const activeProject = useMemo(
@@ -364,10 +365,14 @@ export function CommandPalette({
                   }
                   autoFocus
                   value={search}
-                  onValueChange={setSearch}
+                  onValueChange={(v) => {
+                    setSearch(v);
+                    listRef.current?.scrollTo(0, 0);
+                  }}
                 />
               )}
               <Command.List
+                ref={listRef}
                 className={styles.list}
                 style={isDetailView ? HIDDEN_STYLE : undefined}
               >

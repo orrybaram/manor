@@ -50,11 +50,10 @@ interface WorkspaceSessionState {
   pinnedSessionIds: string[];
 }
 
-function createWorkspaceState(): WorkspaceSessionState {
-  const session = createSession();
+function createEmptyWorkspaceState(): WorkspaceSessionState {
   return {
-    sessions: [session],
-    selectedSessionId: session.id,
+    sessions: [],
+    selectedSessionId: "",
     pinnedSessionIds: [],
   };
 }
@@ -71,7 +70,7 @@ function restoreWorkspaceState(
   }));
 
   if (sessions.length === 0) {
-    return createWorkspaceState();
+    return createEmptyWorkspaceState();
   }
 
   return {
@@ -284,12 +283,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
-      // No persisted state — create fresh
+      // No persisted state — start empty so WorkspaceEmptyState is shown
       return {
         activeWorkspacePath: path,
         workspaceSessions: {
           ...state.workspaceSessions,
-          [path]: createWorkspaceState(),
+          [path]: createEmptyWorkspaceState(),
         },
       };
     }),

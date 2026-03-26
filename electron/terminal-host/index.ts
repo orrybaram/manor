@@ -166,6 +166,17 @@ async function handleControlMessage(
       sendResponse(socket, { type: "pong" });
       break;
     }
+
+    case "updateEnv": {
+      // Update daemon process.env so new PTY sessions inherit fresh values.
+      // This is needed when the Electron app restarts (new hook port, etc.)
+      // but reconnects to an existing daemon.
+      for (const [key, value] of Object.entries(request.env)) {
+        process.env[key] = value;
+      }
+      sendResponse(socket, { type: "envUpdated" });
+      break;
+    }
   }
 }
 

@@ -16,6 +16,7 @@ import { TasksModal } from "./components/TasksView";
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
+import { useToastStore } from "./store/toast-store";
 import { comboFromEvent, comboMatches } from "./lib/keybindings";
 import { getBrowserPaneRef } from "./lib/browser-pane-registry";
 import type { BrowserPaneRef } from "./components/BrowserPane";
@@ -119,6 +120,14 @@ function App() {
     [],
   );
 
+  const handleOpenPaletteView = useCallback(
+    (view: PaletteView) => {
+      setPaletteInitialView(view);
+      setPaletteOpen(true);
+    },
+    [],
+  );
+
   const handleOpenIssueDetail = useCallback(
     (opts: { type: "linear"; issueId: string } | { type: "github"; issueNumber: number }) => {
       if (opts.type === "linear") {
@@ -209,6 +218,23 @@ function App() {
     "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
     "new-browser": () => addBrowserSession("about:blank"),
+    "copy-branch": () => {
+      const state = useAppStore.getState();
+      const awp = state.activeWorkspacePath;
+      const proj = useProjectStore.getState().projects.find((p) =>
+        p.workspaces.some((w) => w.path === awp),
+      );
+      const ws = proj?.workspaces.find((w) => w.path === awp);
+      const branch = ws?.branch;
+      if (branch) {
+        navigator.clipboard.writeText(branch);
+        useToastStore.getState().addToast({
+          id: `copy-branch-${Date.now()}`,
+          message: `Copied "${branch}"`,
+          status: "success",
+        });
+      }
+    },
     "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
     "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
     "browser-zoom-reset": () => getFocusedBrowserRef()?.zoomReset(),
@@ -384,7 +410,7 @@ function App() {
                 }),
               )}
               {!hasSessions &&
-                (hasProjects ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} /> : <WelcomeEmptyState />)}
+                (hasProjects ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} /> : <WelcomeEmptyState />)}
             </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}

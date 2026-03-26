@@ -64,6 +64,35 @@ function IssueRowSkeleton({ index }: { index: number }) {
   );
 }
 
+function getStatusStyle(detail: IssueDetail | undefined): {
+  color: string;
+  background: string;
+} {
+  if (detail?.source === "linear") {
+    switch (detail.data.state.type) {
+      case "started":
+        return { color: "var(--yellow)", background: "var(--yellow-a20, rgba(249,226,175,0.13))" };
+      case "completed":
+        return { color: "var(--green)", background: "var(--green-a20, rgba(166,227,161,0.13))" };
+      case "cancelled":
+        return { color: "var(--red)", background: "var(--red-a20, rgba(238,85,85,0.13))" };
+      default:
+        return { color: "var(--text-dim)", background: "var(--surface)" };
+    }
+  }
+  if (detail?.source === "github") {
+    switch (detail.data.state) {
+      case "open":
+        return { color: "var(--green)", background: "var(--green-a20, rgba(166,227,161,0.13))" };
+      case "closed":
+        return { color: "var(--red)", background: "var(--red-a20, rgba(238,85,85,0.13))" };
+      default:
+        return { color: "var(--text-dim)", background: "var(--surface)" };
+    }
+  }
+  return { color: "var(--text-dim)", background: "var(--surface)" };
+}
+
 function IssueRow({
   issue,
   detail,
@@ -91,6 +120,8 @@ function IssueRow({
         ? detail.data.assignees[0]?.login
         : undefined;
 
+  const statusStyle = getStatusStyle(detail);
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -105,7 +136,7 @@ function IssueRow({
             />
           ) : detail ? (
             <>
-              <span className={styles.issueStatus}>{stateName}</span>
+              <span className={styles.issueStatus} style={statusStyle}>{stateName}</span>
               {assigneeName && (
                 <span className={styles.issueAssignee}>
                   {assigneeName}
@@ -141,6 +172,7 @@ export function LinkedIssuesPopover({
   children,
 }: LinkedIssuesPopoverProps) {
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const projects = useProjectStore((s) => s.projects);
 
   // Look up project and workspace info
@@ -216,19 +248,24 @@ export function LinkedIssuesPopover({
     staleTime: 30_000,
   });
 
+  const visibleIssues = issues.filter((i) => !removedIds.has(i.id));
+
   const handleUnlink = useCallback(
     async (issueId: string) => {
+      setRemovedIds((prev) => new Set(prev).add(issueId));
+      // If that was the last visible issue, close the popover
+      const remaining = visibleIssues.filter((i) => i.id !== issueId);
+      if (remaining.length === 0) {
+        onClose();
+      }
       await window.electronAPI.linear.unlinkIssueFromWorkspace(
         projectId,
         workspacePath,
         issueId,
       );
-      // If that was the last issue, close the popover
-      if (issues.length <= 1) {
-        onClose();
-      }
+      useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, issues.length, onClose],
+    [projectId, workspacePath, visibleIssues, onClose],
   );
 
   const handleRowClick = useCallback((issueId: string) => {
@@ -261,11 +298,11 @@ export function LinkedIssuesPopover({
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             <div className={styles.listHeader}>
-              <LinkedIssueIcon issues={issues} size={10} />
+              <LinkedIssueIcon issues={visibleIssues} size={10} />
               <span>Linked Issues</span>
             </div>
             <div className={styles.listScroll}>
-              {issues.map((issue, i) =>
+              {visibleIssues.map((issue, i) =>
                 isLoading && !details?.[issue.id] ? (
                   <IssueRowSkeleton key={issue.id} index={i} />
                 ) : (

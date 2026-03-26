@@ -97,6 +97,23 @@ export class TerminalHostClient {
       );
     }
 
+    // Push current env vars to the daemon so new PTY sessions inherit fresh
+    // values (e.g. MANOR_HOOK_PORT may have changed since the daemon spawned).
+    const envKeys = [
+      "MANOR_HOOK_PORT",
+      "MANOR_WEBVIEW_PORT",
+      "MANOR_PORTLESS_PORT",
+    ];
+    const envUpdate: Record<string, string> = {};
+    for (const key of envKeys) {
+      if (process.env[key]) {
+        envUpdate[key] = process.env[key]!;
+      }
+    }
+    if (Object.keys(envUpdate).length > 0) {
+      await this.request({ type: "updateEnv", env: envUpdate });
+    }
+
     // Connect stream socket
     await this.connectStreamSocket(token);
 

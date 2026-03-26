@@ -167,6 +167,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("l"),
     category: "browser",
   },
+  {
+    id: "copy-branch",
+    label: "Copy Branch Name",
+    defaultCombo: metaCombo(".", true),
+    category: "workspace",
+  },
 ];
 
 /**

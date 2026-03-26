@@ -4,6 +4,8 @@ import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useAppStore } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
+import { useToastStore } from "../../store/toast-store";
 import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
@@ -158,6 +160,29 @@ export function useCommands({
         shortcut: fmt("settings"),
         action: () => {
           onOpenSettings?.();
+          onClose();
+        },
+      },
+      {
+        id: "copy-branch",
+        label: "Copy Branch Name",
+        shortcut: fmt("copy-branch"),
+        keywords: ["git", "branch", "clipboard"],
+        action: () => {
+          const awp = useAppStore.getState().activeWorkspacePath;
+          const proj = useProjectStore.getState().projects.find((p) =>
+            p.workspaces.some((w) => w.path === awp),
+          );
+          const ws = proj?.workspaces.find((w) => w.path === awp);
+          const branch = ws?.branch;
+          if (branch) {
+            navigator.clipboard.writeText(branch);
+            useToastStore.getState().addToast({
+              id: `copy-branch-${Date.now()}`,
+              message: `Copied "${branch}"`,
+              status: "success",
+            });
+          }
           onClose();
         },
       },

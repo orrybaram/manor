@@ -163,8 +163,9 @@ else
   INPUT=$(cat)
 fi
 
-# Resolve hook port: prefer env var, fall back to file
-PORT=\${MANOR_HOOK_PORT:-$(cat "$HOME/.manor/hook-port" 2>/dev/null)}
+# Resolve hook port: prefer file (always fresh), fall back to env var
+PORT=$(cat "$HOME/.manor/hook-port" 2>/dev/null)
+PORT=\${PORT:-$MANOR_HOOK_PORT}
 
 # Extract event type
 EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')

@@ -522,6 +522,20 @@
   outline: none;
 }
 
+.contextMenuItem[data-disabled] {
+  color: var(--text-secondary);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.contextMenuItemHint {
+  display: block;
+  margin-top: 2px;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
 .contextMenuItemDanger {
   color: var(--danger);
 }

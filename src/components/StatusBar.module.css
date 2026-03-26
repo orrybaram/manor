@@ -104,7 +104,6 @@
   background: var(--magenta, #d946ef);
   color: #fff;
   font-size: 9px;
-  font-weight: 700;
   font-family: var(--font-mono);
   letter-spacing: 0.05em;
   padding: 0 5px;

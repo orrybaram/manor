@@ -33,6 +33,7 @@ export interface BrowserPaneNavState {
   isBlank: boolean;
   suggestions: HistoryEntry[];
   highlightIndex: number;
+  webviewFocused: boolean;
 }
 
 export interface BrowserPaneRef {
@@ -40,6 +41,7 @@ export interface BrowserPaneRef {
   goForward(): void;
   reload(): void;
   startPicker(): void;
+  cancelPicker(): void;
   navigate(url: string): void;
   focusUrlInput(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
@@ -102,6 +104,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       isBlank: initialUrl === "about:blank",
       suggestions: [],
       highlightIndex: -1,
+      webviewFocused: false,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -227,6 +230,10 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         fireNavStateChange({ pickerActive: true });
         window.electronAPI.webview.startPicker(paneId);
       },
+      cancelPicker() {
+        if (!navStateRef.current.pickerActive) return;
+        window.electronAPI.webview.cancelPicker(paneId);
+      },
       navigate(target: string) {
         navigateTo(target);
       },
@@ -297,14 +304,29 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const onWebviewFocus = () => fireNavStateChange({ webviewFocused: true });
+      const onWebviewBlur = () => fireNavStateChange({ webviewFocused: false });
+      wv.addEventListener("focus", onWebviewFocus);
+      wv.addEventListener("blur", onWebviewBlur);
+
+      const unsubEscape = window.electronAPI.webview.onEscape(
+        (escapePaneId: string) => {
+          if (escapePaneId !== paneId) return;
+          wv.blur();
+        },
+      );
+
       return () => {
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
+        wv.removeEventListener("focus", onWebviewFocus);
+        wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);
         unsubPickerResult();
         unsubPickerCancel();
+        unsubEscape();
       };
     }, [paneId, setPaneTitle, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
 

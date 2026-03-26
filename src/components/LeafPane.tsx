@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, Crosshair } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
@@ -36,6 +36,15 @@ export function LeafPane({
   const browserRef = useRef<BrowserPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
+  const [focusCount, setFocusCount] = useState(0);
+  const prevFocusedRef = useRef(false);
+  useEffect(() => {
+    const focused = navState?.webviewFocused ?? false;
+    if (focused && !prevFocusedRef.current) {
+      setFocusCount((c) => c + 1);
+    }
+    prevFocusedRef.current = focused;
+  }, [navState?.webviewFocused]);
 
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
@@ -188,7 +197,7 @@ export function LeafPane({
             <Tooltip label="Pick element">
               <button
                 className={`${styles.paneStatusBtn} ${navState?.pickerActive ? styles.paneStatusBtnActive : ""}`}
-                onClick={() => browserRef.current?.startPicker()}
+                onClick={() => navState?.pickerActive ? browserRef.current?.cancelPicker() : browserRef.current?.startPicker()}
                 title="Pick element"
               >
                 <Crosshair size={12} />
@@ -265,14 +274,21 @@ export function LeafPane({
           ))}
         </div>
       )}
-      <div className={styles.leafTerminal}>
+      <div className={`${styles.leafTerminal} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
         {contentType === "browser" ? (
-          <BrowserPane
-            ref={browserRef}
-            paneId={paneId}
-            initialUrl={paneUrl ?? "about:blank"}
-            onNavStateChange={setNavState}
-          />
+          <>
+            <BrowserPane
+              ref={browserRef}
+              paneId={paneId}
+              initialUrl={paneUrl ?? "about:blank"}
+              onNavStateChange={setNavState}
+            />
+            {navState?.webviewFocused && (
+              <div key={focusCount} className={browserStyles.escapeHint}>
+                Esc Esc to exit
+              </div>
+            )}
+          </>
         ) : (
           <TerminalPane paneId={paneId} cwd={workspacePath} />
         )}

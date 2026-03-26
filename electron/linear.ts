@@ -26,6 +26,13 @@ export interface LinearIssue {
   labels: Array<{ name: string; color: string }>;
 }
 
+export interface LinkedIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+}
+
 export interface LinearIssueDetail extends LinearIssue {
   description: string | null;
   labels: Array<{ id: string; name: string; color: string }>;

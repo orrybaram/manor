@@ -38,6 +38,13 @@ export interface LinearAssociation {
   teamKey: string;
 }
 
+export interface LinkedIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+}
+
 export interface LinearIssue {
   id: string;
   identifier: string;
@@ -324,6 +331,16 @@ export interface ElectronAPI {
     ) => Promise<LinearIssue[]>;
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
     startIssue: (issueId: string) => Promise<void>;
+    linkIssueToWorkspace: (
+      projectId: string,
+      workspacePath: string,
+      issue: LinkedIssue,
+    ) => Promise<void>;
+    unlinkIssueFromWorkspace: (
+      projectId: string,
+      workspacePath: string,
+      issueId: string,
+    ) => Promise<void>;
   };
 
   updater: {

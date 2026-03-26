@@ -178,6 +178,28 @@ contextBridge.exposeInMainWorld("electronAPI", {
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
     startIssue: (issueId: string) =>
       ipcRenderer.invoke("linear:startIssue", issueId),
+    linkIssueToWorkspace: (
+      projectId: string,
+      workspacePath: string,
+      issue: { id: string; identifier: string; title: string; url: string },
+    ) =>
+      ipcRenderer.invoke(
+        "linear:linkIssueToWorkspace",
+        projectId,
+        workspacePath,
+        issue,
+      ),
+    unlinkIssueFromWorkspace: (
+      projectId: string,
+      workspacePath: string,
+      issueId: string,
+    ) =>
+      ipcRenderer.invoke(
+        "linear:unlinkIssueFromWorkspace",
+        projectId,
+        workspacePath,
+        issueId,
+      ),
   },
 
   dialog: {

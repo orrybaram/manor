@@ -701,6 +701,18 @@ ipcMain.handle("linear:startIssue", async (_event, issueId: string) => {
   return linearManager.startIssue(issueId);
 });
 
+ipcMain.handle(
+  "linear:linkIssueToWorkspace",
+  (_e, projectId: string, workspacePath: string, issue: import("./linear").LinkedIssue) =>
+    projectManager.linkIssueToWorkspace(projectId, workspacePath, issue),
+);
+
+ipcMain.handle(
+  "linear:unlinkIssueFromWorkspace",
+  (_e, projectId: string, workspacePath: string, issueId: string) =>
+    projectManager.unlinkIssueFromWorkspace(projectId, workspacePath, issueId),
+);
+
 ipcMain.handle("linear:autoMatch", async () => {
   const projects = await projectManager.getProjects();
   const teams = await linearManager.getTeams();

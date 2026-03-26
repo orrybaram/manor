@@ -91,6 +91,14 @@ export interface WorkspaceInfo {
   name: string | null;
   diffStats?: DiffStats | null;
   pr?: PrInfo | null;
+  linkedIssues?: LinkedIssue[];
+}
+
+export interface LinkedIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
 }
 
 export interface LinearAssociation {

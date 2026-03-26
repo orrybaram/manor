@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { LinearAssociation } from "./linear";
+import type { LinearAssociation, LinkedIssue } from "./linear";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -37,7 +37,10 @@ export interface WorkspaceInfo {
   branch: string;
   isMain: boolean;
   name: string | null;
+  linkedIssues?: LinkedIssue[];
 }
+
+export type { LinkedIssue };
 
 export interface ProjectInfo {
   id: string;
@@ -87,6 +90,7 @@ interface PersistedProject {
   linearAssociations?: LinearAssociation[];
   workspaceNames?: Record<string, string>;
   workspaceOrder?: string[];
+  workspaceIssues?: Record<string, LinkedIssue[]>;
   color?: string | null;
   agentCommand?: string | null;
   commands?: CustomCommand[];
@@ -287,9 +291,11 @@ export class ProjectManager {
       });
     }
     const names = p.workspaceNames ?? {};
+    const issues = p.workspaceIssues ?? {};
     const workspaces = rawWorkspaces.map((ws) => ({
       ...ws,
       name: names[ws.path] ?? null,
+      linkedIssues: issues[ws.path] ?? [],
     }));
     return {
       id: p.id,
@@ -327,6 +333,45 @@ export class ProjectManager {
       if (newIdx >= 0) this.state.selectedProjectIndex = newIdx;
     }
     this.saveState();
+  }
+
+  linkIssueToWorkspace(
+    projectId: string,
+    workspacePath: string,
+    issue: LinkedIssue,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (!project.workspaceIssues) project.workspaceIssues = {};
+    const existing = project.workspaceIssues[workspacePath] ?? [];
+    if (!existing.some((i) => i.id === issue.id)) {
+      project.workspaceIssues[workspacePath] = [...existing, issue];
+    }
+    this.saveState();
+  }
+
+  unlinkIssueFromWorkspace(
+    projectId: string,
+    workspacePath: string,
+    issueId: string,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (!project.workspaceIssues) return;
+    const existing = project.workspaceIssues[workspacePath] ?? [];
+    project.workspaceIssues[workspacePath] = existing.filter(
+      (i) => i.id !== issueId,
+    );
+    this.saveState();
+  }
+
+  getWorkspaceIssues(
+    projectId: string,
+    workspacePath: string,
+  ): LinkedIssue[] {
+    const project = this.findProject(projectId);
+    if (!project) return [];
+    return project.workspaceIssues?.[workspacePath] ?? [];
   }
 
   reorderWorkspaces(projectId: string, orderedPaths: string[]): void {
@@ -421,6 +466,9 @@ export class ProjectManager {
       project.workspaceOrder = project.workspaceOrder.filter(
         (p) => p !== worktreePath,
       );
+    }
+    if (project.workspaceIssues) {
+      delete project.workspaceIssues[worktreePath];
     }
     this.saveState();
 

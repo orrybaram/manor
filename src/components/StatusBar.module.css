@@ -90,3 +90,30 @@
   width: 24px;
   flex-shrink: 0;
 }
+
+/* ── Browser Focus Badge ── */
+
+.browserFocusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 24px;
+}
+
+.browserFocusLabel {
+  background: var(--magenta, #d946ef);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  padding: 0 5px;
+  margin: -4px 0;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+}
+
+.browserFocusHint {
+  color: var(--text-dim);
+}

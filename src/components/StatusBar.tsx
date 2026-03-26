@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+
 import { ManorLogo } from "./ManorLogo";
 import { AboutModal } from "./AboutModal";
 import { LinkedIssuesPopover } from "./LinkedIssuesPopover";
@@ -41,6 +42,7 @@ export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProp
   const [aboutOpen, setAboutOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const webviewFocusedPaneId = useAppStore((s) => s.webviewFocusedPaneId);
   const projects = useProjectStore((s) => s.projects);
 
   const project = projects.find((p) =>
@@ -98,6 +100,12 @@ export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProp
               </>
             )}
           </>
+        )}
+        {webviewFocusedPaneId && (
+          <div className={styles.browserFocusBadge}>
+            <span className={styles.browserFocusLabel}>BROWSER</span>
+            <span className={styles.browserFocusHint}>(Esc Esc to return focus)</span>
+          </div>
         )}
       </div>
       <div className={styles.right}>

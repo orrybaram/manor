@@ -90,6 +90,7 @@ export interface AppState {
   paneContentType: Record<string, "terminal" | "browser">;
   paneUrl: Record<string, string>;
   panePickedElement: Record<string, PickedElementResult>;
+  webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
@@ -159,6 +160,9 @@ export interface AppState {
   // Resize
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
 
+  // Webview focus
+  setWebviewFocused: (paneId: string | null) => void;
+
   // Picked element
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
@@ -184,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneContentType: {},
   paneUrl: {},
   panePickedElement: {},
+  webviewFocusedPaneId: null,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
@@ -1040,6 +1045,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return newState;
     }),
+
+  setWebviewFocused: (paneId: string | null) =>
+    set({ webviewFocusedPaneId: paneId }),
 
   setPaneAgentStatus: (paneId: string, agent: AgentState) =>
     set((state) => {

@@ -31,21 +31,17 @@ export function LeafPane({
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
   const closePane = useAppStore((s) => s.closePane);
+  const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
 
   const browserRef = useRef<BrowserPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
-  const [focusCount, setFocusCount] = useState(0);
-  const prevFocusedRef = useRef(false);
   useEffect(() => {
     const focused = navState?.webviewFocused ?? false;
-    if (focused && !prevFocusedRef.current) {
-      setFocusCount((c) => c + 1);
-    }
-    prevFocusedRef.current = focused;
-  }, [navState?.webviewFocused]);
+    setWebviewFocused(focused ? paneId : null);
+  }, [navState?.webviewFocused, paneId, setWebviewFocused]);
 
   useEffect(() => {
     if (contentType !== "browser") return;
@@ -317,11 +313,6 @@ export function LeafPane({
               initialUrl={paneUrl ?? "about:blank"}
               onNavStateChange={setNavState}
             />
-            {navState?.webviewFocused && (
-              <div key={focusCount} className={browserStyles.escapeHint}>
-                Esc Esc to exit
-              </div>
-            )}
           </>
         ) : (
           <TerminalPane paneId={paneId} cwd={workspacePath} />

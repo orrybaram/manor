@@ -10,6 +10,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
+import { ProjectSetupWizard } from "./components/ProjectSetupWizard";
 import { ToastContainer } from "./components/Toast";
 import { TooltipProvider } from "./components/Tooltip";
 import { TasksModal } from "./components/TasksView";
@@ -96,6 +97,31 @@ function App() {
     setAgentPrompt(null);
     setPendingLinkedIssue(null);
   }, []);
+
+  // Project setup wizard state
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardProjectId, setWizardProjectId] = useState<string | null>(null);
+  const addProject = useProjectStore((s) => s.addProject);
+  const selectProject = useProjectStore((s) => s.selectProject);
+  const closeWizard = useCallback(() => {
+    setWizardOpen(false);
+    setWizardProjectId(null);
+  }, []);
+  const handleAddProject = useCallback(async () => {
+    const selected = await window.electronAPI.dialog.openDirectory();
+    if (selected) {
+      const name = selected.split("/").pop() || "Untitled";
+      await addProject(name, selected);
+      const newProjects = useProjectStore.getState().projects;
+      const newIndex = newProjects.length - 1;
+      const newProject = newProjects[newIndex];
+      if (newProject) {
+        selectProject(newIndex);
+        setWizardProjectId(newProject.id);
+        setWizardOpen(true);
+      }
+    }
+  }, [addProject, selectProject]);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
   const handleOpenProjectSettings = useCallback((projectId: string) => {
@@ -381,6 +407,7 @@ function App() {
           <Sidebar
             onShowTasks={() => setTasksOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
+            onAddProject={handleAddProject}
           />
         )}
         <PaneDragProvider>
@@ -409,8 +436,12 @@ function App() {
                   );
                 }),
               )}
-              {!hasSessions &&
-                (hasProjects ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} /> : <WelcomeEmptyState />)}
+              {wizardOpen && wizardProjectId
+                ? <ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} />
+                : !hasSessions &&
+                  (hasProjects
+                    ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
+                    : <WelcomeEmptyState onAddProject={handleAddProject} />)}
             </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}

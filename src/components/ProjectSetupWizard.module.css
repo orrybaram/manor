@@ -1,0 +1,427 @@
+/* ── Container (inline, centered like empty states) ── */
+
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+.card {
+  width: 480px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+/* ── Step indicator ── */
+
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 20px 0;
+}
+
+.stepDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background 150ms ease;
+}
+
+.stepDotCompleted {
+  background: var(--text-dim);
+}
+
+.stepDotActive {
+  background: var(--accent);
+}
+
+/* ── Body ── */
+
+.body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 140px;
+}
+
+.stepTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+  margin-bottom: 4px;
+}
+
+.stepHint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+.fieldLabel:first-of-type {
+  margin-top: 0;
+}
+
+.fieldInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.fieldInput::placeholder {
+  color: var(--text-dim);
+}
+
+.fieldInput:focus {
+  border-color: var(--accent);
+}
+
+/* ── Color picker ── */
+
+.colorPicker {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.colorOption {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    transform 100ms ease,
+    border-color 100ms ease;
+}
+
+.colorOption:hover {
+  transform: scale(1.15);
+  border-color: var(--text-dim);
+}
+
+.colorOptionSelected {
+  border-color: var(--text-selected);
+}
+
+/* ── Agent discovery ── */
+
+.agentDiscovery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.agentDiscoveryHint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.agentList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.agentOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.agentOption:hover {
+  border-color: var(--text-dim);
+}
+
+.agentOptionSelected {
+  border-color: var(--accent);
+}
+
+.agentRadio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  flex-shrink: 0;
+}
+
+.agentRadioSelected {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+
+.agentName {
+  display: block;
+  font-weight: 500;
+  color: var(--text-selected);
+}
+
+.agentCommandText {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+/* ── Commands ── */
+
+.commandList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.commandRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commandNameInput {
+  width: 120px;
+  padding: 6px 10px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.commandNameInput::placeholder {
+  color: var(--text-dim);
+}
+
+.commandNameInput:focus {
+  border-color: var(--accent);
+}
+
+.commandCmdInput {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.commandCmdInput::placeholder {
+  color: var(--text-dim);
+}
+
+.commandCmdInput:focus {
+  border-color: var(--accent);
+}
+
+.commandDeleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.commandDeleteBtn:hover {
+  background: var(--surface);
+  color: #f38ba8;
+}
+
+.addCommandBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--surface);
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.addCommandBtn:hover {
+  border-color: var(--text-dim);
+  color: var(--text-primary);
+}
+
+/* ── Linear team picker ── */
+
+.teamList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.teamItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.teamItem:hover {
+  background: var(--surface);
+}
+
+.teamCheck {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--surface);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.teamCheckSelected {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.linearHint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ── Footer ── */
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--surface);
+}
+
+.footerRight {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.backButton,
+.skipButton {
+  padding: 6px 14px;
+  border: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.backButton:hover,
+.skipButton:hover {
+  background: var(--surface);
+}
+
+.nextButton {
+  padding: 6px 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nextButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.nextButton:disabled {
+  opacity: 0.7;
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spinner {
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

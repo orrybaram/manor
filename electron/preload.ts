@@ -223,6 +223,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("shell:openExternal", url),
     openInEditor: (path: string) =>
       ipcRenderer.invoke("shell:openInEditor", path),
+    discoverAgents: () =>
+      ipcRenderer.invoke("shell:discoverAgents") as Promise<
+        Array<{ name: string; command: string }>
+      >,
   },
 
   updater: {

@@ -823,6 +823,30 @@ ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
   });
 });
 
+ipcMain.handle(
+  "shell:discoverAgents",
+  async (): Promise<Array<{ name: string; command: string }>> => {
+    const agents = [
+      { name: "Claude Code", bin: "claude", command: "claude --dangerously-skip-permissions" },
+      { name: "Codex", bin: "codex", command: "codex --yolo" },
+      { name: "OpenCode", bin: "opencode", command: "opencode" },
+    ];
+    const found: Array<{ name: string; command: string }> = [];
+    await Promise.all(
+      agents.map(
+        (agent) =>
+          new Promise<void>((resolve) => {
+            execFile("which", [agent.bin], (err) => {
+              if (!err) found.push({ name: agent.name, command: agent.command });
+              resolve();
+            });
+          }),
+      ),
+    );
+    return found;
+  },
+);
+
 // ── Clipboard IPC ──
 ipcMain.handle("clipboard:writeText", (_event, text: string) => {
   clipboard.writeText(text);

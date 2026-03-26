@@ -1,19 +1,18 @@
 import { FolderDown } from "lucide-react";
-import { useProjectStore } from "../store/project-store";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 
-/** Shown when there are no projects at all. */
-export function WelcomeEmptyState() {
-  const addProjectFromDirectory = useProjectStore(
-    (s) => s.addProjectFromDirectory,
-  );
+interface WelcomeEmptyStateProps {
+  onAddProject: () => void;
+}
 
+/** Shown when there are no projects at all. */
+export function WelcomeEmptyState({ onAddProject }: WelcomeEmptyStateProps) {
   const actions: ActionItem[] = [
     {
       icon: <FolderDown size={16} />,
       label: "Import Project",
       keys: [],
-      action: addProjectFromDirectory,
+      action: onAddProject,
     },
   ];
 

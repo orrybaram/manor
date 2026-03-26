@@ -23,15 +23,13 @@ import styles from "./Sidebar.module.css";
 interface SidebarProps {
   onShowTasks?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
+  onAddProject?: () => void;
 }
 
-export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
+export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: SidebarProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const loadProjects = useProjectStore((s) => s.loadProjects);
-  const addProjectFromDirectory = useProjectStore(
-    (s) => s.addProjectFromDirectory,
-  );
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -67,7 +65,7 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
     });
   });
 
-  const handleAddProject = addProjectFromDirectory;
+  const handleAddProject = onAddProject ?? (() => {});
 
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);

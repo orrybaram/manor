@@ -182,6 +182,15 @@ function createWindow() {
   const savedZoom = loadZoomLevel();
   mainWindow.webContents.setZoomFactor(savedZoom);
 
+  // Open links in default browser instead of Electron popup
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {

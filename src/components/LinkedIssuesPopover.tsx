@@ -3,12 +3,41 @@ import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
 import { Unlink } from "lucide-react";
-import type { LinkedIssue, LinearIssueDetail } from "../electron.d";
+import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../electron.d";
 import type { CommandPaletteProps } from "./CommandPalette/types";
 import { IssueDetailView } from "./CommandPalette/IssueDetailView";
+import { GitHubIssueDetailView } from "./CommandPalette/GitHubIssueDetailView";
 import { LinearIcon } from "./CommandPalette/LinearIcon";
+import { GitHubIcon } from "./CommandPalette/GitHubIcon";
+import { useProjectStore } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
 import styles from "./LinkedIssuesPopover.module.css";
+
+type IssueDetail =
+  | { source: "linear"; data: LinearIssueDetail }
+  | { source: "github"; data: GitHubIssueDetail };
+
+function isGitHubIssue(issue: LinkedIssue): boolean {
+  return issue.id.startsWith("gh-");
+}
+
+function LinkedIssueIcon({ issues, size }: { issues: LinkedIssue[]; size: number }) {
+  const hasGitHub = issues.some(isGitHubIssue);
+  const hasLinear = issues.some((i) => !isGitHubIssue(i));
+
+  if (hasGitHub && hasLinear) {
+    return (
+      <>
+        <GitHubIcon size={size} />
+        <LinearIcon size={size} />
+      </>
+    );
+  }
+  if (hasGitHub) {
+    return <GitHubIcon size={size} />;
+  }
+  return <LinearIcon size={size} />;
+}
 
 interface LinkedIssuesPopoverProps {
   issues: LinkedIssue[];
@@ -42,18 +71,32 @@ function IssueRow({
   onUnlink,
 }: {
   issue: LinkedIssue;
-  detail: LinearIssueDetail | undefined;
+  detail: IssueDetail | undefined;
   isLoading: boolean;
   onClick: () => void;
   onUnlink: () => void;
 }) {
+  const stateName =
+    detail?.source === "linear"
+      ? detail.data.state.name
+      : detail?.source === "github"
+        ? detail.data.state
+        : undefined;
+
+  const assigneeName =
+    detail?.source === "linear"
+      ? detail.data.assignee?.displayName
+      : detail?.source === "github"
+        ? detail.data.assignees[0]?.login
+        : undefined;
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <button className={styles.issueRow} onClick={onClick}>
           <span className={styles.issueIdentifier}>{issue.identifier}</span>
           <span className={styles.issueTitle}>
-            {detail?.title ?? issue.title}
+            {detail?.data.title ?? issue.title}
           </span>
           {isLoading ? (
             <span
@@ -61,10 +104,10 @@ function IssueRow({
             />
           ) : detail ? (
             <>
-              <span className={styles.issueStatus}>{detail.state.name}</span>
-              {detail.assignee && (
+              <span className={styles.issueStatus}>{stateName}</span>
+              {assigneeName && (
                 <span className={styles.issueAssignee}>
-                  {detail.assignee.displayName}
+                  {assigneeName}
                 </span>
               )}
             </>
@@ -98,6 +141,10 @@ export function LinkedIssuesPopover({
 }: LinkedIssuesPopoverProps) {
   const [view, setView] = useState<"list" | "detail">("list");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const projects = useProjectStore((s) => s.projects);
+
+  // Look up the project path (repoPath) for GitHub issue fetching
+  const repoPath = projects.find((p) => p.id === projectId)?.path ?? "";
 
   // Reset to list view when popover closes (synchronous during render)
   const prevOpenRef = useRef(isOpen);
@@ -112,13 +159,32 @@ export function LinkedIssuesPopover({
   const { data: details, isLoading } = useQuery({
     queryKey: ["linked-issue-details", ...issueIds],
     queryFn: async () => {
-      const results: Record<string, LinearIssueDetail> = {};
-      await Promise.all(
-        issues.map(async (issue) => {
+      const results: Record<string, IssueDetail> = {};
+
+      const githubIssues = issues.filter(isGitHubIssue);
+      const linearIssues = issues.filter((i) => !isGitHubIssue(i));
+
+      await Promise.all([
+        // Fetch GitHub issue details
+        ...githubIssues.map(async (issue) => {
           try {
-            const detail =
-              await window.electronAPI.linear.getIssueDetail(issue.id);
-            results[issue.id] = detail;
+            const number = parseInt(issue.id.replace("gh-", ""), 10);
+            const detail = await window.electronAPI.github.getIssueDetail(
+              repoPath,
+              number,
+            );
+            results[issue.id] = { source: "github", data: detail };
+          } catch {
+            // GitHub uses gh CLI — no auth toast needed, just skip
+          }
+        }),
+        // Fetch Linear issue details
+        ...linearIssues.map(async (issue) => {
+          try {
+            const detail = await window.electronAPI.linear.getIssueDetail(
+              issue.id,
+            );
+            results[issue.id] = { source: "linear", data: detail };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             if (
@@ -136,9 +202,6 @@ export function LinkedIssuesPopover({
                 action: {
                   label: "Open Settings",
                   onClick: () => {
-                    // The settings modal is controlled by App — dispatch via store or
-                    // simply let the user click Settings from command palette.
-                    // For now, we close the popover; the toast action is informational.
                     onClose();
                   },
                 },
@@ -147,7 +210,7 @@ export function LinkedIssuesPopover({
             // Fall back to cached data — just skip this issue's detail
           }
         }),
-      );
+      ]);
       return results;
     },
     enabled: isOpen && issues.length > 0,
@@ -179,6 +242,8 @@ export function LinkedIssuesPopover({
     setSelectedIssueId(null);
   }, []);
 
+  const selectedIsGitHub = selectedIssueId?.startsWith("gh-") ?? false;
+
   return (
     <Popover.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Popover.Trigger asChild>{children}</Popover.Trigger>
@@ -194,7 +259,7 @@ export function LinkedIssuesPopover({
           {view === "list" ? (
             <>
               <div className={styles.listHeader}>
-                <LinearIcon size={10} />
+                <LinkedIssueIcon issues={issues} size={10} />
                 <span>Linked Issues</span>
               </div>
               <div className={styles.listScroll}>
@@ -217,13 +282,27 @@ export function LinkedIssuesPopover({
           ) : selectedIssueId ? (
             <div className={styles.detailView}>
               <div className={styles.detailContent}>
-                <IssueDetailView
-                  issueId={selectedIssueId}
-                  onBack={handleBack}
-                  onClose={onClose}
-                  onNewWorkspace={onNewWorkspace}
-                  onNewTaskWithPrompt={onNewTaskWithPrompt}
-                />
+                {selectedIsGitHub ? (
+                  <GitHubIssueDetailView
+                    repoPath={repoPath}
+                    issueNumber={parseInt(
+                      selectedIssueId.replace("gh-", ""),
+                      10,
+                    )}
+                    onBack={handleBack}
+                    onClose={onClose}
+                    onNewWorkspace={onNewWorkspace}
+                    onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  />
+                ) : (
+                  <IssueDetailView
+                    issueId={selectedIssueId}
+                    onBack={handleBack}
+                    onClose={onClose}
+                    onNewWorkspace={onNewWorkspace}
+                    onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  />
+                )}
               </div>
             </div>
           ) : null}

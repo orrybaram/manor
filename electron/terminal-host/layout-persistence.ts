@@ -10,7 +10,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { allPaneIds, type PaneNode } from "../../src/store/pane-tree";
+/**
+ * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
+ * Vite entry point and cannot import from the renderer bundle.
+ */
+type PaneNode =
+  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser"; url?: string }
+  | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PaneNode; second: PaneNode };
+
+function allPaneIds(node: PaneNode): string[] {
+  if (node.type === "leaf") return [node.paneId];
+  return [...allPaneIds(node.first), ...allPaneIds(node.second)];
+}
 
 export const LAYOUT_FILE = path.join(os.homedir(), ".manor", "layout.json");
 

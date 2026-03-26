@@ -7,7 +7,10 @@ import React, {
 import { Plus, Boxes, ChevronRight } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
-import { removeWorktreeWithToast } from "../store/workspace-actions";
+import {
+  removeWorktreeWithToast,
+  quickMergeWorktreeWithToast,
+} from "../store/workspace-actions";
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../hooks/useDiffWatcher";
 import { usePrWatcher } from "../hooks/usePrWatcher";
@@ -312,6 +315,9 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings }: SidebarProps) {
                           }}
                           onRemoveWorktree={(ws, deleteBranch) => {
                             removeWorktreeWithToast(project, ws, deleteBranch);
+                          }}
+                          onQuickMergeWorktree={(ws) => {
+                            quickMergeWorktreeWithToast(project, ws);
                           }}
                           onRenameWorkspace={(ws, newName) =>
                             renameWorkspace(project.id, ws.path, newName)

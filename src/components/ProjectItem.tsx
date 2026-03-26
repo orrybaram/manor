@@ -6,7 +6,11 @@ import React, {
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Plus, ChevronRight, House, FolderGit2, Settings } from "lucide-react";
-import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type WorkspaceInfo,
+} from "../store/project-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
 import { AgentDot } from "./AgentDot";
@@ -175,6 +179,7 @@ export function ProjectItem({
   onCreateWorktree,
   onOpenSettings,
   onDragStart,
+  onQuickMergeWorktree,
 }: {
   project: ProjectInfo;
   isSelected: boolean;
@@ -189,6 +194,7 @@ export function ProjectItem({
   onCreateWorktree: (name: string, branch: string) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
+  onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
 }) {
   const expanded = !collapsed;
   const [editingPath, setEditingPath] = useState<string | null>(null);
@@ -198,6 +204,10 @@ export function ProjectItem({
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
+  const [mergeState, setMergeState] = useState<{
+    canMerge: boolean;
+    reason?: string;
+  } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -353,7 +363,22 @@ export function ProjectItem({
 
             return (
               <React.Fragment key={ws.path}>
-                <ContextMenu.Root>
+                <ContextMenu.Root
+                  onOpenChange={(open) => {
+                    if (open && !ws.isMain) {
+                      setMergeState(null);
+                      useProjectStore
+                        .getState()
+                        .canQuickMerge(project.id, ws.path)
+                        .then(setMergeState)
+                        .catch(() =>
+                          setMergeState({ canMerge: false, reason: "Error checking merge eligibility" }),
+                        );
+                    } else {
+                      setMergeState(null);
+                    }
+                  }}
+                >
                   <ContextMenu.Trigger asChild>
                     {workspaceEl}
                   </ContextMenu.Trigger>
@@ -402,6 +427,15 @@ export function ProjectItem({
                           >
                             Rename Workspace
                           </ContextMenu.Item>
+                          {(mergeState === null || mergeState.canMerge) && (
+                            <ContextMenu.Item
+                              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                              disabled={mergeState === null}
+                              onSelect={() => onQuickMergeWorktree?.(ws)}
+                            >
+                              Merge & Delete
+                            </ContextMenu.Item>
+                          )}
                           <ContextMenu.Item
                             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                             onSelect={() => {

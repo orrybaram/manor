@@ -72,3 +72,60 @@ export function removeWorktreeWithToast(
       unsubProgress();
     });
 }
+
+/**
+ * Quick-merge a worktree into the default branch: immediately switch away
+ * (if active), clean up sessions, show a progress toast, and merge in the
+ * background.
+ */
+export function quickMergeWorktreeWithToast(
+  project: ProjectInfo,
+  ws: WorkspaceInfo,
+): void {
+  const appStore = useAppStore.getState();
+  const projectStore = useProjectStore.getState();
+  const toastStore = useToastStore.getState();
+
+  const wasActive = appStore.activeWorkspacePath === ws.path;
+  const wsName =
+    ws.name || ws.branch || ws.path.split("/").pop() || "workspace";
+
+  // Immediately switch to next workspace before merge/teardown
+  if (wasActive) {
+    const workspaces = project.workspaces;
+    const removedIdx = workspaces.findIndex((w) => w.path === ws.path);
+    const nextIdx =
+      removedIdx < workspaces.length - 1 ? removedIdx + 1 : removedIdx - 1;
+    if (nextIdx >= 0) {
+      projectStore.selectWorkspace(project.id, nextIdx);
+      appStore.setActiveWorkspace(workspaces[nextIdx].path);
+    }
+  }
+
+  // Clean up sessions
+  appStore.removeWorkspaceSessions(ws.path);
+
+  // Show toast and run async merge
+  const toastId = `toast-${crypto.randomUUID()}`;
+  toastStore.addToast({
+    id: toastId,
+    message: `Merging "${wsName}" into ${project.defaultBranch}...`,
+    status: "loading",
+  });
+
+  projectStore
+    .quickMergeWorktree(project.id, ws.path)
+    .then(() => {
+      toastStore.updateToast(toastId, {
+        message: `Merged "${wsName}" into ${project.defaultBranch}`,
+        status: "success",
+      });
+    })
+    .catch((err) => {
+      toastStore.updateToast(toastId, {
+        message: `Failed to merge "${wsName}"`,
+        status: "error",
+        detail: String(err),
+      });
+    });
+}

@@ -24,6 +24,11 @@ const PORT_FILE = path.join(
 );
 
 function readPort(): number {
+  const envPort = process.env.MANOR_WEBVIEW_PORT;
+  if (envPort) {
+    const p = parseInt(envPort, 10);
+    if (!isNaN(p) && p > 0) return p;
+  }
   if (!fs.existsSync(PORT_FILE)) {
     console.error(
       `[mcp-webview] Port file not found at ${PORT_FILE} — is Manor running?`,

@@ -448,8 +448,15 @@ ipcMain.handle(
 
 ipcMain.handle(
   "projects:removeWorktree",
-  (_event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-    return projectManager.removeWorktree(projectId, worktreePath, deleteBranch);
+  (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+    return projectManager.removeWorktree(
+      projectId,
+      worktreePath,
+      deleteBranch,
+      (step: string) => {
+        event.sender.send("projects:removeWorktree:progress", step);
+      },
+    );
   },
 );
 
@@ -1208,6 +1215,8 @@ app.whenReady().then(async () => {
 
   await webviewServer.start();
   await portlessManager.start();
+  process.env.MANOR_WEBVIEW_PORT = String(webviewServer.serverPort);
+  process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
   try {

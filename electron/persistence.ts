@@ -385,13 +385,17 @@ export class ProjectManager {
     projectId: string,
     worktreePath: string,
     deleteBranch?: boolean,
+    onProgress?: (step: string) => void,
   ): Promise<void> {
     const project = this.findProject(projectId);
     if (!project) return;
 
+    const progress = onProgress ?? (() => {});
+
     // Detect the branch before removing the worktree
     let branchName: string | null = null;
     if (deleteBranch) {
+      progress("Detecting branch…");
       try {
         const { stdout } = await execAsync("git worktree list --porcelain", {
           cwd: project.path,
@@ -418,6 +422,7 @@ export class ProjectManager {
 
     // Run worktree teardown script before removal
     if (project.worktreeTeardownScript) {
+      progress("Running teardown script…");
       try {
         await execAsync(project.worktreeTeardownScript, {
           cwd: worktreePath,
@@ -431,20 +436,28 @@ export class ProjectManager {
       }
     }
 
+    progress("Removing worktree files…");
     try {
       await execAsync(
         `git worktree remove --force ${JSON.stringify(worktreePath)}`,
         {
           cwd: project.path,
-          timeout: 30000,
+          timeout: 300_000, // 5 minutes — large repos with node_modules can be slow
         },
       );
     } catch (err) {
-      console.error(
-        "[ProjectManager] git worktree remove failed:",
-        err instanceof Error ? err.message : err,
-      );
-      // Worktree may already be gone — prune stale entries and continue
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[ProjectManager] git worktree remove failed:", message);
+
+      // Check if the directory is actually gone (e.g. already removed externally)
+      const { existsSync } = await import("fs");
+      if (existsSync(worktreePath)) {
+        // Directory still exists — this is a real failure, surface it
+        throw new Error(`Failed to remove worktree: ${message}`);
+      }
+
+      // Directory is gone — prune stale git metadata and continue
+      progress("Pruning stale worktree entries…");
       try {
         await execAsync("git worktree prune", {
           cwd: project.path,
@@ -459,6 +472,7 @@ export class ProjectManager {
     }
 
     // Clean up workspace metadata
+    progress("Cleaning up metadata…");
     if (project.workspaceNames) {
       delete project.workspaceNames[worktreePath];
     }
@@ -473,6 +487,7 @@ export class ProjectManager {
     this.saveState();
 
     if (deleteBranch && branchName) {
+      progress("Deleting branch…");
       try {
         await execAsync(`git branch -D ${JSON.stringify(branchName)}`, {
           cwd: project.path,

@@ -22,9 +22,6 @@ import type {
 } from "./types";
 
 const MANOR_DIR = path.join(os.homedir(), ".manor");
-const SOCKET_PATH = path.join(MANOR_DIR, "terminal-host.sock");
-const TOKEN_PATH = path.join(MANOR_DIR, "terminal-host.token");
-const PID_PATH = path.join(MANOR_DIR, "terminal-host.pid");
 
 type StreamEventHandler = (event: StreamEvent) => void;
 
@@ -46,6 +43,22 @@ export class TerminalHostClient {
 
   constructor(version?: string) {
     this.clientVersion = version;
+  }
+
+  private get daemonDir(): string {
+    return path.join(MANOR_DIR, "daemons", this.clientVersion || "unknown");
+  }
+
+  private get SOCKET_PATH(): string {
+    return path.join(this.daemonDir, "terminal-host.sock");
+  }
+
+  private get TOKEN_PATH(): string {
+    return path.join(this.daemonDir, "terminal-host.token");
+  }
+
+  private get PID_PATH(): string {
+    return path.join(this.daemonDir, "terminal-host.pid");
   }
 
   /** Set a handler for stream events (data, exit, cwd, error) */
@@ -76,38 +89,12 @@ export class TerminalHostClient {
     await this.connectControlSocket();
 
     // Authenticate
-    const token = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
+    const token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
     const authResp = await this.request({ type: "auth", token });
     if (authResp.type !== "authOk") {
       throw new Error(
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
       );
-    }
-
-    // Check daemon version — if mismatched, restart daemon and reconnect
-    if (
-      this.clientVersion &&
-      authResp.version &&
-      authResp.version !== this.clientVersion
-    ) {
-      console.log(
-        `Daemon version mismatch: daemon=${authResp.version}, client=${this.clientVersion}. Restarting daemon...`,
-      );
-      this.cleanup();
-      await this.killDaemonByPid();
-      await new Promise((r) => setTimeout(r, 500));
-      await this.spawnDaemon();
-      await this.connectControlSocket();
-      const retryToken = fs.readFileSync(TOKEN_PATH, "utf-8").trim();
-      const retryAuth = await this.request({ type: "auth", token: retryToken });
-      if (retryAuth.type !== "authOk") {
-        throw new Error(
-          `Auth failed after daemon restart: ${retryAuth.type === "error" ? retryAuth.message : "unknown"}`,
-        );
-      }
-      await this.connectStreamSocket(retryToken);
-      this.connected = true;
-      return;
     }
 
     // Connect stream socket
@@ -271,10 +258,10 @@ export class TerminalHostClient {
 
   private isDaemonRunning(): boolean {
     try {
-      const pid = parseInt(fs.readFileSync(PID_PATH, "utf-8").trim(), 10);
+      const pid = parseInt(fs.readFileSync(this.PID_PATH, "utf-8").trim(), 10);
       process.kill(pid, 0); // Check if process exists
       // Also check socket exists
-      return fs.existsSync(SOCKET_PATH);
+      return fs.existsSync(this.SOCKET_PATH);
     } catch {
       return false;
     }
@@ -282,7 +269,7 @@ export class TerminalHostClient {
 
   private async killDaemonByPid(): Promise<void> {
     try {
-      const pid = parseInt(fs.readFileSync(PID_PATH, "utf-8").trim(), 10);
+      const pid = parseInt(fs.readFileSync(this.PID_PATH, "utf-8").trim(), 10);
       process.kill(pid, "SIGTERM");
     } catch {
       // PID file missing or process already gone — ignore
@@ -290,11 +277,11 @@ export class TerminalHostClient {
   }
 
   private async spawnDaemon(): Promise<void> {
-    fs.mkdirSync(MANOR_DIR, { recursive: true });
+    fs.mkdirSync(this.daemonDir, { recursive: true });
 
     // Clean up stale socket so waitForSocket waits for the NEW daemon's socket
     try {
-      fs.unlinkSync(SOCKET_PATH);
+      fs.unlinkSync(this.SOCKET_PATH);
     } catch {
       // doesn't exist
     }
@@ -324,7 +311,7 @@ export class TerminalHostClient {
   private async waitForSocket(timeoutMs: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (fs.existsSync(SOCKET_PATH)) {
+      if (fs.existsSync(this.SOCKET_PATH)) {
         // Small extra delay for the server to be ready
         await new Promise((r) => setTimeout(r, 100));
         return;
@@ -338,7 +325,7 @@ export class TerminalHostClient {
 
   private connectControlSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.controlSocket = net.createConnection(SOCKET_PATH, () => {
+      this.controlSocket = net.createConnection(this.SOCKET_PATH, () => {
         resolve();
       });
 
@@ -377,7 +364,7 @@ export class TerminalHostClient {
 
   private connectStreamSocket(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.streamSocket = net.createConnection(SOCKET_PATH, () => {
+      this.streamSocket = net.createConnection(this.SOCKET_PATH, () => {
         // Send init message identifying this as a stream connection
         this.streamSocket!.write(
           JSON.stringify({ connectionType: "stream", token }) + "\n",

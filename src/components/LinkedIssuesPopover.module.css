@@ -143,19 +143,64 @@
   flex-shrink: 0;
 }
 
-/* ── Detail view ── */
+/* ── Issue detail dialog ── */
 
-.detailView {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  max-height: 360px;
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  animation: dialogFadeIn 150ms ease-out;
 }
 
-.detailContent {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 201;
+  width: 700px;
+  max-height: 500px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  animation: dialogSlideIn 150ms ease-out;
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.dialogSrOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes dialogFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialogSlideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(0);
+  }
 }
 
 /* ── Context menu ── */

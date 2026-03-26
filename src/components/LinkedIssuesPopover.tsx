@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
 import { Unlink } from "lucide-react";
@@ -139,17 +140,15 @@ export function LinkedIssuesPopover({
   onNewTaskWithPrompt,
   children,
 }: LinkedIssuesPopoverProps) {
-  const [view, setView] = useState<"list" | "detail">("list");
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const projects = useProjectStore((s) => s.projects);
 
   // Look up the project path (repoPath) for GitHub issue fetching
   const repoPath = projects.find((p) => p.id === projectId)?.path ?? "";
 
-  // Reset to list view when popover closes (synchronous during render)
+  // Reset selected issue when popover closes (synchronous during render)
   const prevOpenRef = useRef(isOpen);
   if (prevOpenRef.current && !isOpen) {
-    setView("list");
     setSelectedIssueId(null);
   }
   prevOpenRef.current = isOpen;
@@ -234,80 +233,92 @@ export function LinkedIssuesPopover({
 
   const handleRowClick = useCallback((issueId: string) => {
     setSelectedIssueId(issueId);
-    setView("detail");
   }, []);
 
-  const handleBack = useCallback(() => {
-    setView("list");
+  const handleDialogClose = useCallback(() => {
     setSelectedIssueId(null);
   }, []);
+
+  const handleCloseAll = useCallback(() => {
+    setSelectedIssueId(null);
+    onClose();
+  }, [onClose]);
 
   const selectedIsGitHub = selectedIssueId?.startsWith("gh-") ?? false;
 
   return (
-    <Popover.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Popover.Trigger asChild>{children}</Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          className={styles.popover}
-          side="top"
-          sideOffset={6}
-          align="start"
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
-        >
-          {view === "list" ? (
-            <>
-              <div className={styles.listHeader}>
-                <LinkedIssueIcon issues={issues} size={10} />
-                <span>Linked Issues</span>
-              </div>
-              <div className={styles.listScroll}>
-                {issues.map((issue, i) =>
-                  isLoading && !details?.[issue.id] ? (
-                    <IssueRowSkeleton key={issue.id} index={i} />
-                  ) : (
-                    <IssueRow
-                      key={issue.id}
-                      issue={issue}
-                      detail={details?.[issue.id]}
-                      isLoading={false}
-                      onClick={() => handleRowClick(issue.id)}
-                      onUnlink={() => handleUnlink(issue.id)}
-                    />
-                  ),
-                )}
-              </div>
-            </>
-          ) : selectedIssueId ? (
-            <div className={styles.detailView}>
-              <div className={styles.detailContent}>
-                {selectedIsGitHub ? (
-                  <GitHubIssueDetailView
-                    repoPath={repoPath}
-                    issueNumber={parseInt(
-                      selectedIssueId.replace("gh-", ""),
-                      10,
-                    )}
-                    onBack={handleBack}
-                    onClose={onClose}
-                    onNewWorkspace={onNewWorkspace}
-                    onNewTaskWithPrompt={onNewTaskWithPrompt}
-                  />
-                ) : (
-                  <IssueDetailView
-                    issueId={selectedIssueId}
-                    onBack={handleBack}
-                    onClose={onClose}
-                    onNewWorkspace={onNewWorkspace}
-                    onNewTaskWithPrompt={onNewTaskWithPrompt}
-                  />
-                )}
-              </div>
+    <>
+      <Popover.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <Popover.Trigger asChild>{children}</Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            className={styles.popover}
+            side="top"
+            sideOffset={6}
+            align="start"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <div className={styles.listHeader}>
+              <LinkedIssueIcon issues={issues} size={10} />
+              <span>Linked Issues</span>
             </div>
-          ) : null}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+            <div className={styles.listScroll}>
+              {issues.map((issue, i) =>
+                isLoading && !details?.[issue.id] ? (
+                  <IssueRowSkeleton key={issue.id} index={i} />
+                ) : (
+                  <IssueRow
+                    key={issue.id}
+                    issue={issue}
+                    detail={details?.[issue.id]}
+                    isLoading={false}
+                    onClick={() => handleRowClick(issue.id)}
+                    onUnlink={() => handleUnlink(issue.id)}
+                  />
+                ),
+              )}
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+
+      <Dialog.Root
+        open={selectedIssueId !== null}
+        onOpenChange={(open) => !open && handleDialogClose()}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.dialogOverlay} />
+          <Dialog.Content className={styles.dialog}>
+            <Dialog.Title className={styles.dialogSrOnly}>
+              Issue Detail
+            </Dialog.Title>
+            {selectedIssueId && (
+              selectedIsGitHub ? (
+                <GitHubIssueDetailView
+                  repoPath={repoPath}
+                  issueNumber={parseInt(
+                    selectedIssueId.replace("gh-", ""),
+                    10,
+                  )}
+                  onBack={handleDialogClose}
+                  onClose={handleCloseAll}
+                  onNewWorkspace={onNewWorkspace}
+                  onNewTaskWithPrompt={onNewTaskWithPrompt}
+                />
+              ) : (
+                <IssueDetailView
+                  issueId={selectedIssueId}
+                  onBack={handleDialogClose}
+                  onClose={handleCloseAll}
+                  onNewWorkspace={onNewWorkspace}
+                  onNewTaskWithPrompt={onNewTaskWithPrompt}
+                />
+              )
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }

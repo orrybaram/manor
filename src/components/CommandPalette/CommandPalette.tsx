@@ -76,24 +76,23 @@ export function CommandPalette({
   const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
 
-  // Get all team IDs from projects with Linear associations
-  const allTeamIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const project of projects) {
-      for (const assoc of project.linearAssociations) {
-        ids.add(assoc.teamId);
-      }
-    }
-    return [...ids];
-  }, [projects]);
+  // Derive the active project from the active workspace
+  const activeProject = useMemo(
+    () =>
+      projects.find((p) =>
+        p.workspaces.some((ws) => ws.path === activeWorkspacePath),
+      ) ?? null,
+    [projects, activeWorkspacePath],
+  );
+
+  // Get team IDs from the active project's Linear associations
+  const allTeamIds = useMemo(
+    () => (activeProject?.linearAssociations ?? []).map((a) => a.teamId),
+    [activeProject],
+  );
 
   // Derive repoPath from the active project
-  const repoPath = useMemo(() => {
-    const project = projects.find((p) =>
-      p.workspaces.some((ws) => ws.path === activeWorkspacePath),
-    );
-    return project?.path ?? null;
-  }, [projects, activeWorkspacePath]);
+  const repoPath = activeProject?.path ?? null;
 
   // Check connection status when palette opens (render-time, ref-guarded)
   const prevOpenRef = useRef(false);

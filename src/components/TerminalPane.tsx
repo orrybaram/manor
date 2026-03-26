@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import "@xterm/xterm/css/xterm.css";
 import { useThemeStore } from "../store/theme-store";
@@ -15,17 +15,14 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
   const theme = useThemeStore((s) => s.theme);
 
   const { ptyError } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
+  const [dismissed, setDismissed] = useState(false);
 
   return (
     <div ref={containerRef} className={styles.container}>
-      <Dialog.Root open={!!ptyError}>
+      <Dialog.Root open={!!ptyError && !dismissed} onOpenChange={(open) => { if (!open) setDismissed(true); }}>
         <Dialog.Portal>
           <Dialog.Overlay className={styles.errorOverlay} />
-          <Dialog.Content
-            className={styles.errorBox}
-            onEscapeKeyDown={(e) => e.preventDefault()}
-            onInteractOutside={(e) => e.preventDefault()}
-          >
+          <Dialog.Content className={styles.errorBox}>
             <Dialog.Title className={styles.errorTitle}>
               Terminal failed to start
             </Dialog.Title>
@@ -38,16 +35,23 @@ export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
               grant access to Manor under <strong>Full Disk Access</strong> or{" "}
               <strong>Developer Tools</strong>.
             </p>
-            <button
-              className={styles.errorButton}
-              onClick={() => {
-                window.electronAPI.shell.openExternal(
-                  "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                );
-              }}
-            >
-              Open Privacy &amp; Security
-            </button>
+            <div className={styles.errorActions}>
+              <button
+                className={styles.errorButton}
+                onClick={() => {
+                  window.electronAPI.shell.openExternal(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                  );
+                }}
+              >
+                Open Privacy &amp; Security
+              </button>
+              <Dialog.Close asChild>
+                <button className={styles.errorButton}>
+                  Dismiss
+                </button>
+              </Dialog.Close>
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

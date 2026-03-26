@@ -73,7 +73,7 @@ export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProp
             )}
             {linkedIssues.length > 0 && (
               <>
-                <span className={styles.separator}>&gt;</span>
+                <span className={styles.ticketSpacer} />
                 <LinkedIssuesPopover
                   issues={linkedIssues}
                   isOpen={popoverOpen}

@@ -85,3 +85,8 @@
 .linearSection:hover {
   opacity: 1;
 }
+
+.ticketSpacer {
+  width: 24px;
+  flex-shrink: 0;
+}

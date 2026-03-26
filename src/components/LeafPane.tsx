@@ -163,7 +163,7 @@ export function LeafPane({
       onMouseDown={() => focusPane(paneId)}
     >
       <div
-        className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""}`}
+        className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
         onPointerDown={handleStatusBarPointerDown}
       >
         {contentType === "browser" ? (

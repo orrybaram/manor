@@ -50,6 +50,10 @@
   background: var(--surface);
 }
 
+.paneStatusBarWebviewFocused {
+  border-bottom-color: var(--accent);
+}
+
 .paneStatusTitle {
   font-size: 11px;
   color: var(--text-dim);

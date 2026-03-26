@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import { AgentHookServer, mapEventToStatus } from "../agent-hooks";
+import { ClaudeConnector } from "../agent-connectors";
 import type { AgentStatus, AgentKind } from "../terminal-host/types";
 
 function httpGet(
@@ -43,8 +44,8 @@ describe("mapEventToStatus", () => {
     expect(mapEventToStatus("PreToolUse")).toBe("working");
   });
 
-  it("maps Stop to complete", () => {
-    expect(mapEventToStatus("Stop")).toBe("complete");
+  it("maps Stop to responded", () => {
+    expect(mapEventToStatus("Stop")).toBe("responded");
   });
 
   it("maps PermissionRequest to requires_input", () => {
@@ -177,8 +178,35 @@ describe("AgentHookServer", () => {
       expect(relayFn).toHaveBeenCalledTimes(1);
       expect(relayFn).toHaveBeenCalledWith(
         "abc",
-        "complete",
+        "responded",
         "claude",
+        null,
+        "Stop",
+      );
+    });
+
+    it("defaults kind to claude when not specified", async () => {
+      await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
+
+      expect(relayFn).toHaveBeenCalledWith(
+        "abc",
+        "responded",
+        "claude",
+        null,
+        "Stop",
+      );
+    });
+
+    it("passes kind parameter from request", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop&kind=codex",
+      );
+
+      expect(relayFn).toHaveBeenCalledWith(
+        "abc",
+        "responded",
+        "codex",
         null,
         "Stop",
       );
@@ -198,7 +226,7 @@ describe("AgentHookServer", () => {
       expect(relayFn).toHaveBeenNthCalledWith(
         1,
         "pane-1",
-        "complete",
+        "responded",
         "claude",
         null,
         "Stop",
@@ -237,15 +265,17 @@ describe("AgentHookServer", () => {
   });
 });
 
-describe("registerClaudeHooks", () => {
+describe("ClaudeConnector.registerHooks", () => {
   let tmpDir: string;
   let settingsPath: string;
+  let hookScriptPath: string;
   let originalHome: string | undefined;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-hooks-test-${crypto.randomUUID()}`);
     fs.mkdirSync(path.join(tmpDir, ".claude"), { recursive: true });
     settingsPath = path.join(tmpDir, ".claude", "settings.json");
+    hookScriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
     originalHome = process.env.HOME;
     process.env.HOME = tmpDir;
   });
@@ -255,44 +285,35 @@ describe("registerClaudeHooks", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // Re-import to pick up the changed HOME env
-  async function freshImport() {
-    // Clear module cache to pick up new HOME
-    const mod = await import(
-      `../agent-hooks?t=${Date.now()}-${crypto.randomUUID()}`
-    );
-    return mod;
+  function freshConnector(): ClaudeConnector {
+    return new ClaudeConnector();
   }
 
-  it("creates hooks when settings file does not exist", async () => {
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+  it("creates hooks when settings file does not exist", () => {
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks).toBeDefined();
     expect(Object.keys(settings.hooks)).toHaveLength(11);
   });
 
-  it("creates hooks when file exists but has no hooks key", async () => {
+  it("creates hooks when file exists but has no hooks key", () => {
     fs.writeFileSync(settingsPath, JSON.stringify({ someKey: "value" }));
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks).toBeDefined();
     expect(settings.someKey).toBe("value");
   });
 
-  it("adds missing hooks when some already registered", async () => {
-    const hookScriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
+  it("adds missing hooks when some already registered", () => {
     const partial = {
       hooks: {
         Stop: [{ hooks: [{ type: "command", command: hookScriptPath }] }],
       },
     };
     fs.writeFileSync(settingsPath, JSON.stringify(partial));
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(Object.keys(settings.hooks)).toHaveLength(11);
@@ -300,10 +321,10 @@ describe("registerClaudeHooks", () => {
     expect(settings.hooks.Stop).toHaveLength(1);
   });
 
-  it("does NOT duplicate hooks already present (idempotent)", async () => {
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
-    registerClaudeHooks();
+  it("does NOT duplicate hooks already present (idempotent)", () => {
+    const connector = freshConnector();
+    connector.registerHooks(hookScriptPath);
+    connector.registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     for (const key of Object.keys(settings.hooks)) {
@@ -311,28 +332,25 @@ describe("registerClaudeHooks", () => {
     }
   });
 
-  it("preserves unrelated settings keys", async () => {
+  it("preserves unrelated settings keys", () => {
     fs.writeFileSync(settingsPath, JSON.stringify({ theme: "dark", foo: 42 }));
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.theme).toBe("dark");
     expect(settings.foo).toBe(42);
   });
 
-  it("handles invalid JSON gracefully (overwrites)", async () => {
+  it("handles invalid JSON gracefully (overwrites)", () => {
     fs.writeFileSync(settingsPath, "not valid json {{{");
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks).toBeDefined();
   });
 
-  it("registers all 11 event types", async () => {
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+  it("registers all 11 event types", () => {
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     const expectedEvents = [
@@ -354,12 +372,10 @@ describe("registerClaudeHooks", () => {
     }
   });
 
-  it("each hook entry points to HOOK_SCRIPT_PATH", async () => {
-    const { registerClaudeHooks } = await freshImport();
-    registerClaudeHooks();
+  it("each hook entry points to the hook script path", () => {
+    freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    const hookScriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
     for (const event of Object.keys(settings.hooks)) {
       const entries = settings.hooks[event];
       expect(entries[0].hooks[0].command).toBe(hookScriptPath);
@@ -421,5 +437,15 @@ describe("ensureHookScript", () => {
     expect(content).toContain("curl");
     expect(content).toContain("MANOR_HOOK_PORT");
     expect(content).toContain("#!/bin/bash");
+  });
+
+  it("script passes MANOR_AGENT_KIND to hook server", async () => {
+    const { ensureHookScript } = await freshImport();
+    ensureHookScript();
+
+    const scriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
+    const content = fs.readFileSync(scriptPath, "utf-8");
+    expect(content).toContain("MANOR_AGENT_KIND");
+    expect(content).toContain("kind=");
   });
 });

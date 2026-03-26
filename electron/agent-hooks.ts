@@ -3,7 +3,7 @@
  * (Claude Code, Codex, etc.) via their native hook systems.
  *
  * Architecture:
- * 1. On startup, registers hooks in ~/.claude/settings.json
+ * 1. On startup, each AgentConnector registers hooks in its own config
  * 2. Starts an HTTP server on a random port
  * 3. PTY sessions get MANOR_HOOK_PORT env var so hooks can call back
  * 4. Hook script (curl) → HTTP server → IPC to renderer
@@ -15,6 +15,7 @@ import * as path from "node:path";
 
 // Map hook event names to our status
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
+import { getAllConnectors } from "./agent-connectors";
 
 type PaneStatus = AgentStatus;
 
@@ -92,6 +93,7 @@ export class AgentHookServer {
       const paneId = url.searchParams.get("paneId");
       const eventType = url.searchParams.get("eventType");
       const sessionId = url.searchParams.get("sessionId");
+      const kind = (url.searchParams.get("kind") ?? "claude") as AgentKind;
 
       if (!paneId || !eventType) {
         res.writeHead(400);
@@ -101,11 +103,10 @@ export class AgentHookServer {
 
       const status = mapEventToStatus(eventType);
       console.debug(
-        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} sessionId=${sessionId} → status=${status ?? "unmapped"}`,
+        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} → status=${status ?? "unmapped"}`,
       );
       if (status) {
-        // Hooks registered in ~/.claude/settings.json are Claude-specific
-        this.relayFn?.(paneId, status, "claude", sessionId, eventType);
+        this.relayFn?.(paneId, status, kind, sessionId, eventType);
       }
 
       res.writeHead(200);
@@ -136,56 +137,9 @@ export class AgentHookServer {
   }
 }
 
-// ── Hook Registration ──
+// ── Hook Script & Registration ──
 
-const MANOR_HOOK_ENTRIES = [
-  {
-    event: "UserPromptSubmit",
-    matcher: undefined,
-  },
-  {
-    event: "Stop",
-    matcher: undefined,
-  },
-  {
-    event: "PostToolUse",
-    matcher: "*",
-  },
-  {
-    event: "PostToolUseFailure",
-    matcher: "*",
-  },
-  {
-    event: "PermissionRequest",
-    matcher: "*",
-  },
-  {
-    event: "PreToolUse",
-    matcher: "*",
-  },
-  {
-    event: "Notification",
-    matcher: "permission_prompt",
-  },
-  {
-    event: "StopFailure",
-    matcher: undefined,
-  },
-  {
-    event: "SubagentStart",
-    matcher: undefined,
-  },
-  {
-    event: "SubagentStop",
-    matcher: undefined,
-  },
-  {
-    event: "SessionEnd",
-    matcher: undefined,
-  },
-];
-
-const HOOK_SCRIPT_PATH = path.join(
+export const HOOK_SCRIPT_PATH = path.join(
   process.env.HOME || "/tmp",
   ".manor",
   "hooks",
@@ -221,12 +175,16 @@ EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]
 # Extract session id
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 
+# Agent kind — set by Manor when spawning the PTY, defaults to "claude"
+KIND=\${MANOR_AGENT_KIND:-claude}
+
 # Notify the app
 CURL_ARGS=(
   -sG "http://127.0.0.1:\${PORT}/hook/event"
   --connect-timeout 1 --max-time 2
   --data-urlencode "paneId=$MANOR_PANE_ID"
   --data-urlencode "eventType=$EVENT_TYPE"
+  --data-urlencode "kind=$KIND"
 )
 if [ -n "$SESSION_ID" ]; then
   CURL_ARGS+=(--data-urlencode "sessionId=$SESSION_ID")
@@ -243,95 +201,12 @@ export function ensureHookScript(): void {
   fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
 }
 
-/** Register the Manor webview MCP server in ~/.claude.json (Claude Code's user config) */
-export function registerWebviewMcp(): void {
-  const configPath = path.join(process.env.HOME || "/tmp", ".claude.json");
-
-  let config: Record<string, unknown> = {};
-  try {
-    config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  } catch {
-    // File doesn't exist or invalid JSON
-  }
-
-  const mcpServers = (config.mcpServers ?? {}) as Record<
-    string,
-    {
-      type: string;
-      command: string;
-      args: string[];
-      env: Record<string, string>;
-    }
-  >;
-
+/** Register hooks and MCP for all known agent connectors */
+export function registerAllAgents(): void {
   const mcpServerScriptPath = path.join(__dirname, "mcp-webview-server.js");
-  const existing = mcpServers["manor-webview"];
-  const needsUpdate =
-    !existing ||
-    existing.command !== "node" ||
-    !existing.args ||
-    existing.args[0] !== mcpServerScriptPath;
 
-  if (needsUpdate) {
-    mcpServers["manor-webview"] = {
-      type: "stdio",
-      command: "node",
-      args: [mcpServerScriptPath],
-      env: {},
-    };
-    config.mcpServers = mcpServers;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  }
-}
-
-/** Register Manor hooks in ~/.claude/settings.json */
-export function registerClaudeHooks(): void {
-  const settingsPath = path.join(
-    process.env.HOME || "/tmp",
-    ".claude",
-    "settings.json",
-  );
-
-  let settings: Record<string, unknown> = {};
-  try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-  } catch {
-    // File doesn't exist or invalid JSON
-  }
-
-  const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
-  let modified = false;
-
-  for (const entry of MANOR_HOOK_ENTRIES) {
-    const eventHooks = (hooks[entry.event] ?? []) as Array<{
-      matcher?: string;
-      hooks: Array<{ type: string; command: string }>;
-    }>;
-
-    // Check if our hook is already registered
-    const alreadyRegistered = eventHooks.some((h) =>
-      h.hooks?.some((hh) => hh.command === HOOK_SCRIPT_PATH),
-    );
-
-    if (!alreadyRegistered) {
-      const hookEntry: {
-        matcher?: string;
-        hooks: Array<{ type: string; command: string }>;
-      } = {
-        hooks: [{ type: "command", command: HOOK_SCRIPT_PATH }],
-      };
-      if (entry.matcher !== undefined) {
-        hookEntry.matcher = entry.matcher;
-      }
-      eventHooks.push(hookEntry);
-      hooks[entry.event] = eventHooks;
-      modified = true;
-    }
-  }
-
-  if (modified) {
-    settings.hooks = hooks;
-    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  for (const connector of getAllConnectors()) {
+    connector.registerHooks(HOOK_SCRIPT_PATH);
+    connector.registerMcp(mcpServerScriptPath);
   }
 }

@@ -12,7 +12,7 @@ function manorDataDir(): string {
 
 export interface TaskInfo {
   id: string;
-  claudeSessionId: string;
+  agentSessionId: string;
   name: string | null;
   status: "active" | "completed" | "error" | "abandoned";
   createdAt: string;
@@ -52,7 +52,13 @@ export class TaskManager {
       const state: PersistedState = JSON.parse(data);
       const map = new Map<string, TaskInfo>();
       for (const task of state.tasks ?? []) {
-        map.set(task.claudeSessionId, task);
+        // Migrate legacy claudeSessionId → agentSessionId
+        const migrated = task as TaskInfo & { claudeSessionId?: string };
+        if (!migrated.agentSessionId && migrated.claudeSessionId) {
+          migrated.agentSessionId = migrated.claudeSessionId;
+          delete migrated.claudeSessionId;
+        }
+        map.set(migrated.agentSessionId, migrated);
       }
       return map;
     } catch {
@@ -84,7 +90,7 @@ export class TaskManager {
       updatedAt: now,
       activatedAt: null,
     };
-    this.tasks.set(task.claudeSessionId, task);
+    this.tasks.set(task.agentSessionId, task);
     this.saveState();
     return task;
   }
@@ -98,13 +104,13 @@ export class TaskManager {
       id: task.id,
       updatedAt: new Date().toISOString(),
     };
-    this.tasks.set(updated.claudeSessionId, updated);
+    this.tasks.set(updated.agentSessionId, updated);
     this.saveState();
     return updated;
   }
 
-  getTaskBySessionId(claudeSessionId: string): TaskInfo | null {
-    return this.tasks.get(claudeSessionId) ?? null;
+  getTaskBySessionId(agentSessionId: string): TaskInfo | null {
+    return this.tasks.get(agentSessionId) ?? null;
   }
 
   getAllTasks(opts?: {
@@ -151,19 +157,19 @@ export class TaskManager {
       completedAt,
       updatedAt: now,
     };
-    this.tasks.set(updated.claudeSessionId, updated);
+    this.tasks.set(updated.agentSessionId, updated);
     this.saveState();
   }
 
-  linkPane(claudeSessionId: string, paneId: string): void {
-    const task = this.tasks.get(claudeSessionId);
+  linkPane(agentSessionId: string, paneId: string): void {
+    const task = this.tasks.get(agentSessionId);
     if (!task) return;
     const updated: TaskInfo = {
       ...task,
       paneId,
       updatedAt: new Date().toISOString(),
     };
-    this.tasks.set(claudeSessionId, updated);
+    this.tasks.set(agentSessionId, updated);
     this.saveState();
   }
 

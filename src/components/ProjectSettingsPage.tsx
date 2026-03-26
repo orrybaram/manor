@@ -8,6 +8,7 @@ import {
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useMountEffect } from "../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
+import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import styles from "./SettingsModal.module.css";
 
 const PROJECT_COLORS = [
@@ -307,7 +308,7 @@ export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
           className={styles.fieldInput}
           defaultValue={project.agentCommand ?? ""}
           onBlur={() => handleBlur("agentCommand")}
-          placeholder="claude --dangerously-skip-permissions"
+          placeholder={DEFAULT_AGENT_COMMAND}
         />
       </div>
 

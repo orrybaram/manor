@@ -10,7 +10,7 @@ export type TaskStatus = "active" | "completed" | "error" | "abandoned";
 
 export interface TaskInfo {
   id: string;
-  claudeSessionId: string;
+  agentSessionId: string;
   name: string | null;
   status: TaskStatus;
   createdAt: string;

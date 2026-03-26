@@ -502,6 +502,140 @@ export class ProjectManager {
     }
   }
 
+  async canQuickMerge(
+    projectId: string,
+    worktreePath: string,
+  ): Promise<{ canMerge: boolean; reason?: string }> {
+    const project = this.findProject(projectId);
+    if (!project) return { canMerge: false, reason: "Project not found" };
+
+    if (worktreePath === project.path) {
+      return { canMerge: false, reason: "Cannot merge main workspace" };
+    }
+
+    // Detect branch name from git worktree list --porcelain
+    let branchName: string | null = null;
+    try {
+      const { stdout } = await execAsync("git worktree list --porcelain", {
+        cwd: project.path,
+        timeout: 10000,
+      });
+      let currentPath = "";
+      for (const line of stdout.split("\n")) {
+        if (line.startsWith("worktree ")) {
+          currentPath = line.slice(9);
+        } else if (
+          line.startsWith("branch refs/heads/") &&
+          currentPath === worktreePath
+        ) {
+          branchName = line.slice(18);
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[ProjectManager] canQuickMerge: failed to detect branch for worktree:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // Check for uncommitted changes
+    try {
+      const { stdout } = await execAsync("git status --porcelain", {
+        cwd: worktreePath,
+        timeout: 10000,
+      });
+      if (stdout.trim().length > 0) {
+        return { canMerge: false, reason: "Uncommitted changes" };
+      }
+    } catch (err) {
+      console.error(
+        "[ProjectManager] canQuickMerge: failed to check git status:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // Check fast-forward eligibility
+    if (branchName) {
+      try {
+        await execAsync(
+          `git merge-base --is-ancestor ${JSON.stringify(project.defaultBranch)} ${JSON.stringify(branchName)}`,
+          {
+            cwd: project.path,
+            timeout: 10000,
+          },
+        );
+      } catch {
+        return { canMerge: false, reason: "Branch has diverged" };
+      }
+    }
+
+    return { canMerge: true };
+  }
+
+  async quickMergeWorktree(
+    projectId: string,
+    worktreePath: string,
+  ): Promise<void> {
+    const check = await this.canQuickMerge(projectId, worktreePath);
+    if (!check.canMerge) {
+      throw new Error(
+        `[ProjectManager] quickMergeWorktree: cannot merge — ${check.reason}`,
+      );
+    }
+
+    const project = this.findProject(projectId);
+    if (!project) return;
+
+    // Detect branch name
+    let branchName: string | null = null;
+    try {
+      const { stdout } = await execAsync("git worktree list --porcelain", {
+        cwd: project.path,
+        timeout: 10000,
+      });
+      let currentPath = "";
+      for (const line of stdout.split("\n")) {
+        if (line.startsWith("worktree ")) {
+          currentPath = line.slice(9);
+        } else if (
+          line.startsWith("branch refs/heads/") &&
+          currentPath === worktreePath
+        ) {
+          branchName = line.slice(18);
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[ProjectManager] quickMergeWorktree: failed to detect branch for worktree:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    if (!branchName) {
+      throw new Error(
+        "[ProjectManager] quickMergeWorktree: could not detect branch name",
+      );
+    }
+
+    try {
+      await execAsync(
+        `git merge --ff-only ${JSON.stringify(branchName)}`,
+        {
+          cwd: project.path,
+          timeout: 30000,
+        },
+      );
+    } catch (err) {
+      console.error(
+        "[ProjectManager] quickMergeWorktree: git merge --ff-only failed:",
+        err instanceof Error ? err.message : err,
+      );
+      throw err;
+    }
+
+    await this.removeWorktree(projectId, worktreePath, true);
+  }
+
   async listRemoteBranches(projectId: string): Promise<string[]> {
     const project = this.findProject(projectId);
     if (!project) return [];

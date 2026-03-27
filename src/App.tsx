@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { PaneDragProvider } from "./contexts/PaneDragContext";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
@@ -9,6 +9,7 @@ import type { PaletteView } from "./components/CommandPalette/types";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
+import { ManorLogo } from "./components/ManorLogo";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { ProjectSetupWizard } from "./components/ProjectSetupWizard";
 import { ToastContainer } from "./components/Toast";
@@ -48,8 +49,25 @@ const SESSION_HIDDEN_STYLE: React.CSSProperties = {
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
+  const loadProjects = useProjectStore((s) => s.loadProjects);
+  const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+  const [appReady, setAppReady] = useState(false);
+
   useMountEffect(() => {
     loadTheme();
+    Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
+      const { projects: ps, selectedProjectIndex: idx } =
+        useProjectStore.getState();
+      const project = ps[idx];
+      if (project) {
+        const ws =
+          project.workspaces[project.selectedWorkspaceIndex] ??
+          project.workspaces[0];
+        if (ws) setActiveWorkspace(ws.path);
+      }
+      setAppReady(true);
+    });
   });
 
   useAutoUpdate();
@@ -103,25 +121,40 @@ function App() {
   const [wizardProjectId, setWizardProjectId] = useState<string | null>(null);
   const addProject = useProjectStore((s) => s.addProject);
   const selectProject = useProjectStore((s) => s.selectProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
   const closeWizard = useCallback(() => {
+    if (wizardProjectId) {
+      updateProject(wizardProjectId, { setupComplete: true });
+    }
     setWizardOpen(false);
     setWizardProjectId(null);
-  }, []);
+  }, [wizardProjectId, updateProject]);
+
+  const openWizardForLatestProject = useCallback(() => {
+    const newProjects = useProjectStore.getState().projects;
+    const newIndex = newProjects.length - 1;
+    const newProject = newProjects[newIndex];
+    if (newProject) {
+      selectProject(newIndex);
+      setWizardProjectId(newProject.id);
+      setWizardOpen(true);
+    }
+  }, [selectProject]);
+
   const handleAddProject = useCallback(async () => {
     const selected = await window.electronAPI.dialog.openDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";
       await addProject(name, selected);
-      const newProjects = useProjectStore.getState().projects;
-      const newIndex = newProjects.length - 1;
-      const newProject = newProjects[newIndex];
-      if (newProject) {
-        selectProject(newIndex);
-        setWizardProjectId(newProject.id);
-        setWizardOpen(true);
-      }
+      openWizardForLatestProject();
     }
-  }, [addProject, selectProject]);
+  }, [addProject, openWizardForLatestProject]);
+
+  const handleDropFolder = useCallback(async (folderPath: string) => {
+    const name = folderPath.split("/").pop() || "Untitled";
+    await addProject(name, folderPath);
+    openWizardForLatestProject();
+  }, [addProject, openWizardForLatestProject]);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
   const handleOpenProjectSettings = useCallback((projectId: string) => {
@@ -173,7 +206,6 @@ function App() {
   const ws = useAppStore(selectActiveWorkspace);
   const selectedSessionId = ws?.selectedSessionId ?? null;
 
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const addSession = useAppStore((s) => s.addSession);
   const closeSession = useAppStore((s) => s.closeSession);
   const selectSession = useAppStore((s) => s.selectSession);
@@ -187,6 +219,14 @@ function App() {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
+
+  // Clean up wizard state if the project is removed while wizard is open
+  useEffect(() => {
+    if (wizardOpen && wizardProjectId && !projects.some((p) => p.id === wizardProjectId)) {
+      setWizardOpen(false);
+      setWizardProjectId(null);
+    }
+  }, [wizardOpen, wizardProjectId, projects]);
 
   // Reactively apply project theme whenever the selected project changes
   const currentProjectThemeName =
@@ -399,11 +439,21 @@ function App() {
     [addSession, projects, activeWorkspacePath],
   );
 
+  if (!appReady) {
+    return (
+      <div className="app splash-screen">
+        <div className="splash-logo">
+          <ManorLogo />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <TooltipProvider>
     <div className="app">
       <div className="app-body">
-        {sidebarVisible && (
+        {sidebarVisible && hasProjects && (
           <Sidebar
             onShowTasks={() => setTasksOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
@@ -441,7 +491,7 @@ function App() {
                 : !hasSessions &&
                   (hasProjects
                     ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
-                    : <WelcomeEmptyState onAddProject={handleAddProject} />)}
+                    : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
             </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
@@ -502,6 +552,9 @@ function App() {
             pendingLinkedIssue ?? undefined,
           );
           if (result) {
+            // Ensure the project is selected so the new workspace is visible
+            const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
+            if (projIdx >= 0) selectProject(projIdx);
             setNewWorkspaceOpen(false);
           }
           return !!result;

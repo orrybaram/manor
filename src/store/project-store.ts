@@ -123,6 +123,7 @@ export interface ProjectInfo {
   agentCommand: string | null;
   commands: CustomCommand[];
   themeName: string | null;
+  setupComplete: boolean;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -138,6 +139,7 @@ export type ProjectUpdatableFields = Partial<
     | "agentCommand"
     | "commands"
     | "themeName"
+    | "setupComplete"
   >
 >;
 
@@ -148,6 +150,7 @@ interface ProjectState {
   sidebarWidth: number;
   portsHeight: number;
   loading: boolean;
+  initialLoadDone: boolean;
   collapsedProjectIds: Set<string>;
 
   // Actions
@@ -211,6 +214,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   sidebarWidth: loadSidebarWidth(),
   portsHeight: loadPortsHeight(),
   loading: false,
+  initialLoadDone: false,
   collapsedProjectIds: loadCollapsedIds(),
 
   loadProjects: async () => {
@@ -219,9 +223,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await window.electronAPI.projects.getAll();
       const selectedIndex =
         await window.electronAPI.projects.getSelectedIndex();
-      set({ projects, selectedProjectIndex: selectedIndex, loading: false });
+      set({ projects, selectedProjectIndex: selectedIndex, loading: false, initialLoadDone: true });
     } catch {
-      set({ loading: false });
+      set({ loading: false, initialLoadDone: true });
     }
   },
 
@@ -431,6 +435,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
+    // Optimistic update: apply changes immediately for instant UI feedback
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId ? { ...p, ...updates } : p,
+      ),
+    }));
     const updated = await window.electronAPI.projects.update(
       projectId,
       updates,

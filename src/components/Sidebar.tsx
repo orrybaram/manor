@@ -14,7 +14,6 @@ import {
 import { useBranchWatcher } from "../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../hooks/useDiffWatcher";
 import { usePrWatcher } from "../hooks/usePrWatcher";
-import { useMountEffect } from "../hooks/useMountEffect";
 import { ProjectItem } from "./ProjectItem";
 import { PortsList } from "./PortsList";
 import { TasksList } from "./TasksList";
@@ -29,7 +28,6 @@ interface SidebarProps {
 export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: SidebarProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
-  const loadProjects = useProjectStore((s) => s.loadProjects);
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -45,25 +43,11 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: Si
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
   useDiffWatcher();
   usePrWatcher();
-
-  useMountEffect(() => {
-    Promise.all([loadPersistedLayout(), loadProjects()]).then(() => {
-      const { projects, selectedProjectIndex } = useProjectStore.getState();
-      const project = projects[selectedProjectIndex];
-      if (project) {
-        const ws =
-          project.workspaces[project.selectedWorkspaceIndex] ??
-          project.workspaces[0];
-        if (ws) setActiveWorkspace(ws.path);
-      }
-    });
-  });
 
   const handleAddProject = onAddProject ?? (() => {});
 

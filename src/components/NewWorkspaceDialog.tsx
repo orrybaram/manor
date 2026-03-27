@@ -68,7 +68,7 @@ export function NewWorkspaceDialog({
   // Fetch remote branches when dialog opens or project changes
   useEffect(() => {
     if (!open || !activeProjectId) {
-      setRemoteBranches([]);
+      setRemoteBranches([]); // eslint-disable-line react-hooks/set-state-in-effect -- reset on dependency change
       return;
     }
     let cancelled = false;

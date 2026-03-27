@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -132,13 +132,17 @@ export function IssueDetailView({
 
   // Keyboard shortcuts — refs hold latest values so the mount effect never re-subscribes.
   const issueDetailRef = useRef(issueDetail);
-  issueDetailRef.current = issueDetail;
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
-  handleCreateWorkspaceRef.current = handleCreateWorkspace;
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
-  handleOpenInBrowserRef.current = handleOpenInBrowser;
   const handleNewTaskRef = useRef(handleNewTask);
-  handleNewTaskRef.current = handleNewTask;
+  /* eslint-disable react-hooks/immutability -- refs synced to latest values for stable event handler */
+  useEffect(() => {
+    issueDetailRef.current = issueDetail;
+    handleCreateWorkspaceRef.current = handleCreateWorkspace;
+    handleOpenInBrowserRef.current = handleOpenInBrowser;
+    handleNewTaskRef.current = handleNewTask;
+  });
+  /* eslint-enable react-hooks/immutability */
 
   // The Enter keyup from the list selection can arrive after this effect
   // registers its listener, so we gate on a `ready` flag set after a frame.

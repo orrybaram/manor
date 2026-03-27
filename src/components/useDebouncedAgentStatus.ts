@@ -42,7 +42,7 @@ export function useDebouncedAgentStatus(
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    setDisplayed(status);
+    setDisplayed(status); // eslint-disable-line react-hooks/set-state-in-effect -- immediate sync on non-debounced transitions
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return displayed;

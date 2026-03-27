@@ -91,7 +91,7 @@ export function GitHubIssueDetailView({
       },
     });
     window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
-  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace]);
+  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repoPath]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;

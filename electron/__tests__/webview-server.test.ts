@@ -158,7 +158,7 @@ describe("WebviewServer", () => {
 
       await server.start();
       expect(server.serverPort).toBeGreaterThan(0);
-      const port1 = server.serverPort;
+      const _port1 = server.serverPort;
 
       server.stop();
 

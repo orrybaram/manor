@@ -5,7 +5,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Plus, ChevronRight, House, FolderGit2, Settings } from "lucide-react";
+import { Plus, ChevronRight, House, FolderGit2 } from "lucide-react";
 import {
   useProjectStore,
   type ProjectInfo,

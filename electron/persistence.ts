@@ -459,7 +459,7 @@ export class ProjectManager {
       const { existsSync } = await import("fs");
       if (existsSync(worktreePath)) {
         // Directory still exists — this is a real failure, surface it
-        throw new Error(`Failed to remove worktree: ${message}`);
+        throw new Error(`Failed to remove worktree: ${message}`, { cause: err });
       }
 
       // Directory is gone — prune stale git metadata and continue
@@ -757,7 +757,7 @@ export class ProjectManager {
             timeout: 15000,
           },
         );
-      } catch (fallbackErr) {
+      } catch {
         // Neither new branch nor existing local branch — try remote tracking branch
         try {
           await execFileAsync(

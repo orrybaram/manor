@@ -181,7 +181,7 @@ export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
       });
     });
     cleanupRef.current.push(unsubExit);
-  }, [theme, onInstalled, cleanup]);
+  }, [theme]);
 
   const handleRetry = useCallback(() => {
     cleanup();

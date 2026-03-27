@@ -355,7 +355,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubEscape();
         unsubFocusUrl();
       };
-    }, [paneId, setPaneTitle, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
+    }, [paneId, setPaneTitle, setPaneUrl, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
 
     return (
       <div className={styles.container}>

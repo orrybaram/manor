@@ -5,7 +5,6 @@ import {
   beforeEach,
   vi,
   afterEach,
-  type Mock,
 } from "vitest";
 import { OutputPatternMatcher, stripAnsi } from "../output-pattern-matcher";
 import { AgentDetector } from "../agent-detector";

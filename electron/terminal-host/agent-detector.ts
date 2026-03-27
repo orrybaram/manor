@@ -19,7 +19,7 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
 };
 
 /** Titles that are just the agent binary name — not useful as a task label */
-const GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
+const _GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
 
 const KNOWN_SHELLS = new Set([
   "zsh",
@@ -235,7 +235,7 @@ export class AgentDetector {
     }
 
     // Update tracked PID statuses
-    for (const [pid, info] of this.trackedPids) {
+    for (const [_pid, info] of this.trackedPids) {
       info.status = status;
     }
   }

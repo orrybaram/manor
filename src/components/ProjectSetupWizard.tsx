@@ -95,7 +95,10 @@ export function ProjectSetupWizard({
     window.electronAPI.shell
       .discoverAgents()
       .then((agents) => {
-        if (!cancelled) setDiscoveredAgents(agents);
+        if (!cancelled) {
+          setDiscoveredAgents(agents);
+          if (agents.length > 0) setAgentCommand(agents[0].command);
+        }
       })
       .catch(() => {
         if (!cancelled) setDiscoveredAgents([]);
@@ -137,10 +140,13 @@ export function ProjectSetupWizard({
     };
   }, []);
 
-  const setColor = useCallback((newColor: string | null) => {
-    setColorLocal(newColor);
-    updateProject(projectId, { color: newColor });
-  }, [projectId, updateProject]);
+  const setColor = useCallback(
+    (newColor: string | null) => {
+      setColorLocal(newColor);
+      updateProject(projectId, { color: newColor });
+    },
+    [projectId, updateProject],
+  );
 
   // Debounce name updates to the store for sidebar reactivity
   const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,21 +155,24 @@ export function ProjectSetupWizard({
       if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
     };
   }, []);
-  const handleNameChange = useCallback((newName: string) => {
-    setName(newName);
-    if (worktreePathMatchesName.current) {
-      const slug = slugify(newName);
-      setWorktreePath(`~/.manor/worktrees/${slug}`);
-    }
-    // Debounce store update for sidebar
-    if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
-    const trimmed = newName.trim();
-    if (trimmed) {
-      nameTimerRef.current = setTimeout(() => {
-        updateProject(projectId, { name: trimmed });
-      }, 300);
-    }
-  }, [projectId, updateProject]);
+  const handleNameChange = useCallback(
+    (newName: string) => {
+      setName(newName);
+      if (worktreePathMatchesName.current) {
+        const slug = slugify(newName);
+        setWorktreePath(`~/.manor/worktrees/${slug}`);
+      }
+      // Debounce store update for sidebar
+      if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+      const trimmed = newName.trim();
+      if (trimmed) {
+        nameTimerRef.current = setTimeout(() => {
+          updateProject(projectId, { name: trimmed });
+        }, 300);
+      }
+    },
+    [projectId, updateProject],
+  );
 
   const handleWorktreePathChange = useCallback((value: string) => {
     worktreePathMatchesName.current = false;
@@ -314,12 +323,14 @@ export function ProjectSetupWizard({
     switch (step) {
       case 0:
         return (
-          <>
-            <div className={styles.stepTitle}>Name & Color</div>
-            <div className={styles.stepHint}>
-              Give your project a name and pick a color.
+          <div className={styles.stepContainer}>
+            <div className={styles.stepHeader}>
+              <div className={styles.stepTitle}>Name & Color</div>
+              <div className={styles.stepHint}>
+                Give your project a name and pick a color.
+              </div>
             </div>
-            <label className={styles.fieldLabel}>Project Name</label>
+            <label className={styles.fieldLabel}>Project Name
             <input
               ref={nameRef}
               className={styles.fieldInput}
@@ -329,6 +340,8 @@ export function ProjectSetupWizard({
               placeholder="my-project"
               autoFocus
             />
+            </label>
+            <div className={styles.fieldLabel}>
             <label className={styles.fieldLabel}>Color</label>
             <div className={styles.colorPicker}>
               {PROJECT_COLORS.filter((c) => c.value !== null).map((c) => {
@@ -349,15 +362,18 @@ export function ProjectSetupWizard({
                 );
               })}
             </div>
-          </>
+            </div>
+          </div>
         );
 
       case 1:
         return (
-          <>
-            <div className={styles.stepTitle}>Agent Command</div>
-            <div className={styles.stepHint}>
-              The command Manor runs when you open a new terminal pane.
+          <div className={styles.stepContainer}>
+            <div className={styles.stepHeader}>
+              <div className={styles.stepTitle}>Agent Command</div>
+              <div className={styles.stepHint}>
+                The command Manor runs when you open a new terminal pane.
+              </div>
             </div>
             {agentsLoading ? (
               <div className={styles.agentDiscovery}>
@@ -401,7 +417,6 @@ export function ProjectSetupWizard({
               {discoveredAgents.length > 0
                 ? "Or enter a custom command"
                 : "Command"}
-            </label>
             <input
               className={styles.fieldInput}
               type="text"
@@ -410,17 +425,21 @@ export function ProjectSetupWizard({
               placeholder={DEFAULT_AGENT_COMMAND}
               autoFocus={discoveredAgents.length === 0}
             />
-          </>
+            </label>
+
+          </div>
         );
 
       case 2:
         return (
-          <>
-            <div className={styles.stepTitle}>Worktree Path</div>
-            <div className={styles.stepHint}>
-              Where Manor creates git worktrees for branch-based workspaces.
+          <div className={styles.stepContainer}>
+            <div className={styles.stepHeader}>
+              <div className={styles.stepTitle}>Worktree Path</div>
+              <div className={styles.stepHint}>
+                Where Manor creates git worktrees for branch-based workspaces.
+              </div>
             </div>
-            <label className={styles.fieldLabel}>Path</label>
+            <label className={styles.fieldLabel}>Path
             <input
               className={styles.fieldInput}
               type="text"
@@ -429,23 +448,27 @@ export function ProjectSetupWizard({
               placeholder="~/.manor/worktrees/my-project"
               autoFocus
             />
-            <label className={styles.fieldLabel}>Setup Script</label>
-            <input
+            </label>
+            <label className={styles.fieldLabel}>Setup Script
+            <textarea
               className={styles.fieldInput}
-              type="text"
+              rows={4}
               value={startScript}
               onChange={(e) => setStartScript(e.target.value)}
               placeholder="Runs in the terminal when a new worktree is created"
             />
-          </>
+            </label>
+          </div>
         );
 
       case 3:
         return (
-          <>
-            <div className={styles.stepTitle}>Commands</div>
-            <div className={styles.stepHint}>
-              Add custom commands you can run from the command palette.
+          <div className={styles.stepContainer}>
+            <div className={styles.stepHeader}>
+              <div className={styles.stepTitle}>Commands</div>
+              <div className={styles.stepHint}>
+                Add custom commands you can run from the command palette.
+              </div>
             </div>
             <div className={styles.commandList}>
               {commands.map((cmd) => (
@@ -492,15 +515,17 @@ export function ProjectSetupWizard({
                 Add Command
               </button>
             </div>
-          </>
+          </div>
         );
 
       case 4:
         return (
-          <>
-            <div className={styles.stepTitle}>Linear Integration</div>
-            <div className={styles.stepHint}>
-              Link Linear teams to this project to see issues in the sidebar.
+          <div className={styles.stepContainer}>
+            <div className={styles.stepHeader}>
+              <div className={styles.stepTitle}>Linear Integration</div>
+              <div className={styles.stepHint}>
+                Link Linear teams to this project to see issues in the sidebar.
+              </div>
             </div>
             {linearLoading ? (
               <div className={styles.linearHint}>
@@ -535,7 +560,7 @@ export function ProjectSetupWizard({
                 })}
               </div>
             )}
-          </>
+          </div>
         );
 
       default:
@@ -547,22 +572,21 @@ export function ProjectSetupWizard({
     <div className={styles.container}>
       <div className={styles.card} onKeyDown={handleKeyDown}>
         <div className={styles.header}>
-          <div className={styles.title}>Setup Project</div>
-        </div>
-
-        <div className={styles.steps}>
-          {Array.from({ length: totalSteps }, (_, i) => (
-            <div
-              key={i}
-              className={`${styles.stepDot} ${
-                i < step
-                  ? styles.stepDotCompleted
-                  : i === step
-                    ? styles.stepDotActive
-                    : ""
-              }`}
-            />
-          ))}
+          <div className={styles.title}>Project Setup</div>
+          <div className={styles.steps}>
+            {Array.from({ length: totalSteps }, (_, i) => (
+              <div
+                key={i}
+                className={`${styles.stepDot} ${
+                  i < step
+                    ? styles.stepDotCompleted
+                    : i === step
+                      ? styles.stepDotActive
+                      : ""
+                }`}
+              />
+            ))}
+          </div>
         </div>
 
         <div className={styles.body}>{renderStepContent()}</div>

@@ -29,7 +29,6 @@ export function removeWorktreeWithToast(
       removedIdx < workspaces.length - 1 ? removedIdx + 1 : removedIdx - 1;
     if (nextIdx >= 0) {
       projectStore.selectWorkspace(project.id, nextIdx);
-      appStore.setActiveWorkspace(workspaces[nextIdx].path);
     }
   }
 
@@ -98,7 +97,6 @@ export function quickMergeWorktreeWithToast(
       removedIdx < workspaces.length - 1 ? removedIdx + 1 : removedIdx - 1;
     if (nextIdx >= 0) {
       projectStore.selectWorkspace(project.id, nextIdx);
-      appStore.setActiveWorkspace(workspaces[nextIdx].path);
     }
   }
 

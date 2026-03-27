@@ -7,7 +7,7 @@ import { allPaneIds } from "../store/pane-tree";
 export function navigateToTask(task: TaskInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
-  const { setActiveWorkspace, workspaceSessions } = useAppStore.getState();
+  const { workspaceSessions } = useAppStore.getState();
 
   // Find the project by projectId
   const projectIndex = projects.findIndex((p) => p.id === task.projectId);
@@ -38,10 +38,7 @@ export function navigateToTask(task: TaskInfo) {
   setProjectExpanded(project.id);
   selectWorkspace(project.id, workspaceIndex);
   if (task.workspacePath) {
-    // Activate workspace first (may create workspace state via IPC)
-    setActiveWorkspace(task.workspacePath);
-
-    // Then select session + focus pane in a single atomic update so they
+    // Select session + focus pane in a single atomic update so they
     // read the correct activeWorkspacePath and selectedSessionId
     if (sessionId || task.paneId) {
       useAppStore.setState((state) => {

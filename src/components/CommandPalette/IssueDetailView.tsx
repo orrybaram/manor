@@ -27,7 +27,6 @@ export function IssueDetailView({
   onNewTaskWithPrompt,
   linkedTo,
 }: IssueDetailViewProps) {
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
@@ -59,7 +58,6 @@ export function IssueDetailView({
         selectWorkspace(project.id, existingIdx);
         const existingWs = current?.workspaces[existingIdx];
         if (existingWs) {
-          setActiveWorkspace(existingWs.path);
           window.electronAPI.linear.linkIssueToWorkspace(project.id, existingWs.path, {
             id: issue.id,
             identifier: issue.identifier,
@@ -90,7 +88,6 @@ export function IssueDetailView({
     [
       findProjectForIssue,
       selectWorkspace,
-      setActiveWorkspace,
       onClose,
       onNewWorkspace,
     ],

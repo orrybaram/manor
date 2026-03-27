@@ -1,13 +1,11 @@
 import { useCallback } from "react";
 import { useProjectStore } from "../store/project-store";
-import { useAppStore } from "../store/app-store";
 import { type WorkspacePortGroup } from "../hooks/usePortsData";
 import { PortBadge } from "./PortBadge";
 import styles from "./Sidebar.module.css";
 
 export function PortGroup({ group }: { group: WorkspacePortGroup }) {
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
 
   const handleSelectWorkspace = useCallback(() => {
     const projects = useProjectStore.getState().projects;
@@ -17,11 +15,10 @@ export function PortGroup({ group }: { group: WorkspacePortGroup }) {
       );
       if (wsIndex >= 0) {
         selectWorkspace(project.id, wsIndex);
-        setActiveWorkspace(group.workspacePath);
         break;
       }
     }
-  }, [group.workspacePath, selectWorkspace, setActiveWorkspace]);
+  }, [group.workspacePath, selectWorkspace]);
 
   return (
     <div className={styles.portGroup}>

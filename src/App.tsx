@@ -122,6 +122,7 @@ function App() {
   const addProject = useProjectStore((s) => s.addProject);
   const selectProject = useProjectStore((s) => s.selectProject);
   const updateProject = useProjectStore((s) => s.updateProject);
+  const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const closeWizard = useCallback(() => {
     if (wizardProjectId) {
       updateProject(wizardProjectId, { setupComplete: true });
@@ -136,16 +137,20 @@ function App() {
     const newProject = newProjects[newIndex];
     if (newProject) {
       selectProject(newIndex);
+      if (newProject.workspaces[0]) {
+        selectWorkspace(newProject.id, 0);
+      }
       setWizardProjectId(newProject.id);
       setWizardOpen(true);
     }
-  }, [selectProject]);
+  }, [selectProject, selectWorkspace]);
 
   const handleAddProject = useCallback(async () => {
     const selected = await window.electronAPI.dialog.openDirectory();
     if (selected) {
       const name = selected.split("/").pop() || "Untitled";
       await addProject(name, selected);
+
       openWizardForLatestProject();
     }
   }, [addProject, openWizardForLatestProject]);

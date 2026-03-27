@@ -6,7 +6,6 @@ import React, {
 } from "react";
 import { Plus, Boxes, ChevronRight } from "lucide-react";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
-import { useAppStore } from "../store/app-store";
 import {
   removeWorktreeWithToast,
   quickMergeWorktreeWithToast,
@@ -42,7 +41,6 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: Si
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
@@ -283,17 +281,12 @@ export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: Si
                             if (projJustDragged.current) return;
                             selectProject(idx);
                             setProjectExpanded(project.id);
-                            const ws =
-                              project.workspaces[
-                                project.selectedWorkspaceIndex
-                              ] ?? project.workspaces[0];
-                            if (ws) setActiveWorkspace(ws.path);
+                            const wsIdx = project.selectedWorkspaceIndex;
+                            selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
                           }}
                           onRemove={() => removeProject(project.id)}
                           onSelectWorkspace={(wsIdx) => {
                             selectWorkspace(project.id, wsIdx);
-                            const ws = project.workspaces[wsIdx];
-                            if (ws) setActiveWorkspace(ws.path);
                           }}
                           onRemoveWorktree={(ws, deleteBranch) => {
                             removeWorktreeWithToast(project, ws, deleteBranch);

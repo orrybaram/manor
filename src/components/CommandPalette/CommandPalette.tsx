@@ -52,7 +52,6 @@ export function CommandPalette({
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const closeSession = useAppStore((s) => s.closeSession);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
@@ -164,7 +163,6 @@ export function CommandPalette({
     projects,
     activeWorkspacePath,
     selectWorkspace,
-    setActiveWorkspace,
     onClose: handleClose,
     onNewWorkspace,
   });

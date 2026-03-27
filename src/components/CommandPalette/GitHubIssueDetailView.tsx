@@ -36,7 +36,6 @@ export function GitHubIssueDetailView({
   onNewTaskWithPrompt,
   linkedTo,
 }: GitHubIssueDetailViewProps) {
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
@@ -67,7 +66,6 @@ export function GitHubIssueDetailView({
       selectWorkspace(project.id, existingIdx);
       const existingWs = current?.workspaces[existingIdx];
       if (existingWs) {
-        setActiveWorkspace(existingWs.path);
         window.electronAPI.linear.linkIssueToWorkspace(project.id, existingWs.path, {
           id: `gh-${issueDetail.number}`,
           identifier: `#${issueDetail.number}`,
@@ -93,7 +91,7 @@ export function GitHubIssueDetailView({
       },
     });
     window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
-  }, [issueDetail, findProject, selectWorkspace, setActiveWorkspace, onClose, onNewWorkspace]);
+  }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!issueDetail) return;

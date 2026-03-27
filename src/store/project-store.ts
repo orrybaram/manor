@@ -276,6 +276,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           : p,
       ),
     }));
+    // Activate the workspace in the app store so the UI switches to it
+    const project = get().projects.find((p) => p.id === projectId);
+    const ws = project?.workspaces[workspaceIndex];
+    if (ws) {
+      useAppStore.getState().setActiveWorkspace(ws.path);
+    }
   },
 
   createWorktree: async (
@@ -330,7 +336,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (command) {
         useAppStore.getState().setPendingStartupCommand(wsPath, command);
       }
-      useAppStore.getState().setActiveWorkspace(wsPath);
       if (command) {
         useAppStore.getState().addSession();
       }

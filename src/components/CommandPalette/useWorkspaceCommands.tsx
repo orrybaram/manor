@@ -7,7 +7,6 @@ interface UseWorkspaceCommandsParams {
   projects: ProjectInfo[];
   activeWorkspacePath: string | null;
   selectWorkspace: (projectId: string, workspaceIndex: number) => void;
-  setActiveWorkspace: (path: string) => void;
   onClose: () => void;
   onNewWorkspace?: (opts?: {
     projectId?: string;
@@ -20,7 +19,6 @@ export function useWorkspaceCommands({
   projects,
   activeWorkspacePath,
   selectWorkspace,
-  setActiveWorkspace,
   onClose,
   onNewWorkspace,
 }: UseWorkspaceCommandsParams): {
@@ -46,7 +44,6 @@ export function useWorkspaceCommands({
           action: () => {
             if (!isActive) {
               selectWorkspace(project.id, wi);
-              setActiveWorkspace(workspace.path);
             }
             onClose();
           },
@@ -68,7 +65,6 @@ export function useWorkspaceCommands({
     projects,
     activeWorkspacePath,
     selectWorkspace,
-    setActiveWorkspace,
     onClose,
     onNewWorkspace,
   ]);

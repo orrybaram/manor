@@ -731,12 +731,27 @@ export class ProjectManager {
           err instanceof Error ? err.message : err,
         );
       }
+    } else {
+      // Creating a new branch — fetch origin so we base off the latest remote refs
+      try {
+        await execFileAsync("git", ["fetch", "origin"], {
+          cwd: project.path,
+          timeout: 30000,
+        });
+      } catch (err) {
+        console.error(
+          "[ProjectManager] git fetch origin before new worktree failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
+
+    const defaultBranchRef = `origin/${project.defaultBranch || "main"}`;
 
     try {
       await execFileAsync(
         "git",
-        ["worktree", "add", worktreePath, "-b", branchName],
+        ["worktree", "add", worktreePath, "-b", branchName, defaultBranchRef],
         {
           cwd: project.path,
           timeout: 15000,

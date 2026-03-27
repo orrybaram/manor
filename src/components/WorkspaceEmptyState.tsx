@@ -7,6 +7,7 @@ import { useMountEffect } from "../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import type { PaletteView } from "./CommandPalette/types";
+import { GitHubNudge } from "./GitHubNudge";
 import styles from "./EmptyState.module.css";
 
 const INLINE_LIMIT = 5;
@@ -42,6 +43,7 @@ export function WorkspaceEmptyState({
   const [ticketsLoading, setTicketsLoading] = useState(false);
 
   const [githubAvailable, setGithubAvailable] = useState(false);
+  const [githubNotInstalled, setGithubNotInstalled] = useState(false);
   const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([]);
   const [githubLoading, setGithubLoading] = useState(false);
 
@@ -91,7 +93,9 @@ export function WorkspaceEmptyState({
       try {
         const status = await window.electronAPI.github.checkStatus();
         if (cancelled) return;
-        if (status.installed && status.authenticated) {
+        if (!status.installed) {
+          setGithubNotInstalled(true);
+        } else if (status.installed && status.authenticated) {
           setGithubAvailable(true);
           setGithubLoading(true);
           try {
@@ -261,11 +265,36 @@ export function WorkspaceEmptyState({
       </div>
     ) : null;
 
+  const handleGitHubInstalled = useCallback(() => {
+    const state = useProjectStore.getState();
+    const proj = state.projects[state.selectedProjectIndex];
+    const repoPath = proj?.path;
+    if (!repoPath) return;
+
+    setGithubNotInstalled(false);
+    setGithubAvailable(true);
+    setGithubLoading(true);
+
+    window.electronAPI.github
+      .getMyIssues(repoPath, INLINE_LIMIT)
+      .then((issues) => setGithubIssues(issues))
+      .catch((err) =>
+        console.error("[EmptyState] Failed to fetch GitHub issues:", err),
+      )
+      .finally(() => setGithubLoading(false));
+  }, []);
+
+  const githubNudge =
+    githubNotInstalled && !githubAvailable ? (
+      <GitHubNudge onInstalled={handleGitHubInstalled} />
+    ) : null;
+
   const ticketsSection =
-    linearSection || githubSection ? (
+    linearSection || githubSection || githubNudge ? (
       <>
         {linearSection}
         {githubSection}
+        {githubNudge}
       </>
     ) : null;
 

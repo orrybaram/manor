@@ -1,31 +1,12 @@
-import { useState, useMemo } from "react";
-import { ChevronRight, ListChecks, X } from "lucide-react";
+import { useMemo } from "react";
+import { ListChecks, X } from "lucide-react";
 import type { AgentStatus, TaskInfo, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
 import { useAppStore } from "../store/app-store";
 import { AgentDot } from "./AgentDot";
-import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
 import { allPaneIds } from "../store/pane-tree";
 import { navigateToTask } from "../utils/task-navigation";
 import styles from "./Sidebar.module.css";
-
-const STATUS_LABEL: Record<string, string> = {
-  thinking: "Thinking",
-  working: "Working",
-  responded: "Ready",
-  complete: "Done",
-  requires_input: "Waiting",
-  error: "Error",
-};
-
-function AgentItemLabel({ status }: { status: AgentStatus }) {
-  const debounced = useDebouncedAgentStatus(status);
-  return (
-    <span className={styles.agentStatusLabel}>
-      {STATUS_LABEL[debounced ?? ""] ?? debounced}
-    </span>
-  );
-}
 
 function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   if (task.status === "active" && task.lastAgentStatus) {
@@ -40,36 +21,9 @@ function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   return statusMap[task.status];
 }
 
-/** Priority order for picking the "most relevant" agent status to show collapsed */
-const STATUS_PRIORITY: Record<string, number> = {
-  error: 0,
-  requires_input: 1,
-  thinking: 2,
-  working: 3,
-  responded: 4,
-  complete: 5,
-  idle: 6,
-};
-
-function mostRelevantStatus(tasks: TaskInfo[]): AgentStatus | undefined {
-  let best: AgentStatus | undefined;
-  let bestPri = Infinity;
-  for (const task of tasks) {
-    const s = taskAgentStatus(task);
-    if (!s) continue;
-    const pri = STATUS_PRIORITY[s] ?? 99;
-    if (pri < bestPri) {
-      bestPri = pri;
-      best = s;
-    }
-  }
-  return best;
-}
-
 export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
   const { tasks, seenTaskIds } = useTaskStore();
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
-  const [collapsed, setCollapsed] = useState(false);
 
   // Collect all active pane IDs across all workspace sessions
   const activePaneIds = useMemo(() => {
@@ -126,37 +80,19 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
     return map;
   }, [visibleTasks]);
 
-  const collapsedStatus = useMemo(
-    () => (collapsed ? mostRelevantStatus(visibleTasks) : undefined),
-    [collapsed, visibleTasks],
-  );
+  if (visibleTasks.length === 0) return null;
 
   return (
     <div className={styles.tasksSection}>
-      <div
-        className={styles.sectionHeader}
-        style={{ cursor: "pointer" }}
-        onClick={() => setCollapsed(!collapsed)}
-      >
+      <div className={styles.sectionHeader}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span
-            className={`${styles.projectChevron} ${!collapsed ? styles.projectChevronOpen : ""}`}
-          >
-            <ChevronRight size={12} />
-          </span>
           <ListChecks size={12} />
           Tasks
-          {collapsed && collapsedStatus && (
-            <AgentDot status={collapsedStatus} size="sidebar" />
-          )}
         </span>
         {onShowAll && (
           <button
             className={styles.action}
-            onClick={(e) => {
-              e.stopPropagation();
-              onShowAll();
-            }}
+            onClick={onShowAll}
             title="View all tasks"
             style={{ fontSize: 10, opacity: 0.6 }}
           >
@@ -164,50 +100,48 @@ export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
           </button>
         )}
       </div>
-      {!collapsed && visibleTasks.length > 0 && (
-        <div className={styles.taskGroups}>
-          {Array.from(groups.entries()).map(([projectName, groupTasks]) => (
-            <div key={projectName} className={styles.taskGroup}>
-              <div className={styles.taskGroupHeader}>{projectName}</div>
-              {groupTasks.map((task) => {
-                const agentStatus = taskAgentStatus(task);
-                const isVisible =
-                  task.paneId != null && visiblePaneIds.has(task.paneId);
-                const shouldPulse = !isVisible && !seenTaskIds.has(task.id);
-                return (
-                  <button
-                    key={task.id}
-                    className={styles.agentItem}
-                    onClick={() => navigateToTask(task)}
+      <div className={styles.taskGroups}>
+        {Array.from(groups.entries()).map(([projectName, groupTasks]) => (
+          <div key={projectName} className={styles.taskGroup}>
+            <div className={styles.taskGroupHeader}>{projectName}</div>
+            {groupTasks.map((task) => {
+              const agentStatus = taskAgentStatus(task);
+              const isVisible =
+                task.paneId != null && visiblePaneIds.has(task.paneId);
+              const shouldPulse = !isVisible && !seenTaskIds.has(task.id);
+              return (
+                <button
+                  key={task.id}
+                  className={styles.agentItem}
+                  onClick={() => navigateToTask(task)}
+                >
+                  <AgentDot
+                    status={agentStatus}
+                    size="sidebar"
+                    pulse={shouldPulse}
+                  />
+                  <span className={styles.agentName}>
+                    {task.name || "Agent"}
+                  </span>
+                  <span
+                    className={styles.taskClose}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (task.paneId) {
+                        useAppStore.getState().closePaneById(task.paneId);
+                      }
+                      useTaskStore.getState().removeTask(task.id);
+                    }}
+                    title="Close session"
                   >
-                    <AgentDot
-                      status={agentStatus}
-                      size="sidebar"
-                      pulse={shouldPulse}
-                    />
-                    <span className={styles.agentName}>
-                      {task.name || "Agent"}
-                    </span>
-                    <span
-                      className={styles.taskClose}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (task.paneId) {
-                          useAppStore.getState().closePaneById(task.paneId);
-                        }
-                        useTaskStore.getState().removeTask(task.id);
-                      }}
-                      title="Close session"
-                    >
-                      <X size={12} />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+                    <X size={12} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -331,6 +331,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         useAppStore.getState().setPendingStartupCommand(wsPath, command);
       }
       useAppStore.getState().setActiveWorkspace(wsPath);
+      if (command) {
+        useAppStore.getState().addSession();
+      }
     }
     return wsPath;
   },

@@ -58,6 +58,7 @@ export interface ProjectInfo {
   agentCommand: string | null;
   commands: CustomCommand[];
   themeName: string | null;
+  setupComplete: boolean;
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -73,6 +74,7 @@ export type ProjectUpdatableFields = Partial<
     | "agentCommand"
     | "commands"
     | "themeName"
+    | "setupComplete"
   >
 >;
 
@@ -95,6 +97,7 @@ interface PersistedProject {
   agentCommand?: string | null;
   commands?: CustomCommand[];
   themeName?: string | null;
+  setupComplete?: boolean;
 }
 
 interface PersistedState {
@@ -168,6 +171,7 @@ export class ProjectManager {
       agentCommand: null,
       commands: [],
       themeName: null,
+      setupComplete: false,
     };
 
     // Seed commands from package.json if present
@@ -223,6 +227,7 @@ export class ProjectManager {
       agentCommand: null,
       commands: project.commands ?? [],
       themeName: null,
+      setupComplete: false,
     };
   }
 
@@ -313,6 +318,7 @@ export class ProjectManager {
       agentCommand: p.agentCommand ?? null,
       commands: p.commands ?? [],
       themeName: p.themeName ?? null,
+      setupComplete: p.setupComplete ?? true,
     };
   }
 
@@ -710,6 +716,21 @@ export class ProjectManager {
         "[ProjectManager] git worktree prune failed:",
         err instanceof Error ? err.message : err,
       );
+    }
+
+    // If an existing branch was selected, fetch first so local refs are up-to-date
+    if (branch) {
+      try {
+        await execFileAsync("git", ["fetch", "origin", branchName], {
+          cwd: project.path,
+          timeout: 30000,
+        });
+      } catch (err) {
+        console.error(
+          "[ProjectManager] git fetch before checkout failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
 
     try {

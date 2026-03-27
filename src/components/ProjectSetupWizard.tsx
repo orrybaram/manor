@@ -37,7 +37,7 @@ export function ProjectSetupWizard({
   projectId,
 }: ProjectSetupWizardProps) {
   const [step, setStep] = useState(0);
-  const [color, setColor] = useState<string | null>(null);
+  const [color, setColorLocal] = useState<string | null>(null);
   const [agentCommand, setAgentCommand] = useState("");
   const [worktreePath, setWorktreePath] = useState("");
   const [startScript, setStartScript] = useState("");
@@ -74,7 +74,9 @@ export function ProjectSetupWizard({
   useEffect(() => {
     if (!project) return;
     setName(project.name ?? "");
-    setColor(randomColor());
+    const initialColor = randomColor();
+    setColorLocal(initialColor);
+    if (initialColor) updateProject(project.id, { color: initialColor });
     setAgentCommand("");
     setStartScript("");
     setCommands(project.commands ?? []);
@@ -135,14 +137,33 @@ export function ProjectSetupWizard({
     };
   }, []);
 
-  // Keep worktree path in sync with name edits (only if user hasn't customized it)
+  const setColor = useCallback((newColor: string | null) => {
+    setColorLocal(newColor);
+    updateProject(projectId, { color: newColor });
+  }, [projectId, updateProject]);
+
+  // Debounce name updates to the store for sidebar reactivity
+  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+    };
+  }, []);
   const handleNameChange = useCallback((newName: string) => {
     setName(newName);
     if (worktreePathMatchesName.current) {
       const slug = slugify(newName);
       setWorktreePath(`~/.manor/worktrees/${slug}`);
     }
-  }, []);
+    // Debounce store update for sidebar
+    if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+    const trimmed = newName.trim();
+    if (trimmed) {
+      nameTimerRef.current = setTimeout(() => {
+        updateProject(projectId, { name: trimmed });
+      }, 300);
+    }
+  }, [projectId, updateProject]);
 
   const handleWorktreePathChange = useCallback((value: string) => {
     worktreePathMatchesName.current = false;
@@ -237,6 +258,7 @@ export function ProjectSetupWizard({
   }, [saveCurrentStep, onClose]);
 
   const handleAdvance = useCallback(async () => {
+    if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
     await saveCurrentStep();
     setStep((s) => s + 1);
   }, [saveCurrentStep]);
@@ -525,7 +547,7 @@ export function ProjectSetupWizard({
     <div className={styles.container}>
       <div className={styles.card} onKeyDown={handleKeyDown}>
         <div className={styles.header}>
-          <div className={styles.title}>Set Up Project</div>
+          <div className={styles.title}>Setup Project</div>
         </div>
 
         <div className={styles.steps}>

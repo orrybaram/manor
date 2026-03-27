@@ -671,6 +671,36 @@
   line-height: 1.4;
 }
 
+.mergeSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mergeStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--foreground);
+  line-height: 1.4;
+}
+
+.mergeStep svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  opacity: 0.6;
+}
+
+.branchInline {
+  font-family: monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
 .checkboxLabel input[type="checkbox"] {
   accent-color: var(--danger);
   margin-top: 2px;

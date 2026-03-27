@@ -1,25 +1,71 @@
-import { FolderDown } from "lucide-react";
-import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
+import { useState, useCallback } from "react";
+import { FolderOpen } from "lucide-react";
+import { ManorLogo } from "./ManorLogo";
+import styles from "./WelcomeEmptyState.module.css";
 
 interface WelcomeEmptyStateProps {
   onAddProject: () => void;
+  onDropFolder?: (folderPath: string) => void;
 }
 
 /** Shown when there are no projects at all. */
-export function WelcomeEmptyState({ onAddProject }: WelcomeEmptyStateProps) {
-  const actions: ActionItem[] = [
-    {
-      icon: <FolderDown size={16} />,
-      label: "Import Project",
-      keys: [],
-      action: onAddProject,
+export function WelcomeEmptyState({ onAddProject, onDropFolder }: WelcomeEmptyStateProps) {
+  const [dragging, setDragging] = useState(false);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragging(false);
+
+      const files = Array.from(e.dataTransfer.files);
+      const folder = files.find((f) => f.type === "" && f.size === 0);
+      if (folder) {
+        // Electron exposes the real path on the File object
+        const folderPath = (folder as File & { path?: string }).path;
+        if (folderPath && onDropFolder) {
+          onDropFolder(folderPath);
+          return;
+        }
+      }
+      // Fallback: open the native dialog
+      onAddProject();
     },
-  ];
+    [onAddProject, onDropFolder],
+  );
 
   return (
-    <EmptyStateShell
-      subtitle="Open a project to get started"
-      actions={actions}
-    />
+    <div className={styles.container}>
+      <div className={styles.logo}>
+        <ManorLogo />
+      </div>
+      <div
+        className={`${styles.dropZone} ${dragging ? styles.dragging : ""}`}
+        onClick={onAddProject}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <div className={styles.title}>
+          <FolderOpen size={20} />
+          Open Project
+        </div>
+        <div className={styles.subtitle}>
+          Click to browse
+        </div>
+      </div>
+    </div>
   );
 }

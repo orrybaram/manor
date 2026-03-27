@@ -18,6 +18,7 @@ import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
+import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { useWorkspaceDrag } from "../hooks/useWorkspaceDrag";
 import styles from "./Sidebar.module.css";
 
@@ -201,6 +202,8 @@ export function ProjectItem({
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDeleteWorktree, setConfirmDeleteWorktree] =
+    useState<WorkspaceInfo | null>(null);
+  const [confirmMergeWorktree, setConfirmMergeWorktree] =
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
@@ -431,23 +434,11 @@ export function ProjectItem({
                             <ContextMenu.Item
                               className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                               disabled={mergeState === null}
-                              onSelect={() => onQuickMergeWorktree?.(ws)}
+                              onSelect={() => setConfirmMergeWorktree(ws)}
                             >
                               Merge & Delete
                             </ContextMenu.Item>
                           )}
-                          <ContextMenu.Item
-                            className={`${styles.contextMenuItem} ${mergeState?.canMerge !== false ? styles.contextMenuItemDanger : ""}`}
-                            disabled={!mergeState?.canMerge}
-                            onSelect={() => onQuickMergeWorktree?.(ws)}
-                          >
-                            Merge & Delete
-                            {mergeState && !mergeState.canMerge && (
-                              <span className={styles.contextMenuItemHint}>
-                                {mergeState.reason}
-                              </span>
-                            )}
-                          </ContextMenu.Item>
                           <ContextMenu.Item
                             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                             onSelect={() => {
@@ -486,6 +477,16 @@ export function ProjectItem({
         onOpenChange={setConfirmRemove}
         projectName={project.name}
         onConfirm={onRemove}
+      />
+
+      <MergeWorktreeDialog
+        open={confirmMergeWorktree !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmMergeWorktree(null);
+        }}
+        workspace={confirmMergeWorktree}
+        defaultBranch={project.defaultBranch}
+        onConfirm={(ws) => onQuickMergeWorktree?.(ws)}
       />
 
       <DeleteWorktreeDialog

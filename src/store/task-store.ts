@@ -122,8 +122,9 @@ export const useTaskStore = create<TaskState>((set, get) => {
         // Don't show toasts if the task's pane is visible in the active session
         const appState = useAppStore.getState();
         let isAlreadyVisible = false;
-        if (task.paneId != null) {
-          for (const ws of Object.values(appState.workspaceSessions)) {
+        if (task.paneId != null && appState.activeWorkspacePath) {
+          const ws = appState.workspaceSessions[appState.activeWorkspacePath];
+          if (ws) {
             const activeSession = ws.sessions.find(
               (s) => s.id === ws.selectedSessionId,
             );
@@ -132,7 +133,6 @@ export const useTaskStore = create<TaskState>((set, get) => {
               allPaneIds(activeSession.rootNode).includes(task.paneId)
             ) {
               isAlreadyVisible = true;
-              break;
             }
           }
         }

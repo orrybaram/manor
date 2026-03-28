@@ -9,7 +9,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import * as Popover from "@radix-ui/react-popover";
-import { Tooltip } from "./Tooltip";
+import { Tooltip } from "./ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
-import { ManorLogo } from "./ManorLogo";
+import { ManorLogo } from "./ui/ManorLogo";
 import styles from "./WelcomeEmptyState.module.css";
 
 interface WelcomeEmptyStateProps {

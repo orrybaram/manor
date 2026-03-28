@@ -7,10 +7,10 @@ import { Sidebar } from "./components/Sidebar";
 import type { PaletteView } from "./components/CommandPalette/types";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
-import { ManorLogo } from "./components/ManorLogo";
+import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
-import { ToastContainer } from "./components/Toast";
-import { TooltipProvider } from "./components/Tooltip";
+import { ToastContainer } from "./components/ui/Toast/Toast";
+import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
 const CommandPalette = lazy(() => import("./components/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/SettingsModal").then(m => ({ default: m.SettingsModal })));

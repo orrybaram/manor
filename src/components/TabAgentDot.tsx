@@ -1,4 +1,4 @@
-import { AgentDot } from "./AgentDot";
+import { AgentDot } from "./ui/AgentDot/AgentDot";
 import { useSessionAgentStatus } from "./useSessionAgentStatus";
 
 type TabAgentDotProps = {

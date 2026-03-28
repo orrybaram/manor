@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 
-import { ManorLogo } from "./ManorLogo";
+import { ManorLogo } from "./ui/ManorLogo";
 import { AboutModal } from "./AboutModal";
 import { LinkedIssuesPopover } from "./LinkedIssuesPopover";
 import { LinearIcon } from "./CommandPalette/LinearIcon";

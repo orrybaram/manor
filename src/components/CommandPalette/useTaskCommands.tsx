@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useTaskStore } from "../../store/task-store";
-import { AgentDot } from "../AgentDot";
+import { AgentDot } from "../ui/AgentDot/AgentDot";
 import type { TaskInfo, TaskStatus, AgentStatus } from "../../electron.d";
 import type { CommandItem } from "./types";
 

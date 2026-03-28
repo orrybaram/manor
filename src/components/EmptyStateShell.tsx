@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ManorLogo } from "./ManorLogo";
+import { ManorLogo } from "./ui/ManorLogo";
 import styles from "./EmptyState.module.css";
 
 export interface ActionItem {

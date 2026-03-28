@@ -16,7 +16,7 @@ import {
 } from "../store/project-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
-import { AgentDot } from "./AgentDot";
+import { AgentDot } from "./ui/AgentDot/AgentDot";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";

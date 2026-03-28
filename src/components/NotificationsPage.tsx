@@ -1,4 +1,4 @@
-import { Switch } from "./Switch";
+import { Switch } from "./ui/Switch/Switch";
 import styles from "./SettingsModal.module.css";
 import { usePreferencesStore } from "../store/preferences-store";
 

@@ -1,5 +1,5 @@
-import { useToastStore } from "../store/toast-store";
-import { ToastItem } from "./ToastItem";
+import { useToastStore } from "../../../store/toast-store";
+import { ToastItem } from "../ToastItem";
 import styles from "./Toast.module.css";
 
 export function ToastContainer() {

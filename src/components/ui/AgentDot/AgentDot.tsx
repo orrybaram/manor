@@ -1,6 +1,6 @@
-import type { AgentStatus } from "../electron.d";
-import { SpinnerLoader } from "./SpinnerLoader";
-import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
+import type { AgentStatus } from "../../../electron.d";
+import { SpinnerLoader } from "../SpinnerLoader/SpinnerLoader";
+import { useDebouncedAgentStatus } from "../../useDebouncedAgentStatus";
 import styles from "./AgentDot.module.css";
 
 type AgentDotProps = {

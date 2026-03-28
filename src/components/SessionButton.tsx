@@ -2,7 +2,7 @@ import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import X from "lucide-react/dist/esm/icons/x";
-import { Tooltip } from "./Tooltip";
+import { Tooltip } from "./ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useSessionTitle } from "./useSessionTitle";
 import { TabAgentDot } from "./TabAgentDot";

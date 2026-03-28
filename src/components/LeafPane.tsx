@@ -10,7 +10,7 @@ import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane";
 import { PaneDropZone } from "./PaneDropZone";
-import { Tooltip } from "./Tooltip";
+import { Tooltip } from "./ui/Tooltip/Tooltip";
 import { registerBrowserPane, unregisterBrowserPane } from "../lib/browser-pane-registry";
 import { useMountEffect } from "../hooks/useMountEffect";
 

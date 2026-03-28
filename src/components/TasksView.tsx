@@ -4,7 +4,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { TaskInfo, AgentStatus, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
-import { AgentDot } from "./AgentDot";
+import { AgentDot } from "./ui/AgentDot/AgentDot";
 import styles from "./TasksView.module.css";
 
 // ── Helpers ──

@@ -1,0 +1,162 @@
+/* ── Diff Pane ── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  font-size: 12px;
+
+  /* Override diff2html colors for dark theme */
+  --d2h-bg-color: var(--bg);
+  --d2h-dark-color: var(--dim);
+  --d2h-light-color: var(--surface);
+  --d2h-border-color: var(--border);
+  --d2h-code-linenumber-bg: var(--dim);
+  --d2h-code-linenumber-color: var(--text-dim);
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.header strong {
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.diffContent {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+}
+
+/* ── diff2html dark theme overrides ── */
+
+.diffContent :global(.d2h-wrapper) {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.diffContent :global(.d2h-file-wrapper) {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.diffContent :global(.d2h-file-header) {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-selected);
+  padding: 4px 8px;
+}
+
+.diffContent :global(.d2h-file-name) {
+  color: var(--text-selected);
+}
+
+.diffContent :global(.d2h-file-stats) {
+  color: var(--text-dim);
+}
+
+.diffContent :global(.d2h-code-line-ctn) {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.diffContent :global(.d2h-code-linenumber) {
+  background: var(--dim);
+  color: var(--text-dim);
+  border-right: 1px solid var(--border);
+}
+
+.diffContent :global(.d2h-code-line) {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.diffContent :global(.d2h-ins) {
+  background: rgba(80, 200, 120, 0.12);
+  color: var(--fg);
+}
+
+.diffContent :global(.d2h-ins .d2h-code-linenumber) {
+  background: rgba(80, 200, 120, 0.08);
+  color: #6bcf7f;
+  border-right-color: rgba(80, 200, 120, 0.2);
+}
+
+.diffContent :global(.d2h-ins ins) {
+  background: rgba(80, 200, 120, 0.25);
+  text-decoration: none;
+}
+
+.diffContent :global(.d2h-del) {
+  background: rgba(238, 85, 85, 0.1);
+  color: var(--fg);
+}
+
+.diffContent :global(.d2h-del .d2h-code-linenumber) {
+  background: rgba(238, 85, 85, 0.08);
+  color: #f38ba8;
+  border-right-color: rgba(238, 85, 85, 0.2);
+}
+
+.diffContent :global(.d2h-del del) {
+  background: rgba(238, 85, 85, 0.2);
+  text-decoration: none;
+}
+
+.diffContent :global(.d2h-info) {
+  background: var(--dim);
+  color: var(--text-dim);
+}
+
+.diffContent :global(.d2h-emptyplaceholder) {
+  background: var(--dim);
+}
+
+.diffContent :global(.d2h-tag) {
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+.diffContent :global(.line-num1),
+.diffContent :global(.line-num2) {
+  color: var(--text-dim);
+}

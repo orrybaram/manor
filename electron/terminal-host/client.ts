@@ -24,7 +24,6 @@ import type {
 const MANOR_DIR = path.join(os.homedir(), ".manor");
 
 type StreamEventHandler = (event: StreamEvent) => void;
-type DisconnectHandler = () => void;
 
 export class TerminalHostClient {
   private controlSocket: net.Socket | null = null;
@@ -39,7 +38,6 @@ export class TerminalHostClient {
   private controlBuffer = "";
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
-  private disconnectHandler: DisconnectHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
 
@@ -66,11 +64,6 @@ export class TerminalHostClient {
   /** Set a handler for stream events (data, exit, cwd, error) */
   onEvent(handler: StreamEventHandler): void {
     this.eventHandler = handler;
-  }
-
-  /** Set a handler called when the daemon connection is lost unexpectedly */
-  onDisconnect(handler: DisconnectHandler): void {
-    this.disconnectHandler = handler;
   }
 
   /** Connect to the daemon, spawning it if necessary */
@@ -206,50 +199,6 @@ export class TerminalHostClient {
       }
       throw err;
     }
-  }
-
-  /** Prewarm a session — creates a hidden session ready to be claimed */
-  async prewarm(
-    sessionId: string,
-    cwd: string,
-    cols: number,
-    rows: number,
-  ): Promise<SessionInfo> {
-    await this.ensureConnected();
-    const resp = await this.request({ type: "prewarm", sessionId, cwd, cols, rows });
-    if (resp.type !== "prewarmed") {
-      throw new Error(
-        `Prewarm failed: ${resp.type === "error" ? resp.message : "unknown"}`,
-      );
-    }
-    return resp.session;
-  }
-
-  /** Claim a prewarmed session, reassigning it to a new session ID */
-  async claimPrewarmed(
-    oldSessionId: string,
-    newSessionId: string,
-    cwd?: string,
-    cols?: number,
-    rows?: number,
-  ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot }> {
-    await this.ensureConnected();
-    const resp = await this.request({
-      type: "claimPrewarmed",
-      oldSessionId,
-      newSessionId,
-      cwd,
-      cols,
-      rows,
-    });
-    if (resp.type !== "claimed") {
-      throw new Error(
-        `ClaimPrewarmed failed: ${resp.type === "error" ? resp.message : "unknown"}`,
-      );
-    }
-    // Subscribe for stream events on the new session ID
-    this.streamWrite({ type: "subscribe", sessionId: newSessionId });
-    return { session: resp.session, snapshot: resp.snapshot };
   }
 
   /** Write terminal input — fire-and-forget via stream socket */
@@ -497,7 +446,6 @@ export class TerminalHostClient {
   private handleDisconnect(): void {
     if (!this.connected) return;
     this.cleanup();
-    this.disconnectHandler?.();
   }
 
   /** Shared teardown for both intentional disconnect and unexpected connection loss */

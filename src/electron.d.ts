@@ -153,7 +153,7 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
-    ) => Promise<{ ok: boolean; snapshot?: string | null; prewarmed?: boolean }>;
+    ) => Promise<{ ok: boolean; snapshot?: string | null }>;
     write: (paneId: string, data: string) => Promise<void>;
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
     close: (paneId: string) => Promise<void>;
@@ -434,10 +434,6 @@ export interface ElectronAPI {
 
   clipboard: {
     writeText: (text: string) => Promise<void>;
-  };
-
-  workspace: {
-    setActive: (workspacePath: string) => Promise<void>;
   };
 
   webview: {

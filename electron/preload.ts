@@ -296,11 +296,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
   },
 
-  workspace: {
-    setActive: (workspacePath: string) =>
-      ipcRenderer.invoke("workspace:setActive", workspacePath),
-  },
-
   webview: {
     register: (paneId: string, webContentsId: number) =>
       ipcRenderer.invoke("webview:register", paneId, webContentsId),

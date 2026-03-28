@@ -41,59 +41,6 @@ export class TerminalHost {
     return session.info;
   }
 
-  /** Create a prewarmed session (hidden from listSessions) */
-  prewarm(
-    sessionId: string,
-    cwd: string,
-    cols: number,
-    rows: number,
-  ): SessionInfo {
-    if (this.sessions.has(sessionId)) {
-      return this.sessions.get(sessionId)!.info;
-    }
-
-    const session = new Session(sessionId, cwd, cols, rows, this.sessionsDir);
-    session.prewarmed = true;
-    this.sessions.set(sessionId, session);
-    session.spawn();
-    return session.info;
-  }
-
-  /** Claim a prewarmed session, reassigning it to a new session ID */
-  async claimPrewarmed(
-    oldSessionId: string,
-    newSessionId: string,
-    cwd?: string,
-    cols?: number,
-    rows?: number,
-  ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot } | null> {
-    const session = this.sessions.get(oldSessionId);
-    if (!session || !session.prewarmed) return null;
-
-    // Re-key the session under the new ID
-    this.sessions.delete(oldSessionId);
-    session.sessionId = newSessionId;
-    session.prewarmed = false;
-    this.sessions.set(newSessionId, session);
-
-    // Apply CWD change if needed
-    if (cwd && cwd !== session.info.cwd) {
-      session.write(`cd ${JSON.stringify(cwd)}\n`);
-    }
-
-    // Apply resize if needed
-    if (
-      cols !== undefined &&
-      rows !== undefined &&
-      (cols !== session.info.cols || rows !== session.info.rows)
-    ) {
-      session.resize(cols, rows);
-    }
-
-    const snapshot = await session.getSnapshot();
-    return { session: session.info, snapshot };
-  }
-
   /** Attach a stream socket to a session (for receiving output) */
   async attach(
     sessionId: string,
@@ -134,11 +81,9 @@ export class TerminalHost {
     return this.sessions.get(sessionId)?.getSnapshot() ?? null;
   }
 
-  /** List all sessions (excludes prewarmed sessions) */
+  /** List all sessions */
   listSessions(): SessionInfo[] {
-    return Array.from(this.sessions.values())
-      .filter((s) => !s.prewarmed)
-      .map((s) => s.info);
+    return Array.from(this.sessions.values()).map((s) => s.info);
   }
 
   /** Dispose a specific session */

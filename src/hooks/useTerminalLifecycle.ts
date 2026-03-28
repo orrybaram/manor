@@ -144,7 +144,7 @@ export function useTerminalLifecycle(
     const rows = t.rows;
     let disposed = false;
     create(cwd ?? null, cols, rows).then(
-      (result: { ok: boolean; snapshot?: string | null; prewarmed?: boolean; error?: string }) => {
+      (result: { ok: boolean; snapshot?: string | null; error?: string }) => {
         if (!disposed && !result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
@@ -177,15 +177,10 @@ export function useTerminalLifecycle(
           if (wsPath && cwd === wsPath) {
             const cmd = store.consumePendingStartupCommand(wsPath);
             if (cmd) {
-              if (result.prewarmed) {
-                // Prewarmed session: shell is already initialized, write immediately
+              // Small delay to let the shell initialize before writing the command
+              setTimeout(() => {
                 if (!disposed) write(cmd + "\n");
-              } else {
-                // Small delay to let the shell initialize before writing the command
-                setTimeout(() => {
-                  if (!disposed) write(cmd + "\n");
-                }, 500);
-              }
+              }, 500);
             }
           }
         }

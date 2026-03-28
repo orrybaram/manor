@@ -45,7 +45,6 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 import { portlessManager } from "./portless";
-import { PrewarmManager } from "./prewarm-manager";
 
 interface WorkspaceMeta {
   path: string;
@@ -251,9 +250,6 @@ const paneContextMap = new Map<
 const unseenRespondedTasks = new Set<string>();
 const unseenInputTasks = new Set<string>();
 
-// PrewarmManager is initialized after daemon connects (see app.whenReady)
-let prewarmManager: PrewarmManager | null = null;
-
 function updateDockBadge(): void {
   if (!preferencesManager.get("dockBadgeEnabled")) {
     app.dock?.setBadge("");
@@ -362,23 +358,6 @@ ipcMain.handle(
     assertPositiveInt(cols, "cols");
     assertPositiveInt(rows, "rows");
     try {
-      // Try prewarmed session first
-      if (prewarmManager) {
-        const prewarmed = await prewarmManager.consume(
-          paneId,
-          cwd || process.env.HOME || "/",
-          cols,
-          rows,
-        );
-        if (prewarmed) {
-          return {
-            ok: true,
-            snapshot: prewarmed.snapshot?.screenAnsi || null,
-            prewarmed: true,
-          };
-        }
-      }
-      // Fallback to normal create
       const result = await client.createOrAttach(
         paneId,
         cwd || process.env.HOME || "/",
@@ -390,7 +369,6 @@ ipcMain.handle(
       return {
         ok: true,
         snapshot: result.snapshot?.screenAnsi || null,
-        prewarmed: false,
       };
     } catch (err) {
       console.error(`Failed to create/attach PTY for ${paneId}:`, err);
@@ -497,17 +475,6 @@ ipcMain.handle(
     projectManager.selectWorkspace(projectId, workspaceIndex);
   },
 );
-
-// Notified by the renderer when the active workspace changes so the
-// PrewarmManager can keep its session CWD up to date.
-ipcMain.handle("workspace:setActive", (_event, workspacePath: string) => {
-  assertString(workspacePath, "workspacePath");
-  if (prewarmManager) {
-    prewarmManager.updateCwd(workspacePath).catch((err) => {
-      console.error("[prewarm] updateCwd failed:", err);
-    });
-  }
-});
 
 ipcMain.handle(
   "projects:removeWorktree",
@@ -1336,22 +1303,6 @@ app.whenReady().then(async () => {
     console.error("Failed to connect to terminal host daemon:", err);
   }
 
-  // Initialize PrewarmManager now that the daemon is connected.
-  // Use the home directory as the initial CWD; the renderer will call
-  // workspace:setActive once the active workspace is known.
-  const initialPrewarmCwd = process.env.HOME || "/";
-  prewarmManager = new PrewarmManager(client, initialPrewarmCwd);
-  prewarmManager.warm(initialPrewarmCwd).catch((err) => {
-    console.error("[prewarm] Initial warm failed:", err);
-  });
-
-  // When the daemon disconnects unexpectedly, reset the prewarm state.
-  // The next warm() call inside reset() will auto-reconnect via ensureConnected().
-  client.onDisconnect(() => {
-    console.log("[prewarm] Daemon disconnected — resetting prewarm state");
-    prewarmManager?.reset();
-  });
-
   // Set the relay callback now that the client is connected.
   // Hook events route through the daemon's AgentDetector state machine.
 
@@ -1563,9 +1514,6 @@ app.on("before-quit", () => {
   agentHookServer.stop();
   webviewServer.stop();
   portlessManager.stop();
-  prewarmManager?.dispose().catch((err) => {
-    console.error("[prewarm] dispose failed:", err);
-  });
 });
 
 // Note: We intentionally do NOT disconnect the client or kill the daemon on quit.

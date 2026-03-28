@@ -30,7 +30,7 @@ export function LeafPane({
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
-  const closePane = useAppStore((s) => s.closePane);
+  const requestClosePaneById = useAppStore((s) => s.requestClosePaneById);
   const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
@@ -78,7 +78,7 @@ export function LeafPane({
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     focusPane(paneId);
-    closePane();
+    requestClosePaneById(paneId);
   };
 
   const handleStatusBarPointerDown = (

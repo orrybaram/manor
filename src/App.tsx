@@ -11,6 +11,7 @@ import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { ManorLogo } from "./components/ManorLogo";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
+import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ProjectSetupWizard } from "./components/ProjectSetupWizard";
 import { ToastContainer } from "./components/Toast";
 import { TooltipProvider } from "./components/Tooltip";
@@ -227,7 +228,10 @@ function App() {
   const selectNextSession = useAppStore((s) => s.selectNextSession);
   const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const splitPane = useAppStore((s) => s.splitPane);
-  const closePane = useAppStore((s) => s.closePane);
+  const requestClosePane = useAppStore((s) => s.requestClosePane);
+  const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
+  const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
+  const closePaneById = useAppStore((s) => s.closePaneById);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
@@ -286,7 +290,7 @@ function App() {
     "new-session": () => addSession(),
     "split-h": () => splitPane("horizontal"),
     "split-v": () => splitPane("vertical"),
-    "close-pane": () => closePane(),
+    "close-pane": () => requestClosePane(),
     "close-session": () => {
       const session = activeSessionRef.current;
       if (session) closeSession(session.id);
@@ -574,6 +578,18 @@ function App() {
             setNewWorkspaceOpen(false);
           }
           return !!result;
+        }}
+      />
+      <CloseAgentPaneDialog
+        open={pendingCloseConfirmPaneId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseConfirmPaneId(null);
+        }}
+        onConfirm={() => {
+          if (pendingCloseConfirmPaneId !== null) {
+            closePaneById(pendingCloseConfirmPaneId);
+            setPendingCloseConfirmPaneId(null);
+          }
         }}
       />
       <ToastContainer />

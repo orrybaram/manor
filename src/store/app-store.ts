@@ -95,6 +95,8 @@ export interface AppState {
   closedPaneIds: Set<string>;
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
+  /** Pane ID awaiting close confirmation (when agent is active) */
+  pendingCloseConfirmPaneId: string | null;
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
 
@@ -133,6 +135,9 @@ export interface AppState {
   extractPaneToSession: (paneId: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
+  requestClosePane: () => void;
+  requestClosePaneById: (paneId: string) => void;
+  setPendingCloseConfirmPaneId: (paneId: string | null) => void;
   focusPane: (paneId: string) => void;
   focusNextPane: () => void;
   focusPrevPane: () => void;
@@ -191,6 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
+  pendingCloseConfirmPaneId: null,
 
   loadPersistedLayout: async () => {
     try {
@@ -928,6 +934,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       };
     });
+  },
+
+  setPendingCloseConfirmPaneId: (paneId: string | null) =>
+    set({ pendingCloseConfirmPaneId: paneId }),
+
+  requestClosePane: () => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const ws = state.workspaceSessions[path];
+    if (!ws) return;
+    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+    if (!session) return;
+    const focusedPaneId = session.focusedPaneId;
+    get().requestClosePaneById(focusedPaneId);
+  },
+
+  requestClosePaneById: (paneId: string) => {
+    const state = get();
+    const agentState = state.paneAgentStatus[paneId];
+    const activeStatuses = ["thinking", "working", "requires_input"];
+    if (agentState && activeStatuses.includes(agentState.status)) {
+      set({ pendingCloseConfirmPaneId: paneId });
+    } else {
+      get().closePaneById(paneId);
+    }
   },
 
   focusPane: (paneId: string) =>

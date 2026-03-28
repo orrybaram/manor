@@ -27,15 +27,9 @@ function slugify(title: string): string {
     .slice(0, 50);
 }
 
-export function GitHubIssueDetailView({
-  repoPath,
-  issueNumber,
-  onBack,
-  onClose,
-  onNewWorkspace,
-  onNewTaskWithPrompt,
-  linkedTo,
-}: GitHubIssueDetailViewProps) {
+export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
+  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo } = props;
+
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 

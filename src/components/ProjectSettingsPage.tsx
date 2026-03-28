@@ -61,7 +61,13 @@ interface ThemeEntry {
   badge?: string;
 }
 
-function ProjectThemeSelector({ project }: { project: ProjectInfo }) {
+type ProjectThemeSelectorProps = {
+  project: ProjectInfo;
+};
+
+function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
+  const { project } = props;
+
   const updateProject = useProjectStore((s) => s.updateProject);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const [hasGhostty, setHasGhostty] = useState(false);
@@ -203,7 +209,13 @@ function defaultWorktreePath(projectName: string): string {
   return `~/.manor/worktrees/${slug}`;
 }
 
-export function ProjectSettingsPage({ project }: { project: ProjectInfo }) {
+type ProjectSettingsPageProps = {
+  project: ProjectInfo;
+};
+
+export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
+  const { project } = props;
+
   const updateProject = useProjectStore((s) => s.updateProject);
   const nameRef = useRef<HTMLInputElement>(null);
   const agentCommandRef = useRef<HTMLInputElement>(null);

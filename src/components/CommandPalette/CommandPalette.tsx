@@ -28,19 +28,9 @@ import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
 
-export function CommandPalette({
-  open,
-  onClose,
-  onOpenSettings,
-  onNewWorkspace,
-  onResumeTask,
-  onViewAllTasks,
-  onNewTask,
-  onNewTaskWithPrompt,
-  initialView,
-  initialIssueId,
-  initialGitHubIssueNumber,
-}: CommandPaletteProps) {
+export function CommandPalette(props: CommandPaletteProps) {
+  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
+
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const closePane = useAppStore((s) => s.closePane);

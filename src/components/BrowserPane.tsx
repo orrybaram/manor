@@ -86,7 +86,9 @@ function formatPickedElement(result: PickedElementResult): string {
 }
 
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
-  function BrowserPane({ paneId, initialUrl, onNavStateChange }, ref) {
+  function BrowserPane(props: BrowserPaneProps, ref) {
+    const { paneId, initialUrl, onNavStateChange } = props;
+
     const webviewRef = useRef<WebviewElement>(null);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");

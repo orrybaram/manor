@@ -53,7 +53,10 @@ const WorkspaceItem = React.forwardRef<
   HTMLDivElement,
   WorkspaceItemProps & React.HTMLAttributes<HTMLDivElement>
 >(function WorkspaceItem(
-  {
+  props,
+  forwardedRef,
+) {
+  const {
     ws,
     idx,
     isSelected,
@@ -76,9 +79,8 @@ const WorkspaceItem = React.forwardRef<
     onEditClick,
     onEditPointerDown,
     ...rest
-  },
-  forwardedRef,
-) {
+  } = props;
+
   const workspaceStatus = useWorkspaceAgentStatus(ws.path);
 
   return (
@@ -169,22 +171,7 @@ const WorkspaceItem = React.forwardRef<
   );
 });
 
-export function ProjectItem({
-  project,
-  isSelected,
-  collapsed,
-  onToggleCollapsed,
-  onSelect: _onSelect,
-  onRemove,
-  onSelectWorkspace,
-  onRemoveWorktree,
-  onRenameWorkspace,
-  onReorderWorkspaces,
-  onCreateWorktree,
-  onOpenSettings,
-  onDragStart,
-  onQuickMergeWorktree,
-}: {
+type ProjectItemProps = {
   project: ProjectInfo;
   isSelected: boolean;
   collapsed: boolean;
@@ -199,7 +186,26 @@ export function ProjectItem({
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
-}) {
+};
+
+export function ProjectItem(props: ProjectItemProps) {
+  const {
+    project,
+    isSelected,
+    collapsed,
+    onToggleCollapsed,
+    onSelect: _onSelect,
+    onRemove,
+    onSelectWorkspace,
+    onRemoveWorktree,
+    onRenameWorkspace,
+    onReorderWorkspaces,
+    onCreateWorktree,
+    onOpenSettings,
+    onDragStart,
+    onQuickMergeWorktree,
+  } = props;
+
   const expanded = !collapsed;
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");

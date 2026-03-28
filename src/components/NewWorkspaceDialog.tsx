@@ -31,16 +31,9 @@ type NewWorkspaceDialogProps = {
   initialBranch?: string;
 };
 
-export function NewWorkspaceDialog({
-  open,
-  onClose,
-  onSubmit,
-  projects,
-  selectedProjectIndex,
-  preselectedProjectId,
-  initialName = "",
-  initialBranch = "",
-}: NewWorkspaceDialogProps) {
+export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
+  const { open, onClose, onSubmit, projects, selectedProjectIndex, preselectedProjectId, initialName = "", initialBranch = "" } = props;
+
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");

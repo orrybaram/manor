@@ -27,10 +27,9 @@ type WorkspaceEmptyStateProps = {
 };
 
 /** Shown when the active workspace has no sessions (all tabs closed). */
-export function WorkspaceEmptyState({
-  onOpenIssueDetail,
-  onOpenPaletteView,
-}: WorkspaceEmptyStateProps) {
+export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
+  const { onOpenIssueDetail, onOpenPaletteView } = props;
+
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const projects = useProjectStore((s) => s.projects);

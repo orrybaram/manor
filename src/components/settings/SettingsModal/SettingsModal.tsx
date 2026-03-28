@@ -7,12 +7,12 @@ import Palette from "lucide-react/dist/esm/icons/palette";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
-import { useProjectStore } from "../store/project-store";
-import { AppSettingsPage } from "./AppSettingsPage";
-import { KeybindingsPage } from "./KeybindingsPage";
-import { NotificationsPage } from "./NotificationsPage";
-import { IntegrationsPage } from "./IntegrationsPage";
-import { ProjectSettingsPage } from "./ProjectSettingsPage";
+import { useProjectStore } from "../../../store/project-store";
+import { AppSettingsPage } from "../AppSettingsPage";
+import { KeybindingsPage } from "../KeybindingsPage";
+import { NotificationsPage } from "../NotificationsPage";
+import { IntegrationsPage } from "../IntegrationsPage";
+import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import styles from "./SettingsModal.module.css";
 
 type SettingsModalProps = {

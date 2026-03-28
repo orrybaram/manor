@@ -1,6 +1,6 @@
-import { Switch } from "./ui/Switch/Switch";
-import styles from "./SettingsModal.module.css";
-import { usePreferencesStore } from "../store/preferences-store";
+import { Switch } from "../ui/Switch/Switch";
+import styles from "./SettingsModal/SettingsModal.module.css";
+import { usePreferencesStore } from "../../store/preferences-store";
 
 const isMac =
   navigator.platform.includes("Mac") || navigator.userAgent.includes("Mac");

@@ -6,13 +6,13 @@ import {
   useProjectStore,
   type ProjectInfo,
   type CustomCommand,
-} from "../store/project-store";
-import { useThemeStore, type Theme } from "../store/theme-store";
-import { useMountEffect } from "../hooks/useMountEffect";
+} from "../../store/project-store";
+import { useThemeStore, type Theme } from "../../store/theme-store";
+import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
-import { PROJECT_COLORS } from "../project-colors";
-import styles from "./SettingsModal.module.css";
+import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
+import { PROJECT_COLORS } from "../../project-colors";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 const scriptFields: Array<{
   field: "defaultRunCommand";

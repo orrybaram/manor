@@ -2,9 +2,9 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
-import { useProjectStore, type ProjectInfo } from "../store/project-store";
-import { useMountEffect } from "../hooks/useMountEffect";
-import styles from "./SettingsModal.module.css";
+import { useProjectStore, type ProjectInfo } from "../../store/project-store";
+import { useMountEffect } from "../../hooks/useMountEffect";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 type LinearProjectSectionProps = {
   project: ProjectInfo;

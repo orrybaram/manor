@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
-import { useKeybindingsStore } from "../store/keybindings-store";
+import { useKeybindingsStore } from "../../store/keybindings-store";
 import {
   DEFAULT_KEYBINDINGS,
   KeyCombo,
@@ -12,8 +12,8 @@ import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
   KeybindingCategory,
-} from "../lib/keybindings";
-import styles from "./SettingsModal.module.css";
+} from "../../lib/keybindings";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 const platform = navigator.platform.toLowerCase().includes("mac")
   ? ("mac" as const)

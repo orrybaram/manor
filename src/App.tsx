@@ -12,8 +12,8 @@ import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
-const CommandPalette = lazy(() => import("./components/CommandPalette").then(m => ({ default: m.CommandPalette })));
-const SettingsModal = lazy(() => import("./components/SettingsModal").then(m => ({ default: m.SettingsModal })));
+const CommandPalette = lazy(() => import("./components/CommandPalette/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));

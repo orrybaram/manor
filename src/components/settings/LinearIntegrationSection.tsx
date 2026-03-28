@@ -1,10 +1,10 @@
 import { useState } from "react";
 import Link from "lucide-react/dist/esm/icons/link";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
-import { useProjectStore } from "../store/project-store";
-import { useToastStore } from "../store/toast-store";
-import { useMountEffect } from "../hooks/useMountEffect";
-import styles from "./SettingsModal.module.css";
+import { useProjectStore } from "../../store/project-store";
+import { useToastStore } from "../../store/toast-store";
+import { useMountEffect } from "../../hooks/useMountEffect";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function LinearIntegrationSection() {
   const [connected, setConnected] = useState(false);

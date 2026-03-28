@@ -1,6 +1,6 @@
 import { GitHubIntegrationSection } from "./GitHubIntegrationSection";
 import { LinearIntegrationSection } from "./LinearIntegrationSection";
-import styles from "./SettingsModal.module.css";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function IntegrationsPage() {
   return (

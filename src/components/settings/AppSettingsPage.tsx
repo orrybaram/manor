@@ -1,6 +1,6 @@
-import { usePreferencesStore } from "../store/preferences-store";
+import { usePreferencesStore } from "../../store/preferences-store";
 import { ThemeSection } from "./ThemeSection";
-import styles from "./SettingsModal.module.css";
+import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function AppSettingsPage() {
   const { preferences, set } = usePreferencesStore();

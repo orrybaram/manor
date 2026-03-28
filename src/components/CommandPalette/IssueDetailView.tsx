@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
-import type { LinearIssue } from "../../electron.d";
+import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
 import { PRIORITY_LABELS, stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
@@ -44,7 +44,7 @@ export function IssueDetailView({
   );
 
   const handleCreateWorkspace = useCallback(
-    (issue: LinearIssue) => {
+    (issue: LinearIssueDetail) => {
       const project = findProjectForIssue(issue);
       if (!project) return;
 
@@ -75,7 +75,7 @@ export function IssueDetailView({
         name: issue.title,
         branch: issue.branchName,
         agentPrompt:
-          issue.title + "\n\n" + (issueDetailRef.current?.description ?? ""),
+          issue.title + "\n\n" + (issue.description ?? ""),
         linkedIssue: {
           id: issue.id,
           identifier: issue.identifier,
@@ -102,9 +102,9 @@ export function IssueDetailView({
   );
 
   const handleNewTask = useCallback(
-    (issue: LinearIssue) => {
+    (issue: LinearIssueDetail) => {
       const prompt =
-        issue.title + "\n\n" + (issueDetailRef.current?.description ?? "");
+        issue.title + "\n\n" + (issue.description ?? "");
       onNewTaskWithPrompt?.(prompt);
       window.electronAPI.linear.startIssue(issue.id);
       onClose();

@@ -362,6 +362,23 @@ ipcMain.handle(
     assertPositiveInt(cols, "cols");
     assertPositiveInt(rows, "rows");
     try {
+      // Try prewarmed session first
+      if (prewarmManager) {
+        const prewarmed = await prewarmManager.consume(
+          paneId,
+          cwd || process.env.HOME || "/",
+          cols,
+          rows,
+        );
+        if (prewarmed) {
+          return {
+            ok: true,
+            snapshot: prewarmed.snapshot?.screenAnsi || null,
+            prewarmed: true,
+          };
+        }
+      }
+      // Fallback to normal create
       const result = await client.createOrAttach(
         paneId,
         cwd || process.env.HOME || "/",
@@ -373,6 +390,7 @@ ipcMain.handle(
       return {
         ok: true,
         snapshot: result.snapshot?.screenAnsi || null,
+        prewarmed: false,
       };
     } catch (err) {
       console.error(`Failed to create/attach PTY for ${paneId}:`, err);

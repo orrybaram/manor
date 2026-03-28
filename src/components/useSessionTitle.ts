@@ -20,7 +20,6 @@ export function useSessionTitle(sessionId: string): string {
     focusedPaneId ? (s.paneUrl[focusedPaneId] ?? null) : null,
   );
 
-  // For diff panes, use a fixed title
   if (contentType === "diff") {
     return "Diff";
   }

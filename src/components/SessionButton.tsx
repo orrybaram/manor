@@ -43,17 +43,11 @@ export function SessionButton({
   buttonRef: (el: HTMLDivElement | null) => void;
 }) {
   const title = useSessionTitle(sessionId);
-  const isDiff = useAppStore((s) => {
+  const contentType = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     const session = ws?.sessions.find((t) => t.id === sessionId);
     const paneId = session?.focusedPaneId;
-    return paneId ? s.paneContentType[paneId] === "diff" : false;
-  });
-  const isBrowser = useAppStore((s) => {
-    const ws = selectActiveWorkspace(s);
-    const session = ws?.sessions.find((t) => t.id === sessionId);
-    const paneId = session?.focusedPaneId;
-    return paneId ? s.paneContentType[paneId] === "browser" : false;
+    return paneId ? (s.paneContentType[paneId] ?? null) : null;
   });
   return (
     <ContextMenu.Root>
@@ -66,8 +60,8 @@ export function SessionButton({
           style={style}
         >
           <TabAgentDot sessionId={sessionId} />
-          {isDiff && <GitCompareArrows size={12} className={styles.sessionIcon} />}
-          {isBrowser && <Globe size={12} className={styles.sessionIcon} />}
+          {contentType === "diff" && <GitCompareArrows size={12} className={styles.sessionIcon} />}
+          {contentType === "browser" && <Globe size={12} className={styles.sessionIcon} />}
           <span className={styles.sessionTitle}>
             {isPinned ? shortenTitle(title) : title}
           </span>

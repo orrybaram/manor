@@ -70,74 +70,74 @@ export class DiffWatcher {
   }
 
   async getFullDiff(wsPath: string, defaultBranch: string): Promise<string> {
-    // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
-    const refs = [`origin/${defaultBranch}`, defaultBranch];
-    for (const ref of refs) {
-      try {
-        const { stdout: mergeBaseOut } = await execFileAsync(
-          "git",
-          ["merge-base", ref, "HEAD"],
-          { cwd: wsPath, timeout: 5000 },
-        );
-        const mergeBase = mergeBaseOut.trim();
+    const mergeBase = await this.resolveMergeBase(wsPath, defaultBranch);
+    if (!mergeBase) return "";
 
-        const { stdout: diffOut } = await execFileAsync(
-          "git",
-          ["diff", mergeBase],
-          { cwd: wsPath, timeout: 10000 },
-        );
-        return diffOut;
-      } catch (err) {
-        console.error(
-          `[DiffWatcher] getFullDiff failed for ${wsPath} with ref ${ref}:`,
-          err instanceof Error ? err.message : err,
-        );
-        continue;
-      }
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        ["diff", mergeBase],
+        { cwd: wsPath, timeout: 10000, maxBuffer: 10 * 1024 * 1024 },
+      );
+      return stdout;
+    } catch (err) {
+      console.error(
+        `[DiffWatcher] getFullDiff failed for ${wsPath}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return "";
     }
-    return "";
   }
 
   private async getDiffStats(
     wsPath: string,
     defaultBranch: string,
   ): Promise<DiffStats | null> {
-    // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
+    const mergeBase = await this.resolveMergeBase(wsPath, defaultBranch);
+    if (!mergeBase) return null;
+
+    try {
+      const { stdout: diffOut } = await execFileAsync(
+        "git",
+        ["diff", mergeBase, "--shortstat"],
+        { cwd: wsPath, timeout: 5000 },
+      );
+      const output = diffOut.trim();
+
+      if (!output) return null;
+
+      const addMatch = output.match(/(\d+) insertion/);
+      const removeMatch = output.match(/(\d+) deletion/);
+
+      const added = addMatch ? parseInt(addMatch[1], 10) : 0;
+      const removed = removeMatch ? parseInt(removeMatch[1], 10) : 0;
+
+      if (added === 0 && removed === 0) return null;
+
+      return { added, removed };
+    } catch (err) {
+      console.error(
+        `[DiffWatcher] getDiffStats failed for ${wsPath}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
+  private async resolveMergeBase(
+    wsPath: string,
+    defaultBranch: string,
+  ): Promise<string | null> {
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
       try {
-        // Find the merge base so we only count changes since the branch point
-        const { stdout: mergeBaseOut } = await execFileAsync(
+        const { stdout } = await execFileAsync(
           "git",
           ["merge-base", ref, "HEAD"],
           { cwd: wsPath, timeout: 5000 },
         );
-        const mergeBase = mergeBaseOut.trim();
-
-        // Diff working tree against merge base to include committed + staged + unstaged changes
-        const { stdout: diffOut } = await execFileAsync(
-          "git",
-          ["diff", mergeBase, "--shortstat"],
-          { cwd: wsPath, timeout: 5000 },
-        );
-        const output = diffOut.trim();
-
-        if (!output) return null;
-
-        const addMatch = output.match(/(\d+) insertion/);
-        const removeMatch = output.match(/(\d+) deletion/);
-
-        const added = addMatch ? parseInt(addMatch[1], 10) : 0;
-        const removed = removeMatch ? parseInt(removeMatch[1], 10) : 0;
-
-        if (added === 0 && removed === 0) return null;
-
-        return { added, removed };
-      } catch (err) {
-        console.error(
-          `[DiffWatcher] git diff failed for ${wsPath} with ref ${ref}:`,
-          err instanceof Error ? err.message : err,
-        );
+        return stdout.trim();
+      } catch {
         continue;
       }
     }

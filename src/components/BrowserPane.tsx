@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { useAppStore } from "../store/app-store";
 import { useToastStore } from "../store/toast-store";
 import { useBrowserHistoryStore, type HistoryEntry } from "../store/browser-history-store";
@@ -111,9 +112,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
-    useEffect(() => {
-      onNavStateChangeRef.current = onNavStateChange;
-    }, [onNavStateChange]);
+    onNavStateChangeRef.current = onNavStateChange;
 
     const fireNavStateChange = useCallback((overrides: Partial<BrowserPaneNavState>) => {
       navStateRef.current = { ...navStateRef.current, ...overrides };
@@ -158,19 +157,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     }, [fireNavStateChange]);
 
     const urlRef = useRef(url);
-    useEffect(() => {
-      urlRef.current = url;
-    }, [url]);
+    urlRef.current = url;
 
     const suggestionsRef = useRef(suggestions);
-    useEffect(() => {
-      suggestionsRef.current = suggestions;
-    }, [suggestions]);
+    suggestionsRef.current = suggestions;
 
     const highlightIndexRef = useRef(highlightIndex);
-    useEffect(() => {
-      highlightIndexRef.current = highlightIndex;
-    }, [highlightIndex]);
+    highlightIndexRef.current = highlightIndex;
 
     const handleUrlKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
       const currentSuggestions = suggestionsRef.current;
@@ -264,7 +257,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       onSuggestionMouseDown: handleSuggestionMouseDown,
     }), [paneId, navigateTo, fireNavStateChange, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
-    useEffect(() => {
+    useMountEffect(() => {
       const wv = webviewRef.current;
       if (!wv) return;
 
@@ -355,7 +348,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubEscape();
         unsubFocusUrl();
       };
-    }, [paneId, setPaneTitle, setPaneUrl, updateNavState, setPickedElement, clearPickedElement, fireNavStateChange]);
+    });
 
     return (
       <div className={styles.container}>

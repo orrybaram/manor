@@ -272,7 +272,7 @@ export function NewWorkspaceDialog({
                       filteredBranches.map((b, i) => (
                         <div
                           key={b}
-                          ref={i === highlightIndex ? (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                          ref={i === highlightIndex ? (el: HTMLDivElement | null) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                           className={`${styles.dropdownItem} ${i === highlightIndex ? styles.dropdownItemHighlighted : ""}`}
                           onMouseDown={(e) => {
                             e.preventDefault();

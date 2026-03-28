@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { Github, X, Download, Check, RotateCcw } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -79,7 +80,7 @@ export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
     fitRef.current = null;
   }, []);
 
-  useEffect(() => cleanup, [cleanup]);
+  useMountEffect(() => cleanup);
 
   const startInstall = useCallback(async () => {
     setPhase("installing");

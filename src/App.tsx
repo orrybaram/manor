@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { PaneDragProvider } from "./contexts/PaneDragContext";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
@@ -243,12 +243,7 @@ function App() {
   const createWorktree = useProjectStore((s) => s.createWorktree);
 
   // Clean up wizard state if the project is removed while wizard is open
-  useEffect(() => {
-    if (wizardOpen && wizardProjectId && !projects.some((p) => p.id === wizardProjectId)) {
-      setWizardOpen(false);
-      setWizardProjectId(null);
-    }
-  }, [wizardOpen, wizardProjectId, projects]);
+  const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   // Reactively apply project theme whenever the selected project changes
   const currentProjectThemeName =
@@ -508,7 +503,7 @@ function App() {
                   );
                 }),
               )}
-              {wizardOpen && wizardProjectId
+              {wizardStillValid && wizardProjectId
                 ? <ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} />
                 : !hasSessions &&
                   (hasProjects

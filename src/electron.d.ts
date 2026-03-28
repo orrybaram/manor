@@ -24,6 +24,8 @@ export interface TaskInfo {
   agentKind: "claude" | "opencode" | "codex";
   paneId: string | null;
   lastAgentStatus: string | null;
+  external: boolean;
+  sourceApp: string | null;
 }
 
 export interface LinearTeam {

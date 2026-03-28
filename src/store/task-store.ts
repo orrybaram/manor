@@ -155,9 +155,9 @@ export const useTaskStore = create<TaskState>((set, get) => {
               status: "loading",
               persistent: true,
               action: {
-                label: "Go to task",
+                label: task.external ? "Dismiss" : "Go to task",
                 onClick: () => {
-                  navigateToTask(task);
+                  if (!task.external) navigateToTask(task);
                   useToastStore.getState().removeToast(toastId);
                 },
               },
@@ -175,9 +175,9 @@ export const useTaskStore = create<TaskState>((set, get) => {
               status: "success",
               duration: 10_000,
               action: {
-                label: "Go to task",
+                label: task.external ? "Dismiss" : "Go to task",
                 onClick: () => {
-                  navigateToTask(task);
+                  if (!task.external) navigateToTask(task);
                   useToastStore.getState().removeToast(toastId);
                 },
               },

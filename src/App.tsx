@@ -1,21 +1,22 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./contexts/PaneDragContext";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/Sidebar";
-import { CommandPalette } from "./components/CommandPalette";
 import type { PaletteView } from "./components/CommandPalette/types";
-import { SettingsModal } from "./components/SettingsModal";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/WelcomeEmptyState";
 import { ManorLogo } from "./components/ManorLogo";
-import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
-import { ProjectSetupWizard } from "./components/ProjectSetupWizard";
 import { ToastContainer } from "./components/Toast";
 import { TooltipProvider } from "./components/Tooltip";
-import { TasksModal } from "./components/TasksView";
+
+const CommandPalette = lazy(() => import("./components/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const SettingsModal = lazy(() => import("./components/SettingsModal").then(m => ({ default: m.SettingsModal })));
+const NewWorkspaceDialog = lazy(() => import("./components/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
+const ProjectSetupWizard = lazy(() => import("./components/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
+const TasksModal = lazy(() => import("./components/TasksView").then(m => ({ default: m.TasksModal })));
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
@@ -509,7 +510,7 @@ function App() {
                 }),
               )}
               {wizardOpen && wizardProjectId
-                ? <ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} />
+                ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                 : !hasSessions &&
                   (hasProjects
                     ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
@@ -522,67 +523,69 @@ function App() {
           </div>
         </PaneDragProvider>
       </div>
-      <CommandPalette
-        open={paletteOpen}
-        onClose={closePalette}
-        onOpenSettings={handleOpenSettings}
-        onNewWorkspace={handleNewWorkspace}
-        initialView={paletteInitialView}
-        initialIssueId={paletteInitialIssueId}
-        initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
-        onResumeTask={handleResumeTask}
-        onViewAllTasks={() => setTasksOpen(true)}
-        onNewTask={handleNewTask}
-        onNewTaskWithPrompt={handleNewTaskWithPrompt}
-      />
-      <SettingsModal
-        open={settingsOpen}
-        onClose={closeSettings}
-        initialProjectId={settingsProjectId}
-      />
-      <TasksModal
-        open={tasksOpen}
-        onClose={closeTasks}
-        onResumeTask={handleResumeTask}
-      />
-      <NewWorkspaceDialog
-        open={newWorkspaceOpen}
-        onClose={closeNewWorkspace}
-        projects={projects}
-        selectedProjectIndex={selectedProjectIndex}
-        preselectedProjectId={preselectedProjectId}
-        initialName={initialName}
-        initialBranch={initialBranch}
-        onSubmit={async (projectId, name, branch) => {
-          let agentCommand: string | undefined;
-          const prompt = agentPromptRef.current;
-          if (prompt) {
-            const project = projects.find((p) => p.id === projectId);
-            const baseCommand =
-              project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-            const escaped = prompt
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"')
-              .replace(/\$/g, "\\$")
-              .replace(/`/g, "\\`");
-            agentCommand = `${baseCommand} "${escaped}"`;
-          }
-          const result = await createWorktree(
-            projectId,
-            name,
-            branch,
-            agentCommand,
-            pendingLinkedIssueRef.current ?? undefined,
-          );
-          if (result) {
-            // Ensure the project is selected so the new workspace is visible
-            const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
-            if (projIdx >= 0) selectProject(projIdx);
-            setNewWorkspaceOpen(false);
-          }
-          return !!result;
-        }}
-      />
+      <Suspense fallback={null}>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={closePalette}
+          onOpenSettings={handleOpenSettings}
+          onNewWorkspace={handleNewWorkspace}
+          initialView={paletteInitialView}
+          initialIssueId={paletteInitialIssueId}
+          initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
+          onResumeTask={handleResumeTask}
+          onViewAllTasks={() => setTasksOpen(true)}
+          onNewTask={handleNewTask}
+          onNewTaskWithPrompt={handleNewTaskWithPrompt}
+        />
+        <SettingsModal
+          open={settingsOpen}
+          onClose={closeSettings}
+          initialProjectId={settingsProjectId}
+        />
+        <TasksModal
+          open={tasksOpen}
+          onClose={closeTasks}
+          onResumeTask={handleResumeTask}
+        />
+        <NewWorkspaceDialog
+          open={newWorkspaceOpen}
+          onClose={closeNewWorkspace}
+          projects={projects}
+          selectedProjectIndex={selectedProjectIndex}
+          preselectedProjectId={preselectedProjectId}
+          initialName={initialName}
+          initialBranch={initialBranch}
+          onSubmit={async (projectId, name, branch) => {
+            let agentCommand: string | undefined;
+            const prompt = agentPromptRef.current;
+            if (prompt) {
+              const project = projects.find((p) => p.id === projectId);
+              const baseCommand =
+                project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+              const escaped = prompt
+                .replace(/\\/g, "\\\\")
+                .replace(/"/g, '\\"')
+                .replace(/\$/g, "\\$")
+                .replace(/`/g, "\\`");
+              agentCommand = `${baseCommand} "${escaped}"`;
+            }
+            const result = await createWorktree(
+              projectId,
+              name,
+              branch,
+              agentCommand,
+              pendingLinkedIssueRef.current ?? undefined,
+            );
+            if (result) {
+              // Ensure the project is selected so the new workspace is visible
+              const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
+              if (projIdx >= 0) selectProject(projIdx);
+              setNewWorkspaceOpen(false);
+            }
+            return !!result;
+          }}
+        />
+      </Suspense>
       <CloseAgentPaneDialog
         open={pendingCloseConfirmPaneId !== null}
         onOpenChange={(open) => {

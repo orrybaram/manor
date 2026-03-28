@@ -10,8 +10,8 @@ import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
-import type { PrInfo } from "../store/project-store";
-import styles from "./Sidebar.module.css";
+import type { PrInfo } from "../../store/project-store";
+import styles from "./Sidebar/Sidebar.module.css";
 
 type PrPopoverProps = {
   pr: PrInfo;

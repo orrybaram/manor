@@ -7,17 +7,17 @@ import React, {
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import {
   removeWorktreeWithToast,
   quickMergeWorktreeWithToast,
-} from "../store/workspace-actions";
-import { useBranchWatcher } from "../hooks/useBranchWatcher";
-import { useDiffWatcher } from "../hooks/useDiffWatcher";
-import { usePrWatcher } from "../hooks/usePrWatcher";
-import { ProjectItem } from "./ProjectItem";
-import { PortsList } from "./PortsList";
-import { TasksList } from "./TasksList";
+} from "../../../store/workspace-actions";
+import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
+import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
+import { usePrWatcher } from "../../../hooks/usePrWatcher";
+import { ProjectItem } from "../ProjectItem";
+import { PortsList } from "../../PortsList";
+import { TasksList } from "../TasksList";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {

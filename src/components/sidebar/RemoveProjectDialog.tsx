@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import styles from "./Sidebar.module.css";
+import styles from "./Sidebar/Sidebar.module.css";
 
 type RemoveProjectDialogProps = {
   open: boolean;

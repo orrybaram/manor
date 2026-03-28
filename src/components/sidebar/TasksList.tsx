@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks";
 import X from "lucide-react/dist/esm/icons/x";
-import type { AgentStatus, TaskInfo, TaskStatus } from "../electron.d";
-import { useTaskStore } from "../store/task-store";
-import { useAppStore } from "../store/app-store";
-import { AgentDot } from "./ui/AgentDot/AgentDot";
-import { allPaneIds } from "../store/pane-tree";
-import { navigateToTask } from "../utils/task-navigation";
-import styles from "./Sidebar.module.css";
+import type { AgentStatus, TaskInfo, TaskStatus } from "../../electron.d";
+import { useTaskStore } from "../../store/task-store";
+import { useAppStore } from "../../store/app-store";
+import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { allPaneIds } from "../../store/pane-tree";
+import { navigateToTask } from "../../utils/task-navigation";
+import styles from "./Sidebar/Sidebar.module.css";
 
 function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   if (task.status === "active" && task.lastAgentStatus) {

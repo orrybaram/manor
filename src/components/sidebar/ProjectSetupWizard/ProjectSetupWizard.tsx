@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef } from "react";
-import { useMountEffect } from "../hooks/useMountEffect";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import Check from "lucide-react/dist/esm/icons/check";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
-import { useProjectStore, type CustomCommand } from "../store/project-store";
-import { PROJECT_COLORS } from "../project-colors";
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
+import { useProjectStore, type CustomCommand } from "../../../store/project-store";
+import { PROJECT_COLORS } from "../../../project-colors";
+import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
 import styles from "./ProjectSetupWizard.module.css";
 
 function slugify(str: string): string {

@@ -5,15 +5,15 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import { useAppStore } from "../store/app-store";
-import { useProjectStore } from "../store/project-store";
-import { removeWorktreeWithToast } from "../store/workspace-actions";
-import { useMountEffect } from "../hooks/useMountEffect";
-import type { LinearIssue, GitHubIssue } from "../electron.d";
+import { useAppStore } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
+import { removeWorktreeWithToast } from "../../store/workspace-actions";
+import { useMountEffect } from "../../hooks/useMountEffect";
+import type { LinearIssue, GitHubIssue } from "../../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
-import type { PaletteView } from "./CommandPalette/types";
+import type { PaletteView } from "../CommandPalette/types";
 import { GitHubNudge } from "./GitHubNudge";
-import styles from "./EmptyState.module.css";
+import styles from "../EmptyState.module.css";
 
 const INLINE_LIMIT = 5;
 

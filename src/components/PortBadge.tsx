@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { useAppStore } from "../store/app-store";
-import styles from "./Sidebar.module.css";
+import styles from "./sidebar/Sidebar/Sidebar.module.css";
 
 type PortBadgeProps = {
   port: import("../electron.d.ts").ActivePort;

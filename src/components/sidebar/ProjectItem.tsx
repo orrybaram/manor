@@ -13,17 +13,17 @@ import {
   useProjectStore,
   type ProjectInfo,
   type WorkspaceInfo,
-} from "../store/project-store";
-import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
-import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
-import { AgentDot } from "./ui/AgentDot/AgentDot";
-import { NewWorkspaceDialog } from "./NewWorkspaceDialog";
+} from "../../store/project-store";
+import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
+import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
+import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
-import { useWorkspaceDrag } from "../hooks/useWorkspaceDrag";
-import styles from "./Sidebar.module.css";
+import { useWorkspaceDrag } from "../../hooks/useWorkspaceDrag";
+import styles from "./Sidebar/Sidebar.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;

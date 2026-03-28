@@ -1,8 +1,8 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import type { WorkspaceInfo } from "../store/project-store";
-import styles from "./Sidebar.module.css";
+import type { WorkspaceInfo } from "../../store/project-store";
+import styles from "./Sidebar/Sidebar.module.css";
 
 type DeleteWorktreeDialogProps = {
   open: boolean;

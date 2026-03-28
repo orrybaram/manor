@@ -2,8 +2,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import type { WorkspaceInfo } from "../store/project-store";
-import styles from "./Sidebar.module.css";
+import type { WorkspaceInfo } from "../../store/project-store";
+import styles from "./Sidebar/Sidebar.module.css";
 
 type MergeWorktreeDialogProps = {
   open: boolean;

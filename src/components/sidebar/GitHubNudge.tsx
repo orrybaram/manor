@@ -1,14 +1,14 @@
 import { useState, useCallback, useRef } from "react";
-import { useMountEffect } from "../hooks/useMountEffect";
+import { useMountEffect } from "../../hooks/useMountEffect";
 import Github from "lucide-react/dist/esm/icons/github";
 import X from "lucide-react/dist/esm/icons/x";
 import Download from "lucide-react/dist/esm/icons/download";
 import Check from "lucide-react/dist/esm/icons/check";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import type { Terminal } from "@xterm/xterm";
-import { terminalOptions } from "../terminal/config";
-import { useThemeStore, type Theme } from "../store/theme-store";
-import styles from "./EmptyState.module.css";
+import { terminalOptions } from "../../terminal/config";
+import { useThemeStore, type Theme } from "../../store/theme-store";
+import styles from "../EmptyState.module.css";
 
 const STORAGE_KEY = "manor:github-nudge-dismissed";
 

@@ -4,7 +4,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import { useQuery } from "@tanstack/react-query";
-import type { ProjectInfo } from "../store/project-store";
+import type { ProjectInfo } from "../../../store/project-store";
 import styles from "./NewWorkspaceDialog.module.css";
 
 function slugify(str: string): string {

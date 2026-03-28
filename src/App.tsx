@@ -106,8 +106,8 @@ function App() {
   >(null);
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
-  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
-  const [pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
+  const [_agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [_pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
   const agentPromptRef = useRef<string | null>(null);
   const pendingLinkedIssueRef = useRef<import("./store/project-store").LinkedIssue | null>(null);
   const closeNewWorkspace = useCallback(() => {

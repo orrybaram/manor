@@ -5,11 +5,9 @@ import { X } from "lucide-react/dist/esm/icons/x";
 import { Download } from "lucide-react/dist/esm/icons/download";
 import { Check } from "lucide-react/dist/esm/icons/check";
 import { RotateCcw } from "lucide-react/dist/esm/icons/rotate-ccw";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import type { Terminal } from "@xterm/xterm";
 import { terminalOptions } from "../terminal/config";
 import { useThemeStore, type Theme } from "../store/theme-store";
-import "@xterm/xterm/css/xterm.css";
 import styles from "./EmptyState.module.css";
 
 const STORAGE_KEY = "manor:github-nudge-dismissed";
@@ -60,7 +58,7 @@ export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
 
   const termContainerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+  const fitRef = useRef<{ fit(): void; dispose(): void } | null>(null);
   const paneIdRef = useRef<string>("");
   const cleanupRef = useRef<(() => void)[]>([]);
   const phaseRef = useRef<Phase>("idle");
@@ -97,6 +95,12 @@ export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
   const startInstall = useCallback(async () => {
     setPhase("installing");
     phaseRef.current = "installing";
+
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
+      import("@xterm/xterm"),
+      import("@xterm/addon-fit"),
+    ]);
+    await import("@xterm/xterm/css/xterm.css");
 
     const paneId = `gh-install-${Date.now()}`;
     paneIdRef.current = paneId;

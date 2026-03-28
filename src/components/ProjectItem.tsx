@@ -11,6 +11,7 @@ import {
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../store/project-store";
+import { useAppStore } from "../store/app-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
 import { AgentDot } from "./AgentDot";

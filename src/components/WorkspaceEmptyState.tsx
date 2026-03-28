@@ -12,14 +12,14 @@ import styles from "./EmptyState.module.css";
 
 const INLINE_LIMIT = 5;
 
-interface WorkspaceEmptyStateProps {
+type WorkspaceEmptyStateProps = {
   onOpenIssueDetail?: (
     opts:
       | { type: "linear"; issueId: string }
       | { type: "github"; issueNumber: number },
   ) => void;
   onOpenPaletteView?: (view: PaletteView) => void;
-}
+};
 
 /** Shown when the active workspace has no sessions (all tabs closed). */
 export function WorkspaceEmptyState({

@@ -59,11 +59,11 @@ export interface BrowserPaneRef {
   onSuggestionMouseDown: (entry: HistoryEntry) => void;
 }
 
-interface BrowserPaneProps {
+type BrowserPaneProps = {
   paneId: string;
   initialUrl: string;
   onNavStateChange?: (state: BrowserPaneNavState) => void;
-}
+};
 
 function formatPickedElement(result: PickedElementResult): string {
   const sections: string[] = [];

@@ -10,14 +10,14 @@ import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import styles from "./CommandPalette.module.css";
 
-interface IssueDetailViewProps {
+type IssueDetailViewProps = {
   issueId: string;
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
-}
+};
 
 export function IssueDetailView({
   issueId,

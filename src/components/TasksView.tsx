@@ -88,11 +88,11 @@ function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
 
 // ── Components ──
 
-interface TaskRowProps {
+type TaskRowProps = {
   task: TaskInfo;
   onResumeTask: (task: TaskInfo) => void;
   onRemoveTask: (taskId: string) => void;
-}
+};
 
 const TaskRow = memo(function TaskRow({
   task,
@@ -134,11 +134,11 @@ const TaskRow = memo(function TaskRow({
 
 // ── Modal Component ──
 
-interface TasksModalProps {
+type TasksModalProps = {
   open: boolean;
   onClose: () => void;
   onResumeTask: (task: TaskInfo) => void;
-}
+};
 
 export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
   const { tasks, loading, loaded, removeTask } = useTaskStore();

@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, ChevronDown, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../store/project-store";
 import styles from "./NewWorkspaceDialog.module.css";
 
@@ -13,7 +14,7 @@ function slugify(str: string): string {
     .replace(/^-|-$/g, "");
 }
 
-interface NewWorkspaceDialogProps {
+type NewWorkspaceDialogProps = {
   open: boolean;
   onClose: () => void;
   onSubmit: (
@@ -26,7 +27,7 @@ interface NewWorkspaceDialogProps {
   preselectedProjectId?: string | null;
   initialName?: string;
   initialBranch?: string;
-}
+};
 
 export function NewWorkspaceDialog({
   open,
@@ -46,12 +47,9 @@ export function NewWorkspaceDialog({
   const nameRef = useRef<HTMLInputElement>(null);
 
   // Remote branch picker state
-  const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const branchRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -66,28 +64,11 @@ export function NewWorkspaceDialog({
   const activeProjectId = selectedProjectId || defaultProjectId;
 
   // Fetch remote branches when dialog opens or project changes
-  useEffect(() => {
-    if (!open || !activeProjectId) {
-      setRemoteBranches([]); // eslint-disable-line react-hooks/set-state-in-effect -- reset on dependency change
-      return;
-    }
-    let cancelled = false;
-    setLoadingBranches(true);
-    window.electronAPI.projects
-      .listRemoteBranches(activeProjectId)
-      .then((branches) => {
-        if (!cancelled) setRemoteBranches(branches);
-      })
-      .catch(() => {
-        if (!cancelled) setRemoteBranches([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBranches(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, activeProjectId]);
+  const { data: remoteBranches = [], isLoading: loadingBranches } = useQuery({
+    queryKey: ["remote-branches", activeProjectId],
+    queryFn: () => window.electronAPI.projects.listRemoteBranches(activeProjectId),
+    enabled: open && !!activeProjectId,
+  });
 
   const filteredBranches = branch.trim()
     ? remoteBranches.filter((b) =>

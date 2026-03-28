@@ -17,11 +17,11 @@ import { IntegrationsPage } from "./IntegrationsPage";
 import { ProjectSettingsPage } from "./ProjectSettingsPage";
 import styles from "./SettingsModal.module.css";
 
-interface SettingsModalProps {
+type SettingsModalProps = {
   open: boolean;
   onClose: () => void;
   initialProjectId?: string | null;
-}
+};
 
 type SettingsPage =
   | { type: "app" }

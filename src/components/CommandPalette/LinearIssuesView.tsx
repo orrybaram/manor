@@ -4,12 +4,12 @@ import { Command } from "cmdk";
 import { IssueListSkeleton } from "./IssueListSkeleton";
 import styles from "./CommandPalette.module.css";
 
-interface LinearIssuesViewProps {
+type LinearIssuesViewProps = {
   allTeamIds: string[];
   allIssues?: boolean;
   onSelectIssue: (issueId: string) => void;
   onEmptyChange?: (empty: boolean) => void;
-}
+};
 
 export function LinearIssuesView({
   allTeamIds,

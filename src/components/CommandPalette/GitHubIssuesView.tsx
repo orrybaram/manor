@@ -4,12 +4,12 @@ import { Command } from "cmdk";
 import { IssueListSkeleton } from "./IssueListSkeleton";
 import styles from "./CommandPalette.module.css";
 
-interface GitHubIssuesViewProps {
+type GitHubIssuesViewProps = {
   repoPath: string;
   allIssues?: boolean;
   onSelectIssue: (issueNumber: number) => void;
   onEmptyChange?: (empty: boolean) => void;
-}
+};
 
 export function GitHubIssuesView({
   repoPath,

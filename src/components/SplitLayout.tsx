@@ -3,13 +3,13 @@ import type { PaneNode } from "../store/pane-tree";
 import { PaneLayout } from "./PaneLayout";
 import styles from "./PaneLayout.module.css";
 
-interface SplitLayoutProps {
+type SplitLayoutProps = {
   direction: "horizontal" | "vertical";
   ratio: number;
   first: PaneNode;
   second: PaneNode;
   workspacePath?: string;
-}
+};
 
 export function SplitLayout({
   direction,

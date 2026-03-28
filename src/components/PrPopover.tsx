@@ -15,10 +15,10 @@ import {
 import type { PrInfo } from "../store/project-store";
 import styles from "./Sidebar.module.css";
 
-interface PrPopoverProps {
+type PrPopoverProps = {
   pr: PrInfo;
   onOpen: () => void;
-}
+};
 
 const HOVER_DELAY = 300;
 

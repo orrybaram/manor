@@ -9,7 +9,7 @@ import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import styles from "./CommandPalette.module.css";
 
-interface GitHubIssueDetailViewProps {
+type GitHubIssueDetailViewProps = {
   repoPath: string;
   issueNumber: number;
   onBack: () => void;
@@ -17,7 +17,7 @@ interface GitHubIssueDetailViewProps {
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
-}
+};
 
 function slugify(title: string): string {
   return title

@@ -38,9 +38,9 @@ function themeToXterm(t: Theme) {
   };
 }
 
-interface GitHubNudgeProps {
+type GitHubNudgeProps = {
   onInstalled?: () => void;
-}
+};
 
 export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
   const [dismissed, setDismissed] = useState(

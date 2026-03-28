@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, Crosshair, ZoomIn, ZoomOut } from "lucide-react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
@@ -7,6 +7,7 @@ import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./Br
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "./Tooltip";
 import { registerBrowserPane, unregisterBrowserPane } from "../lib/browser-pane-registry";
+import { useMountEffect } from "../hooks/useMountEffect";
 
 import styles from "./PaneLayout.module.css";
 import browserStyles from "./BrowserPane.module.css";
@@ -38,12 +39,13 @@ export function LeafPane({
   const browserRef = useRef<BrowserPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
-  useEffect(() => {
-    const focused = navState?.webviewFocused ?? false;
-    setWebviewFocused(focused ? paneId : null);
-  }, [navState?.webviewFocused, paneId, setWebviewFocused]);
 
-  useEffect(() => {
+  const handleNavStateChange = useCallback((state: BrowserPaneNavState) => {
+    setNavState(state);
+    setWebviewFocused(state.webviewFocused ? paneId : null);
+  }, [paneId, setWebviewFocused]);
+
+  useMountEffect(() => {
     if (contentType !== "browser") return;
     // Register once browserRef is populated (after first render)
     const id = requestAnimationFrame(() => {
@@ -55,7 +57,7 @@ export function LeafPane({
       cancelAnimationFrame(id);
       unregisterBrowserPane(paneId);
     };
-  }, [contentType, paneId]);
+  });
 
   const dragStartX = useRef(0);
   const dragStartY = useRef(0);
@@ -311,7 +313,7 @@ export function LeafPane({
               ref={browserRef}
               paneId={paneId}
               initialUrl={paneUrl ?? "about:blank"}
-              onNavStateChange={setNavState}
+              onNavStateChange={handleNavStateChange}
             />
           </>
         ) : (

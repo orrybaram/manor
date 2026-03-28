@@ -3,11 +3,11 @@ import { SpinnerLoader } from "./SpinnerLoader";
 import { useDebouncedAgentStatus } from "./useDebouncedAgentStatus";
 import styles from "./AgentDot.module.css";
 
-interface AgentDotProps {
+type AgentDotProps = {
   status?: AgentStatus;
   size: "pane" | "tab" | "sidebar" | "debug";
   pulse?: boolean;
-}
+};
 
 export function AgentDot({
   status: rawStatus,

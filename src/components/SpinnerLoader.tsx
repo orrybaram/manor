@@ -1,9 +1,9 @@
 import styles from "./SpinnerLoader.module.css";
 
-interface SpinnerLoaderProps {
+type SpinnerLoaderProps = {
   size: "pane" | "tab" | "sidebar" | "debug";
   variant?: "working" | "thinking";
-}
+};
 
 export function SpinnerLoader({
   size,

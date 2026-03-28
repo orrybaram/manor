@@ -5,10 +5,10 @@ import { useThemeStore } from "../store/theme-store";
 import { useTerminalLifecycle } from "../hooks/useTerminalLifecycle";
 import styles from "./TerminalPane.module.css";
 
-interface TerminalPaneProps {
+type TerminalPaneProps = {
   paneId: string;
   cwd?: string;
-}
+};
 
 export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);

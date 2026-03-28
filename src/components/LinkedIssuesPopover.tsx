@@ -40,7 +40,7 @@ function LinkedIssueIcon({ issues, size }: { issues: LinkedIssue[]; size: number
   return <LinearIcon size={size} />;
 }
 
-interface LinkedIssuesPopoverProps {
+type LinkedIssuesPopoverProps = {
   issues: LinkedIssue[];
   isOpen: boolean;
   onClose: () => void;
@@ -49,7 +49,7 @@ interface LinkedIssuesPopoverProps {
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
   children: React.ReactNode;
-}
+};
 
 function IssueRowSkeleton({ index }: { index: number }) {
   return (

@@ -237,6 +237,23 @@ function createLineParser(
   };
 }
 
+/**
+ * Serialize async handler calls to maintain request/response ordering.
+ * Without this, an async handler (e.g. getSnapshot awaiting flushHeadless)
+ * can yield, letting a later request complete first and sending responses
+ * out of order — which corrupts the client's FIFO response queue.
+ */
+function createSerializedHandler(
+  handler: (line: string) => Promise<void>,
+): (line: string) => void {
+  let queue: Promise<void> = Promise.resolve();
+  return (line: string) => {
+    queue = queue.then(() => handler(line)).catch((err) => {
+      log(`Error handling control message: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+}
+
 // ── Server ──
 
 setup();
@@ -268,15 +285,19 @@ const server = net.createServer((socket) => {
         }
       } else {
         connectionType = "control";
-        lineHandler = (l) => handleControlMessage(socket, l);
+        lineHandler = createSerializedHandler((l) =>
+          handleControlMessage(socket, l),
+        );
         // Process this line as a control message (could be auth)
-        handleControlMessage(socket, line);
+        lineHandler(line);
       }
     } catch {
       // Default to control
       connectionType = "control";
-      lineHandler = (l) => handleControlMessage(socket, l);
-      handleControlMessage(socket, line);
+      lineHandler = createSerializedHandler((l) =>
+        handleControlMessage(socket, l),
+      );
+      lineHandler(line);
     }
   });
 

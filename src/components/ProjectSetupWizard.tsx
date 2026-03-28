@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useMountEffect } from "../hooks/useMountEffect";
 import { Check, Loader2, Trash2, Plus } from "lucide-react";
 import { useProjectStore, type CustomCommand } from "../store/project-store";
 import { PROJECT_COLORS } from "../project-colors";
@@ -24,11 +25,11 @@ interface DiscoveredAgent {
   command: string;
 }
 
-interface ProjectSetupWizardProps {
+type ProjectSetupWizardProps = {
   onClose: () => void;
   /** The project ID — project is already created before wizard opens */
   projectId: string;
-}
+};
 
 const TOTAL_STEPS = 5;
 
@@ -71,7 +72,7 @@ export function ProjectSetupWizard({
 
   // Initialize state from project on mount
   const worktreePathMatchesName = useRef(true);
-  useEffect(() => {
+  useMountEffect(() => {
     if (!project) return;
     setName(project.name ?? "");
     const initialColor = randomColor();
@@ -84,12 +85,10 @@ export function ProjectSetupWizard({
     setWorktreePath(`~/.manor/worktrees/${slug}`);
     worktreePathMatchesName.current = true;
     nameRef.current?.focus();
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
 
   // Discover available agents on mount
-  useEffect(() => {
+  useMountEffect(() => {
     let cancelled = false;
     setAgentsLoading(true);
     window.electronAPI.shell
@@ -109,10 +108,10 @@ export function ProjectSetupWizard({
     return () => {
       cancelled = true;
     };
-  }, []);
+  });
 
   // Check Linear connection on mount
-  useEffect(() => {
+  useMountEffect(() => {
     let cancelled = false;
     setLinearLoading(true);
     window.electronAPI.linear
@@ -138,7 +137,7 @@ export function ProjectSetupWizard({
     return () => {
       cancelled = true;
     };
-  }, []);
+  });
 
   const setColor = useCallback(
     (newColor: string | null) => {
@@ -150,11 +149,11 @@ export function ProjectSetupWizard({
 
   // Debounce name updates to the store for sidebar reactivity
   const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
+  useMountEffect(() => {
     return () => {
       if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
     };
-  }, []);
+  });
   const handleNameChange = useCallback(
     (newName: string) => {
       setName(newName);

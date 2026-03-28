@@ -9,11 +9,9 @@ type AgentDotProps = {
   pulse?: boolean;
 };
 
-export function AgentDot({
-  status: rawStatus,
-  size,
-  pulse = true,
-}: AgentDotProps) {
+export function AgentDot(props: AgentDotProps) {
+  const { status: rawStatus, size, pulse = true } = props;
+
   const status = useDebouncedAgentStatus(rawStatus);
   if (!status || status === "idle") return null;
 

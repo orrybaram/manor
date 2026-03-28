@@ -1,6 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import { useMountEffect } from "../hooks/useMountEffect";
-import { Github, X, Download, Check, RotateCcw } from "lucide-react";
+import { Github } from "lucide-react/dist/esm/icons/github";
+import { X } from "lucide-react/dist/esm/icons/x";
+import { Download } from "lucide-react/dist/esm/icons/download";
+import { Check } from "lucide-react/dist/esm/icons/check";
+import { RotateCcw } from "lucide-react/dist/esm/icons/rotate-ccw";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { terminalOptions } from "../terminal/config";
@@ -44,9 +48,13 @@ type GitHubNudgeProps = {
 };
 
 export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
-  const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(STORAGE_KEY) === "true",
-  );
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [phase, setPhase] = useState<Phase>("idle");
   const theme = useThemeStore((s) => s.theme);
 
@@ -63,7 +71,11 @@ export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
       onInstalled?.();
     }
     setDismissed(true);
-    localStorage.setItem(STORAGE_KEY, "true");
+    try {
+      localStorage.setItem(STORAGE_KEY, "true");
+    } catch {
+      // ignore — dismissal still works in memory
+    }
   }, [onInstalled]);
 
   const cleanup = useCallback(() => {

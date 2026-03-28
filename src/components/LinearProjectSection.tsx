@@ -5,7 +5,13 @@ import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./SettingsModal.module.css";
 
-export function LinearProjectSection({ project }: { project: ProjectInfo }) {
+type LinearProjectSectionProps = {
+  project: ProjectInfo;
+};
+
+export function LinearProjectSection(props: LinearProjectSectionProps) {
+  const { project } = props;
+
   const [connected, setConnected] = useState(false);
   const [teams, setTeams] = useState<
     Array<{ id: string; name: string; key: string }>

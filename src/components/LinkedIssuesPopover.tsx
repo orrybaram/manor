@@ -3,7 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
-import { Unlink } from "lucide-react";
+import { Unlink } from "lucide-react/dist/esm/icons/unlink";
 import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../electron.d";
 import type { CommandPaletteProps } from "./CommandPalette/types";
 import { IssueDetailView } from "./CommandPalette/IssueDetailView";

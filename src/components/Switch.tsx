@@ -4,11 +4,13 @@ import styles from "./Switch.module.css";
 
 type SwitchProps = ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>;
 
-export function Switch({ className, ...props }: SwitchProps) {
+export function Switch(props: SwitchProps) {
+  const { className, ...rest } = props;
+
   return (
     <SwitchPrimitive.Root
       className={`${styles.root}${className ? ` ${className}` : ""}`}
-      {...props}
+      {...rest}
     >
       <SwitchPrimitive.Thumb className={styles.thumb} />
     </SwitchPrimitive.Root>

@@ -54,7 +54,13 @@ function dividerStyle(zone: DropZone): React.CSSProperties {
   }
 }
 
-export function PaneDropZone({ paneId }: { paneId: string }) {
+type PaneDropZoneProps = {
+  paneId: string;
+};
+
+export function PaneDropZone(props: PaneDropZoneProps) {
+  const { paneId } = props;
+
   const overlayRef = useRef<HTMLDivElement>(null);
   const { drag, endDrag } = usePaneDrag();
   const movePaneToTarget = useAppStore((s) => s.movePaneToTarget);

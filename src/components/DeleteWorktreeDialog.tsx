@@ -15,9 +15,13 @@ export function DeleteWorktreeDialog({
   workspace: WorkspaceInfo | null;
   onConfirm: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
 }) {
-  const [deleteBranchChecked, setDeleteBranchChecked] = useState(
-    () => localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true",
-  );
+  const [deleteBranchChecked, setDeleteBranchChecked] = useState(() => {
+    try {
+      return localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -44,10 +48,14 @@ export function DeleteWorktreeDialog({
                   checked={deleteBranchChecked}
                   onChange={(e) => {
                     setDeleteBranchChecked(e.target.checked);
-                    localStorage.setItem(
-                      "manor:deleteBranchOnWorktreeRemove",
-                      String(e.target.checked),
-                    );
+                    try {
+                      localStorage.setItem(
+                        "manor:deleteBranchOnWorktreeRemove",
+                        String(e.target.checked),
+                      );
+                    } catch {
+                      // ignore
+                    }
                   }}
                 />
                 Also delete local branch

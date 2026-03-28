@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../../electron.d";

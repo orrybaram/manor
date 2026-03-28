@@ -7,7 +7,9 @@ interface PaneLayoutProps {
   workspacePath?: string;
 }
 
-export function PaneLayout({ node, workspacePath }: PaneLayoutProps) {
+export function PaneLayout(props: PaneLayoutProps) {
+  const { node, workspacePath } = props;
+
   if (node.type === "leaf") {
     return (
       <LeafPane

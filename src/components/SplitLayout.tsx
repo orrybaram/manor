@@ -11,13 +11,9 @@ type SplitLayoutProps = {
   workspacePath?: string;
 };
 
-export function SplitLayout({
-  direction,
-  ratio,
-  first,
-  second,
-  workspacePath,
-}: SplitLayoutProps) {
+export function SplitLayout(props: SplitLayoutProps) {
+  const { direction, ratio, first, second, workspacePath } = props;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
   const [isDragging, setIsDragging] = useState(false);

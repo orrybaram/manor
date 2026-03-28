@@ -1,17 +1,16 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./Sidebar.module.css";
 
-export function RemoveProjectDialog({
-  open,
-  onOpenChange,
-  projectName,
-  onConfirm,
-}: {
+type RemoveProjectDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
   onConfirm: () => void;
-}) {
+};
+
+export function RemoveProjectDialog(props: RemoveProjectDialogProps) {
+  const { open, onOpenChange, projectName, onConfirm } = props;
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>

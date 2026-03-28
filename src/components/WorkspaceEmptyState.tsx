@@ -1,5 +1,10 @@
 import { useState, useCallback, useMemo } from "react";
-import { Terminal, Search, Trash2, ExternalLink, Plus, Globe } from "lucide-react";
+import { Terminal } from "lucide-react/dist/esm/icons/terminal";
+import { Search } from "lucide-react/dist/esm/icons/search";
+import { Trash2 } from "lucide-react/dist/esm/icons/trash-2";
+import { ExternalLink } from "lucide-react/dist/esm/icons/external-link";
+import { Plus } from "lucide-react/dist/esm/icons/plus";
+import { Globe } from "lucide-react/dist/esm/icons/globe";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";

@@ -4,7 +4,7 @@ import Globe from "lucide-react/dist/esm/icons/globe";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
-import { useSessionTitle } from "../useSessionTitle";
+import { useSessionTitle } from "../../hooks/useSessionTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
 

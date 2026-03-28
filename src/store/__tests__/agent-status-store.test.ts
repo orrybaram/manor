@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import type { AgentState, AgentStatus } from "../../electron.d";
-import { STATUS_PRIORITY } from "../../components/useSessionAgentStatus";
+import { STATUS_PRIORITY } from "../../hooks/useSessionAgentStatus";
 
 // Mock window.electronAPI since it doesn't exist in test
 vi.stubGlobal("window", {

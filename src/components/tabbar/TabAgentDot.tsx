@@ -1,5 +1,5 @@
 import { AgentDot } from "../ui/AgentDot/AgentDot";
-import { useSessionAgentStatus } from "../useSessionAgentStatus";
+import { useSessionAgentStatus } from "../../hooks/useSessionAgentStatus";
 
 type TabAgentDotProps = {
   sessionId: string;

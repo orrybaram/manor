@@ -4,7 +4,7 @@ import { TabBar } from "./components/tabbar/TabBar/TabBar";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PaneLayout } from "./components/workspace-panes/PaneLayout/PaneLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
-import type { PaletteView } from "./components/CommandPalette/types";
+import type { PaletteView } from "./components/command-palette/types";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { ManorLogo } from "./components/ui/ManorLogo";
@@ -12,7 +12,7 @@ import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
-const CommandPalette = lazy(() => import("./components/CommandPalette/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));

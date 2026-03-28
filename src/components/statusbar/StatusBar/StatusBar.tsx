@@ -5,10 +5,10 @@ import { useProjectStore } from "../../../store/project-store";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
-import { LinearIcon } from "../../CommandPalette/LinearIcon";
-import { GitHubIcon } from "../../CommandPalette/GitHubIcon";
+import { LinearIcon } from "../../command-palette/LinearIcon";
+import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue } from "../../../store/project-store";
-import type { CommandPaletteProps } from "../../CommandPalette/types";
+import type { CommandPaletteProps } from "../../command-palette/types";
 import styles from "./StatusBar.module.css";
 
 function isGitHubIssue(issue: LinkedIssue): boolean {

@@ -1,6 +1,6 @@
 import { useAppStore } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
-import { STATUS_PRIORITY } from "../components/useSessionAgentStatus";
+import { STATUS_PRIORITY } from "./useSessionAgentStatus";
 import type { AgentStatus } from "../electron.d";
 
 /**

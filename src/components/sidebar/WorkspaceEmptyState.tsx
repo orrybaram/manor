@@ -11,7 +11,7 @@ import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
-import type { PaletteView } from "../CommandPalette/types";
+import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "./GitHubNudge";
 import styles from "../EmptyState.module.css";
 

@@ -1,10 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import EthernetPort from "lucide-react/dist/esm/icons/ethernet-port";
-import { usePortsData } from "../hooks/usePortsData";
-import { useProjectStore, MIN_PORTS_HEIGHT } from "../store/project-store";
+import { usePortsData } from "./usePortsData";
+import { useProjectStore, MIN_PORTS_HEIGHT } from "../../store/project-store";
 import { PortGroup } from "./PortGroup";
-import styles from "./sidebar/Sidebar/Sidebar.module.css";
+import styles from "../sidebar/Sidebar/Sidebar.module.css";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();

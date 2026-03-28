@@ -16,7 +16,7 @@ import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { ProjectItem } from "../ProjectItem";
-import { PortsList } from "../../PortsList";
+import { PortsList } from "../../ports/PortsList";
 import { TasksList } from "../TasksList";
 import styles from "./Sidebar.module.css";
 

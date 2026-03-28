@@ -9,7 +9,7 @@ import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
 import { useTaskCommands } from "./useTaskCommands";
 import { useCustomCommands } from "./useCustomCommands";
-import { usePortsData } from "../../hooks/usePortsData";
+import { usePortsData } from "../ports/usePortsData";
 import { LinearIcon } from "./LinearIcon";
 import { GitHubIcon } from "./GitHubIcon";
 import { LinearIssuesView } from "./LinearIssuesView";

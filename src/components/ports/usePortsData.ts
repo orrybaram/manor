@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import type { ActivePort } from "../electron.d.ts";
-import { useProjectStore } from "../store/project-store";
-import { useMountEffect } from "./useMountEffect";
+import type { ActivePort } from "../../electron.d.ts";
+import { useProjectStore } from "../../store/project-store";
+import { useMountEffect } from "../../hooks/useMountEffect";
 
 export interface WorkspacePortGroup {
   workspacePath: string;

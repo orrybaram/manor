@@ -304,6 +304,7 @@
   padding: 2px;
   border-radius: 4px;
   background: var(--surface);
+  cursor: pointer;
 }
 
 .diffAdded {

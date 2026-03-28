@@ -132,7 +132,14 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName}>{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  <span className={styles.diffStats}>
+                  <span
+                    className={styles.diffStats}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectWorkspace(idx);
+                      useAppStore.getState().addDiffSession(ws.path);
+                    }}
+                  >
                     {ws.diffStats.added > 0 && (
                       <span className={styles.diffAdded}>
                         +{ws.diffStats.added}

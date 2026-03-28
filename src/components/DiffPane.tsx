@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { html as diff2html } from "diff2html";
 import "diff2html/bundles/css/diff2html.min.css";
 import { useAppStore } from "../store/app-store";
@@ -9,59 +9,53 @@ interface DiffPaneProps {
   paneId: string;
 }
 
-export function DiffPane({ paneId }: DiffPaneProps) {
-  const paneDiffPath = useAppStore((s) => s.paneDiffPath);
-  const workspacePath = paneDiffPath[paneId] ?? null;
+type DiffState =
+  | { status: "loading" }
+  | { status: "empty" }
+  | { status: "loaded"; html: string };
 
+function diffReducer(_state: DiffState, action: DiffState): DiffState {
+  return action;
+}
+
+export function DiffPane({ paneId }: DiffPaneProps) {
+  const workspacePath = useAppStore((s) => s.paneDiffPath[paneId] ?? null);
   const projects = useProjectStore((s) => s.projects);
 
-  // Find the project containing this workspace path
   const project = projects.find((p) =>
     p.workspaces.some((ws) => ws.path === workspacePath),
   );
-  const workspace = project?.workspaces.find(
-    (ws) => ws.path === workspacePath,
-  ) ?? null;
+  const workspace =
+    project?.workspaces.find((ws) => ws.path === workspacePath) ?? null;
 
   const defaultBranch = project?.defaultBranch ?? "main";
   const branchName = workspace?.branch ?? "";
 
-  const [diffHtml, setDiffHtml] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [isEmpty, setIsEmpty] = useState(false);
+  const [state, dispatch] = useReducer(diffReducer, { status: "loading" });
 
   useEffect(() => {
     if (!workspacePath) return;
 
     let cancelled = false;
-    setLoading(true);
-    setDiffHtml(null);
-    setIsEmpty(false);
 
     window.electronAPI.diffs
       .getFullDiff(workspacePath, defaultBranch)
       .then((rawDiff) => {
         if (cancelled) return;
         if (!rawDiff || rawDiff.trim() === "") {
-          setIsEmpty(true);
-          setDiffHtml(null);
+          dispatch({ status: "empty" });
         } else {
           const rendered = diff2html(rawDiff, {
             drawFileList: false,
             matching: "lines",
             outputFormat: "line-by-line",
           });
-          setDiffHtml(rendered);
-          setIsEmpty(false);
+          dispatch({ status: "loaded", html: rendered });
         }
       })
       .catch(() => {
         if (cancelled) return;
-        setIsEmpty(true);
-        setDiffHtml(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        dispatch({ status: "empty" });
       });
 
     return () => {
@@ -75,17 +69,16 @@ export function DiffPane({ paneId }: DiffPaneProps) {
         Diff: <strong>{branchName || "HEAD"}</strong> vs{" "}
         <strong>{defaultBranch}</strong>
       </div>
-      {loading && (
+      {state.status === "loading" && (
         <div className={styles.loading}>Loading diff…</div>
       )}
-      {!loading && isEmpty && (
+      {state.status === "empty" && (
         <div className={styles.empty}>No changes</div>
       )}
-      {!loading && diffHtml && (
+      {state.status === "loaded" && (
         <div
           className={styles.diffContent}
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: diffHtml }}
+          dangerouslySetInnerHTML={{ __html: state.html }}
         />
       )}
     </div>

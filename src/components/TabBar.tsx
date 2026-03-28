@@ -24,7 +24,7 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
   const selectSession = useAppStore((s) => s.selectSession);
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
-  const closeSession = useAppStore((s) => s.closeSession);
+  const requestCloseSession = useAppStore((s) => s.requestCloseSession);
   const reorderSessions = useAppStore((s) => s.reorderSessions);
   const togglePinSession = useAppStore((s) => s.togglePinSession);
   const pinnedSessionIds = useMemo(
@@ -246,7 +246,7 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
               onSelect={() => {
                 if (!justDragged.current) selectSession(session.id);
               }}
-              onClose={() => closeSession(session.id)}
+              onClose={() => requestCloseSession(session.id)}
               onTogglePin={() => togglePinSession(session.id)}
               onPointerDown={
                 isPinned ? undefined : (e) => handleDragStart(idx, e)

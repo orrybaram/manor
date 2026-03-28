@@ -232,6 +232,9 @@ function App() {
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
+  const requestCloseSession = useAppStore((s) => s.requestCloseSession);
+  const pendingCloseConfirmSessionId = useAppStore((s) => s.pendingCloseConfirmSessionId);
+  const setPendingCloseConfirmSessionId = useAppStore((s) => s.setPendingCloseConfirmSessionId);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
@@ -293,7 +296,7 @@ function App() {
     "close-pane": () => requestClosePane(),
     "close-session": () => {
       const session = activeSessionRef.current;
-      if (session) closeSession(session.id);
+      if (session) requestCloseSession(session.id);
     },
     "next-session": () => selectNextSession(),
     "prev-session": () => selectPrevSession(),
@@ -589,6 +592,18 @@ function App() {
           if (pendingCloseConfirmPaneId !== null) {
             closePaneById(pendingCloseConfirmPaneId);
             setPendingCloseConfirmPaneId(null);
+          }
+        }}
+      />
+      <CloseAgentPaneDialog
+        open={pendingCloseConfirmSessionId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseConfirmSessionId(null);
+        }}
+        onConfirm={() => {
+          if (pendingCloseConfirmSessionId !== null) {
+            closeSession(pendingCloseConfirmSessionId);
+            setPendingCloseConfirmSessionId(null);
           }
         }}
       />

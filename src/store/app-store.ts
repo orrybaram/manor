@@ -97,6 +97,8 @@ export interface AppState {
   pendingStartupCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
+  /** Session ID awaiting close confirmation (when agent is active in a pane) */
+  pendingCloseConfirmSessionId: string | null;
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
 
@@ -107,6 +109,8 @@ export interface AppState {
   addSession: () => void;
   addBrowserSession: (url: string) => void;
   closeSession: (sessionId: string) => void;
+  requestCloseSession: (sessionId: string) => void;
+  setPendingCloseConfirmSessionId: (sessionId: string | null) => void;
   selectSession: (sessionId: string) => void;
   selectNextSession: () => void;
   selectPrevSession: () => void;
@@ -197,6 +201,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
   pendingCloseConfirmPaneId: null,
+  pendingCloseConfirmSessionId: null,
 
   loadPersistedLayout: async () => {
     try {
@@ -938,6 +943,31 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPendingCloseConfirmPaneId: (paneId: string | null) =>
     set({ pendingCloseConfirmPaneId: paneId }),
+
+  setPendingCloseConfirmSessionId: (sessionId: string | null) =>
+    set({ pendingCloseConfirmSessionId: sessionId }),
+
+  requestCloseSession: (sessionId: string) => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const ws = state.workspaceSessions[path];
+    if (!ws) return;
+    const session = ws.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const activeStatuses = ["thinking", "working", "requires_input"];
+    const hasActiveAgent = allPaneIds(session.rootNode).some((pid) => {
+      const agentState = state.paneAgentStatus[pid];
+      return agentState && activeStatuses.includes(agentState.status);
+    });
+
+    if (hasActiveAgent) {
+      set({ pendingCloseConfirmSessionId: sessionId });
+    } else {
+      get().closeSession(sessionId);
+    }
+  },
 
   requestClosePane: () => {
     const state = get();

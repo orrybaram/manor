@@ -1,4 +1,4 @@
-import type { BrowserPaneRef } from "../components/BrowserPane";
+import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 
 const registry = new Map<string, BrowserPaneRef>();
 

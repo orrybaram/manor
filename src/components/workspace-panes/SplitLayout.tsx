@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import type { PaneNode } from "../store/pane-tree";
-import { PaneLayout } from "./PaneLayout";
-import styles from "./PaneLayout.module.css";
+import type { PaneNode } from "../../store/pane-tree";
+import { PaneLayout } from "./PaneLayout/PaneLayout";
+import styles from "./PaneLayout/PaneLayout.module.css";
 
 type SplitLayoutProps = {
   direction: "horizontal" | "vertical";

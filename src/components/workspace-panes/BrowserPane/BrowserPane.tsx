@@ -1,9 +1,9 @@
 import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
-import { useMountEffect } from "../hooks/useMountEffect";
-import { useAppStore } from "../store/app-store";
-import { useToastStore } from "../store/toast-store";
-import { useBrowserHistoryStore, type HistoryEntry } from "../store/browser-history-store";
-import type { PickedElementResult } from "../electron.d";
+import { useMountEffect } from "../../../hooks/useMountEffect";
+import { useAppStore } from "../../../store/app-store";
+import { useToastStore } from "../../../store/toast-store";
+import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
+import type { PickedElementResult } from "../../../electron.d";
 
 import styles from "./BrowserPane.module.css";
 

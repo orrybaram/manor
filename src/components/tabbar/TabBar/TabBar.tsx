@@ -12,7 +12,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
-import { usePaneDrag } from "../../../contexts/PaneDragContext";
+import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { SessionButton } from "../SessionButton";
 import styles from "./TabBar.module.css";
 

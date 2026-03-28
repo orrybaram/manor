@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import "@xterm/xterm/css/xterm.css";
-import { useThemeStore } from "../store/theme-store";
-import { useTerminalLifecycle } from "../hooks/useTerminalLifecycle";
+import { useThemeStore } from "../../../store/theme-store";
+import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {

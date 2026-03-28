@@ -1,6 +1,6 @@
-import type { PaneNode } from "../store/pane-tree";
-import { LeafPane } from "./LeafPane";
-import { SplitLayout } from "./SplitLayout";
+import type { PaneNode } from "../../../store/pane-tree";
+import { LeafPane } from "../LeafPane";
+import { SplitLayout } from "../SplitLayout";
 
 interface PaneLayoutProps {
   node: PaneNode;

@@ -1,8 +1,8 @@
 import { useRef, useState, useCallback } from "react";
-import { usePaneDrag } from "../contexts/PaneDragContext";
-import { useAppStore } from "../store/app-store";
-import type { SplitDirection } from "../store/pane-tree";
-import styles from "./PaneLayout.module.css";
+import { usePaneDrag } from "./PaneDragContext";
+import { useAppStore } from "../../store/app-store";
+import type { SplitDirection } from "../../store/pane-tree";
+import styles from "./PaneLayout/PaneLayout.module.css";
 
 type DropZone = {
   direction: SplitDirection;

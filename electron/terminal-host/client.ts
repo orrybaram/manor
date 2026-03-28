@@ -24,6 +24,7 @@ import type {
 const MANOR_DIR = path.join(os.homedir(), ".manor");
 
 type StreamEventHandler = (event: StreamEvent) => void;
+type DisconnectHandler = () => void;
 
 export class TerminalHostClient {
   private controlSocket: net.Socket | null = null;
@@ -38,6 +39,7 @@ export class TerminalHostClient {
   private controlBuffer = "";
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
+  private disconnectHandler: DisconnectHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
 
@@ -64,6 +66,11 @@ export class TerminalHostClient {
   /** Set a handler for stream events (data, exit, cwd, error) */
   onEvent(handler: StreamEventHandler): void {
     this.eventHandler = handler;
+  }
+
+  /** Set a handler called when the daemon connection is lost unexpectedly */
+  onDisconnect(handler: DisconnectHandler): void {
+    this.disconnectHandler = handler;
   }
 
   /** Connect to the daemon, spawning it if necessary */
@@ -490,6 +497,7 @@ export class TerminalHostClient {
   private handleDisconnect(): void {
     if (!this.connected) return;
     this.cleanup();
+    this.disconnectHandler?.();
   }
 
   /** Shared teardown for both intentional disconnect and unexpected connection loss */

@@ -436,6 +436,10 @@ export interface ElectronAPI {
     writeText: (text: string) => Promise<void>;
   };
 
+  workspace: {
+    setActive: (workspacePath: string) => Promise<void>;
+  };
+
   webview: {
     register: (paneId: string, webContentsId: number) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;

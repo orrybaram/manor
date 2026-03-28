@@ -1345,6 +1345,13 @@ app.whenReady().then(async () => {
     console.error("[prewarm] Initial warm failed:", err);
   });
 
+  // When the daemon disconnects unexpectedly, reset the prewarm state.
+  // The next warm() call inside reset() will auto-reconnect via ensureConnected().
+  client.onDisconnect(() => {
+    console.log("[prewarm] Daemon disconnected — resetting prewarm state");
+    prewarmManager?.reset();
+  });
+
   // Set the relay callback now that the client is connected.
   // Hook events route through the daemon's AgentDetector state machine.
 

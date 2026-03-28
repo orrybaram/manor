@@ -271,7 +271,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setActiveWorkspace: (path: string) =>
+  setActiveWorkspace: (path: string) => {
+    // Notify main process so PrewarmManager can update its CWD
+    window.electronAPI.workspace.setActive(path).catch((err: unknown) => {
+      console.error("[prewarm] workspace:setActive failed:", err);
+    });
     set((state) => {
       // Already initialized for this workspace
       if (state.workspaceSessions[path]) {
@@ -302,7 +306,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           [path]: createEmptyWorkspaceState(),
         },
       };
-    }),
+    });
+  },
 
   addSession: () =>
     set((state) => {

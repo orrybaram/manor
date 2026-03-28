@@ -115,6 +115,20 @@ export class PrewarmManager {
     await this.warm(cwd);
   }
 
+  /**
+   * Reset state after a daemon disconnect/reconnect.
+   * The old prewarmed session is gone (daemon may have restarted), so we drop
+   * the stale reference and start a fresh warm cycle.
+   */
+  reset(): void {
+    this.prewarmSessionId = null;
+    this.state = "idle";
+    // Re-warm in the background now that the daemon is reconnected
+    this.warm(this.currentCwd).catch((err) => {
+      console.error("[prewarm] Re-warm after reconnect failed:", err);
+    });
+  }
+
   /** Kill the prewarmed session (workspace changed, app quitting) */
   async dispose(): Promise<void> {
     const sessionId = this.prewarmSessionId;

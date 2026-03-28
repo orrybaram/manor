@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./contexts/PaneDragContext";
 import { TabBar } from "./components/TabBar";
-import { StatusBar } from "./components/StatusBar";
+import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PaneLayout } from "./components/PaneLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/CommandPalette/types";

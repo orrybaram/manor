@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { ManorLogo } from "./ui/ManorLogo";
+import { ManorLogo } from "../../ui/ManorLogo";
 import styles from "./AboutModal.module.css";
 
 const INSPIRATIONS = [

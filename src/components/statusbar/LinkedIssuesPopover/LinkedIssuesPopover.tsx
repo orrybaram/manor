@@ -4,14 +4,14 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
-import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../electron.d";
-import type { CommandPaletteProps } from "./CommandPalette/types";
-import { IssueDetailView } from "./CommandPalette/IssueDetailView";
-import { GitHubIssueDetailView } from "./CommandPalette/GitHubIssueDetailView";
-import { LinearIcon } from "./CommandPalette/LinearIcon";
-import { GitHubIcon } from "./CommandPalette/GitHubIcon";
-import { useProjectStore } from "../store/project-store";
-import { useToastStore } from "../store/toast-store";
+import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../../../electron.d";
+import type { CommandPaletteProps } from "../../CommandPalette/types";
+import { IssueDetailView } from "../../CommandPalette/IssueDetailView";
+import { GitHubIssueDetailView } from "../../CommandPalette/GitHubIssueDetailView";
+import { LinearIcon } from "../../CommandPalette/LinearIcon";
+import { GitHubIcon } from "../../CommandPalette/GitHubIcon";
+import { useProjectStore } from "../../../store/project-store";
+import { useToastStore } from "../../../store/toast-store";
 import styles from "./LinkedIssuesPopover.module.css";
 
 type IssueDetail =

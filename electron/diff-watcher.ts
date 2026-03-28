@@ -69,6 +69,35 @@ export class DiffWatcher {
     return result;
   }
 
+  async getFullDiff(wsPath: string, defaultBranch: string): Promise<string> {
+    // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
+    const refs = [`origin/${defaultBranch}`, defaultBranch];
+    for (const ref of refs) {
+      try {
+        const { stdout: mergeBaseOut } = await execFileAsync(
+          "git",
+          ["merge-base", ref, "HEAD"],
+          { cwd: wsPath, timeout: 5000 },
+        );
+        const mergeBase = mergeBaseOut.trim();
+
+        const { stdout: diffOut } = await execFileAsync(
+          "git",
+          ["diff", mergeBase],
+          { cwd: wsPath, timeout: 10000 },
+        );
+        return diffOut;
+      } catch (err) {
+        console.error(
+          `[DiffWatcher] getFullDiff failed for ${wsPath} with ref ${ref}:`,
+          err instanceof Error ? err.message : err,
+        );
+        continue;
+      }
+    }
+    return "";
+  }
+
   private async getDiffStats(
     wsPath: string,
     defaultBranch: string,

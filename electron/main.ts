@@ -679,6 +679,10 @@ ipcMain.handle("diffs:stop", () => {
   diffWatcher.stop();
 });
 
+ipcMain.handle("diffs:getFullDiff", (_event, wsPath: string, defaultBranch: string) =>
+  diffWatcher.getFullDiff(wsPath, defaultBranch),
+);
+
 // ── GitHub IPC ──
 ipcMain.handle(
   "github:getPrForBranch",

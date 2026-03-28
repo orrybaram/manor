@@ -147,6 +147,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
         diffs: Record<string, { added: number; removed: number }>,
       ) => void,
     ) => onChannel("diffs-changed", callback),
+    getFullDiff: (wsPath: string, defaultBranch: string) =>
+      ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
   },
 
   github: {

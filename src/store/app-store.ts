@@ -3,6 +3,7 @@ import {
   type PaneNode,
   type SplitDirection,
   allPaneIds,
+  hasPaneId,
   insertSplit,
   insertSplitAt,
   movePane,
@@ -568,7 +569,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ws = state.workspaceSessions[path];
       if (!ws) return state;
       const session = ws.sessions.find((s) =>
-        allPaneIds(s.rootNode).includes(targetPaneId),
+        hasPaneId(s.rootNode, targetPaneId),
       );
       if (!session) return state;
       const newPane = newPaneId();
@@ -607,10 +608,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!ws) return state;
 
       const sourceSession = ws.sessions.find((s) =>
-        allPaneIds(s.rootNode).includes(sourcePaneId),
+        hasPaneId(s.rootNode, sourcePaneId),
       );
       const targetSession = ws.sessions.find((s) =>
-        allPaneIds(s.rootNode).includes(targetPaneId),
+        hasPaneId(s.rootNode, targetPaneId),
       );
       if (!sourceSession || !targetSession) return state;
 
@@ -723,7 +724,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const sourceSession = ws.sessions.find((s) => s.id === sessionId);
       const targetSession = ws.sessions.find((s) =>
-        allPaneIds(s.rootNode).includes(targetPaneId),
+        hasPaneId(s.rootNode, targetPaneId),
       );
       if (
         !sourceSession ||
@@ -812,7 +813,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!ws) return state;
 
       const sourceSession = ws.sessions.find((s) =>
-        allPaneIds(s.rootNode).includes(paneId),
+        hasPaneId(s.rootNode, paneId),
       );
       if (!sourceSession) return state;
 
@@ -885,7 +886,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!ws) return;
 
     const session = ws.sessions.find((s) =>
-      allPaneIds(s.rootNode).includes(paneId),
+      hasPaneId(s.rootNode, paneId),
     );
     if (!session) return;
 

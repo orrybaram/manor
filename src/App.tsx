@@ -28,7 +28,7 @@ import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
-import { allPaneIds } from "./store/pane-tree";
+import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
 import "./App.css";
 
@@ -384,7 +384,7 @@ function App() {
           useAppStore.getState().workspaceSessions[task.workspacePath];
         if (wsSessions) {
           const paneExists = wsSessions.sessions.some((session) =>
-            allPaneIds(session.rootNode).includes(task.paneId!),
+            hasPaneId(session.rootNode, task.paneId!),
           );
           if (paneExists) {
             navigateToTask(task);

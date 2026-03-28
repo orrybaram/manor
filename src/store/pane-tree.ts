@@ -23,6 +23,12 @@ export function allPaneIds(node: PaneNode): string[] {
   return [...allPaneIds(node.first), ...allPaneIds(node.second)];
 }
 
+/** Check if a pane ID exists in the tree (short-circuits on match). */
+export function hasPaneId(node: PaneNode, paneId: string): boolean {
+  if (node.type === "leaf") return node.paneId === paneId;
+  return hasPaneId(node.first, paneId) || hasPaneId(node.second, paneId);
+}
+
 /** Insert a split at the given paneId, pushing the existing pane into `first`. */
 export function insertSplit(
   node: PaneNode,

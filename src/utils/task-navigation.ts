@@ -2,7 +2,7 @@ import type { TaskInfo } from "../electron.d";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { useTaskStore } from "../store/task-store";
-import { allPaneIds } from "../store/pane-tree";
+import { hasPaneId } from "../store/pane-tree";
 
 export function navigateToTask(task: TaskInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
@@ -26,7 +26,7 @@ export function navigateToTask(task: TaskInfo) {
     const wsSessions = workspaceSessions[task.workspacePath];
     if (wsSessions) {
       for (const session of wsSessions.sessions) {
-        if (allPaneIds(session.rootNode).includes(task.paneId)) {
+        if (hasPaneId(session.rootNode, task.paneId)) {
           sessionId = session.id;
           break;
         }

@@ -3,7 +3,7 @@ import { TaskInfo } from "../electron.d";
 import { useToastStore } from "./toast-store";
 import { useAppStore } from "./app-store";
 import { navigateToTask } from "../utils/task-navigation";
-import { allPaneIds } from "./pane-tree";
+import { hasPaneId } from "./pane-tree";
 
 interface TaskState {
   tasks: TaskInfo[];
@@ -130,7 +130,7 @@ export const useTaskStore = create<TaskState>((set, get) => {
             );
             if (
               activeSession &&
-              allPaneIds(activeSession.rootNode).includes(task.paneId)
+              hasPaneId(activeSession.rootNode, task.paneId)
             ) {
               isAlreadyVisible = true;
             }

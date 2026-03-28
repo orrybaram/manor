@@ -11,7 +11,6 @@ import {
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../store/project-store";
-import { useAppStore } from "../store/app-store";
 import { useProjectAgentStatus } from "../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../hooks/useWorkspaceAgentStatus";
 import { AgentDot } from "./AgentDot";
@@ -133,14 +132,7 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName}>{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  <span
-                    className={styles.diffStats}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectWorkspace(idx);
-                      useAppStore.getState().addDiffSession(ws.path);
-                    }}
-                  >
+                  <span className={styles.diffStats}>
                     {ws.diffStats.added > 0 && (
                       <span className={styles.diffAdded}>
                         +{ws.diffStats.added}

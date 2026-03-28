@@ -6,7 +6,7 @@ export type PaneNode =
   | {
       type: "leaf";
       paneId: string;
-      contentType?: "terminal" | "browser" | "diff";
+      contentType?: "terminal" | "browser";
       url?: string;
     }
   | {

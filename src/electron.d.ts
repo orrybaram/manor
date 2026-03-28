@@ -24,8 +24,6 @@ export interface TaskInfo {
   agentKind: "claude" | "opencode" | "codex";
   paneId: string | null;
   lastAgentStatus: string | null;
-  external: boolean;
-  sourceApp: string | null;
 }
 
 export interface LinearTeam {
@@ -283,7 +281,6 @@ export interface ElectronAPI {
         diffs: Record<string, { added: number; removed: number }>,
       ) => void,
     ) => () => void;
-    getFullDiff: (wsPath: string, defaultBranch: string) => Promise<string>;
   };
 
   github: {

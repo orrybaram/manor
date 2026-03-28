@@ -26,8 +26,6 @@ export interface TaskInfo {
   agentKind: "claude" | "opencode" | "codex";
   paneId: string | null;
   lastAgentStatus: string | null;
-  external: boolean;
-  sourceApp: string | null;
 }
 
 interface PersistedState {
@@ -82,17 +80,11 @@ export class TaskManager {
   }
 
   createTask(
-    data: Omit<
-      TaskInfo,
-      "id" | "createdAt" | "updatedAt" | "activatedAt" | "external" | "sourceApp"
-    > &
-      Partial<Pick<TaskInfo, "external" | "sourceApp">>,
+    data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">,
   ): TaskInfo {
     const now = new Date().toISOString();
     const task: TaskInfo = {
       ...data,
-      external: data.external ?? false,
-      sourceApp: data.sourceApp ?? null,
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,

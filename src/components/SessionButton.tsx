@@ -1,6 +1,6 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Globe, X, GitCompareArrows } from "lucide-react";
+import { Globe, X } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useSessionTitle } from "./useSessionTitle";
@@ -43,11 +43,11 @@ export function SessionButton({
   buttonRef: (el: HTMLDivElement | null) => void;
 }) {
   const title = useSessionTitle(sessionId);
-  const contentType = useAppStore((s) => {
+  const isBrowser = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     const session = ws?.sessions.find((t) => t.id === sessionId);
     const paneId = session?.focusedPaneId;
-    return paneId ? (s.paneContentType[paneId] ?? null) : null;
+    return paneId ? s.paneContentType[paneId] === "browser" : false;
   });
   return (
     <ContextMenu.Root>
@@ -60,8 +60,7 @@ export function SessionButton({
           style={style}
         >
           <TabAgentDot sessionId={sessionId} />
-          {contentType === "diff" && <GitCompareArrows size={12} className={styles.sessionIcon} />}
-          {contentType === "browser" && <Globe size={12} className={styles.sessionIcon} />}
+          {isBrowser && <Globe size={12} className={styles.sessionIcon} />}
           <span className={styles.sessionTitle}>
             {isPinned ? shortenTitle(title) : title}
           </span>

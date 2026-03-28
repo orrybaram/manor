@@ -4,7 +4,6 @@ import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane";
-import { DiffPane } from "./DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "./Tooltip";
 import { registerBrowserPane, unregisterBrowserPane } from "../lib/browser-pane-registry";
@@ -306,9 +305,7 @@ export function LeafPane({
         </div>
       )}
       <div className={`${styles.leafTerminal} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
-        {contentType === "diff" ? (
-          <DiffPane paneId={paneId} />
-        ) : contentType === "browser" ? (
+        {contentType === "browser" ? (
           <>
             <BrowserPane
               ref={browserRef}

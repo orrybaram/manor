@@ -20,10 +20,6 @@ export function useSessionTitle(sessionId: string): string {
     focusedPaneId ? (s.paneUrl[focusedPaneId] ?? null) : null,
   );
 
-  if (contentType === "diff") {
-    return "Diff";
-  }
-
   // For browser panes, use the URL
   if (contentType === "browser" && paneUrl) {
     // Strip protocol prefix (e.g., "https://", "http://")

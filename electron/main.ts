@@ -46,7 +46,6 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 import { portlessManager } from "./portless";
 import { PrewarmManager } from "./prewarm-manager";
-import { ExternalSessionManager } from "./external-sessions";
 
 interface WorkspaceMeta {
   path: string;
@@ -254,8 +253,6 @@ const unseenInputTasks = new Set<string>();
 
 // PrewarmManager is initialized after daemon connects (see app.whenReady)
 let prewarmManager: PrewarmManager | null = null;
-// ExternalSessionManager is initialized after broadcastTask is defined (see app.whenReady)
-let externalSessionManager: ExternalSessionManager | null = null;
 
 function updateDockBadge(): void {
   if (!preferencesManager.get("dockBadgeEnabled")) {
@@ -681,10 +678,6 @@ ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
 ipcMain.handle("diffs:stop", () => {
   diffWatcher.stop();
 });
-
-ipcMain.handle("diffs:getFullDiff", (_event, wsPath: string, defaultBranch: string) =>
-  diffWatcher.getFullDiff(wsPath, defaultBranch),
-);
 
 // ── GitHub IPC ──
 ipcMain.handle(
@@ -1408,38 +1401,7 @@ app.whenReady().then(async () => {
     updateDockBadge();
   });
 
-  externalSessionManager = new ExternalSessionManager(
-    taskManager,
-    () => {
-      // Return PIDs of Manor's own daemon and PTY sessions
-      const pids = new Set<number>();
-      try {
-        const pidPath = path.join(
-          os.homedir(),
-          ".manor",
-          "daemons",
-          app.getVersion(),
-          "terminal-host.pid",
-        );
-        const pidStr = fs.readFileSync(pidPath, "utf-8").trim();
-        const pid = Number(pidStr);
-        if (pid > 0) pids.add(pid);
-      } catch { /* ignore */ }
-      return pids;
-    },
-    broadcastTask,
-  );
-
   agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
-    // Route external session events to ExternalSessionManager
-    if (paneId.startsWith("external:")) {
-      const pid = Number(paneId.slice("external:".length));
-      if (pid > 0) {
-        externalSessionManager?.handleHookEvent(pid, status, kind, sessionId, eventType);
-      }
-      return;
-    }
-
     client.relayAgentHook(paneId, status, kind);
 
     // Task persistence: create or update task for this session
@@ -1588,8 +1550,6 @@ app.whenReady().then(async () => {
     }
   });
 
-  externalSessionManager?.startPolling();
-
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -1603,7 +1563,6 @@ app.on("before-quit", () => {
   agentHookServer.stop();
   webviewServer.stop();
   portlessManager.stop();
-  externalSessionManager?.dispose();
   prewarmManager?.dispose().catch((err) => {
     console.error("[prewarm] dispose failed:", err);
   });

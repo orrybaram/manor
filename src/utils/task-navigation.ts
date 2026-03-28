@@ -5,13 +5,6 @@ import { useTaskStore } from "../store/task-store";
 import { allPaneIds } from "../store/pane-tree";
 
 export function navigateToTask(task: TaskInfo) {
-  // External tasks have no pane — just mark as seen
-  if (task.external) {
-    window.electronAPI?.tasks.markSeen(task.id);
-    useTaskStore.getState().markTaskSeen(task.id);
-    return;
-  }
-
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
   const { workspaceSessions } = useAppStore.getState();

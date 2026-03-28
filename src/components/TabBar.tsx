@@ -261,7 +261,7 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
         })}
         <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
           <Tooltip label={addMenuOpen ? "" : "New Tab"}>
-            <Popover.Trigger asChild>
+            <Popover.Anchor asChild>
               <button
                 className={styles.addButton}
                 onClick={addSession}
@@ -272,7 +272,7 @@ export function TabBar({ onNewTask }: { onNewTask: () => void }) {
               >
                 <Plus size={14} />
               </button>
-            </Popover.Trigger>
+            </Popover.Anchor>
           </Tooltip>
           <Popover.Portal>
             <Popover.Content

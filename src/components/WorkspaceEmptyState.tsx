@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { Terminal, Search, Trash2, ExternalLink, Plus } from "lucide-react";
+import { Terminal, Search, Trash2, ExternalLink, Plus, Globe } from "lucide-react";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
@@ -27,6 +27,7 @@ export function WorkspaceEmptyState({
   onOpenPaletteView,
 }: WorkspaceEmptyStateProps) {
   const addSession = useAppStore((s) => s.addSession);
+  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
 
@@ -155,6 +156,12 @@ export function WorkspaceEmptyState({
       action: addSession,
     },
     {
+      icon: <Globe size={16} />,
+      label: "New Browser Window",
+      keys: ["⌘", "⇧", "B"],
+      action: () => addBrowserSession("about:blank"),
+    },
+    {
       icon: <Search size={16} />,
       label: "Command Palette",
       keys: ["⌘", "K"],
@@ -177,7 +184,6 @@ export function WorkspaceEmptyState({
   }
 
   const inlineLinear = tickets.slice(0, INLINE_LIMIT);
-  const hasMoreLinear = tickets.length > INLINE_LIMIT;
 
   const linearSection =
     inlineLinear.length > 0 ? (
@@ -206,14 +212,12 @@ export function WorkspaceEmptyState({
             </button>
           </div>
         ))}
-        {hasMoreLinear && (
-          <button
-            className={styles.viewAll}
-            onClick={() => onOpenPaletteView?.("linear")}
-          >
-            View All Tickets
-          </button>
-        )}
+        <button
+          className={styles.viewAll}
+          onClick={() => onOpenPaletteView?.("linear")}
+        >
+          View All Tickets
+        </button>
       </div>
     ) : ticketsLoading && teamIds.length > 0 ? (
       <div className={styles.ticketsSection}>

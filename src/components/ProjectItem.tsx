@@ -430,15 +430,18 @@ export function ProjectItem({
                           >
                             Rename Workspace
                           </ContextMenu.Item>
-                          {(mergeState === null || mergeState.canMerge) && (
-                            <ContextMenu.Item
-                              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                              disabled={mergeState === null}
-                              onSelect={() => setConfirmMergeWorktree(ws)}
-                            >
-                              Merge & Delete
-                            </ContextMenu.Item>
-                          )}
+                          <ContextMenu.Item
+                            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                            disabled={mergeState === null || !mergeState.canMerge}
+                            onSelect={() => setConfirmMergeWorktree(ws)}
+                          >
+                            Merge & Delete
+                            {mergeState && !mergeState.canMerge && mergeState.reason && (
+                              <span className={styles.contextMenuItemHint}>
+                                {mergeState.reason}
+                              </span>
+                            )}
+                          </ContextMenu.Item>
                           <ContextMenu.Item
                             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                             onSelect={() => {

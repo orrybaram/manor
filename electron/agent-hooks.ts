@@ -170,8 +170,10 @@ PORT=\${PORT:-$MANOR_HOOK_PORT}
 # Extract event type
 EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 [ -z "$EVENT_TYPE" ] && exit 0
-[ -z "$MANOR_PANE_ID" ] && exit 0
 [ -z "$PORT" ] && exit 0
+
+# Resolve pane ID: use Manor-assigned ID or synthesize one for external sessions
+PANE_ID=\${MANOR_PANE_ID:-external:$PPID}
 
 # Extract session id
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
@@ -183,7 +185,7 @@ KIND=\${MANOR_AGENT_KIND:-claude}
 CURL_ARGS=(
   -sG "http://127.0.0.1:\${PORT}/hook/event"
   --connect-timeout 1 --max-time 2
-  --data-urlencode "paneId=$MANOR_PANE_ID"
+  --data-urlencode "paneId=\${PANE_ID}"
   --data-urlencode "eventType=$EVENT_TYPE"
   --data-urlencode "kind=$KIND"
 )

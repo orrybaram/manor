@@ -107,6 +107,8 @@ function App() {
   const [initialBranch, setInitialBranch] = useState("");
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
+  const agentPromptRef = useRef<string | null>(null);
+  const pendingLinkedIssueRef = useRef<import("./store/project-store").LinkedIssue | null>(null);
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
@@ -114,6 +116,8 @@ function App() {
     setInitialBranch("");
     setAgentPrompt(null);
     setPendingLinkedIssue(null);
+    agentPromptRef.current = null;
+    pendingLinkedIssueRef.current = null;
   }, []);
 
   // Project setup wizard state
@@ -177,8 +181,14 @@ function App() {
       if (opts?.projectId) setPreselectedProjectId(opts.projectId);
       if (opts?.name) setInitialName(opts.name);
       if (opts?.branch) setInitialBranch(opts.branch);
-      if (opts?.agentPrompt) setAgentPrompt(opts.agentPrompt);
-      if (opts?.linkedIssue) setPendingLinkedIssue(opts.linkedIssue);
+      if (opts?.agentPrompt) {
+        setAgentPrompt(opts.agentPrompt);
+        agentPromptRef.current = opts.agentPrompt;
+      }
+      if (opts?.linkedIssue) {
+        setPendingLinkedIssue(opts.linkedIssue);
+        pendingLinkedIssueRef.current = opts.linkedIssue;
+      }
       setNewWorkspaceOpen(true);
     },
     [],
@@ -538,11 +548,12 @@ function App() {
         initialBranch={initialBranch}
         onSubmit={async (projectId, name, branch) => {
           let agentCommand: string | undefined;
-          if (agentPrompt) {
+          const prompt = agentPromptRef.current;
+          if (prompt) {
             const project = projects.find((p) => p.id === projectId);
             const baseCommand =
               project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-            const escaped = agentPrompt
+            const escaped = prompt
               .replace(/\\/g, "\\\\")
               .replace(/"/g, '\\"')
               .replace(/\$/g, "\\$")
@@ -554,7 +565,7 @@ function App() {
             name,
             branch,
             agentCommand,
-            pendingLinkedIssue ?? undefined,
+            pendingLinkedIssueRef.current ?? undefined,
           );
           if (result) {
             // Ensure the project is selected so the new workspace is visible

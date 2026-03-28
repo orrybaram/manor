@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import { useMountEffect } from "../hooks/useMountEffect";
-import { Check } from "lucide-react/dist/esm/icons/check";
-import { Loader2 } from "lucide-react/dist/esm/icons/loader-2";
-import { Trash2 } from "lucide-react/dist/esm/icons/trash-2";
-import { Plus } from "lucide-react/dist/esm/icons/plus";
+import Check from "lucide-react/dist/esm/icons/check";
+import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import Plus from "lucide-react/dist/esm/icons/plus";
 import { useProjectStore, type CustomCommand } from "../store/project-store";
 import { PROJECT_COLORS } from "../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
@@ -36,10 +36,9 @@ type ProjectSetupWizardProps = {
 
 const TOTAL_STEPS = 5;
 
-export function ProjectSetupWizard({
-  onClose,
-  projectId,
-}: ProjectSetupWizardProps) {
+export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
+  const { onClose, projectId } = props;
+
   const [step, setStep] = useState(0);
   const [color, setColorLocal] = useState<string | null>(null);
   const [agentCommand, setAgentCommand] = useState("");

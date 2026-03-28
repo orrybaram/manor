@@ -1,15 +1,15 @@
 import React, { useRef, useCallback, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { GitPullRequest } from "lucide-react/dist/esm/icons/git-pull-request";
-import { GitMerge } from "lucide-react/dist/esm/icons/git-merge";
-import { GitPullRequestClosed } from "lucide-react/dist/esm/icons/git-pull-request-closed";
-import { CircleCheck } from "lucide-react/dist/esm/icons/circle-check";
-import { CircleX } from "lucide-react/dist/esm/icons/circle-x";
-import { Clock } from "lucide-react/dist/esm/icons/clock";
-import { ShieldCheck } from "lucide-react/dist/esm/icons/shield-check";
-import { ShieldAlert } from "lucide-react/dist/esm/icons/shield-alert";
-import { ShieldQuestion } from "lucide-react/dist/esm/icons/shield-question";
-import { MessageSquare } from "lucide-react/dist/esm/icons/message-square";
+import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
+import GitMerge from "lucide-react/dist/esm/icons/git-merge";
+import GitPullRequestClosed from "lucide-react/dist/esm/icons/git-pull-request-closed";
+import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
+import CircleX from "lucide-react/dist/esm/icons/circle-x";
+import Clock from "lucide-react/dist/esm/icons/clock";
+import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
+import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
+import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
+import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import type { PrInfo } from "../store/project-store";
 import styles from "./Sidebar.module.css";
 

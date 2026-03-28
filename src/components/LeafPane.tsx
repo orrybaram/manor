@@ -1,5 +1,10 @@
 import { useRef, useState, useCallback } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, Crosshair, ZoomIn, ZoomOut } from "lucide-react";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
+import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
+import Crosshair from "lucide-react/dist/esm/icons/crosshair";
+import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
+import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { usePaneDrag } from "../contexts/PaneDragContext";
 import { TerminalPane } from "./TerminalPane";
@@ -12,13 +17,14 @@ import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./PaneLayout.module.css";
 import browserStyles from "./BrowserPane.module.css";
 
-export function LeafPane({
-  paneId,
-  workspacePath,
-}: {
+type LeafPaneProps = {
   paneId: string;
   workspacePath?: string;
-}) {
+};
+
+export function LeafPane(props: LeafPaneProps) {
+  const { paneId, workspacePath } = props;
+
   const focusedPaneId = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     const session = ws?.sessions.find((t) => t.id === ws.selectedSessionId);

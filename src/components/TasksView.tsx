@@ -1,6 +1,7 @@
 import { useState, useCallback, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Trash2 } from "lucide-react";
+import X from "lucide-react/dist/esm/icons/x";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { TaskInfo, AgentStatus, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
 import { AgentDot } from "./AgentDot";
@@ -94,11 +95,9 @@ type TaskRowProps = {
   onRemoveTask: (taskId: string) => void;
 };
 
-const TaskRow = memo(function TaskRow({
-  task,
-  onResumeTask,
-  onRemoveTask,
-}: TaskRowProps) {
+const TaskRow = memo(function TaskRow(props: TaskRowProps) {
+  const { task, onResumeTask, onRemoveTask } = props;
+
   const agentStatus = mapTaskStatusToAgentStatus(task);
 
   return (
@@ -140,7 +139,9 @@ type TasksModalProps = {
   onResumeTask: (task: TaskInfo) => void;
 };
 
-export function TasksModal({ open, onClose, onResumeTask }: TasksModalProps) {
+export function TasksModal(props: TasksModalProps) {
+  const { open, onClose, onResumeTask } = props;
+
   const { tasks, loading, loaded, removeTask } = useTaskStore();
   const [filter, setFilter] = useState<StatusFilter>("all");
 

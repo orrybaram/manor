@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, Unlink } from "lucide-react";
+import Link from "lucide-react/dist/esm/icons/link";
+import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
 import { useMountEffect } from "../hooks/useMountEffect";

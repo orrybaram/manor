@@ -5,7 +5,9 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Plus, Globe, ListTodo } from "lucide-react";
+import Plus from "lucide-react/dist/esm/icons/plus";
+import Globe from "lucide-react/dist/esm/icons/globe";
+import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import * as Popover from "@radix-ui/react-popover";
 import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
@@ -17,7 +19,13 @@ import styles from "./TabBar.module.css";
 const EMPTY_STYLE: React.CSSProperties = {};
 const TAB_GAP = 2; // matches .sessions CSS gap
 
-export function TabBar({ onNewTask }: { onNewTask: () => void }) {
+type TabBarProps = {
+  onNewTask: () => void;
+};
+
+export function TabBar(props: TabBarProps) {
+  const { onNewTask } = props;
+
   const ws = useAppStore(selectActiveWorkspace);
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;

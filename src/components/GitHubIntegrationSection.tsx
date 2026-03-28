@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, RefreshCw } from "lucide-react";
+import Link from "lucide-react/dist/esm/icons/link";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../hooks/useMountEffect";
 import styles from "./SettingsModal.module.css";
 

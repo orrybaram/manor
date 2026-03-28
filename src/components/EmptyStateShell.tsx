@@ -10,15 +10,15 @@ export interface ActionItem {
   variant?: "danger";
 }
 
-export function EmptyStateShell({
-  subtitle,
-  actions,
-  ticketsSection,
-}: {
+type EmptyStateShellProps = {
   subtitle?: string;
   actions: ActionItem[];
   ticketsSection?: ReactNode;
-}) {
+};
+
+export function EmptyStateShell(props: EmptyStateShellProps) {
+  const { subtitle, actions, ticketsSection } = props;
+
   return (
     <div className={styles.container}>
       <div className={styles.content}>

@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { RotateCcw, Check, X } from "lucide-react";
+import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
+import Check from "lucide-react/dist/esm/icons/check";
+import X from "lucide-react/dist/esm/icons/x";
 import { useKeybindingsStore } from "../store/keybindings-store";
 import {
   DEFAULT_KEYBINDINGS,

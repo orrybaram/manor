@@ -4,7 +4,13 @@ import { type WorkspacePortGroup } from "../hooks/usePortsData";
 import { PortBadge } from "./PortBadge";
 import styles from "./Sidebar.module.css";
 
-export function PortGroup({ group }: { group: WorkspacePortGroup }) {
+type PortGroupProps = {
+  group: WorkspacePortGroup;
+};
+
+export function PortGroup(props: PortGroupProps) {
+  const { group } = props;
+
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const handleSelectWorkspace = useCallback(() => {

@@ -1,6 +1,7 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Globe, X } from "lucide-react";
+import Globe from "lucide-react/dist/esm/icons/globe";
+import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "./Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useSessionTitle } from "./useSessionTitle";
@@ -17,19 +18,7 @@ function shortenTitle(title: string): string {
   return trimmed.length <= 5 ? trimmed : trimmed.slice(0, 5);
 }
 
-export function SessionButton({
-  sessionId,
-  isActive,
-  isPinned,
-  canClose,
-  isDragging,
-  onSelect,
-  onClose,
-  onTogglePin,
-  onPointerDown,
-  style,
-  buttonRef,
-}: {
+type SessionButtonProps = {
   sessionId: string;
   isActive: boolean;
   isPinned: boolean;
@@ -41,7 +30,11 @@ export function SessionButton({
   onPointerDown?: (e: ReactPointerEvent) => void;
   style: React.CSSProperties;
   buttonRef: (el: HTMLDivElement | null) => void;
-}) {
+};
+
+export function SessionButton(props: SessionButtonProps) {
+  const { sessionId, isActive, isPinned, canClose, isDragging, onSelect, onClose, onTogglePin, onPointerDown, style, buttonRef } = props;
+
   const title = useSessionTitle(sessionId);
   const isBrowser = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);

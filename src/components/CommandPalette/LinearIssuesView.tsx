@@ -11,12 +11,9 @@ type LinearIssuesViewProps = {
   onEmptyChange?: (empty: boolean) => void;
 };
 
-export function LinearIssuesView({
-  allTeamIds,
-  allIssues,
-  onSelectIssue,
-  onEmptyChange,
-}: LinearIssuesViewProps) {
+export function LinearIssuesView(props: LinearIssuesViewProps) {
+  const { allTeamIds, allIssues, onSelectIssue, onEmptyChange } = props;
+
   const { data: linearIssues = [], isLoading } = useQuery({
     queryKey: [allIssues ? "linear-all-issues" : "linear-issues", allTeamIds],
     queryFn: () =>

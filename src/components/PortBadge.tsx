@@ -1,14 +1,16 @@
 import { useCallback } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { ExternalLink } from "lucide-react";
+import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { useAppStore } from "../store/app-store";
 import styles from "./Sidebar.module.css";
 
-export function PortBadge({
-  port,
-}: {
+type PortBadgeProps = {
   port: import("../electron.d.ts").ActivePort;
-}) {
+};
+
+export function PortBadge(props: PortBadgeProps) {
+  const { port } = props;
+
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
 
   const url = port.hostname

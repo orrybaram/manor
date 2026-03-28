@@ -10,7 +10,9 @@ type TerminalPaneProps = {
   cwd?: string;
 };
 
-export function TerminalPane({ paneId, cwd }: TerminalPaneProps) {
+export function TerminalPane(props: TerminalPaneProps) {
+  const { paneId, cwd } = props;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
 

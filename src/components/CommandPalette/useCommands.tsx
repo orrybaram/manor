@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Globe } from "lucide-react";
+import Globe from "lucide-react/dist/esm/icons/globe";
 import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";

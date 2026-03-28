@@ -22,7 +22,13 @@ const PaneDragContext = createContext<PaneDragContextValue>({
   endDrag: () => {},
 });
 
-export function PaneDragProvider({ children }: { children: ReactNode }) {
+type PaneDragProviderProps = {
+  children: ReactNode;
+};
+
+export function PaneDragProvider(props: PaneDragProviderProps) {
+  const { children } = props;
+
   const [drag, setDrag] = useState<DragPayload | null>(null);
   const startDrag = useCallback((payload: DragPayload) => setDrag(payload), []);
   const endDrag = useCallback(() => setDrag(null), []);

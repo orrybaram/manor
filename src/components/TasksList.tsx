@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { ListChecks, X } from "lucide-react";
+import ListChecks from "lucide-react/dist/esm/icons/list-checks";
+import X from "lucide-react/dist/esm/icons/x";
 import type { AgentStatus, TaskInfo, TaskStatus } from "../electron.d";
 import { useTaskStore } from "../store/task-store";
 import { useAppStore } from "../store/app-store";
@@ -21,7 +22,13 @@ function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   return statusMap[task.status];
 }
 
-export function TasksList({ onShowAll }: { onShowAll?: () => void }) {
+type TasksListProps = {
+  onShowAll?: () => void;
+};
+
+export function TasksList(props: TasksListProps) {
+  const { onShowAll } = props;
+
   const { tasks, seenTaskIds } = useTaskStore();
   const workspaceSessions = useAppStore((s) => s.workspaceSessions);
 

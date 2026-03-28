@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import { House, FolderGit2, Plus } from "lucide-react";
+import House from "lucide-react/dist/esm/icons/house";
+import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
+import Plus from "lucide-react/dist/esm/icons/plus";
 import type { ProjectInfo } from "../../store/project-store";
 import type { CommandItem } from "./types";
 

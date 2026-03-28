@@ -1,21 +1,21 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { GitBranch, GitMerge, Trash2 } from "lucide-react";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import GitMerge from "lucide-react/dist/esm/icons/git-merge";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { WorkspaceInfo } from "../store/project-store";
 import styles from "./Sidebar.module.css";
 
-export function MergeWorktreeDialog({
-  open,
-  onOpenChange,
-  workspace,
-  defaultBranch,
-  onConfirm,
-}: {
+type MergeWorktreeDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspace: WorkspaceInfo | null;
   defaultBranch: string;
   onConfirm: (ws: WorkspaceInfo) => void;
-}) {
+};
+
+export function MergeWorktreeDialog(props: MergeWorktreeDialogProps) {
+  const { open, onOpenChange, workspace, defaultBranch, onConfirm } = props;
+
   const wsName = workspace?.name || workspace?.branch || "";
 
   return (

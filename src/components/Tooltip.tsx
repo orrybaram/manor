@@ -8,7 +8,13 @@ interface TooltipProps {
   delayDuration?: number;
 }
 
-export function TooltipProvider({ children }: { children: React.ReactNode }) {
+type TooltipProviderProps = {
+  children: React.ReactNode;
+};
+
+export function TooltipProvider(props: TooltipProviderProps) {
+  const { children } = props;
+
   return (
     <RadixTooltip.Provider delayDuration={400}>
       {children}
@@ -16,12 +22,9 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Tooltip({
-  label,
-  children,
-  side = "bottom",
-  delayDuration,
-}: TooltipProps) {
+export function Tooltip(props: TooltipProps) {
+  const { label, children, side = "bottom", delayDuration } = props;
+
   return (
     <RadixTooltip.Root delayDuration={delayDuration}>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>

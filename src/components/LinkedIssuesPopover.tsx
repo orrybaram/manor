@@ -3,7 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
-import { Unlink } from "lucide-react/dist/esm/icons/unlink";
+import Unlink from "lucide-react/dist/esm/icons/unlink";
 import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../electron.d";
 import type { CommandPaletteProps } from "./CommandPalette/types";
 import { IssueDetailView } from "./CommandPalette/IssueDetailView";
@@ -22,7 +22,14 @@ function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
 }
 
-function LinkedIssueIcon({ issues, size }: { issues: LinkedIssue[]; size: number }) {
+type LinkedIssueIconProps = {
+  issues: LinkedIssue[];
+  size: number;
+};
+
+function LinkedIssueIcon(props: LinkedIssueIconProps) {
+  const { issues, size } = props;
+
   const hasGitHub = issues.some(isGitHubIssue);
   const hasLinear = issues.some((i) => !isGitHubIssue(i));
 
@@ -51,7 +58,13 @@ type LinkedIssuesPopoverProps = {
   children: React.ReactNode;
 };
 
-function IssueRowSkeleton({ index }: { index: number }) {
+type IssueRowSkeletonProps = {
+  index: number;
+};
+
+function IssueRowSkeleton(props: IssueRowSkeletonProps) {
+  const { index } = props;
+
   return (
     <div className={styles.skeletonRow}>
       <div className={`${styles.skeletonBone} ${styles.skeletonIdentifier}`} />
@@ -93,19 +106,17 @@ function getStatusStyle(detail: IssueDetail | undefined): {
   return { color: "var(--text-dim)", background: "var(--surface)" };
 }
 
-function IssueRow({
-  issue,
-  detail,
-  isLoading,
-  onClick,
-  onUnlink,
-}: {
+type IssueRowProps = {
   issue: LinkedIssue;
   detail: IssueDetail | undefined;
   isLoading: boolean;
   onClick: () => void;
   onUnlink: () => void;
-}) {
+};
+
+function IssueRow(props: IssueRowProps) {
+  const { issue, detail, isLoading, onClick, onUnlink } = props;
+
   const stateName =
     detail?.source === "linear"
       ? detail.data.state.name
@@ -161,16 +172,9 @@ function IssueRow({
   );
 }
 
-export function LinkedIssuesPopover({
-  issues,
-  isOpen,
-  onClose,
-  projectId,
-  workspacePath,
-  onNewWorkspace,
-  onNewTaskWithPrompt,
-  children,
-}: LinkedIssuesPopoverProps) {
+export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
+  const { issues, isOpen, onClose, projectId, workspacePath, onNewWorkspace, onNewTaskWithPrompt, children } = props;
+
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const projects = useProjectStore((s) => s.projects);

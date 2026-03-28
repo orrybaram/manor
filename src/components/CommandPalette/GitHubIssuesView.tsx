@@ -11,12 +11,9 @@ type GitHubIssuesViewProps = {
   onEmptyChange?: (empty: boolean) => void;
 };
 
-export function GitHubIssuesView({
-  repoPath,
-  allIssues,
-  onSelectIssue,
-  onEmptyChange,
-}: GitHubIssuesViewProps) {
+export function GitHubIssuesView(props: GitHubIssuesViewProps) {
+  const { repoPath, allIssues, onSelectIssue, onEmptyChange } = props;
+
   const { data: issues = [], isLoading } = useQuery({
     queryKey: ["github-issues", repoPath, allIssues],
     queryFn: () =>

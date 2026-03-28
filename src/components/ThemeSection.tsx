@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useCallback } from "react";
 import { useMountEffect } from "../hooks/useMountEffect";
-import { Check } from "lucide-react";
+import Check from "lucide-react/dist/esm/icons/check";
 import { useThemeStore, type Theme } from "../store/theme-store";
 import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
 import styles from "./SettingsModal.module.css";

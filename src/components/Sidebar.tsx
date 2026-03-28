@@ -4,7 +4,9 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Plus, Boxes, ChevronRight } from "lucide-react";
+import Plus from "lucide-react/dist/esm/icons/plus";
+import Boxes from "lucide-react/dist/esm/icons/boxes";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import {
   removeWorktreeWithToast,
@@ -24,7 +26,9 @@ interface SidebarProps {
   onAddProject?: () => void;
 }
 
-export function Sidebar({ onShowTasks, onOpenProjectSettings, onAddProject }: SidebarProps) {
+export function Sidebar(props: SidebarProps) {
+  const { onShowTasks, onOpenProjectSettings, onAddProject } = props;
+
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const removeProject = useProjectStore((s) => s.removeProject);

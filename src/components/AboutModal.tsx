@@ -12,13 +12,14 @@ const INSPIRATIONS = [
   { name: "agent-deck", url: "https://github.com/asheshgoplani/agent-deck" },
 ];
 
-export function AboutModal({
-  open,
-  onOpenChange,
-}: {
+type AboutModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+};
+
+export function AboutModal(props: AboutModalProps) {
+  const { open, onOpenChange } = props;
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>

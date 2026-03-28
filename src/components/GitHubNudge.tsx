@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import { useMountEffect } from "../hooks/useMountEffect";
-import { Github } from "lucide-react/dist/esm/icons/github";
-import { X } from "lucide-react/dist/esm/icons/x";
-import { Download } from "lucide-react/dist/esm/icons/download";
-import { Check } from "lucide-react/dist/esm/icons/check";
-import { RotateCcw } from "lucide-react/dist/esm/icons/rotate-ccw";
+import Github from "lucide-react/dist/esm/icons/github";
+import X from "lucide-react/dist/esm/icons/x";
+import Download from "lucide-react/dist/esm/icons/download";
+import Check from "lucide-react/dist/esm/icons/check";
+import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import type { Terminal } from "@xterm/xterm";
 import { terminalOptions } from "../terminal/config";
 import { useThemeStore, type Theme } from "../store/theme-store";
@@ -45,7 +45,9 @@ type GitHubNudgeProps = {
   onInstalled?: () => void;
 };
 
-export function GitHubNudge({ onInstalled }: GitHubNudgeProps) {
+export function GitHubNudge(props: GitHubNudgeProps) {
+  const { onInstalled } = props;
+
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === "true";

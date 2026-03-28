@@ -5,10 +5,9 @@ type SpinnerLoaderProps = {
   variant?: "working" | "thinking";
 };
 
-export function SpinnerLoader({
-  size,
-  variant = "working",
-}: SpinnerLoaderProps) {
+export function SpinnerLoader(props: SpinnerLoaderProps) {
+  const { size, variant = "working" } = props;
+
   return (
     <span
       className={`${styles.spinner} ${styles[size]} ${styles[variant]}`}

@@ -1,5 +1,7 @@
 import { useRef, useCallback, useState, useMemo } from "react";
-import { Check, Trash2, Plus } from "lucide-react";
+import Check from "lucide-react/dist/esm/icons/check";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import Plus from "lucide-react/dist/esm/icons/plus";
 import {
   useProjectStore,
   type ProjectInfo,

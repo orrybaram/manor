@@ -1,14 +1,12 @@
 import { useState, useCallback, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  X,
-  ChevronDown,
-  ChevronRight,
-  Palette,
-  Keyboard,
-  Bell,
-  Link,
-} from "lucide-react";
+import X from "lucide-react/dist/esm/icons/x";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import Palette from "lucide-react/dist/esm/icons/palette";
+import Keyboard from "lucide-react/dist/esm/icons/keyboard";
+import Bell from "lucide-react/dist/esm/icons/bell";
+import Link from "lucide-react/dist/esm/icons/link";
 import { useProjectStore } from "../store/project-store";
 import { AppSettingsPage } from "./AppSettingsPage";
 import { KeybindingsPage } from "./KeybindingsPage";

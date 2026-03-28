@@ -1,7 +1,13 @@
-import { ArrowLeft } from "lucide-react";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import styles from "./CommandPalette.module.css";
 
-export function IssueDetailSkeleton({ onBack }: { onBack: () => void }) {
+type IssueDetailSkeletonProps = {
+  onBack: () => void;
+};
+
+export function IssueDetailSkeleton(props: IssueDetailSkeletonProps) {
+  const { onBack } = props;
+
   return (
     <>
       <div className={styles.detailLayout}>

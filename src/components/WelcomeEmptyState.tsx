@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { FolderOpen } from "lucide-react";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import { ManorLogo } from "./ManorLogo";
 import styles from "./WelcomeEmptyState.module.css";
 
@@ -9,7 +9,9 @@ interface WelcomeEmptyStateProps {
 }
 
 /** Shown when there are no projects at all. */
-export function WelcomeEmptyState({ onAddProject, onDropFolder }: WelcomeEmptyStateProps) {
+export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
+  const { onAddProject, onDropFolder } = props;
+
   const [dragging, setDragging] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

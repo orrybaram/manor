@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { ChevronRight, EthernetPort } from "lucide-react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import EthernetPort from "lucide-react/dist/esm/icons/ethernet-port";
 import { usePortsData } from "../hooks/usePortsData";
 import { useProjectStore, MIN_PORTS_HEIGHT } from "../store/project-store";
 import { PortGroup } from "./PortGroup";

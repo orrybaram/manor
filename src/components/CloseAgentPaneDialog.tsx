@@ -1,15 +1,15 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./Sidebar.module.css";
 
-export function CloseAgentPaneDialog({
-  open,
-  onOpenChange,
-  onConfirm,
-}: {
+type CloseAgentPaneDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
-}) {
+};
+
+export function CloseAgentPaneDialog(props: CloseAgentPaneDialogProps) {
+  const { open, onOpenChange, onConfirm } = props;
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>

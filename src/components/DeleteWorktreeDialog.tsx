@@ -1,20 +1,19 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { GitBranch } from "lucide-react";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import type { WorkspaceInfo } from "../store/project-store";
 import styles from "./Sidebar.module.css";
 
-export function DeleteWorktreeDialog({
-  open,
-  onOpenChange,
-  workspace,
-  onConfirm,
-}: {
+type DeleteWorktreeDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspace: WorkspaceInfo | null;
   onConfirm: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
-}) {
+};
+
+export function DeleteWorktreeDialog(props: DeleteWorktreeDialogProps) {
+  const { open, onOpenChange, workspace, onConfirm } = props;
+
   const [deleteBranchChecked, setDeleteBranchChecked] = useState(() => {
     try {
       return localStorage.getItem("manor:deleteBranchOnWorktreeRemove") === "true";

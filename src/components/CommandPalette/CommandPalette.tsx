@@ -1,7 +1,8 @@
 import { useMemo, useCallback, useState, useRef, Fragment } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import { ChevronRight, ArrowLeft } from "lucide-react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";

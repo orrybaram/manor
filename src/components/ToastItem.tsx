@@ -5,7 +5,13 @@ import styles from "./Toast.module.css";
 
 export const AUTO_DISMISS_MS = 3000;
 
-export function ToastItem({ toast }: { toast: ToastData }) {
+type ToastItemProps = {
+  toast: ToastData;
+};
+
+export function ToastItem(props: ToastItemProps) {
+  const { toast } = props;
+
   const removeToast = useToastStore((s) => s.removeToast);
   const [exiting, setExiting] = useState(false);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);

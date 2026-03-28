@@ -15,7 +15,14 @@ function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
 }
 
-function LinkedIssueIcon({ issues, size }: { issues: LinkedIssue[]; size: number }) {
+type LinkedIssueIconProps = {
+  issues: LinkedIssue[];
+  size: number;
+};
+
+function LinkedIssueIcon(props: LinkedIssueIconProps) {
+  const { issues, size } = props;
+
   const hasGitHub = issues.some(isGitHubIssue);
   const hasLinear = issues.some((i) => !isGitHubIssue(i));
 
@@ -38,7 +45,9 @@ interface StatusBarProps {
   onNewTaskWithPrompt?: (prompt: string) => void;
 }
 
-export function StatusBar({ onNewWorkspace, onNewTaskWithPrompt }: StatusBarProps) {
+export function StatusBar(props: StatusBarProps) {
+  const { onNewWorkspace, onNewTaskWithPrompt } = props;
+
   const [aboutOpen, setAboutOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);

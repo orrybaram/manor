@@ -50,6 +50,21 @@ export type ControlRequest =
       rows: number;
       shellArgs?: string[];
     }
+  | {
+      type: "prewarm";
+      sessionId: string;
+      cwd: string;
+      cols: number;
+      rows: number;
+    }
+  | {
+      type: "claimPrewarmed";
+      oldSessionId: string;
+      newSessionId: string;
+      cwd?: string;
+      cols?: number;
+      rows?: number;
+    }
   | { type: "attach"; sessionId: string }
   | { type: "detach"; sessionId: string }
   | { type: "resize"; sessionId: string; cols: number; rows: number }
@@ -62,6 +77,8 @@ export type ControlRequest =
 export type ControlResponse =
   | { type: "authOk"; version?: string }
   | { type: "created"; session: SessionInfo }
+  | { type: "prewarmed"; session: SessionInfo }
+  | { type: "claimed"; session: SessionInfo; snapshot: TerminalSnapshot }
   | { type: "attached"; snapshot: TerminalSnapshot }
   | { type: "detached" }
   | { type: "resized" }

@@ -112,6 +112,56 @@ async function handleControlMessage(
       break;
     }
 
+    case "prewarm": {
+      try {
+        const session = host.prewarm(
+          request.sessionId,
+          request.cwd,
+          request.cols,
+          request.rows,
+        );
+        sendResponse(socket, { type: "prewarmed", session });
+      } catch (err) {
+        log(`Failed to prewarm session ${request.sessionId}: ${err}`);
+        sendResponse(socket, {
+          type: "error",
+          message: `Prewarm failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      break;
+    }
+
+    case "claimPrewarmed": {
+      try {
+        const result = await host.claimPrewarmed(
+          request.oldSessionId,
+          request.newSessionId,
+          request.cwd,
+          request.cols,
+          request.rows,
+        );
+        if (!result) {
+          sendResponse(socket, {
+            type: "error",
+            message: `Session ${request.oldSessionId} not found or not prewarmed`,
+          });
+        } else {
+          sendResponse(socket, {
+            type: "claimed",
+            session: result.session,
+            snapshot: result.snapshot,
+          });
+        }
+      } catch (err) {
+        log(`Failed to claim prewarmed session ${request.oldSessionId}: ${err}`);
+        sendResponse(socket, {
+          type: "error",
+          message: `ClaimPrewarmed failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      break;
+    }
+
     case "attach": {
       const snapshot = await host.attach(request.sessionId, socket);
       if (snapshot) {

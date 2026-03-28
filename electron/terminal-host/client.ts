@@ -201,6 +201,50 @@ export class TerminalHostClient {
     }
   }
 
+  /** Prewarm a session — creates a hidden session ready to be claimed */
+  async prewarm(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+  ): Promise<SessionInfo> {
+    await this.ensureConnected();
+    const resp = await this.request({ type: "prewarm", sessionId, cwd, cols, rows });
+    if (resp.type !== "prewarmed") {
+      throw new Error(
+        `Prewarm failed: ${resp.type === "error" ? resp.message : "unknown"}`,
+      );
+    }
+    return resp.session;
+  }
+
+  /** Claim a prewarmed session, reassigning it to a new session ID */
+  async claimPrewarmed(
+    oldSessionId: string,
+    newSessionId: string,
+    cwd?: string,
+    cols?: number,
+    rows?: number,
+  ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot }> {
+    await this.ensureConnected();
+    const resp = await this.request({
+      type: "claimPrewarmed",
+      oldSessionId,
+      newSessionId,
+      cwd,
+      cols,
+      rows,
+    });
+    if (resp.type !== "claimed") {
+      throw new Error(
+        `ClaimPrewarmed failed: ${resp.type === "error" ? resp.message : "unknown"}`,
+      );
+    }
+    // Subscribe for stream events on the new session ID
+    this.streamWrite({ type: "subscribe", sessionId: newSessionId });
+    return { session: resp.session, snapshot: resp.snapshot };
+  }
+
   /** Write terminal input — fire-and-forget via stream socket */
   writeNoAck(sessionId: string, data: string): void {
     this.streamWrite({ type: "write", sessionId, data });

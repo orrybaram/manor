@@ -38,7 +38,7 @@ import type {
 import { DEFAULT_TERMINAL_MODES } from "./types";
 
 export class Session {
-  readonly sessionId: string;
+  private _sessionId: string;
   private subprocess: ChildProcess | null = null;
   private decoder: FrameDecoder;
   private headless: HeadlessTerminal;
@@ -51,6 +51,7 @@ export class Session {
   private _alive = true;
   private exitCode = 0;
   private pid: number | null = null;
+  prewarmed = false;
 
   // Headless write flush tracking — write() is async, we need to
   // wait for it before serialize() will return content
@@ -80,7 +81,7 @@ export class Session {
     rows: number,
     sessionsDir?: string,
   ) {
-    this.sessionId = sessionId;
+    this._sessionId = sessionId;
     this.cwd = cwd;
     this.cols = cols;
     this.rows = rows;
@@ -127,13 +128,21 @@ export class Session {
     }, 30_000);
   }
 
+  get sessionId(): string {
+    return this._sessionId;
+  }
+
+  set sessionId(id: string) {
+    this._sessionId = id;
+  }
+
   get alive(): boolean {
     return this._alive;
   }
 
   get info(): SessionInfo {
     return {
-      sessionId: this.sessionId,
+      sessionId: this._sessionId,
       cwd: this.cwd,
       cols: this.cols,
       rows: this.rows,

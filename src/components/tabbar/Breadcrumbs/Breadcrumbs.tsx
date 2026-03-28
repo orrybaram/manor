@@ -1,5 +1,5 @@
-import { useAppStore } from "../store/app-store";
-import { useProjectStore } from "../store/project-store";
+import { useAppStore } from "../../../store/app-store";
+import { useProjectStore } from "../../../store/project-store";
 import styles from "./Breadcrumbs.module.css";
 
 export function Breadcrumbs() {

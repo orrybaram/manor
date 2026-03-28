@@ -1,5 +1,5 @@
-import { AgentDot } from "./ui/AgentDot/AgentDot";
-import { useSessionAgentStatus } from "./useSessionAgentStatus";
+import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { useSessionAgentStatus } from "../useSessionAgentStatus";
 
 type TabAgentDotProps = {
   sessionId: string;

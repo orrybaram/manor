@@ -143,13 +143,6 @@ export function NewWorkspaceDialog({
     [showDropdown, filteredBranches, highlightIndex, remoteBranches, selectBranch],
   );
 
-  // Scroll highlighted item into view
-  useEffect(() => {
-    if (highlightIndex < 0 || !dropdownRef.current) return;
-    const item = dropdownRef.current.children[highlightIndex] as HTMLElement;
-    item?.scrollIntoView({ block: "nearest" });
-  }, [highlightIndex]);
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -263,7 +256,7 @@ export function NewWorkspaceDialog({
                   autoComplete="off"
                 />
                 {showDropdown && (
-                  <div className={styles.dropdown} ref={dropdownRef}>
+                  <div className={styles.dropdown}>
                     {loadingBranches ? (
                       <div className={styles.dropdownMessage}>
                         <Loader2 size={12} className={styles.spinner} />
@@ -279,6 +272,7 @@ export function NewWorkspaceDialog({
                       filteredBranches.map((b, i) => (
                         <div
                           key={b}
+                          ref={i === highlightIndex ? (el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                           className={`${styles.dropdownItem} ${i === highlightIndex ? styles.dropdownItemHighlighted : ""}`}
                           onMouseDown={(e) => {
                             e.preventDefault();

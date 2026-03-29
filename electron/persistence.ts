@@ -10,6 +10,13 @@ import type { LinearAssociation, LinkedIssue } from "./linear";
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
+function expandHome(p: string): string {
+  if (p.startsWith("~/") || p === "~") {
+    return path.join(os.homedir(), p.slice(1));
+  }
+  return p;
+}
+
 function slugify(str: string): string {
   return str
     .toLowerCase()
@@ -276,6 +283,9 @@ export class ProjectManager {
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
+    if (updates.worktreePath) {
+      updates.worktreePath = expandHome(updates.worktreePath);
+    }
     Object.assign(project, updates);
     this.saveState();
     return this.buildProjectInfo(project);
@@ -700,9 +710,9 @@ export class ProjectManager {
 
     const branchName = branch || name;
     const slug = slugify(name);
-    const baseDir =
-      project.worktreePath ||
-      path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
+    const baseDir = project.worktreePath
+      ? expandHome(project.worktreePath)
+      : path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)

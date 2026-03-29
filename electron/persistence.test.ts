@@ -190,6 +190,36 @@ describe("ProjectManager", () => {
     });
   });
 
+  describe("updateProject – tilde expansion", () => {
+    it("expands ~ in worktreePath to the home directory", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      await manager.updateProject(project.id, {
+        worktreePath: "~/.manor/worktrees/proj",
+      });
+
+      const state = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
+      );
+      expect(state.projects[0].worktreePath).toBe(
+        path.join(os.homedir(), ".manor/worktrees/proj"),
+      );
+    });
+
+    it("leaves absolute worktreePath unchanged", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      await manager.updateProject(project.id, {
+        worktreePath: "/custom/worktree/path",
+      });
+
+      const state = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
+      );
+      expect(state.projects[0].worktreePath).toBe("/custom/worktree/path");
+    });
+  });
+
   describe("renameWorkspace", () => {
     it("sets a workspace name", async () => {
       const project = await manager.addProject("Proj", "/tmp/proj");

@@ -704,6 +704,7 @@ export class ProjectManager {
     name: string,
     branch?: string,
     linkedIssue?: LinkedIssue,
+    baseBranch?: string,
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
@@ -756,7 +757,7 @@ export class ProjectManager {
       }
     }
 
-    const defaultBranchRef = `origin/${project.defaultBranch || "main"}`;
+    const defaultBranchRef = baseBranch ?? `origin/${project.defaultBranch || "main"}`;
 
     try {
       await execFileAsync(

@@ -206,6 +206,7 @@ export interface ElectronAPI {
       name: string,
       branch?: string,
       linkedIssue?: import("./store/project-store").LinkedIssue,
+      baseBranch?: string,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
     listRemoteBranches: (projectId: string) => Promise<string[]>;
     renameWorkspace: (

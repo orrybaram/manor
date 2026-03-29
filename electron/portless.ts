@@ -7,7 +7,6 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as net from "node:net";
 import { createProxyServer, type RouteInfo, type ProxyServer } from "portless";
 
 const PORT_FILE = path.join(
@@ -18,69 +17,60 @@ const PORT_FILE = path.join(
 
 const DEFAULT_PROXY_PORT = 1355;
 
-/** Find a free TCP port by binding to port 0 and reading the assigned port. */
-function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      const port = addr && typeof addr === "object" ? addr.port : null;
-      server.close((err) => {
-        if (err) reject(err);
-        else if (port == null)
-          reject(new Error("Could not determine free port"));
-        else resolve(port);
-      });
-    });
-    server.on("error", reject);
-  });
-}
-
-/** Check if a TCP port is already in use on localhost. */
-function isPortInUse(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(true));
-    server.once("listening", () => {
-      server.close(() => resolve(false));
-    });
-    server.listen(port, "127.0.0.1");
-  });
-}
-
 export class PortlessManager {
   routes: RouteInfo[] = [];
   server: ProxyServer | null = null;
   proxyPort: number | null = null;
 
-  /** Start the proxy server. Falls back to a random free port if 1355 is in use. */
+  /** Start the proxy server. Retries with incremented ports on EADDRINUSE. */
   async start(proxyPort?: number): Promise<void> {
-    let port = proxyPort ?? DEFAULT_PROXY_PORT;
+    const startPort = proxyPort ?? DEFAULT_PROXY_PORT;
+    const maxAttempts = 10;
 
-    if (await isPortInUse(port)) {
-      port = await findFreePort();
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const port = startPort + attempt;
+
+      this.server = createProxyServer({
+        proxyPort: port,
+        getRoutes: () => this.routes,
+      });
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (err: Error) => {
+            this.server = null;
+            reject(err);
+          };
+
+          this.server!.once("error", onError);
+          this.server!.listen(port, () => {
+            this.server!.off("error", onError);
+            this.proxyPort = port;
+            fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });
+            fs.writeFileSync(PORT_FILE, String(port));
+            resolve();
+          });
+        });
+
+        if (port !== startPort) {
+          console.log(
+            `[portless] Port ${startPort} in use, using ${port} instead`,
+          );
+        }
+        return;
+      } catch (err: any) {
+        if (err?.code === "EADDRINUSE") {
+          this.server?.close();
+          this.server = null;
+          continue;
+        }
+        throw err;
+      }
     }
 
-    this.server = createProxyServer({
-      proxyPort: port,
-      getRoutes: () => this.routes,
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      const onError = (err: Error) => {
-        this.server = null;
-        reject(err);
-      };
-
-      this.server!.once("error", onError);
-      this.server!.listen(port, () => {
-        this.server!.off("error", onError);
-        this.proxyPort = port;
-        fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });
-        fs.writeFileSync(PORT_FILE, String(port));
-        resolve();
-      });
-    });
+    throw new Error(
+      `[portless] Could not find a free port after trying ${startPort}–${startPort + maxAttempts - 1}`,
+    );
   }
 
   /** Stop the proxy server. */

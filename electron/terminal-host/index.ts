@@ -244,12 +244,15 @@ function createLineParser(
  * out of order — which corrupts the client's FIFO response queue.
  */
 function createSerializedHandler(
+  socket: net.Socket,
   handler: (line: string) => Promise<void>,
 ): (line: string) => void {
   let queue: Promise<void> = Promise.resolve();
   return (line: string) => {
     queue = queue.then(() => handler(line)).catch((err) => {
-      log(`Error handling control message: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      sendResponse(socket, { type: "error", message: `Internal error: ${message}` });
+      log(`Error handling control message: ${message}`);
     });
   };
 }
@@ -285,7 +288,7 @@ const server = net.createServer((socket) => {
         }
       } else {
         connectionType = "control";
-        lineHandler = createSerializedHandler((l) =>
+        lineHandler = createSerializedHandler(socket, (l) =>
           handleControlMessage(socket, l),
         );
         // Process this line as a control message (could be auth)
@@ -294,7 +297,7 @@ const server = net.createServer((socket) => {
     } catch {
       // Default to control
       connectionType = "control";
-      lineHandler = createSerializedHandler((l) =>
+      lineHandler = createSerializedHandler(socket, (l) =>
         handleControlMessage(socket, l),
       );
       lineHandler(line);

@@ -360,23 +360,12 @@ export class TerminalHostClient {
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
-            const resp = JSON.parse(line) as ControlResponse & {
-              requestId?: string;
-            };
-            let pending;
-            if (resp.requestId && this.pendingRequests.has(resp.requestId)) {
-              // Match by request ID (robust against concurrent callers)
-              pending = this.pendingRequests.get(resp.requestId)!;
-              this.pendingRequests.delete(resp.requestId);
-            } else {
-              // FIFO fallback for daemons that don't echo requestId
-              const firstKey = this.pendingRequests.keys().next().value;
-              if (firstKey !== undefined) {
-                pending = this.pendingRequests.get(firstKey)!;
-                this.pendingRequests.delete(firstKey);
-              }
-            }
-            if (pending) {
+            const resp = JSON.parse(line) as ControlResponse;
+            // Mutex guarantees at most one pending request
+            const firstKey = this.pendingRequests.keys().next().value;
+            if (firstKey !== undefined) {
+              const pending = this.pendingRequests.get(firstKey)!;
+              this.pendingRequests.delete(firstKey);
               clearTimeout(pending.timeout);
               pending.resolve(resp);
             }
@@ -439,17 +428,10 @@ export class TerminalHostClient {
     req: ControlRequest,
     timeoutMs = 10_000,
   ): Promise<ControlResponse> {
-    // Serialize requests through a mutex so only one is in-flight at a time.
-    // This guarantees the FIFO response queue stays in sync even when
-    // multiple concurrent callers (IPC handlers) share this client.
-    const result = this.requestMutex.then(
-      () => this.doRequest(req, timeoutMs),
+    const result = this.requestMutex.then(() =>
+      this.doRequest(req, timeoutMs),
     );
-    // Chain the mutex — next request waits for this one to settle
-    this.requestMutex = result.then(
-      () => {},
-      () => {},
-    );
+    this.requestMutex = result.then(() => {}, () => {});
     return result;
   }
 

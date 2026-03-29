@@ -64,17 +64,8 @@ function readToken(): string {
 
 async function handleControlMessage(
   socket: net.Socket,
-  line: string,
+  request: ControlRequest & { requestId?: string },
 ): Promise<void> {
-  let request: ControlRequest & { requestId?: string };
-  try {
-    request = JSON.parse(line);
-  } catch {
-    sendResponse(socket, { type: "error", message: "Invalid JSON" });
-    return;
-  }
-
-  // Capture requestId to echo in all responses for this request
   const requestId = request.requestId;
 
   // Auth check (except for auth request itself)
@@ -253,18 +244,19 @@ function createLineParser(
  */
 function createSerializedHandler(
   socket: net.Socket,
-  handler: (line: string) => Promise<void>,
+  handler: (request: ControlRequest & { requestId?: string }) => Promise<void>,
 ): (line: string) => void {
   let queue: Promise<void> = Promise.resolve();
   return (line: string) => {
-    // Extract requestId before handler runs so the catch-all can echo it
-    let requestId: string | undefined;
+    let request: ControlRequest & { requestId?: string };
     try {
-      requestId = JSON.parse(line).requestId;
+      request = JSON.parse(line);
     } catch {
-      // will be handled by the handler's own JSON parse
+      sendResponse(socket, { type: "error", message: "Invalid JSON" });
+      return;
     }
-    queue = queue.then(() => handler(line)).catch((err) => {
+    const requestId = request.requestId;
+    queue = queue.then(() => handler(request)).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       sendResponse(socket, { type: "error", message: `Internal error: ${message}` }, requestId);
       log(`Error handling control message: ${message}`);
@@ -303,8 +295,8 @@ const server = net.createServer((socket) => {
         }
       } else {
         connectionType = "control";
-        lineHandler = createSerializedHandler(socket, (l) =>
-          handleControlMessage(socket, l),
+        lineHandler = createSerializedHandler(socket, (req) =>
+          handleControlMessage(socket, req),
         );
         // Process this line as a control message (could be auth)
         lineHandler(line);

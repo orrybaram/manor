@@ -1200,6 +1200,19 @@ function maybeSendNotification(
   }
 }
 
+// In dev mode, include the git branch in the app name so multiple
+// instances (e.g. from different worktrees) are distinguishable in
+// the Dock, App Switcher, and Mission Control.
+// Must be set before app.whenReady() so macOS picks it up for the menu bar.
+let devTitle: string | null = null;
+if (!app.isPackaged) {
+  const branch = readBranchSync(process.cwd());
+  if (branch) {
+    devTitle = `Manor (${branch})`;
+    app.name = devTitle;
+  }
+}
+
 // ── App lifecycle ──
 app.whenReady().then(async () => {
   // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
@@ -1264,18 +1277,6 @@ app.whenReady().then(async () => {
     const iconPath = path.join(__dirname, "../build/dev-icon.png");
     if (fs.existsSync(iconPath)) {
       app.dock.setIcon(nativeImage.createFromPath(iconPath));
-    }
-  }
-
-  // In dev mode, include the git branch in the app name so multiple
-  // instances (e.g. from different worktrees) are distinguishable in
-  // the Dock, App Switcher, and Mission Control.
-  let devTitle: string | null = null;
-  if (!app.isPackaged) {
-    const branch = readBranchSync(process.cwd());
-    if (branch) {
-      devTitle = `Manor (${branch})`;
-      app.name = devTitle;
     }
   }
 

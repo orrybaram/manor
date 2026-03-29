@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/patch-electron-name.mjs && vite",
     "build": "vite build",
     "preview": "vite preview",
     "package": "vite build && electron-builder",

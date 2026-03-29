@@ -30,11 +30,15 @@ export class TerminalHostClient {
   private streamSocket: net.Socket | null = null;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
-  private pendingRequests: Array<{
-    resolve: (resp: ControlResponse) => void;
-    reject: (err: Error) => void;
-    timeout: ReturnType<typeof setTimeout>;
-  }> = [];
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (resp: ControlResponse) => void;
+      reject: (err: Error) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private requestIdCounter = 0;
   private controlBuffer = "";
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
@@ -353,8 +357,22 @@ export class TerminalHostClient {
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
-            const resp = JSON.parse(line) as ControlResponse;
-            const pending = this.pendingRequests.shift();
+            const resp = JSON.parse(line) as ControlResponse & {
+              requestId?: string;
+            };
+            let pending;
+            if (resp.requestId && this.pendingRequests.has(resp.requestId)) {
+              // Match by request ID (robust against concurrent callers)
+              pending = this.pendingRequests.get(resp.requestId)!;
+              this.pendingRequests.delete(resp.requestId);
+            } else {
+              // FIFO fallback for daemons that don't echo requestId
+              const firstKey = this.pendingRequests.keys().next().value;
+              if (firstKey !== undefined) {
+                pending = this.pendingRequests.get(firstKey)!;
+                this.pendingRequests.delete(firstKey);
+              }
+            }
             if (pending) {
               clearTimeout(pending.timeout);
               pending.resolve(resp);
@@ -424,17 +442,18 @@ export class TerminalHostClient {
         return;
       }
 
+      const requestId = String(++this.requestIdCounter);
+
       const timeout = setTimeout(() => {
-        const idx = this.pendingRequests.findIndex(
-          (p) => p.timeout === timeout,
-        );
-        if (idx >= 0) this.pendingRequests.splice(idx, 1);
+        this.pendingRequests.delete(requestId);
         reject(new Error(`Request timed out: ${req.type}`));
         this.cleanup();
       }, timeoutMs);
 
-      this.pendingRequests.push({ resolve, reject, timeout });
-      this.controlSocket.write(JSON.stringify(req) + "\n");
+      this.pendingRequests.set(requestId, { resolve, reject, timeout });
+      this.controlSocket.write(
+        JSON.stringify({ ...req, requestId }) + "\n",
+      );
     });
   }
 
@@ -462,10 +481,10 @@ export class TerminalHostClient {
     this.streamBuffer = "";
 
     // Reject pending requests
-    for (const req of this.pendingRequests) {
+    for (const [, req] of this.pendingRequests) {
       clearTimeout(req.timeout);
       req.reject(new Error("Disconnected"));
     }
-    this.pendingRequests = [];
+    this.pendingRequests.clear();
   }
 }

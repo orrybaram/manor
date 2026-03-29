@@ -66,7 +66,7 @@ async function handleControlMessage(
   socket: net.Socket,
   line: string,
 ): Promise<void> {
-  let request: ControlRequest;
+  let request: ControlRequest & { requestId?: string };
   try {
     request = JSON.parse(line);
   } catch {
@@ -74,9 +74,12 @@ async function handleControlMessage(
     return;
   }
 
+  // Capture requestId to echo in all responses for this request
+  const requestId = request.requestId;
+
   // Auth check (except for auth request itself)
   if (request.type !== "auth" && !authenticatedSockets.has(socket)) {
-    sendResponse(socket, { type: "error", message: "Not authenticated" });
+    sendResponse(socket, { type: "error", message: "Not authenticated" }, requestId);
     return;
   }
 
@@ -85,9 +88,9 @@ async function handleControlMessage(
       const expected = readToken();
       if (request.token === expected) {
         authenticatedSockets.add(socket);
-        sendResponse(socket, { type: "authOk", version: daemonVersion });
+        sendResponse(socket, { type: "authOk", version: daemonVersion }, requestId);
       } else {
-        sendResponse(socket, { type: "error", message: "Invalid token" });
+        sendResponse(socket, { type: "error", message: "Invalid token" }, requestId);
       }
       break;
     }
@@ -101,13 +104,13 @@ async function handleControlMessage(
           request.rows,
           request.shellArgs,
         );
-        sendResponse(socket, { type: "created", session });
+        sendResponse(socket, { type: "created", session }, requestId);
       } catch (err) {
         log(`Failed to create session ${request.sessionId}: ${err}`);
         sendResponse(socket, {
           type: "error",
           message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
-        });
+        }, requestId);
       }
       break;
     }
@@ -115,55 +118,55 @@ async function handleControlMessage(
     case "attach": {
       const snapshot = await host.attach(request.sessionId, socket);
       if (snapshot) {
-        sendResponse(socket, { type: "attached", snapshot });
+        sendResponse(socket, { type: "attached", snapshot }, requestId);
       } else {
         sendResponse(socket, {
           type: "error",
           message: `Session ${request.sessionId} not found`,
-        });
+        }, requestId);
       }
       break;
     }
 
     case "detach": {
       host.detach(request.sessionId, socket);
-      sendResponse(socket, { type: "detached" });
+      sendResponse(socket, { type: "detached" }, requestId);
       break;
     }
 
     case "resize": {
       host.resize(request.sessionId, request.cols, request.rows);
-      sendResponse(socket, { type: "resized" });
+      sendResponse(socket, { type: "resized" }, requestId);
       break;
     }
 
     case "kill": {
       host.kill(request.sessionId);
-      sendResponse(socket, { type: "killed" });
+      sendResponse(socket, { type: "killed" }, requestId);
       break;
     }
 
     case "getSnapshot": {
       const snapshot = await host.getSnapshot(request.sessionId);
       if (snapshot) {
-        sendResponse(socket, { type: "snapshot", snapshot });
+        sendResponse(socket, { type: "snapshot", snapshot }, requestId);
       } else {
         sendResponse(socket, {
           type: "error",
           message: `Session ${request.sessionId} not found`,
-        });
+        }, requestId);
       }
       break;
     }
 
     case "listSessions": {
       const sessions = host.listSessions();
-      sendResponse(socket, { type: "sessions", sessions });
+      sendResponse(socket, { type: "sessions", sessions }, requestId);
       break;
     }
 
     case "ping": {
-      sendResponse(socket, { type: "pong" });
+      sendResponse(socket, { type: "pong" }, requestId);
       break;
     }
 
@@ -174,7 +177,7 @@ async function handleControlMessage(
       for (const [key, value] of Object.entries(request.env)) {
         process.env[key] = value;
       }
-      sendResponse(socket, { type: "envUpdated" });
+      sendResponse(socket, { type: "envUpdated" }, requestId);
       break;
     }
   }
@@ -213,9 +216,14 @@ async function handleStreamMessage(
   }
 }
 
-function sendResponse(socket: net.Socket, response: ControlResponse): void {
+function sendResponse(
+  socket: net.Socket,
+  response: ControlResponse,
+  requestId?: string,
+): void {
   try {
-    socket.write(JSON.stringify(response) + "\n");
+    const payload = requestId ? { ...response, requestId } : response;
+    socket.write(JSON.stringify(payload) + "\n");
   } catch {
     // socket may be closed
   }
@@ -249,9 +257,16 @@ function createSerializedHandler(
 ): (line: string) => void {
   let queue: Promise<void> = Promise.resolve();
   return (line: string) => {
+    // Extract requestId before handler runs so the catch-all can echo it
+    let requestId: string | undefined;
+    try {
+      requestId = JSON.parse(line).requestId;
+    } catch {
+      // will be handled by the handler's own JSON parse
+    }
     queue = queue.then(() => handler(line)).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
-      sendResponse(socket, { type: "error", message: `Internal error: ${message}` });
+      sendResponse(socket, { type: "error", message: `Internal error: ${message}` }, requestId);
       log(`Error handling control message: ${message}`);
     });
   };

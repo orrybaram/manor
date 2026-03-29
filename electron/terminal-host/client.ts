@@ -177,7 +177,7 @@ export class TerminalHostClient {
       });
       if (createResp.type !== "created") {
         throw new Error(
-          `Create failed: ${createResp.type === "error" ? createResp.message : "unknown"}`,
+          `Create failed: ${createResp.type === "error" ? createResp.message : `unexpected response type: ${createResp.type}`}`,
         );
       }
 
@@ -430,6 +430,7 @@ export class TerminalHostClient {
         );
         if (idx >= 0) this.pendingRequests.splice(idx, 1);
         reject(new Error(`Request timed out: ${req.type}`));
+        this.cleanup();
       }, timeoutMs);
 
       this.pendingRequests.push({ resolve, reject, timeout });

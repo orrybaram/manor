@@ -228,7 +228,7 @@ function createWindow() {
 }
 
 // Managers
-const client = new TerminalHostClient(app.getVersion());
+const client = new TerminalHostClient();
 const layoutPersistence = new LayoutPersistence();
 const projectManager = new ProjectManager();
 const themeManager = new ThemeManager();
@@ -1269,15 +1269,24 @@ app.whenReady().then(async () => {
 
   // In dev mode, include the git branch in the app name so multiple
   // instances (e.g. from different worktrees) are distinguishable in
-  // the Dock and App Switcher.
+  // the Dock, App Switcher, and Mission Control.
+  let devTitle: string | null = null;
   if (!app.isPackaged) {
     const branch = readBranchSync(process.cwd());
     if (branch) {
-      app.name = `Manor (${branch})`;
+      devTitle = `Manor (${branch})`;
+      app.name = devTitle;
     }
   }
 
   createWindow();
+
+  if (devTitle && mainWindow) {
+    mainWindow.setTitle(devTitle);
+    mainWindow.webContents.on("page-title-updated", (e) => {
+      e.preventDefault();
+    });
+  }
 
   // Initialize auto-updater
   if (mainWindow) {
@@ -1297,6 +1306,7 @@ app.whenReady().then(async () => {
   process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
+  client.setVersion(app.getVersion());
   try {
     await client.connect();
   } catch (err) {

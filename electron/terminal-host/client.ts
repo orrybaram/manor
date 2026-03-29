@@ -52,6 +52,10 @@ export class TerminalHostClient {
     this.clientVersion = version;
   }
 
+  setVersion(version: string): void {
+    this.clientVersion = version;
+  }
+
   private get daemonDir(): string {
     return path.join(MANOR_DIR, "daemons", this.clientVersion || "unknown");
   }

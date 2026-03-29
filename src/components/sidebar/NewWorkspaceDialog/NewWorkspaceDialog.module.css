@@ -178,6 +178,16 @@
   gap: 6px;
 }
 
+.branchHint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.branchHintName {
+  font-family: monospace;
+}
+
 .error {
   font-size: 12px;
   color: var(--danger);

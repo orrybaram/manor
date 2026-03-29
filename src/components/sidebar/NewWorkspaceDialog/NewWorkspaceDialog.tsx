@@ -22,20 +22,20 @@ type NewWorkspaceDialogProps = {
   onSubmit: (
     projectId: string,
     name: string,
-    branch: string,
+    branchName: string,
+    baseBranch: string,
   ) => Promise<boolean>;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
   preselectedProjectId?: string | null;
   initialName?: string;
-  initialBranch?: string;
 };
 
 export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
-  const { open, onClose, onSubmit, projects, selectedProjectIndex, preselectedProjectId, initialName = "", initialBranch = "" } = props;
+  const { open, onClose, onSubmit, projects, selectedProjectIndex, preselectedProjectId, initialName = "" } = props;
 
   const [name, setName] = useState("");
-  const [branch, setBranch] = useState("");
+  const [baseBranch, setBaseBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -58,6 +58,9 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
 
   const activeProjectId = selectedProjectId || defaultProjectId;
 
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const defaultBranch = activeProject?.defaultBranch ?? "main";
+
   // Fetch remote branches when dialog opens or project changes
   const { data: remoteBranches = [], isLoading: loadingBranches } = useQuery({
     queryKey: ["remote-branches", activeProjectId],
@@ -65,17 +68,30 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     enabled: open && !!activeProjectId,
   });
 
-  const filteredBranches = branch.trim()
-    ? remoteBranches.filter((b) =>
-        b.toLowerCase().includes(branch.trim().toLowerCase()),
+  // Build the dropdown item list:
+  // 1. defaultBranch (local)
+  // 2. origin/{defaultBranch}
+  // 3. all other remote branches prefixed with "origin/" (skip one matching defaultBranch)
+  const allBranchOptions = [
+    defaultBranch,
+    `origin/${defaultBranch}`,
+    ...remoteBranches
+      .filter((b) => b !== defaultBranch)
+      .map((b) => `origin/${b}`),
+  ];
+
+  const filteredBranches = baseBranch.trim()
+    ? allBranchOptions.filter((b) =>
+        b.toLowerCase().includes(baseBranch.trim().toLowerCase()),
       )
-    : remoteBranches;
+    : allBranchOptions;
 
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
       setName(initialName);
-      setBranch(initialBranch);
+      const proj = projects.find((p) => p.id === (preselectedProjectId || projects[selectedProjectIndex]?.id || ""));
+      setBaseBranch(proj?.defaultBranch ?? "main");
       setSelectedProjectId(defaultProjectId);
       setError(null);
       setIsCreating(false);
@@ -83,25 +99,22 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setHighlightIndex(-1);
       nameRef.current?.focus();
     },
-    [defaultProjectId, initialName, initialBranch],
+    [defaultProjectId, initialName, preselectedProjectId, projects, selectedProjectIndex],
   );
 
-  const selectBranch = useCallback(
+  const selectBranchOption = useCallback(
     (branchName: string) => {
-      setBranch(branchName);
-      if (!name.trim()) {
-        setName(branchName);
-      }
+      setBaseBranch(branchName);
       setShowDropdown(false);
       setHighlightIndex(-1);
     },
-    [name],
+    [],
   );
 
   const handleBranchKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (!showDropdown || filteredBranches.length === 0) {
-        if (e.key === "ArrowDown" && remoteBranches.length > 0) {
+        if (e.key === "ArrowDown" && allBranchOptions.length > 0) {
           e.preventDefault();
           setShowDropdown(true);
           setHighlightIndex(0);
@@ -125,7 +138,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         case "Enter":
           if (highlightIndex >= 0 && highlightIndex < filteredBranches.length) {
             e.preventDefault();
-            selectBranch(filteredBranches[highlightIndex]);
+            selectBranchOption(filteredBranches[highlightIndex]);
           }
           break;
         case "Escape":
@@ -135,7 +148,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           break;
       }
     },
-    [showDropdown, filteredBranches, highlightIndex, remoteBranches, selectBranch],
+    [showDropdown, filteredBranches, highlightIndex, allBranchOptions, selectBranchOption],
   );
 
   const handleSubmit = useCallback(
@@ -151,8 +164,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError("Name must be 200 characters or fewer");
         return;
       }
-      const trimmedBranch = branch.trim();
-      const branchName = trimmedBranch || slugify(trimmedName);
+      const branchName = slugify(trimmedName);
       if (!branchName) {
         setError("Could not derive a valid branch name");
         return;
@@ -164,13 +176,15 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       }
       setError(null);
       setIsCreating(true);
-      const success = await onSubmit(projectId, trimmedName, branchName);
+      const success = await onSubmit(projectId, trimmedName, branchName, baseBranch);
       if (!success) {
         setIsCreating(false);
       }
     },
-    [name, branch, activeProjectId, onSubmit, isCreating],
+    [name, baseBranch, activeProjectId, onSubmit, isCreating],
   );
+
+  const derivedBranchName = slugify(name);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -227,20 +241,25 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                 }}
                 placeholder="my-feature"
               />
-              <label className={styles.fieldLabel}>Branch</label>
+              {name.trim() && derivedBranchName && (
+                <div className={styles.branchHint}>
+                  Branch: <span className={styles.branchHintName}>{derivedBranchName}</span>
+                </div>
+              )}
+              <label className={styles.fieldLabel}>Base branch</label>
               <div className={styles.comboboxWrapper}>
                 <input
                   ref={branchRef}
                   className={styles.fieldInput}
                   type="text"
-                  value={branch}
+                  value={baseBranch}
                   onChange={(e) => {
-                    setBranch(e.target.value);
+                    setBaseBranch(e.target.value);
                     setShowDropdown(true);
                     setHighlightIndex(-1);
                   }}
                   onFocus={() => {
-                    if (remoteBranches.length > 0) setShowDropdown(true);
+                    setShowDropdown(true);
                   }}
                   onBlur={() => {
                     // Delay to allow click on dropdown item
@@ -259,9 +278,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       </div>
                     ) : filteredBranches.length === 0 ? (
                       <div className={styles.dropdownMessage}>
-                        {remoteBranches.length === 0
-                          ? "No remote branches found"
-                          : "No matching branches"}
+                        No matching branches
                       </div>
                     ) : (
                       filteredBranches.map((b, i) => (
@@ -271,7 +288,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                           className={`${styles.dropdownItem} ${i === highlightIndex ? styles.dropdownItemHighlighted : ""}`}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            selectBranch(b);
+                            selectBranchOption(b);
                           }}
                           onMouseEnter={() => setHighlightIndex(i)}
                         >

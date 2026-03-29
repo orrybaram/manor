@@ -549,8 +549,7 @@ function App() {
           selectedProjectIndex={selectedProjectIndex}
           preselectedProjectId={preselectedProjectId}
           initialName={initialName}
-          initialBranch={initialBranch}
-          onSubmit={async (projectId, name, branch) => {
+          onSubmit={async (projectId, name, branch, baseBranch) => {
             let agentCommand: string | undefined;
             const prompt = agentPromptRef.current;
             if (prompt) {
@@ -570,6 +569,7 @@ function App() {
               branch,
               agentCommand,
               pendingLinkedIssueRef.current ?? undefined,
+              baseBranch,
             );
             if (result) {
               // Ensure the project is selected so the new workspace is visible

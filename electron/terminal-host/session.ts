@@ -347,7 +347,21 @@ export class Session {
   private flushHeadless(): Promise<void> {
     if (this.headlessWritesPending === 0) return Promise.resolve();
     return new Promise((resolve) => {
-      this.headlessFlushCallbacks.push(resolve);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.warn(
+          `[Session ${this.sessionId}] flushHeadless timed out after 2s with ${this.headlessWritesPending} pending write(s) — resolving anyway`,
+        );
+        resolve();
+      }, 2000);
+      this.headlessFlushCallbacks.push(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
 

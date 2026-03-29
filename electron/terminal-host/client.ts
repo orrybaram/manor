@@ -39,6 +39,9 @@ export class TerminalHostClient {
     }
   >();
   private requestIdCounter = 0;
+  /** Serializes control requests so only one is in-flight at a time,
+   *  preventing FIFO response mismatch from concurrent callers. */
+  private requestMutex: Promise<void> = Promise.resolve();
   private controlBuffer = "";
   private streamBuffer = "";
   private eventHandler: StreamEventHandler | null = null;
@@ -436,6 +439,24 @@ export class TerminalHostClient {
     req: ControlRequest,
     timeoutMs = 10_000,
   ): Promise<ControlResponse> {
+    // Serialize requests through a mutex so only one is in-flight at a time.
+    // This guarantees the FIFO response queue stays in sync even when
+    // multiple concurrent callers (IPC handlers) share this client.
+    const result = this.requestMutex.then(
+      () => this.doRequest(req, timeoutMs),
+    );
+    // Chain the mutex — next request waits for this one to settle
+    this.requestMutex = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
+  }
+
+  private doRequest(
+    req: ControlRequest,
+    timeoutMs: number,
+  ): Promise<ControlResponse> {
     return new Promise((resolve, reject) => {
       if (!this.controlSocket?.writable) {
         reject(new Error("Control socket not writable"));
@@ -476,9 +497,10 @@ export class TerminalHostClient {
     this.controlSocket = null;
     this.streamSocket = null;
 
-    // Reset buffers so stale partial data doesn't corrupt the next connection
+    // Reset buffers and mutex so stale state doesn't corrupt the next connection
     this.controlBuffer = "";
     this.streamBuffer = "";
+    this.requestMutex = Promise.resolve();
 
     // Reject pending requests
     for (const [, req] of this.pendingRequests) {

@@ -13,10 +13,9 @@ import path from "node:path";
 if (process.platform !== "darwin") process.exit(0);
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const PLIST = path.join(
-  ROOT,
-  "node_modules/electron/dist/Electron.app/Contents/Info.plist",
-);
+const ELECTRON_DIR = path.join(ROOT, "node_modules/electron");
+const DIST = path.join(ELECTRON_DIR, "dist");
+const PLIST = path.join(DIST, "Electron.app/Contents/Info.plist");
 
 function getBranch() {
   try {
@@ -49,10 +48,41 @@ function getBranch() {
 
 const branch = getBranch();
 const name = branch ? `Manor (${branch})` : "Manor";
+// Unique bundle ID per branch so macOS treats each worktree as a separate app
+const slug = (branch ?? "dev").replace(/[^a-zA-Z0-9-]/g, "-");
+const bundleId = `com.manor.dev.${slug}`;
 
 try {
-  execFileSync("/usr/libexec/PlistBuddy", ["-c", `Set :CFBundleDisplayName ${name}`, "-c", `Set :CFBundleName ${name}`, PLIST]);
-  console.log(`[patch-electron-name] → ${name}`);
+  execFileSync("/usr/libexec/PlistBuddy", [
+    "-c", `Set :CFBundleDisplayName ${name}`,
+    "-c", `Set :CFBundleName ${name}`,
+    "-c", `Set :CFBundleIdentifier ${bundleId}`,
+    PLIST,
+  ]);
 } catch (e) {
   console.warn("[patch-electron-name] Failed to patch plist:", e.message);
+  process.exit(0);
+}
+
+// Create a symlink with the desired name so macOS shows it in the Dock.
+// The Dock label comes from the .app folder name, not the plist.
+const appBundle = `${name}.app`;
+const symlinkPath = path.join(DIST, appBundle);
+const pathTxt = path.join(ELECTRON_DIR, "path.txt");
+
+try {
+  // Remove stale symlinks from previous branches
+  for (const entry of fs.readdirSync(DIST)) {
+    const p = path.join(DIST, entry);
+    if (entry !== "Electron.app" && entry.endsWith(".app") && entry.startsWith("Manor")) {
+      try { fs.unlinkSync(p); } catch {}
+    }
+  }
+
+  fs.symlinkSync("Electron.app", symlinkPath);
+
+  fs.writeFileSync(pathTxt, `${appBundle}/Contents/MacOS/Electron`);
+  console.log(`[patch-electron-name] → ${name} (${bundleId})`);
+} catch (e) {
+  console.warn("[patch-electron-name] Failed to create app symlink:", e.message);
 }

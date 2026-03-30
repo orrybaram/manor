@@ -227,5 +227,5 @@ export function useTerminalLifecycle(
     };
   });
 
-  return { term, fitAddon, ptyError };
+  return { term, fitAddon, ptyError, write };
 }

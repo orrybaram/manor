@@ -705,6 +705,57 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "diffs:getLocalDiff",
+  async (_event, wsPath: string) => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+
+    try {
+      // Staged + unstaged changes relative to HEAD
+      const { stdout } = await execFileAsync(
+        "git",
+        ["diff", "--no-color", "HEAD"],
+        { cwd: wsPath, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+      );
+
+      // Include untracked files as "new file" diffs
+      let untrackedDiff = "";
+      try {
+        const { stdout: untrackedOut } = await execFileAsync(
+          "git",
+          ["ls-files", "--others", "--exclude-standard"],
+          { cwd: wsPath, timeout: 5000 },
+        );
+        const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
+        const { readFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+
+        for (const filePath of untrackedFiles) {
+          try {
+            const content = await readFile(join(wsPath, filePath), "utf-8");
+            const lines = content.split("\n");
+            if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+            const hunk = `@@ -0,0 +1,${lines.length} @@`;
+            const addedLines = lines.map((l) => `+${l}`).join("\n");
+            untrackedDiff += `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
+          } catch {
+            // Skip files that can't be read
+          }
+        }
+      } catch {
+        // If ls-files fails, just return the regular diff
+      }
+
+      const result = stdout + untrackedDiff;
+      return result.trim() === "" ? null : result;
+    } catch {
+      return null;
+    }
+  },
+);
+
 // ── GitHub IPC ──
 ipcMain.handle(
   "github:getPrForBranch",

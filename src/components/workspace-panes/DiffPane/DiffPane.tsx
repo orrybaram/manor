@@ -1,6 +1,8 @@
 import { createElement, useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import FileEdit from "lucide-react/dist/esm/icons/file-edit";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -424,6 +426,8 @@ function FileList({
 
 // ── Main ──
 
+type DiffMode = "local" | "branch";
+
 type DiffPaneProps = {
   workspacePath?: string;
 };
@@ -432,6 +436,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   const [raw, setRaw] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [diffMode, setDiffMode] = useState<DiffMode>("local");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -500,8 +505,11 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
     let cancelled = false;
 
     const fetchDiff = () => {
-      window.electronAPI.diffs
-        .getFullDiff(workspacePath, defaultBranch)
+      const promise = diffMode === "local"
+        ? window.electronAPI.diffs.getLocalDiff(workspacePath)
+        : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch);
+
+      promise
         .then((result) => {
           if (cancelled) return;
           if (!result || result.trim() === "") {
@@ -531,7 +539,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [workspacePath, defaultBranch]);
+  }, [workspacePath, defaultBranch, diffMode]);
 
   const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
@@ -647,6 +655,22 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           onClose={handleSearchClose}
         />
       )}
+      <div className={styles.modeToggle}>
+        <button
+          className={`${styles.modeBtn} ${diffMode === "local" ? styles.modeBtnActive : ""}`}
+          onClick={() => setDiffMode("local")}
+        >
+          <FileEdit size={12} />
+          Local Changes
+        </button>
+        <button
+          className={`${styles.modeBtn} ${diffMode === "branch" ? styles.modeBtnActive : ""}`}
+          onClick={() => setDiffMode("branch")}
+        >
+          <GitBranch size={12} />
+          Branch Diff
+        </button>
+      </div>
       <FileList files={files} onSelectFile={scrollToFile} animationState={animationState} />
       {files.map((file) => (
         <ContextMenu.Root key={file.path} onOpenChange={(open) => {

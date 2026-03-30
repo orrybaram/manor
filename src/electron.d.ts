@@ -286,6 +286,7 @@ export interface ElectronAPI {
       wsPath: string,
       defaultBranch: string,
     ) => Promise<string | null>;
+    getLocalDiff: (wsPath: string) => Promise<string | null>;
   };
 
   github: {

@@ -149,6 +149,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => onChannel("diffs-changed", callback),
     getFullDiff: (wsPath: string, defaultBranch: string) =>
       ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
+    getLocalDiff: (wsPath: string) =>
+      ipcRenderer.invoke("diffs:getLocalDiff", wsPath),
   },
 
   github: {

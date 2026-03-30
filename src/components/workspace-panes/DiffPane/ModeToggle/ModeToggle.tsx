@@ -11,14 +11,14 @@ export function ModeToggle({ diffMode, onModeChange }: { diffMode: DiffMode; onM
         onClick={() => onModeChange("local")}
       >
         <PencilLine size={12} />
-        Local Changes
+        Uncommitted
       </button>
       <button
         className={`${styles.modeBtn} ${diffMode === "branch" ? styles.modeBtnActive : ""}`}
         onClick={() => onModeChange("branch")}
       >
         <GitBranch size={12} />
-        Branch Diff
+        Branch
       </button>
     </div>
   );

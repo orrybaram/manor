@@ -75,3 +75,119 @@
     background-color: transparent;
   }
 }
+
+.fileListItemSelected {
+  background: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
+}
+
+.checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent, var(--blue));
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Context menu — same pattern as DiffPane.module.css */
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
+.contextMenuItemDestructive:hover,
+.contextMenuItemDestructive[data-highlighted] {
+  background: var(--red);
+  color: var(--text-selected);
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.selectionInfo {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Confirm modal */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.confirmDialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 360px;
+  max-width: 480px;
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 101;
+}
+
+.confirmTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+
+.confirmDescription {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+
+.confirmFileList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.confirmFileList code {
+  display: block;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

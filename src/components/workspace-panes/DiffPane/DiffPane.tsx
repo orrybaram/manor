@@ -25,6 +25,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   const [diffMode, setDiffMode] = useState<DiffMode>("local");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
@@ -161,6 +162,11 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
     return () => clearTimeout(timer);
   }, [animationState]);
 
+  // Clear selection when diff mode changes
+  useEffect(() => {
+    setSelectedFiles(new Set());
+  }, [diffMode]);
+
   // Compute per-file match offsets and total
   const { fileOffsets, totalMatches } = useMemo(() => {
     if (!searchQuery) return { fileOffsets: new Map<string, number>(), totalMatches: 0 };
@@ -237,7 +243,15 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
         />
       )}
       <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
-      <FileList files={files} onSelectFile={scrollToFile} animationState={animationState} />
+      <FileList
+        files={files}
+        onSelectFile={scrollToFile}
+        animationState={animationState}
+        diffMode={diffMode}
+        workspacePath={workspacePath}
+        selectedFiles={selectedFiles}
+        onSelectionChange={setSelectedFiles}
+      />
       {files.map((file) => (
         <ContextMenu.Root key={file.path} onOpenChange={(open) => {
           if (open) savedSelection.current = window.getSelection()?.toString() ?? "";

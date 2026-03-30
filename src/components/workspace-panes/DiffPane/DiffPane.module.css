@@ -395,3 +395,40 @@
   background: var(--border);
 }
 
+/* ── Animations ── */
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes highlightPulse {
+  from {
+    background-color: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.fileNew {
+  animation: fadeSlideIn 300ms ease forwards;
+}
+
+.fileUpdated .fileHeader {
+  animation: highlightPulse 400ms ease forwards;
+}
+
+.fileListItemNew {
+  animation: fadeSlideIn 300ms ease forwards;
+}
+
+.fileListItemUpdated {
+  animation: highlightPulse 400ms ease forwards;
+}

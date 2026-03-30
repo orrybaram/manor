@@ -9,6 +9,7 @@ import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
+import { DiffPane } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
@@ -171,7 +172,9 @@ export function LeafPane(props: LeafPaneProps) {
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
         onPointerDown={handleStatusBarPointerDown}
       >
-        {contentType === "browser" ? (
+        {contentType === "diff" ? (
+          <span className={styles.paneStatusTitle}>Diff</span>
+        ) : contentType === "browser" ? (
           <div className={styles.paneNavControls}>
             <Tooltip label="Back">
               <button
@@ -314,7 +317,9 @@ export function LeafPane(props: LeafPaneProps) {
         </div>
       )}
       <div className={`${styles.leafTerminal} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
-        {contentType === "browser" ? (
+        {contentType === "diff" ? (
+          <DiffPane workspacePath={workspacePath} />
+        ) : contentType === "browser" ? (
           <>
             <BrowserPane
               ref={browserRef}

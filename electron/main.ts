@@ -646,6 +646,35 @@ ipcMain.handle("diffs:stop", () => {
   diffWatcher.stop();
 });
 
+ipcMain.handle(
+  "diffs:getFullDiff",
+  async (_event, wsPath: string, defaultBranch: string) => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    const refs = [`origin/${defaultBranch}`, defaultBranch];
+    for (const ref of refs) {
+      try {
+        const { stdout: mergeBaseOut } = await execFileAsync(
+          "git",
+          ["merge-base", ref, "HEAD"],
+          { cwd: wsPath, timeout: 5000 },
+        );
+        const mergeBase = mergeBaseOut.trim();
+        const { stdout } = await execFileAsync(
+          "git",
+          ["diff", "--no-color", mergeBase],
+          { cwd: wsPath, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+        );
+        return stdout;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  },
+);
+
 // ── GitHub IPC ──
 ipcMain.handle(
   "github:getPrForBranch",

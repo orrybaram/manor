@@ -305,6 +305,14 @@
   color: var(--red);
 }
 
+.diffStatsClickable {
+  cursor: pointer;
+}
+
+.diffStatsClickable:hover {
+  background: var(--hover);
+}
+
 .prBadge {
   flex-shrink: 0;
   margin-left: auto;

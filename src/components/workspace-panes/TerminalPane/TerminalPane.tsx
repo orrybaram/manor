@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import "@xterm/xterm/css/xterm.css";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
+import { Row } from "../../ui/Layout/Layout";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -37,7 +38,7 @@ export function TerminalPane(props: TerminalPaneProps) {
               grant access to Manor under <strong>Full Disk Access</strong> or{" "}
               <strong>Developer Tools</strong>.
             </p>
-            <div className={styles.errorActions}>
+            <Row gap="sm" className={styles.errorActions}>
               <button
                 className={styles.errorButton}
                 onClick={() => {
@@ -53,7 +54,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                   Dismiss
                 </button>
               </Dialog.Close>
-            </div>
+            </Row>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

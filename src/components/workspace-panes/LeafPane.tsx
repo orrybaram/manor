@@ -11,6 +11,7 @@ import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { useMountEffect } from "../../hooks/useMountEffect";
 
@@ -245,7 +246,7 @@ export function LeafPane(props: LeafPaneProps) {
         ) : (
           <span className={styles.paneStatusTitle}>{title}</span>
         )}
-        <div className={styles.paneStatusActions}>
+        <Row align="center" gap="2xs" className={styles.paneStatusActions}>
           <button
             className={styles.paneStatusBtn}
             onClick={handleSplit}
@@ -296,7 +297,7 @@ export function LeafPane(props: LeafPaneProps) {
               />
             </svg>
           </button>
-        </div>
+        </Row>
       </div>
       {contentType === "browser" && navState && navState.suggestions.length > 0 && (
         <div className={browserStyles.autocompleteDropdown}>

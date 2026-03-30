@@ -1,4 +1,5 @@
 import { Switch } from "../ui/Switch/Switch";
+import { Select } from "@/components/ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import { usePreferencesStore } from "../../store/preferences-store";
 
@@ -52,8 +53,7 @@ export function NotificationsPage() {
 
         <div className={styles.notifRow}>
           <span>Notification sound</span>
-          <select
-            className={styles.soundSelect}
+          <Select
             value={
               preferences.notificationSound === false
                 ? "none"
@@ -82,7 +82,7 @@ export function NotificationsPage() {
             <option value="Sosumi">Sosumi</option>
             <option value="Submarine">Submarine</option>
             <option value="Tink">Tink</option>
-          </select>
+          </Select>
         </div>
 
         {isMac && (

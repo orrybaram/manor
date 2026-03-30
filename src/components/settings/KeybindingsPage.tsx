@@ -3,6 +3,7 @@ import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useKeybindingsStore } from "../../store/keybindings-store";
+import { Input } from "@/components/ui/Input";
 import {
   DEFAULT_KEYBINDINGS,
   KeyCombo,
@@ -96,7 +97,7 @@ export function KeybindingsPage() {
     <div className={styles.pageContent}>
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Keybindings</div>
-        <input
+        <Input
           className={styles.keybindingsSearch}
           type="text"
           placeholder="Search keybindings..."

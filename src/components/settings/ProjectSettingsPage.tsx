@@ -12,6 +12,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
+import { Input, Textarea } from "@/components/ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const scriptFields: Array<{
@@ -130,7 +131,7 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   return (
     <div>
       <label className={styles.fieldLabel}>Theme</label>
-      <input
+      <Input
         className={styles.themeSearch}
         type="text"
         placeholder="Search themes..."
@@ -271,9 +272,8 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>General</div>
         <label className={styles.fieldLabel}>Name</label>
-        <input
+        <Input
           ref={nameRef}
-          className={styles.fieldInput}
           defaultValue={project.name}
           onBlur={() => handleBlur("name")}
         />
@@ -308,9 +308,8 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Agent</div>
         <label className={styles.fieldLabel}>Agent Command</label>
-        <input
+        <Input
           ref={agentCommandRef}
-          className={styles.fieldInput}
           defaultValue={project.agentCommand ?? ""}
           onBlur={() => handleBlur("agentCommand")}
           placeholder={DEFAULT_AGENT_COMMAND}
@@ -387,9 +386,8 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Worktrees</div>
         <label className={styles.fieldLabel}>Worktree Path</label>
-        <input
+        <Input
           ref={worktreePathRef}
-          className={styles.fieldInput}
           defaultValue={project.worktreePath ?? ""}
           onBlur={() => handleBlur("worktreePath")}
           placeholder={defaultWorktreePath(project.name)}
@@ -401,11 +399,11 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         {worktreeScriptFields.map(({ field, label, placeholder }) => (
           <div key={field}>
             <label className={styles.fieldLabel}>{label}</label>
-            <textarea
+            <Textarea
               ref={(el) => {
                 fieldRefs.current[field] = el;
               }}
-              className={`${styles.fieldInput} ${styles.fieldTextarea}`}
+              monospace
               defaultValue={project[field] ?? ""}
               onBlur={() => handleBlur(field)}
               placeholder={placeholder}
@@ -420,11 +418,11 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         {scriptFields.map(({ field, label, placeholder }) => (
           <div key={field}>
             <label className={styles.fieldLabel}>{label}</label>
-            <textarea
+            <Textarea
               ref={(el) => {
                 fieldRefs.current[field] = el;
               }}
-              className={`${styles.fieldInput} ${styles.fieldTextarea}`}
+              monospace
               defaultValue={project[field] ?? ""}
               onBlur={() => handleBlur(field)}
               placeholder={placeholder}

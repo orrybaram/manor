@@ -4,6 +4,7 @@ import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { Input } from "@/components/ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function LinearIntegrationSection() {
@@ -96,8 +97,7 @@ export function LinearIntegrationSection() {
       ) : (
         <div className={styles.linearDisconnected}>
           <div className={styles.linearInputRow}>
-            <input
-              className={styles.fieldInput}
+            <Input
               type="password"
               placeholder="Paste your Linear API key"
               value={apiKey}

@@ -1,5 +1,6 @@
 import { usePreferencesStore } from "../../store/preferences-store";
 import { ThemeSection } from "./ThemeSection";
+import { Input } from "@/components/ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function AppSettingsPage() {
@@ -12,8 +13,7 @@ export function AppSettingsPage() {
       <div className={styles.settingsGroup}>
         <div className={styles.sectionTitle}>Editor</div>
         <div className={styles.fieldLabel}>Default editor command</div>
-        <input
-          className={styles.fieldInput}
+        <Input
           type="text"
           placeholder="e.g. code, cursor, zed"
           value={preferences.defaultEditor}

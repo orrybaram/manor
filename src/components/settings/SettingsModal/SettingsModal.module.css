@@ -258,22 +258,6 @@
   color: var(--text-selected);
 }
 
-.soundSelect {
-  padding: 5px 8px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.soundSelect:focus {
-  border-color: var(--accent);
-}
-
 /* ── Form fields ── */
 
 .fieldLabel {
@@ -285,33 +269,6 @@
 
 .fieldLabel:first-of-type {
   margin-top: 0;
-}
-
-.fieldInput {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-}
-
-.fieldInput::placeholder {
-  color: var(--text-dim);
-}
-
-.fieldInput:focus {
-  border-color: var(--accent);
-}
-
-.fieldTextarea {
-  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
-  resize: vertical;
-  line-height: 1.5;
-  min-height: 80px;
 }
 
 .fieldHint {
@@ -349,14 +306,44 @@
 }
 
 .commandNameInput {
-  composes: fieldInput;
   width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
   flex-shrink: 0;
 }
 
+.commandNameInput::placeholder {
+  color: var(--text-dim);
+}
+
+.commandNameInput:focus {
+  border-color: var(--accent);
+}
+
 .commandCmdInput {
-  composes: fieldInput;
   flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.commandCmdInput::placeholder {
+  color: var(--text-dim);
+}
+
+.commandCmdInput:focus {
+  border-color: var(--accent);
 }
 
 .commandDeleteBtn {
@@ -398,7 +385,6 @@
 /* ── Theme picker ── */
 
 .themeSearch {
-  composes: fieldInput;
   margin-bottom: 8px;
 }
 
@@ -538,7 +524,7 @@
   gap: 8px;
 }
 
-.linearInputRow .fieldInput {
+.linearInputRow input {
   flex: 1;
 }
 
@@ -672,7 +658,6 @@
 /* ── Keybindings ── */
 
 .keybindingsSearch {
-  composes: fieldInput;
   margin-bottom: 12px;
 }
 

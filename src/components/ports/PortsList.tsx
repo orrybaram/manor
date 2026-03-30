@@ -3,6 +3,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import EthernetPort from "lucide-react/dist/esm/icons/ethernet-port";
 import { usePortsData } from "./usePortsData";
 import { useProjectStore, MIN_PORTS_HEIGHT } from "../../store/project-store";
+import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PortGroup } from "./PortGroup";
 import styles from "../sidebar/Sidebar/Sidebar.module.css";
 
@@ -19,6 +20,7 @@ export function PortsList() {
     (e: React.MouseEvent) => {
       e.preventDefault();
       setIsResizing(true);
+      useDragOverlayStore.getState().incrementDragCount();
       startY.current = e.clientY;
       startHeight.current = portsHeight;
 
@@ -34,14 +36,17 @@ export function PortsList() {
         }
       };
 
-      const onMouseUp = () => {
+      const cleanup = () => {
+        useDragOverlayStore.getState().decrementDragCount();
         setIsResizing(false);
         document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+        document.removeEventListener("mouseup", cleanup);
+        window.removeEventListener("blur", cleanup);
       };
 
       document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      document.addEventListener("mouseup", cleanup);
+      window.addEventListener("blur", cleanup);
     },
     [portsHeight, setPortsHeight],
   );

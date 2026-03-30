@@ -42,15 +42,17 @@ export function SplitLayout(props: SplitLayoutProps) {
         setCurrentRatio(newRatio);
       };
 
-      const onMouseUp = () => {
+      const cleanup = () => {
         useDragOverlayStore.getState().decrementDragCount();
         setIsDragging(false);
         document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+        document.removeEventListener("mouseup", cleanup);
+        window.removeEventListener("blur", cleanup);
       };
 
       document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      document.addEventListener("mouseup", cleanup);
+      window.addEventListener("blur", cleanup);
     },
     [isHorizontal],
   );

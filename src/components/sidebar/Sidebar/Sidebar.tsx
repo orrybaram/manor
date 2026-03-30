@@ -9,6 +9,7 @@ import Boxes from "lucide-react/dist/esm/icons/boxes";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
   quickMergeWorktreeWithToast,
@@ -90,6 +91,7 @@ export function Sidebar(props: SidebarProps) {
 
         if (!projDragActive.current) {
           projDragActive.current = true;
+          useDragOverlayStore.getState().incrementDragCount();
           setProjDragIndex(idx);
           setProjDropIndex(idx);
         }
@@ -128,6 +130,7 @@ export function Sidebar(props: SidebarProps) {
         target.removeEventListener("lostpointercapture", onUp);
 
         if (projDragActive.current) {
+          useDragOverlayStore.getState().decrementDragCount();
           projJustDragged.current = true;
           const finalDrop = projDropIndexRef.current ?? idx;
           if (finalDrop !== idx) {
@@ -191,20 +194,24 @@ export function Sidebar(props: SidebarProps) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       setIsResizing(true);
+      useDragOverlayStore.getState().incrementDragCount();
 
       const onMouseMove = (ev: MouseEvent) => {
         const newWidth = Math.max(160, Math.min(400, ev.clientX));
         setSidebarWidth(newWidth);
       };
 
-      const onMouseUp = () => {
+      const cleanup = () => {
+        useDragOverlayStore.getState().decrementDragCount();
         setIsResizing(false);
         document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+        document.removeEventListener("mouseup", cleanup);
+        window.removeEventListener("blur", cleanup);
       };
 
       document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      document.addEventListener("mouseup", cleanup);
+      window.addEventListener("blur", cleanup);
     },
     [setSidebarWidth],
   );

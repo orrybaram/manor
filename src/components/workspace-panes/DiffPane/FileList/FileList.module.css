@@ -19,7 +19,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 12px;
+  padding: 8px 12px;
   font-size: 12px;
   cursor: pointer;
 }
@@ -96,7 +96,11 @@
 
 @keyframes highlightPulse {
   from {
-    background-color: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
+    background-color: color-mix(
+      in srgb,
+      var(--accent, var(--blue)) 15%,
+      transparent
+    );
   }
   to {
     background-color: transparent;

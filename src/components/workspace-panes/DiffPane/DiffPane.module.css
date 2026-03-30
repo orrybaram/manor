@@ -56,7 +56,6 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   margin: 8px;
-  overflow: hidden;
 }
 
 .fileHeader {
@@ -68,6 +67,10 @@
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  border-radius: 6px 6px 0 0;
 }
 
 .fileHeader:hover {
@@ -118,6 +121,8 @@
   font-size: 12px;
   line-height: 1.5;
   table-layout: fixed;
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
 }
 
 .lineNum {
@@ -350,5 +355,41 @@
 .lineContent :global(.token.important),
 .lineContent :global(.token.variable) {
   color: var(--yellow);
+}
+
+/* ── Context menu ── */
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
 }
 

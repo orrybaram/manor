@@ -1,9 +1,12 @@
 import { createElement, useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
+import Clipboard from "lucide-react/dist/esm/icons/clipboard";
+import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import X from "lucide-react/dist/esm/icons/x";
 import type { RootContent, Element as HastElement } from "hast";
 import { useProjectStore } from "../../../store/project-store";
@@ -592,52 +595,82 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
       )}
       <FileList files={files} onSelectFile={scrollToFile} />
       {files.map((file) => (
-        <div
-          key={file.path}
-          className={styles.file}
-          ref={(el) => { if (el) fileRefs.current.set(file.path, el); else fileRefs.current.delete(file.path); }}
-          onCopy={(e) => {
-            const sel = window.getSelection();
-            if (!sel || sel.isCollapsed) return;
+        <ContextMenu.Root key={file.path}>
+          <ContextMenu.Trigger asChild>
+            <div
+              className={styles.file}
+              ref={(el) => { if (el) fileRefs.current.set(file.path, el); else fileRefs.current.delete(file.path); }}
+              onCopy={(e) => {
+                const sel = window.getSelection();
+                if (!sel || sel.isCollapsed) return;
 
-            e.preventDefault();
+                e.preventDefault();
 
-            // Walk selected table rows to extract line numbers + content
-            const range = sel.getRangeAt(0);
-            const ancestor = range.commonAncestorContainer instanceof HTMLElement
-              ? range.commonAncestorContainer
-              : range.commonAncestorContainer.parentElement;
-            const table = ancestor?.closest("table") ?? ancestor?.querySelector("table");
-            const rows = table?.querySelectorAll("tr");
+                // Walk selected table rows to extract line numbers + content
+                const range = sel.getRangeAt(0);
+                const ancestor = range.commonAncestorContainer instanceof HTMLElement
+                  ? range.commonAncestorContainer
+                  : range.commonAncestorContainer.parentElement;
+                const table = ancestor?.closest("table") ?? ancestor?.querySelector("table");
+                const rows = table?.querySelectorAll("tr");
 
-            const lines: string[] = [];
-            if (rows) {
-              for (const row of rows) {
-                if (!sel.containsNode(row, true)) continue;
-                const numCell = row.querySelector("td:first-child");
-                const contentCell = row.querySelector("td:last-child");
-                if (!contentCell) continue;
-                const num = numCell?.textContent?.trim() ?? "";
-                const content = contentCell?.textContent ?? "";
-                lines.push(num ? `${num}: ${content}` : content);
-              }
-            }
+                const lines: string[] = [];
+                if (rows) {
+                  for (const row of rows) {
+                    if (!sel.containsNode(row, true)) continue;
+                    const numCell = row.querySelector("td:first-child");
+                    const contentCell = row.querySelector("td:last-child");
+                    if (!contentCell) continue;
+                    const num = numCell?.textContent?.trim() ?? "";
+                    const content = contentCell?.textContent ?? "";
+                    lines.push(num ? `${num}: ${content}` : content);
+                  }
+                }
 
-            const body = lines.length > 0 ? lines.join("\n") : sel.toString();
-            e.clipboardData.setData("text/plain", `${file.path}\n${body}`);
-          }}
-        >
-          <FileHeader file={file} collapsed={collapsed.has(file.path)} onToggle={() => toggleFile(file.path)} />
-          {!collapsed.has(file.path) && (
-            <DiffLines
-              lines={file.lines}
-              filePath={file.path}
-              searchQuery={searchQuery}
-              matchOffset={fileOffsets.get(file.path) ?? 0}
-              currentMatch={currentMatch}
-            />
-          )}
-        </div>
+                const body = lines.length > 0 ? lines.join("\n") : sel.toString();
+                e.clipboardData.setData("text/plain", `${file.path}\n${body}`);
+              }}
+            >
+              <FileHeader file={file} collapsed={collapsed.has(file.path)} onToggle={() => toggleFile(file.path)} />
+              {!collapsed.has(file.path) && (
+                <DiffLines
+                  lines={file.lines}
+                  filePath={file.path}
+                  searchQuery={searchQuery}
+                  matchOffset={fileOffsets.get(file.path) ?? 0}
+                  currentMatch={currentMatch}
+                />
+              )}
+            </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content className={styles.contextMenu}>
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={() => {
+                  navigator.clipboard.writeText(window.getSelection()?.toString() ?? "");
+                }}
+              >
+                <Clipboard size={14} />
+                Copy
+              </ContextMenu.Item>
+              {workspacePath && (
+                <>
+                  <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => {
+                      window.electronAPI.shell.openInEditor(`${workspacePath}/${file.path}`);
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                    Open in Editor
+                  </ContextMenu.Item>
+                </>
+              )}
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
       ))}
       {showBackToTop && (
         <button className={styles.backToTop} onClick={scrollToTop} aria-label="Back to top">

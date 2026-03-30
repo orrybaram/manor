@@ -46,6 +46,7 @@ export function PaneDragProvider(props: PaneDragProviderProps) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePaneDrag() {
   return useContext(PaneDragContext);
 }

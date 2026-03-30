@@ -165,8 +165,8 @@ export function useTerminalLifecycle(
 
             // Fire-and-forget call to set pane context
             window.electronAPI.tasks.setPaneContext(paneId, {
-              projectId: project?.id || null,
-              projectName: project?.name || null,
+              projectId: project?.id ?? "",
+              projectName: project?.name ?? "",
               workspacePath: cwd,
             });
           }

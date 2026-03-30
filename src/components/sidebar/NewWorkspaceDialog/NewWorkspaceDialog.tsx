@@ -9,6 +9,7 @@ import { Input, Select } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import styles from "./NewWorkspaceDialog.module.css";
+import { Row } from "../../ui/Layout/Layout";
 
 function slugify(str: string): string {
   return str
@@ -35,7 +36,15 @@ type NewWorkspaceDialogProps = {
 };
 
 export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
-  const { open, onClose, onSubmit, projects, selectedProjectIndex, preselectedProjectId, initialName = "" } = props;
+  const {
+    open,
+    onClose,
+    onSubmit,
+    projects,
+    selectedProjectIndex,
+    preselectedProjectId,
+    initialName = "",
+  } = props;
 
   const [name, setName] = useState("");
   const [branchName, setBranchName] = useState("");
@@ -64,7 +73,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // Fetch remote branches when dialog opens or project changes
   const { data: remoteBranches = [], isLoading: loadingBranches } = useQuery({
     queryKey: ["remote-branches", activeProjectId],
-    queryFn: () => window.electronAPI.projects.listRemoteBranches(activeProjectId),
+    queryFn: () =>
+      window.electronAPI.projects.listRemoteBranches(activeProjectId),
     enabled: open && !!activeProjectId,
   });
 
@@ -72,13 +82,16 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // 1. defaultBranch (local)
   // 2. origin/{defaultBranch}
   // 3. all other remote branches prefixed with "origin/" (skip one matching defaultBranch)
-  const allBranchOptions = useMemo(() => [
-    defaultBranch,
-    `origin/${defaultBranch}`,
-    ...remoteBranches
-      .filter((b) => b !== defaultBranch)
-      .map((b) => `origin/${b}`),
-  ], [defaultBranch, remoteBranches]);
+  const allBranchOptions = useMemo(
+    () => [
+      defaultBranch,
+      `origin/${defaultBranch}`,
+      ...remoteBranches
+        .filter((b) => b !== defaultBranch)
+        .map((b) => `origin/${b}`),
+    ],
+    [defaultBranch, remoteBranches],
+  );
 
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
@@ -86,14 +99,24 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setName(initialName);
       setBranchName(slugify(initialName));
       setBranchManuallyEdited(false);
-      const proj = projects.find((p) => p.id === (preselectedProjectId || projects[selectedProjectIndex]?.id || ""));
+      const proj = projects.find(
+        (p) =>
+          p.id ===
+          (preselectedProjectId || projects[selectedProjectIndex]?.id || ""),
+      );
       setBaseBranch(proj?.defaultBranch ?? "main");
       setSelectedProjectId(defaultProjectId);
       setError(null);
       setIsCreating(false);
       nameRef.current?.focus();
     },
-    [defaultProjectId, initialName, preselectedProjectId, projects, selectedProjectIndex],
+    [
+      defaultProjectId,
+      initialName,
+      preselectedProjectId,
+      projects,
+      selectedProjectIndex,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -121,7 +144,12 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       }
       setError(null);
       setIsCreating(true);
-      const success = await onSubmit(projectId, trimmedName, finalBranch, baseBranch);
+      const success = await onSubmit(
+        projectId,
+        trimmedName,
+        finalBranch,
+        baseBranch,
+      );
       if (!success) {
         setIsCreating(false);
       }
@@ -156,9 +184,14 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               {projects.length > 1 && (
                 <>
                   <label className={styles.fieldLabel}>Project</label>
-                  <Select value={activeProjectId} onChange={(e) => setSelectedProjectId(e.target.value)}>
+                  <Select
+                    value={activeProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                  >
                     {projects.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
                   </Select>
                 </>
@@ -188,34 +221,34 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                 }}
                 placeholder="my-feature"
               />
-              <label className={styles.fieldLabel}>Base branch</label>
-              <SearchableSelect
-                value={baseBranch}
-                onChange={setBaseBranch}
-                options={allBranchOptions.map(b => ({ value: b, label: b }))}
-                loading={loadingBranches}
-                emptyMessage="No matching branches"
-                icon={<GitBranch size={12} />}
-              />
               {error && <div className={styles.error}>{error}</div>}
               <div className={styles.actions}>
-                <Button type="button" variant="secondary" onClick={onClose}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={isCreating}
-                >
-                  {isCreating ? (
-                    <>
-                      <Loader2 size={14} className={styles.spinner} />
-                      Creating...
-                    </>
-                  ) : (
-                    "Create"
-                  )}
-                </Button>
+                <SearchableSelect
+                  value={baseBranch}
+                  onChange={setBaseBranch}
+                  options={allBranchOptions.map((b) => ({
+                    value: b,
+                    label: b,
+                  }))}
+                  loading={loadingBranches}
+                  emptyMessage="No matching branches"
+                  icon={<GitBranch size={12} />}
+                />
+                <Row gap="sm">
+                  <Button type="button" variant="secondary" onClick={onClose}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary" disabled={isCreating}>
+                    {isCreating ? (
+                      <>
+                        <Loader2 size={14} className={styles.spinner} />
+                        Creating...
+                      </>
+                    ) : (
+                      "Create"
+                    )}
+                  </Button>
+                </Row>
               </div>
             </fieldset>
           </form>

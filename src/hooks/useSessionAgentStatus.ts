@@ -7,6 +7,7 @@ export const STATUS_PRIORITY: Record<AgentStatus, number> = {
   working: 4,
   thinking: 3,
   error: 2,
+  responded: 1,
   complete: 1,
   idle: 0,
 };

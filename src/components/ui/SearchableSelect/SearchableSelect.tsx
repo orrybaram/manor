@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
@@ -38,6 +38,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
   const [search, setSearch] = useState("");
   const [highlightIndex, setHighlightIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const selectedLabel = useMemo(() => {
     const found = options.find((o) => o.value === value);
@@ -102,6 +103,13 @@ export function SearchableSelect(props: SearchableSelectProps) {
     [],
   );
 
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const el = list.children[highlightIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [highlightIndex]);
+
   const highlightedId =
     filtered.length > 0
       ? `searchable-select-option-${highlightIndex}`
@@ -122,60 +130,59 @@ export function SearchableSelect(props: SearchableSelectProps) {
           <ChevronDown size={14} className={styles.chevron} />
         </button>
       </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          side="bottom"
-          align="start"
-          sideOffset={4}
-          className={styles.content}
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            inputRef.current?.focus();
-          }}
+      <Popover.Content
+        side="bottom"
+        align="start"
+        sideOffset={4}
+        className={styles.content}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
+      >
+        <input
+          ref={inputRef}
+          className={styles.searchInput}
+          placeholder="Search..."
+          value={search}
+          onChange={handleSearchChange}
+          onKeyDown={handleKeyDown}
+          aria-activedescendant={highlightedId}
+          aria-controls={LISTBOX_ID}
+        />
+        <div
+          ref={listRef}
+          className={styles.optionsList}
+          role="listbox"
+          id={LISTBOX_ID}
         >
-          <input
-            ref={inputRef}
-            className={styles.searchInput}
-            placeholder="Search..."
-            value={search}
-            onChange={handleSearchChange}
-            onKeyDown={handleKeyDown}
-            aria-activedescendant={highlightedId}
-            aria-controls={LISTBOX_ID}
-          />
-          <div
-            className={styles.optionsList}
-            role="listbox"
-            id={LISTBOX_ID}
-          >
-            {loading ? (
-              <div className={styles.loading}>
-                <Loader2 size={14} className={styles.spinner} />
-                Loading...
+          {loading ? (
+            <div className={styles.loading}>
+              <Loader2 size={14} className={styles.spinner} />
+              Loading...
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className={styles.empty}>{emptyMessage}</div>
+          ) : (
+            filtered.map((option, index) => (
+              <div
+                key={option.value}
+                id={`searchable-select-option-${index}`}
+                role="option"
+                aria-selected={index === highlightIndex}
+                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""}`}
+                onMouseEnter={() => setHighlightIndex(index)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectOption(option.value);
+                }}
+              >
+                {option.label}
               </div>
-            ) : filtered.length === 0 ? (
-              <div className={styles.empty}>{emptyMessage}</div>
-            ) : (
-              filtered.map((option, index) => (
-                <div
-                  key={option.value}
-                  id={`searchable-select-option-${index}`}
-                  role="option"
-                  aria-selected={index === highlightIndex}
-                  className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""}`}
-                  onMouseEnter={() => setHighlightIndex(index)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    selectOption(option.value);
-                  }}
-                >
-                  {option.label}
-                </div>
-              ))
-            )}
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
+            ))
+          )}
+        </div>
+      </Popover.Content>
     </Popover.Root>
   );
 }

@@ -1,6 +1,6 @@
 import React from "react";
 
-type GapSize = "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
+type GapSize = "2xs" | "xxs" | "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 
 interface LayoutProps {
   gap?: GapSize;
@@ -11,6 +11,8 @@ interface LayoutProps {
 }
 
 const gapScale: Record<GapSize, number> = {
+  "2xs": 2,
+  xxs: 6,
   xs: 4,
   sm: 8,
   md: 12,

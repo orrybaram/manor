@@ -58,8 +58,8 @@ export class PortlessManager {
           );
         }
         return;
-      } catch (err: any) {
-        if (err?.code === "EADDRINUSE") {
+      } catch (err: unknown) {
+        if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EADDRINUSE") {
           this.server?.close();
           this.server = null;
           continue;

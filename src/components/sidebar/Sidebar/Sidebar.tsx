@@ -8,7 +8,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { Button } from "../../ui/Button/Button";
-import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { useProjectStore } from "../../../store/project-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
@@ -215,10 +215,6 @@ export function Sidebar(props: SidebarProps) {
     },
     [setSidebarWidth],
   );
-
-  const _selectedProject = projects[selectedProjectIndex] as
-    | ProjectInfo
-    | undefined;
 
   return (
     <div

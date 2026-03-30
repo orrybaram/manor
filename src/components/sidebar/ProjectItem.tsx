@@ -101,14 +101,8 @@ const WorkspaceItem = React.forwardRef<
         if (!justDragged.current) onSelectWorkspace(idx);
         rest.onClick?.(e);
       }}
-      onDoubleClick={(e) => {
-        onDoubleClick(e);
-        rest.onDoubleClick?.(e);
-      }}
-      onPointerDown={(e) => {
-        onPointerDown(e);
-        rest.onPointerDown?.(e);
-      }}
+      onDoubleClick={onDoubleClick}
+      onPointerDown={onPointerDown}
     >
       {isEditing ? (
         <input

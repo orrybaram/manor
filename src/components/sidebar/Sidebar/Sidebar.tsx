@@ -48,7 +48,7 @@ export function Sidebar(props: SidebarProps) {
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
-  const addDiffSession = useAppStore((s) => s.addDiffSession);
+  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
@@ -319,7 +319,7 @@ export function Sidebar(props: SidebarProps) {
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
                           onOpenDiff={(wsIdx) => {
                             selectWorkspace(project.id, wsIdx);
-                            addDiffSession();
+                            openOrFocusDiff();
                           }}
                         />
                       </div>

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
@@ -19,33 +19,17 @@ export function useBranchWatcher() {
     return next;
   })();
 
-  const pathsRef = useRef(paths);
-  pathsRef.current = paths;
-
-  // Start/stop watcher with paths — uses store subscription to react to changes
-  useMountEffect(() => {
-    let currentPaths = pathsRef.current;
-    if (currentPaths.length > 0) {
-      window.electronAPI.branches.start(currentPaths);
+  // Start/stop watcher when paths change
+  useEffect(() => {
+    if (paths.length > 0) {
+      window.electronAPI.branches.start(paths);
+    } else {
+      window.electronAPI.branches.stop();
     }
-
-    const unsub = useProjectStore.subscribe(() => {
-      const nextPaths = pathsRef.current;
-      if (nextPaths !== currentPaths) {
-        currentPaths = nextPaths;
-        if (currentPaths.length > 0) {
-          window.electronAPI.branches.start(currentPaths);
-        } else {
-          window.electronAPI.branches.stop();
-        }
-      }
-    });
-
     return () => {
-      unsub();
       window.electronAPI.branches.stop();
     };
-  });
+  }, [paths]);
 
   // Subscribe to branch change events
   useMountEffect(() => {

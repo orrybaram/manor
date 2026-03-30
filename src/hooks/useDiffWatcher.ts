@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
@@ -30,33 +30,19 @@ export function useDiffWatcher() {
     return next;
   })();
 
-  const workspaceMapRef = useRef(workspaceMap);
-  workspaceMapRef.current = workspaceMap;
-
-  useMountEffect(() => {
-    let currentMap = workspaceMapRef.current;
-    if (Object.keys(currentMap).length > 0) {
-      window.electronAPI.diffs.start(currentMap);
+  // Start/stop watcher when workspaceMap changes
+  useEffect(() => {
+    if (Object.keys(workspaceMap).length > 0) {
+      window.electronAPI.diffs.start(workspaceMap);
+    } else {
+      window.electronAPI.diffs.stop();
     }
-
-    const unsub = useProjectStore.subscribe(() => {
-      const nextMap = workspaceMapRef.current;
-      if (nextMap !== currentMap) {
-        currentMap = nextMap;
-        if (Object.keys(currentMap).length > 0) {
-          window.electronAPI.diffs.start(currentMap);
-        } else {
-          window.electronAPI.diffs.stop();
-        }
-      }
-    });
-
     return () => {
-      unsub();
       window.electronAPI.diffs.stop();
     };
-  });
+  }, [workspaceMap]);
 
+  // Subscribe to diff change events
   useMountEffect(() => {
     const unsubscribe = window.electronAPI.diffs.onChange((diffs) => {
       // Get all workspace paths to clear stats for workspaces with no diff

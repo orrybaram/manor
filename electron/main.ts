@@ -666,7 +666,37 @@ ipcMain.handle(
           ["diff", "--no-color", mergeBase],
           { cwd: wsPath, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
         );
-        return stdout;
+
+        // Include untracked files as "new file" diffs
+        let untrackedDiff = "";
+        try {
+          const { stdout: untrackedOut } = await execFileAsync(
+            "git",
+            ["ls-files", "--others", "--exclude-standard"],
+            { cwd: wsPath, timeout: 5000 },
+          );
+          const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
+          const { readFile } = await import("node:fs/promises");
+          const { join } = await import("node:path");
+
+          for (const filePath of untrackedFiles) {
+            try {
+              const content = await readFile(join(wsPath, filePath), "utf-8");
+              const lines = content.split("\n");
+              // Remove trailing empty line from final newline
+              if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+              const hunk = `@@ -0,0 +1,${lines.length} @@`;
+              const addedLines = lines.map((l) => `+${l}`).join("\n");
+              untrackedDiff += `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
+            } catch {
+              // Skip files that can't be read (binary, permission issues, etc.)
+            }
+          }
+        } catch {
+          // If ls-files fails, just return the regular diff
+        }
+
+        return stdout + untrackedDiff;
       } catch {
         continue;
       }

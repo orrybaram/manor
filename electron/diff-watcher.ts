@@ -17,6 +17,7 @@ export class DiffWatcher {
 
   start(window: BrowserWindow, workspaces: Record<string, string>): void {
     this.stop();
+    this.scanning = false;
     this.workspaces = new Map(Object.entries(workspaces));
 
     const tick = async () => {

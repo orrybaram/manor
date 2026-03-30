@@ -289,6 +289,13 @@ export interface ElectronAPI {
     getLocalDiff: (wsPath: string) => Promise<string | null>;
   };
 
+  git: {
+    stage: (wsPath: string, files: string[]) => Promise<void>;
+    unstage: (wsPath: string, files: string[]) => Promise<void>;
+    discard: (wsPath: string, files: string[]) => Promise<void>;
+    stash: (wsPath: string, files: string[]) => Promise<void>;
+  };
+
   github: {
     getPrForBranch: (repoPath: string, branch: string) => Promise<unknown>;
     getPrsForBranches: (

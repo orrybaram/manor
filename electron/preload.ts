@@ -153,6 +153,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("diffs:getLocalDiff", wsPath),
   },
 
+  git: {
+    stage: (wsPath: string, files: string[]) =>
+      ipcRenderer.invoke("git:stage", wsPath, files),
+    unstage: (wsPath: string, files: string[]) =>
+      ipcRenderer.invoke("git:unstage", wsPath, files),
+    discard: (wsPath: string, files: string[]) =>
+      ipcRenderer.invoke("git:discard", wsPath, files),
+    stash: (wsPath: string, files: string[]) =>
+      ipcRenderer.invoke("git:stash", wsPath, files),
+  },
+
   github: {
     getPrForBranch: (repoPath: string, branch: string) =>
       ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),

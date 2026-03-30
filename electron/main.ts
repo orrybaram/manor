@@ -756,6 +756,44 @@ ipcMain.handle(
   },
 );
 
+// ── Git Operations IPC ──
+ipcMain.handle("git:stage", async (_event, wsPath: string, files: string[]) => {
+  assertString(wsPath, "wsPath");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  await execFileAsync("git", ["add", "--", ...files], { cwd: wsPath, timeout: 10000 });
+});
+
+ipcMain.handle("git:unstage", async (_event, wsPath: string, files: string[]) => {
+  assertString(wsPath, "wsPath");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  await execFileAsync("git", ["restore", "--staged", "--", ...files], { cwd: wsPath, timeout: 10000 });
+});
+
+ipcMain.handle("git:discard", async (_event, wsPath: string, files: string[]) => {
+  assertString(wsPath, "wsPath");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  try {
+    await execFileAsync("git", ["checkout", "HEAD", "--", ...files], { cwd: wsPath, timeout: 10000 });
+  } catch { /* some files may be untracked */ }
+  try {
+    await execFileAsync("git", ["clean", "-f", "--", ...files], { cwd: wsPath, timeout: 10000 });
+  } catch { /* some files may not be untracked */ }
+});
+
+ipcMain.handle("git:stash", async (_event, wsPath: string, files: string[]) => {
+  assertString(wsPath, "wsPath");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  await execFileAsync("git", ["stash", "push", "--", ...files], { cwd: wsPath, timeout: 10000 });
+});
+
 // ── GitHub IPC ──
 ipcMain.handle(
   "github:getPrForBranch",

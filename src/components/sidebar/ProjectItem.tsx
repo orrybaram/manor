@@ -47,6 +47,7 @@ interface WorkspaceItemProps {
   onEditKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onEditClick: (e: React.MouseEvent) => void;
   onEditPointerDown: (e: React.PointerEvent) => void;
+  onOpenDiff?: () => void;
 }
 
 const WorkspaceItem = React.forwardRef<
@@ -78,6 +79,7 @@ const WorkspaceItem = React.forwardRef<
     onEditKeyDown,
     onEditClick,
     onEditPointerDown,
+    onOpenDiff,
     ...rest
   } = props;
 
@@ -131,7 +133,14 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName}>{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  <span className={styles.diffStats}>
+                  <span
+                    className={`${styles.diffStats} ${styles.diffStatsClickable}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDiff?.();
+                    }}
+                  >
                     {ws.diffStats.added > 0 && (
                       <span className={styles.diffAdded}>
                         +{ws.diffStats.added}
@@ -180,6 +189,7 @@ type ProjectItemProps = {
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
+  onOpenDiff?: (wsIndex: number) => void;
 };
 
 export function ProjectItem(props: ProjectItemProps) {
@@ -198,6 +208,7 @@ export function ProjectItem(props: ProjectItemProps) {
     onOpenSettings,
     onDragStart,
     onQuickMergeWorktree,
+    onOpenDiff,
   } = props;
 
   const expanded = !collapsed;
@@ -364,6 +375,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 }}
                 onEditClick={(e) => e.stopPropagation()}
                 onEditPointerDown={(e) => e.stopPropagation()}
+                onOpenDiff={() => onOpenDiff?.(idx)}
               />
             );
 

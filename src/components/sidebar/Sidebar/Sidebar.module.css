@@ -305,6 +305,16 @@
   color: var(--red);
 }
 
+.diffStatsClickable {
+  cursor: pointer;
+  transition: transform 150ms ease, background 150ms ease;
+}
+
+.diffStatsClickable:hover {
+  background: var(--hover);
+  transform: scale(1.2);
+}
+
 .prBadge {
   flex-shrink: 0;
   margin-left: auto;

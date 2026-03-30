@@ -282,6 +282,10 @@ export interface ElectronAPI {
         diffs: Record<string, { added: number; removed: number }>,
       ) => void,
     ) => () => void;
+    getFullDiff: (
+      wsPath: string,
+      defaultBranch: string,
+    ) => Promise<string | null>;
   };
 
   github: {

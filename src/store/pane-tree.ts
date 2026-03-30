@@ -6,7 +6,7 @@ export type PaneNode =
   | {
       type: "leaf";
       paneId: string;
-      contentType?: "terminal" | "browser";
+      contentType?: "terminal" | "browser" | "diff";
       url?: string;
     }
   | {
@@ -78,11 +78,12 @@ export function insertSplitAt(
   direction: SplitDirection,
   newPaneId: string,
   position: "first" | "second",
+  contentType?: "terminal" | "browser" | "diff",
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === targetPaneId) {
       const existing = node;
-      const newLeaf: PaneNode = { type: "leaf", paneId: newPaneId };
+      const newLeaf: PaneNode = { type: "leaf", paneId: newPaneId, ...(contentType && { contentType }) };
       return {
         type: "split",
         direction,
@@ -101,6 +102,7 @@ export function insertSplitAt(
       direction,
       newPaneId,
       position,
+      contentType,
     ),
     second: insertSplitAt(
       node.second,
@@ -108,6 +110,7 @@ export function insertSplitAt(
       direction,
       newPaneId,
       position,
+      contentType,
     ),
   };
 }

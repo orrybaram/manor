@@ -9,6 +9,7 @@ import Boxes from "lucide-react/dist/esm/icons/boxes";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
+import { useAppStore } from "../../../store/app-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
@@ -47,6 +48,7 @@ export function Sidebar(props: SidebarProps) {
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
+  const addDiffSession = useAppStore((s) => s.addDiffSession);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   useBranchWatcher();
@@ -315,6 +317,10 @@ export function Sidebar(props: SidebarProps) {
                             onOpenProjectSettings?.(project.id)
                           }
                           onDragStart={(e) => handleProjectDragStart(idx, e)}
+                          onOpenDiff={(wsIdx) => {
+                            selectWorkspace(project.id, wsIdx);
+                            addDiffSession();
+                          }}
                         />
                       </div>
                     </React.Fragment>

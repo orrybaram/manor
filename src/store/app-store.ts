@@ -87,7 +87,7 @@ export interface AppState {
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, AgentState>;
-  paneContentType: Record<string, "terminal" | "browser">;
+  paneContentType: Record<string, "terminal" | "browser" | "diff">;
   paneUrl: Record<string, string>;
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
@@ -109,6 +109,7 @@ export interface AppState {
   // Session operations
   addSession: () => void;
   addBrowserSession: (url: string) => void;
+  addDiffSession: () => void;
   closeSession: (sessionId: string) => void;
   requestCloseSession: (sessionId: string) => void;
   setPendingCloseConfirmSessionId: (sessionId: string | null) => void;
@@ -124,6 +125,7 @@ export interface AppState {
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
+    contentType?: "terminal" | "browser" | "diff",
   ) => void;
   movePaneToTarget: (
     sourcePaneId: string,
@@ -215,7 +217,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
         const agents: Record<string, AgentState> = {};
-        const contentTypes: Record<string, "terminal" | "browser"> = {};
+        const contentTypes: Record<string, "terminal" | "browser" | "diff"> = {};
         const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
@@ -347,6 +349,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "browser" },
         paneUrl: { ...state.paneUrl, [paneId]: url },
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: [...ws.sessions, session],
+            selectedSessionId: session.id,
+          },
+        },
+      };
+    }),
+
+  addDiffSession: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+      const paneId = newPaneId();
+      const session: Session = {
+        id: newSessionId(),
+        title: "Diff",
+        rootNode: { type: "leaf", paneId, contentType: "diff" },
+        focusedPaneId: paneId,
+      };
+      return {
+        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
         workspaceSessions: {
           ...state.workspaceSessions,
           [path]: {
@@ -562,6 +590,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
+    contentType?: "terminal" | "browser" | "diff",
   ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
@@ -579,6 +608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         direction,
         newPane,
         position,
+        contentType,
       );
       return {
         workspaceSessions: {
@@ -592,6 +622,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ),
           },
         },
+        ...(contentType && {
+          paneContentType: { ...state.paneContentType, [newPane]: contentType },
+        }),
       };
     }),
 

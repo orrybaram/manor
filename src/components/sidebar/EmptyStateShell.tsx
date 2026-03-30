@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ManorLogo } from "../ui/ManorLogo";
+import { Row, Stack } from "../ui/Layout/Layout";
 import styles from "../EmptyState.module.css";
 
 export interface ActionItem {
@@ -20,14 +21,14 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
   const { subtitle, actions, ticketsSection } = props;
 
   return (
-    <div className={styles.container}>
-      <div className={styles.content}>
+    <Row align="center" justify="center" className={styles.container}>
+      <Stack gap="3xl" className={styles.content}>
         <div className={styles.logo}>
           <ManorLogo />
           {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
         </div>
         {ticketsSection}
-        <div className={styles.actions}>
+        <Stack gap="xs" className={styles.actions}>
           {actions.map((item) => (
             <button
               key={item.label}
@@ -37,18 +38,18 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
               <span className={styles.actionIcon}>{item.icon}</span>
               <span className={styles.actionLabel}>{item.label}</span>
               {item.keys.length > 0 && (
-                <span className={styles.actionKeys}>
+                <Row gap="xs">
                   {item.keys.map((key) => (
                     <kbd key={key} className={styles.kbd}>
                       {key}
                     </kbd>
                   ))}
-                </span>
+                </Row>
               )}
             </button>
           ))}
-        </div>
-      </div>
-    </div>
+        </Stack>
+      </Stack>
+    </Row>
   );
 }

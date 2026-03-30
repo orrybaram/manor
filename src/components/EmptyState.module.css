@@ -1,16 +1,9 @@
 .container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   height: 100%;
   width: 100%;
 }
 
 .content {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 48px;
   width: 480px;
 }
 
@@ -30,9 +23,6 @@
 }
 
 .actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   width: 100%;
 }
 
@@ -79,15 +69,8 @@
   text-align: left;
 }
 
-.actionKeys {
-  display: flex;
-  gap: 4px;
-}
 
 .ticketsSection {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   width: 100%;
 }
 

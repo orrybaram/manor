@@ -13,6 +13,7 @@ import type { LinearIssue, GitHubIssue } from "../../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "./GitHubNudge";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "../EmptyState.module.css";
 
 const INLINE_LIMIT = 5;
@@ -191,7 +192,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
 
   const linearSection =
     inlineLinear.length > 0 ? (
-      <div className={styles.ticketsSection}>
+      <Stack gap="2xs" className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Tickets</div>
         {inlineLinear.map((issue) => (
           <div key={issue.id} className={styles.ticketRow}>
@@ -222,19 +223,19 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
         >
           View All Tickets
         </button>
-      </div>
+      </Stack>
     ) : ticketsLoading && teamIds.length > 0 ? (
-      <div className={styles.ticketsSection}>
+      <Stack gap="2xs" className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Tickets</div>
         {Array.from({ length: 3 }, (_, i) => (
           <div key={i} className={styles.ticketLoading} />
         ))}
-      </div>
+      </Stack>
     ) : null;
 
   const githubSection =
     githubAvailable && githubIssues.length > 0 ? (
-      <div className={styles.ticketsSection}>
+      <Stack gap="2xs" className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Issues</div>
         {githubIssues.map((issue) => (
           <div key={issue.number} className={styles.ticketRow}>
@@ -263,14 +264,14 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
         >
           View All Issues
         </button>
-      </div>
+      </Stack>
     ) : githubAvailable && githubLoading ? (
-      <div className={styles.ticketsSection}>
+      <Stack gap="2xs" className={styles.ticketsSection}>
         <div className={styles.ticketsSectionHeader}>Your Issues</div>
         {Array.from({ length: 3 }, (_, i) => (
           <div key={i} className={styles.ticketLoading} />
         ))}
-      </div>
+      </Stack>
     ) : null;
 
   const handleGitHubInstalled = useCallback(() => {

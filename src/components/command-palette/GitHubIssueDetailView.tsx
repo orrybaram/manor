@@ -7,6 +7,7 @@ import { useProjectStore } from "../../store/project-store";
 import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
+import { Row, Stack } from "../ui/Layout/Layout";
 import styles from "./CommandPalette.module.css";
 
 type GitHubIssueDetailViewProps = {
@@ -179,14 +180,14 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
           )}
         </div>
         <div className={styles.detailSidebar}>
-          <div className={styles.sidebarField}>
+          <Stack gap="xs">
             <span className={styles.sidebarLabel}>State</span>
-            <span className={styles.sidebarValue}>
+            <Row align="center" gap="xxs" className={styles.sidebarValue}>
               <span className={styles.statusDot} />
               {issueDetail.state}
-            </span>
-          </div>
-          <div className={styles.sidebarField}>
+            </Row>
+          </Stack>
+          <Stack gap="xs">
             <span className={styles.sidebarLabel}>Labels</span>
             {issueDetail.labels.length > 0 ? (
               <div className={styles.sidebarLabels}>
@@ -204,24 +205,24 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
                 ))}
               </div>
             ) : (
-              <span className={styles.sidebarValue}>No Labels</span>
+              <Row align="center" gap="xxs" className={styles.sidebarValue}>No Labels</Row>
             )}
-          </div>
+          </Stack>
           {issueDetail.assignees.length > 0 && (
-            <div className={styles.sidebarField}>
+            <Stack gap="xs">
               <span className={styles.sidebarLabel}>Assignees</span>
-              <span className={styles.sidebarValue}>
+              <Row align="center" gap="xxs" className={styles.sidebarValue}>
                 {issueDetail.assignees.map((a) => a.login).join(", ")}
-              </span>
-            </div>
+              </Row>
+            </Stack>
           )}
           {issueDetail.milestone && (
-            <div className={styles.sidebarField}>
+            <Stack gap="xs">
               <span className={styles.sidebarLabel}>Milestone</span>
-              <span className={styles.sidebarValue}>
+              <Row align="center" gap="xxs" className={styles.sidebarValue}>
                 {issueDetail.milestone.title}
-              </span>
-            </div>
+              </Row>
+            </Stack>
           )}
         </div>
       </div>

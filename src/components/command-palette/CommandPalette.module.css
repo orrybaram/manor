@@ -41,8 +41,6 @@
 }
 
 .command {
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
@@ -154,9 +152,6 @@
 /* ── Breadcrumb (nested views) ── */
 
 .breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 12px 0;
 }
 
@@ -303,11 +298,6 @@
   gap: 16px;
 }
 
-.sidebarField {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 .sidebarLabel {
   font-size: 11px;
@@ -321,9 +311,6 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-selected);
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .statusDot {
@@ -453,10 +440,7 @@
 }
 
 .skeletonRow {
-  display: flex;
-  align-items: center;
   padding: 8px 12px;
-  gap: 8px;
 }
 
 .skeletonIdentifier {

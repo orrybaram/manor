@@ -1,4 +1,5 @@
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailSkeletonProps = {
@@ -35,14 +36,14 @@ export function IssueDetailSkeleton(props: IssueDetailSkeletonProps) {
         </div>
         <div className={styles.detailSidebar}>
           {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className={styles.sidebarField}>
+            <Stack key={i} gap="xs">
               <div
                 className={`${styles.skeletonBone} ${styles.skeletonSidebarLabel}`}
               />
               <div
                 className={`${styles.skeletonBone} ${styles.skeletonSidebarValue}`}
               />
-            </div>
+            </Stack>
           ))}
         </div>
       </div>

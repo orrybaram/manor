@@ -8,6 +8,7 @@ import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
 import { PRIORITY_LABELS, stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
+import { Row, Stack } from "../ui/Layout/Layout";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailViewProps = {
@@ -194,32 +195,32 @@ export function IssueDetailView(props: IssueDetailViewProps) {
           )}
         </div>
         <div className={styles.detailSidebar}>
-          <div className={styles.sidebarField}>
+          <Stack gap="xs">
             <span className={styles.sidebarLabel}>Status</span>
-            <span className={styles.sidebarValue}>
+            <Row align="center" gap="xxs" className={styles.sidebarValue}>
               <span className={styles.statusDot} />
               {issueDetail.state.name}
-            </span>
-          </div>
-          <div className={styles.sidebarField}>
+            </Row>
+          </Stack>
+          <Stack gap="xs">
             <span className={styles.sidebarLabel}>Priority</span>
-            <span className={styles.sidebarValue}>
+            <Row align="center" gap="xxs" className={styles.sidebarValue}>
               <span
                 className={styles.priorityDot}
                 style={{ background: priority.color }}
               />
               {priority.label}
-            </span>
-          </div>
+            </Row>
+          </Stack>
           {issueDetail.assignee && (
-            <div className={styles.sidebarField}>
+            <Stack gap="xs">
               <span className={styles.sidebarLabel}>Assignee</span>
-              <span className={styles.sidebarValue}>
+              <Row align="center" gap="xxs" className={styles.sidebarValue}>
                 {issueDetail.assignee.displayName}
-              </span>
-            </div>
+              </Row>
+            </Stack>
           )}
-          <div className={styles.sidebarField}>
+          <Stack gap="xs">
             <span className={styles.sidebarLabel}>Labels</span>
             {issueDetail.labels.length > 0 ? (
               <div className={styles.sidebarLabels}>
@@ -237,9 +238,9 @@ export function IssueDetailView(props: IssueDetailViewProps) {
                 ))}
               </div>
             ) : (
-              <span className={styles.sidebarValue}>No Labels</span>
+              <Row align="center" gap="xxs" className={styles.sidebarValue}>No Labels</Row>
             )}
-          </div>
+          </Stack>
         </div>
       </div>
       <div className={styles.detailFooter}>

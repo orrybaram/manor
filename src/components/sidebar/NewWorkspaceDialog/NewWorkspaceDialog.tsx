@@ -1,11 +1,13 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
 import { Input, Select } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
+import { SearchableSelect } from "../../ui/SearchableSelect";
 import styles from "./NewWorkspaceDialog.module.css";
 
 function slugify(str: string): string {
@@ -44,11 +46,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [isCreating, setIsCreating] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  // Remote branch picker state
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(-1);
-  const branchRef = useRef<HTMLInputElement>(null);
-
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen && !isCreating) onClose();
@@ -75,19 +72,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // 1. defaultBranch (local)
   // 2. origin/{defaultBranch}
   // 3. all other remote branches prefixed with "origin/" (skip one matching defaultBranch)
-  const allBranchOptions = [
+  const allBranchOptions = useMemo(() => [
     defaultBranch,
     `origin/${defaultBranch}`,
     ...remoteBranches
       .filter((b) => b !== defaultBranch)
       .map((b) => `origin/${b}`),
-  ];
-
-  const filteredBranches = baseBranch.trim()
-    ? allBranchOptions.filter((b) =>
-      b.toLowerCase().includes(baseBranch.trim().toLowerCase()),
-    )
-    : allBranchOptions;
+  ], [defaultBranch, remoteBranches]);
 
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
@@ -100,60 +91,9 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setSelectedProjectId(defaultProjectId);
       setError(null);
       setIsCreating(false);
-      setShowDropdown(false);
-      setHighlightIndex(-1);
       nameRef.current?.focus();
     },
     [defaultProjectId, initialName, preselectedProjectId, projects, selectedProjectIndex],
-  );
-
-  const selectBranchOption = useCallback(
-    (branch: string) => {
-      setBaseBranch(branch);
-      setShowDropdown(false);
-      setHighlightIndex(-1);
-    },
-    [],
-  );
-
-  const handleBranchKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (!showDropdown || filteredBranches.length === 0) {
-        if (e.key === "ArrowDown" && allBranchOptions.length > 0) {
-          e.preventDefault();
-          setShowDropdown(true);
-          setHighlightIndex(0);
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          setHighlightIndex((i) =>
-            i < filteredBranches.length - 1 ? i + 1 : 0,
-          );
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setHighlightIndex((i) =>
-            i > 0 ? i - 1 : filteredBranches.length - 1,
-          );
-          break;
-        case "Enter":
-          if (highlightIndex >= 0 && highlightIndex < filteredBranches.length) {
-            e.preventDefault();
-            selectBranchOption(filteredBranches[highlightIndex]);
-          }
-          break;
-        case "Escape":
-          e.preventDefault();
-          setShowDropdown(false);
-          setHighlightIndex(-1);
-          break;
-      }
-    },
-    [showDropdown, filteredBranches, highlightIndex, allBranchOptions, selectBranchOption],
   );
 
   const handleSubmit = useCallback(
@@ -249,57 +189,14 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                 placeholder="my-feature"
               />
               <label className={styles.fieldLabel}>Base branch</label>
-              <div className={styles.comboboxWrapper}>
-                <Input
-                  ref={branchRef}
-                  type="text"
-                  value={baseBranch}
-                  onChange={(e) => {
-                    setBaseBranch(e.target.value);
-                    setShowDropdown(true);
-                    setHighlightIndex(-1);
-                  }}
-                  onFocus={() => {
-                    setShowDropdown(true);
-                  }}
-                  onBlur={() => {
-                    // Delay to allow click on dropdown item
-                    setTimeout(() => setShowDropdown(false), 150);
-                  }}
-                  onKeyDown={handleBranchKeyDown}
-                  placeholder="Search branches..."
-                  autoComplete="off"
-                />
-                {showDropdown && (
-                  <div className={styles.dropdown}>
-                    {loadingBranches ? (
-                      <div className={styles.dropdownMessage}>
-                        <Loader2 size={12} className={styles.spinner} />
-                        Loading branches...
-                      </div>
-                    ) : filteredBranches.length === 0 ? (
-                      <div className={styles.dropdownMessage}>
-                        No matching branches
-                      </div>
-                    ) : (
-                      filteredBranches.map((b, i) => (
-                        <div
-                          key={b}
-                          ref={i === highlightIndex ? (el: HTMLDivElement | null) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                          className={`${styles.dropdownItem} ${i === highlightIndex ? styles.dropdownItemHighlighted : ""}`}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            selectBranchOption(b);
-                          }}
-                          onMouseEnter={() => setHighlightIndex(i)}
-                        >
-                          {b}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
+              <SearchableSelect
+                value={baseBranch}
+                onChange={setBaseBranch}
+                options={allBranchOptions.map(b => ({ value: b, label: b }))}
+                loading={loadingBranches}
+                emptyMessage="No matching branches"
+                icon={<GitBranch size={12} />}
+              />
               {error && <div className={styles.error}>{error}</div>}
               <div className={styles.actions}>
                 <Button type="button" variant="secondary" onClick={onClose}>

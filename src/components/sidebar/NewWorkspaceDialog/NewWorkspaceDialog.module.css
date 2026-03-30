@@ -68,50 +68,6 @@
   margin-top: 0;
 }
 
-.comboboxWrapper {
-  position: relative;
-}
-
-.dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
-  max-height: 180px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--surface);
-  border-radius: 6px;
-  z-index: 10;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.dropdownItem {
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dropdownItem:hover,
-.dropdownItemHighlighted {
-  background: var(--surface);
-  color: var(--text-selected);
-}
-
-.dropdownMessage {
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .error {
   font-size: 12px;
   color: var(--danger);

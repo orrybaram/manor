@@ -9,6 +9,7 @@ import { PROJECT_COLORS } from "../../../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
 import { Button } from "../../ui/Button/Button";
 import { Input, Textarea } from "../../ui/Input";
+import { Row, Stack } from "../../ui/Layout/Layout";
 import styles from "./ProjectSetupWizard.module.css";
 
 function slugify(str: string): string {
@@ -326,13 +327,13 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
     switch (step) {
       case 0:
         return (
-          <div className={styles.stepContainer}>
-            <div className={styles.stepHeader}>
+          <Stack gap="md">
+            <Stack>
               <div className={styles.stepTitle}>Name & Color</div>
               <div className={styles.stepHint}>
                 Give your project a name and pick a color.
               </div>
-            </div>
+            </Stack>
             <label className={styles.fieldLabel}>Project Name
             <Input
               ref={nameRef}
@@ -345,7 +346,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             </label>
             <div className={styles.fieldLabel}>
             <label className={styles.fieldLabel}>Color</label>
-            <div className={styles.colorPicker}>
+            <Row gap="xxs">
               {PROJECT_COLORS.filter((c) => c.value !== null).map((c) => {
                 const isSelected = color === c.value;
                 return (
@@ -363,29 +364,29 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                   </button>
                 );
               })}
+            </Row>
             </div>
-            </div>
-          </div>
+          </Stack>
         );
 
       case 1:
         return (
-          <div className={styles.stepContainer}>
-            <div className={styles.stepHeader}>
+          <Stack gap="md">
+            <Stack>
               <div className={styles.stepTitle}>Agent Command</div>
               <div className={styles.stepHint}>
                 The command Manor runs when you open a new terminal pane.
               </div>
-            </div>
+            </Stack>
             {agentsLoading ? (
-              <div className={styles.agentDiscovery}>
+              <Row align="center" gap="sm" className={styles.agentDiscovery}>
                 <Loader2 size={14} className={styles.spinner} />
                 <span className={styles.agentDiscoveryHint}>
                   Looking for agents...
                 </span>
-              </div>
+              </Row>
             ) : discoveredAgents.length > 0 ? (
-              <div className={styles.agentList}>
+              <Stack gap="xs" className={styles.agentList}>
                 {discoveredAgents.map((agent) => {
                   const isSelected = agentCommand === agent.command;
                   return (
@@ -407,13 +408,13 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                     </button>
                   );
                 })}
-              </div>
+              </Stack>
             ) : (
-              <div className={styles.agentDiscovery}>
+              <Row align="center" gap="sm" className={styles.agentDiscovery}>
                 <span className={styles.agentDiscoveryHint}>
                   No known agents found on your system.
                 </span>
-              </div>
+              </Row>
             )}
             <label className={styles.fieldLabel}>
               {discoveredAgents.length > 0
@@ -428,18 +429,18 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             />
             </label>
 
-          </div>
+          </Stack>
         );
 
       case 2:
         return (
-          <div className={styles.stepContainer}>
-            <div className={styles.stepHeader}>
+          <Stack gap="md">
+            <Stack>
               <div className={styles.stepTitle}>Worktree Path</div>
               <div className={styles.stepHint}>
                 Where Manor creates git worktrees for branch-based workspaces.
               </div>
-            </div>
+            </Stack>
             <label className={styles.fieldLabel}>Path
             <Input
               type="text"
@@ -457,21 +458,21 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
               placeholder="Runs in the terminal when a new worktree is created"
             />
             </label>
-          </div>
+          </Stack>
         );
 
       case 3:
         return (
-          <div className={styles.stepContainer}>
-            <div className={styles.stepHeader}>
+          <Stack gap="md">
+            <Stack>
               <div className={styles.stepTitle}>Commands</div>
               <div className={styles.stepHint}>
                 Add custom commands you can run from the command palette.
               </div>
-            </div>
+            </Stack>
             <div className={styles.commandList}>
               {commands.map((cmd) => (
-                <div key={cmd.id} className={styles.commandRow}>
+                <Row key={cmd.id} align="center" gap="xxs">
                   <Input
                     ref={(el) => {
                       if (el && cmd.id === newCommandIdRef.current) {
@@ -503,7 +504,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                   >
                     <Trash2 size={14} />
                   </button>
-                </div>
+                </Row>
               ))}
               <button
                 type="button"
@@ -514,18 +515,18 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                 Add Command
               </button>
             </div>
-          </div>
+          </Stack>
         );
 
       case 4:
         return (
-          <div className={styles.stepContainer}>
-            <div className={styles.stepHeader}>
+          <Stack gap="md">
+            <Stack>
               <div className={styles.stepTitle}>Linear Integration</div>
               <div className={styles.stepHint}>
                 Link Linear teams to this project to see issues in the sidebar.
               </div>
-            </div>
+            </Stack>
             {linearLoading ? (
               <div className={styles.linearHint}>
                 <Loader2 size={14} className={styles.spinner} /> Loading
@@ -559,7 +560,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                 })}
               </div>
             )}
-          </div>
+          </Stack>
         );
 
       default:
@@ -568,11 +569,11 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
   };
 
   return (
-    <div className={styles.container}>
+    <Row align="center" justify="center" className={styles.container}>
       <div className={styles.card} onKeyDown={handleKeyDown}>
-        <div className={styles.header}>
+        <Row align="center" justify="space-between" className={styles.header}>
           <div className={styles.title}>Project Setup</div>
-          <div className={styles.steps}>
+          <Row justify="center" gap="sm">
             {Array.from({ length: totalSteps }, (_, i) => (
               <div
                 key={i}
@@ -585,12 +586,12 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                 }`}
               />
             ))}
-          </div>
-        </div>
+          </Row>
+        </Row>
 
         <div className={styles.body}>{renderStepContent()}</div>
 
-        <div className={styles.footer}>
+        <Row align="center" justify="space-between" className={styles.footer}>
           {step > 0 ? (
             <Button
               type="button"
@@ -602,7 +603,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
           ) : (
             <div />
           )}
-          <div className={styles.footerRight}>
+          <Row gap="sm" className={styles.footerRight}>
             <Button
               type="button"
               variant="secondary"
@@ -617,9 +618,9 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             >
               {isLastStep ? "Done" : "Next"}
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Row>
       </div>
-    </div>
+    </Row>
   );
 }

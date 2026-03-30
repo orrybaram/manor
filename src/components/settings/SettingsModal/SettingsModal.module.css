@@ -292,43 +292,11 @@
 
 .commandNameInput {
   width: 120px;
-  padding: 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
   flex-shrink: 0;
-}
-
-.commandNameInput::placeholder {
-  color: var(--text-dim);
-}
-
-.commandNameInput:focus {
-  border-color: var(--accent);
 }
 
 .commandCmdInput {
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-}
-
-.commandCmdInput::placeholder {
-  color: var(--text-dim);
-}
-
-.commandCmdInput:focus {
-  border-color: var(--accent);
 }
 
 .commandDeleteBtn {
@@ -514,9 +482,6 @@
 }
 
 .linearButton {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   white-space: nowrap;
   align-self: flex-start;
 }

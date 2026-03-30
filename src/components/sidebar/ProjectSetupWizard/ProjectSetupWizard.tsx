@@ -472,7 +472,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             <div className={styles.commandList}>
               {commands.map((cmd) => (
                 <div key={cmd.id} className={styles.commandRow}>
-                  <input
+                  <Input
                     ref={(el) => {
                       if (el && cmd.id === newCommandIdRef.current) {
                         el.focus();
@@ -487,7 +487,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
                     }
                     onKeyDown={(e) => e.key === "Enter" && e.stopPropagation()}
                   />
-                  <input
+                  <Input
                     className={styles.commandCmdInput}
                     value={cmd.command}
                     placeholder="Command"

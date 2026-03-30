@@ -125,12 +125,6 @@
   margin-top: 16px;
 }
 
-.submitLoading {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .fieldset {
   all: unset;
   display: flex;

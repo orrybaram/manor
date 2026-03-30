@@ -108,8 +108,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   );
 
   const selectBranchOption = useCallback(
-    (branchName: string) => {
-      setBaseBranch(branchName);
+    (branch: string) => {
+      setBaseBranch(branch);
       setShowDropdown(false);
       setHighlightIndex(-1);
     },
@@ -186,7 +186,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setIsCreating(false);
       }
     },
-    [name, baseBranch, activeProjectId, onSubmit, isCreating],
+    [name, branchName, baseBranch, activeProjectId, onSubmit, isCreating],
   );
 
   return (
@@ -309,7 +309,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   type="submit"
                   variant="primary"
                   disabled={isCreating}
-                  className={isCreating ? styles.submitLoading : undefined}
                 >
                   {isCreating ? (
                     <>

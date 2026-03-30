@@ -3,6 +3,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import Check from "lucide-react/dist/esm/icons/check";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
+import { Input } from "../ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 interface ThemeEntry {
@@ -119,7 +120,7 @@ export function ThemeSection() {
   return (
     <div onKeyDown={handleKeyDown}>
       <div className={styles.sectionTitle}>Theme</div>
-      <input
+      <Input
         ref={searchRef}
         className={styles.themeSearch}
         type="text"

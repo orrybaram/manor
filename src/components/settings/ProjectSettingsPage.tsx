@@ -321,7 +321,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         <div className={styles.commandList}>
           {(project.commands ?? []).map((cmd: CustomCommand) => (
             <div key={cmd.id} className={styles.commandRow}>
-              <input
+              <Input
                 ref={(el) => {
                   if (el && cmd.id === newCommandId) {
                     el.focus();
@@ -338,7 +338,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
                   updateProject(project.id, { commands: updatedCommands });
                 }}
               />
-              <input
+              <Input
                 className={styles.commandCmdInput}
                 defaultValue={cmd.command}
                 placeholder="Command"

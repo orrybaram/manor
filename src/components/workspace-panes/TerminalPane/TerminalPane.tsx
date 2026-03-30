@@ -9,6 +9,7 @@ import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import PanelBottom from "lucide-react/dist/esm/icons/panel-bottom";
 import PanelTop from "lucide-react/dist/esm/icons/panel-top";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
+import X from "lucide-react/dist/esm/icons/x";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useAppStore } from "../../../store/app-store";
@@ -29,6 +30,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   const { ptyError, term, write } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
+  const closePaneById = useAppStore((s) => s.closePaneById);
 
   return (
     <ContextMenu.Root>
@@ -140,6 +142,13 @@ export function TerminalPane(props: TerminalPaneProps) {
           >
             <RotateCw size={14} />
             Reset Terminal
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={() => closePaneById(paneId)}
+          >
+            <X size={14} />
+            Close Terminal
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>

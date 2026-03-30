@@ -31,7 +31,7 @@
   padding: 4px 8px;
   font-size: 12px;
   font-family: var(--font-mono);
-  background: var(--background);
+  background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 4px;

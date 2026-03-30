@@ -13,7 +13,7 @@ import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
-import { Button } from "@/components/ui/Button/Button";
+import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
 
 type SettingsModalProps = {

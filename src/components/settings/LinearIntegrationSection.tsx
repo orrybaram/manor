@@ -4,8 +4,8 @@ import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
-import { Button } from "@/components/ui/Button/Button";
-import { Input } from "@/components/ui/Input";
+import { Button } from "../ui/Button/Button";
+import { Input } from "../ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function LinearIntegrationSection() {

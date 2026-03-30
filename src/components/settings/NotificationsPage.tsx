@@ -1,5 +1,5 @@
 import { Switch } from "../ui/Switch/Switch";
-import { Select } from "@/components/ui/Input";
+import { Select } from "../ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import { usePreferencesStore } from "../../store/preferences-store";
 

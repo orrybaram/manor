@@ -1,6 +1,6 @@
 import { usePreferencesStore } from "../../store/preferences-store";
 import { ThemeSection } from "./ThemeSection";
-import { Input } from "@/components/ui/Input";
+import { Input } from "../ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function AppSettingsPage() {

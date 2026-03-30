@@ -12,7 +12,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Input, Textarea } from "../ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const scriptFields: Array<{

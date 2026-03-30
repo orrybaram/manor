@@ -4,8 +4,8 @@ import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
-import { Input, Select } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button/Button";
+import { Input, Select } from "../../ui/Input";
+import { Button } from "../../ui/Button/Button";
 import styles from "./NewWorkspaceDialog.module.css";
 
 function slugify(str: string): string {

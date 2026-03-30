@@ -3,8 +3,8 @@ import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useKeybindingsStore } from "../../store/keybindings-store";
-import { Button } from "@/components/ui/Button/Button";
-import { Input } from "@/components/ui/Input";
+import { Button } from "../ui/Button/Button";
+import { Input } from "../ui/Input";
 import {
   DEFAULT_KEYBINDINGS,
   KeyCombo,

@@ -2,7 +2,7 @@ import { useState } from "react";
 import Link from "lucide-react/dist/esm/icons/link";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../../hooks/useMountEffect";
-import { Button } from "@/components/ui/Button/Button";
+import { Button } from "../ui/Button/Button";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type GitHubStatus = {

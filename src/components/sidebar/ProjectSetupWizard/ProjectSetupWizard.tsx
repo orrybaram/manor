@@ -7,8 +7,8 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import { useProjectStore, type CustomCommand } from "../../../store/project-store";
 import { PROJECT_COLORS } from "../../../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
-import { Button } from "@/components/ui/Button/Button";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Button } from "../../ui/Button/Button";
+import { Input, Textarea } from "../../ui/Input";
 import styles from "./ProjectSetupWizard.module.css";
 
 function slugify(str: string): string {

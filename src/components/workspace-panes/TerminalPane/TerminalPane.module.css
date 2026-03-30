@@ -150,6 +150,16 @@
   outline: none;
 }
 
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
 .contextMenuSeparator {
   height: 1px;
   margin: 4px 0;

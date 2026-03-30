@@ -171,86 +171,88 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               ?.focus();
           }}
         >
-          <div className={styles.header}>
+          <Row align="center" justify="space-between" className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
             <Dialog.Close asChild>
               <Button variant="ghost" size="sm">
                 <X size={14} />
               </Button>
             </Dialog.Close>
-          </div>
-          <form onSubmit={handleSubmit} className={styles.body}>
-            <fieldset disabled={isCreating} className={styles.fieldset}>
-              {projects.length > 1 && (
-                <>
-                  <label className={styles.fieldLabel}>Project</label>
-                  <Select
-                    value={activeProjectId}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                </>
-              )}
-              <label className={styles.fieldLabel}>Name</label>
-              <Input
-                ref={nameRef}
-                type="text"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (!branchManuallyEdited) {
-                    setBranchName(slugify(e.target.value));
-                  }
-                  setError(null);
-                }}
-                placeholder="My Feature"
-              />
-              <Input
-                variant="ghost"
-                monospace
-                type="text"
-                value={branchName}
-                onChange={(e) => {
-                  setBranchName(e.target.value);
-                  setBranchManuallyEdited(true);
-                }}
-                placeholder="my-feature"
-              />
-              {error && <div className={styles.error}>{error}</div>}
-              <div className={styles.actions}>
-                <SearchableSelect
-                  value={baseBranch}
-                  onChange={setBaseBranch}
-                  options={allBranchOptions.map((b) => ({
-                    value: b,
-                    label: b,
-                  }))}
-                  loading={loadingBranches}
-                  emptyMessage="No matching branches"
-                  icon={<GitBranch size={12} />}
+          </Row>
+          <form onSubmit={handleSubmit}>
+            <Stack className={styles.body}>
+              <fieldset disabled={isCreating} className={styles.fieldset}>
+                {projects.length > 1 && (
+                  <>
+                    <label className={styles.fieldLabel}>Project</label>
+                    <Select
+                      value={activeProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                    >
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </>
+                )}
+                <label className={styles.fieldLabel}>Name</label>
+                <Input
+                  ref={nameRef}
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (!branchManuallyEdited) {
+                      setBranchName(slugify(e.target.value));
+                    }
+                    setError(null);
+                  }}
+                  placeholder="My Feature"
                 />
-                <Row gap="sm">
-                  <Button type="button" variant="secondary" onClick={onClose}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="primary" disabled={isCreating}>
-                    {isCreating ? (
-                      <>
-                        <Loader2 size={14} className={styles.spinner} />
-                        Creating...
-                      </>
-                    ) : (
-                      "Create"
-                    )}
-                  </Button>
+                <Input
+                  variant="ghost"
+                  monospace
+                  type="text"
+                  value={branchName}
+                  onChange={(e) => {
+                    setBranchName(e.target.value);
+                    setBranchManuallyEdited(true);
+                  }}
+                  placeholder="my-feature"
+                />
+                {error && <div className={styles.error}>{error}</div>}
+                <Row justify="space-between" gap="sm" className={styles.actions}>
+                  <SearchableSelect
+                    value={baseBranch}
+                    onChange={setBaseBranch}
+                    options={allBranchOptions.map((b) => ({
+                      value: b,
+                      label: b,
+                    }))}
+                    loading={loadingBranches}
+                    emptyMessage="No matching branches"
+                    icon={<GitBranch size={12} />}
+                  />
+                  <Row gap="sm">
+                    <Button type="button" variant="secondary" onClick={onClose}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" variant="primary" disabled={isCreating}>
+                      {isCreating ? (
+                        <>
+                          <Loader2 size={14} className={styles.spinner} />
+                          Creating...
+                        </>
+                      ) : (
+                        "Create"
+                      )}
+                    </Button>
+                  </Row>
                 </Row>
-              </div>
-            </fieldset>
+              </fieldset>
+            </Stack>
           </form>
         </Dialog.Content>
       </Dialog.Portal>

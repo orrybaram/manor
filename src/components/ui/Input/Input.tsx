@@ -55,11 +55,13 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   (props, ref) => {
     const { className, ...rest } = props;
 
-    const classes = [styles.select, className].filter(Boolean).join(" ");
+    const wrapperClasses = [styles.selectWrapper, className]
+      .filter(Boolean)
+      .join(" ");
 
     return (
-      <div className={styles.selectWrapper}>
-        <select ref={ref} className={classes} {...rest} />
+      <div className={wrapperClasses}>
+        <select ref={ref} className={styles.select} {...rest} />
         <span className={styles.selectIcon}>
           <ChevronDown size={14} />
         </span>

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
-import { useToastStore, type Toast as ToastData } from "../../store/toast-store";
+import { useMountEffect } from "../../../hooks/useMountEffect";
+import { useToastStore, type Toast as ToastData } from "../../../store/toast-store";
 import styles from "./Toast/Toast.module.css";
 
 export const AUTO_DISMISS_MS = 3000;

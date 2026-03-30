@@ -1,0 +1,59 @@
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--surface);
+  background: var(--bg);
+  color: var(--text-selected);
+  font-size: 13px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.ghost {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.monospace {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
+}
+
+.textarea {
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 80px;
+}
+
+.select {
+  composes: input;
+  padding-right: 32px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.selectWrapper {
+  position: relative;
+}
+
+.selectIcon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}

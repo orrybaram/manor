@@ -332,14 +332,14 @@ function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: 
               </tr>
             );
           }
-          const rowClass =
-            line.type === "add" ? styles.lineAdd :
-            line.type === "del" ? styles.lineDel :
-            undefined;
           const numClass =
             line.type === "add" ? styles.lineNumAdd :
             line.type === "del" ? styles.lineNumDel :
             styles.lineNum;
+          const contentClass =
+            line.type === "add" ? styles.lineContentAdd :
+            line.type === "del" ? styles.lineContentDel :
+            styles.lineContent;
           const num = line.type === "del" ? line.oldNum : line.newNum;
           const prefix =
             line.type === "add" ? "+" :
@@ -365,9 +365,9 @@ function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: 
           runningOffset += matchCount;
 
           return (
-            <tr key={i} className={rowClass}>
+            <tr key={i}>
               <td className={numClass}>{num}</td>
-              <td className={styles.lineContent}>
+              <td className={contentClass}>
                 <span className={styles.prefix}>{prefix}</span>
                 {content}
               </td>

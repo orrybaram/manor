@@ -1,6 +1,6 @@
 ---
 title: Add context menu and multiselect to FileList
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

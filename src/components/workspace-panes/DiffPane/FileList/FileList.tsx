@@ -7,6 +7,7 @@ import Minus from "lucide-react/dist/esm/icons/minus";
 import Archive from "lucide-react/dist/esm/icons/archive";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { DiffFile, DiffMode } from "../types";
+import { Checkbox } from "../../../ui/Checkbox/Checkbox";
 import { Button } from "../../../ui/Button/Button";
 import styles from "./FileList.module.css";
 
@@ -51,9 +52,20 @@ export function FileList({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onSelectionChange]);
 
-  const handleClick = useCallback(
+  const handleRowClick = useCallback(
     (e: React.MouseEvent, file: DiffFile, index: number) => {
-      if (e.metaKey || e.ctrlKey) {
+      if (e.shiftKey) {
+        // Range toggle — matches the state of the target file
+        const start = Math.min(lastClickedIndex.current, index);
+        const end = Math.max(lastClickedIndex.current, index);
+        const adding = !selectedFiles.has(file.path);
+        const next = new Set(selectedFiles);
+        for (let i = start; i <= end; i++) {
+          if (adding) next.add(files[i].path);
+          else next.delete(files[i].path);
+        }
+        onSelectionChange(next);
+      } else {
         // Toggle file in selection
         const next = new Set(selectedFiles);
         if (next.has(file.path)) {
@@ -63,23 +75,17 @@ export function FileList({
         }
         onSelectionChange(next);
         lastClickedIndex.current = index;
-      } else if (e.shiftKey) {
-        // Range select
-        const start = Math.min(lastClickedIndex.current, index);
-        const end = Math.max(lastClickedIndex.current, index);
-        const next = new Set(selectedFiles);
-        for (let i = start; i <= end; i++) {
-          next.add(files[i].path);
-        }
-        onSelectionChange(next);
-      } else {
-        // Single click: select file and scroll to it
-        onSelectionChange(new Set([file.path]));
-        lastClickedIndex.current = index;
-        onSelectFile(file.path);
       }
     },
-    [files, selectedFiles, onSelectionChange, onSelectFile],
+    [files, selectedFiles, onSelectionChange],
+  );
+
+  const handleFileNameClick = useCallback(
+    (e: React.MouseEvent, file: DiffFile) => {
+      e.stopPropagation();
+      onSelectFile(file.path);
+    },
+    [onSelectFile],
   );
 
   const handleContextMenu = useCallback(
@@ -91,24 +97,6 @@ export function FileList({
     [selectedFiles, onSelectionChange],
   );
 
-  const handleCheckboxChange = useCallback(
-    (file: DiffFile) => {
-      const next = new Set(selectedFiles);
-      if (next.has(file.path)) {
-        next.delete(file.path);
-      } else {
-        next.add(file.path);
-      }
-      onSelectionChange(next);
-    },
-    [selectedFiles, onSelectionChange],
-  );
-
-  const getSelectedPaths = useCallback(
-    () => [...selectedFiles],
-    [selectedFiles],
-  );
-
   const handleOpenInEditor = useCallback(() => {
     if (!workspacePath) return;
     for (const path of selectedFiles) {
@@ -118,13 +106,13 @@ export function FileList({
 
   const handleStage = useCallback(() => {
     if (!workspacePath) return;
-    window.electronAPI.git.stage(workspacePath, getSelectedPaths());
-  }, [workspacePath, getSelectedPaths]);
+    window.electronAPI.git.stage(workspacePath, [...selectedFiles]);
+  }, [workspacePath, selectedFiles]);
 
   const handleUnstage = useCallback(() => {
     if (!workspacePath) return;
-    window.electronAPI.git.unstage(workspacePath, getSelectedPaths());
-  }, [workspacePath, getSelectedPaths]);
+    window.electronAPI.git.unstage(workspacePath, [...selectedFiles]);
+  }, [workspacePath, selectedFiles]);
 
   const handleConfirmAction = useCallback(() => {
     if (!confirmAction || !workspacePath) return;
@@ -140,6 +128,25 @@ export function FileList({
     <>
       <div className={styles.fileList}>
         <div className={styles.fileListHeader}>
+          {isLocal && (
+            <Checkbox
+              className={styles.checkbox}
+              checked={
+                selectedFiles.size === files.length
+                  ? true
+                  : selectedFiles.size > 0
+                    ? "indeterminate"
+                    : false
+              }
+              onCheckedChange={() => {
+                if (selectedFiles.size === files.length) {
+                  onSelectionChange(new Set());
+                } else {
+                  onSelectionChange(new Set(files.map((f) => f.path)));
+                }
+              }}
+            />
+          )}
           {files.length} {files.length === 1 ? "file" : "files"} changed
           {totalAdded > 0 && (
             <span className={styles.statAdded}> +{totalAdded}</span>
@@ -153,7 +160,11 @@ export function FileList({
             </span>
           )}
         </div>
-        {files.map((file, index) => (
+        {files.map((file, index) => {
+          const lastSlash = file.path.lastIndexOf("/");
+          const fileName = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
+          const fileDir = lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);
+          return (
           <ContextMenu.Root key={file.path}>
             <ContextMenu.Trigger asChild>
               <div
@@ -171,19 +182,26 @@ export function FileList({
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                onClick={(e) => handleClick(e, file, index)}
+                onClick={(e) => handleRowClick(e, file, index)}
                 onContextMenu={() => handleContextMenu(file)}
               >
                 {isLocal && (
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     className={styles.checkbox}
                     checked={selectedFiles.has(file.path)}
-                    onChange={() => handleCheckboxChange(file)}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRowClick(e, file, index);
+                    }}
                   />
                 )}
-                <span className={styles.fileListName}>{file.path}</span>
+                <span
+                  className={styles.fileListName}
+                  onClick={(e) => handleFileNameClick(e, file)}
+                >
+                  <span className={styles.fileName}>{fileName}</span>
+                  {fileDir && <span className={styles.fileDir}>{fileDir}</span>}
+                </span>
                 <span className={styles.fileStats}>
                   {file.added > 0 && (
                     <span className={styles.statAdded}>+{file.added}</span>
@@ -227,7 +245,7 @@ export function FileList({
                       onSelect={() =>
                         setConfirmAction({
                           type: "stash",
-                          files: getSelectedPaths(),
+                          files: [...selectedFiles],
                         })
                       }
                     >
@@ -245,7 +263,7 @@ export function FileList({
                       onSelect={() =>
                         setConfirmAction({
                           type: "discard",
-                          files: getSelectedPaths(),
+                          files: [...selectedFiles],
                         })
                       }
                     >
@@ -257,7 +275,7 @@ export function FileList({
               </ContextMenu.Content>
             </ContextMenu.Portal>
           </ContextMenu.Root>
-        ))}
+        )})}
       </div>
 
       <Dialog.Root

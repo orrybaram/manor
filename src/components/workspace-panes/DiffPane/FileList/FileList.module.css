@@ -6,6 +6,8 @@
 }
 
 .fileListHeader {
+  display: flex;
+  align-items: center;
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text);
@@ -27,8 +29,32 @@
 }
 
 .fileListName {
-  color: var(--text-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.fileListName:hover .fileName {
+  text-decoration: underline;
+}
+
+.fileName {
   font-family: var(--font-mono);
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.fileDir {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .fileStats {
@@ -81,11 +107,7 @@
 }
 
 .checkbox {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent, var(--blue));
   margin-right: 8px;
-  flex-shrink: 0;
 }
 
 /* Context menu — same pattern as DiffPane.module.css */

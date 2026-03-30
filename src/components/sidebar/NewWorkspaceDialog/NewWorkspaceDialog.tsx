@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
+import { Input, Select } from "@/components/ui/Input";
+import { Button } from "@/components/ui/Button/Button";
 import styles from "./NewWorkspaceDialog.module.css";
 
 function slugify(str: string): string {
@@ -35,6 +36,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const { open, onClose, onSubmit, projects, selectedProjectIndex, preselectedProjectId, initialName = "" } = props;
 
   const [name, setName] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [branchManuallyEdited, setBranchManuallyEdited] = useState(false);
   const [baseBranch, setBaseBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -82,14 +85,16 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
 
   const filteredBranches = baseBranch.trim()
     ? allBranchOptions.filter((b) =>
-        b.toLowerCase().includes(baseBranch.trim().toLowerCase()),
-      )
+      b.toLowerCase().includes(baseBranch.trim().toLowerCase()),
+    )
     : allBranchOptions;
 
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
       setName(initialName);
+      setBranchName(slugify(initialName));
+      setBranchManuallyEdited(false);
       const proj = projects.find((p) => p.id === (preselectedProjectId || projects[selectedProjectIndex]?.id || ""));
       setBaseBranch(proj?.defaultBranch ?? "main");
       setSelectedProjectId(defaultProjectId);
@@ -164,8 +169,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError("Name must be 200 characters or fewer");
         return;
       }
-      const branchName = slugify(trimmedName);
-      if (!branchName) {
+      const finalBranch = branchName.trim() || slugify(trimmedName);
+      if (!finalBranch) {
         setError("Could not derive a valid branch name");
         return;
       }
@@ -176,15 +181,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       }
       setError(null);
       setIsCreating(true);
-      const success = await onSubmit(projectId, trimmedName, branchName, baseBranch);
+      const success = await onSubmit(projectId, trimmedName, finalBranch, baseBranch);
       if (!success) {
         setIsCreating(false);
       }
     },
     [name, baseBranch, activeProjectId, onSubmit, isCreating],
   );
-
-  const derivedBranchName = slugify(name);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -203,9 +206,9 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
             <Dialog.Close asChild>
-              <button className={styles.closeButton}>
+              <Button variant="ghost" size="sm">
                 <X size={14} />
-              </button>
+              </Button>
             </Dialog.Close>
           </div>
           <form onSubmit={handleSubmit} className={styles.body}>
@@ -213,44 +216,42 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               {projects.length > 1 && (
                 <>
                   <label className={styles.fieldLabel}>Project</label>
-                  <div className={styles.selectWrapper}>
-                    <select
-                      className={styles.fieldSelect}
-                      value={activeProjectId}
-                      onChange={(e) => setSelectedProjectId(e.target.value)}
-                    >
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={14} className={styles.selectIcon} />
-                  </div>
+                  <Select value={activeProjectId} onChange={(e) => setSelectedProjectId(e.target.value)}>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </Select>
                 </>
               )}
               <label className={styles.fieldLabel}>Name</label>
-              <input
+              <Input
                 ref={nameRef}
-                className={styles.fieldInput}
                 type="text"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
+                  if (!branchManuallyEdited) {
+                    setBranchName(slugify(e.target.value));
+                  }
                   setError(null);
+                }}
+                placeholder="My Feature"
+              />
+              <Input
+                variant="ghost"
+                monospace
+                type="text"
+                value={branchName}
+                onChange={(e) => {
+                  setBranchName(e.target.value);
+                  setBranchManuallyEdited(true);
                 }}
                 placeholder="my-feature"
               />
-              {name.trim() && derivedBranchName && (
-                <div className={styles.branchHint}>
-                  Branch: <span className={styles.branchHintName}>{derivedBranchName}</span>
-                </div>
-              )}
               <label className={styles.fieldLabel}>Base branch</label>
               <div className={styles.comboboxWrapper}>
-                <input
+                <Input
                   ref={branchRef}
-                  className={styles.fieldInput}
                   type="text"
                   value={baseBranch}
                   onChange={(e) => {
@@ -301,17 +302,14 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               </div>
               {error && <div className={styles.error}>{error}</div>}
               <div className={styles.actions}>
-                <button
-                  type="button"
-                  className={styles.cancelButton}
-                  onClick={onClose}
-                >
+                <Button type="button" variant="secondary" onClick={onClose}>
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  className={styles.submitButton}
+                  variant="primary"
                   disabled={isCreating}
+                  className={isCreating ? styles.submitLoading : undefined}
                 >
                   {isCreating ? (
                     <>
@@ -321,7 +319,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   ) : (
                     "Create"
                   )}
-                </button>
+                </Button>
               </div>
             </fieldset>
           </form>

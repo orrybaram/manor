@@ -50,21 +50,6 @@
   color: var(--text-selected);
 }
 
-.closeButton {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.closeButton:hover {
-  background: var(--surface);
-  color: var(--text-selected);
-}
 
 .body {
   padding: 16px 20px;
@@ -81,57 +66,6 @@
 
 .fieldLabel:first-of-type {
   margin-top: 0;
-}
-
-.fieldInput {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-}
-
-.fieldInput::placeholder {
-  color: var(--text-dim);
-}
-
-.fieldInput:focus {
-  border-color: var(--accent);
-}
-
-.selectWrapper {
-  position: relative;
-}
-
-.fieldSelect {
-  width: 100%;
-  padding: 8px 32px 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-  appearance: none;
-  cursor: pointer;
-}
-
-.fieldSelect:focus {
-  border-color: var(--accent);
-}
-
-.selectIcon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-dim);
-  pointer-events: none;
 }
 
 .comboboxWrapper {
@@ -178,16 +112,6 @@
   gap: 6px;
 }
 
-.branchHint {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 4px;
-}
-
-.branchHintName {
-  font-family: monospace;
-}
-
 .error {
   font-size: 12px;
   color: var(--danger);
@@ -201,40 +125,7 @@
   margin-top: 16px;
 }
 
-.cancelButton {
-  padding: 6px 14px;
-  border: 1px solid var(--surface);
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.cancelButton:hover {
-  background: var(--surface);
-}
-
-.submitButton {
-  padding: 6px 14px;
-  border: none;
-  background: var(--accent);
-  color: var(--bg);
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.submitButton:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.submitButton:disabled {
-  opacity: 0.7;
-  cursor: default;
+.submitLoading {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -246,8 +137,8 @@
   flex-direction: column;
 }
 
-.fieldset:disabled .fieldInput,
-.fieldset:disabled .fieldSelect {
+.fieldset:disabled input,
+.fieldset:disabled select {
   opacity: 0.5;
   cursor: default;
 }

@@ -9,7 +9,7 @@ import { Input, Select } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import styles from "./NewWorkspaceDialog.module.css";
-import { Row } from "../../ui/Layout/Layout";
+import { Row, Stack } from "../../ui/Layout/Layout";
 
 function slugify(str: string): string {
   return str

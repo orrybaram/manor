@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import { ManorLogo } from "../../ui/ManorLogo";
+import { Stack, Row } from "../../ui/Layout/Layout";
 import styles from "./WelcomeEmptyState.module.css";
 
 interface WelcomeEmptyStateProps {
@@ -49,7 +50,7 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
   );
 
   return (
-    <div className={styles.container}>
+    <Stack align="center" justify="center" gap="2xl" className={styles.container}>
       <div className={styles.logo}>
         <ManorLogo />
       </div>
@@ -60,14 +61,14 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className={styles.title}>
+        <Row align="center" gap="sm" className={styles.title}>
           <FolderOpen size={20} />
           Open Project
-        </div>
+        </Row>
         <div className={styles.subtitle}>
           Click to browse
         </div>
       </div>
-    </div>
+    </Stack>
   );
 }

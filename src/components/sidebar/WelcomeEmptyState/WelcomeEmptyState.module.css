@@ -1,9 +1,4 @@
 .container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
   height: 100%;
   width: 100%;
   padding: 48px;
@@ -47,9 +42,6 @@
 }
 
 .title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 18px;
   font-weight: 600;
   color: var(--color-text, rgba(255, 255, 255, 0.9));

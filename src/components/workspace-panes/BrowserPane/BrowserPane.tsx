@@ -3,6 +3,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useToastStore } from "../../../store/toast-store";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
+import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
 
 import styles from "./BrowserPane.module.css";
@@ -95,6 +96,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const isDragActive = useDragOverlayStore(selectIsDragActive);
 
     const setPaneTitle = useAppStore((s) => s.setPaneTitle);
     const setPaneUrl = useAppStore((s) => s.setPaneUrl);
@@ -362,6 +365,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           {isBlank && (
             <div className={styles.emptyState}>Enter a URL to get started</div>
           )}
+          {isDragActive && <div className={styles.dragOverlay} />}
         </div>
       </div>
     );

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { PaneNode } from "../../store/pane-tree";
+import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PaneLayout } from "./PaneLayout/PaneLayout";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
@@ -24,6 +25,7 @@ export function SplitLayout(props: SplitLayoutProps) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       setIsDragging(true);
+      useDragOverlayStore.getState().incrementDragCount();
 
       const container = containerRef.current;
       if (!container) return;
@@ -41,6 +43,7 @@ export function SplitLayout(props: SplitLayoutProps) {
       };
 
       const onMouseUp = () => {
+        useDragOverlayStore.getState().decrementDragCount();
         setIsDragging(false);
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", onMouseUp);

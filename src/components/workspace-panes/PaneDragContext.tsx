@@ -5,6 +5,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useDragOverlayStore } from "../../store/drag-overlay-store";
 
 export type DragPayload =
   | { type: "tab"; sessionId: string }
@@ -30,8 +31,14 @@ export function PaneDragProvider(props: PaneDragProviderProps) {
   const { children } = props;
 
   const [drag, setDrag] = useState<DragPayload | null>(null);
-  const startDrag = useCallback((payload: DragPayload) => setDrag(payload), []);
-  const endDrag = useCallback(() => setDrag(null), []);
+  const startDrag = useCallback((payload: DragPayload) => {
+    useDragOverlayStore.getState().incrementDragCount();
+    setDrag(payload);
+  }, []);
+  const endDrag = useCallback(() => {
+    useDragOverlayStore.getState().decrementDragCount();
+    setDrag(null);
+  }, []);
   return (
     <PaneDragContext.Provider value={{ drag, startDrag, endDrag }}>
       {children}

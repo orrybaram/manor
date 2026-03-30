@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { WorkspaceInfo } from "../store/project-store";
+import { useDragOverlayStore } from "../store/drag-overlay-store";
 
 const EMPTY_STYLE: React.CSSProperties = {};
 
@@ -55,6 +56,7 @@ export function useWorkspaceDrag({
 
         if (!dragActive.current) {
           dragActive.current = true;
+          useDragOverlayStore.getState().incrementDragCount();
           setDragIndex(idx);
           setDropIndex(idx);
         }
@@ -95,6 +97,7 @@ export function useWorkspaceDrag({
         target.removeEventListener("lostpointercapture", onUp);
 
         if (dragActive.current) {
+          useDragOverlayStore.getState().decrementDragCount();
           justDragged.current = true;
           const finalDrop = dropIndexRef.current ?? idx;
           if (finalDrop !== idx) {

@@ -13,6 +13,7 @@ import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
+import { Button } from "@/components/ui/Button/Button";
 import styles from "./SettingsModal.module.css";
 
 type SettingsModalProps = {
@@ -75,9 +76,9 @@ export function SettingsModal(props: SettingsModalProps) {
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>Settings</Dialog.Title>
             <Dialog.Close asChild>
-              <button className={styles.closeButton}>
+              <Button variant="ghost" size="sm">
                 <X size={16} />
-              </button>
+              </Button>
             </Dialog.Close>
           </div>
           <div className={styles.layout}>

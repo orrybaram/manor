@@ -3,6 +3,7 @@ import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useKeybindingsStore } from "../../store/keybindings-store";
+import { Button } from "@/components/ui/Button/Button";
 import { Input } from "@/components/ui/Input";
 import {
   DEFAULT_KEYBINDINGS,
@@ -199,12 +200,13 @@ export function KeybindingsPage() {
           )}
         </div>
 
-        <button
+        <Button
+          variant="secondary"
           className={styles.keybindingResetAll}
           onClick={() => store.resetAll()}
         >
           Reset All Keybindings
-        </button>
+        </Button>
       </div>
     </div>
   );

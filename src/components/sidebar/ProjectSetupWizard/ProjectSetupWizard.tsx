@@ -7,6 +7,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import { useProjectStore, type CustomCommand } from "../../../store/project-store";
 import { PROJECT_COLORS } from "../../../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
+import { Button } from "@/components/ui/Button/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import styles from "./ProjectSetupWizard.module.css";
 
@@ -591,31 +592,31 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
 
         <div className={styles.footer}>
           {step > 0 ? (
-            <button
+            <Button
               type="button"
-              className={styles.backButton}
+              variant="secondary"
               onClick={handleBack}
             >
               Back
-            </button>
+            </Button>
           ) : (
             <div />
           )}
           <div className={styles.footerRight}>
-            <button
+            <Button
               type="button"
-              className={styles.skipButton}
+              variant="secondary"
               onClick={handleSkip}
             >
               Skip
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={styles.nextButton}
+              variant="primary"
               onClick={isLastStep ? handleDone : handleAdvance}
             >
               {isLastStep ? "Done" : "Next"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

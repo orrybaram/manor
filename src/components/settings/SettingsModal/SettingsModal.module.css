@@ -51,21 +51,6 @@
   color: var(--text-selected);
 }
 
-.closeButton {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.closeButton:hover {
-  background: var(--surface);
-  color: var(--text-selected);
-}
 
 /* ── Layout: sidebar + content ── */
 
@@ -532,26 +517,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  border-radius: 6px;
-  cursor: pointer;
   white-space: nowrap;
   align-self: flex-start;
-}
-
-.linearButton:hover {
-  background: var(--hover);
-  color: var(--text-selected);
-}
-
-.linearButton:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .linearError {
@@ -756,19 +723,6 @@
 .keybindingResetAll {
   margin-top: 16px;
   align-self: flex-end;
-  padding: 8px 14px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.keybindingResetAll:hover {
-  background: var(--hover);
-  color: var(--text-selected);
 }
 
 @keyframes keybindingPulse {

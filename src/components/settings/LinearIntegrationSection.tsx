@@ -4,6 +4,7 @@ import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { Button } from "@/components/ui/Button/Button";
 import { Input } from "@/components/ui/Input";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
@@ -89,10 +90,10 @@ export function LinearIntegrationSection() {
               Linear teams
             </div>
           )}
-          <button className={styles.linearButton} onClick={handleDisconnect}>
+          <Button variant="secondary" className={styles.linearButton} onClick={handleDisconnect}>
             <Unlink size={13} />
             Disconnect
-          </button>
+          </Button>
         </div>
       ) : (
         <div className={styles.linearDisconnected}>
@@ -106,13 +107,14 @@ export function LinearIntegrationSection() {
                 if (e.key === "Enter") handleConnect();
               }}
             />
-            <button
+            <Button
+              variant="secondary"
               className={styles.linearButton}
               onClick={handleConnect}
               disabled={loading || !apiKey.trim()}
             >
               {loading ? "Connecting..." : "Connect"}
-            </button>
+            </Button>
           </div>
           {error && <div className={styles.linearError}>{error}</div>}
           <div className={styles.fieldHint}>

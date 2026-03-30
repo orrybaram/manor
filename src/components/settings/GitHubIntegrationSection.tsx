@@ -2,6 +2,7 @@ import { useState } from "react";
 import Link from "lucide-react/dist/esm/icons/link";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { Button } from "@/components/ui/Button/Button";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type GitHubStatus = {
@@ -35,10 +36,10 @@ export function GitHubIntegrationSection() {
             <Link size={14} />
             <span>Connected as {status.username}</span>
           </div>
-          <button className={styles.linearButton} onClick={checkStatus}>
+          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
             <RefreshCw size={13} />
             Refresh
-          </button>
+          </Button>
         </div>
       ) : status?.installed && !status?.authenticated ? (
         <div className={styles.linearDisconnected}>
@@ -46,10 +47,10 @@ export function GitHubIntegrationSection() {
           <div className={styles.fieldHint}>
             Run <code>gh auth login</code> in your terminal to connect.
           </div>
-          <button className={styles.linearButton} onClick={checkStatus}>
+          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
             <RefreshCw size={13} />
             Refresh
-          </button>
+          </Button>
         </div>
       ) : (
         <div className={styles.linearDisconnected}>
@@ -69,10 +70,10 @@ export function GitHubIntegrationSection() {
           <div className={styles.fieldHint}>
             After installing, run <code>gh auth login</code> in your terminal.
           </div>
-          <button className={styles.linearButton} onClick={checkStatus}>
+          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
             <RefreshCw size={13} />
             Refresh
-          </button>
+          </Button>
         </div>
       )}
     </div>

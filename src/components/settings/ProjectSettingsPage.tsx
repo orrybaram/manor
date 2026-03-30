@@ -16,18 +16,6 @@ import { Input, Textarea } from "../ui/Input";
 import { Stack, Row } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-const scriptFields: Array<{
-  field: "defaultRunCommand";
-  label: string;
-  placeholder: string;
-}> = [
-  {
-    field: "defaultRunCommand",
-    label: "Default Run Command",
-    placeholder: "e.g. npm run dev",
-  },
-];
-
 const worktreeScriptFields: Array<{
   field: "worktreeStartScript" | "worktreeTeardownScript";
   label: string;
@@ -321,7 +309,12 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         <div className={styles.sectionTitle}>Commands</div>
         <div className={styles.commandList}>
           {(project.commands ?? []).map((cmd: CustomCommand) => (
-            <Row key={cmd.id} align="center" gap="sm" className={styles.commandRow}>
+            <Row
+              key={cmd.id}
+              align="center"
+              gap="sm"
+              className={styles.commandRow}
+            >
               <Input
                 ref={(el) => {
                   if (el && cmd.id === newCommandId) {
@@ -384,21 +377,23 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         </div>
       </Stack>
 
-      <Stack gap="xs">
+      <Stack gap="xl">
         <div className={styles.sectionTitle}>Worktrees</div>
-        <label className={styles.fieldLabel}>Worktree Path</label>
-        <Input
-          ref={worktreePathRef}
-          defaultValue={project.worktreePath ?? ""}
-          onBlur={() => handleBlur("worktreePath")}
-          placeholder={defaultWorktreePath(project.name)}
-        />
-        <div className={styles.fieldHint}>
-          Directory where new worktrees are created. Defaults to{" "}
-          {defaultWorktreePath(project.name)}
-        </div>
+        <Stack gap="xs">
+          <label className={styles.fieldLabel}>Worktree Path</label>
+          <Input
+            ref={worktreePathRef}
+            defaultValue={project.worktreePath ?? ""}
+            onBlur={() => handleBlur("worktreePath")}
+            placeholder={defaultWorktreePath(project.name)}
+          />
+          <div className={styles.fieldHint}>
+            Directory where new worktrees are created. Defaults to{" "}
+            {defaultWorktreePath(project.name)}
+          </div>
+        </Stack>
         {worktreeScriptFields.map(({ field, label, placeholder }) => (
-          <div key={field}>
+          <Stack key={field} gap="xs">
             <label className={styles.fieldLabel}>{label}</label>
             <Textarea
               ref={(el) => {
@@ -410,26 +405,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               placeholder={placeholder}
               rows={4}
             />
-          </div>
-        ))}
-      </Stack>
-
-      <Stack gap="xs">
-        <div className={styles.sectionTitle}>Scripts</div>
-        {scriptFields.map(({ field, label, placeholder }) => (
-          <div key={field}>
-            <label className={styles.fieldLabel}>{label}</label>
-            <Textarea
-              ref={(el) => {
-                fieldRefs.current[field] = el;
-              }}
-              monospace
-              defaultValue={project[field] ?? ""}
-              onBlur={() => handleBlur(field)}
-              placeholder={placeholder}
-              rows={4}
-            />
-          </div>
+          </Stack>
         ))}
       </Stack>
     </Stack>

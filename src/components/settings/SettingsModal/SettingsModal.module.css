@@ -442,8 +442,6 @@
   color: var(--text-dim);
 }
 
-.linearInputRow {
-
 .linearInputRow input {
   flex: 1;
 }

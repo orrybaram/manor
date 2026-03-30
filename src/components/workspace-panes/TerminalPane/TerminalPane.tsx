@@ -2,15 +2,13 @@ import { useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import "@xterm/xterm/css/xterm.css";
-import {
-  Clipboard,
-  ClipboardPaste,
-  PanelRight,
-  PanelLeft,
-  PanelBottom,
-  PanelTop,
-  RotateCw,
-} from "lucide-react";
+import Clipboard from "lucide-react/dist/esm/icons/clipboard";
+import ClipboardPaste from "lucide-react/dist/esm/icons/clipboard-paste";
+import PanelRight from "lucide-react/dist/esm/icons/panel-right";
+import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
+import PanelBottom from "lucide-react/dist/esm/icons/panel-bottom";
+import PanelTop from "lucide-react/dist/esm/icons/panel-top";
+import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useAppStore } from "../../../store/app-store";

@@ -7,3 +7,13 @@ declare module "lucide-react/dist/esm/icons/*" {
   const icon: LucideIcon;
   export default icon;
 }
+
+declare module "refractor/lib/core" {
+  export { refractor } from "refractor";
+}
+
+declare module "refractor/lang/*" {
+  import type { Syntax } from "refractor/lib/core";
+  const syntax: Syntax;
+  export default syntax;
+}

@@ -43,6 +43,7 @@
     "portless": "^0.7.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "refractor": "^5.0.0",
     "tree-kill": "^1.2.2",
     "zustand": "^5.0.12"
   },

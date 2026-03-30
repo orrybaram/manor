@@ -382,7 +382,15 @@ function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: 
   );
 }
 
-function FileList({ files, onSelectFile }: { files: DiffFile[]; onSelectFile: (path: string) => void }) {
+function FileList({
+  files,
+  onSelectFile,
+  animationState,
+}: {
+  files: DiffFile[];
+  onSelectFile: (path: string) => void;
+  animationState: Map<string, "new" | "updated">;
+}) {
   const totalAdded = files.reduce((s, f) => s + f.added, 0);
   const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
 
@@ -394,7 +402,15 @@ function FileList({ files, onSelectFile }: { files: DiffFile[]; onSelectFile: (p
         {totalRemoved > 0 && <span className={styles.statRemoved}> -{totalRemoved}</span>}
       </div>
       {files.map((file) => (
-        <div key={file.path} className={styles.fileListItem} onClick={() => onSelectFile(file.path)}>
+        <div
+          key={file.path}
+          className={[
+            styles.fileListItem,
+            animationState.get(file.path) === "new" ? styles.fileListItemNew : undefined,
+            animationState.get(file.path) === "updated" ? styles.fileListItemUpdated : undefined,
+          ].filter(Boolean).join(" ")}
+          onClick={() => onSelectFile(file.path)}
+        >
           <span className={styles.fileListName}>{file.path}</span>
           <span className={styles.fileStats}>
             {file.added > 0 && <span className={styles.statAdded}>+{file.added}</span>}
@@ -519,6 +535,43 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
 
   const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
+  // ── Animation tracking ──
+  const previousFiles = useRef<Map<string, number> | null>(null);
+  const [animationState, setAnimationState] = useState<Map<string, "new" | "updated">>(new Map());
+
+  useEffect(() => {
+    const currentHash = new Map<string, number>(
+      files.map((f) => [f.path, f.added * 1000 + f.removed + f.lines.length]),
+    );
+
+    // Skip animations on initial load (previousFiles is null)
+    if (previousFiles.current !== null) {
+      const newAnimations = new Map<string, "new" | "updated">();
+      for (const [path, hash] of currentHash) {
+        const prevHash = previousFiles.current.get(path);
+        if (prevHash === undefined) {
+          newAnimations.set(path, "new");
+        } else if (prevHash !== hash) {
+          newAnimations.set(path, "updated");
+        }
+      }
+      if (newAnimations.size > 0) {
+        setAnimationState(newAnimations);
+      }
+    }
+
+    previousFiles.current = currentHash;
+  }, [files]);
+
+  // Clear animation state after animation duration
+  useEffect(() => {
+    if (animationState.size === 0) return;
+    const timer = setTimeout(() => {
+      setAnimationState(new Map());
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [animationState]);
+
   // Compute per-file match offsets and total
   const { fileOffsets, totalMatches } = useMemo(() => {
     if (!searchQuery) return { fileOffsets: new Map<string, number>(), totalMatches: 0 };
@@ -594,14 +647,18 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           onClose={handleSearchClose}
         />
       )}
-      <FileList files={files} onSelectFile={scrollToFile} />
+      <FileList files={files} onSelectFile={scrollToFile} animationState={animationState} />
       {files.map((file) => (
         <ContextMenu.Root key={file.path} onOpenChange={(open) => {
           if (open) savedSelection.current = window.getSelection()?.toString() ?? "";
         }}>
           <ContextMenu.Trigger asChild>
             <div
-              className={styles.file}
+              className={[
+                styles.file,
+                animationState.get(file.path) === "new" ? styles.fileNew : undefined,
+                animationState.get(file.path) === "updated" ? styles.fileUpdated : undefined,
+              ].filter(Boolean).join(" ")}
               ref={(el) => { if (el) fileRefs.current.set(file.path, el); else fileRefs.current.delete(file.path); }}
               onCopy={(e) => {
                 const sel = window.getSelection();

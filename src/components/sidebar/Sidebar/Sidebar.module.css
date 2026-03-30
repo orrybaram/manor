@@ -57,15 +57,6 @@
   line-height: 1.6;
 }
 
-.link {
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-  text-decoration: underline;
-}
 
 .projectsScroll {
   max-height: 500px;
@@ -412,18 +403,6 @@
   width: 100%;
   padding: 4px 0;
   margin-top: 2px;
-  background: none;
-  border: 1px solid var(--surface);
-  border-radius: 4px;
-  color: var(--text-dim);
-  font-family: inherit;
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.prPopoverFooterButton:hover {
-  color: var(--text-selected);
-  background: var(--hover);
 }
 
 .prPopoverStateOpen {

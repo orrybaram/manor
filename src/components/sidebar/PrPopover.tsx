@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import { Button } from "../ui/Button/Button";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitPullRequestClosed from "lucide-react/dist/esm/icons/git-pull-request-closed";
@@ -205,7 +206,9 @@ export function PrPopover(props: PrPopoverProps) {
           {reviewElement}
           {commentsElement}
 
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             className={styles.prPopoverFooterButton}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -214,7 +217,7 @@ export function PrPopover(props: PrPopoverProps) {
             }}
           >
             Open in GitHub
-          </button>
+          </Button>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

@@ -1,10 +1,13 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { createElement, useEffect, useState, useMemo, useCallback, useRef } from "react";
+import type { ReactNode } from "react";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import X from "lucide-react/dist/esm/icons/x";
+import type { RootContent, Element as HastElement } from "hast";
 import { useProjectStore } from "../../../store/project-store";
+import { extToLang, tokenize } from "./syntax";
 import styles from "./DiffPane.module.css";
 
 // ── Parser ──
@@ -128,6 +131,100 @@ function countMatches(text: string, query: string): number {
   return count;
 }
 
+// ── HAST → React helpers ──
+
+function hastToReact(nodes: RootContent[], keyPrefix = ""): ReactNode[] {
+  return nodes.map((node, i) => {
+    if (node.type === "text") {
+      return node.value;
+    }
+    if (node.type === "element") {
+      const el = node as HastElement;
+      const className = Array.isArray(el.properties?.className)
+        ? (el.properties.className as string[]).join(" ")
+        : undefined;
+      return createElement(
+        el.tagName,
+        { key: `${keyPrefix}-${i}`, className },
+        ...hastToReact(el.children as RootContent[], `${keyPrefix}-${i}`),
+      );
+    }
+    return null;
+  });
+}
+
+/**
+ * Apply search highlighting on top of syntax-highlighted HAST nodes.
+ * Walks through every text segment, splitting at match boundaries to
+ * insert <mark> elements while preserving the surrounding syntax spans.
+ */
+function highlightSyntaxNodes(
+  nodes: RootContent[],
+  query: string,
+  startIndex: number,
+  currentMatch: number,
+  keyPrefix = "",
+): { elements: ReactNode[]; matchCount: number } {
+  if (!query) {
+    return { elements: hastToReact(nodes, keyPrefix), matchCount: 0 };
+  }
+
+  const qLower = query.toLowerCase();
+  let globalIdx = startIndex;
+
+  function walkNodes(items: RootContent[], kp: string): ReactNode[] {
+    const result: ReactNode[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const node = items[i];
+      if (node.type === "text") {
+        const text = node.value;
+        const lower = text.toLowerCase();
+        let last = 0;
+        let pos = lower.indexOf(qLower);
+        const frags: ReactNode[] = [];
+
+        while (pos !== -1) {
+          if (pos > last) frags.push(text.slice(last, pos));
+          frags.push(
+            createElement(
+              "mark",
+              {
+                key: `${kp}-m-${pos}`,
+                className: globalIdx === currentMatch ? styles.searchMatchActive : styles.searchMatch,
+                "data-match-index": globalIdx,
+              },
+              text.slice(pos, pos + query.length),
+            ),
+          );
+          globalIdx++;
+          last = pos + query.length;
+          pos = lower.indexOf(qLower, last);
+        }
+
+        if (last < text.length) frags.push(text.slice(last));
+        if (frags.length > 0) {
+          result.push(...frags);
+        } else {
+          result.push(text);
+        }
+      } else if (node.type === "element") {
+        const el = node as HastElement;
+        const className = Array.isArray(el.properties?.className)
+          ? (el.properties.className as string[]).join(" ")
+          : undefined;
+        const children = walkNodes(el.children as RootContent[], `${kp}-${i}`);
+        result.push(
+          createElement(el.tagName, { key: `${kp}-${i}`, className }, ...children),
+        );
+      }
+    }
+    return result;
+  }
+
+  const elements = walkNodes(nodes, keyPrefix);
+  return { elements, matchCount: globalIdx - startIndex };
+}
+
 function SearchBar({
   query,
   onChange,
@@ -204,12 +301,23 @@ function FileHeader({ file, collapsed, onToggle }: { file: DiffFile; collapsed: 
   );
 }
 
-function DiffLines({ lines, searchQuery, matchOffset, currentMatch }: {
+function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: {
   lines: DiffLine[];
+  filePath: string;
   searchQuery: string;
   matchOffset: number;
   currentMatch: number;
 }) {
+  // Memoize tokenization based on lines and filePath
+  const tokenizedLines = useMemo(() => {
+    const lang = extToLang(filePath);
+    if (!lang) return null;
+    return lines.map((line) => {
+      if (line.type === "hunk") return null;
+      return tokenize(line.content, lang);
+    });
+  }, [lines, filePath]);
+
   let runningOffset = matchOffset;
 
   return (
@@ -238,7 +346,22 @@ function DiffLines({ lines, searchQuery, matchOffset, currentMatch }: {
             line.type === "del" ? "-" :
             " ";
 
-          const { fragments, matchCount } = highlightText(line.content, searchQuery, runningOffset, currentMatch);
+          let content: ReactNode[];
+          let matchCount: number;
+
+          const tokens = tokenizedLines?.[i];
+          if (tokens) {
+            // Syntax highlighting with search overlay
+            const result = highlightSyntaxNodes(tokens, searchQuery, runningOffset, currentMatch, `l${i}`);
+            content = result.elements;
+            matchCount = result.matchCount;
+          } else {
+            // Fallback: plain text with search highlighting
+            const result = highlightText(line.content, searchQuery, runningOffset, currentMatch);
+            content = result.fragments;
+            matchCount = result.matchCount;
+          }
+
           runningOffset += matchCount;
 
           return (
@@ -246,7 +369,7 @@ function DiffLines({ lines, searchQuery, matchOffset, currentMatch }: {
               <td className={numClass}>{num}</td>
               <td className={styles.lineContent}>
                 <span className={styles.prefix}>{prefix}</span>
-                {fragments}
+                {content}
               </td>
             </tr>
           );
@@ -508,6 +631,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           {!collapsed.has(file.path) && (
             <DiffLines
               lines={file.lines}
+              filePath={file.path}
               searchQuery={searchQuery}
               matchOffset={fileOffsets.get(file.path) ?? 0}
               currentMatch={currentMatch}

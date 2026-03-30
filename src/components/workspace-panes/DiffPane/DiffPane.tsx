@@ -422,6 +422,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const savedSelection = useRef<string>("");
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const handleScroll = useCallback(() => {
@@ -595,7 +596,9 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
       )}
       <FileList files={files} onSelectFile={scrollToFile} />
       {files.map((file) => (
-        <ContextMenu.Root key={file.path}>
+        <ContextMenu.Root key={file.path} onOpenChange={(open) => {
+          if (open) savedSelection.current = window.getSelection()?.toString() ?? "";
+        }}>
           <ContextMenu.Trigger asChild>
             <div
               className={styles.file}
@@ -648,7 +651,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
               <ContextMenu.Item
                 className={styles.contextMenuItem}
                 onSelect={() => {
-                  navigator.clipboard.writeText(window.getSelection()?.toString() ?? "");
+                  if (savedSelection.current) navigator.clipboard.writeText(savedSelection.current);
                 }}
               >
                 <Clipboard size={14} />

@@ -5,6 +5,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
+import { Stack, Row } from "../ui/Layout/Layout";
 import {
   DEFAULT_KEYBINDINGS,
   KeyCombo,
@@ -95,8 +96,8 @@ export function KeybindingsPage() {
   }, [recordingId, bindings, cancelRecording]);
 
   return (
-    <div className={styles.pageContent}>
-      <div className={styles.settingsGroup}>
+    <Stack className={styles.pageContent}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Keybindings</div>
         <Input
           className={styles.keybindingsSearch}
@@ -106,7 +107,7 @@ export function KeybindingsPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        <div className={styles.keybindingsList}>
+        <Stack gap="lg">
           {CATEGORY_ORDER.map(
             (category: KeybindingCategory, categoryIndex: number) => {
               const categoryDefs = filtered.filter(
@@ -137,7 +138,7 @@ export function KeybindingsPage() {
                         </span>
 
                         {isRecording ? (
-                          <div className={styles.keybindingActions}>
+                          <Row align="center" gap="xs">
                             <span
                               className={`${styles.keybindingShortcut} ${styles.keybindingRecording}`}
                             >
@@ -160,9 +161,9 @@ export function KeybindingsPage() {
                             >
                               <X size={14} />
                             </button>
-                          </div>
+                          </Row>
                         ) : (
-                          <div className={styles.keybindingActions}>
+                          <Row align="center" gap="xs">
                             <button
                               className={styles.keybindingShortcut}
                               onClick={() => {
@@ -183,7 +184,7 @@ export function KeybindingsPage() {
                                 <RotateCcw size={13} />
                               </button>
                             )}
-                          </div>
+                          </Row>
                         )}
 
                         {isRecording && conflict && (
@@ -198,7 +199,7 @@ export function KeybindingsPage() {
               );
             },
           )}
-        </div>
+        </Stack>
 
         <Button
           variant="secondary"
@@ -207,7 +208,7 @@ export function KeybindingsPage() {
         >
           Reset All Keybindings
         </Button>
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }

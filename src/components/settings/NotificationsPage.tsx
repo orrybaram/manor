@@ -1,5 +1,6 @@
 import { Switch } from "../ui/Switch/Switch";
 import { Select } from "../ui/Input";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import { usePreferencesStore } from "../../store/preferences-store";
 
@@ -10,7 +11,7 @@ export function NotificationsPage() {
   const { preferences, set } = usePreferencesStore();
 
   return (
-    <div className={styles.pageContent}>
+    <Stack className={styles.pageContent}>
       <div className={styles.notifToggleCard}>
         <div>
           <div className={styles.notifToggleTitle}>
@@ -32,7 +33,7 @@ export function NotificationsPage() {
         />
       </div>
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Notify me when...</div>
 
         <label className={styles.notifRow}>
@@ -94,7 +95,7 @@ export function NotificationsPage() {
             />
           </label>
         )}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }

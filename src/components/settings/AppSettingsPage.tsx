@@ -1,16 +1,17 @@
 import { usePreferencesStore } from "../../store/preferences-store";
 import { ThemeSection } from "./ThemeSection";
 import { Input } from "../ui/Input";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function AppSettingsPage() {
   const { preferences, set } = usePreferencesStore();
 
   return (
-    <div className={styles.pageContent}>
+    <Stack className={styles.pageContent}>
       <ThemeSection />
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Editor</div>
         <div className={styles.fieldLabel}>Default editor command</div>
         <Input
@@ -23,14 +24,14 @@ export function AppSettingsPage() {
           CLI command used to open workspaces. Leave empty to use the system
           default.
         </div>
-      </div>
+      </Stack>
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Font</div>
         <div className={styles.placeholder}>
           Font family and size settings coming soon.
         </div>
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }

@@ -148,18 +148,11 @@
 }
 
 .pageContent {
-  display: flex;
-  flex-direction: column;
   gap: 28px;
 }
 
 /* ── Settings groups ── */
 
-.settingsGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 .sectionTitle {
   font-size: 11px;
@@ -179,10 +172,6 @@
 }
 
 .toggleRow {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  align-items: center;
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
@@ -284,9 +273,6 @@
 }
 
 .commandRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 6px;
 }
 
@@ -391,8 +377,6 @@
 }
 
 .themePreview {
-  display: flex;
-  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -412,8 +396,6 @@
 /* ── Color picker ── */
 
 .colorPicker {
-  display: flex;
-  gap: 6px;
   padding: 4px 0;
 }
 
@@ -443,12 +425,6 @@
 
 /* ── Linear integration ── */
 
-.linearConnected {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .linearStatus {
   display: flex;
   align-items: center;
@@ -466,16 +442,7 @@
   color: var(--text-dim);
 }
 
-.linearDisconnected {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .linearInputRow {
-  display: flex;
-  gap: 8px;
-}
 
 .linearInputRow input {
   flex: 1;
@@ -603,11 +570,6 @@
   margin-bottom: 4px;
 }
 
-.keybindingsList {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 
 .keybindingRow {
   display: flex;
@@ -657,11 +619,6 @@
   width: 100%;
 }
 
-.keybindingActions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
 
 .keybindingActionBtn {
   background: none;

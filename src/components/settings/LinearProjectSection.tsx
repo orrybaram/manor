@@ -4,6 +4,7 @@ import Check from "lucide-react/dist/esm/icons/check";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type LinearProjectSectionProps = {
@@ -62,7 +63,7 @@ export function LinearProjectSection(props: LinearProjectSectionProps) {
       : project.linearAssociations.map((a) => a.teamKey).join(", ");
 
   return (
-    <div className={styles.settingsGroup}>
+    <Stack gap="xs">
       <div className={styles.sectionTitle}>Linear</div>
       {!connected ? (
         <div className={styles.fieldHint}>
@@ -109,6 +110,6 @@ export function LinearProjectSection(props: LinearProjectSectionProps) {
           </Popover.Root>
         </>
       )}
-    </div>
+    </Stack>
   );
 }

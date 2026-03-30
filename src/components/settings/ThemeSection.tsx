@@ -4,6 +4,7 @@ import Check from "lucide-react/dist/esm/icons/check";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { Input } from "../ui/Input";
+import { Row } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 interface ThemeEntry {
@@ -168,7 +169,7 @@ export function ThemeSection() {
                 <span className={styles.themeItemBadge}>{entry.badge}</span>
               )}
               {dotColors && (
-                <div className={styles.themePreview}>
+                <Row gap="xs" className={styles.themePreview}>
                   {dotColors.map((c, i) => (
                     <div
                       key={i}
@@ -176,7 +177,7 @@ export function ThemeSection() {
                       style={{ background: c }}
                     />
                   ))}
-                </div>
+                </Row>
               )}
             </div>
           );

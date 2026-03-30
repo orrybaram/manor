@@ -13,6 +13,7 @@ import { LinearProjectSection } from "./LinearProjectSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
+import { Stack, Row } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const scriptFields: Array<{
@@ -169,7 +170,7 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
                   <span className={styles.themeItemBadge}>{entry.badge}</span>
                 )}
                 {dotColors && (
-                  <div className={styles.themePreview}>
+                  <Row gap="xs" className={styles.themePreview}>
                     {dotColors.map((c, i) => (
                       <div
                         key={i}
@@ -177,7 +178,7 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
                         style={{ background: c }}
                       />
                     ))}
-                  </div>
+                  </Row>
                 )}
               </div>
             );
@@ -268,8 +269,8 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   );
 
   return (
-    <div className={styles.pageContent}>
-      <div className={styles.settingsGroup}>
+    <Stack className={styles.pageContent}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>General</div>
         <label className={styles.fieldLabel}>Name</label>
         <Input
@@ -282,7 +283,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
         <label className={styles.fieldLabel}>Default Branch</label>
         <div className={styles.fieldStatic}>{project.defaultBranch}</div>
         <label className={styles.fieldLabel}>Color</label>
-        <div className={styles.colorPicker}>
+        <Row gap="xxs" className={styles.colorPicker}>
           {PROJECT_COLORS.map((c) => {
             const isSelected = (project.color ?? null) === c.value;
             return (
@@ -299,13 +300,13 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               </button>
             );
           })}
-        </div>
+        </Row>
         <ProjectThemeSelector project={project} />
-      </div>
+      </Stack>
 
       <LinearProjectSection project={project} />
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Agent</div>
         <label className={styles.fieldLabel}>Agent Command</label>
         <Input
@@ -314,13 +315,13 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
           onBlur={() => handleBlur("agentCommand")}
           placeholder={DEFAULT_AGENT_COMMAND}
         />
-      </div>
+      </Stack>
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Commands</div>
         <div className={styles.commandList}>
           {(project.commands ?? []).map((cmd: CustomCommand) => (
-            <div key={cmd.id} className={styles.commandRow}>
+            <Row key={cmd.id} align="center" gap="sm" className={styles.commandRow}>
               <Input
                 ref={(el) => {
                   if (el && cmd.id === newCommandId) {
@@ -360,7 +361,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               >
                 <Trash2 size={14} />
               </button>
-            </div>
+            </Row>
           ))}
           <button
             className={styles.addCommandBtn}
@@ -381,9 +382,9 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
             Add Command
           </button>
         </div>
-      </div>
+      </Stack>
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Worktrees</div>
         <label className={styles.fieldLabel}>Worktree Path</label>
         <Input
@@ -411,9 +412,9 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
             />
           </div>
         ))}
-      </div>
+      </Stack>
 
-      <div className={styles.settingsGroup}>
+      <Stack gap="xs">
         <div className={styles.sectionTitle}>Scripts</div>
         {scriptFields.map(({ field, label, placeholder }) => (
           <div key={field}>
@@ -430,7 +431,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
             />
           </div>
         ))}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }

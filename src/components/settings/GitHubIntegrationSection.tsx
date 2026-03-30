@@ -3,6 +3,7 @@ import Link from "lucide-react/dist/esm/icons/link";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type GitHubStatus = {
@@ -23,7 +24,7 @@ export function GitHubIntegrationSection() {
   useMountEffect(checkStatus);
 
   return (
-    <div className={styles.settingsGroup}>
+    <Stack gap="xs">
       <div className={styles.sectionTitle}>GitHub</div>
       <div className={styles.sectionDescription}>
         Shows live PR status badges in the sidebar for each branch — including
@@ -31,7 +32,7 @@ export function GitHubIntegrationSection() {
         GitHub CLI (<code>gh</code>) to be installed and authenticated.
       </div>
       {status?.installed && status?.authenticated ? (
-        <div className={styles.linearConnected}>
+        <Stack gap="sm">
           <div className={styles.linearStatus}>
             <Link size={14} />
             <span>Connected as {status.username}</span>
@@ -40,9 +41,9 @@ export function GitHubIntegrationSection() {
             <RefreshCw size={13} />
             Refresh
           </Button>
-        </div>
+        </Stack>
       ) : status?.installed && !status?.authenticated ? (
-        <div className={styles.linearDisconnected}>
+        <Stack gap="xxs">
           <div>GitHub CLI installed but not authenticated.</div>
           <div className={styles.fieldHint}>
             Run <code>gh auth login</code> in your terminal to connect.
@@ -51,9 +52,9 @@ export function GitHubIntegrationSection() {
             <RefreshCw size={13} />
             Refresh
           </Button>
-        </div>
+        </Stack>
       ) : (
-        <div className={styles.linearDisconnected}>
+        <Stack gap="xxs">
           <div>
             GitHub CLI is required for PR status.{" "}
             <a
@@ -74,8 +75,8 @@ export function GitHubIntegrationSection() {
             <RefreshCw size={13} />
             Refresh
           </Button>
-        </div>
+        </Stack>
       )}
-    </div>
+    </Stack>
   );
 }

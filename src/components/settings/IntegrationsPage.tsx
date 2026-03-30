@@ -1,12 +1,13 @@
 import { GitHubIntegrationSection } from "./GitHubIntegrationSection";
 import { LinearIntegrationSection } from "./LinearIntegrationSection";
+import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function IntegrationsPage() {
   return (
-    <div className={styles.pageContent}>
+    <Stack className={styles.pageContent}>
       <GitHubIntegrationSection />
       <LinearIntegrationSection />
-    </div>
+    </Stack>
   );
 }

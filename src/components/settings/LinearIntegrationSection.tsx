@@ -6,6 +6,7 @@ import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
+import { Stack, Row } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function LinearIntegrationSection() {
@@ -72,14 +73,14 @@ export function LinearIntegrationSection() {
   };
 
   return (
-    <div className={styles.settingsGroup}>
+    <Stack gap="xs">
       <div className={styles.sectionTitle}>Linear</div>
       <div className={styles.sectionDescription}>
         Connect Linear to sync issues, track project progress, and auto-match
         teams to your projects.
       </div>
       {connected ? (
-        <div className={styles.linearConnected}>
+        <Stack gap="sm">
           <div className={styles.linearStatus}>
             <Link size={14} />
             <span>Connected as {viewer?.name ?? "..."}</span>
@@ -94,10 +95,10 @@ export function LinearIntegrationSection() {
             <Unlink size={13} />
             Disconnect
           </Button>
-        </div>
+        </Stack>
       ) : (
-        <div className={styles.linearDisconnected}>
-          <div className={styles.linearInputRow}>
+        <Stack gap="xxs">
+          <Row gap="sm">
             <Input
               type="password"
               placeholder="Paste your Linear API key"
@@ -115,7 +116,7 @@ export function LinearIntegrationSection() {
             >
               {loading ? "Connecting..." : "Connect"}
             </Button>
-          </div>
+          </Row>
           {error && <div className={styles.linearError}>{error}</div>}
           <div className={styles.fieldHint}>
             Get your API key from{" "}
@@ -132,8 +133,8 @@ export function LinearIntegrationSection() {
               Linear Settings
             </a>
           </div>
-        </div>
+        </Stack>
       )}
-    </div>
+    </Stack>
   );
 }

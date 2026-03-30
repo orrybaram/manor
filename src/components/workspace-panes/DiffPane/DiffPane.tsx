@@ -1,432 +1,18 @@
-import { createElement, useEffect, useState, useMemo, useCallback, useRef } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import FileEdit from "lucide-react/dist/esm/icons/file-edit";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
-import X from "lucide-react/dist/esm/icons/x";
-import type { RootContent, Element as HastElement } from "hast";
 import { useProjectStore } from "../../../store/project-store";
-import { extToLang, tokenize } from "./syntax";
+import { parseDiff } from "./parser";
+import { countMatches } from "./search-utils";
+import { SearchBar } from "./SearchBar/SearchBar";
+import { FileHeader } from "./FileHeader/FileHeader";
+import { DiffLines } from "./DiffLines/DiffLines";
+import { FileList } from "./FileList/FileList";
+import { ModeToggle } from "./ModeToggle/ModeToggle";
+import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
-
-// ── Parser ──
-
-interface DiffLine {
-  type: "context" | "add" | "del" | "hunk";
-  content: string;
-  oldNum?: number;
-  newNum?: number;
-}
-
-interface DiffFile {
-  path: string;
-  lines: DiffLine[];
-  added: number;
-  removed: number;
-}
-
-function parseDiff(raw: string): DiffFile[] {
-  const files: DiffFile[] = [];
-  const lines = raw.split("\n");
-  let current: DiffFile | null = null;
-  let oldNum = 0;
-  let newNum = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.startsWith("diff --git")) {
-      // Extract path from "diff --git a/foo b/foo"
-      const match = line.match(/^diff --git a\/.+ b\/(.+)$/);
-      current = { path: match?.[1] ?? "unknown", lines: [], added: 0, removed: 0 };
-      files.push(current);
-      continue;
-    }
-
-    if (!current) continue;
-
-    // Skip index/--- /+++ metadata lines
-    if (line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) continue;
-    if (line.startsWith("Binary files")) {
-      current.lines.push({ type: "context", content: line });
-      continue;
-    }
-
-    // Hunk header
-    const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
-    if (hunkMatch) {
-      oldNum = parseInt(hunkMatch[1], 10);
-      newNum = parseInt(hunkMatch[2], 10);
-      current.lines.push({ type: "hunk", content: `@@ -${hunkMatch[1]} +${hunkMatch[2]} @@${hunkMatch[3]}` });
-      continue;
-    }
-
-    if (line.startsWith("+")) {
-      current.lines.push({ type: "add", content: line.slice(1), newNum });
-      current.added++;
-      newNum++;
-    } else if (line.startsWith("-")) {
-      current.lines.push({ type: "del", content: line.slice(1), oldNum });
-      current.removed++;
-      oldNum++;
-    } else if (line.startsWith(" ") || line === "") {
-      current.lines.push({ type: "context", content: line.slice(1), oldNum, newNum });
-      oldNum++;
-      newNum++;
-    }
-  }
-
-  return files;
-}
-
-// ── Search helpers ──
-
-function highlightText(
-  text: string,
-  query: string,
-  startIndex: number,
-  currentMatch: number,
-): { fragments: React.ReactNode[]; matchCount: number } {
-  if (!query) return { fragments: [text], matchCount: 0 };
-
-  const lower = text.toLowerCase();
-  const qLower = query.toLowerCase();
-  const fragments: React.ReactNode[] = [];
-  let last = 0;
-  let matchCount = 0;
-
-  let pos = lower.indexOf(qLower);
-  while (pos !== -1) {
-    if (pos > last) fragments.push(text.slice(last, pos));
-    const globalIdx = startIndex + matchCount;
-    fragments.push(
-      <mark
-        key={pos}
-        className={globalIdx === currentMatch ? styles.searchMatchActive : styles.searchMatch}
-        data-match-index={globalIdx}
-      >
-        {text.slice(pos, pos + query.length)}
-      </mark>,
-    );
-    matchCount++;
-    last = pos + query.length;
-    pos = lower.indexOf(qLower, last);
-  }
-
-  if (last < text.length) fragments.push(text.slice(last));
-  return { fragments, matchCount };
-}
-
-function countMatches(text: string, query: string): number {
-  if (!query) return 0;
-  const lower = text.toLowerCase();
-  const qLower = query.toLowerCase();
-  let count = 0;
-  let pos = lower.indexOf(qLower);
-  while (pos !== -1) {
-    count++;
-    pos = lower.indexOf(qLower, pos + qLower.length);
-  }
-  return count;
-}
-
-// ── HAST → React helpers ──
-
-function hastToReact(nodes: RootContent[], keyPrefix = ""): ReactNode[] {
-  return nodes.map((node, i) => {
-    if (node.type === "text") {
-      return node.value;
-    }
-    if (node.type === "element") {
-      const el = node as HastElement;
-      const className = Array.isArray(el.properties?.className)
-        ? (el.properties.className as string[]).join(" ")
-        : undefined;
-      return createElement(
-        el.tagName,
-        { key: `${keyPrefix}-${i}`, className },
-        ...hastToReact(el.children as RootContent[], `${keyPrefix}-${i}`),
-      );
-    }
-    return null;
-  });
-}
-
-/**
- * Apply search highlighting on top of syntax-highlighted HAST nodes.
- * Walks through every text segment, splitting at match boundaries to
- * insert <mark> elements while preserving the surrounding syntax spans.
- */
-function highlightSyntaxNodes(
-  nodes: RootContent[],
-  query: string,
-  startIndex: number,
-  currentMatch: number,
-  keyPrefix = "",
-): { elements: ReactNode[]; matchCount: number } {
-  if (!query) {
-    return { elements: hastToReact(nodes, keyPrefix), matchCount: 0 };
-  }
-
-  const qLower = query.toLowerCase();
-  let globalIdx = startIndex;
-
-  function walkNodes(items: RootContent[], kp: string): ReactNode[] {
-    const result: ReactNode[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const node = items[i];
-      if (node.type === "text") {
-        const text = node.value;
-        const lower = text.toLowerCase();
-        let last = 0;
-        let pos = lower.indexOf(qLower);
-        const frags: ReactNode[] = [];
-
-        while (pos !== -1) {
-          if (pos > last) frags.push(text.slice(last, pos));
-          frags.push(
-            createElement(
-              "mark",
-              {
-                key: `${kp}-m-${pos}`,
-                className: globalIdx === currentMatch ? styles.searchMatchActive : styles.searchMatch,
-                "data-match-index": globalIdx,
-              },
-              text.slice(pos, pos + query.length),
-            ),
-          );
-          globalIdx++;
-          last = pos + query.length;
-          pos = lower.indexOf(qLower, last);
-        }
-
-        if (last < text.length) frags.push(text.slice(last));
-        if (frags.length > 0) {
-          result.push(...frags);
-        } else {
-          result.push(text);
-        }
-      } else if (node.type === "element") {
-        const el = node as HastElement;
-        const className = Array.isArray(el.properties?.className)
-          ? (el.properties.className as string[]).join(" ")
-          : undefined;
-        const children = walkNodes(el.children as RootContent[], `${kp}-${i}`);
-        result.push(
-          createElement(el.tagName, { key: `${kp}-${i}`, className }, ...children),
-        );
-      }
-    }
-    return result;
-  }
-
-  const elements = walkNodes(nodes, keyPrefix);
-  return { elements, matchCount: globalIdx - startIndex };
-}
-
-function SearchBar({
-  query,
-  onChange,
-  totalMatches,
-  currentMatch,
-  onNext,
-  onPrev,
-  onClose,
-}: {
-  query: string;
-  onChange: (q: string) => void;
-  totalMatches: number;
-  currentMatch: number;
-  onNext: () => void;
-  onPrev: () => void;
-  onClose: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    } else if (e.key === "Enter") {
-      if (e.shiftKey) onPrev();
-      else onNext();
-    }
-  };
-
-  return (
-    <div className={styles.searchBar}>
-      <input
-        ref={inputRef}
-        className={styles.searchInput}
-        type="text"
-        placeholder="Find..."
-        value={query}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      <span className={styles.searchCount}>
-        {query ? `${totalMatches > 0 ? currentMatch + 1 : 0} of ${totalMatches}` : ""}
-      </span>
-      <button className={styles.searchBtn} onClick={onPrev} disabled={totalMatches === 0} aria-label="Previous match">
-        <ChevronUp size={14} />
-      </button>
-      <button className={styles.searchBtn} onClick={onNext} disabled={totalMatches === 0} aria-label="Next match">
-        <ChevronDown size={14} />
-      </button>
-      <button className={styles.searchBtn} onClick={onClose} aria-label="Close search">
-        <X size={14} />
-      </button>
-    </div>
-  );
-}
-
-// ── Components ──
-
-function FileHeader({ file, collapsed, onToggle }: { file: DiffFile; collapsed: boolean; onToggle: () => void }) {
-  return (
-    <div className={styles.fileHeader} onClick={onToggle}>
-      <span className={`${styles.chevron} ${collapsed ? "" : styles.chevronOpen}`}>
-        <ChevronRight size={12} />
-      </span>
-      <span className={styles.fileName}>{file.path}</span>
-      <span className={styles.fileStats}>
-        {file.added > 0 && <span className={styles.statAdded}>+{file.added}</span>}
-        {file.removed > 0 && <span className={styles.statRemoved}>-{file.removed}</span>}
-      </span>
-    </div>
-  );
-}
-
-function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: {
-  lines: DiffLine[];
-  filePath: string;
-  searchQuery: string;
-  matchOffset: number;
-  currentMatch: number;
-}) {
-  // Memoize tokenization based on lines and filePath
-  const tokenizedLines = useMemo(() => {
-    const lang = extToLang(filePath);
-    if (!lang) return null;
-    return lines.map((line) => {
-      if (line.type === "hunk") return null;
-      return tokenize(line.content, lang);
-    });
-  }, [lines, filePath]);
-
-  let runningOffset = matchOffset;
-
-  return (
-    <table className={styles.table}>
-      <tbody>
-        {lines.map((line, i) => {
-          if (line.type === "hunk") {
-            return (
-              <tr key={i} className={styles.hunkRow}>
-                <td className={styles.lineNum} />
-                <td className={styles.hunkContent}>{line.content}</td>
-              </tr>
-            );
-          }
-          const numClass =
-            line.type === "add" ? styles.lineNumAdd :
-            line.type === "del" ? styles.lineNumDel :
-            styles.lineNum;
-          const contentClass =
-            line.type === "add" ? styles.lineContentAdd :
-            line.type === "del" ? styles.lineContentDel :
-            styles.lineContent;
-          const num = line.type === "del" ? line.oldNum : line.newNum;
-          const prefix =
-            line.type === "add" ? "+" :
-            line.type === "del" ? "-" :
-            " ";
-
-          let content: ReactNode[];
-          let matchCount: number;
-
-          const tokens = tokenizedLines?.[i];
-          if (tokens) {
-            // Syntax highlighting with search overlay
-            const result = highlightSyntaxNodes(tokens, searchQuery, runningOffset, currentMatch, `l${i}`);
-            content = result.elements;
-            matchCount = result.matchCount;
-          } else {
-            // Fallback: plain text with search highlighting
-            const result = highlightText(line.content, searchQuery, runningOffset, currentMatch);
-            content = result.fragments;
-            matchCount = result.matchCount;
-          }
-
-          runningOffset += matchCount;
-
-          return (
-            <tr key={i}>
-              <td className={numClass}>{num}</td>
-              <td className={contentClass}>
-                <span className={styles.prefix}>{prefix}</span>
-                {content}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function FileList({
-  files,
-  onSelectFile,
-  animationState,
-}: {
-  files: DiffFile[];
-  onSelectFile: (path: string) => void;
-  animationState: Map<string, "new" | "updated">;
-}) {
-  const totalAdded = files.reduce((s, f) => s + f.added, 0);
-  const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
-
-  return (
-    <div className={styles.fileList}>
-      <div className={styles.fileListHeader}>
-        {files.length} {files.length === 1 ? "file" : "files"} changed
-        {totalAdded > 0 && <span className={styles.statAdded}> +{totalAdded}</span>}
-        {totalRemoved > 0 && <span className={styles.statRemoved}> -{totalRemoved}</span>}
-      </div>
-      {files.map((file) => (
-        <div
-          key={file.path}
-          className={[
-            styles.fileListItem,
-            animationState.get(file.path) === "new" ? styles.fileListItemNew : undefined,
-            animationState.get(file.path) === "updated" ? styles.fileListItemUpdated : undefined,
-          ].filter(Boolean).join(" ")}
-          onClick={() => onSelectFile(file.path)}
-        >
-          <span className={styles.fileListName}>{file.path}</span>
-          <span className={styles.fileStats}>
-            {file.added > 0 && <span className={styles.statAdded}>+{file.added}</span>}
-            {file.removed > 0 && <span className={styles.statRemoved}>-{file.removed}</span>}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Main ──
-
-type DiffMode = "local" | "branch";
 
 type DiffPaneProps = {
   workspacePath?: string;
@@ -465,14 +51,12 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   }, []);
 
   const scrollToFile = useCallback((path: string) => {
-    // Expand if collapsed
     setCollapsed((prev) => {
       if (!prev.has(path)) return prev;
       const next = new Set(prev);
       next.delete(path);
       return next;
     });
-    // Scroll after render
     requestAnimationFrame(() => {
       fileRefs.current.get(path)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -482,7 +66,6 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        // Only capture if this pane (or its children) has focus
         if (!containerRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
         e.preventDefault();
         setSearchOpen(true);
@@ -552,7 +135,6 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
       files.map((f) => [f.path, f.added * 1000 + f.removed + f.lines.length]),
     );
 
-    // Skip animations on initial load (previousFiles is null)
     if (previousFiles.current !== null) {
       const newAnimations = new Map<string, "new" | "updated">();
       for (const [path, hash] of currentHash) {
@@ -571,7 +153,6 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
     previousFiles.current = currentHash;
   }, [files]);
 
-  // Clear animation state after animation duration
   useEffect(() => {
     if (animationState.size === 0) return;
     const timer = setTimeout(() => {
@@ -599,12 +180,10 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
     return { fileOffsets: offsets, totalMatches: total };
   }, [files, searchQuery, collapsed]);
 
-  // Reset current match when query or total changes
   useEffect(() => {
     setCurrentMatch(0);
   }, [searchQuery, totalMatches]);
 
-  // Scroll active match into view
   useEffect(() => {
     if (!searchQuery || totalMatches === 0) return;
     requestAnimationFrame(() => {
@@ -629,6 +208,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   if (loading) {
     return (
       <div className={styles.container}>
+        <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
         <div className={styles.status}>Loading diff...</div>
       </div>
     );
@@ -637,6 +217,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   if (error) {
     return (
       <div className={styles.container}>
+        <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
         <div className={styles.status}>{error}</div>
       </div>
     );
@@ -655,22 +236,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           onClose={handleSearchClose}
         />
       )}
-      <div className={styles.modeToggle}>
-        <button
-          className={`${styles.modeBtn} ${diffMode === "local" ? styles.modeBtnActive : ""}`}
-          onClick={() => setDiffMode("local")}
-        >
-          <FileEdit size={12} />
-          Local Changes
-        </button>
-        <button
-          className={`${styles.modeBtn} ${diffMode === "branch" ? styles.modeBtnActive : ""}`}
-          onClick={() => setDiffMode("branch")}
-        >
-          <GitBranch size={12} />
-          Branch Diff
-        </button>
-      </div>
+      <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
       <FileList files={files} onSelectFile={scrollToFile} animationState={animationState} />
       {files.map((file) => (
         <ContextMenu.Root key={file.path} onOpenChange={(open) => {
@@ -681,7 +247,6 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
               className={[
                 styles.file,
                 animationState.get(file.path) === "new" ? styles.fileNew : undefined,
-                animationState.get(file.path) === "updated" ? styles.fileUpdated : undefined,
               ].filter(Boolean).join(" ")}
               ref={(el) => { if (el) fileRefs.current.set(file.path, el); else fileRefs.current.delete(file.path); }}
               onCopy={(e) => {
@@ -690,7 +255,6 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
 
                 e.preventDefault();
 
-                // Walk selected table rows to extract line numbers + content
                 const range = sel.getRangeAt(0);
                 const ancestor = range.commonAncestorContainer instanceof HTMLElement
                   ? range.commonAncestorContainer
@@ -715,7 +279,12 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
                 e.clipboardData.setData("text/plain", `${file.path}\n${body}`);
               }}
             >
-              <FileHeader file={file} collapsed={collapsed.has(file.path)} onToggle={() => toggleFile(file.path)} />
+              <FileHeader
+                file={file}
+                collapsed={collapsed.has(file.path)}
+                animated={animationState.get(file.path) === "updated"}
+                onToggle={() => toggleFile(file.path)}
+              />
               {!collapsed.has(file.path) && (
                 <DiffLines
                   lines={file.lines}

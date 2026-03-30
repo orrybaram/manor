@@ -1,0 +1,152 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  table-layout: fixed;
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
+}
+
+.lineNum {
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--text-dim);
+  background: var(--dim);
+  user-select: none;
+  vertical-align: top;
+  border-right: 1px solid var(--border);
+}
+
+.lineNumAdd {
+  composes: lineNum;
+  background: color-mix(in srgb, var(--green) 12%, var(--dim));
+  color: var(--green);
+}
+
+.lineNumDel {
+  composes: lineNum;
+  background: color-mix(in srgb, var(--red) 12%, var(--dim));
+  color: var(--red);
+}
+
+.lineContent {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.prefix {
+  user-select: none;
+  margin-right: 4px;
+  color: var(--text-dim);
+}
+
+.lineContentAdd {
+  composes: lineContent;
+  background: color-mix(in srgb, var(--green) 8%, var(--background));
+}
+
+.lineContentAdd .prefix {
+  color: var(--green);
+}
+
+.lineContentDel {
+  composes: lineContent;
+  background: color-mix(in srgb, var(--red) 8%, var(--background));
+}
+
+.lineContentDel .prefix {
+  color: var(--red);
+}
+
+/* ── Hunk headers ── */
+
+.hunkRow td {
+  background: var(--surface);
+}
+
+.hunkContent {
+  padding: 2px 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* ── Search highlights ── */
+
+.searchMatch {
+  background: color-mix(in srgb, var(--yellow, #e3b341) 40%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.searchMatchActive {
+  background: var(--yellow, #e3b341);
+  color: var(--background);
+  border-radius: 2px;
+}
+
+/* ── Syntax tokens ── */
+
+.lineContent :global(.token.comment),
+.lineContent :global(.token.prolog),
+.lineContent :global(.token.doctype),
+.lineContent :global(.token.cdata) {
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+.lineContent :global(.token.keyword),
+.lineContent :global(.token.tag),
+.lineContent :global(.token.boolean),
+.lineContent :global(.token.constant),
+.lineContent :global(.token.deleted) {
+  color: var(--magenta);
+}
+
+.lineContent :global(.token.string),
+.lineContent :global(.token.char),
+.lineContent :global(.token.attr-value),
+.lineContent :global(.token.inserted) {
+  color: var(--green);
+}
+
+.lineContent :global(.token.number) {
+  color: var(--yellow);
+}
+
+.lineContent :global(.token.function),
+.lineContent :global(.token.class-name) {
+  color: var(--blue);
+}
+
+.lineContent :global(.token.builtin),
+.lineContent :global(.token.symbol) {
+  color: var(--cyan);
+}
+
+.lineContent :global(.token.operator),
+.lineContent :global(.token.entity),
+.lineContent :global(.token.url) {
+  color: var(--text-dim);
+}
+
+.lineContent :global(.token.punctuation) {
+  color: var(--text-dim);
+}
+
+.lineContent :global(.token.property),
+.lineContent :global(.token.attr-name) {
+  color: var(--cyan);
+}
+
+.lineContent :global(.token.regex),
+.lineContent :global(.token.important),
+.lineContent :global(.token.variable) {
+  color: var(--yellow);
+}

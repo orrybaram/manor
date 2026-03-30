@@ -1,0 +1,68 @@
+.fileHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -4px -1px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+}
+
+.fileHeader:hover {
+  background: var(--hover);
+}
+
+.headerAnimated {
+  animation: highlightPulse 400ms ease forwards;
+}
+
+.chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  transition: transform 120ms ease;
+  flex-shrink: 0;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.fileName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.fileStats {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.statAdded {
+  color: var(--green);
+}
+
+.statRemoved {
+  color: var(--red);
+}
+
+@keyframes highlightPulse {
+  from {
+    background-color: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}

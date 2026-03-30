@@ -1,0 +1,77 @@
+.fileList {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 8px;
+  overflow: hidden;
+}
+
+.fileListHeader {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.fileListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fileListItem:hover {
+  background: var(--hover);
+}
+
+.fileListName {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.fileStats {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.statAdded {
+  color: var(--green);
+}
+
+.statRemoved {
+  color: var(--red);
+}
+
+.fileListItemNew {
+  animation: fadeSlideIn 300ms ease forwards;
+}
+
+.fileListItemUpdated {
+  animation: highlightPulse 400ms ease forwards;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes highlightPulse {
+  from {
+    background-color: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}

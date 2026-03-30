@@ -125,6 +125,7 @@ export interface AppState {
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
+    contentType?: "terminal" | "browser" | "diff",
   ) => void;
   movePaneToTarget: (
     sourcePaneId: string,
@@ -589,6 +590,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
+    contentType?: "terminal" | "browser" | "diff",
   ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
@@ -606,6 +608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         direction,
         newPane,
         position,
+        contentType,
       );
       return {
         workspaceSessions: {
@@ -619,6 +622,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             ),
           },
         },
+        ...(contentType && {
+          paneContentType: { ...state.paneContentType, [newPane]: contentType },
+        }),
       };
     }),
 

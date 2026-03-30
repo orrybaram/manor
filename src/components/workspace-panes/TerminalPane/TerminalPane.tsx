@@ -9,6 +9,8 @@ import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import PanelBottom from "lucide-react/dist/esm/icons/panel-bottom";
 import PanelTop from "lucide-react/dist/esm/icons/panel-top";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
+import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import Globe from "lucide-react/dist/esm/icons/globe";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useAppStore } from "../../../store/app-store";
@@ -125,6 +127,23 @@ export function TerminalPane(props: TerminalPaneProps) {
           >
             <PanelTop size={14} />
             Split Up
+          </ContextMenu.Item>
+
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => splitPaneAt(paneId, "horizontal", "second", "diff")}
+          >
+            <GitCompareArrows size={14} />
+            Split with Diff
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => splitPaneAt(paneId, "horizontal", "second", "browser")}
+          >
+            <Globe size={14} />
+            Split with Browser
           </ContextMenu.Item>
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />

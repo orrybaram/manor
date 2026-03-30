@@ -307,10 +307,12 @@
 
 .diffStatsClickable {
   cursor: pointer;
+  transition: transform 150ms ease, background 150ms ease;
 }
 
 .diffStatsClickable:hover {
   background: var(--hover);
+  transform: scale(1.2);
 }
 
 .prBadge {

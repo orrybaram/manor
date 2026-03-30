@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./sidebar/Sidebar/Sidebar.module.css";
+import { Button } from "./ui/Button/Button";
 
 type CloseAgentPaneDialogProps = {
   open: boolean;
@@ -23,21 +24,21 @@ export function CloseAgentPaneDialog(props: CloseAgentPaneDialogProps) {
             close it?
           </Dialog.Description>
           <div className={styles.confirmActions}>
-            <button
-              className={styles.confirmCancel}
+            <Button
+              variant="secondary"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
-              className={styles.confirmRemove}
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 onOpenChange(false);
                 onConfirm();
               }}
             >
               Close
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

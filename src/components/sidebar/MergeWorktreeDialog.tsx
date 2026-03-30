@@ -4,6 +4,7 @@ import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { WorkspaceInfo } from "../../store/project-store";
 import styles from "./Sidebar/Sidebar.module.css";
+import { Button } from "../ui/Button/Button";
 
 type MergeWorktreeDialogProps = {
   open: boolean;
@@ -62,14 +63,14 @@ export function MergeWorktreeDialog(props: MergeWorktreeDialogProps) {
             </div>
           )}
           <div className={styles.confirmActions}>
-            <button
-              className={styles.confirmCancel}
+            <Button
+              variant="secondary"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
-              className={styles.confirmRemove}
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 if (workspace) {
                   onOpenChange(false);
@@ -78,7 +79,7 @@ export function MergeWorktreeDialog(props: MergeWorktreeDialogProps) {
               }}
             >
               Merge & Delete
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

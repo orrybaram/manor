@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./Sidebar/Sidebar.module.css";
+import { Button } from "../ui/Button/Button";
 
 type RemoveProjectDialogProps = {
   open: boolean;
@@ -24,21 +25,21 @@ export function RemoveProjectDialog(props: RemoveProjectDialogProps) {
             delete any files on disk.
           </Dialog.Description>
           <div className={styles.confirmActions}>
-            <button
-              className={styles.confirmCancel}
+            <Button
+              variant="secondary"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
-              className={styles.confirmRemove}
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 onOpenChange(false);
                 onConfirm();
               }}
             >
               Remove
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

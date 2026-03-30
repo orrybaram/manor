@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import type { WorkspaceInfo } from "../../store/project-store";
 import styles from "./Sidebar/Sidebar.module.css";
+import { Button } from "../ui/Button/Button";
 
 type DeleteWorktreeDialogProps = {
   open: boolean;
@@ -62,14 +63,14 @@ export function DeleteWorktreeDialog(props: DeleteWorktreeDialogProps) {
             </div>
           )}
           <div className={styles.confirmActions}>
-            <button
-              className={styles.confirmCancel}
+            <Button
+              variant="secondary"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
-              className={styles.confirmRemove}
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 if (workspace) {
                   onOpenChange(false);
@@ -78,7 +79,7 @@ export function DeleteWorktreeDialog(props: DeleteWorktreeDialogProps) {
               }}
             >
               Delete
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

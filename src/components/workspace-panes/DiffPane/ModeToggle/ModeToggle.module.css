@@ -1,7 +1,7 @@
 .modeToggle {
   display: flex;
   gap: 2px;
-  margin: 8px 8px 0;
+  margin: 0;
   padding: 2px;
   background: var(--dim);
   border-radius: 6px;

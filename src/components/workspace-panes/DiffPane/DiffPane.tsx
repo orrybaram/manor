@@ -4,6 +4,7 @@ import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { useProjectStore } from "../../../store/project-store";
+import { Stack } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
 import { countMatches } from "./search-utils";
 import { SearchBar } from "./SearchBar/SearchBar";
@@ -242,6 +243,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           onClose={handleSearchClose}
         />
       )}
+      <Stack gap="lg" className={styles.fileStack}>
       <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
       <FileList
         files={files}
@@ -339,6 +341,7 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
           </ContextMenu.Portal>
         </ContextMenu.Root>
       ))}
+      </Stack>
       {showBackToTop && (
         <button className={styles.backToTop} onClick={scrollToTop} aria-label="Back to top">
           <ArrowUp size={14} />

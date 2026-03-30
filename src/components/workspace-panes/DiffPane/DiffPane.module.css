@@ -17,10 +17,13 @@
 
 /* ── Per-file block ── */
 
+.fileStack {
+  padding: 0 8px;
+}
+
 .file {
   border: 1px solid var(--border);
   border-radius: 6px;
-  margin: 8px;
 }
 
 /* ── Back to top ── */

@@ -101,26 +101,6 @@
   margin-top: 0;
 }
 
-.fieldInput {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--surface);
-  background: var(--bg);
-  color: var(--text-selected);
-  font-size: 13px;
-  border-radius: 6px;
-  outline: none;
-  font-family: inherit;
-}
-
-.fieldInput::placeholder {
-  color: var(--text-dim);
-}
-
-.fieldInput:focus {
-  border-color: var(--accent);
-}
-
 /* ── Color picker ── */
 
 .colorPicker {

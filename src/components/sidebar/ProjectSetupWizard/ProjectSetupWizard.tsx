@@ -7,6 +7,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import { useProjectStore, type CustomCommand } from "../../../store/project-store";
 import { PROJECT_COLORS } from "../../../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
+import { Input, Textarea } from "@/components/ui/Input";
 import styles from "./ProjectSetupWizard.module.css";
 
 function slugify(str: string): string {
@@ -332,9 +333,8 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
               </div>
             </div>
             <label className={styles.fieldLabel}>Project Name
-            <input
+            <Input
               ref={nameRef}
-              className={styles.fieldInput}
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
@@ -418,8 +418,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
               {discoveredAgents.length > 0
                 ? "Or enter a custom command"
                 : "Command"}
-            <input
-              className={styles.fieldInput}
+            <Input
               type="text"
               value={agentCommand}
               onChange={(e) => setAgentCommand(e.target.value)}
@@ -441,8 +440,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
               </div>
             </div>
             <label className={styles.fieldLabel}>Path
-            <input
-              className={styles.fieldInput}
+            <Input
               type="text"
               value={worktreePath}
               onChange={(e) => handleWorktreePathChange(e.target.value)}
@@ -451,8 +449,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
             />
             </label>
             <label className={styles.fieldLabel}>Setup Script
-            <textarea
-              className={styles.fieldInput}
+            <Textarea
               rows={4}
               value={startScript}
               onChange={(e) => setStartScript(e.target.value)}

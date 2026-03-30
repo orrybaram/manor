@@ -1,5 +1,5 @@
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import PencilLine from "lucide-react/dist/esm/icons/pencil-line";
+import CircleDotDashed from "lucide-react/dist/esm/icons/circle-dot-dashed";
 import type { DiffMode } from "../types";
 import styles from "./ModeToggle.module.css";
 
@@ -10,7 +10,7 @@ export function ModeToggle({ diffMode, onModeChange }: { diffMode: DiffMode; onM
         className={`${styles.modeBtn} ${diffMode === "local" ? styles.modeBtnActive : ""}`}
         onClick={() => onModeChange("local")}
       >
-        <PencilLine size={12} />
+        <CircleDotDashed size={12} />
         Uncommitted
       </button>
       <button

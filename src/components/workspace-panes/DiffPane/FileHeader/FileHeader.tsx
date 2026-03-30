@@ -1,5 +1,6 @@
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { DiffFile } from "../types";
+import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import styles from "./FileHeader.module.css";
 
 export function FileHeader({
@@ -30,8 +31,8 @@ export function FileHeader({
         {dir && <span className={styles.fileDir}>{dir}</span>}
       </span>
       <span className={styles.fileStats}>
-        {file.added > 0 && <span className={styles.statAdded}>+{file.added}</span>}
-        {file.removed > 0 && <span className={styles.statRemoved}>-{file.removed}</span>}
+        {file.added > 0 && <AnimatedCount value={file.added} prefix="+" className={styles.statAdded} />}
+        {file.removed > 0 && <AnimatedCount value={file.removed} prefix="-" className={styles.statRemoved} />}
       </span>
     </div>
   );

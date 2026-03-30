@@ -63,6 +63,7 @@
 .fileStats {
   display: flex;
   gap: 6px;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   margin-left: auto;

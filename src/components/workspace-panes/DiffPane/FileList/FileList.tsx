@@ -9,6 +9,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { DiffFile, DiffMode } from "../types";
 import { Checkbox } from "../../../ui/Checkbox/Checkbox";
 import { Button } from "../../../ui/Button/Button";
+import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import styles from "./FileList.module.css";
 
 type FileListProps = {
@@ -148,12 +149,14 @@ export function FileList({
             />
           )}
           {files.length} {files.length === 1 ? "file" : "files"} changed
-          {totalAdded > 0 && (
-            <span className={styles.statAdded}> +{totalAdded}</span>
-          )}
-          {totalRemoved > 0 && (
-            <span className={styles.statRemoved}> -{totalRemoved}</span>
-          )}
+          <span className={styles.fileStats}>
+            {totalAdded > 0 && (
+              <AnimatedCount value={totalAdded} prefix="+" className={styles.statAdded} />
+            )}
+            {totalRemoved > 0 && (
+              <AnimatedCount value={totalRemoved} prefix="-" className={styles.statRemoved} />
+            )}
+          </span>
           {selectedFiles.size > 0 && (
             <span className={styles.selectionInfo}>
               {selectedFiles.size} selected
@@ -204,10 +207,10 @@ export function FileList({
                 </span>
                 <span className={styles.fileStats}>
                   {file.added > 0 && (
-                    <span className={styles.statAdded}>+{file.added}</span>
+                    <AnimatedCount value={file.added} prefix="+" className={styles.statAdded} />
                   )}
                   {file.removed > 0 && (
-                    <span className={styles.statRemoved}>-{file.removed}</span>
+                    <AnimatedCount value={file.removed} prefix="-" className={styles.statRemoved} />
                   )}
                 </span>
               </div>

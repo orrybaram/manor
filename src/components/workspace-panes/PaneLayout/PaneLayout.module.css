@@ -13,9 +13,12 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.leafTerminalInset {
   margin-left: 8px;
   margin-top: 8px;
-  position: relative;
 }
 
 .leafFocused {

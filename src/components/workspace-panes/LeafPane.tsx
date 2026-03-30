@@ -5,11 +5,12 @@ import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import Crosshair from "lucide-react/dist/esm/icons/crosshair";
 import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
+import Search from "lucide-react/dist/esm/icons/search";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
-import { DiffPane } from "./DiffPane/DiffPane";
+import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
@@ -45,6 +46,7 @@ export function LeafPane(props: LeafPaneProps) {
   const isFocused = focusedPaneId === paneId;
 
   const browserRef = useRef<BrowserPaneRef>(null);
+  const diffRef = useRef<DiffPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
 
@@ -250,6 +252,17 @@ export function LeafPane(props: LeafPaneProps) {
           <span className={styles.paneStatusTitle}>{title}</span>
         )}
         <Row align="center" gap="2xs" className={styles.paneStatusActions}>
+          {contentType === "diff" && (
+            <Tooltip label="Search">
+              <button
+                className={styles.paneStatusBtn}
+                onClick={(e) => { e.stopPropagation(); diffRef.current?.toggleSearch(); }}
+                title="Search in diff"
+              >
+                <Search size={12} />
+              </button>
+            </Tooltip>
+          )}
           <button
             className={styles.paneStatusBtn}
             onClick={handleSplit}
@@ -316,9 +329,9 @@ export function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
         {contentType === "diff" ? (
-          <DiffPane workspacePath={workspacePath} />
+          <DiffPane ref={diffRef} workspacePath={workspacePath} />
         ) : contentType === "browser" ? (
           <>
             <BrowserPane

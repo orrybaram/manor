@@ -18,7 +18,7 @@
 /* ── Per-file block ── */
 
 .fileStack {
-  padding: 0 8px;
+  padding: 8px;
 }
 
 .file {
@@ -44,7 +44,9 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  transition: color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 
 .backToTop:hover {

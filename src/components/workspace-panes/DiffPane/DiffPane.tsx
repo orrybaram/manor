@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
@@ -15,11 +15,15 @@ import { ModeToggle } from "./ModeToggle/ModeToggle";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 
+export type DiffPaneRef = {
+  toggleSearch: () => void;
+};
+
 type DiffPaneProps = {
   workspacePath?: string;
 };
 
-export function DiffPane({ workspacePath }: DiffPaneProps) {
+export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(function DiffPane({ workspacePath }, ref) {
   const [raw, setRaw] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +37,10 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const savedSelection = useRef<string>("");
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  useImperativeHandle(ref, () => ({
+    toggleSearch: () => setSearchOpen((v) => !v),
+  }));
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -349,4 +357,4 @@ export function DiffPane({ workspacePath }: DiffPaneProps) {
       )}
     </div>
   );
-}
+});

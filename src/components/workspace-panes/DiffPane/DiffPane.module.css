@@ -18,7 +18,7 @@
 /* ── Per-file block ── */
 
 .fileStack {
-  padding: 8px;
+  padding: 16px;
 }
 
 .file {

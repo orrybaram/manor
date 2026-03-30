@@ -8,12 +8,12 @@ declare module "lucide-react/dist/esm/icons/*" {
   export default icon;
 }
 
-declare module "refractor/lib/core" {
+declare module "refractor/core" {
   export { refractor } from "refractor";
 }
 
-declare module "refractor/lang/*" {
-  import type { Syntax } from "refractor/lib/core";
+declare module "refractor/*" {
+  import type { Syntax } from "refractor/core";
   const syntax: Syntax;
   export default syntax;
 }

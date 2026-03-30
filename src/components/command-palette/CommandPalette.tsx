@@ -24,7 +24,7 @@ import type {
   CategoryConfig,
   CommandItem,
 } from "./types";
-import { Row, Stack } from "../ui/Layout/Layout";
+import { Row } from "../ui/Layout/Layout";
 import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
@@ -330,8 +330,7 @@ export function CommandPalette(props: CommandPaletteProps) {
             onEscapeKeyDown={handleEscapeKeyDown}
           >
             <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
-            <Command asChild loop filter={wordPrefixFilter}>
-            <Stack className={styles.command}>
+            <Command className={styles.command} loop filter={wordPrefixFilter}>
               {isIssueListView && (
                 <Row align="center" gap="xxs" className={styles.breadcrumb}>
                   <button
@@ -484,7 +483,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                     onNewTaskWithPrompt={onNewTaskWithPrompt}
                   />
                 )}
-            </Stack>
             </Command>
           </Dialog.Content>
         </Dialog.Portal>

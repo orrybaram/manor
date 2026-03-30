@@ -44,6 +44,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
   const selectedSessionId = ws?.selectedSessionId ?? null;
   const closeSession = useAppStore((s) => s.closeSession);
+  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
@@ -176,6 +177,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     selectedSessionId,
     setShowGhosts,
     activePorts,
+    openOrFocusDiff,
   });
 
   const taskCommands = useTaskCommands({

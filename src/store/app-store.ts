@@ -110,6 +110,7 @@ export interface AppState {
   addSession: () => void;
   addBrowserSession: (url: string) => void;
   addDiffSession: () => void;
+  openOrFocusDiff: () => void;
   closeSession: (sessionId: string) => void;
   requestCloseSession: (sessionId: string) => void;
   setPendingCloseConfirmSessionId: (sessionId: string | null) => void;
@@ -366,6 +367,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!path) return state;
       const ws = state.workspaceSessions[path];
       if (!ws) return state;
+      const paneId = newPaneId();
+      const session: Session = {
+        id: newSessionId(),
+        title: "Diff",
+        rootNode: { type: "leaf", paneId, contentType: "diff" },
+        focusedPaneId: paneId,
+      };
+      return {
+        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
+        workspaceSessions: {
+          ...state.workspaceSessions,
+          [path]: {
+            ...ws,
+            sessions: [...ws.sessions, session],
+            selectedSessionId: session.id,
+          },
+        },
+      };
+    }),
+
+  openOrFocusDiff: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const ws = state.workspaceSessions[path];
+      if (!ws) return state;
+
+      // Look for an existing diff pane across all sessions
+      for (const session of ws.sessions) {
+        for (const paneId of allPaneIds(session.rootNode)) {
+          if (state.paneContentType[paneId] === "diff") {
+            return {
+              workspaceSessions: {
+                ...state.workspaceSessions,
+                [path]: {
+                  ...ws,
+                  selectedSessionId: session.id,
+                  sessions: ws.sessions.map((s) =>
+                    s.id === session.id
+                      ? { ...s, focusedPaneId: paneId }
+                      : s,
+                  ),
+                },
+              },
+            };
+          }
+        }
+      }
+
+      // No existing diff pane found — create a new diff session
       const paneId = newPaneId();
       const session: Session = {
         id: newSessionId(),

@@ -25,6 +25,7 @@ interface UseCommandsParams {
   selectedSessionId: string | null;
   setShowGhosts: (show: boolean) => void;
   activePorts: ActivePort[];
+  openOrFocusDiff: () => void;
 }
 
 export function useCommands({
@@ -44,6 +45,7 @@ export function useCommands({
   selectedSessionId,
   setShowGhosts,
   activePorts,
+  openOrFocusDiff,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -69,6 +71,15 @@ export function useCommands({
         label: "New Browser Window",
         action: () => {
           addBrowserSession("about:blank");
+          onClose();
+        },
+      },
+      {
+        id: "open-diff",
+        label: "Open Diff",
+        keywords: ["git", "changes", "diff", "staged"],
+        action: () => {
+          openOrFocusDiff();
           onClose();
         },
       },
@@ -257,5 +268,6 @@ export function useCommands({
     bindings,
     activeWorkspacePath,
     activePorts,
+    openOrFocusDiff,
   ]);
 }

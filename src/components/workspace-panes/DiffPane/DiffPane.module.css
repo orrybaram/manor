@@ -295,3 +295,69 @@
   background: var(--hover);
   color: var(--text);
 }
+
+/* ── Syntax tokens ── */
+
+.lineContent :global(.token.comment),
+.lineContent :global(.token.prolog),
+.lineContent :global(.token.doctype),
+.lineContent :global(.token.cdata) {
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+.lineContent :global(.token.keyword),
+.lineContent :global(.token.tag),
+.lineContent :global(.token.boolean),
+.lineContent :global(.token.constant),
+.lineContent :global(.token.deleted) {
+  color: var(--magenta);
+}
+
+.lineContent :global(.token.string),
+.lineContent :global(.token.char),
+.lineContent :global(.token.attr-value),
+.lineContent :global(.token.inserted) {
+  color: var(--green);
+}
+
+.lineContent :global(.token.number) {
+  color: var(--yellow);
+}
+
+.lineContent :global(.token.function),
+.lineContent :global(.token.class-name) {
+  color: var(--blue);
+}
+
+.lineContent :global(.token.builtin),
+.lineContent :global(.token.symbol) {
+  color: var(--cyan);
+}
+
+.lineContent :global(.token.operator),
+.lineContent :global(.token.entity),
+.lineContent :global(.token.url) {
+  color: var(--text-dim);
+}
+
+.lineContent :global(.token.punctuation) {
+  color: var(--text-dim);
+}
+
+.lineContent :global(.token.property),
+.lineContent :global(.token.attr-name) {
+  color: var(--cyan);
+}
+
+.lineContent :global(.token.regex),
+.lineContent :global(.token.important),
+.lineContent :global(.token.variable) {
+  color: var(--yellow);
+}
+
+/* Mute token colors in add/del rows so diff semantic meaning stays dominant */
+.lineAdd :global(.token),
+.lineDel :global(.token) {
+  opacity: 0.7;
+}

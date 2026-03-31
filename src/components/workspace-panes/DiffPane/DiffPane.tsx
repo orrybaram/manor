@@ -23,6 +23,7 @@ import { DiffLines } from "./DiffLines/DiffLines";
 import { FileList } from "./FileList/FileList";
 import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
+import { EmptyState } from "./EmptyState/EmptyState";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
@@ -321,7 +322,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               Commit
             </Button>
           </div>
-          <div className={styles.status}>{error}</div>
+          <EmptyState message={error} />
           {workspacePath && (
             <CommitModal
               open={commitOpen}

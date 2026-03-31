@@ -9,12 +9,15 @@ import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import PanelBottom from "lucide-react/dist/esm/icons/panel-bottom";
 import PanelTop from "lucide-react/dist/esm/icons/panel-top";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import X from "lucide-react/dist/esm/icons/x";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useAppStore } from "../../../store/app-store";
+import { useProjectStore } from "../../../store/project-store";
+import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
 import { Row } from "../../ui/Layout/Layout";
 import styles from "./TerminalPane.module.css";
 
@@ -154,6 +157,22 @@ export function TerminalPane(props: TerminalPaneProps) {
           >
             <Globe size={14} />
             Split with Browser
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              const el = containerRef.current;
+              const dir = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
+              const awp = useAppStore.getState().activeWorkspacePath;
+              const proj = useProjectStore.getState().projects.find((p) =>
+                p.workspaces.some((w) => w.path === awp),
+              );
+              const command = proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+              splitPaneAt(paneId, dir, "second", "task", command);
+            }}
+          >
+            <Bot size={14} />
+            Split with Task
           </ContextMenu.Item>
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />

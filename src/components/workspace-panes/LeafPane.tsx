@@ -63,6 +63,10 @@ export function LeafPane(props: LeafPaneProps) {
       if (browserRef.current) {
         registerBrowserPane(paneId, browserRef.current);
       }
+      // Auto-focus URL bar for blank browser panes
+      if (!paneUrl || paneUrl === "about:blank") {
+        urlInputRef.current?.focus();
+      }
     });
     return () => {
       cancelAnimationFrame(id);

@@ -174,7 +174,14 @@ export function useTerminalLifecycle(
           // Check for pending startup command (e.g. worktree start script)
           const store = useAppStore.getState();
           const wsPath = store.activeWorkspacePath;
-          if (wsPath && cwd === wsPath) {
+
+          // Pane-specific command (e.g. split-with-task) takes priority
+          const paneCmd = store.consumePendingPaneCommand(paneId);
+          if (paneCmd) {
+            setTimeout(() => {
+              if (!disposed) write(paneCmd + "\n");
+            }, 500);
+          } else if (wsPath && cwd === wsPath) {
             const cmd = store.consumePendingStartupCommand(wsPath);
             if (cmd) {
               // Small delay to let the shell initialize before writing the command

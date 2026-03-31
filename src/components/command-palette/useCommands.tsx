@@ -1,6 +1,9 @@
 import { useCallback, useMemo } from "react";
-import Globe from "lucide-react/dist/esm/icons/globe";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import Globe from "lucide-react/dist/esm/icons/globe";
+import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
@@ -8,6 +11,7 @@ import { formatCombo } from "../../lib/keybindings";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
+import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
@@ -62,11 +66,11 @@ export function useCommands({
   }, [activeWs]);
 
   const splitWithContent = useCallback(
-    (contentType?: "terminal" | "browser" | "diff") => {
+    (contentType?: "terminal" | "browser" | "diff" | "task", paneCommand?: string) => {
       if (!focusedPaneId) return;
       const el = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
       const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
-      splitPaneAt(focusedPaneId, direction, "second", contentType);
+      splitPaneAt(focusedPaneId, direction, "second", contentType, paneCommand);
     },
     [focusedPaneId, splitPaneAt],
   );
@@ -126,6 +130,7 @@ export function useCommands({
       {
         id: "split-h",
         label: "Split Horizontal",
+        icon: <Columns2 size={14} />,
         shortcut: fmt("split-h"),
         action: () => {
           splitPane("horizontal");
@@ -135,6 +140,7 @@ export function useCommands({
       {
         id: "split-v",
         label: "Split Vertical",
+        icon: <Rows2 size={14} />,
         shortcut: fmt("split-v"),
         action: () => {
           splitPane("vertical");
@@ -168,6 +174,21 @@ export function useCommands({
         keywords: ["split", "diff", "pane", "git", "changes"],
         action: () => {
           splitWithContent("diff");
+          onClose();
+        },
+      },
+      {
+        id: "split-with-task",
+        label: "Split with Task",
+        icon: <Bot size={14} />,
+        keywords: ["split", "task", "pane", "agent", "claude"],
+        action: () => {
+          const awp = useAppStore.getState().activeWorkspacePath;
+          const proj = useProjectStore.getState().projects.find((p) =>
+            p.workspaces.some((w) => w.path === awp),
+          );
+          const command = proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+          splitWithContent("task", command);
           onClose();
         },
       },

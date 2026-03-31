@@ -51,7 +51,7 @@ export function useTaskCommands({
     ];
 
     items.push(
-      ...tasks.slice(0, 5).map((task) => ({
+      ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => ({
         id: `task-${task.id}`,
         label: task.name || "Untitled Session",
         icon: (

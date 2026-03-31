@@ -96,6 +96,8 @@ export interface AppState {
   closedPaneIds: Set<string>;
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
+  /** Pending startup commands keyed by pane ID (for split-with-task) */
+  pendingPaneCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Session ID awaiting close confirmation (when agent is active in a pane) */
@@ -126,7 +128,8 @@ export interface AppState {
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-    contentType?: "terminal" | "browser" | "diff",
+    contentType?: "terminal" | "browser" | "diff" | "task",
+    paneCommand?: string,
   ) => void;
   movePaneToTarget: (
     sourcePaneId: string,
@@ -165,6 +168,7 @@ export interface AppState {
   // Startup commands
   setPendingStartupCommand: (workspacePath: string, command: string) => void;
   consumePendingStartupCommand: (workspacePath: string) => string | null;
+  consumePendingPaneCommand: (paneId: string) => string | null;
 
   // Workspace cleanup
   removeWorkspaceSessions: (workspacePath: string) => void;
@@ -204,6 +208,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
   pendingStartupCommands: {},
+  pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmSessionId: null,
 
@@ -641,7 +646,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-    contentType?: "terminal" | "browser" | "diff",
+    contentType?: "terminal" | "browser" | "diff" | "task",
+    paneCommand?: string,
   ) =>
     set((state) => {
       const path = state.activeWorkspacePath;
@@ -653,13 +659,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       if (!session) return state;
       const newPane = newPaneId();
+      // "task" panes are terminals that auto-run a command — don't persist as a content type
+      const treeContentType = contentType === "task" ? undefined : contentType;
       const newRoot = insertSplitAt(
         session.rootNode,
         targetPaneId,
         direction,
         newPane,
         position,
-        contentType,
+        treeContentType,
       );
       return {
         workspaceSessions: {
@@ -673,8 +681,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             ),
           },
         },
-        ...(contentType && {
-          paneContentType: { ...state.paneContentType, [newPane]: contentType },
+        ...(treeContentType && {
+          paneContentType: { ...state.paneContentType, [newPane]: treeContentType },
+        }),
+        ...(paneCommand && {
+          pendingPaneCommands: { ...state.pendingPaneCommands, [newPane]: paneCommand },
         }),
       };
     }),
@@ -1233,6 +1244,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => {
         const { [workspacePath]: _, ...rest } = state.pendingStartupCommands;
         return { pendingStartupCommands: rest };
+      });
+    }
+    return cmd;
+  },
+
+  consumePendingPaneCommand: (paneId: string) => {
+    const cmd = get().pendingPaneCommands[paneId] ?? null;
+    if (cmd) {
+      set((state) => {
+        const { [paneId]: _, ...rest } = state.pendingPaneCommands;
+        return { pendingPaneCommands: rest };
       });
     }
     return cmd;

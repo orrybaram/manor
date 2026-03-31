@@ -206,10 +206,22 @@ export function CommandPalette(props: CommandPaletteProps) {
 
   const handleCloseAutoFocus = useCallback((e: Event) => {
     e.preventDefault();
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      ".xterm-helper-textarea",
-    );
-    textarea?.focus();
+    // Focus the terminal in the currently focused pane, not just the first one in the DOM
+    const state = useAppStore.getState();
+    const path = state.activeWorkspacePath;
+    const ws = path ? state.workspaceSessions[path] : undefined;
+    const session = ws?.sessions.find((s) => s.id === ws?.selectedSessionId);
+    const focusedPaneId = session?.focusedPaneId;
+    if (focusedPaneId) {
+      const paneEl = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
+      const textarea = paneEl?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+      if (textarea) {
+        textarea.focus();
+        return;
+      }
+    }
+    // Fallback to any terminal
+    document.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
   }, []);
 
   const handleEscapeKeyDown = useCallback(

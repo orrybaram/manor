@@ -1,16 +1,19 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import Circle from "lucide-react/dist/esm/icons/circle";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Minus from "lucide-react/dist/esm/icons/minus";
-import Archive from "lucide-react/dist/esm/icons/archive";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { DiffFile, DiffMode } from "../types";
-import { Checkbox } from "../../../ui/Checkbox/Checkbox";
 import { Button } from "../../../ui/Button/Button";
+import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
+import { useToastStore } from "../../../../store/toast-store";
 import styles from "./FileList.module.css";
+import { Row } from "../../../ui/Layout/Layout";
 
 type FileListProps = {
   files: DiffFile[];
@@ -20,10 +23,12 @@ type FileListProps = {
   workspacePath?: string;
   selectedFiles: Set<string>;
   onSelectionChange: (selected: Set<string>) => void;
+  stagedFiles: Set<string>;
+  onStagedFilesChange: (updater: (prev: Set<string>) => Set<string>) => void;
 };
 
 type ConfirmAction = {
-  type: "discard" | "stash";
+  type: "discard";
   files: string[];
 } | null;
 
@@ -35,12 +40,17 @@ export function FileList({
   workspacePath,
   selectedFiles,
   onSelectionChange,
+  stagedFiles,
+  onStagedFilesChange,
 }: FileListProps) {
   const totalAdded = files.reduce((s, f) => s + f.added, 0);
   const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
   const lastClickedIndex = useRef<number>(0);
+  const [collapsed, setCollapsed] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [actionInProgress, setActionInProgress] = useState(false);
   const isLocal = diffMode === "local";
+  const addToast = useToastStore((s) => s.addToast);
 
   // Escape clears selection
   useEffect(() => {
@@ -56,18 +66,15 @@ export function FileList({
   const handleRowClick = useCallback(
     (e: React.MouseEvent, file: DiffFile, index: number) => {
       if (e.shiftKey) {
-        // Range toggle — matches the state of the target file
+        e.preventDefault();
         const start = Math.min(lastClickedIndex.current, index);
         const end = Math.max(lastClickedIndex.current, index);
-        const adding = !selectedFiles.has(file.path);
         const next = new Set(selectedFiles);
         for (let i = start; i <= end; i++) {
-          if (adding) next.add(files[i].path);
-          else next.delete(files[i].path);
+          next.add(files[i].path);
         }
         onSelectionChange(next);
-      } else {
-        // Toggle file in selection
+      } else if (e.metaKey || e.ctrlKey) {
         const next = new Set(selectedFiles);
         if (next.has(file.path)) {
           next.delete(file.path);
@@ -75,6 +82,9 @@ export function FileList({
           next.add(file.path);
         }
         onSelectionChange(next);
+        lastClickedIndex.current = index;
+      } else {
+        onSelectionChange(new Set([file.path]));
         lastClickedIndex.current = index;
       }
     },
@@ -105,180 +115,374 @@ export function FileList({
     }
   }, [workspacePath, selectedFiles]);
 
-  const handleStage = useCallback(() => {
-    if (!workspacePath) return;
-    window.electronAPI.git.stage(workspacePath, [...selectedFiles]);
-  }, [workspacePath, selectedFiles]);
+  const getActionFiles = useCallback(
+    (filePath: string) => {
+      if (selectedFiles.has(filePath)) {
+        return [...selectedFiles];
+      }
+      return [filePath];
+    },
+    [selectedFiles],
+  );
 
-  const handleUnstage = useCallback(() => {
-    if (!workspacePath) return;
-    window.electronAPI.git.unstage(workspacePath, [...selectedFiles]);
-  }, [workspacePath, selectedFiles]);
+  const fileLabel = (count: number) =>
+    count === 1 ? "1 file" : `${count} files`;
 
-  const handleConfirmAction = useCallback(() => {
+  const handleStage = useCallback(
+    async (filePath: string) => {
+      if (!workspacePath || actionInProgress) return;
+      const targetFiles = getActionFiles(filePath);
+      const toastId = `stage-${Date.now()}`;
+
+      // Optimistic update
+      onStagedFilesChange((prev) => {
+        const next = new Set(prev);
+        for (const f of targetFiles) next.add(f);
+        return next;
+      });
+
+      setActionInProgress(true);
+      try {
+        await window.electronAPI.git.stage(workspacePath, targetFiles);
+        addToast({
+          id: toastId,
+          message: `Staged ${fileLabel(targetFiles.length)}`,
+          status: "success",
+        });
+      } catch {
+        // Revert optimistic update
+        onStagedFilesChange((prev) => {
+          const next = new Set(prev);
+          for (const f of targetFiles) next.delete(f);
+          return next;
+        });
+        addToast({
+          id: toastId,
+          message: "Failed to stage files",
+          status: "error",
+        });
+      } finally {
+        setActionInProgress(false);
+      }
+    },
+    [
+      workspacePath,
+      actionInProgress,
+      getActionFiles,
+      onStagedFilesChange,
+      addToast,
+    ],
+  );
+
+  const handleUnstage = useCallback(
+    async (filePath: string) => {
+      if (!workspacePath || actionInProgress) return;
+      const targetFiles = getActionFiles(filePath);
+      const toastId = `unstage-${Date.now()}`;
+
+      // Optimistic update
+      onStagedFilesChange((prev) => {
+        const next = new Set(prev);
+        for (const f of targetFiles) next.delete(f);
+        return next;
+      });
+
+      setActionInProgress(true);
+      try {
+        await window.electronAPI.git.unstage(workspacePath, targetFiles);
+        addToast({
+          id: toastId,
+          message: `Unstaged ${fileLabel(targetFiles.length)}`,
+          status: "success",
+        });
+      } catch {
+        // Revert optimistic update
+        onStagedFilesChange((prev) => {
+          const next = new Set(prev);
+          for (const f of targetFiles) next.add(f);
+          return next;
+        });
+        addToast({
+          id: toastId,
+          message: "Failed to unstage files",
+          status: "error",
+        });
+      } finally {
+        setActionInProgress(false);
+      }
+    },
+    [
+      workspacePath,
+      actionInProgress,
+      getActionFiles,
+      onStagedFilesChange,
+      addToast,
+    ],
+  );
+
+  // Space toggles stage/unstage on selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key !== " " ||
+        !isLocal ||
+        !workspacePath ||
+        selectedFiles.size === 0 ||
+        actionInProgress
+      )
+        return;
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )
+        return;
+      e.preventDefault();
+      const selected = [...selectedFiles];
+      const allStaged = selected.every((f) => stagedFiles.has(f));
+      if (allStaged) {
+        handleUnstage(selected[0]);
+      } else {
+        handleStage(selected[0]);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    isLocal,
+    workspacePath,
+    selectedFiles,
+    stagedFiles,
+    actionInProgress,
+    handleStage,
+    handleUnstage,
+  ]);
+
+  const handleDiscard = useCallback(
+    (filePath: string) => {
+      if (actionInProgress) return;
+      setConfirmAction({ type: "discard", files: getActionFiles(filePath) });
+    },
+    [actionInProgress, getActionFiles],
+  );
+
+  const handleConfirmAction = useCallback(async () => {
     if (!confirmAction || !workspacePath) return;
-    if (confirmAction.type === "discard") {
-      window.electronAPI.git.discard(workspacePath, confirmAction.files);
-    } else {
-      window.electronAPI.git.stash(workspacePath, confirmAction.files);
-    }
+    const targetFiles = confirmAction.files;
+    const toastId = `discard-${Date.now()}`;
+
     setConfirmAction(null);
-  }, [confirmAction, workspacePath]);
+    setActionInProgress(true);
+    try {
+      await window.electronAPI.git.discard(workspacePath, targetFiles);
+      addToast({
+        id: toastId,
+        message: `Discarded changes in ${fileLabel(targetFiles.length)}`,
+        status: "success",
+      });
+    } catch {
+      addToast({
+        id: toastId,
+        message: "Failed to discard changes",
+        status: "error",
+      });
+    } finally {
+      setActionInProgress(false);
+    }
+  }, [confirmAction, workspacePath, addToast]);
 
   return (
     <>
       <div className={styles.fileList}>
-        <div className={styles.fileListHeader}>
-          {isLocal && (
-            <Checkbox
-              className={styles.checkbox}
-              checked={
-                selectedFiles.size === files.length
-                  ? true
-                  : selectedFiles.size > 0
-                    ? "indeterminate"
-                    : false
-              }
-              onCheckedChange={() => {
-                if (selectedFiles.size === files.length) {
-                  onSelectionChange(new Set());
-                } else {
-                  onSelectionChange(new Set(files.map((f) => f.path)));
-                }
-              }}
-            />
-          )}
+        <button
+          className={styles.fileListHeader}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          <ChevronRight
+            size={14}
+            className={[
+              styles.collapseIcon,
+              collapsed ? undefined : styles.collapseIconOpen,
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          />
           {files.length} {files.length === 1 ? "file" : "files"} changed
           <span className={styles.fileStats}>
             {totalAdded > 0 && (
-              <AnimatedCount value={totalAdded} prefix="+" className={styles.statAdded} />
+              <AnimatedCount
+                value={totalAdded}
+                prefix="+"
+                className={styles.statAdded}
+              />
             )}
             {totalRemoved > 0 && (
-              <AnimatedCount value={totalRemoved} prefix="-" className={styles.statRemoved} />
+              <AnimatedCount
+                value={totalRemoved}
+                prefix="-"
+                className={styles.statRemoved}
+              />
             )}
           </span>
-          {selectedFiles.size > 0 && (
-            <span className={styles.selectionInfo}>
-              {selectedFiles.size} selected
-            </span>
-          )}
-        </div>
-        {files.map((file, index) => {
-          const lastSlash = file.path.lastIndexOf("/");
-          const fileName = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
-          const fileDir = lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);
-          return (
-          <ContextMenu.Root key={file.path}>
-            <ContextMenu.Trigger asChild>
-              <div
-                className={[
-                  styles.fileListItem,
-                  selectedFiles.has(file.path)
-                    ? styles.fileListItemSelected
-                    : undefined,
-                  animationState.get(file.path) === "new"
-                    ? styles.fileListItemNew
-                    : undefined,
-                  animationState.get(file.path) === "updated"
-                    ? styles.fileListItemUpdated
-                    : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onClick={(e) => handleRowClick(e, file, index)}
-                onContextMenu={() => handleContextMenu(file)}
-              >
-                {isLocal && (
-                  <Checkbox
-                    className={styles.checkbox}
-                    checked={selectedFiles.has(file.path)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRowClick(e, file, index);
-                    }}
-                  />
-                )}
-                <span
-                  className={styles.fileListName}
-                  onClick={(e) => handleFileNameClick(e, file)}
-                >
-                  <span className={styles.fileName}>{fileName}</span>
-                  {fileDir && <span className={styles.fileDir}>{fileDir}</span>}
-                </span>
-                <span className={styles.fileStats}>
-                  {file.added > 0 && (
-                    <AnimatedCount value={file.added} prefix="+" className={styles.statAdded} />
-                  )}
-                  {file.removed > 0 && (
-                    <AnimatedCount value={file.removed} prefix="-" className={styles.statRemoved} />
-                  )}
-                </span>
-              </div>
-            </ContextMenu.Trigger>
-            <ContextMenu.Portal>
-              <ContextMenu.Content className={styles.contextMenu}>
-                <ContextMenu.Item
-                  className={styles.contextMenuItem}
-                  onSelect={handleOpenInEditor}
-                >
-                  <ExternalLink size={14} />
-                  Open in Editor
-                </ContextMenu.Item>
-                {isLocal && workspacePath && (
-                  <>
-                    <ContextMenu.Separator
-                      className={styles.contextMenuSeparator}
-                    />
+        </button>
+        {!collapsed &&
+          files.map((file, index) => {
+            const lastSlash = file.path.lastIndexOf("/");
+            const fileName =
+              lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
+            const fileDir =
+              lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);
+            const isStaged = stagedFiles.has(file.path);
+            return (
+              <ContextMenu.Root key={file.path}>
+                <ContextMenu.Trigger asChild>
+                  <div
+                    className={[
+                      styles.fileListItem,
+                      selectedFiles.has(file.path)
+                        ? styles.fileListItemSelected
+                        : undefined,
+                      animationState.get(file.path) === "new"
+                        ? styles.fileListItemNew
+                        : undefined,
+                      animationState.get(file.path) === "updated"
+                        ? styles.fileListItemUpdated
+                        : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={(e) => handleRowClick(e, file, index)}
+                    onContextMenu={() => handleContextMenu(file)}
+                  >
+                    <span className={styles.fileListName}>
+                      <Row gap="sm" align="center">
+                        {isLocal && (
+                          <Circle
+                            size={6}
+                            className={
+                              isStaged ? styles.stagedIcon : styles.unstagedIcon
+                            }
+                          />
+                        )}
+
+                        <span
+                          onClick={(e) => handleFileNameClick(e, file)}
+                          className={styles.fileName}
+                        >
+                          {fileName}
+                        </span>
+                      </Row>
+                      {fileDir && (
+                        <span className={styles.fileDir}>{fileDir}</span>
+                      )}
+                    </span>
+                    {isLocal && workspacePath && (
+                      <span className={styles.fileActions}>
+                        {isStaged ? (
+                          <Tooltip label="Unstage">
+                            <button
+                              className={styles.actionButton}
+                              disabled={actionInProgress}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnstage(file.path);
+                              }}
+                            >
+                              <Minus size={14} />
+                            </button>
+                          </Tooltip>
+                        ) : (
+                          <>
+                            <Tooltip label="Stage">
+                              <button
+                                className={styles.actionButton}
+                                disabled={actionInProgress}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStage(file.path);
+                                }}
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip label="Discard">
+                              <button
+                                className={[
+                                  styles.actionButton,
+                                  styles.actionButtonDestructive,
+                                ].join(" ")}
+                                disabled={actionInProgress}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDiscard(file.path);
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </ContextMenu.Trigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.Content className={styles.contextMenu}>
                     <ContextMenu.Item
                       className={styles.contextMenuItem}
-                      onSelect={handleStage}
+                      onSelect={handleOpenInEditor}
                     >
-                      <Plus size={14} />
-                      Stage
+                      <ExternalLink size={14} />
+                      Open in Editor
                     </ContextMenu.Item>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={handleUnstage}
-                    >
-                      <Minus size={14} />
-                      Unstage
-                    </ContextMenu.Item>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={() =>
-                        setConfirmAction({
-                          type: "stash",
-                          files: [...selectedFiles],
-                        })
-                      }
-                    >
-                      <Archive size={14} />
-                      Stash
-                    </ContextMenu.Item>
-                    <ContextMenu.Separator
-                      className={styles.contextMenuSeparator}
-                    />
-                    <ContextMenu.Item
-                      className={[
-                        styles.contextMenuItem,
-                        styles.contextMenuItemDestructive,
-                      ].join(" ")}
-                      onSelect={() =>
-                        setConfirmAction({
-                          type: "discard",
-                          files: [...selectedFiles],
-                        })
-                      }
-                    >
-                      <Trash2 size={14} />
-                      Discard
-                    </ContextMenu.Item>
-                  </>
-                )}
-              </ContextMenu.Content>
-            </ContextMenu.Portal>
-          </ContextMenu.Root>
-        )})}
+                    {isLocal && workspacePath && (
+                      <>
+                        <ContextMenu.Separator
+                          className={styles.contextMenuSeparator}
+                        />
+                        {isStaged ? (
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            disabled={actionInProgress}
+                            onSelect={() => handleUnstage(file.path)}
+                          >
+                            <Minus size={14} />
+                            Unstage
+                          </ContextMenu.Item>
+                        ) : (
+                          <>
+                            <ContextMenu.Item
+                              className={styles.contextMenuItem}
+                              disabled={actionInProgress}
+                              onSelect={() => handleStage(file.path)}
+                            >
+                              <Plus size={14} />
+                              Stage
+                            </ContextMenu.Item>
+                            <ContextMenu.Separator
+                              className={styles.contextMenuSeparator}
+                            />
+                            <ContextMenu.Item
+                              className={[
+                                styles.contextMenuItem,
+                                styles.contextMenuItemDestructive,
+                              ].join(" ")}
+                              disabled={actionInProgress}
+                              onSelect={() => handleDiscard(file.path)}
+                            >
+                              <Trash2 size={14} />
+                              Discard
+                            </ContextMenu.Item>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </ContextMenu.Content>
+                </ContextMenu.Portal>
+              </ContextMenu.Root>
+            );
+          })}
       </div>
 
       <Dialog.Root
@@ -291,14 +495,10 @@ export function FileList({
           <Dialog.Overlay className={styles.confirmOverlay} />
           <Dialog.Content className={styles.confirmDialog}>
             <Dialog.Title className={styles.confirmTitle}>
-              {confirmAction?.type === "discard"
-                ? "Discard Changes"
-                : "Stash Files"}
+              Discard Changes
             </Dialog.Title>
             <Dialog.Description className={styles.confirmDescription}>
-              {confirmAction?.type === "discard"
-                ? "This will permanently discard changes to the following files:"
-                : "The following files will be stashed:"}
+              This will permanently discard changes to the following files:
             </Dialog.Description>
             <ul className={styles.confirmFileList}>
               {confirmAction?.files.map((f) => (
@@ -315,7 +515,7 @@ export function FileList({
                 Cancel
               </Button>
               <Button variant="danger" onClick={handleConfirmAction}>
-                {confirmAction?.type === "discard" ? "Discard" : "Stash"}
+                Discard
               </Button>
             </div>
           </Dialog.Content>

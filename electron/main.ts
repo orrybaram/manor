@@ -756,6 +756,27 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "diffs:getStagedFiles",
+  async (_event, wsPath: string) => {
+    assertString(wsPath, "wsPath");
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        ["diff", "--cached", "--name-only"],
+        { cwd: wsPath, timeout: 10000 },
+      );
+      return stdout.trim().split("\n").filter(Boolean);
+    } catch {
+      return [];
+    }
+  },
+);
+
 // ── Git Operations IPC ──
 ipcMain.handle("git:stage", async (_event, wsPath: string, files: string[]) => {
   assertString(wsPath, "wsPath");
@@ -792,6 +813,18 @@ ipcMain.handle("git:stash", async (_event, wsPath: string, files: string[]) => {
   const { promisify } = await import("node:util");
   const execFileAsync = promisify(execFile);
   await execFileAsync("git", ["stash", "push", "--", ...files], { cwd: wsPath, timeout: 10000 });
+});
+
+ipcMain.handle("git:commit", async (_event, wsPath: string, message: string, flags: string[]) => {
+  assertString(wsPath, "wsPath");
+  assertString(message, "message");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  const allowedFlags = ["--amend", "--no-verify", "--allow-empty"];
+  const safeFlags = flags.filter((f) => allowedFlags.includes(f));
+  const args = ["commit", ...safeFlags, "-m", message];
+  await execFileAsync("git", args, { cwd: wsPath, timeout: 30000 });
 });
 
 // ── GitHub IPC ──

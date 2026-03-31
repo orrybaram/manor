@@ -1,0 +1,138 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 201;
+  width: 440px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  padding: 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialog[data-state="open"] {
+  animation: scaleIn 150ms ease-out;
+}
+
+.dialog[data-state="closed"] {
+  animation: scaleOut 100ms ease-in;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-selected);
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flag {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  border-radius: 12px;
+  border: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 100ms, border-color 100ms;
+}
+
+.flag:hover {
+  background: var(--surface);
+}
+
+.flagSelected {
+  composes: flag;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.flagSelected:hover {
+  background: var(--accent);
+}
+
+.stagedInfo {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stagedCount {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}

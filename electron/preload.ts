@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
     getLocalDiff: (wsPath: string) =>
       ipcRenderer.invoke("diffs:getLocalDiff", wsPath),
+    getStagedFiles: (wsPath: string) =>
+      ipcRenderer.invoke("diffs:getStagedFiles", wsPath) as Promise<string[]>,
   },
 
   git: {
@@ -162,6 +164,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("git:discard", wsPath, files),
     stash: (wsPath: string, files: string[]) =>
       ipcRenderer.invoke("git:stash", wsPath, files),
+    commit: (wsPath: string, message: string, flags: string[]) =>
+      ipcRenderer.invoke("git:commit", wsPath, message, flags),
   },
 
   github: {

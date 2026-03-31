@@ -7,30 +7,63 @@
 .fileListHeader {
   display: flex;
   align-items: center;
+  width: 100%;
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text);
   background: var(--surface);
+  border: none;
   border-bottom: 1px solid var(--border);
-  gap: 2px;
+  gap: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.fileListHeader:hover {
+  background: var(--hover);
+}
+
+.collapseIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 150ms ease;
+}
+
+.collapseIconOpen {
+  transform: rotate(90deg);
 }
 
 .fileListItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 4px 12px;
   font-size: 12px;
   cursor: pointer;
+  user-select: none;
 }
 
 .fileListItem:hover {
   background: var(--hover);
 }
 
+.stagedIcon {
+  flex-shrink: 0;
+  color: var(--green);
+  fill: var(--green);
+  margin-right: -2px;
+}
+
+.unstagedIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  fill: var(--text-dim);
+  margin-right: -2px;
+}
+
 .fileListName {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
   overflow: hidden;
@@ -111,8 +144,47 @@
   background: color-mix(in srgb, var(--accent, var(--blue)) 15%, transparent);
 }
 
-.checkbox {
-  margin-right: 8px;
+.fileActions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.fileListItem:hover .fileActions,
+.fileListItemSelected .fileActions {
+  opacity: 1;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+}
+
+.actionButton:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.actionButton:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.actionButtonDestructive:hover {
+  background: color-mix(in srgb, var(--red) 20%, transparent);
+  color: var(--red);
 }
 
 /* Context menu — same pattern as DiffPane.module.css */

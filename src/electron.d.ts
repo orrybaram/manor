@@ -287,6 +287,7 @@ export interface ElectronAPI {
       defaultBranch: string,
     ) => Promise<string | null>;
     getLocalDiff: (wsPath: string) => Promise<string | null>;
+    getStagedFiles: (wsPath: string) => Promise<string[]>;
   };
 
   git: {
@@ -294,6 +295,7 @@ export interface ElectronAPI {
     unstage: (wsPath: string, files: string[]) => Promise<void>;
     discard: (wsPath: string, files: string[]) => Promise<void>;
     stash: (wsPath: string, files: string[]) => Promise<void>;
+    commit: (wsPath: string, message: string, flags: string[]) => Promise<void>;
   };
 
   github: {

@@ -135,14 +135,22 @@ export function TerminalPane(props: TerminalPaneProps) {
 
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "horizontal", "second", "diff")}
+            onSelect={() => {
+              const el = containerRef.current;
+              const dir = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
+              splitPaneAt(paneId, dir, "second", "diff");
+            }}
           >
             <GitCompareArrows size={14} />
             Split with Diff
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "horizontal", "second", "browser")}
+            onSelect={() => {
+              const el = containerRef.current;
+              const dir = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
+              splitPaneAt(paneId, dir, "second", "browser");
+            }}
           >
             <Globe size={14} />
             Split with Browser

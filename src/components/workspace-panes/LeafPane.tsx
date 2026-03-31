@@ -45,6 +45,7 @@ export function LeafPane(props: LeafPaneProps) {
   const { drag, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const browserRef = useRef<BrowserPaneRef>(null);
   const diffRef = useRef<DiffPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +85,9 @@ export function LeafPane(props: LeafPaneProps) {
   const handleSplit = (e: React.MouseEvent) => {
     e.stopPropagation();
     focusPane(paneId);
-    splitPane("horizontal");
+    const el = containerRef.current;
+    const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
+    splitPane(direction);
   };
 
   const handleClose = (e: React.MouseEvent) => {
@@ -167,6 +170,7 @@ export function LeafPane(props: LeafPaneProps) {
 
   return (
     <div
+      ref={containerRef}
       className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""} ${isThisPaneDragging ? styles.leafDragging : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >

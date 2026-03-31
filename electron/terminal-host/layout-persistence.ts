@@ -15,12 +15,20 @@ import * as os from "node:os";
  * Vite entry point and cannot import from the renderer bundle.
  */
 type PaneNode =
-  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser"; url?: string }
+  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser" | "diff"; url?: string }
   | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PaneNode; second: PaneNode };
 
 function allPaneIds(node: PaneNode): string[] {
   if (node.type === "leaf") return [node.paneId];
   return [...allPaneIds(node.first), ...allPaneIds(node.second)];
+}
+
+type LeafInfo = { paneId: string; contentType?: string };
+
+/** Collect paneId and contentType for every leaf in the tree. */
+function allLeaves(node: PaneNode): LeafInfo[] {
+  if (node.type === "leaf") return [{ paneId: node.paneId, contentType: node.contentType }];
+  return [...allLeaves(node.first), ...allLeaves(node.second)];
 }
 
 export const LAYOUT_FILE = path.join(os.homedir(), ".manor", "layout.json");
@@ -134,9 +142,13 @@ export class LayoutPersistence {
     const actions: PaneRestoreAction[] = [];
 
     for (const session of workspace.sessions) {
-      const paneIds = allPaneIds(session.rootNode);
+      for (const { paneId, contentType } of allLeaves(session.rootNode)) {
+        // Non-terminal panes (diff, browser, etc.) don't have daemon sessions —
+        // they are restored from the pane tree's contentType alone.
+        if (contentType && contentType !== "terminal") {
+          continue;
+        }
 
-      for (const paneId of paneIds) {
         const paneSession = session.paneSessions[paneId];
         if (!paneSession) {
           actions.push({ type: "fresh", paneId, cwd: null });

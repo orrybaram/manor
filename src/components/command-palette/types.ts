@@ -23,6 +23,7 @@ export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onOpenFeedback?: () => void;
   onNewWorkspace?: (opts?: {
     projectId?: string;
     name?: string;

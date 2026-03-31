@@ -839,6 +839,20 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "github:createIssue",
+  (_event, title: string, body: string, labels: string[]) => {
+    return githubManager.createIssue(title, body, labels);
+  },
+);
+
+ipcMain.handle(
+  "github:uploadFeedbackImages",
+  (_event, images: { base64: string; name: string }[]) => {
+    return githubManager.uploadFeedbackImages(images);
+  },
+);
+
 // ── Linear IPC ──
 ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
   assertString(apiKey, "apiKey");

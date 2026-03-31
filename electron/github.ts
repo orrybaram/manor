@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { writeFile, unlink, mkdtemp } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const execFileAsync = promisify(execFile);
 
@@ -247,6 +250,111 @@ export class GitHubManager {
     } catch {
       // fire-and-forget; failures should not block workspace creation
     }
+  }
+
+  async createIssue(
+    title: string,
+    body: string,
+    labels: string[],
+  ): Promise<{ url: string } | null> {
+    const baseArgs = [
+      "issue",
+      "create",
+      "--repo",
+      "orrybaram/manor",
+      "--title",
+      title,
+      "--body",
+      body,
+    ];
+
+    // Try with labels first, fall back to without if labels don't exist
+    const labelArgs: string[] = [];
+    for (const label of labels) {
+      labelArgs.push("--label", label);
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "gh",
+        [...baseArgs, ...labelArgs],
+        { encoding: "utf-8", timeout: 15000 },
+      );
+      return { url: stdout.trim() };
+    } catch {
+      // Labels may not exist — retry without them
+      try {
+        const { stdout } = await execFileAsync("gh", baseArgs, {
+          encoding: "utf-8",
+          timeout: 15000,
+        });
+        return { url: stdout.trim() };
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  async uploadFeedbackImages(
+    images: { base64: string; name: string }[],
+  ): Promise<string[]> {
+    const REPO = "orrybaram/manor";
+    const TAG = "feedback-assets";
+
+    // Ensure the release exists
+    try {
+      await execFileAsync("gh", ["release", "view", TAG, "--repo", REPO], {
+        encoding: "utf-8",
+        timeout: 10000,
+      });
+    } catch {
+      await execFileAsync(
+        "gh",
+        [
+          "release",
+          "create",
+          TAG,
+          "--repo",
+          REPO,
+          "--title",
+          "Feedback Assets",
+          "--notes",
+          "Auto-created for feedback screenshots",
+        ],
+        { encoding: "utf-8", timeout: 15000 },
+      );
+    }
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "manor-feedback-"));
+    const urls: string[] = [];
+
+    for (const img of images) {
+      const filePath = join(tmpDir, img.name);
+      await writeFile(filePath, Buffer.from(img.base64, "base64"));
+
+      try {
+        await execFileAsync(
+          "gh",
+          [
+            "release",
+            "upload",
+            TAG,
+            filePath,
+            "--repo",
+            REPO,
+            "--clobber",
+          ],
+          { encoding: "utf-8", timeout: 30000 },
+        );
+        urls.push(
+          `https://github.com/${REPO}/releases/download/${TAG}/${img.name}`,
+        );
+      } finally {
+        await unlink(filePath).catch(() => {});
+      }
+    }
+
+    return urls;
   }
 
   async checkStatus(): Promise<{

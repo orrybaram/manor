@@ -17,6 +17,7 @@ const SettingsModal = lazy(() => import("./components/settings/SettingsModal/Set
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
+const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
@@ -168,6 +169,8 @@ function App() {
   }, [addProject, openWizardForLatestProject]);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const handleOpenFeedback = useCallback(() => setFeedbackOpen(true), []);
   const handleOpenProjectSettings = useCallback((projectId: string) => {
     setSettingsProjectId(projectId);
     setSettingsOpen(true);
@@ -523,6 +526,7 @@ function App() {
           open={paletteOpen}
           onClose={closePalette}
           onOpenSettings={handleOpenSettings}
+          onOpenFeedback={handleOpenFeedback}
           onNewWorkspace={handleNewWorkspace}
           initialView={paletteInitialView}
           initialIssueId={paletteInitialIssueId}
@@ -537,6 +541,7 @@ function App() {
           onClose={closeSettings}
           initialProjectId={settingsProjectId}
         />
+        <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <TasksModal
           open={tasksOpen}
           onClose={closeTasks}

@@ -23,13 +23,11 @@
 }
 
 .lineNumAdd {
-  composes: lineNum;
   background: color-mix(in srgb, var(--green) 12%, var(--dim));
   color: var(--green);
 }
 
 .lineNumDel {
-  composes: lineNum;
   background: color-mix(in srgb, var(--red) 12%, var(--dim));
   color: var(--red);
 }
@@ -48,8 +46,8 @@
 }
 
 .lineContentAdd {
-  composes: lineContent;
   background: color-mix(in srgb, var(--green) 8%, var(--bg));
+  composes: lineContent;
 }
 
 .lineContentAdd .prefix {
@@ -57,8 +55,8 @@
 }
 
 .lineContentDel {
-  composes: lineContent;
   background: color-mix(in srgb, var(--red) 8%, var(--bg));
+  composes: lineContent;
 }
 
 .lineContentDel .prefix {

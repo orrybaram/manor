@@ -1304,52 +1304,56 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Immediately persist the active workspace's layout to disk. */
+function flushLayoutSave(): void {
+  const state = useAppStore.getState();
+  const wsPath = state.activeWorkspacePath;
+  if (!wsPath) return;
+  const ws = state.workspaceSessions[wsPath];
+  if (!ws) return;
+
+  const persisted: PersistedWorkspace = {
+    workspacePath: wsPath,
+    sessions: ws.sessions.map((s) => {
+      const paneIds = allPaneIds(s.rootNode);
+      const paneSessions: Record<
+        string,
+        {
+          daemonSessionId: string;
+          lastCwd: string | null;
+          lastTitle: string | null;
+          lastAgentStatus?: AgentState | null;
+        }
+      > = {};
+      for (const pid of paneIds) {
+        paneSessions[pid] = {
+          daemonSessionId: pid,
+          lastCwd: state.paneCwd[pid] ?? null,
+          lastTitle: state.paneTitle[pid] ?? null,
+          lastAgentStatus: state.paneAgentStatus[pid] ?? null,
+        };
+      }
+      return {
+        id: s.id,
+        title: s.title,
+        rootNode: s.rootNode,
+        focusedPaneId: s.focusedPaneId,
+        paneSessions,
+      } satisfies PersistedSession;
+    }),
+    selectedSessionId: ws.selectedSessionId,
+    pinnedSessionIds: ws.pinnedSessionIds,
+  };
+
+  window.electronAPI?.layout.save(persisted);
+}
+
 /** Debounced save of the active workspace's layout to disk */
 function saveActiveWorkspaceLayout(): void {
   if (saveLayoutTimer) clearTimeout(saveLayoutTimer);
   saveLayoutTimer = setTimeout(() => {
     saveLayoutTimer = null;
-
-    const state = useAppStore.getState();
-    const wsPath = state.activeWorkspacePath;
-    if (!wsPath) return;
-    const ws = state.workspaceSessions[wsPath];
-    if (!ws) return;
-
-    const persisted: PersistedWorkspace = {
-      workspacePath: wsPath,
-      sessions: ws.sessions.map((s) => {
-        const paneIds = allPaneIds(s.rootNode);
-        const paneSessions: Record<
-          string,
-          {
-            daemonSessionId: string;
-            lastCwd: string | null;
-            lastTitle: string | null;
-            lastAgentStatus?: AgentState | null;
-          }
-        > = {};
-        for (const pid of paneIds) {
-          paneSessions[pid] = {
-            daemonSessionId: pid,
-            lastCwd: state.paneCwd[pid] ?? null,
-            lastTitle: state.paneTitle[pid] ?? null,
-            lastAgentStatus: state.paneAgentStatus[pid] ?? null,
-          };
-        }
-        return {
-          id: s.id,
-          title: s.title,
-          rootNode: s.rootNode,
-          focusedPaneId: s.focusedPaneId,
-          paneSessions,
-        } satisfies PersistedSession;
-      }),
-      selectedSessionId: ws.selectedSessionId,
-      pinnedSessionIds: ws.pinnedSessionIds,
-    };
-
-    window.electronAPI?.layout.save(persisted);
+    flushLayoutSave();
   }, 500);
 }
 
@@ -1361,5 +1365,15 @@ useAppStore.subscribe((state, prevState) => {
     state.paneAgentStatus !== prevState.paneAgentStatus
   ) {
     saveActiveWorkspaceLayout();
+  }
+});
+
+// Flush any pending layout save before the window unloads (app quit / reload)
+// so that recently-created panes (e.g. diff, browser) are never lost.
+window.addEventListener("beforeunload", () => {
+  if (saveLayoutTimer) {
+    clearTimeout(saveLayoutTimer);
+    saveLayoutTimer = null;
+    flushLayoutSave();
   }
 });

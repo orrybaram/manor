@@ -21,6 +21,7 @@ interface UseCommandsParams {
   toggleSidebar: () => void;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onOpenFeedback?: () => void;
   sessions: { id: string }[];
   selectedSessionId: string | null;
   setShowGhosts: (show: boolean) => void;
@@ -41,6 +42,7 @@ export function useCommands({
   toggleSidebar,
   onClose,
   onOpenSettings,
+  onOpenFeedback,
   sessions,
   selectedSessionId,
   setShowGhosts,
@@ -175,6 +177,15 @@ export function useCommands({
         },
       },
       {
+        id: "submit-feedback",
+        label: "Submit Feedback",
+        keywords: ["bug", "feature", "request", "report"],
+        action: () => {
+          onOpenFeedback?.();
+          onClose();
+        },
+      },
+      {
         id: "copy-branch",
         label: "Copy Branch Name",
         shortcut: fmt("copy-branch"),
@@ -262,6 +273,7 @@ export function useCommands({
     toggleSidebar,
     onClose,
     onOpenSettings,
+    onOpenFeedback,
     sessions,
     selectedSessionId,
     setShowGhosts,

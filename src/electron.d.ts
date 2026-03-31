@@ -335,6 +335,14 @@ export interface ElectronAPI {
       issueNumber: number,
     ) => Promise<GitHubIssueDetail>;
     assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
+    createIssue: (
+      title: string,
+      body: string,
+      labels: string[],
+    ) => Promise<{ url: string } | null>;
+    uploadFeedbackImages: (
+      images: { base64: string; name: string }[],
+    ) => Promise<string[]>;
   };
 
   linear: {

@@ -178,6 +178,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
     assignIssue: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
+    createIssue: (title: string, body: string, labels: string[]) =>
+      ipcRenderer.invoke("github:createIssue", title, body, labels),
+    uploadFeedbackImages: (images: { base64: string; name: string }[]) =>
+      ipcRenderer.invoke("github:uploadFeedbackImages", images),
   },
 
   linear: {

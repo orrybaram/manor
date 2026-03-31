@@ -30,7 +30,7 @@ import styles from "./CommandPalette.module.css";
 const HIDDEN_STYLE = { display: "none" } as const;
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
+  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
 
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
@@ -173,6 +173,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     toggleSidebar,
     onClose: handleClose,
     onOpenSettings,
+    onOpenFeedback,
     sessions,
     selectedSessionId,
     setShowGhosts,

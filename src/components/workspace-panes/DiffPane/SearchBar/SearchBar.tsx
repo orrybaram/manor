@@ -59,6 +59,7 @@ export function SearchBar({
       <div className={styles.inner}>
         <div className={styles.searchBar}>
           <Input
+            ref={inputRef}
             placeholder="Find..."
             value={query}
             onChange={(e) => onChange(e.target.value)}

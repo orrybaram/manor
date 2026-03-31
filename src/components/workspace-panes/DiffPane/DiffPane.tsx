@@ -105,6 +105,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(function DiffPane
       promise
         .then((result) => {
           if (cancelled) return;
+          const scrollTop = containerRef.current?.scrollTop ?? 0;
           if (!result || result.trim() === "") {
             setRaw(null);
             setError("No changes found");
@@ -112,6 +113,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(function DiffPane
             setRaw(result);
             setError(null);
           }
+          requestAnimationFrame(() => {
+            if (containerRef.current) {
+              containerRef.current.scrollTop = scrollTop;
+            }
+          });
         })
         .catch((err) => {
           if (cancelled) return;

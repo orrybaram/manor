@@ -2,8 +2,10 @@ import { useState, useCallback } from "react";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 
+import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
+import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
@@ -49,6 +51,7 @@ export function StatusBar(props: StatusBarProps) {
   const { onNewWorkspace, onNewTaskWithPrompt } = props;
 
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const webviewFocusedPaneId = useAppStore((s) => s.webviewFocusedPaneId);
@@ -120,12 +123,20 @@ export function StatusBar(props: StatusBarProps) {
       <div className={styles.right}>
         <button
           className={styles.logoButton}
+          onClick={() => setFeedbackOpen(true)}
+          aria-label="Send feedback"
+        >
+          <MessageSquarePlus size={12} />
+        </button>
+        <button
+          className={styles.logoButton}
           onClick={() => setAboutOpen(true)}
           aria-label="About Manor"
         >
           <ManorLogo />
         </button>
       </div>
+      <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       <AboutModal open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );

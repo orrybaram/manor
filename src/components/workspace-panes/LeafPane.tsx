@@ -171,6 +171,7 @@ export function LeafPane(props: LeafPaneProps) {
   return (
     <div
       ref={containerRef}
+      data-pane-id={paneId}
       className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""} ${isThisPaneDragging ? styles.leafDragging : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >

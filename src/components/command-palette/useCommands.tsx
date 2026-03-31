@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import Globe from "lucide-react/dist/esm/icons/globe";
+import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import type { CommandItem } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { useAppStore } from "../../store/app-store";
+import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import type { ActivePort } from "../../electron.d.ts";
@@ -51,6 +53,23 @@ export function useCommands({
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const splitPaneAt = useAppStore((s) => s.splitPaneAt);
+  const activeWs = useAppStore(selectActiveWorkspace);
+  const focusedPaneId = useMemo(() => {
+    if (!activeWs) return null;
+    const session = activeWs.sessions.find((s) => s.id === activeWs.selectedSessionId);
+    return session?.focusedPaneId ?? null;
+  }, [activeWs]);
+
+  const splitWithContent = useCallback(
+    (contentType?: "terminal" | "browser" | "diff") => {
+      if (!focusedPaneId) return;
+      const el = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
+      const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
+      splitPaneAt(focusedPaneId, direction, "second", contentType);
+    },
+    [focusedPaneId, splitPaneAt],
+  );
 
   return useMemo(() => {
     const platform = navigator.platform.toLowerCase().includes("mac")
@@ -119,6 +138,36 @@ export function useCommands({
         shortcut: fmt("split-v"),
         action: () => {
           splitPane("vertical");
+          onClose();
+        },
+      },
+      {
+        id: "split-with-terminal",
+        label: "Split with Terminal",
+        icon: <SquareTerminal size={14} />,
+        keywords: ["split", "terminal", "pane"],
+        action: () => {
+          splitWithContent();
+          onClose();
+        },
+      },
+      {
+        id: "split-with-browser",
+        label: "Split with Browser",
+        icon: <Globe size={14} />,
+        keywords: ["split", "browser", "pane", "web", "preview"],
+        action: () => {
+          splitWithContent("browser");
+          onClose();
+        },
+      },
+      {
+        id: "split-with-diff",
+        label: "Split with Diff",
+        icon: <GitCompareArrows size={14} />,
+        keywords: ["split", "diff", "pane", "git", "changes"],
+        action: () => {
+          splitWithContent("diff");
           onClose();
         },
       },
@@ -266,6 +315,7 @@ export function useCommands({
     closePane,
     closeSession,
     splitPane,
+    splitWithContent,
     selectNextSession,
     selectPrevSession,
     focusNextPane,

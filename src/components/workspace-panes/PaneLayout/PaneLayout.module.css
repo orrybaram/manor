@@ -202,3 +202,52 @@
   opacity: 0.8;
   z-index: 21;
 }
+
+/* ── Pane Context Menu ── */
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  z-index: 100;
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

@@ -11,7 +11,7 @@ import { formatCombo } from "../../lib/keybindings";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
-import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
+import { DEFAULT_AGENT_COMMAND, getAgentCommand } from "../../agent-defaults";
 import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
@@ -58,6 +58,7 @@ export function useCommands({
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
+  const setPaneContentType = useAppStore((s) => s.setPaneContentType);
   const activeWs = useAppStore(selectActiveWorkspace);
   const focusedPaneId = useMemo(() => {
     if (!activeWs) return null;
@@ -189,6 +190,52 @@ export function useCommands({
           );
           const command = proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
           splitWithContent("task", command);
+          onClose();
+        },
+      },
+      {
+        id: "convert-to-terminal",
+        label: "Convert to Terminal",
+        icon: <SquareTerminal size={14} />,
+        keywords: ["convert", "terminal", "pane"],
+        action: () => {
+          if (focusedPaneId) setPaneContentType(focusedPaneId, "terminal");
+          onClose();
+        },
+      },
+      {
+        id: "convert-to-browser",
+        label: "Convert to Browser",
+        icon: <Globe size={14} />,
+        keywords: ["convert", "browser", "pane", "web", "preview"],
+        action: () => {
+          if (focusedPaneId) setPaneContentType(focusedPaneId, "browser");
+          onClose();
+        },
+      },
+      {
+        id: "convert-to-diff",
+        label: "Convert to Diff",
+        icon: <GitCompareArrows size={14} />,
+        keywords: ["convert", "diff", "pane", "git", "changes"],
+        action: () => {
+          if (focusedPaneId) setPaneContentType(focusedPaneId, "diff");
+          onClose();
+        },
+      },
+      {
+        id: "convert-to-task",
+        label: "Convert to Task",
+        icon: <Bot size={14} />,
+        keywords: ["convert", "task", "pane", "agent", "claude"],
+        action: () => {
+          if (focusedPaneId) {
+            setPaneContentType(focusedPaneId, "terminal");
+            const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
+            useAppStore.setState((state) => ({
+              pendingPaneCommands: { ...state.pendingPaneCommands, [focusedPaneId]: command },
+            }));
+          }
           onClose();
         },
       },

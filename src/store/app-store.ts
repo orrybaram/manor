@@ -11,6 +11,7 @@ import {
   removePane,
   nextPaneId,
   prevPaneId,
+  updateLeafContentType,
 } from "./pane-tree";
 import type {
   PersistedWorkspace,
@@ -158,6 +159,9 @@ export interface AppState {
 
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
+
+  // Pane content type
+  setPaneContentType: (paneId: string, contentType: "terminal" | "browser" | "diff") => void;
 
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
@@ -1198,6 +1202,37 @@ export const useAppStore = create<AppState>((set, get) => ({
               [wsPath]: { ...ws, sessions: updatedSessions },
             };
           }
+        }
+      }
+      return newState;
+    }),
+
+  setPaneContentType: (paneId: string, contentType: "terminal" | "browser" | "diff") =>
+    set((state) => {
+      const current = state.paneContentType[paneId];
+      if (current === contentType) return state;
+      // For "terminal", remove the key (terminal is the default/implicit type)
+      const newContentType = { ...state.paneContentType };
+      if (contentType === "terminal") {
+        delete newContentType[paneId];
+      } else {
+        newContentType[paneId] = contentType;
+      }
+      // Update the tree node's contentType so it persists across reloads
+      const newState: Partial<AppState> = { paneContentType: newContentType };
+      const wsPath = state.activeWorkspacePath;
+      if (wsPath) {
+        const ws = state.workspaceSessions[wsPath];
+        if (ws) {
+          const treeType = contentType === "terminal" ? undefined : contentType;
+          const updatedSessions = ws.sessions.map((s) => {
+            const newRoot = updateLeafContentType(s.rootNode, paneId, treeType);
+            return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
+          });
+          newState.workspaceSessions = {
+            ...state.workspaceSessions,
+            [wsPath]: { ...ws, sessions: updatedSessions },
+          };
         }
       }
       return newState;

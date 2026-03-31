@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useMountEffect } from "../../../../hooks/useMountEffect";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -32,17 +33,18 @@ type ConfirmAction = {
   files: string[];
 } | null;
 
-export function FileList({
-  files,
-  onSelectFile,
-  animationState,
-  diffMode,
-  workspacePath,
-  selectedFiles,
-  onSelectionChange,
-  stagedFiles,
-  onStagedFilesChange,
-}: FileListProps) {
+export function FileList(props: FileListProps) {
+  const {
+    files,
+    onSelectFile,
+    animationState,
+    diffMode,
+    workspacePath,
+    selectedFiles,
+    onSelectionChange,
+    stagedFiles,
+    onStagedFilesChange,
+  } = props;
   const totalAdded = files.reduce((s, f) => s + f.added, 0);
   const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
   const lastClickedIndex = useRef<number>(0);
@@ -53,7 +55,7 @@ export function FileList({
   const addToast = useToastStore((s) => s.addToast);
 
   // Escape clears selection
-  useEffect(() => {
+  useMountEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onSelectionChange(new Set());
@@ -61,7 +63,7 @@ export function FileList({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onSelectionChange]);
+  });
 
   const handleRowClick = useCallback(
     (e: React.MouseEvent, file: DiffFile, index: number) => {

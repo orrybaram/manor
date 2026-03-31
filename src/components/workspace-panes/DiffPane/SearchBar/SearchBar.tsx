@@ -1,19 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import X from "lucide-react/dist/esm/icons/x";
+import { useMountEffect } from "../../../../hooks/useMountEffect";
 import styles from "./SearchBar.module.css";
 import { Input } from "../../../ui/Input";
 
-export function SearchBar({
-  query,
-  onChange,
-  totalMatches,
-  currentMatch,
-  onNext,
-  onPrev,
-  onClose,
-}: {
+type SearchBarProps = {
   query: string;
   onChange: (q: string) => void;
   totalMatches: number;
@@ -21,17 +14,21 @@ export function SearchBar({
   onNext: () => void;
   onPrev: () => void;
   onClose: () => void;
-}) {
+};
+
+export function SearchBar(props: SearchBarProps) {
+  const { query, onChange, totalMatches, currentMatch, onNext, onPrev, onClose } = props;
+
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
+  useMountEffect(() => {
     // Trigger open animation on next frame so the transition fires
     requestAnimationFrame(() => {
       setOpen(true);
       inputRef.current?.focus();
     });
-  }, []);
+  });
 
   const handleClose = () => {
     setOpen(false);

@@ -3,7 +3,13 @@ import CircleDotDashed from "lucide-react/dist/esm/icons/circle-dot-dashed";
 import type { DiffMode } from "../types";
 import styles from "./ModeToggle.module.css";
 
-export function ModeToggle({ diffMode, onModeChange }: { diffMode: DiffMode; onModeChange: (mode: DiffMode) => void }) {
+type ModeToggleProps = {
+  diffMode: DiffMode;
+  onModeChange: (mode: DiffMode) => void;
+};
+
+export function ModeToggle(props: ModeToggleProps) {
+  const { diffMode, onModeChange } = props;
   return (
     <div className={styles.modeToggle}>
       <button

@@ -276,6 +276,25 @@ export function nextPaneId(
   return ids[(idx + 1) % ids.length];
 }
 
+/** Update the contentType of a leaf node. */
+export function updateLeafContentType(
+  node: PaneNode,
+  paneId: string,
+  contentType: "terminal" | "browser" | "diff" | undefined,
+): PaneNode {
+  if (node.type === "leaf") {
+    if (node.paneId === paneId) {
+      const { contentType: _, url: __, ...rest } = node;
+      return contentType ? { ...rest, contentType } : rest;
+    }
+    return node;
+  }
+  const first = updateLeafContentType(node.first, paneId, contentType);
+  const second = updateLeafContentType(node.second, paneId, contentType);
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}
+
 /** Find the previous pane id before the given one (for focus cycling). */
 export function prevPaneId(
   node: PaneNode,

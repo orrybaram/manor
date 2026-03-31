@@ -5,13 +5,16 @@ import { extToLang, tokenize } from "../syntax";
 import { highlightSyntaxNodes, highlightText } from "./hast-utils";
 import styles from "./DiffLines.module.css";
 
-export function DiffLines({ lines, filePath, searchQuery, matchOffset, currentMatch }: {
+type DiffLinesProps = {
   lines: DiffLine[];
   filePath: string;
   searchQuery: string;
   matchOffset: number;
   currentMatch: number;
-}) {
+};
+
+export function DiffLines(props: DiffLinesProps) {
+  const { lines, filePath, searchQuery, matchOffset, currentMatch } = props;
   const tokenizedLines = useMemo(() => {
     const lang = extToLang(filePath);
     if (!lang) return null;

@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   forwardRef,
 } from "react";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
@@ -35,7 +36,8 @@ type DiffPaneProps = {
 };
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
-  function DiffPane({ workspacePath }, ref) {
+  function DiffPane(props: DiffPaneProps, ref) {
+    const { workspacePath } = props;
     const [raw, setRaw] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -88,7 +90,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     // Cmd+F to open search
-    useEffect(() => {
+    useMountEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "f") {
           if (
@@ -102,7 +104,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       };
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
-    }, []);
+    });
 
     const project = useProjectStore((s) =>
       s.projects.find((p) =>
@@ -225,10 +227,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return () => clearTimeout(timer);
     }, [animationState]);
 
-    // Clear selection when diff mode changes
-    useEffect(() => {
+    const handleModeChange = useCallback((mode: DiffMode) => {
+      setDiffMode(mode);
       setSelectedFiles(new Set());
-    }, [diffMode]);
+    }, []);
 
     // Compute per-file match offsets and total
     const { fileOffsets, totalMatches } = useMemo(() => {
@@ -250,9 +252,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return { fileOffsets: offsets, totalMatches: total };
     }, [files, searchQuery, collapsed]);
 
-    useEffect(() => {
+    const handleSearchChange = useCallback((query: string) => {
+      setSearchQuery(query);
       setCurrentMatch(0);
-    }, [searchQuery, totalMatches]);
+    }, []);
 
     useEffect(() => {
       if (!searchQuery || totalMatches === 0) return;
@@ -281,7 +284,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return (
         <div className={styles.container}>
           <div className={styles.topBar}>
-            <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
+            <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
             <Button
               onClick={() => setCommitOpen(true)}
               disabled={stagedFiles.size === 0}
@@ -308,7 +311,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return (
         <div className={styles.container}>
           <div className={styles.topBar}>
-            <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
+            <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
             <Button
               onClick={() => setCommitOpen(true)}
               disabled={stagedFiles.size === 0}
@@ -340,7 +343,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         {searchOpen && (
           <SearchBar
             query={searchQuery}
-            onChange={setSearchQuery}
+            onChange={handleSearchChange}
             totalMatches={totalMatches}
             currentMatch={currentMatch}
             onNext={handleSearchNext}
@@ -349,7 +352,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           />
         )}
         <div className={styles.topBar}>
-          <ModeToggle diffMode={diffMode} onModeChange={setDiffMode} />
+          <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
           <Button
             onClick={() => setCommitOpen(true)}
             disabled={stagedFiles.size === 0}

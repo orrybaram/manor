@@ -20,7 +20,8 @@ type CommitModalProps = {
   stagedCount: number;
 };
 
-export function CommitModal({ open, onOpenChange, workspacePath, stagedCount }: CommitModalProps) {
+export function CommitModal(props: CommitModalProps) {
+  const { open, onOpenChange, workspacePath, stagedCount } = props;
   const [message, setMessage] = useState("");
   const [description, setDescription] = useState("");
   const [selectedFlags, setSelectedFlags] = useState<Set<FlagKey>>(new Set());

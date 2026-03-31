@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
@@ -6,12 +7,15 @@ import Crosshair from "lucide-react/dist/esm/icons/crosshair";
 import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
 import Search from "lucide-react/dist/esm/icons/search";
+import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
+import { ConvertToSubmenu } from "./ConvertToSubmenu";
+import { SplitWithSubmenu } from "./SplitWithSubmenu";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
@@ -340,21 +344,54 @@ export function LeafPane(props: LeafPaneProps) {
       )}
       <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
         {contentType === "diff" ? (
-          <DiffPane ref={diffRef} workspacePath={workspacePath} />
+          <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
+            <DiffPane ref={diffRef} workspacePath={workspacePath} />
+          </PaneContextMenu>
         ) : contentType === "browser" ? (
-          <>
+          <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <BrowserPane
               ref={browserRef}
               paneId={paneId}
               initialUrl={paneUrl ?? "about:blank"}
               onNavStateChange={handleNavStateChange}
             />
-          </>
+          </PaneContextMenu>
         ) : (
           <TerminalPane paneId={paneId} cwd={workspacePath} />
         )}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>
+  );
+}
+
+function PaneContextMenu({ paneId, containerRef, onClose, children }: {
+  paneId: string;
+  containerRef: React.RefObject<HTMLElement | null>;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div style={{ display: "contents" }}>
+          {children}
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className={styles.contextMenu}>
+          <SplitWithSubmenu paneId={paneId} containerRef={containerRef} />
+          <ConvertToSubmenu paneId={paneId} />
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={onClose}
+          >
+            <X size={14} />
+            Close Pane
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }

@@ -3,17 +3,15 @@ import type { DiffFile } from "../types";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import styles from "./FileHeader.module.css";
 
-export function FileHeader({
-  file,
-  collapsed,
-  animated,
-  onToggle,
-}: {
+type FileHeaderProps = {
   file: DiffFile;
   collapsed: boolean;
   animated?: boolean;
   onToggle: () => void;
-}) {
+};
+
+export function FileHeader(props: FileHeaderProps) {
+  const { file, collapsed, animated, onToggle } = props;
   const lastSlash = file.path.lastIndexOf("/");
   const name = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
   const dir = lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);

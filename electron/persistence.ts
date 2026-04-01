@@ -4,6 +4,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
 
@@ -140,6 +141,13 @@ export class ProjectManager {
       this.projectsFilePath(),
       JSON.stringify(this.state, null, 2),
     );
+  }
+
+  private emitSetupProgress(step: string, status: string, message?: string) {
+    const wins = BrowserWindow.getAllWindows();
+    for (const win of wins) {
+      win.webContents.send("worktree:setup-progress", { step, status, message });
+    }
   }
 
   private findProject(projectId: string): PersistedProject | undefined {
@@ -717,6 +725,7 @@ export class ProjectManager {
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
+    this.emitSetupProgress("prune", "in-progress");
     try {
       await execFileAsync("git", ["worktree", "prune"], {
         cwd: project.path,
@@ -728,8 +737,10 @@ export class ProjectManager {
         err instanceof Error ? err.message : err,
       );
     }
+    this.emitSetupProgress("prune", "done");
 
     // If an existing branch was selected, fetch first so local refs are up-to-date
+    this.emitSetupProgress("fetch", "in-progress");
     if (branch) {
       try {
         await execFileAsync("git", ["fetch", "origin", branchName], {
@@ -756,9 +767,11 @@ export class ProjectManager {
         );
       }
     }
+    this.emitSetupProgress("fetch", "done");
 
     const defaultBranchRef = baseBranch ?? `origin/${project.defaultBranch || "main"}`;
 
+    this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
     try {
       await execFileAsync(
         "git",
@@ -805,6 +818,7 @@ export class ProjectManager {
         }
       }
     }
+    this.emitSetupProgress("create-worktree", "done");
 
     // Set custom name only if it differs from the branch
     if (name !== branchName) {
@@ -821,7 +835,9 @@ export class ProjectManager {
       }
     }
 
+    this.emitSetupProgress("persist", "in-progress");
     this.saveState();
+    this.emitSetupProgress("persist", "done");
 
     return this.buildProjectInfo(project);
   }

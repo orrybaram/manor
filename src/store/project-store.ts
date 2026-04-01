@@ -126,6 +126,10 @@ export interface ProjectInfo {
   setupComplete: boolean;
 }
 
+export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
+export type StepStatus = "pending" | "in-progress" | "done" | "error";
+export type SetupProgressEvent = { step: SetupStep; status: StepStatus; message?: string };
+
 export type ProjectUpdatableFields = Partial<
   Pick<
     ProjectInfo,

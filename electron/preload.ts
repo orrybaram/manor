@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ),
     onRemoveWorktreeProgress: (callback: (step: string) => void) =>
       onChannel<string>("projects:removeWorktree:progress", callback),
+    onWorktreeSetupProgress: (callback: (event: any) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("worktree:setup-progress", handler);
+      return () => ipcRenderer.removeListener("worktree:setup-progress", handler);
+    },
     canQuickMerge: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>

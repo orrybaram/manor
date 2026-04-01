@@ -51,7 +51,9 @@ export function PortBadge(props: PortBadgeProps) {
         >
           <span className={styles.portNumber}>{port.port}</span>
           <span className={styles.portProcess}>{displayProcess}</span>
-          <ExternalLink size={12} className={styles.portOpen} />
+          <div role="button" onClick={handleOpenExternal}>
+            <ExternalLink size={12} className={styles.portOpen} />
+          </div>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

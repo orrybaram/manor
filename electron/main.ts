@@ -1168,6 +1168,28 @@ const webviewRegistry = new Map<string, number>();
 const webviewServer = new WebviewServer(webviewRegistry);
 const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
+const newWindowConsoleCleanup = new Map<string, () => void>();
+
+const INTERCEPT_NEW_WINDOW_SCRIPT = `
+(function() {
+  if (window.__manor_intercept_new_window__) return;
+  window.__manor_intercept_new_window__ = true;
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el.tagName !== 'A') el = el.parentElement;
+    if (!el) return;
+    if (el.getAttribute('target') === '_blank' && el.href) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('__manor_new_window__:' + el.href);
+    }
+  }, true);
+  window.open = function(url) {
+    if (url) console.log('__manor_new_window__:' + url);
+    return null;
+  };
+})();
+`;
 
 ipcMain.handle(
   "webview:register",
@@ -1247,6 +1269,31 @@ ipcMain.handle(
       webviewEscapeCleanup.set(paneId, () => {
         wc.off("before-input-event", escapeHandler);
       });
+
+      // Intercept target="_blank" clicks and window.open() inside the guest page.
+      // Inject a script on each page load that captures these and relays the URL
+      // back via console.log for us to forward to the renderer as a new tab.
+      const injectNewWindowIntercept = () => {
+        if (wc.isDestroyed()) return;
+        wc.executeJavaScript(INTERCEPT_NEW_WINDOW_SCRIPT).catch(() => {});
+      };
+      wc.on("did-finish-load", injectNewWindowIntercept);
+
+      const newWindowListener = (
+        _ev: Electron.Event,
+        _level: number,
+        message: string,
+      ) => {
+        if (message.startsWith("__manor_new_window__:")) {
+          const url = message.slice("__manor_new_window__:".length);
+          rendererWebContents.send("webview:new-window", paneId, url);
+        }
+      };
+      wc.on("console-message", newWindowListener);
+      newWindowConsoleCleanup.set(paneId, () => {
+        wc.off("did-finish-load", injectNewWindowIntercept);
+        wc.off("console-message", newWindowListener);
+      });
     }
   },
 );
@@ -1257,6 +1304,8 @@ ipcMain.handle("webview:unregister", (_event, paneId: string) => {
   webviewContextMenuCleanup.delete(paneId);
   webviewEscapeCleanup.get(paneId)?.();
   webviewEscapeCleanup.delete(paneId);
+  newWindowConsoleCleanup.get(paneId)?.();
+  newWindowConsoleCleanup.delete(paneId);
   webviewServer.detachConsoleListener(paneId);
   webviewRegistry.delete(paneId);
 });

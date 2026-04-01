@@ -340,6 +340,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubNewWindow = window.electronAPI.webview.onNewWindow(
+        (sourcePaneId: string, openUrl: string) => {
+          if (sourcePaneId !== paneId) return;
+          useAppStore.getState().addBrowserSession(openUrl);
+        },
+      );
+
       return () => {
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
@@ -352,6 +359,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubPickerCancel();
         unsubEscape();
         unsubFocusUrl();
+        unsubNewWindow();
       };
     });
 

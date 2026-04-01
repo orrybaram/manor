@@ -107,7 +107,7 @@ function App() {
     string | null
   >(null);
   const [initialName, setInitialName] = useState("");
-  const [_initialBranch, setInitialBranch] = useState("");
+  const [initialBranch, setInitialBranch] = useState("");
   const [_agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [_pendingLinkedIssue, setPendingLinkedIssue] = useState<import("./store/project-store").LinkedIssue | null>(null);
   const agentPromptRef = useRef<string | null>(null);
@@ -554,6 +554,7 @@ function App() {
           selectedProjectIndex={selectedProjectIndex}
           preselectedProjectId={preselectedProjectId}
           initialName={initialName}
+          initialBranch={initialBranch}
           onSubmit={async (projectId, name, branch, baseBranch) => {
             let agentCommand: string | undefined;
             const prompt = agentPromptRef.current;

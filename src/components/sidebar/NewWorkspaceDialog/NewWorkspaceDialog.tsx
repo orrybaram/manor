@@ -33,6 +33,7 @@ type NewWorkspaceDialogProps = {
   selectedProjectIndex: number;
   preselectedProjectId?: string | null;
   initialName?: string;
+  initialBranch?: string;
 };
 
 export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
@@ -44,6 +45,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     selectedProjectIndex,
     preselectedProjectId,
     initialName = "",
+    initialBranch = "",
   } = props;
 
   const [name, setName] = useState("");
@@ -97,8 +99,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     (e: Event) => {
       e.preventDefault();
       setName(initialName);
-      setBranchName(slugify(initialName));
-      setBranchManuallyEdited(false);
+      setBranchName(initialBranch || slugify(initialName));
+      setBranchManuallyEdited(!!initialBranch);
       const proj = projects.find(
         (p) =>
           p.id ===
@@ -112,6 +114,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     },
     [
       defaultProjectId,
+      initialBranch,
       initialName,
       preselectedProjectId,
       projects,

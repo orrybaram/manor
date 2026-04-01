@@ -1,0 +1,143 @@
+import { useCallback, useRef } from "react";
+import type { Terminal } from "@xterm/xterm";
+import { terminalOptions, themeToXterm } from "../terminal/config";
+import { useThemeStore } from "../store/theme-store";
+
+export interface UseMiniTerminalOptions {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  sessionId: string;
+  cwd: string | null;
+  command: string | null;
+  interactive?: boolean;
+  onOutput?: (data: string) => void;
+  onExit?: () => void;
+}
+
+export interface UseMiniTerminalReturn {
+  start: () => Promise<void>;
+  cleanup: () => void;
+  termRef: React.RefObject<Terminal | null>;
+}
+
+export function useMiniTerminal(
+  options: UseMiniTerminalOptions,
+): UseMiniTerminalReturn {
+  const {
+    containerRef,
+    sessionId,
+    cwd,
+    command,
+    interactive = false,
+    onOutput,
+    onExit,
+  } = options;
+
+  const theme = useThemeStore((s) => s.theme);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<{ fit(): void; dispose(): void } | null>(null);
+  const paneIdRef = useRef<string>("");
+  const cleanupFnsRef = useRef<(() => void)[]>([]);
+
+  const cleanup = useCallback(() => {
+    cleanupFnsRef.current.forEach((fn) => fn());
+    cleanupFnsRef.current = [];
+    if (paneIdRef.current) {
+      window.electronAPI.pty.close(paneIdRef.current);
+      paneIdRef.current = "";
+    }
+    if (termRef.current) {
+      termRef.current.dispose();
+      termRef.current = null;
+    }
+    fitRef.current = null;
+  }, []);
+
+  const start = useCallback(async () => {
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
+      import("@xterm/xterm"),
+      import("@xterm/addon-fit"),
+    ]);
+    await import("@xterm/xterm/css/xterm.css");
+
+    paneIdRef.current = sessionId;
+
+    // Wait for DOM to update with the terminal container
+    await new Promise((r) => requestAnimationFrame(r));
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const xtermTheme = theme ? themeToXterm(theme) : undefined;
+
+    const term = new Terminal(
+      terminalOptions({
+        theme: xtermTheme,
+        scrollback: 1000,
+        cursorBlink: true,
+        cursorStyle: "underline",
+        fontSize: 12,
+      }),
+    );
+    termRef.current = term;
+
+    const fit = new FitAddon();
+    fitRef.current = fit;
+    term.loadAddon(fit);
+
+    term.open(container);
+    fit.fit();
+
+    // Forward user input to PTY if interactive
+    if (interactive) {
+      const unsubData = term.onData((data) => {
+        if (paneIdRef.current) {
+          window.electronAPI.pty.write(paneIdRef.current, data);
+        }
+      });
+      cleanupFnsRef.current.push(() => unsubData.dispose());
+    }
+
+    const cols = term.cols;
+    const rows = term.rows;
+
+    await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
+
+    let commandSent = false;
+
+    // Set up a fallback timer to send command if no output arrives quickly
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    if (command) {
+      fallbackTimer = setTimeout(() => {
+        if (!commandSent && paneIdRef.current) {
+          commandSent = true;
+          window.electronAPI.pty.write(paneIdRef.current, command + "\r");
+        }
+      }, 500);
+      cleanupFnsRef.current.push(() => {
+        if (fallbackTimer) clearTimeout(fallbackTimer);
+      });
+    }
+
+    const unsubOutput = window.electronAPI.pty.onOutput(
+      sessionId,
+      (data: string) => {
+        term.write(data);
+        // Send the command once the shell has produced its first output (prompt)
+        if (command && !commandSent) {
+          commandSent = true;
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          window.electronAPI.pty.write(sessionId, command + "\r");
+        }
+        onOutput?.(data);
+      },
+    );
+    cleanupFnsRef.current.push(unsubOutput);
+
+    const unsubExit = window.electronAPI.pty.onExit(sessionId, () => {
+      onExit?.();
+    });
+    cleanupFnsRef.current.push(unsubExit);
+  }, [sessionId, cwd, command, interactive, onOutput, onExit, theme, containerRef]);
+
+  return { start, cleanup, termRef };
+}

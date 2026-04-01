@@ -1,4 +1,5 @@
 import type { ITerminalOptions } from "@xterm/xterm";
+import type { Theme } from "../store/theme-store";
 
 /** Nerd Font fallback chain */
 export const FONT_FAMILY = [
@@ -27,5 +28,32 @@ export function terminalOptions(
     allowProposedApi: true,
     scrollback: 10_000,
     ...overrides,
+  };
+}
+
+export function themeToXterm(t: Theme) {
+  return {
+    background: t.background,
+    foreground: t.foreground,
+    cursor: t.cursor,
+    cursorAccent: t.cursorAccent,
+    selectionBackground: t.selectionBackground,
+    selectionForeground: t.selectionForeground,
+    black: t.black,
+    red: t.red,
+    green: t.green,
+    yellow: t.yellow,
+    blue: t.blue,
+    magenta: t.magenta,
+    cyan: t.cyan,
+    white: t.white,
+    brightBlack: t.brightBlack,
+    brightRed: t.brightRed,
+    brightGreen: t.brightGreen,
+    brightYellow: t.brightYellow,
+    brightBlue: t.brightBlue,
+    brightMagenta: t.brightMagenta,
+    brightCyan: t.brightCyan,
+    brightWhite: t.brightWhite,
   };
 }

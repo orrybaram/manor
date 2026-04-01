@@ -11,6 +11,7 @@ import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../../electron.d";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
+import { WorkspaceSetupView } from "./WorkspaceSetupView";
 import type { PaletteView } from "../command-palette/types";
 import { GitHubNudge } from "./GitHubNudge";
 import { Stack } from "../ui/Layout/Layout";
@@ -33,6 +34,9 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
 
   const addSession = useAppStore((s) => s.addSession);
   const addBrowserSession = useAppStore((s) => s.addBrowserSession);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const worktreeSetupState = useAppStore((s) => s.worktreeSetupState);
+  const clearWorktreeSetup = useAppStore((s) => s.clearWorktreeSetup);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
 
@@ -306,6 +310,23 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
         {githubNudge}
       </>
     ) : null;
+
+  // Check for active worktree setup (try actual path, then pending key)
+  const setupKey = activeWorkspacePath && worktreeSetupState[activeWorkspacePath]
+    ? activeWorkspacePath
+    : worktreeSetupState["__pending__"]
+      ? "__pending__"
+      : null;
+  const setupState = setupKey ? worktreeSetupState[setupKey] : null;
+
+  if (setupState && !setupState.completed && setupKey) {
+    return (
+      <WorkspaceSetupView
+        workspacePath={setupKey}
+        onComplete={() => clearWorktreeSetup(setupKey)}
+      />
+    );
+  }
 
   return <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />;
 }

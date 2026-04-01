@@ -825,6 +825,88 @@ export class ProjectManager {
 
     return this.buildProjectInfo(project);
   }
+
+  async convertMainToWorktree(
+    projectId: string,
+    name: string,
+  ): Promise<ProjectInfo | null> {
+    const project = this.findProject(projectId);
+    if (!project) return null;
+
+    // Get the current branch of the main workspace
+    const { stdout: branchOut } = await execFileAsync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      { cwd: project.path, timeout: 5000 },
+    );
+    const currentBranch = branchOut.trim();
+
+    if (currentBranch === project.defaultBranch) {
+      throw new Error(
+        `Main workspace is already on the default branch (${project.defaultBranch}). Nothing to convert.`,
+      );
+    }
+
+    const slug = slugify(name);
+    const baseDir = project.worktreePath
+      ? expandHome(project.worktreePath)
+      : path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
+    const worktreePath = path.join(baseDir, slug);
+
+    // Prune stale worktree entries
+    try {
+      await execFileAsync("git", ["worktree", "prune"], {
+        cwd: project.path,
+        timeout: 10000,
+      });
+    } catch (err) {
+      console.error(
+        "[ProjectManager] git worktree prune failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // Create a worktree for the current branch
+    await execFileAsync(
+      "git",
+      ["worktree", "add", worktreePath, currentBranch],
+      { cwd: project.path, timeout: 15000 },
+    );
+
+    // Reset the main workspace back to the default branch
+    try {
+      await execFileAsync(
+        "git",
+        ["checkout", project.defaultBranch || "main"],
+        { cwd: project.path, timeout: 15000 },
+      );
+    } catch (checkoutErr) {
+      // Clean up the worktree we just created and re-throw
+      try {
+        await execFileAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          { cwd: project.path, timeout: 10000 },
+        );
+      } catch (cleanupErr) {
+        console.error(
+          "[ProjectManager] failed to clean up worktree after checkout failure:",
+          cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
+        );
+      }
+      throw checkoutErr;
+    }
+
+    // Set custom name only if it differs from the branch
+    if (name !== currentBranch) {
+      if (!project.workspaceNames) project.workspaceNames = {};
+      project.workspaceNames[worktreePath] = name;
+    }
+
+    this.saveState();
+
+    return this.buildProjectInfo(project);
+  }
 }
 
 async function listGitWorkspaces(

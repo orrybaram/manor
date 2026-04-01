@@ -511,6 +511,13 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  "projects:convertMainToWorktree",
+  (_event, projectId: string, name: string) => {
+    return projectManager.convertMainToWorktree(projectId, name);
+  },
+);
+
 ipcMain.handle("projects:listRemoteBranches", (_e, projectId: string) =>
   projectManager.listRemoteBranches(projectId),
 );

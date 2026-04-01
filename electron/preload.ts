@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:quickMergeWorktree", projectId, worktreePath),
     createWorktree: (projectId: string, name: string, branch?: string, linkedIssue?: { id: string; identifier: string; title: string; url: string }, baseBranch?: string) =>
       ipcRenderer.invoke("projects:createWorktree", projectId, name, branch, linkedIssue, baseBranch),
+    convertMainToWorktree: (projectId: string, name: string) =>
+      ipcRenderer.invoke("projects:convertMainToWorktree", projectId, name),
     listRemoteBranches: (projectId: string) =>
       ipcRenderer.invoke("projects:listRemoteBranches", projectId),
     renameWorkspace: (

@@ -298,6 +298,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
   ) => {
+    const project = get().projects.find((p) => p.id === projectId);
+    const startScript = project?.worktreeStartScript ?? null;
+
+    // Init setup state before IPC call
+    useAppStore.getState().initWorktreeSetup("__pending__", !!startScript, startScript);
+
+    // Subscribe to progress events BEFORE calling IPC
+    const unsubProgress = window.electronAPI.projects.onWorktreeSetupProgress((event: SetupProgressEvent) => {
+      useAppStore.getState().updateWorktreeSetupStep("__pending__", event.step, event.status, event.message);
+    });
+
     let updated;
     try {
       updated = await window.electronAPI.projects.createWorktree(
@@ -308,6 +319,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         baseBranch,
       );
     } catch (err) {
+      unsubProgress();
+      useAppStore.getState().clearWorktreeSetup("__pending__");
       const message = err instanceof Error ? err.message : String(err);
       // Strip the verbose "Error invoking remote method" prefix
       const detail = message.replace(
@@ -322,32 +335,59 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       return null;
     }
-    if (!updated) return null;
+
+    unsubProgress();
+
+    if (!updated) {
+      useAppStore.getState().clearWorktreeSetup("__pending__");
+      return null;
+    }
+
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
+
     // Find the new workspace by name or branch.
     const branchName = branch || name;
     const newWs = updated.workspaces.find(
       (ws) => !ws.isMain && (ws.name === name || ws.branch === branchName),
     );
     const wsPath = newWs?.path ?? null;
+
     if (wsPath) {
+      // Migrate __pending__ key to the real workspace path
+      useAppStore.getState().migrateWorktreeSetupPath("__pending__", wsPath);
+
+      // Emit switch step as in-progress
+      useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "in-progress");
+
       // Select the new workspace and switch to it
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
-      const startScript = updated.worktreeStartScript;
-      const command =
-        startScript && agentCommand
-          ? `${startScript} && ${agentCommand}`
-          : agentCommand || startScript || null;
-      if (command) {
-        useAppStore.getState().setPendingStartupCommand(wsPath, command);
-      }
-      if (command) {
+
+      // Mark switch as done
+      useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");
+
+      if (startScript) {
+        // Store the start script in setup state; WorkspaceSetupView will handle execution
+        // Do NOT call setPendingStartupCommand or addSession here
+        // If there's also an agentCommand, store it alongside so the setup view can chain them
+        if (agentCommand) {
+          useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "pending");
+        }
+      } else if (agentCommand) {
+        // No start script — use the existing pending startup command + addSession pattern
+        useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
         useAppStore.getState().addSession();
+        useAppStore.getState().clearWorktreeSetup(wsPath);
+      } else {
+        // No commands at all — clear setup state
+        useAppStore.getState().clearWorktreeSetup(wsPath);
       }
+    } else {
+      useAppStore.getState().clearWorktreeSetup("__pending__");
     }
+
     return wsPath;
   },
 

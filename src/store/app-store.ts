@@ -20,6 +20,7 @@ import type {
   AgentState,
   PickedElementResult,
 } from "../electron.d";
+import type { SetupStep, StepStatus } from "./project-store";
 
 function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
@@ -177,6 +178,19 @@ export interface AppState {
   // Workspace cleanup
   removeWorkspaceSessions: (workspacePath: string) => void;
 
+  // Worktree setup progress tracking
+  worktreeSetupState: Record<string, {
+    steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
+    completed: boolean;
+    startScript?: string | null;
+    workspacePath?: string;
+  }>;
+  initWorktreeSetup: (wsPathHint: string, hasStartScript: boolean, startScript?: string | null) => void;
+  updateWorktreeSetupStep: (wsPath: string, step: SetupStep, status: StepStatus, message?: string) => void;
+  completeWorktreeSetup: (wsPath: string) => void;
+  clearWorktreeSetup: (wsPath: string) => void;
+  migrateWorktreeSetupPath: (fromKey: string, toKey: string) => void;
+
   // Resize
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
 
@@ -215,6 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmSessionId: null,
+  worktreeSetupState: {},
 
   loadPersistedLayout: async () => {
     try {
@@ -1354,6 +1369,72 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const { [paneId]: _, ...rest } = state.panePickedElement;
       return { panePickedElement: rest };
+    }),
+
+  initWorktreeSetup: (wsPathHint: string, hasStartScript: boolean, startScript?: string | null) =>
+    set((state) => {
+      const baseSteps: SetupStep[] = ["prune", "fetch", "create-worktree", "persist", "switch"];
+      if (hasStartScript) baseSteps.push("setup-script");
+      const steps = baseSteps.map((step) => ({ step, status: "pending" as StepStatus }));
+      return {
+        worktreeSetupState: {
+          ...state.worktreeSetupState,
+          [wsPathHint]: {
+            steps,
+            completed: false,
+            startScript: startScript ?? null,
+            workspacePath: wsPathHint,
+          },
+        },
+      };
+    }),
+
+  updateWorktreeSetupStep: (wsPath: string, step: SetupStep, status: StepStatus, message?: string) =>
+    set((state) => {
+      const entry = state.worktreeSetupState[wsPath];
+      if (!entry) return state;
+      return {
+        worktreeSetupState: {
+          ...state.worktreeSetupState,
+          [wsPath]: {
+            ...entry,
+            steps: entry.steps.map((s) =>
+              s.step === step ? { ...s, status, ...(message !== undefined ? { message } : {}) } : s,
+            ),
+          },
+        },
+      };
+    }),
+
+  completeWorktreeSetup: (wsPath: string) =>
+    set((state) => {
+      const entry = state.worktreeSetupState[wsPath];
+      if (!entry) return state;
+      return {
+        worktreeSetupState: {
+          ...state.worktreeSetupState,
+          [wsPath]: { ...entry, completed: true },
+        },
+      };
+    }),
+
+  clearWorktreeSetup: (wsPath: string) =>
+    set((state) => {
+      const { [wsPath]: _, ...rest } = state.worktreeSetupState;
+      return { worktreeSetupState: rest };
+    }),
+
+  migrateWorktreeSetupPath: (fromKey: string, toKey: string) =>
+    set((state) => {
+      const entry = state.worktreeSetupState[fromKey];
+      if (!entry) return state;
+      const { [fromKey]: _, ...rest } = state.worktreeSetupState;
+      return {
+        worktreeSetupState: {
+          ...rest,
+          [toKey]: { ...entry, workspacePath: toKey },
+        },
+      };
     }),
 }));
 

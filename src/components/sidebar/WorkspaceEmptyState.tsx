@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Search from "lucide-react/dist/esm/icons/search";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -7,6 +7,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
+import { useToastStore } from "../../store/toast-store";
 import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../../electron.d";
@@ -318,15 +319,54 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
       ? "__pending__"
       : null;
   const setupState = setupKey ? worktreeSetupState[setupKey] : null;
+  const setupActive = !!(setupState && !setupState.completed && setupKey);
 
-  if (setupState && !setupState.completed && setupKey) {
+  // Track transition phase: "setup" | "transitioning" | "done"
+  const [phase, setPhase] = useState<"setup" | "transitioning" | "done">(
+    setupActive ? "setup" : "done",
+  );
+
+  // When setup becomes active, switch to setup phase
+  useEffect(() => {
+    if (setupActive && phase === "done") {
+      setPhase("setup");
+    }
+  }, [setupActive, phase]);
+
+  const handleSetupComplete = useCallback(() => {
+    // Show success toast
+    useToastStore.getState().addToast({
+      id: `workspace-setup-${Date.now()}`,
+      message: "Workspace setup complete",
+      status: "success",
+    });
+    // Start cross-fade transition
+    setPhase("transitioning");
+  }, []);
+
+  const handleFadeInEnd = useCallback(() => {
+    if (phase === "transitioning" && setupKey) {
+      clearWorktreeSetup(setupKey);
+      setPhase("done");
+    }
+  }, [phase, setupKey, clearWorktreeSetup]);
+
+  if (phase === "setup" && setupKey) {
     return (
       <WorkspaceSetupView
         workspacePath={setupKey}
-        onComplete={() => clearWorktreeSetup(setupKey)}
+        onComplete={handleSetupComplete}
       />
     );
   }
 
-  return <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />;
+  return (
+    <div
+      className={phase === "transitioning" ? styles.fadeIn : undefined}
+      onAnimationEnd={handleFadeInEnd}
+      style={{ height: "100%" }}
+    >
+      <EmptyStateShell actions={actions} ticketsSection={ticketsSection} />
+    </div>
+  );
 }

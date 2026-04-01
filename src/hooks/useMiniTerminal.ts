@@ -11,6 +11,8 @@ export interface UseMiniTerminalOptions {
   interactive?: boolean;
   onOutput?: (data: string) => void;
   onExit?: () => void;
+  /** If true, appends "; exit" to the command so the shell exits after completion */
+  exitOnComplete?: boolean;
 }
 
 export interface UseMiniTerminalReturn {
@@ -30,6 +32,7 @@ export function useMiniTerminal(
     interactive = false,
     onOutput,
     onExit,
+    exitOnComplete = false,
   } = options;
 
   const theme = useThemeStore((s) => s.theme);
@@ -103,14 +106,15 @@ export function useMiniTerminal(
     await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
 
     let commandSent = false;
+    const cmdToSend = command && exitOnComplete ? `${command}; exit` : command;
 
     // Set up a fallback timer to send command if no output arrives quickly
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    if (command) {
+    if (cmdToSend) {
       fallbackTimer = setTimeout(() => {
         if (!commandSent && paneIdRef.current) {
           commandSent = true;
-          window.electronAPI.pty.write(paneIdRef.current, command + "\r");
+          window.electronAPI.pty.write(paneIdRef.current, cmdToSend + "\r");
         }
       }, 500);
       cleanupFnsRef.current.push(() => {
@@ -123,10 +127,10 @@ export function useMiniTerminal(
       (data: string) => {
         term.write(data);
         // Send the command once the shell has produced its first output (prompt)
-        if (command && !commandSent) {
+        if (cmdToSend && !commandSent) {
           commandSent = true;
           if (fallbackTimer) clearTimeout(fallbackTimer);
-          window.electronAPI.pty.write(sessionId, command + "\r");
+          window.electronAPI.pty.write(sessionId, cmdToSend + "\r");
         }
         onOutput?.(data);
       },
@@ -137,7 +141,7 @@ export function useMiniTerminal(
       onExit?.();
     });
     cleanupFnsRef.current.push(unsubExit);
-  }, [sessionId, cwd, command, interactive, onOutput, onExit, theme, containerRef]);
+  }, [sessionId, cwd, command, interactive, onOutput, onExit, exitOnComplete, theme, containerRef]);
 
   return { start, cleanup, termRef };
 }

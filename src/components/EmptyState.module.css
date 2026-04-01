@@ -371,3 +371,17 @@
   font-family: inherit;
   color: var(--text-dim);
 }
+
+/* Fade-in animation for empty state after setup completes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fadeIn {
+  animation: fadeIn 0.5s ease-out forwards;
+}

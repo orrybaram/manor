@@ -12,6 +12,8 @@ export interface MiniTerminalProps {
   interactive?: boolean;
   onOutput?: (data: string) => void;
   onExit?: () => void;
+  /** If true, appends "; exit" to the command so the shell exits after completion */
+  exitOnComplete?: boolean;
   autoStart?: boolean;
   className?: string;
 }
@@ -31,6 +33,7 @@ export function MiniTerminal(
     interactive = false,
     onOutput,
     onExit,
+    exitOnComplete = false,
     autoStart = true,
     className,
     handleRef,
@@ -46,6 +49,7 @@ export function MiniTerminal(
     interactive,
     onOutput,
     onExit,
+    exitOnComplete,
   });
 
   // Expose imperative handle via ref

@@ -1,6 +1,6 @@
 ---
 title: Create WorkspaceSetupView component with checklist and embedded terminal
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2, 3]

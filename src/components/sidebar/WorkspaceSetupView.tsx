@@ -141,7 +141,7 @@ export function WorkspaceSetupView({
     <div
       className={`${fading ? styles.fadeOut : ""}`}
       onTransitionEnd={handleTransitionEnd}
-      style={{ opacity: fading ? undefined : 1 }}
+      style={{ height: "100%", opacity: fading ? undefined : 1 }}
     >
       <Row align="center" justify="center" className={styles.container}>
         <Stack gap="xl" className={styles.content}>
@@ -159,6 +159,7 @@ export function WorkspaceSetupView({
               cwd={workspacePath}
               command={startScript}
               interactive={false}
+              exitOnComplete
               onExit={handleTerminalExit}
               autoStart
               className={styles.terminal}

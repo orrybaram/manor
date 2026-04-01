@@ -866,35 +866,36 @@ export class ProjectManager {
       );
     }
 
-    // Create a worktree for the current branch
+    // Checkout the default branch first — the current branch must be
+    // freed before git allows it to be checked out in a new worktree.
     await execFileAsync(
       "git",
-      ["worktree", "add", worktreePath, currentBranch],
+      ["checkout", project.defaultBranch || "main"],
       { cwd: project.path, timeout: 15000 },
     );
 
-    // Reset the main workspace back to the default branch
+    // Create a worktree for the branch we just freed
     try {
       await execFileAsync(
         "git",
-        ["checkout", project.defaultBranch || "main"],
+        ["worktree", "add", worktreePath, currentBranch],
         { cwd: project.path, timeout: 15000 },
       );
-    } catch (checkoutErr) {
-      // Clean up the worktree we just created and re-throw
+    } catch (worktreeErr) {
+      // Roll back: re-checkout the original branch so the user isn't stranded
       try {
         await execFileAsync(
           "git",
-          ["worktree", "remove", "--force", worktreePath],
-          { cwd: project.path, timeout: 10000 },
+          ["checkout", currentBranch],
+          { cwd: project.path, timeout: 15000 },
         );
-      } catch (cleanupErr) {
+      } catch (rollbackErr) {
         console.error(
-          "[ProjectManager] failed to clean up worktree after checkout failure:",
-          cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
+          "[ProjectManager] failed to roll back to original branch after worktree failure:",
+          rollbackErr instanceof Error ? rollbackErr.message : rollbackErr,
         );
       }
-      throw checkoutErr;
+      throw worktreeErr;
     }
 
     // Set custom name only if it differs from the branch

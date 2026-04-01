@@ -650,6 +650,10 @@
   word-break: break-all;
 }
 
+.convertInput {
+  margin-bottom: 24px;
+}
+
 .checkboxLabel {
   display: flex;
   align-items: flex-start;

@@ -534,12 +534,14 @@ export function ProjectItem(props: ProjectItemProps) {
       />
 
       <ConvertToWorkspaceDialog
+        key={mainWorkspace?.branch || ""}
         open={convertWorkspaceOpen}
         onOpenChange={setConvertWorkspaceOpen}
         branch={mainWorkspace?.branch || ""}
         onConfirm={async (name) => {
-          const result = await useProjectStore.getState().convertMainToWorktree(project.id, name);
-          if (result) setConvertWorkspaceOpen(false);
+          setConvertWorkspaceOpen(false);
+          const branch = mainWorkspace?.branch || "";
+          await useProjectStore.getState().convertMainToWorktree(project.id, name, branch);
         }}
       />
     </div>

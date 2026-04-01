@@ -186,7 +186,7 @@ interface ProjectState {
     workspacePath: string,
     newName: string,
   ) => Promise<void>;
-  convertMainToWorktree: (projectId: string, name: string) => Promise<string | null>;
+  convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   reorderWorkspaces: (
     projectId: string,
@@ -376,7 +376,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ projects });
   },
 
-  convertMainToWorktree: async (projectId: string, name: string) => {
+  convertMainToWorktree: async (projectId: string, name: string, branch: string) => {
     let updated;
     try {
       updated = await window.electronAPI.projects.convertMainToWorktree(projectId, name);
@@ -396,11 +396,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
     // Find and select the new worktree workspace
-    const newWs = updated.workspaces.find((ws) => !ws.isMain && ws.name === name);
+    const newWs = updated.workspaces.find(
+      (ws) => !ws.isMain && ws.branch === branch,
+    );
     const wsPath = newWs?.path ?? null;
     if (wsPath) {
       const newIdx = updated.workspaces.findIndex((ws) => ws.path === wsPath);
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
+      const startScript = updated.worktreeStartScript;
+      if (startScript) {
+        useAppStore.getState().setPendingStartupCommand(wsPath, startScript);
+        useAppStore.getState().addSession();
+      }
     }
     return wsPath;
   },

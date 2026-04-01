@@ -22,6 +22,7 @@ import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
+import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { useWorkspaceDrag } from "../../hooks/useWorkspaceDrag";
 import styles from "./Sidebar/Sidebar.module.css";
 
@@ -220,6 +221,7 @@ export function ProjectItem(props: ProjectItemProps) {
   const [confirmMergeWorktree, setConfirmMergeWorktree] =
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   const [mergeState, setMergeState] = useState<{
     canMerge: boolean;
@@ -240,6 +242,7 @@ export function ProjectItem(props: ProjectItemProps) {
   });
 
   const projectStatus = useProjectAgentStatus(project);
+  const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
@@ -434,6 +437,17 @@ export function ProjectItem(props: ProjectItemProps) {
                       >
                         Copy Path
                       </ContextMenu.Item>
+                      {ws.isMain && ws.branch && ws.branch !== project.defaultBranch && (
+                        <>
+                          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => setConvertWorkspaceOpen(true)}
+                          >
+                            Convert to Workspace…
+                          </ContextMenu.Item>
+                        </>
+                      )}
                       {!ws.isMain && (
                         <>
                           <ContextMenu.Separator
@@ -516,6 +530,16 @@ export function ProjectItem(props: ProjectItemProps) {
         onConfirm={(ws, deleteBranch) => {
           setDeletingPaths((prev) => new Set(prev).add(ws.path));
           onRemoveWorktree(ws, deleteBranch);
+        }}
+      />
+
+      <ConvertToWorkspaceDialog
+        open={convertWorkspaceOpen}
+        onOpenChange={setConvertWorkspaceOpen}
+        branch={mainWorkspace?.branch || ""}
+        onConfirm={async (name) => {
+          const result = await useProjectStore.getState().convertMainToWorktree(project.id, name);
+          if (result) setConvertWorkspaceOpen(false);
         }}
       />
     </div>

@@ -1,0 +1,200 @@
+/* ── Ports ── */
+
+.portsSection {
+  flex-shrink: 0;
+  border-top: 1px solid var(--surface);
+  padding: 4px 8px;
+  position: relative;
+}
+
+.portsResizeHandle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 20;
+}
+
+.portsResizeHandle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.portsResizeHandle:hover::after,
+.portsResizeHandleActive::after {
+  background: var(--accent);
+}
+
+/* Duplicated in Sidebar.module.css, TasksList.module.css — candidate for a shared <SectionHeader> UI component */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+/* Duplicated in Sidebar.module.css, ProjectItem.module.css — candidate for a shared <Chevron> UI component */
+.projectChevron {
+  font-size: 10px;
+  width: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.projectChevronOpen {
+  transform: rotate(90deg);
+}
+
+.portCount {
+  font-size: 10px;
+  background: var(--surface);
+  color: var(--text-dim);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+.portGroups {
+  overflow-y: auto;
+  padding: 0 6px;
+}
+
+.portGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.portGroupHeader {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.portGroupBranch {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portGroupProject {
+  opacity: 0.6;
+}
+
+.portBadge {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: default;
+}
+
+.portBadge:hover {
+  background: var(--surface);
+}
+
+.portNumber {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 40px;
+}
+
+.portProcess {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.portOpen {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.portBadge:hover .portOpen {
+  opacity: 0.6;
+}
+
+/* ── Context Menu (duplicated in ProjectItem.module.css — candidate for a shared <ContextMenu> UI component) ── */
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
+.contextMenuItem[data-disabled] {
+  color: var(--text-secondary);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border, rgba(255, 255, 255, 0.1));
+}

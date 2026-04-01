@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import styles from "./sidebar/Sidebar/Sidebar.module.css";
+import styles from "./sidebar/dialogs.module.css";
 import { Button } from "./ui/Button/Button";
 
 type CloseAgentPaneDialogProps = {

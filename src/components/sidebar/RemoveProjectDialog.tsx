@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
 
 type RemoveProjectDialogProps = {

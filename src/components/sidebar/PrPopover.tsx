@@ -13,7 +13,7 @@ import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import type { PrInfo } from "../../store/project-store";
 import { fetchPrs } from "../../hooks/usePrWatcher";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./PrPopover.module.css";
 
 type PrPopoverProps = {
   pr: PrInfo;

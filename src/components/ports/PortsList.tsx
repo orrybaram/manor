@@ -5,7 +5,7 @@ import { usePortsData } from "./usePortsData";
 import { useProjectStore, MIN_PORTS_HEIGHT } from "../../store/project-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { PortGroup } from "./PortGroup";
-import styles from "../sidebar/Sidebar/Sidebar.module.css";
+import styles from "./Ports.module.css";
 
 export function PortsList() {
   const { workspacePortGroups, totalPortCount } = usePortsData();

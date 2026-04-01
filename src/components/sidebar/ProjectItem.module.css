@@ -1,0 +1,273 @@
+/* ── ProjectItem ── */
+
+.project {
+  border-left: 2px solid transparent;
+}
+
+.projectSelected {
+  border-left-color: var(--project-color, var(--accent));
+}
+
+.projectHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.projectHeader:hover {
+  background: var(--surface);
+}
+
+.projectSelected > .projectHeader {
+  color: var(--project-color, var(--accent));
+}
+
+/* Duplicated in Sidebar.module.css, Ports.module.css — candidate for a shared <Chevron> UI component */
+.projectChevron {
+  font-size: 10px;
+  width: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.projectChevronOpen {
+  transform: rotate(90deg);
+}
+
+.projectName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectAction {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.projectHeader:hover .projectAction {
+  opacity: 1;
+}
+
+.projectAction:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+/* ── Workspaces ── */
+
+.workspaces {
+  padding-left: 0;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspace {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  touch-action: none;
+}
+
+.workspace:hover {
+  background: var(--surface);
+}
+
+.workspaceDragging {
+  opacity: 0.7;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+.workspaceDeleting {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.workspaceActive {
+  background: var(--surface);
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.workspaceActive .workspaceIcon {
+  color: var(--project-color, var(--accent));
+}
+
+.workspaceIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 16px;
+}
+
+.workspaceLabel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.workspaceNameRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspaceBranchRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspaceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.workspaceBranch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.3;
+}
+
+.workspaceNameInput {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text-selected);
+  font-size: 12px;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Diff Stats ── */
+
+.diffStats {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.diffAdded {
+  color: var(--green);
+}
+
+.diffRemoved {
+  color: var(--red);
+}
+
+.diffStatsClickable {
+  cursor: pointer;
+  transition: transform 150ms ease, background 150ms ease;
+}
+
+.diffStatsClickable:hover {
+  background: var(--hover);
+  transform: scale(1.2);
+}
+
+/* ── Context Menu (duplicated in Ports.module.css — candidate for a shared <ContextMenu> UI component) ── */
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+  outline: none;
+}
+
+.contextMenuItem[data-disabled] {
+  color: var(--text-secondary);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.contextMenuItemHint {
+  display: block;
+  margin-top: 2px;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger:hover,
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border, rgba(255, 255, 255, 0.1));
+}

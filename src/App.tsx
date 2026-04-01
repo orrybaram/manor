@@ -449,7 +449,8 @@ function App() {
           .replace(/\\/g, "\\\\")
           .replace(/"/g, '\\"')
           .replace(/\$/g, "\\$")
-          .replace(/`/g, "\\`");
+          .replace(/`/g, "\\`")
+          .replace(/!/g, "\\!");
         const command = `${baseCommand} "${escaped}"`;
         useAppStore
           .getState()
@@ -566,7 +567,8 @@ function App() {
                 .replace(/\\/g, "\\\\")
                 .replace(/"/g, '\\"')
                 .replace(/\$/g, "\\$")
-                .replace(/`/g, "\\`");
+                .replace(/`/g, "\\`")
+                .replace(/!/g, "\\!");
               agentCommand = `${baseCommand} "${escaped}"`;
             }
             const result = await createWorktree(

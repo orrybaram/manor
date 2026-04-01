@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input/Input";
 

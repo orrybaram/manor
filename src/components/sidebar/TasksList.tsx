@@ -7,7 +7,7 @@ import { useAppStore } from "../../store/app-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToTask } from "../../utils/task-navigation";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./TasksList.module.css";
 
 function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
   if (task.status === "active" && task.lastAgentStatus) {

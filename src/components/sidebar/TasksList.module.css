@@ -1,0 +1,103 @@
+/* ── Tasks ── */
+
+.tasksSection {
+  padding: 4px 0;
+  margin-top: 24px;
+}
+
+/* Duplicated in Sidebar.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+/* Duplicated in Sidebar.module.css — candidate for a shared <SectionHeader> UI component */
+.action {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.action:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.taskGroups {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0 6px;
+}
+
+.taskGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 4px;
+}
+
+.taskGroupHeader {
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-primary);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.agentItem:hover {
+  background: var(--surface);
+}
+
+.agentName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskClose {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  opacity: 0;
+  border-radius: 3px;
+  padding: 1px;
+}
+
+.agentItem:hover .taskClose {
+  opacity: 1;
+}
+
+.taskClose:hover {
+  color: var(--text-selected);
+  background: var(--surface);
+}

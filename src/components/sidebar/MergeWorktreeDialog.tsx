@@ -3,7 +3,7 @@ import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { WorkspaceInfo } from "../../store/project-store";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
 
 type MergeWorktreeDialogProps = {

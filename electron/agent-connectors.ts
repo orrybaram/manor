@@ -76,7 +76,8 @@ export class ClaudeConnector implements AgentConnector {
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"')
       .replace(/\$/g, "\\$")
-      .replace(/`/g, "\\`");
+      .replace(/`/g, "\\`")
+      .replace(/!/g, "\\!");
     return `${baseCommand} "${escaped}"`;
   }
 
@@ -186,7 +187,8 @@ export class CodexConnector implements AgentConnector {
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"')
       .replace(/\$/g, "\\$")
-      .replace(/`/g, "\\`");
+      .replace(/`/g, "\\`")
+      .replace(/!/g, "\\!");
     return `${baseCommand} "${escaped}"`;
   }
 

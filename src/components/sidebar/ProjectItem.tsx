@@ -24,7 +24,7 @@ import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { useWorkspaceDrag } from "../../hooks/useWorkspaceDrag";
-import styles from "./Sidebar/Sidebar.module.css";
+import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;

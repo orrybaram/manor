@@ -1,0 +1,135 @@
+/* ── PR Badge ── */
+
+.prBadge {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  padding: 2px;
+  position: relative;
+  margin-top: 2px;
+  margin-right: 2px;
+}
+
+.prBadgeDotWarning,
+.prBadgeDotSuccess {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--dim);
+}
+
+.prBadgeDotWarning {
+  background: var(--yellow, #eab308);
+}
+
+.prBadgeDotSuccess {
+  background: var(--green);
+}
+
+.prOpen {
+  color: var(--green);
+  background: var(--green-a20);
+}
+
+.prMerged {
+  color: var(--magenta, #a855f7);
+  background: var(--magenta-a20);
+}
+
+.prClosed {
+  color: var(--red);
+  background: var(--red-a20);
+}
+
+/* ── PR Popover ── */
+
+.prPopover {
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 220px;
+  font-size: 11px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: popoverFadeIn 150ms ease-out;
+}
+
+.prPopoverHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.prPopoverTitle {
+  color: var(--text-selected);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.prPopoverRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prPopoverFooterButton {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
+  margin-top: 2px;
+}
+
+.prPopoverStateOpen {
+  color: var(--green);
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.prPopoverStateMerged {
+  color: var(--magenta, #a855f7);
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.prPopoverStateClosed {
+  color: var(--red);
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.prPopoverDraft {
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

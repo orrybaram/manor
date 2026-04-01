@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useProjectStore } from "../../store/project-store";
 import { type WorkspacePortGroup } from "./usePortsData";
 import { PortBadge } from "./PortBadge";
-import styles from "../sidebar/Sidebar/Sidebar.module.css";
+import styles from "./Ports.module.css";
 
 type PortGroupProps = {
   group: WorkspacePortGroup;

@@ -12,6 +12,7 @@ import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import type { PrInfo } from "../../store/project-store";
+import { fetchPrs } from "../../hooks/usePrWatcher";
 import styles from "./Sidebar/Sidebar.module.css";
 
 type PrPopoverProps = {
@@ -36,7 +37,10 @@ export function PrPopover(props: PrPopoverProps) {
 
   const handleMouseEnter = useCallback(() => {
     clearHoverTimeout();
-    timeoutRef.current = setTimeout(() => setOpen(true), HOVER_DELAY);
+    timeoutRef.current = setTimeout(() => {
+      setOpen(true);
+      fetchPrs();
+    }, HOVER_DELAY);
   }, [clearHoverTimeout]);
 
   const handleMouseLeave = useCallback(() => {

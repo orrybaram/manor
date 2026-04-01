@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
@@ -15,53 +14,51 @@ function computeFingerprint() {
     .join("|");
 }
 
-export function usePrWatcher() {
-  const updateWorkspacePr = useProjectStore((s) => s.updateWorkspacePr);
-  const updateWorkspacePrRef = useRef(updateWorkspacePr);
-  updateWorkspacePrRef.current = updateWorkspacePr;
+export async function fetchPrs() {
+  const { projects, updateWorkspacePr } = useProjectStore.getState();
+  for (const project of projects) {
+    const nonMainWorkspaces = project.workspaces.filter(
+      (ws) => !ws.isMain && ws.branch,
+    );
+    if (nonMainWorkspaces.length === 0) continue;
 
-  const fetchPrs = useRef(async () => {
-    for (const project of useProjectStore.getState().projects) {
-      const nonMainWorkspaces = project.workspaces.filter(
-        (ws) => !ws.isMain && ws.branch,
+    const branches = nonMainWorkspaces.map((ws) => ws.branch);
+
+    try {
+      const results = await window.electronAPI.github.getPrsForBranches(
+        project.path,
+        branches,
       );
-      if (nonMainWorkspaces.length === 0) continue;
 
-      const branches = nonMainWorkspaces.map((ws) => ws.branch);
-
-      try {
-        const results = await window.electronAPI.github.getPrsForBranches(
-          project.path,
-          branches,
-        );
-
-        for (const [branch, pr] of results) {
-          const ws = nonMainWorkspaces.find((w) => w.branch === branch);
-          if (ws) {
-            updateWorkspacePrRef.current(
-              ws.path,
-              pr
-                ? {
-                    number: pr.number,
-                    state: pr.state,
-                    title: pr.title,
-                    url: pr.url,
-                    isDraft: pr.isDraft,
-                    additions: pr.additions,
-                    deletions: pr.deletions,
-                    reviewDecision: pr.reviewDecision,
-                    checks: pr.checks,
-                    unresolvedThreads: pr.unresolvedThreads,
-                  }
-                : null,
-            );
-          }
+      for (const [branch, pr] of results) {
+        const ws = nonMainWorkspaces.find((w) => w.branch === branch);
+        if (ws) {
+          updateWorkspacePr(
+            ws.path,
+            pr
+              ? {
+                  number: pr.number,
+                  state: pr.state,
+                  title: pr.title,
+                  url: pr.url,
+                  isDraft: pr.isDraft,
+                  additions: pr.additions,
+                  deletions: pr.deletions,
+                  reviewDecision: pr.reviewDecision,
+                  checks: pr.checks,
+                  unresolvedThreads: pr.unresolvedThreads,
+                }
+              : null,
+          );
         }
-      } catch {
-        // gh CLI not available or network error — skip
       }
+    } catch {
+      // gh CLI not available or network error — skip
     }
-  }).current;
+  }
+}
+
+export function usePrWatcher() {
 
   useMountEffect(() => {
     let prevFingerprint = "";

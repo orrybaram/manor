@@ -1,6 +1,6 @@
 import { useAppStore } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
-import { STATUS_PRIORITY } from "./useSessionAgentStatus";
+import { STATUS_PRIORITY } from "./useTabAgentStatus";
 import type { ProjectInfo } from "../store/project-store";
 import type { AgentStatus } from "../electron.d";
 
@@ -16,11 +16,11 @@ export function useProjectAgentStatus(
     let bestPriority = 0;
 
     for (const ws of project.workspaces) {
-      const workspaceSessions = s.workspaceSessions[ws.path];
-      if (!workspaceSessions) continue;
+      const workspaceTabs = s.workspaceTabs[ws.path];
+      if (!workspaceTabs) continue;
 
-      for (const session of workspaceSessions.sessions) {
-        for (const paneId of allPaneIds(session.rootNode)) {
+      for (const tab of workspaceTabs.tabs) {
+        for (const paneId of allPaneIds(tab.rootNode)) {
           const agent = s.paneAgentStatus[paneId];
           if (!agent || agent.status === "idle") continue;
           const p = STATUS_PRIORITY[agent.status] ?? 0;

@@ -64,7 +64,7 @@ export function PaneDropZone(props: PaneDropZoneProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const { drag, endDrag } = usePaneDrag();
   const movePaneToTarget = useAppStore((s) => s.movePaneToTarget);
-  const moveSessionToPane = useAppStore((s) => s.moveSessionToPane);
+  const moveTabToPane = useAppStore((s) => s.moveTabToPane);
   const [zone, setZone] = useState<DropZone | null>(null);
   const zoneRef = useRef<DropZone | null>(null);
 
@@ -97,8 +97,8 @@ export function PaneDropZone(props: PaneDropZoneProps) {
             currentZone.position,
           );
         } else if (drag.type === "tab") {
-          moveSessionToPane(
-            drag.sessionId,
+          moveTabToPane(
+            drag.tabId,
             paneId,
             currentZone.direction,
             currentZone.position,
@@ -107,7 +107,7 @@ export function PaneDropZone(props: PaneDropZoneProps) {
       }
       endDrag();
     },
-    [drag, paneId, movePaneToTarget, moveSessionToPane, endDrag],
+    [drag, paneId, movePaneToTarget, moveTabToPane, endDrag],
   );
 
   const handlePointerLeave = useCallback(() => {

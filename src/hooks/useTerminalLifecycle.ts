@@ -67,14 +67,14 @@ export function useTerminalLifecycle(
   // Auto-resize
   useTerminalResize(containerRef, fitAddon);
 
-  // Auto-focus terminal when this pane becomes the focused pane of the active session.
+  // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
   // (the container's visibility must be "visible" before focus can succeed).
   const isFocusedPane = useAppStore((state) => {
     const path = state.activeWorkspacePath;
-    const ws = path ? state.workspaceSessions[path] : undefined;
-    const session = ws?.sessions.find((t) => t.id === ws?.selectedSessionId);
-    return session?.focusedPaneId === paneId;
+    const ws = path ? state.workspaceTabs[path] : undefined;
+    const tab = ws?.tabs.find((t) => t.id === ws?.selectedTabId);
+    return tab?.focusedPaneId === paneId;
   });
 
   useEffect(() => {

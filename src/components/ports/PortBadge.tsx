@@ -11,15 +11,15 @@ type PortBadgeProps = {
 export function PortBadge(props: PortBadgeProps) {
   const { port } = props;
 
-  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
 
   const url = port.hostname
     ? `http://${port.hostname}`
     : `http://localhost:${port.port}`;
 
   const handleOpenInTab = useCallback(() => {
-    addBrowserSession(url);
-  }, [url, addBrowserSession]);
+    addBrowserTab(url);
+  }, [url, addBrowserTab]);
 
   const handleOpenExternal = useCallback(
     (e: { stopPropagation: () => void }) => {

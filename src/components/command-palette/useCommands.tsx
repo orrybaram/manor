@@ -15,42 +15,42 @@ import { DEFAULT_AGENT_COMMAND, getAgentCommand } from "../../agent-defaults";
 import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
-  addSession: () => void;
-  addBrowserSession: (url: string) => void;
+  addTab: () => void;
+  addBrowserTab: (url: string) => void;
   closePane: () => void;
-  closeSession: (sessionId: string) => void;
+  closeTab: (tabId: string) => void;
   splitPane: (direction: "horizontal" | "vertical") => void;
-  selectNextSession: () => void;
-  selectPrevSession: () => void;
+  selectNextTab: () => void;
+  selectPrevTab: () => void;
   focusNextPane: () => void;
   focusPrevPane: () => void;
   toggleSidebar: () => void;
   onClose: () => void;
   onOpenSettings?: () => void;
   onOpenFeedback?: () => void;
-  sessions: { id: string }[];
-  selectedSessionId: string | null;
+  tabs: { id: string }[];
+  selectedTabId: string | null;
   setShowGhosts: (show: boolean) => void;
   activePorts: ActivePort[];
   openOrFocusDiff: () => void;
 }
 
 export function useCommands({
-  addSession,
-  addBrowserSession,
+  addTab,
+  addBrowserTab,
   closePane,
-  closeSession,
+  closeTab,
   splitPane,
-  selectNextSession,
-  selectPrevSession,
+  selectNextTab,
+  selectPrevTab,
   focusNextPane,
   focusPrevPane,
   toggleSidebar,
   onClose,
   onOpenSettings,
   onOpenFeedback,
-  sessions,
-  selectedSessionId,
+  tabs,
+  selectedTabId,
   setShowGhosts,
   activePorts,
   openOrFocusDiff,
@@ -62,8 +62,8 @@ export function useCommands({
   const activeWs = useAppStore(selectActiveWorkspace);
   const focusedPaneId = useMemo(() => {
     if (!activeWs) return null;
-    const session = activeWs.sessions.find((s) => s.id === activeWs.selectedSessionId);
-    return session?.focusedPaneId ?? null;
+    const tab = activeWs.tabs.find((s) => s.id === activeWs.selectedTabId);
+    return tab?.focusedPaneId ?? null;
   }, [activeWs]);
 
   const splitWithContent = useCallback(
@@ -84,11 +84,11 @@ export function useCommands({
       bindings[id] ? formatCombo(bindings[id], platform) : undefined;
     return [
       {
-        id: "new-session",
-        label: "New Session",
-        shortcut: fmt("new-session"),
+        id: "new-tab",
+        label: "New Tab",
+        shortcut: fmt("new-tab"),
         action: () => {
-          addSession();
+          addTab();
           onClose();
         },
       },
@@ -96,7 +96,7 @@ export function useCommands({
         id: "new-browser",
         label: "New Browser Window",
         action: () => {
-          addBrowserSession("about:blank");
+          addBrowserTab("about:blank");
           onClose();
         },
       },
@@ -119,12 +119,12 @@ export function useCommands({
         },
       },
       {
-        id: "close-session",
-        label: "Close Session",
-        shortcut: fmt("close-session"),
+        id: "close-tab",
+        label: "Close Tab",
+        shortcut: fmt("close-tab"),
         action: () => {
-          const session = sessions.find((s) => s.id === selectedSessionId);
-          if (session) closeSession(session.id);
+          const tab = tabs.find((s) => s.id === selectedTabId);
+          if (tab) closeTab(tab.id);
           onClose();
         },
       },
@@ -248,20 +248,20 @@ export function useCommands({
         },
       },
       {
-        id: "next-session",
-        label: "Next Session",
-        shortcut: fmt("next-session"),
+        id: "next-tab",
+        label: "Next Tab",
+        shortcut: fmt("next-tab"),
         action: () => {
-          selectNextSession();
+          selectNextTab();
           onClose();
         },
       },
       {
-        id: "prev-session",
-        label: "Previous Session",
-        shortcut: fmt("prev-session"),
+        id: "prev-tab",
+        label: "Previous Tab",
+        shortcut: fmt("prev-tab"),
         action: () => {
-          selectPrevSession();
+          selectPrevTab();
           onClose();
         },
       },
@@ -379,29 +379,29 @@ export function useCommands({
             p.processName,
           ],
           action: () => {
-            addBrowserSession(url);
+            addBrowserTab(url);
             onClose();
           },
         };
       }),
     ];
   }, [
-    addSession,
-    addBrowserSession,
+    addTab,
+    addBrowserTab,
     closePane,
-    closeSession,
+    closeTab,
     splitPane,
     splitWithContent,
-    selectNextSession,
-    selectPrevSession,
+    selectNextTab,
+    selectPrevTab,
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
     onClose,
     onOpenSettings,
     onOpenFeedback,
-    sessions,
-    selectedSessionId,
+    tabs,
+    selectedTabId,
     setShowGhosts,
     bindings,
     activeWorkspacePath,

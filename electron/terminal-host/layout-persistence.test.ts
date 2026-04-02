@@ -8,7 +8,7 @@ import {
   LayoutPersistence,
   type PersistedLayout,
   type PersistedWorkspace,
-  type PersistedSession,
+  type PersistedTab,
 } from "./layout-persistence";
 
 describe("LayoutPersistence", () => {
@@ -27,10 +27,10 @@ describe("LayoutPersistence", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function makeLeafSession(
+  function makeLeafTab(
     paneId: string,
     daemonSessionId: string,
-  ): PersistedSession {
+  ): PersistedTab {
     return {
       id: `session-${crypto.randomUUID()}`,
       title: "Terminal",
@@ -42,10 +42,10 @@ describe("LayoutPersistence", () => {
     };
   }
 
-  function makeSplitSession(
+  function makeSplitTab(
     paneIds: [string, string],
     daemonSessionIds: [string, string],
-  ): PersistedSession {
+  ): PersistedTab {
     const rootNode: PaneNode = {
       type: "split",
       direction: "horizontal",
@@ -80,8 +80,8 @@ describe("LayoutPersistence", () => {
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [makeLeafSession("p1", "ds1")],
-            selectedSessionId: "doesn't matter for save",
+            tabs: [makeLeafTab("p1", "ds1")],
+            selectedTabId: "doesn't matter for save",
           },
         ],
       };
@@ -96,14 +96,14 @@ describe("LayoutPersistence", () => {
     });
 
     it("roundtrips a single-pane layout", () => {
-      const session = makeLeafSession("p1", "ds1");
+      const session = makeLeafTab("p1", "ds1");
       const layout: PersistedLayout = {
         version: 1,
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [session],
-            selectedSessionId: session.id,
+            tabs: [session],
+            selectedTabId: session.id,
           },
         ],
       };
@@ -115,19 +115,19 @@ describe("LayoutPersistence", () => {
       expect(loaded!.version).toBe(1);
       expect(loaded!.workspaces).toHaveLength(1);
       expect(loaded!.workspaces[0].workspacePath).toBe("/project/main");
-      expect(loaded!.workspaces[0].sessions).toHaveLength(1);
-      expect(loaded!.workspaces[0].sessions[0].rootNode.type).toBe("leaf");
+      expect(loaded!.workspaces[0].tabs).toHaveLength(1);
+      expect(loaded!.workspaces[0].tabs[0].rootNode.type).toBe("leaf");
     });
 
     it("roundtrips a split-pane layout", () => {
-      const session = makeSplitSession(["p1", "p2"], ["ds1", "ds2"]);
+      const session = makeSplitTab(["p1", "p2"], ["ds1", "ds2"]);
       const layout: PersistedLayout = {
         version: 1,
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [session],
-            selectedSessionId: session.id,
+            tabs: [session],
+            selectedTabId: session.id,
           },
         ],
       };
@@ -135,15 +135,15 @@ describe("LayoutPersistence", () => {
       persistence.save(layout);
       const loaded = persistence.load();
 
-      const loadedSession = loaded!.workspaces[0].sessions[0];
-      expect(loadedSession.rootNode.type).toBe("split");
-      if (loadedSession.rootNode.type === "split") {
-        expect(loadedSession.rootNode.first.type).toBe("leaf");
-        expect(loadedSession.rootNode.second.type).toBe("leaf");
+      const loadedTab = loaded!.workspaces[0].tabs[0];
+      expect(loadedTab.rootNode.type).toBe("split");
+      if (loadedTab.rootNode.type === "split") {
+        expect(loadedTab.rootNode.first.type).toBe("leaf");
+        expect(loadedTab.rootNode.second.type).toBe("leaf");
       }
 
-      expect(loadedSession.paneSessions["p1"].daemonSessionId).toBe("ds1");
-      expect(loadedSession.paneSessions["p2"].daemonSessionId).toBe("ds2");
+      expect(loadedTab.paneSessions["p1"].daemonSessionId).toBe("ds1");
+      expect(loadedTab.paneSessions["p2"].daemonSessionId).toBe("ds2");
     });
 
     it("roundtrips multiple workspaces", () => {
@@ -152,13 +152,13 @@ describe("LayoutPersistence", () => {
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [makeLeafSession("p1", "ds1")],
-            selectedSessionId: "x",
+            tabs: [makeLeafTab("p1", "ds1")],
+            selectedTabId: "x",
           },
           {
             workspacePath: "/project/feature",
-            sessions: [makeLeafSession("p2", "ds2")],
-            selectedSessionId: "y",
+            tabs: [makeLeafTab("p2", "ds2")],
+            selectedTabId: "y",
           },
         ],
       };
@@ -169,17 +169,17 @@ describe("LayoutPersistence", () => {
     });
 
     it("roundtrips multiple sessions per workspace (tabs)", () => {
-      const s1 = makeLeafSession("p1", "ds1");
-      const s2 = makeLeafSession("p2", "ds2");
-      const s3 = makeSplitSession(["p3", "p4"], ["ds3", "ds4"]);
+      const s1 = makeLeafTab("p1", "ds1");
+      const s2 = makeLeafTab("p2", "ds2");
+      const s3 = makeSplitTab(["p3", "p4"], ["ds3", "ds4"]);
 
       const layout: PersistedLayout = {
         version: 1,
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [s1, s2, s3],
-            selectedSessionId: s2.id,
+            tabs: [s1, s2, s3],
+            selectedTabId: s2.id,
           },
         ],
       };
@@ -187,12 +187,12 @@ describe("LayoutPersistence", () => {
       persistence.save(layout);
       const loaded = persistence.load();
 
-      expect(loaded!.workspaces[0].sessions).toHaveLength(3);
-      expect(loaded!.workspaces[0].selectedSessionId).toBe(s2.id);
+      expect(loaded!.workspaces[0].tabs).toHaveLength(3);
+      expect(loaded!.workspaces[0].selectedTabId).toBe(s2.id);
     });
 
     it("preserves lastCwd in pane sessions", () => {
-      const session: PersistedSession = {
+      const session: PersistedTab = {
         id: "s1",
         title: "Term",
         rootNode: { type: "leaf", paneId: "p1" },
@@ -211,15 +211,15 @@ describe("LayoutPersistence", () => {
         workspaces: [
           {
             workspacePath: "/project",
-            sessions: [session],
-            selectedSessionId: "s1",
+            tabs: [session],
+            selectedTabId: "s1",
           },
         ],
       };
 
       persistence.save(layout);
       const loaded = persistence.load();
-      expect(loaded!.workspaces[0].sessions[0].paneSessions.p1.lastCwd).toBe(
+      expect(loaded!.workspaces[0].tabs[0].paneSessions.p1.lastCwd).toBe(
         "/Users/test/code",
       );
     });
@@ -229,8 +229,8 @@ describe("LayoutPersistence", () => {
     it("adds workspace if layout doesn't exist yet", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project/main",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "x",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "x",
       };
 
       persistence.saveWorkspace(workspace);
@@ -245,33 +245,33 @@ describe("LayoutPersistence", () => {
       // Save initial
       persistence.saveWorkspace({
         workspacePath: "/project/main",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "x",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "x",
       });
 
       // Update same workspace
       persistence.saveWorkspace({
         workspacePath: "/project/main",
-        sessions: [makeLeafSession("p1", "ds1"), makeLeafSession("p2", "ds2")],
-        selectedSessionId: "y",
+        tabs: [makeLeafTab("p1", "ds1"), makeLeafTab("p2", "ds2")],
+        selectedTabId: "y",
       });
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
-      expect(loaded!.workspaces[0].sessions).toHaveLength(2);
+      expect(loaded!.workspaces[0].tabs).toHaveLength(2);
     });
 
     it("doesn't clobber other workspaces", () => {
       persistence.saveWorkspace({
         workspacePath: "/project/main",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "x",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "x",
       });
 
       persistence.saveWorkspace({
         workspacePath: "/project/feature",
-        sessions: [makeLeafSession("p2", "ds2")],
-        selectedSessionId: "y",
+        tabs: [makeLeafTab("p2", "ds2")],
+        selectedTabId: "y",
       });
 
       const loaded = persistence.load();
@@ -286,13 +286,13 @@ describe("LayoutPersistence", () => {
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [makeLeafSession("p1", "ds1")],
-            selectedSessionId: "x",
+            tabs: [makeLeafTab("p1", "ds1")],
+            selectedTabId: "x",
           },
           {
             workspacePath: "/project/feature",
-            sessions: [makeLeafSession("p2", "ds2")],
-            selectedSessionId: "y",
+            tabs: [makeLeafTab("p2", "ds2")],
+            selectedTabId: "y",
           },
         ],
       };
@@ -311,8 +311,8 @@ describe("LayoutPersistence", () => {
         workspaces: [
           {
             workspacePath: "/project/main",
-            sessions: [makeLeafSession("p1", "ds1")],
-            selectedSessionId: "x",
+            tabs: [makeLeafTab("p1", "ds1")],
+            selectedTabId: "x",
           },
         ],
       };
@@ -329,8 +329,8 @@ describe("LayoutPersistence", () => {
     it("marks panes as warm when daemon has the session", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "s1",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "s1",
       };
 
       const aliveDaemonSessions = new Set(["ds1"]);
@@ -353,8 +353,8 @@ describe("LayoutPersistence", () => {
     it("marks panes as cold when daemon lost session but scrollback exists", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "s1",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "s1",
       };
 
       const aliveDaemonSessions = new Set<string>(); // daemon lost it
@@ -374,8 +374,8 @@ describe("LayoutPersistence", () => {
     it("marks panes as fresh when neither daemon nor scrollback has it", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [makeLeafSession("p1", "ds1")],
-        selectedSessionId: "s1",
+        tabs: [makeLeafTab("p1", "ds1")],
+        selectedTabId: "s1",
       };
 
       const aliveDaemonSessions = new Set<string>();
@@ -395,8 +395,8 @@ describe("LayoutPersistence", () => {
     it("handles split panes — each pane gets its own action", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [makeSplitSession(["p1", "p2"], ["ds1", "ds2"])],
-        selectedSessionId: "s1",
+        tabs: [makeSplitTab(["p1", "p2"], ["ds1", "ds2"])],
+        selectedTabId: "s1",
       };
 
       const aliveDaemonSessions = new Set(["ds1"]); // only ds1 alive
@@ -420,12 +420,12 @@ describe("LayoutPersistence", () => {
     it("handles multiple sessions (tabs) in workspace", () => {
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [
-          makeLeafSession("p1", "ds1"),
-          makeLeafSession("p2", "ds2"),
-          makeLeafSession("p3", "ds3"),
+        tabs: [
+          makeLeafTab("p1", "ds1"),
+          makeLeafTab("p2", "ds2"),
+          makeLeafTab("p3", "ds3"),
         ],
-        selectedSessionId: "s1",
+        selectedTabId: "s1",
       };
 
       const aliveDaemonSessions = new Set(["ds1", "ds3"]);
@@ -444,7 +444,7 @@ describe("LayoutPersistence", () => {
     });
 
     it("passes lastCwd to cold and fresh actions", () => {
-      const session: PersistedSession = {
+      const session: PersistedTab = {
         id: "s1",
         title: "Term",
         rootNode: { type: "leaf", paneId: "p1" },
@@ -460,8 +460,8 @@ describe("LayoutPersistence", () => {
 
       const workspace: PersistedWorkspace = {
         workspacePath: "/project",
-        sessions: [session],
-        selectedSessionId: "s1",
+        tabs: [session],
+        selectedTabId: "s1",
       };
 
       // Neither alive nor persisted → fresh

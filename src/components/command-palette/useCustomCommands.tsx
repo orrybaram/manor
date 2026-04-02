@@ -14,7 +14,7 @@ export function useCustomCommands({
   activeWorkspacePath,
 }: UseCustomCommandsParams): CommandItem[] {
   const projects = useProjectStore((s) => s.projects);
-  const addSession = useAppStore((s) => s.addSession);
+  const addTab = useAppStore((s) => s.addTab);
 
   return useMemo(() => {
     if (!activeWorkspacePath) return [];
@@ -31,9 +31,9 @@ export function useCustomCommands({
         useAppStore
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, cmd.command);
-        addSession();
+        addTab();
         onClose();
       },
     }));
-  }, [projects, activeWorkspacePath, addSession, onClose]);
+  }, [projects, activeWorkspacePath, addTab, onClose]);
 }

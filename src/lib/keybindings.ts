@@ -41,8 +41,8 @@ function metaCombo(
 
 export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   {
-    id: "new-session",
-    label: "New Session",
+    id: "new-tab",
+    label: "New Tab",
     defaultCombo: metaCombo("t"),
     category: "workspace",
   },
@@ -53,8 +53,8 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "terminal",
   },
   {
-    id: "close-session",
-    label: "Close Session",
+    id: "close-tab",
+    label: "Close Tab",
     defaultCombo: metaCombo("w", true),
     category: "workspace",
   },
@@ -71,14 +71,14 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "terminal",
   },
   {
-    id: "next-session",
-    label: "Next Session",
+    id: "next-tab",
+    label: "Next Tab",
     defaultCombo: metaCombo("]", true),
     category: "workspace",
   },
   {
-    id: "prev-session",
-    label: "Previous Session",
+    id: "prev-tab",
+    label: "Previous Tab",
     defaultCombo: metaCombo("[", true),
     category: "workspace",
   },
@@ -112,10 +112,10 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("n", true),
     category: "workspace",
   },
-  // select-session-1 through select-session-9
+  // select-tab-1 through select-tab-9
   ...Array.from({ length: 9 }, (_, i) => ({
-    id: `select-session-${i + 1}`,
-    label: `Select Session ${i + 1}`,
+    id: `select-tab-${i + 1}`,
+    label: `Select Tab ${i + 1}`,
     defaultCombo: metaCombo(String(i + 1)),
     category: "workspace" as KeybindingCategory,
   })),

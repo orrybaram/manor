@@ -52,14 +52,14 @@ describe("createWorktree setup script", () => {
       selectedProjectIndex: 0,
     });
     useAppStore.setState({
-      workspaceSessions: {},
+      workspaceTabs: {},
       activeWorkspacePath: null,
       pendingStartupCommands: {},
     });
     vi.clearAllMocks();
   });
 
-  it("queues start script as pending startup command and auto-creates a session", async () => {
+  it("queues start script as pending startup command and auto-creates a tab", async () => {
     const worktreePath = "/worktrees/test-project/my-feature";
 
     const projectWithScript = makeProject({
@@ -102,10 +102,10 @@ describe("createWorktree setup script", () => {
       useAppStore.getState().pendingStartupCommands[worktreePath],
     ).toBe("npm install");
 
-    // A terminal session should be auto-created so the script actually runs
-    const ws = useAppStore.getState().workspaceSessions[worktreePath];
+    // A terminal tab should be auto-created so the script actually runs
+    const ws = useAppStore.getState().workspaceTabs[worktreePath];
     expect(ws).toBeDefined();
-    expect(ws!.sessions.length).toBe(1);
+    expect(ws!.tabs.length).toBe(1);
   });
 
   it("combines start script and agent command when both provided", async () => {
@@ -142,7 +142,7 @@ describe("createWorktree setup script", () => {
     ).toBe("npm install && claude");
   });
 
-  it("does not create a session when there is no startup command", async () => {
+  it("does not create a tab when there is no startup command", async () => {
     const worktreePath = "/worktrees/test-project/plain";
 
     const project = makeProject(); // no start script, no agent command
@@ -169,10 +169,10 @@ describe("createWorktree setup script", () => {
       .getState()
       .createWorktree("proj-1", "plain", "plain");
 
-    // Workspace activated but no sessions created
+    // Workspace activated but no tabs created
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
-    const ws = useAppStore.getState().workspaceSessions[worktreePath];
+    const ws = useAppStore.getState().workspaceTabs[worktreePath];
     expect(ws).toBeDefined();
-    expect(ws!.sessions.length).toBe(0);
+    expect(ws!.tabs.length).toBe(0);
   });
 });

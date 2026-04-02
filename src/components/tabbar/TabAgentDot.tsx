@@ -1,13 +1,13 @@
 import { AgentDot } from "../ui/AgentDot/AgentDot";
-import { useSessionAgentStatus } from "../../hooks/useSessionAgentStatus";
+import { useTabAgentStatus } from "../../hooks/useTabAgentStatus";
 
 type TabAgentDotProps = {
-  sessionId: string;
+  tabId: string;
 };
 
 export function TabAgentDot(props: TabAgentDotProps) {
-  const { sessionId } = props;
+  const { tabId } = props;
 
-  const status = useSessionAgentStatus(sessionId);
+  const status = useTabAgentStatus(tabId);
   return <AgentDot status={status ?? undefined} size="tab" />;
 }

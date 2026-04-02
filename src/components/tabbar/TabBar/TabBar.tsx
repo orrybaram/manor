@@ -14,7 +14,7 @@ import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
-import { SessionButton } from "../SessionButton";
+import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
@@ -28,23 +28,23 @@ export function TabBar(props: TabBarProps) {
   const { onNewTask } = props;
 
   const ws = useAppStore(selectActiveWorkspace);
-  const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
-  const selectedSessionId = ws?.selectedSessionId ?? null;
-  const selectSession = useAppStore((s) => s.selectSession);
-  const addSession = useAppStore((s) => s.addSession);
-  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
-  const requestCloseSession = useAppStore((s) => s.requestCloseSession);
-  const reorderSessions = useAppStore((s) => s.reorderSessions);
-  const togglePinSession = useAppStore((s) => s.togglePinSession);
-  const pinnedSessionIds = useMemo(
-    () => ws?.pinnedSessionIds ?? [],
-    [ws?.pinnedSessionIds],
+  const tabs = useMemo(() => ws?.tabs ?? [], [ws?.tabs]);
+  const selectedTabId = ws?.selectedTabId ?? null;
+  const selectTab = useAppStore((s) => s.selectTab);
+  const addTab = useAppStore((s) => s.addTab);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
+  const requestCloseTab = useAppStore((s) => s.requestCloseTab);
+  const reorderTabs = useAppStore((s) => s.reorderTabs);
+  const togglePinTab = useAppStore((s) => s.togglePinTab);
+  const pinnedTabIds = useMemo(
+    () => ws?.pinnedTabIds ?? [],
+    [ws?.pinnedTabIds],
   );
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const { drag, startDrag, endDrag } = usePaneDrag();
-  const extractPaneToSession = useAppStore((s) => s.extractPaneToSession);
+  const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
 
-  const sessionsRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const handedOffToPaneDrop = useRef(false);
   const draggedPointerId = useRef(0);
 
@@ -65,7 +65,7 @@ export function TabBar(props: TabBarProps) {
       if (e.button !== 0) return;
       // Don't start drag when clicking the close button
       const target = e.target as HTMLElement;
-      if (target.closest(`.${styles.sessionClose}`)) return;
+      if (target.closest(`.${styles.tabClose}`)) return;
 
       const tabEl = e.currentTarget as HTMLElement;
       dragStartX.current = e.clientX;
@@ -76,7 +76,7 @@ export function TabBar(props: TabBarProps) {
 
       // Snapshot item widths
       const widths: number[] = [];
-      for (let i = 0; i < sessions.length; i++) {
+      for (let i = 0; i < tabs.length; i++) {
         const el = itemRefs.current.get(i);
         widths[i] = el ? el.getBoundingClientRect().width + TAB_GAP : 80;
       }
@@ -85,10 +85,10 @@ export function TabBar(props: TabBarProps) {
       tabEl.setPointerCapture(e.pointerId);
 
       // Compute drag boundaries: pinned tabs stay in pinned zone, unpinned in unpinned zone
-      const pinnedCount = pinnedSessionIds.length;
-      const isDraggedPinned = pinnedSessionIds.includes(sessions[idx].id);
+      const pinnedCount = pinnedTabIds.length;
+      const isDraggedPinned = pinnedTabIds.includes(tabs[idx].id);
       const minIdx = isDraggedPinned ? 0 : pinnedCount;
-      const maxIdx = isDraggedPinned ? pinnedCount - 1 : sessions.length - 1;
+      const maxIdx = isDraggedPinned ? pinnedCount - 1 : tabs.length - 1;
 
       const onMove = (ev: globalThis.PointerEvent) => {
         const dx = ev.clientX - dragStartX.current;
@@ -125,9 +125,9 @@ export function TabBar(props: TabBarProps) {
         setDropIndex(targetIdx);
 
         // Check if pointer has left the tab bar area (dragged down into pane area)
-        const sessionsEl = sessionsRef.current;
-        if (sessionsEl && dragActive.current) {
-          const barRect = sessionsEl.getBoundingClientRect();
+        const tabsEl = tabsRef.current;
+        if (tabsEl && dragActive.current) {
+          const barRect = tabsEl.getBoundingClientRect();
           if (ev.clientY > barRect.bottom + 20) {
             // Release pointer capture so pane drop zones can receive events
             try {
@@ -135,7 +135,7 @@ export function TabBar(props: TabBarProps) {
             } catch {
               /* pointer may already be released */
             }
-            startDrag({ type: "tab", sessionId: sessions[idx].id });
+            startDrag({ type: "tab", tabId: tabs[idx].id });
             handedOffToPaneDrop.current = true;
             // Clean up tab bar drag visuals
             setDragIndex(null);
@@ -180,10 +180,10 @@ export function TabBar(props: TabBarProps) {
           justDragged.current = true;
           const finalDrop = dropIndexRef.current ?? idx;
           if (finalDrop !== idx) {
-            const ids = sessions.map((s) => s.id);
+            const ids = tabs.map((s) => s.id);
             const [moved] = ids.splice(idx, 1);
             ids.splice(finalDrop, 0, moved);
-            reorderSessions(ids);
+            reorderTabs(ids);
           }
           requestAnimationFrame(() => {
             justDragged.current = false;
@@ -200,7 +200,7 @@ export function TabBar(props: TabBarProps) {
       tabEl.addEventListener("pointerup", onUp);
       tabEl.addEventListener("lostpointercapture", onUp);
     },
-    [sessions, reorderSessions, pinnedSessionIds, startDrag, endDrag],
+    [tabs, reorderTabs, pinnedTabIds, startDrag, endDrag],
   );
 
   const getTransformStyle = (idx: number): React.CSSProperties => {
@@ -232,10 +232,10 @@ export function TabBar(props: TabBarProps) {
     (e: React.PointerEvent) => {
       if (!isPaneDragActive || !drag) return;
       e.stopPropagation();
-      extractPaneToSession(drag.paneId);
+      extractPaneToTab(drag.paneId);
       endDrag();
     },
-    [isPaneDragActive, drag, extractPaneToSession, endDrag],
+    [isPaneDragActive, drag, extractPaneToTab, endDrag],
   );
 
   return (
@@ -243,22 +243,22 @@ export function TabBar(props: TabBarProps) {
       className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isPaneDragActive ? styles.sessionBarDropTarget : ""}`}
       onPointerUp={isPaneDragActive ? handleTabBarDrop : undefined}
     >
-      <div ref={sessionsRef} className={styles.sessions}>
-        {sessions.map((session, idx) => {
-          const isPinned = pinnedSessionIds.includes(session.id);
+      <div ref={tabsRef} className={styles.sessions}>
+        {tabs.map((tab, idx) => {
+          const isPinned = pinnedTabIds.includes(tab.id);
           return (
-            <SessionButton
-              key={session.id}
-              sessionId={session.id}
-              isActive={session.id === selectedSessionId}
+            <TabButton
+              key={tab.id}
+              tabId={tab.id}
+              isActive={tab.id === selectedTabId}
               isPinned={isPinned}
               canClose={true}
               isDragging={dragIndex === idx}
               onSelect={() => {
-                if (!justDragged.current) selectSession(session.id);
+                if (!justDragged.current) selectTab(tab.id);
               }}
-              onClose={() => requestCloseSession(session.id)}
-              onTogglePin={() => togglePinSession(session.id)}
+              onClose={() => requestCloseTab(tab.id)}
+              onTogglePin={() => togglePinTab(tab.id)}
               onPointerDown={
                 isPinned ? undefined : (e) => handleDragStart(idx, e)
               }
@@ -275,7 +275,7 @@ export function TabBar(props: TabBarProps) {
             <Popover.Anchor asChild>
               <button
                 className={styles.addButton}
-                onClick={addSession}
+                onClick={addTab}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setAddMenuOpen(true);
@@ -295,7 +295,7 @@ export function TabBar(props: TabBarProps) {
               <button
                 className={styles.contextMenuItem}
                 onClick={() => {
-                  addBrowserSession("about:blank");
+                  addBrowserTab("about:blank");
                   setAddMenuOpen(false);
                 }}
               >

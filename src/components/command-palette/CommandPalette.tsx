@@ -32,18 +32,18 @@ const HIDDEN_STYLE = { display: "none" } as const;
 export function CommandPalette(props: CommandPaletteProps) {
   const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
 
-  const addSession = useAppStore((s) => s.addSession);
-  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
+  const addTab = useAppStore((s) => s.addTab);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const closePane = useAppStore((s) => s.closePane);
   const splitPane = useAppStore((s) => s.splitPane);
-  const selectNextSession = useAppStore((s) => s.selectNextSession);
-  const selectPrevSession = useAppStore((s) => s.selectPrevSession);
+  const selectNextTab = useAppStore((s) => s.selectNextTab);
+  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
   const ws = useAppStore(selectActiveWorkspace);
-  const sessions = useMemo(() => ws?.sessions ?? [], [ws?.sessions]);
-  const selectedSessionId = ws?.selectedSessionId ?? null;
-  const closeSession = useAppStore((s) => s.closeSession);
+  const tabs = useMemo(() => ws?.tabs ?? [], [ws?.tabs]);
+  const selectedTabId = ws?.selectedTabId ?? null;
+  const closeTab = useAppStore((s) => s.closeTab);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
@@ -151,21 +151,21 @@ export function CommandPalette(props: CommandPaletteProps) {
   });
 
   const commands = useCommands({
-    addSession,
-    addBrowserSession,
+    addTab,
+    addBrowserTab,
     closePane,
-    closeSession,
+    closeTab,
     splitPane,
-    selectNextSession,
-    selectPrevSession,
+    selectNextTab,
+    selectPrevTab,
     focusNextPane,
     focusPrevPane,
     toggleSidebar,
     onClose: handleClose,
     onOpenSettings,
     onOpenFeedback,
-    sessions,
-    selectedSessionId,
+    tabs,
+    selectedTabId,
     setShowGhosts,
     activePorts,
     openOrFocusDiff,
@@ -199,9 +199,9 @@ export function CommandPalette(props: CommandPaletteProps) {
     // Focus the terminal in the currently focused pane, not just the first one in the DOM
     const state = useAppStore.getState();
     const path = state.activeWorkspacePath;
-    const ws = path ? state.workspaceSessions[path] : undefined;
-    const session = ws?.sessions.find((s) => s.id === ws?.selectedSessionId);
-    const focusedPaneId = session?.focusedPaneId;
+    const ws = path ? state.workspaceTabs[path] : undefined;
+    const tab = ws?.tabs.find((s) => s.id === ws?.selectedTabId);
+    const focusedPaneId = tab?.focusedPaneId;
     if (focusedPaneId) {
       const paneEl = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
       const textarea = paneEl?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");

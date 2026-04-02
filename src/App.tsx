@@ -34,18 +34,18 @@ import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
 import "./App.css";
 
-const SESSION_BASE_STYLE: React.CSSProperties = {
+const TAB_BASE_STYLE: React.CSSProperties = {
   display: "flex",
   position: "absolute",
   inset: "0",
   overflow: "hidden",
 };
-const SESSION_VISIBLE_STYLE: React.CSSProperties = {
-  ...SESSION_BASE_STYLE,
+const TAB_VISIBLE_STYLE: React.CSSProperties = {
+  ...TAB_BASE_STYLE,
   visibility: "visible",
 };
-const SESSION_HIDDEN_STYLE: React.CSSProperties = {
-  ...SESSION_BASE_STYLE,
+const TAB_HIDDEN_STYLE: React.CSSProperties = {
+  ...TAB_BASE_STYLE,
   visibility: "hidden",
 };
 
@@ -221,26 +221,26 @@ function App() {
     [],
   );
 
-  const workspaceSessions = useAppStore((s) => s.workspaceSessions);
+  const workspaceTabs = useAppStore((s) => s.workspaceTabs);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
-  const selectedSessionId = ws?.selectedSessionId ?? null;
+  const selectedTabId = ws?.selectedTabId ?? null;
 
-  const addSession = useAppStore((s) => s.addSession);
-  const closeSession = useAppStore((s) => s.closeSession);
-  const selectSession = useAppStore((s) => s.selectSession);
-  const selectNextSession = useAppStore((s) => s.selectNextSession);
-  const selectPrevSession = useAppStore((s) => s.selectPrevSession);
+  const addTab = useAppStore((s) => s.addTab);
+  const closeTab = useAppStore((s) => s.closeTab);
+  const selectTab = useAppStore((s) => s.selectTab);
+  const selectNextTab = useAppStore((s) => s.selectNextTab);
+  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
   const splitPane = useAppStore((s) => s.splitPane);
   const requestClosePane = useAppStore((s) => s.requestClosePane);
   const reopenClosedPane = useAppStore((s) => s.reopenClosedPane);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
-  const requestCloseSession = useAppStore((s) => s.requestCloseSession);
-  const pendingCloseConfirmSessionId = useAppStore((s) => s.pendingCloseConfirmSessionId);
-  const setPendingCloseConfirmSessionId = useAppStore((s) => s.setPendingCloseConfirmSessionId);
-  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
+  const requestCloseTab = useAppStore((s) => s.requestCloseTab);
+  const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
+  const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
   const projects = useProjectStore((s) => s.projects);
@@ -261,13 +261,13 @@ function App() {
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 
-  const activeSession = ws?.sessions.find((s) => s.id === selectedSessionId);
+  const activeTab = ws?.tabs.find((s) => s.id === selectedTabId);
   const hasProjects = projects.length > 0;
-  const hasSessions = (ws?.sessions.length ?? 0) > 0;
+  const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
   // Keybindings
-  const activeSessionRef = useRef(activeSession);
-  activeSessionRef.current = activeSession;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   const wsRef = useRef(ws);
   wsRef.current = ws;
   const handleNewTaskRef = useRef<() => void>(() => {});
@@ -275,11 +275,11 @@ function App() {
   // Helper to get the focused browser pane's ref (if focused pane is a browser)
   function getFocusedBrowserRef(): BrowserPaneRef | undefined {
     const state = useAppStore.getState();
-    const wsState = state.workspaceSessions[state.activeWorkspacePath ?? ""];
+    const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
     if (!wsState) return;
-    const session = wsState.sessions.find(s => s.id === wsState.selectedSessionId);
-    if (!session) return;
-    const focusedPaneId = session.focusedPaneId;
+    const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+    if (!tab) return;
+    const focusedPaneId = tab.focusedPaneId;
     if (!focusedPaneId) return;
     if (state.paneContentType[focusedPaneId] !== "browser") return;
     return getBrowserPaneRef(focusedPaneId);
@@ -290,23 +290,23 @@ function App() {
   handlersRef.current = {
     settings: () => setSettingsOpen((v) => !v),
     "command-palette": () => setPaletteOpen((v) => !v),
-    "new-session": () => addSession(),
+    "new-tab": () => addTab(),
     "split-h": () => splitPane("horizontal"),
     "split-v": () => splitPane("vertical"),
     "close-pane": () => requestClosePane(),
     "reopen-pane": () => reopenClosedPane(),
-    "close-session": () => {
-      const session = activeSessionRef.current;
-      if (session) requestCloseSession(session.id);
+    "close-tab": () => {
+      const tab = activeTabRef.current;
+      if (tab) requestCloseTab(tab.id);
     },
-    "next-session": () => selectNextSession(),
-    "prev-session": () => selectPrevSession(),
+    "next-tab": () => selectNextTab(),
+    "prev-tab": () => selectPrevTab(),
     "next-pane": () => focusNextPane(),
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
     "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
-    "new-browser": () => addBrowserSession("about:blank"),
+    "new-browser": () => addBrowserTab("about:blank"),
     "copy-branch": () => {
       const state = useAppStore.getState();
       const awp = state.activeWorkspacePath;
@@ -330,10 +330,10 @@ function App() {
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = useAppStore.getState();
-      const wsState = state.workspaceSessions[state.activeWorkspacePath ?? ""];
+      const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
       if (!wsState) return;
-      const session = wsState.sessions.find(s => s.id === wsState.selectedSessionId);
-      const focusedPaneId = session?.focusedPaneId;
+      const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+      const focusedPaneId = tab?.focusedPaneId;
       if (!focusedPaneId || state.paneContentType[focusedPaneId] !== "browser") return;
       const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
       input?.focus();
@@ -341,11 +341,11 @@ function App() {
     },
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
-        `select-session-${i + 1}`,
+        `select-tab-${i + 1}`,
         () => {
-          const sessions = wsRef.current?.sessions;
-          if (sessions && i < sessions.length) {
-            selectSession(sessions[i].id);
+          const tabs = wsRef.current?.tabs;
+          if (tabs && i < tabs.length) {
+            selectTab(tabs[i].id);
           }
         },
       ]),
@@ -384,13 +384,13 @@ function App() {
 
   const handleResumeTask = useCallback(
     (task: TaskInfo) => {
-      // If the task is active and has a pane, switch to it instead of opening a new session
+      // If the task is active and has a pane, switch to it instead of opening a new tab
       if (task.status === "active" && task.paneId && task.workspacePath) {
-        const wsSessions =
-          useAppStore.getState().workspaceSessions[task.workspacePath];
-        if (wsSessions) {
-          const paneExists = wsSessions.sessions.some((session) =>
-            hasPaneId(session.rootNode, task.paneId!),
+        const wsTabs =
+          useAppStore.getState().workspaceTabs[task.workspacePath];
+        if (wsTabs) {
+          const paneExists = wsTabs.tabs.some((tab) =>
+            hasPaneId(tab.rootNode, task.paneId!),
           );
           if (paneExists) {
             navigateToTask(task);
@@ -418,9 +418,9 @@ function App() {
             `${baseCommand} --resume ${task.agentSessionId}`,
           );
       }
-      addSession();
+      addTab();
     },
-    [setActiveWorkspace, addSession, projects],
+    [setActiveWorkspace, addTab, projects],
   );
 
   const handleNewTask = useCallback(() => {
@@ -434,8 +434,8 @@ function App() {
         .getState()
         .setPendingStartupCommand(activeWorkspacePath, command);
     }
-    addSession();
-  }, [addSession, projects, activeWorkspacePath]);
+    addTab();
+  }, [addTab, projects, activeWorkspacePath]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
@@ -458,9 +458,9 @@ function App() {
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
       }
-      addSession();
+      addTab();
     },
-    [addSession, projects, activeWorkspacePath],
+    [addTab, projects, activeWorkspacePath],
   );
 
   if (!appReady) {
@@ -486,24 +486,24 @@ function App() {
         )}
         <PaneDragProvider>
           <div className="main-content">
-            {hasSessions ? <TabBar onNewTask={handleNewTask} /> : <div className="drag-region" />}
+            {hasTabs ? <TabBar onNewTask={handleNewTask} /> : <div className="drag-region" />}
             <div className="terminal-container">
-              {/* Render all sessions across all workspaces — only show the active one.
+              {/* Render all tabs across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
-              {Object.entries(workspaceSessions).flatMap(([wpath, wsState]) =>
-                wsState.sessions.map((session) => {
+              {Object.entries(workspaceTabs).flatMap(([wpath, wsState]) =>
+                wsState.tabs.map((tab) => {
                   const isVisible =
                     wpath === activeWorkspacePath &&
-                    session.id === selectedSessionId;
+                    tab.id === selectedTabId;
                   return (
                     <div
-                      key={session.id}
+                      key={tab.id}
                       style={
-                        isVisible ? SESSION_VISIBLE_STYLE : SESSION_HIDDEN_STYLE
+                        isVisible ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE
                       }
                     >
                       <PaneLayout
-                        node={session.rootNode}
+                        node={tab.rootNode}
                         workspacePath={wpath}
                       />
                     </div>
@@ -512,7 +512,7 @@ function App() {
               )}
               {wizardStillValid && wizardProjectId
                 ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                : !hasSessions &&
+                : !hasTabs &&
                   (hasProjects
                     ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
                     : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
@@ -604,14 +604,14 @@ function App() {
         }}
       />
       <CloseAgentPaneDialog
-        open={pendingCloseConfirmSessionId !== null}
+        open={pendingCloseConfirmTabId !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingCloseConfirmSessionId(null);
+          if (!open) setPendingCloseConfirmTabId(null);
         }}
         onConfirm={() => {
-          if (pendingCloseConfirmSessionId !== null) {
-            closeSession(pendingCloseConfirmSessionId);
-            setPendingCloseConfirmSessionId(null);
+          if (pendingCloseConfirmTabId !== null) {
+            closeTab(pendingCloseConfirmTabId);
+            setPendingCloseConfirmTabId(null);
           }
         }}
       />

@@ -115,7 +115,7 @@ export interface PersistedPaneSession {
   lastAgentStatus?: AgentState | null;
 }
 
-export interface PersistedSession {
+export interface PersistedTab {
   id: string;
   title: string;
   rootNode: import("./store/pane-tree").PaneNode;
@@ -125,9 +125,9 @@ export interface PersistedSession {
 
 export interface PersistedWorkspace {
   workspacePath: string;
-  sessions: PersistedSession[];
-  selectedSessionId: string;
-  pinnedSessionIds?: string[];
+  tabs: PersistedTab[];
+  selectedTabId: string;
+  pinnedTabIds?: string[];
 }
 
 export interface PersistedLayout {

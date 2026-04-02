@@ -1,10 +1,10 @@
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 
-export function useSessionTitle(sessionId: string): string {
+export function useTabTitle(tabId: string): string {
   const focusedPaneId = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
-    const session = ws?.sessions.find((t) => t.id === sessionId);
-    return session?.focusedPaneId ?? null;
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    return tab?.focusedPaneId ?? null;
   });
 
   const title = useAppStore((s) =>

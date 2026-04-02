@@ -30,36 +30,36 @@ export function TasksList(props: TasksListProps) {
   const { onShowAll } = props;
 
   const { tasks, seenTaskIds } = useTaskStore();
-  const workspaceSessions = useAppStore((s) => s.workspaceSessions);
+  const workspaceTabs = useAppStore((s) => s.workspaceTabs);
 
-  // Collect all active pane IDs across all workspace sessions
+  // Collect all active pane IDs across all workspace tabs
   const activePaneIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const ws of Object.values(workspaceSessions)) {
-      for (const session of ws.sessions) {
-        for (const id of allPaneIds(session.rootNode)) {
+    for (const ws of Object.values(workspaceTabs)) {
+      for (const tab of ws.tabs) {
+        for (const id of allPaneIds(tab.rootNode)) {
           ids.add(id);
         }
       }
     }
     return ids;
-  }, [workspaceSessions]);
+  }, [workspaceTabs]);
 
-  // Collect visible pane IDs in the active session (panes the user can currently see)
+  // Collect visible pane IDs in the active tab (panes the user can currently see)
   const visiblePaneIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const ws of Object.values(workspaceSessions)) {
-      const activeSession = ws.sessions.find(
-        (s) => s.id === ws.selectedSessionId,
+    for (const ws of Object.values(workspaceTabs)) {
+      const activeTab = ws.tabs.find(
+        (s) => s.id === ws.selectedTabId,
       );
-      if (activeSession) {
-        for (const id of allPaneIds(activeSession.rootNode)) {
+      if (activeTab) {
+        for (const id of allPaneIds(activeTab.rootNode)) {
           ids.add(id);
         }
       }
     }
     return ids;
-  }, [workspaceSessions]);
+  }, [workspaceTabs]);
 
   // Show active tasks always; show completed/error/abandoned only if their pane is still active
   const visibleTasks = useMemo(
@@ -139,7 +139,7 @@ export function TasksList(props: TasksListProps) {
                       }
                       useTaskStore.getState().removeTask(task.id);
                     }}
-                    title="Close session"
+                    title="Close task"
                   >
                     <X size={12} />
                   </span>

@@ -34,8 +34,8 @@ export function LeafPane(props: LeafPaneProps) {
 
   const focusedPaneId = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
-    const session = ws?.sessions.find((t) => t.id === ws.selectedSessionId);
-    return session?.focusedPaneId;
+    const tab = ws?.tabs.find((t) => t.id === ws.selectedTabId);
+    return tab?.focusedPaneId;
   });
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);

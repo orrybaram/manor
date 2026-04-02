@@ -5,7 +5,7 @@ import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
-import { useSessionTitle } from "../../hooks/useSessionTitle";
+import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
 
@@ -19,8 +19,8 @@ function shortenTitle(title: string): string {
   return trimmed.length <= 5 ? trimmed : trimmed.slice(0, 5);
 }
 
-type SessionButtonProps = {
-  sessionId: string;
+type TabButtonProps = {
+  tabId: string;
   isActive: boolean;
   isPinned: boolean;
   canClose: boolean;
@@ -33,14 +33,14 @@ type SessionButtonProps = {
   buttonRef: (el: HTMLDivElement | null) => void;
 };
 
-export function SessionButton(props: SessionButtonProps) {
-  const { sessionId, isActive, isPinned, canClose, isDragging, onSelect, onClose, onTogglePin, onPointerDown, style, buttonRef } = props;
+export function TabButton(props: TabButtonProps) {
+  const { tabId, isActive, isPinned, canClose, isDragging, onSelect, onClose, onTogglePin, onPointerDown, style, buttonRef } = props;
 
-  const title = useSessionTitle(sessionId);
+  const title = useTabTitle(tabId);
   const contentType = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
-    const session = ws?.sessions.find((t) => t.id === sessionId);
-    const paneId = session?.focusedPaneId;
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    const paneId = tab?.focusedPaneId;
     return paneId ? s.paneContentType[paneId] : undefined;
   });
   const isBrowser = contentType === "browser";
@@ -50,21 +50,21 @@ export function SessionButton(props: SessionButtonProps) {
       <ContextMenu.Trigger asChild>
         <div
           ref={buttonRef}
-          className={`${styles.session} ${isActive ? styles.sessionActive : ""} ${isDragging ? styles.sessionDragging : ""} ${isPinned ? styles.sessionPinned : ""}`}
+          className={`${styles.tab} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""}`}
           onClick={onSelect}
           onPointerDown={onPointerDown}
           style={style}
         >
-          <TabAgentDot sessionId={sessionId} />
-          {isDiff && <GitCompareArrows size={12} className={styles.sessionIcon} />}
-          {isBrowser && <Globe size={12} className={styles.sessionIcon} />}
-          <span className={styles.sessionTitle}>
+          <TabAgentDot tabId={tabId} />
+          {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
+          {isBrowser && <Globe size={12} className={styles.tabIcon} />}
+          <span className={styles.tabTitle}>
             {isPinned ? shortenTitle(title) : title}
           </span>
           {canClose && !isPinned && (
             <Tooltip label="Close Tab">
               <span
-                className={styles.sessionClose}
+                className={styles.tabClose}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                 }}

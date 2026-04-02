@@ -4,7 +4,7 @@ import { useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
 
 /**
- * Remove a worktree: immediately switch away (if active), clean up sessions,
+ * Remove a worktree: immediately switch away (if active), clean up tabs,
  * show a progress toast, and tear down in the background.
  */
 export function removeWorktreeWithToast(
@@ -33,7 +33,7 @@ export function removeWorktreeWithToast(
   }
 
   // Clean up sessions
-  appStore.removeWorkspaceSessions(ws.path);
+  appStore.removeWorkspaceTabs(ws.path);
 
   // Show toast and run async teardown
   const toastId = `toast-${crypto.randomUUID()}`;
@@ -74,7 +74,7 @@ export function removeWorktreeWithToast(
 
 /**
  * Quick-merge a worktree into the default branch: immediately switch away
- * (if active), clean up sessions, show a progress toast, and merge in the
+ * (if active), clean up tabs, show a progress toast, and merge in the
  * background.
  */
 export function quickMergeWorktreeWithToast(
@@ -101,7 +101,7 @@ export function quickMergeWorktreeWithToast(
   }
 
   // Clean up sessions
-  appStore.removeWorkspaceSessions(ws.path);
+  appStore.removeWorkspaceTabs(ws.path);
 
   // Show toast and run async merge
   const toastId = `toast-${crypto.randomUUID()}`;

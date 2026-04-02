@@ -29,12 +29,12 @@ type WorkspaceEmptyStateProps = {
   onOpenPaletteView?: (view: PaletteView) => void;
 };
 
-/** Shown when the active workspace has no sessions (all tabs closed). */
+/** Shown when the active workspace has no tabs. */
 export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   const { onOpenIssueDetail, onOpenPaletteView } = props;
 
-  const addSession = useAppStore((s) => s.addSession);
-  const addBrowserSession = useAppStore((s) => s.addBrowserSession);
+  const addTab = useAppStore((s) => s.addTab);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const worktreeSetupState = useAppStore((s) => s.worktreeSetupState);
   const clearWorktreeSetup = useAppStore((s) => s.clearWorktreeSetup);
@@ -163,13 +163,13 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
       icon: <Terminal size={16} />,
       label: "Open Terminal",
       keys: ["⌘", "T"],
-      action: addSession,
+      action: addTab,
     },
     {
       icon: <Globe size={16} />,
       label: "New Browser Window",
       keys: ["⌘", "⇧", "B"],
-      action: () => addBrowserSession("about:blank"),
+      action: () => addBrowserTab("about:blank"),
     },
     {
       icon: <Search size={16} />,

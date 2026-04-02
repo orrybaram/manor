@@ -53,7 +53,7 @@ export function useTaskCommands({
     items.push(
       ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => ({
         id: `task-${task.id}`,
-        label: task.name || "Untitled Session",
+        label: task.name || "Untitled Task",
         icon: (
           <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />
         ),

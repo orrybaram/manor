@@ -50,8 +50,8 @@ export interface PersistedPaneSession {
   lastAgentStatus?: PersistedAgentState | null;
 }
 
-/** Persisted session (tab) layout */
-export interface PersistedSession {
+/** Persisted tab layout */
+export interface PersistedTab {
   id: string;
   title: string;
   rootNode: PaneNode;
@@ -62,8 +62,8 @@ export interface PersistedSession {
 /** Persisted workspace state */
 export interface PersistedWorkspace {
   workspacePath: string;
-  sessions: PersistedSession[];
-  selectedSessionId: string;
+  tabs: PersistedTab[];
+  selectedTabId: string;
 }
 
 /** Full persisted layout */
@@ -141,15 +141,15 @@ export class LayoutPersistence {
   ): ReconciliationPlan {
     const actions: PaneRestoreAction[] = [];
 
-    for (const session of workspace.sessions) {
-      for (const { paneId, contentType } of allLeaves(session.rootNode)) {
+    for (const tab of workspace.tabs) {
+      for (const { paneId, contentType } of allLeaves(tab.rootNode)) {
         // Non-terminal panes (diff, browser, etc.) don't have daemon sessions —
         // they are restored from the pane tree's contentType alone.
         if (contentType && contentType !== "terminal") {
           continue;
         }
 
-        const paneSession = session.paneSessions[paneId];
+        const paneSession = tab.paneSessions[paneId];
         if (!paneSession) {
           actions.push({ type: "fresh", paneId, cwd: null });
           continue;

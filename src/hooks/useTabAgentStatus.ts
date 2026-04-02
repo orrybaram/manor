@@ -12,13 +12,13 @@ export const STATUS_PRIORITY: Record<AgentStatus, number> = {
   idle: 0,
 };
 
-export function useSessionAgentStatus(sessionId: string): AgentStatus | null {
+export function useTabAgentStatus(tabId: string): AgentStatus | null {
   return useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
-    const session = ws?.sessions.find((t) => t.id === sessionId);
-    if (!session) return null;
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    if (!tab) return null;
 
-    const ids = allPaneIds(session.rootNode);
+    const ids = allPaneIds(tab.rootNode);
     let best: AgentStatus | null = null;
     let bestPriority = 0;
 

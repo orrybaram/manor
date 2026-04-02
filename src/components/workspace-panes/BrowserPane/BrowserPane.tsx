@@ -373,7 +373,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const unsubNewWindow = window.electronAPI.webview.onNewWindow(
         (sourcePaneId: string, openUrl: string) => {
           if (sourcePaneId !== paneId) return;
-          useAppStore.getState().addBrowserSession(openUrl);
+          useAppStore.getState().addBrowserTab(openUrl);
         },
       );
 

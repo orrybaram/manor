@@ -103,7 +103,7 @@ const TaskRow = memo(function TaskRow(props: TaskRowProps) {
   return (
     <button className={styles.taskRow} onClick={() => onResumeTask(task)}>
       <AgentDot status={agentStatus} size="sidebar" />
-      <span className={styles.taskName}>{task.name || "Untitled Session"}</span>
+      <span className={styles.taskName}>{task.name || "Untitled Task"}</span>
       <span className={styles.taskProject}>
         {task.projectName || "No Project"}
       </span>

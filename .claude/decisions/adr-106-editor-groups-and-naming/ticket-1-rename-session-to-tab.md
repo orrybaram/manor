@@ -1,6 +1,6 @@
 ---
 title: Rename Session to Tab throughout codebase
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

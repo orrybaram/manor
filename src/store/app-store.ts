@@ -15,7 +15,7 @@ import {
 } from "./pane-tree";
 import type {
   PersistedWorkspace,
-  PersistedSession,
+  PersistedTab,
   PersistedLayout,
   AgentState,
   PickedElementResult,
@@ -25,7 +25,7 @@ import type { SetupStep, StepStatus } from "./project-store";
 export interface ClosedPaneSnapshot {
   kind: "pane";
   paneId: string;
-  sessionId: string;
+  tabId: string;
   workspacePath: string;
   contentType?: "terminal" | "browser" | "diff";
   url?: string;
@@ -33,9 +33,9 @@ export interface ClosedPaneSnapshot {
   title?: string;
 }
 
-export interface ClosedSessionSnapshot {
-  kind: "session";
-  session: Session;
+export interface ClosedTabSnapshot {
+  kind: "tab";
+  tab: Tab;
   workspacePath: string;
   /** Per-pane metadata to restore */
   paneMetadata: Record<string, {
@@ -46,7 +46,7 @@ export interface ClosedSessionSnapshot {
   }>;
 }
 
-type ClosedSnapshot = ClosedPaneSnapshot | ClosedSessionSnapshot;
+type ClosedSnapshot = ClosedPaneSnapshot | ClosedTabSnapshot;
 
 const MAX_CLOSED_PANE_STACK = 10;
 
@@ -54,65 +54,65 @@ function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
 }
 
-function newSessionId(): string {
-  return `session-${crypto.randomUUID()}`;
+function newTabId(): string {
+  return `tab-${crypto.randomUUID()}`;
 }
 
-export interface Session {
+export interface Tab {
   id: string;
   title: string;
   rootNode: PaneNode;
   focusedPaneId: string;
 }
 
-function createSession(title?: string): Session {
+function createTab(title?: string): Tab {
   const paneId = newPaneId();
   return {
-    id: newSessionId(),
+    id: newTabId(),
     title: title ?? "Terminal",
     rootNode: { type: "leaf", paneId },
     focusedPaneId: paneId,
   };
 }
 
-interface WorkspaceSessionState {
-  sessions: Session[];
-  selectedSessionId: string;
-  pinnedSessionIds: string[];
+interface WorkspaceTabState {
+  tabs: Tab[];
+  selectedTabId: string;
+  pinnedTabIds: string[];
 }
 
-function createEmptyWorkspaceState(): WorkspaceSessionState {
+function createEmptyWorkspaceState(): WorkspaceTabState {
   return {
-    sessions: [],
-    selectedSessionId: "",
-    pinnedSessionIds: [],
+    tabs: [],
+    selectedTabId: "",
+    pinnedTabIds: [],
   };
 }
 
-/** Convert a PersistedWorkspace back into a WorkspaceSessionState */
+/** Convert a PersistedWorkspace back into a WorkspaceTabState */
 function restoreWorkspaceState(
   persisted: PersistedWorkspace,
-): WorkspaceSessionState {
-  const sessions: Session[] = persisted.sessions.map((ps) => ({
+): WorkspaceTabState {
+  const tabs: Tab[] = persisted.tabs.map((ps) => ({
     id: ps.id,
     title: ps.title,
     rootNode: ps.rootNode,
     focusedPaneId: ps.focusedPaneId,
   }));
 
-  if (sessions.length === 0) {
+  if (tabs.length === 0) {
     return createEmptyWorkspaceState();
   }
 
   return {
-    sessions,
-    selectedSessionId: persisted.selectedSessionId || sessions[0].id,
-    pinnedSessionIds: persisted.pinnedSessionIds ?? [],
+    tabs,
+    selectedTabId: persisted.selectedTabId || tabs[0].id,
+    pinnedTabIds: persisted.pinnedTabIds ?? [],
   };
 }
 
 export interface AppState {
-  workspaceSessions: Record<string, WorkspaceSessionState>;
+  workspaceTabs: Record<string, WorkspaceTabState>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
@@ -132,27 +132,27 @@ export interface AppState {
   pendingPaneCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
-  /** Session ID awaiting close confirmation (when agent is active in a pane) */
-  pendingCloseConfirmSessionId: string | null;
+  /** Tab ID awaiting close confirmation (when agent is active in a pane) */
+  pendingCloseConfirmTabId: string | null;
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
 
   // Layout restore — called once on startup
   loadPersistedLayout: () => Promise<void>;
 
-  // Session operations
-  addSession: () => void;
-  addBrowserSession: (url: string) => void;
-  addDiffSession: () => void;
+  // Tab operations
+  addTab: () => void;
+  addBrowserTab: (url: string) => void;
+  addDiffTab: () => void;
   openOrFocusDiff: () => void;
-  closeSession: (sessionId: string) => void;
-  requestCloseSession: (sessionId: string) => void;
-  setPendingCloseConfirmSessionId: (sessionId: string | null) => void;
-  selectSession: (sessionId: string) => void;
-  selectNextSession: () => void;
-  selectPrevSession: () => void;
-  reorderSessions: (sessionIds: string[]) => void;
-  togglePinSession: (sessionId: string) => void;
+  closeTab: (tabId: string) => void;
+  requestCloseTab: (tabId: string) => void;
+  setPendingCloseConfirmTabId: (tabId: string | null) => void;
+  selectTab: (tabId: string) => void;
+  selectNextTab: () => void;
+  selectPrevTab: () => void;
+  reorderTabs: (tabIds: string[]) => void;
+  togglePinTab: (tabId: string) => void;
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
@@ -169,13 +169,13 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
   ) => void;
-  moveSessionToPane: (
-    sessionId: string,
+  moveTabToPane: (
+    tabId: string,
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
   ) => void;
-  extractPaneToSession: (paneId: string) => void;
+  extractPaneToTab: (paneId: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
   reopenClosedPane: () => void;
@@ -210,7 +210,7 @@ export interface AppState {
   consumePendingPaneCommand: (paneId: string) => string | null;
 
   // Workspace cleanup
-  removeWorkspaceSessions: (workspacePath: string) => void;
+  removeWorkspaceTabs: (workspacePath: string) => void;
 
   // Worktree setup progress tracking
   worktreeSetupState: Record<
@@ -248,19 +248,19 @@ export interface AppState {
   clearPickedElement: (paneId: string) => void;
 }
 
-// Selector for the active workspace's session state
+// Selector for the active workspace's tab state
 export function selectActiveWorkspace(
   state: AppState,
-): WorkspaceSessionState | null {
+): WorkspaceTabState | null {
   if (!state.activeWorkspacePath) return null;
-  return state.workspaceSessions[state.activeWorkspacePath] ?? null;
+  return state.workspaceTabs[state.activeWorkspacePath] ?? null;
 }
 
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
 
 export const useAppStore = create<AppState>((set, get) => ({
-  workspaceSessions: {},
+  workspaceTabs: {},
   activeWorkspacePath: null,
   paneCwd: {},
   paneTitle: {},
@@ -275,7 +275,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingStartupCommands: {},
   pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
-  pendingCloseConfirmSessionId: null,
+  pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
 
   loadPersistedLayout: async () => {
@@ -293,9 +293,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           {};
         const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
-          for (const session of ws.sessions) {
+          for (const tab of ws.tabs) {
             for (const [paneId, paneSession] of Object.entries(
-              session.paneSessions,
+              tab.paneSessions,
             )) {
               if (paneSession.lastCwd) {
                 cwds[paneId] = paneSession.lastCwd;
@@ -327,7 +327,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 extractLeafData(node.second);
               }
             };
-            extractLeafData(session.rootNode);
+            extractLeafData(tab.rootNode);
           }
         }
 
@@ -350,7 +350,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveWorkspace: (path: string) =>
     set((state) => {
       // Already initialized for this workspace
-      if (state.workspaceSessions[path]) {
+      if (state.workspaceTabs[path]) {
         return { activeWorkspacePath: path };
       }
 
@@ -359,11 +359,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         const persisted = _cachedLayout.workspaces.find(
           (w) => w.workspacePath === path,
         );
-        if (persisted && persisted.sessions?.length > 0) {
+        if (persisted && persisted.tabs?.length > 0) {
           return {
             activeWorkspacePath: path,
-            workspaceSessions: {
-              ...state.workspaceSessions,
+            workspaceTabs: {
+              ...state.workspaceTabs,
               [path]: restoreWorkspaceState(persisted),
             },
           };
@@ -373,37 +373,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       // No persisted state — start empty so WorkspaceEmptyState is shown
       return {
         activeWorkspacePath: path,
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: createEmptyWorkspaceState(),
         },
       };
     }),
 
-  addSession: () =>
+  addTab: () =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const session = createSession();
+      const tab = createTab();
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: [...ws.sessions, session],
-            selectedSessionId: session.id,
+            tabs: [...ws.tabs, tab],
+            selectedTabId: tab.id,
           },
         },
       };
     }),
 
-  addBrowserSession: (url: string) =>
+  addBrowserTab: (url: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
       const paneId = newPaneId();
       let title: string;
@@ -413,8 +413,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         title = url;
       }
-      const session: Session = {
-        id: newSessionId(),
+      const tab: Tab = {
+        id: newTabId(),
         title,
         rootNode: { type: "leaf", paneId, contentType: "browser", url },
         focusedPaneId: paneId,
@@ -422,38 +422,38 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "browser" },
         paneUrl: { ...state.paneUrl, [paneId]: url },
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: [...ws.sessions, session],
-            selectedSessionId: session.id,
+            tabs: [...ws.tabs, tab],
+            selectedTabId: tab.id,
           },
         },
       };
     }),
 
-  addDiffSession: () =>
+  addDiffTab: () =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
       const paneId = newPaneId();
-      const session: Session = {
-        id: newSessionId(),
+      const tab: Tab = {
+        id: newTabId(),
         title: "Diff",
         rootNode: { type: "leaf", paneId, contentType: "diff" },
         focusedPaneId: paneId,
       };
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: [...ws.sessions, session],
-            selectedSessionId: session.id,
+            tabs: [...ws.tabs, tab],
+            selectedTabId: tab.id,
           },
         },
       };
@@ -463,21 +463,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
 
-      // Look for an existing diff pane across all sessions
-      for (const session of ws.sessions) {
-        for (const paneId of allPaneIds(session.rootNode)) {
+      // Look for an existing diff pane across all tabs
+      for (const tab of ws.tabs) {
+        for (const paneId of allPaneIds(tab.rootNode)) {
           if (state.paneContentType[paneId] === "diff") {
             return {
-              workspaceSessions: {
-                ...state.workspaceSessions,
+              workspaceTabs: {
+                ...state.workspaceTabs,
                 [path]: {
                   ...ws,
-                  selectedSessionId: session.id,
-                  sessions: ws.sessions.map((s) =>
-                    s.id === session.id ? { ...s, focusedPaneId: paneId } : s,
+                  selectedTabId: tab.id,
+                  tabs: ws.tabs.map((s) =>
+                    s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
                   ),
                 },
               },
@@ -486,49 +486,49 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
-      // No existing diff pane found — create a new diff session
+      // No existing diff pane found — create a new diff tab
       const paneId = newPaneId();
-      const session: Session = {
-        id: newSessionId(),
+      const tab: Tab = {
+        id: newTabId(),
         title: "Diff",
         rootNode: { type: "leaf", paneId, contentType: "diff" },
         focusedPaneId: paneId,
       };
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: [...ws.sessions, session],
-            selectedSessionId: session.id,
+            tabs: [...ws.tabs, tab],
+            selectedTabId: tab.id,
           },
         },
       };
     }),
 
-  closeSession: (sessionId: string) =>
+  closeTab: (tabId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
 
-      // Mark all panes in the closing session as explicitly closed
-      const closingSession = ws.sessions.find((s) => s.id === sessionId);
+      // Mark all panes in the closing tab as explicitly closed
+      const closingTab = ws.tabs.find((s) => s.id === tabId);
       const deadPaneIds: string[] = [];
       const newClosedPaneIds = new Set(state.closedPaneIds);
-      if (closingSession) {
-        for (const pid of allPaneIds(closingSession.rootNode)) {
+      if (closingTab) {
+        for (const pid of allPaneIds(closingTab.rootNode)) {
           newClosedPaneIds.add(pid);
           deadPaneIds.push(pid);
         }
       }
 
-      // Snapshot the full session so it can be restored with all its panes
+      // Snapshot the full tab so it can be restored with all its panes
       let newStack = state.closedPaneStack;
-      if (closingSession) {
-        const paneMetadata: ClosedSessionSnapshot["paneMetadata"] = {};
+      if (closingTab) {
+        const paneMetadata: ClosedTabSnapshot["paneMetadata"] = {};
         for (const pid of deadPaneIds) {
           paneMetadata[pid] = {
             contentType: state.paneContentType[pid],
@@ -537,23 +537,23 @@ export const useAppStore = create<AppState>((set, get) => ({
             title: state.paneTitle[pid],
           };
         }
-        const sessionSnapshot: ClosedSessionSnapshot = {
-          kind: "session",
-          session: closingSession,
+        const tabSnapshot: ClosedTabSnapshot = {
+          kind: "tab",
+          tab: closingTab,
           workspacePath: path,
           paneMetadata,
         };
-        newStack = [sessionSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
+        newStack = [tabSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
       }
 
-      const idx = ws.sessions.findIndex((s) => s.id === sessionId);
-      const newSessions = ws.sessions.filter((s) => s.id !== sessionId);
+      const idx = ws.tabs.findIndex((s) => s.id === tabId);
+      const newTabs = ws.tabs.filter((s) => s.id !== tabId);
       const newSelected =
-        newSessions.length === 0
+        newTabs.length === 0
           ? ""
-          : sessionId === ws.selectedSessionId
-            ? newSessions[Math.min(idx, newSessions.length - 1)].id
-            : ws.selectedSessionId;
+          : tabId === ws.selectedTabId
+            ? newTabs[Math.min(idx, newTabs.length - 1)].id
+            : ws.selectedTabId;
 
       // Clean up metadata for dead panes
       const newCwd = { ...state.paneCwd };
@@ -577,124 +577,124 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus: newAgentStatus,
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
-            sessions: newSessions,
-            selectedSessionId: newSelected,
-            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
-              (id) => id !== sessionId,
+            tabs: newTabs,
+            selectedTabId: newSelected,
+            pinnedTabIds: (ws.pinnedTabIds ?? []).filter(
+              (id) => id !== tabId,
             ),
           },
         },
       };
     }),
 
-  selectSession: (sessionId: string) =>
+  selectTab: (tabId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
-          [path]: { ...ws, selectedSessionId: sessionId },
+        workspaceTabs: {
+          ...state.workspaceTabs,
+          [path]: { ...ws, selectedTabId: tabId },
         },
       };
     }),
 
-  selectNextSession: () =>
+  selectNextTab: () =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
-      const next = (idx + 1) % ws.sessions.length;
-      const nextId = ws.sessions[next].id;
+      const idx = ws.tabs.findIndex((s) => s.id === ws.selectedTabId);
+      const next = (idx + 1) % ws.tabs.length;
+      const nextId = ws.tabs[next].id;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
-          [path]: { ...ws, selectedSessionId: nextId },
+        workspaceTabs: {
+          ...state.workspaceTabs,
+          [path]: { ...ws, selectedTabId: nextId },
         },
       };
     }),
 
-  selectPrevSession: () =>
+  selectPrevTab: () =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const idx = ws.sessions.findIndex((s) => s.id === ws.selectedSessionId);
-      const prev = (idx - 1 + ws.sessions.length) % ws.sessions.length;
-      const prevId = ws.sessions[prev].id;
+      const idx = ws.tabs.findIndex((s) => s.id === ws.selectedTabId);
+      const prev = (idx - 1 + ws.tabs.length) % ws.tabs.length;
+      const prevId = ws.tabs[prev].id;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
-          [path]: { ...ws, selectedSessionId: prevId },
+        workspaceTabs: {
+          ...state.workspaceTabs,
+          [path]: { ...ws, selectedTabId: prevId },
         },
       };
     }),
 
-  reorderSessions: (sessionIds: string[]) =>
+  reorderTabs: (tabIds: string[]) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const lookup = new Map(ws.sessions.map((s) => [s.id, s]));
-      const reordered = sessionIds
+      const lookup = new Map(ws.tabs.map((s) => [s.id, s]));
+      const reordered = tabIds
         .map((id) => lookup.get(id))
-        .filter(Boolean) as Session[];
-      if (reordered.length !== ws.sessions.length) return state;
+        .filter(Boolean) as Tab[];
+      if (reordered.length !== ws.tabs.length) return state;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
-          [path]: { ...ws, sessions: reordered },
+        workspaceTabs: {
+          ...state.workspaceTabs,
+          [path]: { ...ws, tabs: reordered },
         },
       };
     }),
 
-  togglePinSession: (sessionId: string) =>
+  togglePinTab: (tabId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const pinned = ws.pinnedSessionIds ?? [];
-      const isPinned = pinned.includes(sessionId);
+      const pinned = ws.pinnedTabIds ?? [];
+      const isPinned = pinned.includes(tabId);
       let newPinned: string[];
-      let newSessions: Session[];
+      let newTabs: Tab[];
       if (isPinned) {
         // Unpin: remove from pinned list, move to after last pinned tab
-        newPinned = pinned.filter((id) => id !== sessionId);
-        const session = ws.sessions.find((s) => s.id === sessionId);
-        if (!session) return state;
-        const others = ws.sessions.filter((s) => s.id !== sessionId);
+        newPinned = pinned.filter((id) => id !== tabId);
+        const tab = ws.tabs.find((s) => s.id === tabId);
+        if (!tab) return state;
+        const others = ws.tabs.filter((s) => s.id !== tabId);
         const insertIdx = newPinned.length;
-        newSessions = [
+        newTabs = [
           ...others.slice(0, insertIdx),
-          session,
+          tab,
           ...others.slice(insertIdx),
         ];
       } else {
-        newPinned = [...pinned, sessionId];
-        const session = ws.sessions.find((s) => s.id === sessionId);
-        if (!session) return state;
-        const others = ws.sessions.filter((s) => s.id !== sessionId);
+        newPinned = [...pinned, tabId];
+        const tab = ws.tabs.find((s) => s.id === tabId);
+        if (!tab) return state;
+        const others = ws.tabs.filter((s) => s.id !== tabId);
         const insertIdx = pinned.length;
-        newSessions = [
+        newTabs = [
           ...others.slice(0, insertIdx),
-          session,
+          tab,
           ...others.slice(insertIdx),
         ];
       }
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
-          [path]: { ...ws, sessions: newSessions, pinnedSessionIds: newPinned },
+        workspaceTabs: {
+          ...state.workspaceTabs,
+          [path]: { ...ws, tabs: newTabs, pinnedTabIds: newPinned },
         },
       };
     }),
@@ -703,24 +703,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-      if (!session) return state;
+      const tab = ws.tabs.find((s) => s.id === ws.selectedTabId);
+      if (!tab) return state;
       const newPane = newPaneId();
       const newRoot = insertSplit(
-        session.rootNode,
-        session.focusedPaneId,
+        tab.rootNode,
+        tab.focusedPaneId,
         direction,
         newPane,
       );
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: ws.sessions.map((s) =>
-              s.id === session.id
+            tabs: ws.tabs.map((s) =>
+              s.id === tab.id
                 ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
                 : s,
             ),
@@ -739,17 +739,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const session = ws.sessions.find((s) =>
+      const tab = ws.tabs.find((s) =>
         hasPaneId(s.rootNode, targetPaneId),
       );
-      if (!session) return state;
+      if (!tab) return state;
       const newPane = newPaneId();
       // "task" panes are terminals that auto-run a command — don't persist as a content type
       const treeContentType = contentType === "task" ? undefined : contentType;
       const newRoot = insertSplitAt(
-        session.rootNode,
+        tab.rootNode,
         targetPaneId,
         direction,
         newPane,
@@ -757,12 +757,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         treeContentType,
       );
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: ws.sessions.map((s) =>
-              s.id === session.id
+            tabs: ws.tabs.map((s) =>
+              s.id === tab.id
                 ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
                 : s,
             ),
@@ -792,21 +792,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
 
-      const sourceSession = ws.sessions.find((s) =>
+      const sourceTab = ws.tabs.find((s) =>
         hasPaneId(s.rootNode, sourcePaneId),
       );
-      const targetSession = ws.sessions.find((s) =>
+      const targetTab = ws.tabs.find((s) =>
         hasPaneId(s.rootNode, targetPaneId),
       );
-      if (!sourceSession || !targetSession) return state;
+      if (!sourceTab || !targetTab) return state;
 
-      if (sourceSession.id === targetSession.id) {
-        // Same-session move
+      if (sourceTab.id === targetTab.id) {
+        // Same-tab move
         const newRoot = movePane(
-          sourceSession.rootNode,
+          sourceTab.rootNode,
           sourcePaneId,
           targetPaneId,
           direction,
@@ -814,12 +814,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         );
         if (newRoot === null) return state;
         return {
-          workspaceSessions: {
-            ...state.workspaceSessions,
+          workspaceTabs: {
+            ...state.workspaceTabs,
             [path]: {
               ...ws,
-              sessions: ws.sessions.map((s) =>
-                s.id === sourceSession.id
+              tabs: ws.tabs.map((s) =>
+                s.id === sourceTab.id
                   ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId }
                   : s,
               ),
@@ -828,32 +828,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
       }
 
-      // Cross-session move
+      // Cross-tab move
       const sourceRootAfterRemove = removePane(
-        sourceSession.rootNode,
+        sourceTab.rootNode,
         sourcePaneId,
       );
       const newTargetRoot = insertSplitAt(
-        targetSession.rootNode,
+        targetTab.rootNode,
         targetPaneId,
         direction,
         sourcePaneId,
         position,
       );
 
-      let newSessions: Session[];
+      let newTabs: Tab[];
       if (sourceRootAfterRemove === null) {
-        // Source session had only one pane — close it
-        newSessions = ws.sessions
-          .filter((s) => s.id !== sourceSession.id)
+        // Source tab had only one pane — close it
+        newTabs = ws.tabs
+          .filter((s) => s.id !== sourceTab.id)
           .map((s) =>
-            s.id === targetSession.id
+            s.id === targetTab.id
               ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
               : s,
           );
       } else {
-        newSessions = ws.sessions.map((s) => {
-          if (s.id === sourceSession.id) {
+        newTabs = ws.tabs.map((s) => {
+          if (s.id === sourceTab.id) {
             const ids = allPaneIds(sourceRootAfterRemove);
             const newFocused =
               s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId;
@@ -863,7 +863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               focusedPaneId: newFocused,
             };
           }
-          if (s.id === targetSession.id) {
+          if (s.id === targetTab.id) {
             return {
               ...s,
               rootNode: newTargetRoot,
@@ -874,32 +874,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
 
-      const newSelectedSessionId =
-        ws.selectedSessionId === sourceSession.id &&
+      const newSelectedTabId =
+        ws.selectedTabId === sourceTab.id &&
         sourceRootAfterRemove === null
-          ? targetSession.id
-          : ws.selectedSessionId;
+          ? targetTab.id
+          : ws.selectedTabId;
 
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: newSessions,
-            selectedSessionId: newSelectedSessionId,
-            pinnedSessionIds:
+            tabs: newTabs,
+            selectedTabId: newSelectedTabId,
+            pinnedTabIds:
               sourceRootAfterRemove === null
-                ? (ws.pinnedSessionIds ?? []).filter(
-                    (id) => id !== sourceSession.id,
+                ? (ws.pinnedTabIds ?? []).filter(
+                    (id) => id !== sourceTab.id,
                   )
-                : ws.pinnedSessionIds,
+                : ws.pinnedTabIds,
           },
         },
       };
     }),
 
-  moveSessionToPane: (
-    sessionId: string,
+  moveTabToPane: (
+    tabId: string,
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
@@ -907,149 +907,149 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
 
-      const sourceSession = ws.sessions.find((s) => s.id === sessionId);
-      const targetSession = ws.sessions.find((s) =>
+      const sourceTab = ws.tabs.find((s) => s.id === tabId);
+      const targetTab = ws.tabs.find((s) =>
         hasPaneId(s.rootNode, targetPaneId),
       );
       if (
-        !sourceSession ||
-        !targetSession ||
-        sourceSession.id === targetSession.id
+        !sourceTab ||
+        !targetTab ||
+        sourceTab.id === targetTab.id
       )
         return state;
 
-      // Single-pane session: delegate to movePaneToTarget logic inline
-      if (sourceSession.rootNode.type === "leaf") {
-        const sourcePaneId = sourceSession.rootNode.paneId;
+      // Single-pane tab: delegate to movePaneToTarget logic inline
+      if (sourceTab.rootNode.type === "leaf") {
+        const sourcePaneId = sourceTab.rootNode.paneId;
         const newTargetRoot = insertSplitAt(
-          targetSession.rootNode,
+          targetTab.rootNode,
           targetPaneId,
           direction,
           sourcePaneId,
           position,
         );
-        const newSessions = ws.sessions
-          .filter((s) => s.id !== sourceSession.id)
+        const newTabs = ws.tabs
+          .filter((s) => s.id !== sourceTab.id)
           .map((s) =>
-            s.id === targetSession.id
+            s.id === targetTab.id
               ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
               : s,
           );
-        const newSelectedSessionId =
-          ws.selectedSessionId === sourceSession.id
-            ? targetSession.id
-            : ws.selectedSessionId;
+        const newSelectedTabId =
+          ws.selectedTabId === sourceTab.id
+            ? targetTab.id
+            : ws.selectedTabId;
         return {
-          workspaceSessions: {
-            ...state.workspaceSessions,
+          workspaceTabs: {
+            ...state.workspaceTabs,
             [path]: {
               ...ws,
-              sessions: newSessions,
-              selectedSessionId: newSelectedSessionId,
-              pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
-                (id) => id !== sourceSession.id,
+              tabs: newTabs,
+              selectedTabId: newSelectedTabId,
+              pinnedTabIds: (ws.pinnedTabIds ?? []).filter(
+                (id) => id !== sourceTab.id,
               ),
             },
           },
         };
       }
 
-      // Multi-pane session: insert entire subtree
-      const sourceIds = allPaneIds(sourceSession.rootNode);
+      // Multi-pane tab: insert entire subtree
+      const sourceIds = allPaneIds(sourceTab.rootNode);
       const newTargetRoot = insertSubtreeAt(
-        targetSession.rootNode,
+        targetTab.rootNode,
         targetPaneId,
         direction,
-        sourceSession.rootNode,
+        sourceTab.rootNode,
         position,
       );
       const focusedPaneId = sourceIds[0];
-      const newSessions = ws.sessions
-        .filter((s) => s.id !== sourceSession.id)
+      const newTabs = ws.tabs
+        .filter((s) => s.id !== sourceTab.id)
         .map((s) =>
-          s.id === targetSession.id
+          s.id === targetTab.id
             ? { ...s, rootNode: newTargetRoot, focusedPaneId }
             : s,
         );
-      const newSelectedSessionId =
-        ws.selectedSessionId === sourceSession.id
-          ? targetSession.id
-          : ws.selectedSessionId;
+      const newSelectedTabId =
+        ws.selectedTabId === sourceTab.id
+          ? targetTab.id
+          : ws.selectedTabId;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: newSessions,
-            selectedSessionId: newSelectedSessionId,
-            pinnedSessionIds: (ws.pinnedSessionIds ?? []).filter(
-              (id) => id !== sourceSession.id,
+            tabs: newTabs,
+            selectedTabId: newSelectedTabId,
+            pinnedTabIds: (ws.pinnedTabIds ?? []).filter(
+              (id) => id !== sourceTab.id,
             ),
           },
         },
       };
     }),
 
-  extractPaneToSession: (paneId: string) =>
+  extractPaneToTab: (paneId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
 
-      const sourceSession = ws.sessions.find((s) =>
+      const sourceTab = ws.tabs.find((s) =>
         hasPaneId(s.rootNode, paneId),
       );
-      if (!sourceSession) return state;
+      if (!sourceTab) return state;
 
-      // If the pane is the only pane in its session, just select that session
+      // If the pane is the only pane in its tab, just select that tab
       if (
-        sourceSession.rootNode.type === "leaf" &&
-        sourceSession.rootNode.paneId === paneId
+        sourceTab.rootNode.type === "leaf" &&
+        sourceTab.rootNode.paneId === paneId
       ) {
         return {
-          workspaceSessions: {
-            ...state.workspaceSessions,
-            [path]: { ...ws, selectedSessionId: sourceSession.id },
+          workspaceTabs: {
+            ...state.workspaceTabs,
+            [path]: { ...ws, selectedTabId: sourceTab.id },
           },
         };
       }
 
-      // Remove the pane from the source session
-      const remaining = removePane(sourceSession.rootNode, paneId);
+      // Remove the pane from the source tab
+      const remaining = removePane(sourceTab.rootNode, paneId);
       if (!remaining) return state;
 
       const ids = allPaneIds(remaining);
       const newFocused =
-        sourceSession.focusedPaneId === paneId
+        sourceTab.focusedPaneId === paneId
           ? ids[0]
-          : sourceSession.focusedPaneId;
+          : sourceTab.focusedPaneId;
 
-      // Create a new session with the extracted pane
-      const newSession: Session = {
-        id: newSessionId(),
+      // Create a new tab with the extracted pane
+      const newTab: Tab = {
+        id: newTabId(),
         title: "Terminal",
         rootNode: { type: "leaf", paneId },
         focusedPaneId: paneId,
       };
 
-      const newSessions = ws.sessions.map((s) =>
-        s.id === sourceSession.id
+      const newTabs = ws.tabs.map((s) =>
+        s.id === sourceTab.id
           ? { ...s, rootNode: remaining, focusedPaneId: newFocused }
           : s,
       );
-      newSessions.push(newSession);
+      newTabs.push(newTab);
 
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: newSessions,
-            selectedSessionId: newSession.id,
+            tabs: newTabs,
+            selectedTabId: newTab.id,
           },
         },
       };
@@ -1059,34 +1059,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const path = state.activeWorkspacePath;
     if (!path) return;
-    const ws = state.workspaceSessions[path];
+    const ws = state.workspaceTabs[path];
     if (!ws) return;
-    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-    if (!session) return;
-    get().closePaneById(session.focusedPaneId);
+    const tab = ws.tabs.find((s) => s.id === ws.selectedTabId);
+    if (!tab) return;
+    get().closePaneById(tab.focusedPaneId);
   },
 
   closePaneById: (paneId: string) => {
     const state = get();
     const path = state.activeWorkspacePath;
     if (!path) return;
-    const ws = state.workspaceSessions[path];
+    const ws = state.workspaceTabs[path];
     if (!ws) return;
 
-    const session = ws.sessions.find((s) => hasPaneId(s.rootNode, paneId));
-    if (!session) return;
+    const tab = ws.tabs.find((s) => hasPaneId(s.rootNode, paneId));
+    if (!tab) return;
 
-    const remaining = removePane(session.rootNode, paneId);
+    const remaining = removePane(tab.rootNode, paneId);
     if (remaining === null) {
-      // Last pane in session — closeSession will push a session snapshot
-      get().closeSession(session.id);
+      // Last pane in tab — closeTab will push a tab snapshot
+      get().closeTab(tab.id);
       return;
     }
 
     const snapshot: ClosedPaneSnapshot = {
       kind: "pane",
       paneId,
-      sessionId: session.id,
+      tabId: tab.id,
       workspacePath: path,
       contentType: state.paneContentType[paneId],
       url: state.paneUrl[paneId],
@@ -1096,10 +1096,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const ids = allPaneIds(remaining);
     const newFocused =
-      session.focusedPaneId === paneId ? ids[0] : session.focusedPaneId;
+      tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
 
     set((s) => {
-      const currentWs = s.workspaceSessions[path];
+      const currentWs = s.workspaceTabs[path];
       if (!currentWs) return s;
       const newClosedPaneIds = new Set(s.closedPaneIds);
       newClosedPaneIds.add(paneId);
@@ -1122,12 +1122,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus: newAgentStatus,
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
-        workspaceSessions: {
-          ...s.workspaceSessions,
+        workspaceTabs: {
+          ...s.workspaceTabs,
           [path]: {
             ...currentWs,
-            sessions: currentWs.sessions.map((t) =>
-              t.id === session.id
+            tabs: currentWs.tabs.map((t) =>
+              t.id === tab.id
                 ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
                 : t,
             ),
@@ -1141,17 +1141,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const path = state.activeWorkspacePath;
     if (!path) return;
-    const ws = state.workspaceSessions[path];
+    const ws = state.workspaceTabs[path];
     if (!ws) return;
 
     const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
-    if (snapshot.kind === "session") {
-      // Restore the full session (tab with all its panes)
+    if (snapshot.kind === "tab") {
+      // Restore the full tab with all its panes
       set((s) => {
-        const currentWs = s.workspaceSessions[path];
+        const currentWs = s.workspaceTabs[path];
         if (!currentWs) return s;
         const newStack = [...s.closedPaneStack];
         newStack.splice(idx, 1);
@@ -1176,12 +1176,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneCwd: newCwd,
           paneUrl: newUrl,
           paneTitle: newTitle,
-          workspaceSessions: {
-            ...s.workspaceSessions,
+          workspaceTabs: {
+            ...s.workspaceTabs,
             [path]: {
               ...currentWs,
-              sessions: [...currentWs.sessions, snapshot.session],
-              selectedSessionId: snapshot.session.id,
+              tabs: [...currentWs.tabs, snapshot.tab],
+              selectedTabId: snapshot.tab.id,
             },
           },
         };
@@ -1191,43 +1191,43 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Single pane restore
     const contentType = snapshot.contentType ?? "terminal";
-    const originalSession = ws.sessions.find((s) => s.id === snapshot.sessionId);
+    const originalTab = ws.tabs.find((s) => s.id === snapshot.tabId);
 
     // Reuse the original pane ID so the daemon session (still alive during
     // the grace period) is reattached instead of creating a fresh terminal.
     const restoredPaneId = snapshot.paneId;
-    let selectedSessionId: string;
-    let sessionsUpdater: (sessions: Session[]) => Session[];
+    let selectedTabId: string;
+    let tabsUpdater: (tabs: Tab[]) => Tab[];
 
-    if (originalSession) {
-      selectedSessionId = originalSession.id;
+    if (originalTab) {
+      selectedTabId = originalTab.id;
       const newRoot = insertSplitAt(
-        originalSession.rootNode,
-        originalSession.focusedPaneId,
+        originalTab.rootNode,
+        originalTab.focusedPaneId,
         "horizontal",
         restoredPaneId,
         "second",
         contentType,
       );
-      sessionsUpdater = (sessions) =>
-        sessions.map((t) =>
-          t.id === originalSession.id
+      tabsUpdater = (tabs) =>
+        tabs.map((t) =>
+          t.id === originalTab.id
             ? { ...t, rootNode: newRoot, focusedPaneId: restoredPaneId }
             : t,
         );
     } else {
-      const newSession: Session = {
-        id: newSessionId(),
+      const newTab: Tab = {
+        id: newTabId(),
         title: snapshot.title ?? "Terminal",
         rootNode: { type: "leaf", paneId: restoredPaneId },
         focusedPaneId: restoredPaneId,
       };
-      selectedSessionId = newSession.id;
-      sessionsUpdater = (sessions) => [...sessions, newSession];
+      selectedTabId = newTab.id;
+      tabsUpdater = (tabs) => [...tabs, newTab];
     }
 
     set((s) => {
-      const currentWs = s.workspaceSessions[path];
+      const currentWs = s.workspaceTabs[path];
       if (!currentWs) return s;
       const newStack = [...s.closedPaneStack];
       newStack.splice(idx, 1);
@@ -1243,12 +1243,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...(snapshot.url && {
           paneUrl: { ...s.paneUrl, [restoredPaneId]: snapshot.url },
         }),
-        workspaceSessions: {
-          ...s.workspaceSessions,
+        workspaceTabs: {
+          ...s.workspaceTabs,
           [path]: {
             ...currentWs,
-            selectedSessionId,
-            sessions: sessionsUpdater(currentWs.sessions),
+            selectedTabId,
+            tabs: tabsUpdater(currentWs.tabs),
           },
         },
       };
@@ -1258,28 +1258,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPendingCloseConfirmPaneId: (paneId: string | null) =>
     set({ pendingCloseConfirmPaneId: paneId }),
 
-  setPendingCloseConfirmSessionId: (sessionId: string | null) =>
-    set({ pendingCloseConfirmSessionId: sessionId }),
+  setPendingCloseConfirmTabId: (tabId: string | null) =>
+    set({ pendingCloseConfirmTabId: tabId }),
 
-  requestCloseSession: (sessionId: string) => {
+  requestCloseTab: (tabId: string) => {
     const state = get();
     const path = state.activeWorkspacePath;
     if (!path) return;
-    const ws = state.workspaceSessions[path];
+    const ws = state.workspaceTabs[path];
     if (!ws) return;
-    const session = ws.sessions.find((s) => s.id === sessionId);
-    if (!session) return;
+    const tab = ws.tabs.find((s) => s.id === tabId);
+    if (!tab) return;
 
     const activeStatuses = ["thinking", "working", "requires_input"];
-    const hasActiveAgent = allPaneIds(session.rootNode).some((pid) => {
+    const hasActiveAgent = allPaneIds(tab.rootNode).some((pid) => {
       const agentState = state.paneAgentStatus[pid];
       return agentState && activeStatuses.includes(agentState.status);
     });
 
     if (hasActiveAgent) {
-      set({ pendingCloseConfirmSessionId: sessionId });
+      set({ pendingCloseConfirmTabId: tabId });
     } else {
-      get().closeSession(sessionId);
+      get().closeTab(tabId);
     }
   },
 
@@ -1287,11 +1287,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const path = state.activeWorkspacePath;
     if (!path) return;
-    const ws = state.workspaceSessions[path];
+    const ws = state.workspaceTabs[path];
     if (!ws) return;
-    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-    if (!session) return;
-    const focusedPaneId = session.focusedPaneId;
+    const tab = ws.tabs.find((s) => s.id === ws.selectedTabId);
+    if (!tab) return;
+    const focusedPaneId = tab.focusedPaneId;
     get().requestClosePaneById(focusedPaneId);
   },
 
@@ -1310,15 +1310,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: ws.sessions.map((s) =>
-              s.id === ws.selectedSessionId
+            tabs: ws.tabs.map((s) =>
+              s.id === ws.selectedTabId
                 ? { ...s, focusedPaneId: paneId }
                 : s,
             ),
@@ -1331,19 +1331,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-      if (!session) return state;
-      const next = nextPaneId(session.rootNode, session.focusedPaneId);
+      const tab = ws.tabs.find((s) => s.id === ws.selectedTabId);
+      if (!tab) return state;
+      const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
       if (!next) return state;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: ws.sessions.map((s) =>
-              s.id === session.id ? { ...s, focusedPaneId: next } : s,
+            tabs: ws.tabs.map((s) =>
+              s.id === tab.id ? { ...s, focusedPaneId: next } : s,
             ),
           },
         },
@@ -1354,19 +1354,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const ws = state.workspaceSessions[path];
+      const ws = state.workspaceTabs[path];
       if (!ws) return state;
-      const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-      if (!session) return state;
-      const prev = prevPaneId(session.rootNode, session.focusedPaneId);
+      const tab = ws.tabs.find((s) => s.id === ws.selectedTabId);
+      if (!tab) return state;
+      const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
       if (!prev) return state;
       return {
-        workspaceSessions: {
-          ...state.workspaceSessions,
+        workspaceTabs: {
+          ...state.workspaceTabs,
           [path]: {
             ...ws,
-            sessions: ws.sessions.map((s) =>
-              s.id === session.id ? { ...s, focusedPaneId: prev } : s,
+            tabs: ws.tabs.map((s) =>
+              s.id === tab.id ? { ...s, focusedPaneId: prev } : s,
             ),
           },
         },
@@ -1395,7 +1395,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Also update the url in the rootNode leaf so it persists
       const wsPath = state.activeWorkspacePath;
       if (wsPath) {
-        const ws = state.workspaceSessions[wsPath];
+        const ws = state.workspaceTabs[wsPath];
         if (ws) {
           const updateLeafUrl = (node: PaneNode): PaneNode => {
             if (node.type === "leaf") {
@@ -1406,14 +1406,14 @@ export const useAppStore = create<AppState>((set, get) => ({
             if (first === node.first && second === node.second) return node;
             return { ...node, first, second };
           };
-          const updatedSessions = ws.sessions.map((s) => {
+          const updatedTabs = ws.tabs.map((s) => {
             const newRoot = updateLeafUrl(s.rootNode);
             return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
           });
-          if (updatedSessions !== ws.sessions) {
-            newState.workspaceSessions = {
-              ...state.workspaceSessions,
-              [wsPath]: { ...ws, sessions: updatedSessions },
+          if (updatedTabs !== ws.tabs) {
+            newState.workspaceTabs = {
+              ...state.workspaceTabs,
+              [wsPath]: { ...ws, tabs: updatedTabs },
             };
           }
         }
@@ -1439,16 +1439,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newState: Partial<AppState> = { paneContentType: newContentType };
       const wsPath = state.activeWorkspacePath;
       if (wsPath) {
-        const ws = state.workspaceSessions[wsPath];
+        const ws = state.workspaceTabs[wsPath];
         if (ws) {
           const treeType = contentType === "terminal" ? undefined : contentType;
-          const updatedSessions = ws.sessions.map((s) => {
+          const updatedTabs = ws.tabs.map((s) => {
             const newRoot = updateLeafContentType(s.rootNode, paneId, treeType);
             return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
           });
-          newState.workspaceSessions = {
-            ...state.workspaceSessions,
-            [wsPath]: { ...ws, sessions: updatedSessions },
+          newState.workspaceTabs = {
+            ...state.workspaceTabs,
+            [wsPath]: { ...ws, tabs: updatedTabs },
           };
         }
       }
@@ -1512,19 +1512,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     return cmd;
   },
 
-  removeWorkspaceSessions: (workspacePath: string) =>
+  removeWorkspaceTabs: (workspacePath: string) =>
     set((state) => {
-      const ws = state.workspaceSessions[workspacePath];
+      const ws = state.workspaceTabs[workspacePath];
       if (!ws) {
-        const { [workspacePath]: _, ...rest } = state.workspaceSessions;
-        return { workspaceSessions: rest };
+        const { [workspacePath]: _, ...rest } = state.workspaceTabs;
+        return { workspaceTabs: rest };
       }
 
       // Mark all panes as closed so terminals get killed
       const newClosedPaneIds = new Set(state.closedPaneIds);
       const deadPaneIds: string[] = [];
-      for (const session of ws.sessions) {
-        for (const pid of allPaneIds(session.rootNode)) {
+      for (const tab of ws.tabs) {
+        for (const pid of allPaneIds(tab.rootNode)) {
           newClosedPaneIds.add(pid);
           deadPaneIds.push(pid);
         }
@@ -1544,10 +1544,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete newPaneUrl[pid];
       }
 
-      const { [workspacePath]: _, ...rest } = state.workspaceSessions;
+      const { [workspacePath]: _, ...rest } = state.workspaceTabs;
       return {
         closedPaneIds: newClosedPaneIds,
-        workspaceSessions: rest,
+        workspaceTabs: rest,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
@@ -1673,12 +1673,12 @@ function flushLayoutSave(): void {
   const state = useAppStore.getState();
   const wsPath = state.activeWorkspacePath;
   if (!wsPath) return;
-  const ws = state.workspaceSessions[wsPath];
+  const ws = state.workspaceTabs[wsPath];
   if (!ws) return;
 
   const persisted: PersistedWorkspace = {
     workspacePath: wsPath,
-    sessions: ws.sessions.map((s) => {
+    tabs: ws.tabs.map((s) => {
       const paneIds = allPaneIds(s.rootNode);
       const paneSessions: Record<
         string,
@@ -1703,10 +1703,10 @@ function flushLayoutSave(): void {
         rootNode: s.rootNode,
         focusedPaneId: s.focusedPaneId,
         paneSessions,
-      } satisfies PersistedSession;
+      } satisfies PersistedTab;
     }),
-    selectedSessionId: ws.selectedSessionId,
-    pinnedSessionIds: ws.pinnedSessionIds,
+    selectedTabId: ws.selectedTabId,
+    pinnedTabIds: ws.pinnedTabIds,
   };
 
   window.electronAPI?.layout.save(persisted);
@@ -1724,7 +1724,7 @@ function saveActiveWorkspaceLayout(): void {
 // Subscribe to store changes and auto-save layout
 useAppStore.subscribe((state, prevState) => {
   if (
-    state.workspaceSessions !== prevState.workspaceSessions ||
+    state.workspaceTabs !== prevState.workspaceTabs ||
     state.activeWorkspacePath !== prevState.activeWorkspacePath ||
     state.paneAgentStatus !== prevState.paneAgentStatus
   ) {

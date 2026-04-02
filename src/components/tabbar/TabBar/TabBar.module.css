@@ -1,4 +1,4 @@
-/* ── Session Bar ── */
+/* ── Tab Bar ── */
 
 .sessionBar {
   display: flex;
@@ -34,7 +34,7 @@
   -webkit-app-region: drag;
 }
 
-.session {
+.tab {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -54,34 +54,34 @@
     color 0.15s;
 }
 
-.session:hover {
+.tab:hover {
   background: var(--surface);
   color: var(--text-selected);
 }
 
-.sessionActive {
+.tabActive {
   background: var(--surface);
   color: var(--text-selected);
 }
 
-.sessionDragging {
+.tabDragging {
   opacity: 0.8;
   z-index: 10;
 }
 
-.sessionIcon {
+.tabIcon {
   flex-shrink: 0;
   opacity: 0.6;
 }
 
-.sessionTitle {
+.tabTitle {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
 }
 
-.sessionClose {
+.tabClose {
   font-size: 14px;
   line-height: 1;
   position: relative;
@@ -91,17 +91,17 @@
   transition: opacity 0.15s;
 }
 
-.session:hover .sessionClose,
-.sessionActive .sessionClose {
+.tab:hover .tabClose,
+.tabActive .tabClose {
   opacity: 0.6;
 }
 
-.sessionClose:hover {
+.tabClose:hover {
   opacity: 1 !important;
   background: var(--border);
 }
 
-.sessionPinned {
+.tabPinned {
   flex: 0 0 40px;
   width: 40px;
   min-width: 40px;
@@ -110,7 +110,7 @@
   gap: 0;
 }
 
-.sessionPinned .sessionTitle {
+.tabPinned .tabTitle {
   max-width: none;
   font-size: 11px;
   letter-spacing: 0.5px;

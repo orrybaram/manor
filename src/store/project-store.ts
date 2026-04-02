@@ -370,15 +370,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       if (startScript) {
         // Store the start script in setup state; WorkspaceSetupView will handle execution
-        // Do NOT call setPendingStartupCommand or addSession here
+        // Do NOT call setPendingStartupCommand or addTab here
         // If there's also an agentCommand, store it alongside so the setup view can chain them
         if (agentCommand) {
           useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "pending");
         }
       } else if (agentCommand) {
-        // No start script — use the existing pending startup command + addSession pattern
+        // No start script — use the existing pending startup command + addTab pattern
         useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
-        useAppStore.getState().addSession();
+        useAppStore.getState().addTab();
         useAppStore.getState().clearWorktreeSetup(wsPath);
       } else {
         // No commands at all — clear setup state
@@ -450,7 +450,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const startScript = updated.worktreeStartScript;
       if (startScript) {
         useAppStore.getState().setPendingStartupCommand(wsPath, startScript);
-        useAppStore.getState().addSession();
+        useAppStore.getState().addTab();
       }
     }
     return wsPath;

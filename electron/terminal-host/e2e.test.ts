@@ -41,7 +41,7 @@ import { ScrollbackWriter, type SessionMeta } from "./scrollback";
 import {
   LayoutPersistence,
   type PersistedWorkspace,
-  type PersistedSession,
+  type PersistedTab,
 } from "./layout-persistence";
 import type { ControlRequest, ControlResponse } from "./types";
 
@@ -714,7 +714,7 @@ describe("E2E: layout persistence + reconciliation", () => {
       cwd: string;
     }>,
   ): PersistedWorkspace {
-    const sessions: PersistedSession[] = [];
+    const tabs: PersistedTab[] = [];
     const paneSessions: Record<
       string,
       {
@@ -731,7 +731,7 @@ describe("E2E: layout persistence + reconciliation", () => {
         lastCwd: c.cwd,
         lastTitle: null,
       };
-      sessions.push({
+      tabs.push({
         id: "tab-1",
         title: "Terminal",
         rootNode: { type: "leaf", paneId: c.paneId },
@@ -746,7 +746,7 @@ describe("E2E: layout persistence + reconciliation", () => {
           lastTitle: null,
         };
       }
-      sessions.push({
+      tabs.push({
         id: "tab-1",
         title: "Terminal",
         rootNode: {
@@ -763,8 +763,8 @@ describe("E2E: layout persistence + reconciliation", () => {
 
     return {
       workspacePath: "/project/main",
-      sessions,
-      selectedSessionId: "tab-1",
+      tabs,
+      selectedTabId: "tab-1",
     };
   }
 
@@ -963,7 +963,7 @@ describe("E2E: layout persistence + reconciliation", () => {
     // Layout has 3 panes: A (daemon alive), B (scrollback on disk), C (nothing)
     const workspace: PersistedWorkspace = {
       workspacePath: "/project/main",
-      sessions: [
+      tabs: [
         {
           id: "tab-1",
           title: "Terminal",
@@ -1000,7 +1000,7 @@ describe("E2E: layout persistence + reconciliation", () => {
           },
         },
       ],
-      selectedSessionId: "tab-1",
+      selectedTabId: "tab-1",
     };
     layout.saveWorkspace(workspace);
 

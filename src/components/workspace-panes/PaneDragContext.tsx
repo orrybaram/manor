@@ -8,7 +8,7 @@ import {
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 
 export type DragPayload =
-  | { type: "tab"; sessionId: string }
+  | { type: "tab"; tabId: string }
   | { type: "pane"; paneId: string };
 
 interface PaneDragContextValue {

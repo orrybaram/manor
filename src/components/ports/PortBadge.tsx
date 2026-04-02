@@ -22,7 +22,7 @@ export function PortBadge(props: PortBadgeProps) {
   }, [url, addBrowserSession]);
 
   const handleOpenExternal = useCallback(
-    (e: React.MouseEvent) => {
+    (e: { stopPropagation: () => void }) => {
       e.stopPropagation();
       window.electronAPI.shell.openExternal(url);
     },

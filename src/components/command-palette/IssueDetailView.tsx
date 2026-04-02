@@ -18,10 +18,12 @@ type IssueDetailViewProps = {
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
+  projectId?: string;
+  workspacePath?: string;
 };
 
 export function IssueDetailView(props: IssueDetailViewProps) {
-  const { issueId, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo } = props;
+  const { issueId, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -125,6 +127,29 @@ export function IssueDetailView(props: IssueDetailViewProps) {
     },
     [onNewTaskWithPrompt, onClose],
   );
+
+  const handleUnlink = useCallback(async () => {
+    if (!projectId || !workspacePath) return;
+    onClose();
+    await window.electronAPI.linear.unlinkIssueFromWorkspace(
+      projectId,
+      workspacePath,
+      issueId,
+    );
+    useProjectStore.getState().loadProjects();
+  }, [projectId, workspacePath, issueId, onClose]);
+
+  const handleCloseTicket = useCallback(async () => {
+    if (!projectId || !workspacePath) return;
+    onClose();
+    await window.electronAPI.linear.closeIssue(issueId);
+    await window.electronAPI.linear.unlinkIssueFromWorkspace(
+      projectId,
+      workspacePath,
+      issueId,
+    );
+    useProjectStore.getState().loadProjects();
+  }, [projectId, workspacePath, issueId, onClose]);
 
   // Keyboard shortcuts — refs hold latest values so the mount effect never re-subscribes.
   const issueDetailRef = useRef(issueDetail);
@@ -245,9 +270,23 @@ export function IssueDetailView(props: IssueDetailViewProps) {
       </div>
       <div className={styles.detailFooter}>
         {linkedTo ? (
-          <span className={styles.footerLinked}>
-            Linked to <strong>{linkedTo}</strong>
-          </span>
+          <>
+            <span className={styles.footerLinked}>
+              Linked to <strong>{linkedTo}</strong>
+            </span>
+            <button
+              className={styles.footerHint}
+              onClick={handleUnlink}
+            >
+              <span>Unlink</span>
+            </button>
+            <button
+              className={`${styles.footerHint} ${styles.footerHintDanger}`}
+              onClick={handleCloseTicket}
+            >
+              <span>Close &amp; Unlink</span>
+            </button>
+          </>
         ) : (
           <>
             <button

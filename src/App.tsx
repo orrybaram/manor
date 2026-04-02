@@ -233,6 +233,7 @@ function App() {
   const selectPrevSession = useAppStore((s) => s.selectPrevSession);
   const splitPane = useAppStore((s) => s.splitPane);
   const requestClosePane = useAppStore((s) => s.requestClosePane);
+  const reopenClosedPane = useAppStore((s) => s.reopenClosedPane);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
@@ -293,6 +294,7 @@ function App() {
     "split-h": () => splitPane("horizontal"),
     "split-v": () => splitPane("vertical"),
     "close-pane": () => requestClosePane(),
+    "reopen-pane": () => reopenClosedPane(),
     "close-session": () => {
       const session = activeSessionRef.current;
       if (session) requestCloseSession(session.id);

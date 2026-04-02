@@ -3,7 +3,8 @@
     "allow": [
       "Bash(bun run:*)",
       "mcp__manor-webview__list_webviews",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(rtk proxy:*)"
     ]
   }
 }

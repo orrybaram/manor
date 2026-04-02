@@ -168,6 +168,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "browser",
   },
   {
+    id: "reopen-pane",
+    label: "Reopen Closed Pane",
+    defaultCombo: metaCombo("t", true),
+    category: "workspace",
+  },
+  {
     id: "copy-branch",
     label: "Copy Branch Name",
     defaultCombo: metaCombo(".", true),

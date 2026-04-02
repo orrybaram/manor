@@ -33,11 +33,17 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
               className={styles.contextMenuItem}
               onSelect={() => {
                 if (type === "task") {
-                  setPaneContentType(paneId, "terminal");
                   const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
-                  useAppStore.setState((state) => ({
-                    pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
-                  }));
+                  if (currentType === "terminal") {
+                    // Terminal already mounted — write directly
+                    window.electronAPI.pty.write(paneId, command + "\n");
+                  } else {
+                    // Switching from browser/diff — terminal will mount fresh
+                    setPaneContentType(paneId, "terminal");
+                    useAppStore.setState((state) => ({
+                      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
+                    }));
+                  }
                 } else {
                   setPaneContentType(paneId, type);
                 }

@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useQuery } from "@tanstack/react-query";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
+import CircleX from "lucide-react/dist/esm/icons/circle-x";
 import type { LinkedIssue, LinearIssueDetail, GitHubIssueDetail } from "../../../electron.d";
 import type { CommandPaletteProps } from "../../command-palette/types";
 import { IssueDetailView } from "../../command-palette/IssueDetailView";
@@ -112,10 +113,11 @@ type IssueRowProps = {
   isLoading: boolean;
   onClick: () => void;
   onUnlink: () => void;
+  onCloseTicket: () => void;
 };
 
 function IssueRow(props: IssueRowProps) {
-  const { issue, detail, isLoading, onClick, onUnlink } = props;
+  const { issue, detail, isLoading, onClick, onUnlink, onCloseTicket } = props;
 
   const stateName =
     detail?.source === "linear"
@@ -160,11 +162,18 @@ function IssueRow(props: IssueRowProps) {
       <ContextMenu.Portal>
         <ContextMenu.Content className={styles.contextMenu}>
           <ContextMenu.Item
-            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            className={styles.contextMenuItem}
             onSelect={onUnlink}
           >
             <Unlink size={12} />
             Unlink issue
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={onCloseTicket}
+          >
+            <CircleX size={12} />
+            Close &amp; unlink
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -272,6 +281,29 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
     [projectId, workspacePath, visibleIssues, onClose],
   );
 
+  const handleCloseTicket = useCallback(
+    async (issueId: string) => {
+      setRemovedIds((prev) => new Set(prev).add(issueId));
+      const remaining = visibleIssues.filter((i) => i.id !== issueId);
+      if (remaining.length === 0) {
+        onClose();
+      }
+      if (issueId.startsWith("gh-")) {
+        const number = parseInt(issueId.replace("gh-", ""), 10);
+        await window.electronAPI.github.closeIssue(repoPath, number);
+      } else {
+        await window.electronAPI.linear.closeIssue(issueId);
+      }
+      await window.electronAPI.linear.unlinkIssueFromWorkspace(
+        projectId,
+        workspacePath,
+        issueId,
+      );
+      useProjectStore.getState().loadProjects();
+    },
+    [projectId, workspacePath, repoPath, visibleIssues, onClose],
+  );
+
   const handleRowClick = useCallback((issueId: string) => {
     setSelectedIssueId(issueId);
     onClose(); // close popover, dialog takes over
@@ -317,6 +349,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                     isLoading={false}
                     onClick={() => handleRowClick(issue.id)}
                     onUnlink={() => handleUnlink(issue.id)}
+                    onCloseTicket={() => handleCloseTicket(issue.id)}
                   />
                 ),
               )}
@@ -348,6 +381,8 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                   onNewWorkspace={onNewWorkspace}
                   onNewTaskWithPrompt={onNewTaskWithPrompt}
                   linkedTo={workspaceLabel}
+                  projectId={projectId}
+                  workspacePath={workspacePath}
                 />
               ) : (
                 <IssueDetailView
@@ -357,6 +392,8 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                   onNewWorkspace={onNewWorkspace}
                   onNewTaskWithPrompt={onNewTaskWithPrompt}
                   linkedTo={workspaceLabel}
+                  projectId={projectId}
+                  workspacePath={workspacePath}
                 />
               )
             )}

@@ -22,6 +22,18 @@ import type {
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
 
+export interface ClosedPaneSnapshot {
+  paneId: string;
+  sessionId: string;
+  workspacePath: string;
+  contentType?: "terminal" | "browser" | "diff";
+  url?: string;
+  cwd?: string;
+  title?: string;
+}
+
+const MAX_CLOSED_PANE_STACK = 10;
+
 function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
 }
@@ -96,6 +108,8 @@ export interface AppState {
   layoutLoaded: boolean;
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
+  /** Stack of recently closed pane snapshots for reopen (LIFO, max 10) */
+  closedPaneStack: ClosedPaneSnapshot[];
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
   /** Pending startup commands keyed by pane ID (for split-with-task) */
@@ -148,6 +162,7 @@ export interface AppState {
   extractPaneToSession: (paneId: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
+  reopenClosedPane: () => void;
   requestClosePane: () => void;
   requestClosePaneById: (paneId: string) => void;
   setPendingCloseConfirmPaneId: (paneId: string | null) => void;
@@ -162,7 +177,10 @@ export interface AppState {
   setPaneTitle: (paneId: string, title: string) => void;
 
   // Pane content type
-  setPaneContentType: (paneId: string, contentType: "terminal" | "browser" | "diff") => void;
+  setPaneContentType: (
+    paneId: string,
+    contentType: "terminal" | "browser" | "diff",
+  ) => void;
 
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
@@ -179,14 +197,26 @@ export interface AppState {
   removeWorkspaceSessions: (workspacePath: string) => void;
 
   // Worktree setup progress tracking
-  worktreeSetupState: Record<string, {
-    steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
-    completed: boolean;
-    startScript?: string | null;
-    workspacePath?: string;
-  }>;
-  initWorktreeSetup: (wsPathHint: string, hasStartScript: boolean, startScript?: string | null) => void;
-  updateWorktreeSetupStep: (wsPath: string, step: SetupStep, status: StepStatus, message?: string) => void;
+  worktreeSetupState: Record<
+    string,
+    {
+      steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
+      completed: boolean;
+      startScript?: string | null;
+      workspacePath?: string;
+    }
+  >;
+  initWorktreeSetup: (
+    wsPathHint: string,
+    hasStartScript: boolean,
+    startScript?: string | null,
+  ) => void;
+  updateWorktreeSetupStep: (
+    wsPath: string,
+    step: SetupStep,
+    status: StepStatus,
+    message?: string,
+  ) => void;
   completeWorktreeSetup: (wsPath: string) => void;
   clearWorktreeSetup: (wsPath: string) => void;
   migrateWorktreeSetupPath: (fromKey: string, toKey: string) => void;
@@ -225,6 +255,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   webviewFocusedPaneId: null,
   layoutLoaded: false,
   closedPaneIds: new Set<string>(),
+  closedPaneStack: [],
   pendingStartupCommands: {},
   pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
@@ -242,7 +273,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         const cwds: Record<string, string> = {};
         const titles: Record<string, string> = {};
         const agents: Record<string, AgentState> = {};
-        const contentTypes: Record<string, "terminal" | "browser" | "diff"> = {};
+        const contentTypes: Record<string, "terminal" | "browser" | "diff"> =
+          {};
         const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
           for (const session of ws.sessions) {
@@ -311,7 +343,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const persisted = _cachedLayout.workspaces.find(
           (w) => w.workspacePath === path,
         );
-        if (persisted && persisted.sessions.length > 0) {
+        if (persisted && persisted.sessions?.length > 0) {
           return {
             activeWorkspacePath: path,
             workspaceSessions: {
@@ -429,9 +461,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                   ...ws,
                   selectedSessionId: session.id,
                   sessions: ws.sessions.map((s) =>
-                    s.id === session.id
-                      ? { ...s, focusedPaneId: paneId }
-                      : s,
+                    s.id === session.id ? { ...s, focusedPaneId: paneId } : s,
                   ),
                 },
               },
@@ -701,10 +731,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
         },
         ...(treeContentType && {
-          paneContentType: { ...state.paneContentType, [newPane]: treeContentType },
+          paneContentType: {
+            ...state.paneContentType,
+            [newPane]: treeContentType,
+          },
         }),
         ...(paneCommand && {
-          pendingPaneCommands: { ...state.pendingPaneCommands, [newPane]: paneCommand },
+          pendingPaneCommands: {
+            ...state.pendingPaneCommands,
+            [newPane]: paneCommand,
+          },
         }),
       };
     }),
@@ -999,10 +1035,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ws = state.workspaceSessions[path];
     if (!ws) return;
 
-    const session = ws.sessions.find((s) =>
-      hasPaneId(s.rootNode, paneId),
-    );
+    const session = ws.sessions.find((s) => hasPaneId(s.rootNode, paneId));
     if (!session) return;
+
+    // Snapshot the pane before removing it
+    const snapshot: ClosedPaneSnapshot = {
+      paneId,
+      sessionId: session.id,
+      workspacePath: path,
+      contentType: state.paneContentType[paneId],
+      url: state.paneUrl[paneId],
+      cwd: state.paneCwd[paneId],
+      title: state.paneTitle[paneId],
+    };
 
     const remaining = removePane(session.rootNode, paneId);
     if (remaining === null) {
@@ -1010,7 +1055,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const pid of allPaneIds(session.rootNode)) {
         newClosedPaneIds.add(pid);
       }
-      set({ closedPaneIds: newClosedPaneIds });
+      const newStack = [snapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
+      set({ closedPaneIds: newClosedPaneIds, closedPaneStack: newStack });
       get().closeSession(session.id);
       return;
     }
@@ -1024,6 +1070,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!currentWs) return s;
       const newClosedPaneIds = new Set(s.closedPaneIds);
       newClosedPaneIds.add(paneId);
+      const newStack = [snapshot, ...s.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
       const newAgentStatus = { ...s.paneAgentStatus };
@@ -1036,6 +1083,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete newPaneUrl[paneId];
       return {
         closedPaneIds: newClosedPaneIds,
+        closedPaneStack: newStack,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
@@ -1048,6 +1096,66 @@ export const useAppStore = create<AppState>((set, get) => ({
             sessions: currentWs.sessions.map((t) =>
               t.id === session.id
                 ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
+                : t,
+            ),
+          },
+        },
+      };
+    });
+  },
+
+  reopenClosedPane: () => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const ws = state.workspaceSessions[path];
+    if (!ws) return;
+
+    // Find the most recent snapshot for this workspace
+    const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
+    if (idx === -1) return;
+    const snapshot = state.closedPaneStack[idx];
+
+    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
+    if (!session) return;
+
+    const newPaneIdValue = newPaneId();
+    const contentType = snapshot.contentType ?? "terminal";
+
+    // Insert the new pane next to the focused pane
+    const newRoot = insertSplitAt(
+      session.rootNode,
+      session.focusedPaneId,
+      "horizontal",
+      newPaneIdValue,
+      "second",
+      contentType,
+    );
+
+    set((s) => {
+      const currentWs = s.workspaceSessions[path];
+      if (!currentWs) return s;
+      const newStack = [...s.closedPaneStack];
+      newStack.splice(idx, 1);
+      return {
+        closedPaneStack: newStack,
+        paneContentType: {
+          ...s.paneContentType,
+          [newPaneIdValue]: contentType,
+        },
+        ...(snapshot.cwd && {
+          paneCwd: { ...s.paneCwd, [newPaneIdValue]: snapshot.cwd },
+        }),
+        ...(snapshot.url && {
+          paneUrl: { ...s.paneUrl, [newPaneIdValue]: snapshot.url },
+        }),
+        workspaceSessions: {
+          ...s.workspaceSessions,
+          [path]: {
+            ...currentWs,
+            sessions: currentWs.sessions.map((t) =>
+              t.id === session.id
+                ? { ...t, rootNode: newRoot, focusedPaneId: newPaneIdValue }
                 : t,
             ),
           },
@@ -1222,7 +1330,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       return newState;
     }),
 
-  setPaneContentType: (paneId: string, contentType: "terminal" | "browser" | "diff") =>
+  setPaneContentType: (
+    paneId: string,
+    contentType: "terminal" | "browser" | "diff",
+  ) =>
     set((state) => {
       const current = state.paneContentType[paneId];
       if (current === contentType) return state;
@@ -1371,11 +1482,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { panePickedElement: rest };
     }),
 
-  initWorktreeSetup: (wsPathHint: string, hasStartScript: boolean, startScript?: string | null) =>
+  initWorktreeSetup: (
+    wsPathHint: string,
+    hasStartScript: boolean,
+    startScript?: string | null,
+  ) =>
     set((state) => {
-      const baseSteps: SetupStep[] = ["prune", "fetch", "create-worktree", "persist", "switch"];
+      const baseSteps: SetupStep[] = [
+        "prune",
+        "fetch",
+        "create-worktree",
+        "persist",
+        "switch",
+      ];
       if (hasStartScript) baseSteps.push("setup-script");
-      const steps = baseSteps.map((step) => ({ step, status: "pending" as StepStatus }));
+      const steps = baseSteps.map((step) => ({
+        step,
+        status: "pending" as StepStatus,
+      }));
       return {
         worktreeSetupState: {
           ...state.worktreeSetupState,
@@ -1389,7 +1513,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  updateWorktreeSetupStep: (wsPath: string, step: SetupStep, status: StepStatus, message?: string) =>
+  updateWorktreeSetupStep: (
+    wsPath: string,
+    step: SetupStep,
+    status: StepStatus,
+    message?: string,
+  ) =>
     set((state) => {
       const entry = state.worktreeSetupState[wsPath];
       if (!entry) return state;
@@ -1399,7 +1528,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           [wsPath]: {
             ...entry,
             steps: entry.steps.map((s) =>
-              s.step === step ? { ...s, status, ...(message !== undefined ? { message } : {}) } : s,
+              s.step === step
+                ? {
+                    ...s,
+                    status,
+                    ...(message !== undefined ? { message } : {}),
+                  }
+                : s,
             ),
           },
         },

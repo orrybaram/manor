@@ -272,9 +272,12 @@ export class LinearManager {
         { id: issueId },
       );
 
-      const startedState = data.issue.team.states.nodes.find(
+      const startedStates = data.issue.team.states.nodes.filter(
         (s) => s.type === "started",
       );
+      const startedState =
+        startedStates.find((s) => s.name === "In Progress") ??
+        startedStates[0];
       if (!startedState) return;
 
       const input: Record<string, string> = { stateId: startedState.id };
@@ -290,6 +293,46 @@ export class LinearManager {
       );
     } catch {
       // fire-and-forget; failures should not block workspace creation
+    }
+  }
+
+  async closeIssue(issueId: string): Promise<void> {
+    try {
+      const data = await this.graphql<{
+        issue: {
+          team: {
+            states: {
+              nodes: Array<{ id: string; name: string; type: string }>;
+            };
+          };
+        };
+      }>(
+        `query($id: String!) {
+          issue(id: $id) {
+            team {
+              states { nodes { id name type } }
+            }
+          }
+        }`,
+        { id: issueId },
+      );
+
+      const completedStates = data.issue.team.states.nodes.filter(
+        (s) => s.type === "completed",
+      );
+      const doneState =
+        completedStates.find((s) => s.name === "Done") ??
+        completedStates[0];
+      if (!doneState) return;
+
+      await this.graphql(
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) { success }
+        }`,
+        { id: issueId, input: { stateId: doneState.id } },
+      );
+    } catch {
+      // fire-and-forget
     }
   }
 

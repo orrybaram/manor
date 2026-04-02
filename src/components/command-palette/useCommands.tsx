@@ -230,11 +230,19 @@ export function useCommands({
         keywords: ["convert", "task", "pane", "agent", "claude"],
         action: () => {
           if (focusedPaneId) {
-            setPaneContentType(focusedPaneId, "terminal");
-            const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
-            useAppStore.setState((state) => ({
-              pendingPaneCommands: { ...state.pendingPaneCommands, [focusedPaneId]: command },
-            }));
+            const state = useAppStore.getState();
+            const command = getAgentCommand(state.activeWorkspacePath);
+            const currentType = state.paneContentType[focusedPaneId] ?? "terminal";
+            if (currentType === "terminal") {
+              // Terminal already mounted — write directly
+              window.electronAPI.pty.write(focusedPaneId, command + "\n");
+            } else {
+              // Switching from browser/diff — terminal will mount fresh
+              setPaneContentType(focusedPaneId, "terminal");
+              useAppStore.setState((s) => ({
+                pendingPaneCommands: { ...s.pendingPaneCommands, [focusedPaneId]: command },
+              }));
+            }
           }
           onClose();
         },

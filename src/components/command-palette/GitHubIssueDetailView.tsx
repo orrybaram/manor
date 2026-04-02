@@ -18,6 +18,8 @@ type GitHubIssueDetailViewProps = {
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
   onNewTaskWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
+  projectId?: string;
+  workspacePath?: string;
 };
 
 function slugify(title: string): string {
@@ -29,7 +31,7 @@ function slugify(title: string): string {
 }
 
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
-  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo } = props;
+  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -119,6 +121,29 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       );
     }
   }, [issueDetail, onNewTaskWithPrompt, repoPath, onClose]);
+
+  const handleUnlink = useCallback(async () => {
+    if (!projectId || !workspacePath) return;
+    onClose();
+    await window.electronAPI.linear.unlinkIssueFromWorkspace(
+      projectId,
+      workspacePath,
+      `gh-${issueNumber}`,
+    );
+    useProjectStore.getState().loadProjects();
+  }, [projectId, workspacePath, issueNumber, onClose]);
+
+  const handleCloseTicket = useCallback(async () => {
+    if (!projectId || !workspacePath) return;
+    onClose();
+    await window.electronAPI.github.closeIssue(repoPath, issueNumber);
+    await window.electronAPI.linear.unlinkIssueFromWorkspace(
+      projectId,
+      workspacePath,
+      `gh-${issueNumber}`,
+    );
+    useProjectStore.getState().loadProjects();
+  }, [projectId, workspacePath, repoPath, issueNumber, onClose]);
 
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
@@ -228,9 +253,23 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       </div>
       <div className={styles.detailFooter}>
         {linkedTo ? (
-          <span className={styles.footerLinked}>
-            Linked to <strong>{linkedTo}</strong>
-          </span>
+          <>
+            <span className={styles.footerLinked}>
+              Linked to <strong>{linkedTo}</strong>
+            </span>
+            <button
+              className={styles.footerHint}
+              onClick={handleUnlink}
+            >
+              <span>Unlink</span>
+            </button>
+            <button
+              className={`${styles.footerHint} ${styles.footerHintDanger}`}
+              onClick={handleCloseTicket}
+            >
+              <span>Close &amp; Unlink</span>
+            </button>
+          </>
         ) : (
           <>
             <button className={styles.footerHint} onClick={handleNewTask}>

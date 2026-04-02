@@ -221,7 +221,7 @@ function App() {
     [],
   );
 
-  const workspaceTabs = useAppStore((s) => s.workspaceTabs);
+  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
   const selectedTabId = ws?.selectedTabId ?? null;
@@ -275,9 +275,11 @@ function App() {
   // Helper to get the focused browser pane's ref (if focused pane is a browser)
   function getFocusedBrowserRef(): BrowserPaneRef | undefined {
     const state = useAppStore.getState();
-    const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
-    if (!wsState) return;
-    const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+    const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+    if (!layout) return;
+    const panel = layout.panels[layout.activePanelId];
+    if (!panel) return;
+    const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
     if (!tab) return;
     const focusedPaneId = tab.focusedPaneId;
     if (!focusedPaneId) return;
@@ -330,9 +332,11 @@ function App() {
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = useAppStore.getState();
-      const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
-      if (!wsState) return;
-      const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      if (!layout) return;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return;
+      const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
       const focusedPaneId = tab?.focusedPaneId;
       if (!focusedPaneId || state.paneContentType[focusedPaneId] !== "browser") return;
       const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
@@ -386,11 +390,11 @@ function App() {
     (task: TaskInfo) => {
       // If the task is active and has a pane, switch to it instead of opening a new tab
       if (task.status === "active" && task.paneId && task.workspacePath) {
-        const wsTabs =
-          useAppStore.getState().workspaceTabs[task.workspacePath];
-        if (wsTabs) {
-          const paneExists = wsTabs.tabs.some((tab) =>
-            hasPaneId(tab.rootNode, task.paneId!),
+        const wsLayout =
+          useAppStore.getState().workspaceLayouts[task.workspacePath];
+        if (wsLayout) {
+          const paneExists = Object.values(wsLayout.panels).some((panel) =>
+            panel.tabs.some((tab) => hasPaneId(tab.rootNode, task.paneId!)),
           );
           if (paneExists) {
             navigateToTask(task);
@@ -490,8 +494,9 @@ function App() {
             <div className="terminal-container">
               {/* Render all tabs across all workspaces — only show the active one.
                 Keeping all mounted prevents PTY sessions from being killed on switch. */}
-              {Object.entries(workspaceTabs).flatMap(([wpath, wsState]) =>
-                wsState.tabs.map((tab) => {
+              {Object.entries(workspaceLayouts).flatMap(([wpath, wsLayout]) =>
+                Object.values(wsLayout.panels).flatMap((panel) =>
+                panel.tabs.map((tab) => {
                   const isVisible =
                     wpath === activeWorkspacePath &&
                     tab.id === selectedTabId;
@@ -508,7 +513,7 @@ function App() {
                       />
                     </div>
                   );
-                }),
+                })),
               )}
               {wizardStillValid && wizardProjectId
                 ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>

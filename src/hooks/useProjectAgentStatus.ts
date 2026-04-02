@@ -16,17 +16,19 @@ export function useProjectAgentStatus(
     let bestPriority = 0;
 
     for (const ws of project.workspaces) {
-      const workspaceTabs = s.workspaceTabs[ws.path];
-      if (!workspaceTabs) continue;
+      const layout = s.workspaceLayouts[ws.path];
+      if (!layout) continue;
 
-      for (const tab of workspaceTabs.tabs) {
-        for (const paneId of allPaneIds(tab.rootNode)) {
-          const agent = s.paneAgentStatus[paneId];
-          if (!agent || agent.status === "idle") continue;
-          const p = STATUS_PRIORITY[agent.status] ?? 0;
-          if (p > bestPriority) {
-            bestPriority = p;
-            best = agent.status;
+      for (const panel of Object.values(layout.panels)) {
+        for (const tab of panel.tabs) {
+          for (const paneId of allPaneIds(tab.rootNode)) {
+            const agent = s.paneAgentStatus[paneId];
+            if (!agent || agent.status === "idle") continue;
+            const p = STATUS_PRIORITY[agent.status] ?? 0;
+            if (p > bestPriority) {
+              bestPriority = p;
+              best = agent.status;
+            }
           }
         }
       }

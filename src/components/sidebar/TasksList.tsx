@@ -30,27 +30,31 @@ export function TasksList(props: TasksListProps) {
   const { onShowAll } = props;
 
   const { tasks, seenTaskIds } = useTaskStore();
-  const workspaceTabs = useAppStore((s) => s.workspaceTabs);
+  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
 
-  // Collect all active pane IDs across all workspace tabs
+  // Collect all active pane IDs across all workspace layouts
   const activePaneIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const ws of Object.values(workspaceTabs)) {
-      for (const tab of ws.tabs) {
-        for (const id of allPaneIds(tab.rootNode)) {
-          ids.add(id);
+    for (const layout of Object.values(workspaceLayouts)) {
+      for (const panel of Object.values(layout.panels)) {
+        for (const tab of panel.tabs) {
+          for (const id of allPaneIds(tab.rootNode)) {
+            ids.add(id);
+          }
         }
       }
     }
     return ids;
-  }, [workspaceTabs]);
+  }, [workspaceLayouts]);
 
   // Collect visible pane IDs in the active tab (panes the user can currently see)
   const visiblePaneIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const ws of Object.values(workspaceTabs)) {
-      const activeTab = ws.tabs.find(
-        (s) => s.id === ws.selectedTabId,
+    for (const layout of Object.values(workspaceLayouts)) {
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) continue;
+      const activeTab = panel.tabs.find(
+        (s) => s.id === panel.selectedTabId,
       );
       if (activeTab) {
         for (const id of allPaneIds(activeTab.rootNode)) {
@@ -59,7 +63,7 @@ export function TasksList(props: TasksListProps) {
       }
     }
     return ids;
-  }, [workspaceTabs]);
+  }, [workspaceLayouts]);
 
   // Show active tasks always; show completed/error/abandoned only if their pane is still active
   const visibleTasks = useMemo(

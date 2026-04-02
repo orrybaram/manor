@@ -123,16 +123,19 @@ export const useTaskStore = create<TaskState>((set, get) => {
         const appState = useAppStore.getState();
         let isAlreadyVisible = false;
         if (task.paneId != null && appState.activeWorkspacePath) {
-          const ws = appState.workspaceTabs[appState.activeWorkspacePath];
-          if (ws) {
-            const activeTab = ws.tabs.find(
-              (s) => s.id === ws.selectedTabId,
-            );
-            if (
-              activeTab &&
-              hasPaneId(activeTab.rootNode, task.paneId)
-            ) {
-              isAlreadyVisible = true;
+          const layout = appState.workspaceLayouts[appState.activeWorkspacePath];
+          if (layout) {
+            const panel = layout.panels[layout.activePanelId];
+            if (panel) {
+              const activeTab = panel.tabs.find(
+                (s) => s.id === panel.selectedTabId,
+              );
+              if (
+                activeTab &&
+                hasPaneId(activeTab.rootNode, task.paneId)
+              ) {
+                isAlreadyVisible = true;
+              }
             }
           }
         }

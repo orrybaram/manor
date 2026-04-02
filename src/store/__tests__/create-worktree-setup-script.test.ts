@@ -52,7 +52,7 @@ describe("createWorktree setup script", () => {
       selectedProjectIndex: 0,
     });
     useAppStore.setState({
-      workspaceTabs: {},
+      workspaceLayouts: {},
       activeWorkspacePath: null,
       pendingStartupCommands: {},
     });
@@ -103,9 +103,11 @@ describe("createWorktree setup script", () => {
     ).toBe("npm install");
 
     // A terminal tab should be auto-created so the script actually runs
-    const ws = useAppStore.getState().workspaceTabs[worktreePath];
-    expect(ws).toBeDefined();
-    expect(ws!.tabs.length).toBe(1);
+    const layout = useAppStore.getState().workspaceLayouts[worktreePath];
+    expect(layout).toBeDefined();
+    const panel = layout!.panels[layout!.activePanelId];
+    expect(panel).toBeDefined();
+    expect(panel!.tabs.length).toBe(1);
   });
 
   it("combines start script and agent command when both provided", async () => {
@@ -171,8 +173,10 @@ describe("createWorktree setup script", () => {
 
     // Workspace activated but no tabs created
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
-    const ws = useAppStore.getState().workspaceTabs[worktreePath];
-    expect(ws).toBeDefined();
-    expect(ws!.tabs.length).toBe(0);
+    const layout = useAppStore.getState().workspaceLayouts[worktreePath];
+    expect(layout).toBeDefined();
+    const panel = layout!.panels[layout!.activePanelId];
+    expect(panel).toBeDefined();
+    expect(panel!.tabs.length).toBe(0);
   });
 });

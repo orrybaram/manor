@@ -11,7 +11,7 @@ import {
   webContents,
   clipboard,
 } from "electron";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1479,6 +1479,31 @@ function maybeSendNotification(
   const soundName = preferencesManager.get("notificationSound");
   if (typeof soundName === "string") {
     execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+  }
+}
+
+// When launched from Finder/Dock, macOS gives the app a minimal PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths
+// where tools like `gh` live. Spawn a login shell to get the real PATH.
+if (app.isPackaged) {
+  try {
+    const shell = process.env.SHELL || "/bin/zsh";
+    const result = execFileSync(shell, ["-lc", "echo $PATH"], {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    if (result) {
+      process.env.PATH = result;
+    }
+  } catch {
+    // If the login shell fails, fall back to adding common paths
+    const common = ["/opt/homebrew/bin", "/usr/local/bin"];
+    const current = process.env.PATH || "";
+    const segments = current.split(":");
+    const missing = common.filter((p) => !segments.includes(p));
+    if (missing.length) {
+      process.env.PATH = [...missing, current].join(":");
+    }
   }
 }
 

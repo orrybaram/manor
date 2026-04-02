@@ -179,6 +179,30 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo(".", true),
     category: "workspace",
   },
+  {
+    id: "split-panel-right",
+    label: "Split Panel Right",
+    defaultCombo: metaCombo("\\", false, true),
+    category: "workspace",
+  },
+  {
+    id: "split-panel-down",
+    label: "Split Panel Down",
+    defaultCombo: metaCombo("\\", true, true),
+    category: "workspace",
+  },
+  {
+    id: "focus-next-panel",
+    label: "Focus Next Panel",
+    defaultCombo: metaCombo("]", false, true),
+    category: "workspace",
+  },
+  {
+    id: "focus-prev-panel",
+    label: "Focus Previous Panel",
+    defaultCombo: metaCombo("[", false, true),
+    category: "workspace",
+  },
 ];
 
 /**

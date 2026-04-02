@@ -236,6 +236,11 @@ function App() {
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
+  const splitPanel = useAppStore((s) => s.splitPanel);
+  const focusNextPanel = useAppStore((s) => s.focusNextPanel);
+  const focusPrevPanel = useAppStore((s) => s.focusPrevPanel);
+  const closePanel = useAppStore((s) => s.closePanel);
+  const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -318,6 +323,32 @@ function App() {
           status: "success",
         });
       }
+    },
+    "split-panel-right": () => splitPanel("horizontal"),
+    "split-panel-down": () => splitPanel("vertical"),
+    "focus-next-panel": () => focusNextPanel(),
+    "focus-prev-panel": () => focusPrevPanel(),
+    "close-panel": () => {
+      const state = useAppStore.getState();
+      const wsPath = state.activeWorkspacePath;
+      if (!wsPath) return;
+      const layout = state.workspaceLayouts[wsPath];
+      if (!layout) return;
+      closePanel(layout.activePanelId);
+    },
+    "move-tab-to-next-panel": () => {
+      const state = useAppStore.getState();
+      const wsPath = state.activeWorkspacePath;
+      if (!wsPath) return;
+      const layout = state.workspaceLayouts[wsPath];
+      if (!layout) return;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return;
+      const panelIds = Object.keys(layout.panels);
+      if (panelIds.length < 2) return;
+      const idx = panelIds.indexOf(layout.activePanelId);
+      const nextId = panelIds[(idx + 1) % panelIds.length];
+      moveTabToPanel(panel.selectedTabId, nextId);
     },
     "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
     "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),

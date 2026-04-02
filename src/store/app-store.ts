@@ -654,6 +654,35 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete newPaneUrl[pid];
       }
 
+      // If this panel has no tabs left and there are other panels, auto-close it
+      const panelIds = Object.keys(layout.panels);
+      if (newTabs.length === 0 && panelIds.length > 1) {
+        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
+        const { [panel.id]: _, ...remainingPanels } = layout.panels;
+        const remainingIds = Object.keys(remainingPanels);
+        const newActivePanelId = remainingIds.includes(layout.activePanelId)
+          ? layout.activePanelId
+          : remainingIds[0];
+        return {
+          closedPaneIds: newClosedPaneIds,
+          closedPaneStack: newStack,
+          paneCwd: newCwd,
+          paneTitle: newTitle,
+          paneAgentStatus: newAgentStatus,
+          paneContentType: newContentType,
+          paneUrl: newPaneUrl,
+          workspaceLayouts: {
+            ...state.workspaceLayouts,
+            [path]: {
+              ...layout,
+              panelTree: newPanelTree ?? layout.panelTree,
+              panels: remainingPanels,
+              activePanelId: newActivePanelId,
+            },
+          },
+        };
+      }
+
       return {
         closedPaneIds: newClosedPaneIds,
         closedPaneStack: newStack,
@@ -1327,17 +1356,37 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusPane: (paneId: string) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === p.selectedTabId
-            ? { ...s, focusedPaneId: paneId }
-            : s,
-        ),
-      }));
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const layout = state.workspaceLayouts[path];
+      if (!layout) return state;
+
+      // Search all panels for the pane, not just the active one
+      for (const [panelId, panel] of Object.entries(layout.panels)) {
+        const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
+        if (tab) {
+          return {
+            workspaceLayouts: {
+              ...state.workspaceLayouts,
+              [path]: {
+                ...layout,
+                activePanelId: panelId,
+                panels: {
+                  ...layout.panels,
+                  [panelId]: {
+                    ...panel,
+                    selectedTabId: tab.id,
+                    tabs: panel.tabs.map((s) =>
+                      s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
+                    ),
+                  },
+                },
+              },
+            },
+          };
+        }
+      }
+      return state;
     }),
 
   focusNextPane: () =>

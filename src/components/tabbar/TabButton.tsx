@@ -43,6 +43,13 @@ export function TabButton(props: TabButtonProps) {
     const paneId = tab?.focusedPaneId;
     return paneId ? s.paneContentType[paneId] : undefined;
   });
+  const panelCount = useAppStore((s) => {
+    const wsPath = s.activeWorkspacePath;
+    if (!wsPath) return 1;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return 1;
+    return Object.keys(layout.panels).length;
+  });
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   return (
@@ -87,6 +94,45 @@ export function TabButton(props: TabButtonProps) {
           >
             {isPinned ? "Unpin Tab" : "Pin Tab"}
           </ContextMenu.Item>
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              const store = useAppStore.getState();
+              store.selectTab(tabId);
+              setTimeout(() => useAppStore.getState().splitPanel("horizontal"), 0);
+            }}
+          >
+            Move to New Panel Right
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              const store = useAppStore.getState();
+              store.selectTab(tabId);
+              setTimeout(() => useAppStore.getState().splitPanel("vertical"), 0);
+            }}
+          >
+            Move to New Panel Down
+          </ContextMenu.Item>
+          {panelCount > 1 && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                const state = useAppStore.getState();
+                const wsPath = state.activeWorkspacePath;
+                if (!wsPath) return;
+                const layout = state.workspaceLayouts[wsPath];
+                if (!layout) return;
+                const panelIds = Object.keys(layout.panels);
+                const currentIdx = panelIds.indexOf(layout.activePanelId);
+                const nextPanelId = panelIds[(currentIdx + 1) % panelIds.length];
+                state.moveTabToPanel(tabId, nextPanelId);
+              }}
+            >
+              Move Tab to Next Panel
+            </ContextMenu.Item>
+          )}
           {canClose && (
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />

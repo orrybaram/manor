@@ -1,6 +1,6 @@
 ---
 title: Update persistence with v2 layout format and migration
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

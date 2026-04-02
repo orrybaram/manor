@@ -21,9 +21,13 @@ export function PortBadge(props: PortBadgeProps) {
     addBrowserSession(url);
   }, [url, addBrowserSession]);
 
-  const handleOpenExternal = useCallback(() => {
-    window.electronAPI.shell.openExternal(url);
-  }, [url]);
+  const handleOpenExternal = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      window.electronAPI.shell.openExternal(url);
+    },
+    [url],
+  );
 
   const handleKillPort = useCallback(() => {
     window.electronAPI.ports.killPort(port.pid);

@@ -70,8 +70,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:quickMergeWorktree", projectId, worktreePath),
-    createWorktree: (projectId: string, name: string, branch?: string, linkedIssue?: { id: string; identifier: string; title: string; url: string }, baseBranch?: string) =>
-      ipcRenderer.invoke("projects:createWorktree", projectId, name, branch, linkedIssue, baseBranch),
+    createWorktree: (projectId: string, name: string, branch?: string, linkedIssue?: { id: string; identifier: string; title: string; url: string }, baseBranch?: string, useExistingBranch?: boolean) =>
+      ipcRenderer.invoke("projects:createWorktree", projectId, name, branch, linkedIssue, baseBranch, useExistingBranch),
     convertMainToWorktree: (projectId: string, name: string) =>
       ipcRenderer.invoke("projects:convertMainToWorktree", projectId, name),
     listRemoteBranches: (projectId: string) =>

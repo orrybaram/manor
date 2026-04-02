@@ -506,8 +506,8 @@ ipcMain.handle(
 
 ipcMain.handle(
   "projects:createWorktree",
-  (_event, projectId: string, name: string, branch?: string, linkedIssue?: import("./linear").LinkedIssue, baseBranch?: string) => {
-    return projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch);
+  (_event, projectId: string, name: string, branch?: string, linkedIssue?: import("./linear").LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
+    return projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
   },
 );
 

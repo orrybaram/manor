@@ -151,7 +151,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       if (!wv) return;
       let resolved = target;
       if (!/^https?:\/\//i.test(resolved)) {
-        resolved = `https://${resolved}`;
+        const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(resolved);
+        resolved = `${isLocal ? 'http' : 'https'}://${resolved}`;
       }
       wv.src = resolved;
       setUrl(resolved);

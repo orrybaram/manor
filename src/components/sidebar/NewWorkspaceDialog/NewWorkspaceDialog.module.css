@@ -19,7 +19,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 101;
-  width: 460px;
+  width: 520px;
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -77,6 +77,7 @@
   all: unset;
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
 .fieldset:disabled input,

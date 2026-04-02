@@ -3,6 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import styles from "./SearchableSelect.module.css";
+import { Row } from "../Layout/Layout";
 
 export type SearchableSelectOption = {
   value: string;
@@ -125,8 +126,10 @@ export function SearchableSelect(props: SearchableSelectProps) {
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
         >
-          {icon}
-          <span className={styles.triggerText}>{selectedLabel}</span>
+          <Row gap="xs" align="center">
+            {icon}
+            <span className={styles.triggerText}>{selectedLabel}</span>
+          </Row>
           <ChevronDown size={14} className={styles.chevron} />
         </button>
       </Popover.Trigger>

@@ -232,6 +232,7 @@ export interface ElectronAPI {
       branch?: string,
       linkedIssue?: import("./store/project-store").LinkedIssue,
       baseBranch?: string,
+      useExistingBranch?: boolean,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
     convertMainToWorktree: (
       projectId: string,

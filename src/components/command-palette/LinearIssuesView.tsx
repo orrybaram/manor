@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
@@ -28,11 +28,32 @@ type LinearIssuesViewProps = {
 export function LinearIssuesView(props: LinearIssuesViewProps) {
   const { allTeamIds, onSelectIssue, onEmptyChange } = props;
 
-  const [myIssues, setMyIssues] = useState(true);
-  const [stateTypes, setStateTypes] = useState<string[]>(["unstarted", "backlog"]);
-  const [priority, setPriority] = useState<number | null>(null);
+  const [myIssues, setMyIssues] = useState(() => {
+    const saved = localStorage.getItem("linear-issues-filter:myIssues");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [stateTypes, setStateTypes] = useState<string[]>(() => {
+    const saved = localStorage.getItem("linear-issues-filter:stateTypes");
+    return saved ? JSON.parse(saved) : ["unstarted", "backlog"];
+  });
+  const [priority, setPriority] = useState<number | null>(() => {
+    const saved = localStorage.getItem("linear-issues-filter:priority");
+    return saved !== null ? JSON.parse(saved) : null;
+  });
   const [statusOpen, setStatusOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem("linear-issues-filter:myIssues", String(myIssues));
+  }, [myIssues]);
+
+  useEffect(() => {
+    localStorage.setItem("linear-issues-filter:stateTypes", JSON.stringify(stateTypes));
+  }, [stateTypes]);
+
+  useEffect(() => {
+    localStorage.setItem("linear-issues-filter:priority", JSON.stringify(priority));
+  }, [priority]);
 
   const toggleStateType = useCallback((type: string) => {
     setStateTypes((prev) => {

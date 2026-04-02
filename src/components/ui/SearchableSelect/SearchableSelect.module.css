@@ -4,6 +4,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  justify-content: space-between;
   background: transparent;
   color: var(--text-primary);
   border: 1px solid var(--surface);

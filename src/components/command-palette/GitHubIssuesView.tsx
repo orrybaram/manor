@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
@@ -19,10 +19,24 @@ type GitHubIssuesViewProps = {
 export function GitHubIssuesView(props: GitHubIssuesViewProps) {
   const { repoPath, onSelectIssue, onEmptyChange } = props;
 
-  const [myIssues, setMyIssues] = useState(true);
-  const [stateFilter, setStateFilter] = useState<string[]>(["open"]);
+  const [myIssues, setMyIssues] = useState(() => {
+    const saved = localStorage.getItem("github-issues-filter:myIssues");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [stateFilter, setStateFilter] = useState<string[]>(() => {
+    const saved = localStorage.getItem("github-issues-filter:stateFilter");
+    return saved ? JSON.parse(saved) : ["open"];
+  });
   const [statusOpen, setStatusOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem("github-issues-filter:myIssues", String(myIssues));
+  }, [myIssues]);
+
+  useEffect(() => {
+    localStorage.setItem("github-issues-filter:stateFilter", JSON.stringify(stateFilter));
+  }, [stateFilter]);
 
   const toggleState = useCallback((state: string) => {
     setStateFilter((prev) => {

@@ -713,6 +713,7 @@ export class ProjectManager {
     branch?: string,
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
+    useExistingBranch?: boolean,
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
     if (!project) return null;
@@ -771,39 +772,19 @@ export class ProjectManager {
 
     const defaultBranchRef = baseBranch ?? `origin/${project.defaultBranch || "main"}`;
 
-    this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
-    try {
-      await execFileAsync(
-        "git",
-        ["worktree", "add", worktreePath, "-b", branchName, defaultBranchRef],
-        {
-          cwd: project.path,
-          timeout: 15000,
-        },
-      );
-    } catch (createErr) {
-      console.error(
-        "[ProjectManager] git worktree add -b failed:",
-        createErr instanceof Error ? createErr.message : createErr,
-      );
-      // Branch already exists — create worktree checking out the existing branch
+    if (useExistingBranch) {
+      // Check out an existing remote branch without creating a new one
+      this.emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
       try {
+        // Try checking out as a local branch first
         await execFileAsync(
           "git",
           ["worktree", "add", worktreePath, branchName],
-          {
-            cwd: project.path,
-            timeout: 15000,
-          },
+          { cwd: project.path, timeout: 15000 },
         );
       } catch {
-        // Neither new branch nor existing local branch — try remote tracking branch
+        // Local branch doesn't exist — create local tracking branch from remote
         try {
-          await execFileAsync(
-            "git",
-            ["fetch", "origin", branchName],
-            { cwd: project.path, timeout: 30000 },
-          );
           await execFileAsync(
             "git",
             ["worktree", "add", worktreePath, "-b", branchName, `origin/${branchName}`],
@@ -811,10 +792,58 @@ export class ProjectManager {
           );
         } catch (remoteErr) {
           console.error(
-            "[ProjectManager] git worktree add from remote also failed:",
+            "[ProjectManager] git worktree add existing branch failed:",
             remoteErr instanceof Error ? remoteErr.message : remoteErr,
           );
           throw remoteErr;
+        }
+      }
+    } else {
+      this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
+      try {
+        await execFileAsync(
+          "git",
+          ["worktree", "add", worktreePath, "-b", branchName, defaultBranchRef],
+          {
+            cwd: project.path,
+            timeout: 15000,
+          },
+        );
+      } catch (createErr) {
+        console.error(
+          "[ProjectManager] git worktree add -b failed:",
+          createErr instanceof Error ? createErr.message : createErr,
+        );
+        // Branch already exists — create worktree checking out the existing branch
+        try {
+          await execFileAsync(
+            "git",
+            ["worktree", "add", worktreePath, branchName],
+            {
+              cwd: project.path,
+              timeout: 15000,
+            },
+          );
+        } catch {
+          // Neither new branch nor existing local branch — try remote tracking branch
+          try {
+            await execFileAsync(
+              "git",
+              ["fetch", "origin", branchName],
+              { cwd: project.path, timeout: 30000 },
+            );
+            await execFileAsync(
+              "git",
+              ["worktree", "add", worktreePath, "-b", branchName, `origin/${branchName}`],
+              { cwd: project.path, timeout: 15000 },
+            );
+          } catch (remoteErr) {
+            console.error(
+              "[ProjectManager] git worktree add from remote also failed:",
+              remoteErr instanceof Error ? remoteErr.message : remoteErr,
+            );
+            throw remoteErr;
+          }
         }
       }
     }

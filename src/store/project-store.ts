@@ -171,6 +171,7 @@ interface ProjectState {
     agentCommand?: string,
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
+    useExistingBranch?: boolean,
   ) => Promise<string | null>;
   removeWorktree: (
     projectId: string,
@@ -297,6 +298,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     agentCommand?: string,
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
+    useExistingBranch?: boolean,
   ) => {
     const project = get().projects.find((p) => p.id === projectId);
     const startScript = project?.worktreeStartScript ?? null;
@@ -317,6 +319,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         branch,
         linkedIssue,
         baseBranch,
+        useExistingBranch,
       );
     } catch (err) {
       unsubProgress();

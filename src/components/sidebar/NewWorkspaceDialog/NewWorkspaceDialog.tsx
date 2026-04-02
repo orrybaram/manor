@@ -3,11 +3,13 @@ import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import Box from "lucide-react/dist/esm/icons/box";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
-import { Input, Select } from "../../ui/Input";
+import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
+import { ToggleGroup } from "../../ui/ToggleGroup";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
 
@@ -20,6 +22,8 @@ function slugify(str: string): string {
     .replace(/^-|-$/g, "");
 }
 
+type Mode = "new" | "existing";
+
 type NewWorkspaceDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -28,6 +32,7 @@ type NewWorkspaceDialogProps = {
     name: string,
     branchName: string,
     baseBranch: string,
+    useExistingBranch?: boolean,
   ) => Promise<boolean>;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
@@ -48,10 +53,12 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     initialBranch = "",
   } = props;
 
+  const [mode, setMode] = useState<Mode>("new");
   const [name, setName] = useState("");
   const [branchName, setBranchName] = useState("");
   const [branchManuallyEdited, setBranchManuallyEdited] = useState(false);
   const [baseBranch, setBaseBranch] = useState("");
+  const [existingBranch, setExistingBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -80,7 +87,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     enabled: open && !!activeProjectId,
   });
 
-  // Build the dropdown item list:
+  // Build the dropdown item list for base branch selection:
   // 1. defaultBranch (local)
   // 2. origin/{defaultBranch}
   // 3. all other remote branches prefixed with "origin/" (skip one matching defaultBranch)
@@ -95,9 +102,21 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [defaultBranch, remoteBranches],
   );
 
+  // Remote branches for "existing branch" mode (just the branch names, no origin/ prefix)
+  const existingBranchOptions = useMemo(
+    () => remoteBranches.filter((b) => b !== defaultBranch),
+    [remoteBranches, defaultBranch],
+  );
+
+  const projectOptions = useMemo(
+    () => projects.map((p) => ({ value: p.id, label: p.name })),
+    [projects],
+  );
+
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
+      setMode("new");
       setName(initialName);
       setBranchName(initialBranch || slugify(initialName));
       setBranchManuallyEdited(!!initialBranch);
@@ -107,6 +126,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           (preselectedProjectId || projects[selectedProjectIndex]?.id || ""),
       );
       setBaseBranch(proj?.defaultBranch ?? "main");
+      setExistingBranch("");
       setSelectedProjectId(defaultProjectId);
       setError(null);
       setIsCreating(false);
@@ -126,6 +146,32 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (isCreating) return;
+
+      const projectId = activeProjectId;
+      if (!projectId) {
+        setError("No project selected");
+        return;
+      }
+
+      if (mode === "existing") {
+        if (!existingBranch) {
+          setError("Select a branch");
+          return;
+        }
+        const wsName = name.trim() || existingBranch;
+        setError(null);
+        setIsCreating(true);
+        const success = await onSubmit(
+          projectId,
+          wsName,
+          existingBranch,
+          "",
+          true,
+        );
+        if (!success) setIsCreating(false);
+        return;
+      }
+
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError("Name is required");
@@ -140,11 +186,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError("Could not derive a valid branch name");
         return;
       }
-      const projectId = activeProjectId;
-      if (!projectId) {
-        setError("No project selected");
-        return;
-      }
       setError(null);
       setIsCreating(true);
       const success = await onSubmit(
@@ -157,7 +198,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setIsCreating(false);
       }
     },
-    [name, branchName, baseBranch, activeProjectId, onSubmit, isCreating],
+    [name, branchName, baseBranch, existingBranch, mode, activeProjectId, onSubmit, isCreating],
   );
 
   return (
@@ -185,59 +226,108 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           <form onSubmit={handleSubmit}>
             <Stack className={styles.body}>
               <fieldset disabled={isCreating} className={styles.fieldset}>
-                {projects.length > 1 && (
+                <ToggleGroup
+                  value={mode}
+                  onChange={setMode}
+                  size="sm"
+                  options={[
+                    { value: "new", label: "New branch" },
+                    { value: "existing", label: "Existing branch" },
+                  ]}
+                />
+                {mode === "existing" ? (
                   <>
-                    <label className={styles.fieldLabel}>Project</label>
-                    <Select
-                      value={activeProjectId}
-                      onChange={(e) => setSelectedProjectId(e.target.value)}
-                    >
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </Select>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Name</label>
+                      <Input
+                        ref={nameRef}
+                        type="text"
+                        value={name}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          setError(null);
+                        }}
+                        placeholder={existingBranch || "Workspace name"}
+                      />
+                    </Stack>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Branch</label>
+                      <SearchableSelect
+                        value={existingBranch}
+                        onChange={(val) => {
+                          setExistingBranch(val);
+                          if (!name.trim()) setName(val);
+                          setError(null);
+                        }}
+                        options={existingBranchOptions.map((b) => ({
+                          value: b,
+                          label: b,
+                        }))}
+                        loading={loadingBranches}
+                        emptyMessage="No remote branches found"
+                        icon={<GitBranch size={12} />}
+                        placeholder="Select a branch..."
+                      />
+                    </Stack>
+                  </>
+                ) : (
+                  <>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Name</label>
+                      <Input
+                        ref={nameRef}
+                        type="text"
+                        value={name}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          if (!branchManuallyEdited) {
+                            setBranchName(slugify(e.target.value));
+                          }
+                          setError(null);
+                        }}
+                        placeholder="My Feature"
+                      />
+                      <Input
+                        variant="ghost"
+                        monospace
+                        type="text"
+                        value={branchName}
+                        onChange={(e) => {
+                          setBranchName(e.target.value);
+                          setBranchManuallyEdited(true);
+                        }}
+                        placeholder="my-feature"
+                      />
+                    </Stack>
                   </>
                 )}
-                <label className={styles.fieldLabel}>Name</label>
-                <Input
-                  ref={nameRef}
-                  type="text"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (!branchManuallyEdited) {
-                      setBranchName(slugify(e.target.value));
-                    }
-                    setError(null);
-                  }}
-                  placeholder="My Feature"
-                />
-                <Input
-                  variant="ghost"
-                  monospace
-                  type="text"
-                  value={branchName}
-                  onChange={(e) => {
-                    setBranchName(e.target.value);
-                    setBranchManuallyEdited(true);
-                  }}
-                  placeholder="my-feature"
-                />
                 {error && <div className={styles.error}>{error}</div>}
                 <Row justify="space-between" gap="sm" className={styles.actions}>
-                  <SearchableSelect
-                    value={baseBranch}
-                    onChange={setBaseBranch}
-                    options={allBranchOptions.map((b) => ({
-                      value: b,
-                      label: b,
-                    }))}
-                    loading={loadingBranches}
-                    emptyMessage="No matching branches"
-                    icon={<GitBranch size={12} />}
-                  />
+                  <Row gap="sm">
+                    {projects.length > 1 && (
+                      <SearchableSelect
+                        value={activeProjectId}
+                        onChange={setSelectedProjectId}
+                        options={projectOptions}
+                        icon={<Box size={12} />}
+                        maxWidth={160}
+                      />
+                    )}
+                    {mode === "new" && (
+                      <SearchableSelect
+                        value={baseBranch}
+                        onChange={setBaseBranch}
+                        options={allBranchOptions.map((b) => ({
+                          value: b,
+                          label: b,
+                        }))}
+                        loading={loadingBranches}
+                        emptyMessage="No matching branches"
+                        icon={<GitBranch size={12} />}
+                        maxWidth={180}
+                      />
+                    )}
+                  </Row>
                   <Row gap="sm">
                     <Button type="button" variant="secondary" onClick={onClose}>
                       Cancel

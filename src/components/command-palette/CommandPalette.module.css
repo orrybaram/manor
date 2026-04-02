@@ -448,8 +448,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 8px 12px;
+  margin: -4px -4px 0;
   border-bottom: 1px solid var(--surface);
+  position: sticky;
+  top: -4px;
+  z-index: 5;
+  background: var(--dim);
 }
 
 .filterToggle {
@@ -459,7 +464,7 @@
   background: transparent;
   border: 1px solid var(--surface);
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   cursor: pointer;
   font-family: inherit;
   transition: background 100ms, color 100ms, border-color 100ms;
@@ -490,7 +495,7 @@
   background: transparent;
   border: 1px solid var(--surface);
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   cursor: pointer;
   font-family: inherit;
   transition: background 100ms, color 100ms;
@@ -552,11 +557,11 @@
   background: transparent;
   border: 1px solid var(--surface);
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   cursor: pointer;
   font-family: inherit;
   appearance: none;
-  padding-right: 18px;
+  padding-right: 20px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 5px center;

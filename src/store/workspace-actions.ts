@@ -32,7 +32,7 @@ export function removeWorktreeWithToast(
     }
   }
 
-  // Clean up sessions
+  // Clean up tabs
   appStore.removeWorkspaceTabs(ws.path);
 
   // Show toast and run async teardown
@@ -100,7 +100,7 @@ export function quickMergeWorktreeWithToast(
     }
   }
 
-  // Clean up sessions
+  // Clean up tabs
   appStore.removeWorkspaceTabs(ws.path);
 
   // Show toast and run async merge

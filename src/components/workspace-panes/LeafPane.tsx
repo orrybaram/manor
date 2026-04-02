@@ -357,7 +357,7 @@ export function LeafPane(props: LeafPaneProps) {
             />
           </PaneContextMenu>
         ) : (
-          <TerminalPane paneId={paneId} cwd={workspacePath} />
+          <TerminalPane paneId={paneId} cwd={paneCwd || workspacePath} />
         )}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

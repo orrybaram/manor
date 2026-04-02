@@ -1116,21 +1116,41 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
-    const session = ws.sessions.find((s) => s.id === ws.selectedSessionId);
-    if (!session) return;
-
-    const newPaneIdValue = newPaneId();
     const contentType = snapshot.contentType ?? "terminal";
+    const originalSession = ws.sessions.find((s) => s.id === snapshot.sessionId);
 
-    // Insert the new pane next to the focused pane
-    const newRoot = insertSplitAt(
-      session.rootNode,
-      session.focusedPaneId,
-      "horizontal",
-      newPaneIdValue,
-      "second",
-      contentType,
-    );
+    // Reuse the original pane ID so the daemon session (still alive during
+    // the grace period) is reattached instead of creating a fresh terminal.
+    const restoredPaneId = snapshot.paneId;
+    let selectedSessionId: string;
+    let sessionsUpdater: (sessions: Session[]) => Session[];
+
+    if (originalSession) {
+      selectedSessionId = originalSession.id;
+      const newRoot = insertSplitAt(
+        originalSession.rootNode,
+        originalSession.focusedPaneId,
+        "horizontal",
+        restoredPaneId,
+        "second",
+        contentType,
+      );
+      sessionsUpdater = (sessions) =>
+        sessions.map((t) =>
+          t.id === originalSession.id
+            ? { ...t, rootNode: newRoot, focusedPaneId: restoredPaneId }
+            : t,
+        );
+    } else {
+      const newSession: Session = {
+        id: newSessionId(),
+        title: snapshot.title ?? "Terminal",
+        rootNode: { type: "leaf", paneId: restoredPaneId },
+        focusedPaneId: restoredPaneId,
+      };
+      selectedSessionId = newSession.id;
+      sessionsUpdater = (sessions) => [...sessions, newSession];
+    }
 
     set((s) => {
       const currentWs = s.workspaceSessions[path];
@@ -1141,23 +1161,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         closedPaneStack: newStack,
         paneContentType: {
           ...s.paneContentType,
-          [newPaneIdValue]: contentType,
+          [restoredPaneId]: contentType,
         },
         ...(snapshot.cwd && {
-          paneCwd: { ...s.paneCwd, [newPaneIdValue]: snapshot.cwd },
+          paneCwd: { ...s.paneCwd, [restoredPaneId]: snapshot.cwd },
         }),
         ...(snapshot.url && {
-          paneUrl: { ...s.paneUrl, [newPaneIdValue]: snapshot.url },
+          paneUrl: { ...s.paneUrl, [restoredPaneId]: snapshot.url },
         }),
         workspaceSessions: {
           ...s.workspaceSessions,
           [path]: {
             ...currentWs,
-            sessions: currentWs.sessions.map((t) =>
-              t.id === session.id
-                ? { ...t, rootNode: newRoot, focusedPaneId: newPaneIdValue }
-                : t,
-            ),
+            selectedSessionId,
+            sessions: sessionsUpdater(currentWs.sessions),
           },
         },
       };

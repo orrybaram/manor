@@ -23,6 +23,29 @@ import { useTerminalResize } from "./useTerminalResize";
 import { useMountEffect } from "./useMountEffect";
 import type { ITheme } from "@xterm/xterm";
 
+/** Grace period (ms) before a closed pane's PTY session is killed. */
+const CLOSE_GRACE_MS = 10_000;
+
+/** Pending kill timers for panes that were explicitly closed. */
+const pendingKillTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function schedulePtyKill(paneId: string) {
+  cancelPtyKill(paneId);
+  const timer = setTimeout(() => {
+    pendingKillTimers.delete(paneId);
+    window.electronAPI.pty.close(paneId);
+  }, CLOSE_GRACE_MS);
+  pendingKillTimers.set(paneId, timer);
+}
+
+function cancelPtyKill(paneId: string) {
+  const timer = pendingKillTimers.get(paneId);
+  if (timer != null) {
+    clearTimeout(timer);
+    pendingKillTimers.delete(paneId);
+  }
+}
+
 export function useTerminalLifecycle(
   containerRef: React.RefObject<HTMLDivElement | null>,
   paneId: string,
@@ -33,7 +56,7 @@ export function useTerminalLifecycle(
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const { write, resize, create, close, detach } =
+  const { write, resize, create, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
 
@@ -79,6 +102,10 @@ export function useTerminalLifecycle(
   useMountEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // If this pane was recently closed and is being restored, cancel the
+    // pending kill so the daemon session stays alive for reattach.
+    cancelPtyKill(paneId);
 
     const t = new Terminal(
       terminalOptions({
@@ -221,14 +248,14 @@ export function useTerminalLifecycle(
       setTerm(null);
       setFitAddon(null);
       termRef.current = null;
-      // Check if this pane was explicitly closed by the user (Cmd+W).
-      // If so, kill the daemon session. Otherwise, just detach (keeps it alive for warm restore).
+      // Always detach (keep the PTY alive in the daemon).
+      // If the user explicitly closed the pane, schedule a delayed kill
+      // so they can undo within the grace period.
       const { closedPaneIds } = useAppStore.getState();
+      detach();
       if (closedPaneIds.has(paneId)) {
         closedPaneIds.delete(paneId);
-        close();
-      } else {
-        detach();
+        schedulePtyKill(paneId);
       }
       t.dispose();
     };

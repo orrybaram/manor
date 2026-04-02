@@ -199,8 +199,9 @@ export function CommandPalette(props: CommandPaletteProps) {
     // Focus the terminal in the currently focused pane, not just the first one in the DOM
     const state = useAppStore.getState();
     const path = state.activeWorkspacePath;
-    const ws = path ? state.workspaceTabs[path] : undefined;
-    const tab = ws?.tabs.find((s) => s.id === ws?.selectedTabId);
+    const layout = path ? state.workspaceLayouts[path] : undefined;
+    const panel = layout ? layout.panels[layout.activePanelId] : undefined;
+    const tab = panel?.tabs.find((s) => s.id === panel?.selectedTabId);
     const focusedPaneId = tab?.focusedPaneId;
     if (focusedPaneId) {
       const paneEl = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);

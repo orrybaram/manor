@@ -95,6 +95,7 @@ export function useCommands({
       {
         id: "new-browser",
         label: "New Browser Window",
+        shortcut: fmt("new-browser"),
         action: () => {
           addBrowserTab("about:blank");
           onClose();
@@ -289,6 +290,62 @@ export function useCommands({
         shortcut: fmt("toggle-sidebar"),
         action: () => {
           toggleSidebar();
+          onClose();
+        },
+      },
+      {
+        id: "split-panel-right",
+        label: "Split Panel Right",
+        icon: <Columns2 size={14} />,
+        shortcut: fmt("split-panel-right"),
+        keywords: ["panel", "split", "right"],
+        action: () => {
+          useAppStore.getState().splitPanel("horizontal");
+          onClose();
+        },
+      },
+      {
+        id: "split-panel-down",
+        label: "Split Panel Down",
+        icon: <Rows2 size={14} />,
+        shortcut: fmt("split-panel-down"),
+        keywords: ["panel", "split", "down"],
+        action: () => {
+          useAppStore.getState().splitPanel("vertical");
+          onClose();
+        },
+      },
+      {
+        id: "close-panel",
+        label: "Close Panel",
+        keywords: ["panel", "close"],
+        action: () => {
+          const state = useAppStore.getState();
+          const wsPath = state.activeWorkspacePath;
+          if (!wsPath) return;
+          const layout = state.workspaceLayouts[wsPath];
+          if (!layout) return;
+          state.closePanel(layout.activePanelId);
+          onClose();
+        },
+      },
+      {
+        id: "focus-next-panel",
+        label: "Focus Next Panel",
+        shortcut: fmt("focus-next-panel"),
+        keywords: ["panel", "next", "focus"],
+        action: () => {
+          useAppStore.getState().focusNextPanel();
+          onClose();
+        },
+      },
+      {
+        id: "focus-prev-panel",
+        label: "Focus Previous Panel",
+        shortcut: fmt("focus-prev-panel"),
+        keywords: ["panel", "previous", "focus"],
+        action: () => {
+          useAppStore.getState().focusPrevPanel();
           onClose();
         },
       },

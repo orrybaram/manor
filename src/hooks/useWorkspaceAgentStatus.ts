@@ -14,17 +14,19 @@ export function useWorkspaceAgentStatus(
     let best: AgentStatus | null = null;
     let bestPriority = 0;
 
-    const workspaceTabs = s.workspaceTabs[workspacePath];
-    if (!workspaceTabs) return null;
+    const layout = s.workspaceLayouts[workspacePath];
+    if (!layout) return null;
 
-    for (const tab of workspaceTabs.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) {
-        const agent = s.paneAgentStatus[paneId];
-        if (!agent || agent.status === "idle") continue;
-        const p = STATUS_PRIORITY[agent.status] ?? 0;
-        if (p > bestPriority) {
-          bestPriority = p;
-          best = agent.status;
+    for (const panel of Object.values(layout.panels)) {
+      for (const tab of panel.tabs) {
+        for (const paneId of allPaneIds(tab.rootNode)) {
+          const agent = s.paneAgentStatus[paneId];
+          if (!agent || agent.status === "idle") continue;
+          const p = STATUS_PRIORITY[agent.status] ?? 0;
+          if (p > bestPriority) {
+            bestPriority = p;
+            best = agent.status;
+          }
         }
       }
     }

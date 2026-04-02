@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as crypto from "node:crypto";
 /**
  * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
  * Vite entry point and cannot import from the renderer bundle.
@@ -17,6 +18,13 @@ import * as os from "node:os";
 type PaneNode =
   | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser" | "diff"; url?: string }
   | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PaneNode; second: PaneNode };
+
+/**
+ * Duplicated from src/store/panel-tree.ts — same reason as PaneNode above.
+ */
+type PanelNode =
+  | { type: "leaf"; panelId: string }
+  | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PanelNode; second: PanelNode };
 
 function allPaneIds(node: PaneNode): string[] {
   if (node.type === "leaf") return [node.paneId];
@@ -59,17 +67,63 @@ export interface PersistedTab {
   paneSessions: Record<string, PersistedPaneSession>;
 }
 
-/** Persisted workspace state */
-export interface PersistedWorkspace {
+/** V1 persisted workspace state (kept for migration) */
+export interface PersistedWorkspaceV1 {
   workspacePath: string;
   tabs: PersistedTab[];
   selectedTabId: string;
+  pinnedTabIds?: string[];
 }
 
-/** Full persisted layout */
-export interface PersistedLayout {
+/** V1 full persisted layout (kept for migration) */
+export interface PersistedLayoutV1 {
   version: 1;
+  workspaces: PersistedWorkspaceV1[];
+}
+
+/** Persisted panel (v2) */
+export interface PersistedPanel {
+  id: string;
+  tabs: PersistedTab[];
+  selectedTabId: string;
+  pinnedTabIds: string[];
+}
+
+/** Persisted workspace state (v2) */
+export interface PersistedWorkspace {
+  workspacePath: string;
+  panelTree: PanelNode;
+  panels: Record<string, PersistedPanel>;
+  activePanelId: string;
+}
+
+/** Full persisted layout (v2) */
+export interface PersistedLayout {
+  version: 2;
   workspaces: PersistedWorkspace[];
+}
+
+/** Migrate a v1 layout to v2 by wrapping each workspace's tabs in a single panel. */
+function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayout {
+  return {
+    version: 2,
+    workspaces: v1.workspaces.map((ws) => {
+      const panelId = `panel-${crypto.randomUUID()}`;
+      return {
+        workspacePath: ws.workspacePath,
+        panelTree: { type: "leaf" as const, panelId },
+        panels: {
+          [panelId]: {
+            id: panelId,
+            tabs: ws.tabs,
+            selectedTabId: ws.selectedTabId,
+            pinnedTabIds: ws.pinnedTabIds ?? [],
+          },
+        },
+        activePanelId: panelId,
+      };
+    }),
+  };
 }
 
 export class LayoutPersistence {
@@ -86,11 +140,19 @@ export class LayoutPersistence {
     fs.writeFileSync(this.filePath, JSON.stringify(layout, null, 2));
   }
 
-  /** Load the layout from disk. Returns null if file doesn't exist. */
+  /** Load the layout from disk. Returns null if file doesn't exist. Migrates v1 to v2. */
   load(): PersistedLayout | null {
     try {
       const raw = fs.readFileSync(this.filePath, "utf-8");
-      return JSON.parse(raw) as PersistedLayout;
+      const data = JSON.parse(raw);
+      // Migrate v1 -> v2 if needed
+      if (!data.version || data.version === 1) {
+        const migrated = migrateV1toV2(data as PersistedLayoutV1);
+        // Save migrated format back to disk
+        this.save(migrated);
+        return migrated;
+      }
+      return data as PersistedLayout;
     } catch {
       return null;
     }
@@ -100,7 +162,7 @@ export class LayoutPersistence {
   saveWorkspace(workspace: PersistedWorkspace): void {
     let layout = this.load();
     if (!layout) {
-      layout = { version: 1, workspaces: [] };
+      layout = { version: 2, workspaces: [] };
     }
 
     const idx = layout.workspaces.findIndex(
@@ -141,28 +203,30 @@ export class LayoutPersistence {
   ): ReconciliationPlan {
     const actions: PaneRestoreAction[] = [];
 
-    for (const tab of workspace.tabs) {
-      for (const { paneId, contentType } of allLeaves(tab.rootNode)) {
-        // Non-terminal panes (diff, browser, etc.) don't have daemon sessions —
-        // they are restored from the pane tree's contentType alone.
-        if (contentType && contentType !== "terminal") {
-          continue;
-        }
+    for (const panel of Object.values(workspace.panels)) {
+      for (const tab of panel.tabs) {
+        for (const { paneId, contentType } of allLeaves(tab.rootNode)) {
+          // Non-terminal panes (diff, browser, etc.) don't have daemon sessions —
+          // they are restored from the pane tree's contentType alone.
+          if (contentType && contentType !== "terminal") {
+            continue;
+          }
 
-        const paneSession = tab.paneSessions[paneId];
-        if (!paneSession) {
-          actions.push({ type: "fresh", paneId, cwd: null });
-          continue;
-        }
+          const paneSession = tab.paneSessions[paneId];
+          if (!paneSession) {
+            actions.push({ type: "fresh", paneId, cwd: null });
+            continue;
+          }
 
-        const { daemonSessionId, lastCwd } = paneSession;
+          const { daemonSessionId, lastCwd } = paneSession;
 
-        if (aliveDaemonSessionIds.has(daemonSessionId)) {
-          actions.push({ type: "warm", paneId, daemonSessionId });
-        } else if (persistedSessionIds.has(daemonSessionId)) {
-          actions.push({ type: "cold", paneId, daemonSessionId, lastCwd });
-        } else {
-          actions.push({ type: "fresh", paneId, cwd: lastCwd });
+          if (aliveDaemonSessionIds.has(daemonSessionId)) {
+            actions.push({ type: "warm", paneId, daemonSessionId });
+          } else if (persistedSessionIds.has(daemonSessionId)) {
+            actions.push({ type: "cold", paneId, daemonSessionId, lastCwd });
+          } else {
+            actions.push({ type: "fresh", paneId, cwd: lastCwd });
+          }
         }
       }
     }

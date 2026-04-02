@@ -1,10 +1,16 @@
-import { useAppStore, selectActiveWorkspace } from "../store/app-store";
+import { useAppStore } from "../store/app-store";
 
 export function useTabTitle(tabId: string): string {
   const focusedPaneId = useAppStore((s) => {
-    const ws = selectActiveWorkspace(s);
-    const tab = ws?.tabs.find((t) => t.id === tabId);
-    return tab?.focusedPaneId ?? null;
+    const wsPath = s.activeWorkspacePath;
+    if (!wsPath) return null;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return null;
+    for (const panel of Object.values(layout.panels)) {
+      const tab = panel.tabs.find((t) => t.id === tabId);
+      if (tab) return tab.focusedPaneId;
+    }
+    return null;
   });
 
   const title = useAppStore((s) =>

@@ -33,7 +33,7 @@ export function removeWorktreeWithToast(
   }
 
   // Clean up tabs
-  appStore.removeWorkspaceTabs(ws.path);
+  appStore.removeWorkspaceLayout(ws.path);
 
   // Show toast and run async teardown
   const toastId = `toast-${crypto.randomUUID()}`;
@@ -101,7 +101,7 @@ export function quickMergeWorktreeWithToast(
   }
 
   // Clean up tabs
-  appStore.removeWorkspaceTabs(ws.path);
+  appStore.removeWorkspaceLayout(ws.path);
 
   // Show toast and run async merge
   const toastId = `toast-${crypto.randomUUID()}`;

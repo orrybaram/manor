@@ -72,8 +72,9 @@ export function useTerminalLifecycle(
   // (the container's visibility must be "visible" before focus can succeed).
   const isFocusedPane = useAppStore((state) => {
     const path = state.activeWorkspacePath;
-    const ws = path ? state.workspaceTabs[path] : undefined;
-    const tab = ws?.tabs.find((t) => t.id === ws?.selectedTabId);
+    const layout = path ? state.workspaceLayouts[path] : undefined;
+    const panel = layout ? layout.panels[layout.activePanelId] : undefined;
+    const tab = panel?.tabs.find((t) => t.id === panel?.selectedTabId);
     return tab?.focusedPaneId === paneId;
   });
 

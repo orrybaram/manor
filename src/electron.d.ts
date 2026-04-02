@@ -123,15 +123,39 @@ export interface PersistedTab {
   paneSessions: Record<string, PersistedPaneSession>;
 }
 
-export interface PersistedWorkspace {
+/** V1 persisted workspace (kept for migration reference) */
+export interface PersistedWorkspaceV1 {
   workspacePath: string;
   tabs: PersistedTab[];
   selectedTabId: string;
   pinnedTabIds?: string[];
 }
 
-export interface PersistedLayout {
+/** V1 persisted layout (kept for migration reference) */
+export interface PersistedLayoutV1 {
   version: 1;
+  workspaces: PersistedWorkspaceV1[];
+}
+
+/** Persisted panel (v2) */
+export interface PersistedPanel {
+  id: string;
+  tabs: PersistedTab[];
+  selectedTabId: string;
+  pinnedTabIds: string[];
+}
+
+/** Persisted workspace state (v2) */
+export interface PersistedWorkspace {
+  workspacePath: string;
+  panelTree: import("./store/panel-tree").PanelNode;
+  panels: Record<string, PersistedPanel>;
+  activePanelId: string;
+}
+
+/** Full persisted layout (v2) */
+export interface PersistedLayout {
+  version: 2;
   workspaces: PersistedWorkspace[];
 }
 

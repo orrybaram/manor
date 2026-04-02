@@ -1,6 +1,6 @@
 ---
 title: Add PanelLayout and SplitPanelLayout components
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

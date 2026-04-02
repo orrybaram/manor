@@ -7,7 +7,7 @@ import { hasPaneId } from "../store/pane-tree";
 export function navigateToTask(task: TaskInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
-  const { workspaceTabs } = useAppStore.getState();
+  const { workspaceLayouts } = useAppStore.getState();
 
   // Find the project by projectId
   const projectIndex = projects.findIndex((p) => p.id === task.projectId);
@@ -20,16 +20,19 @@ export function navigateToTask(task: TaskInfo) {
   );
   if (workspaceIndex < 0) return;
 
-  // Find the tab containing task.paneId
+  // Find the tab containing task.paneId by searching all panels
   let tabId: string | null = null;
   if (task.paneId && task.workspacePath) {
-    const wsTabs = workspaceTabs[task.workspacePath];
-    if (wsTabs) {
-      for (const tab of wsTabs.tabs) {
-        if (hasPaneId(tab.rootNode, task.paneId)) {
-          tabId = tab.id;
-          break;
+    const layout = workspaceLayouts[task.workspacePath];
+    if (layout) {
+      for (const panel of Object.values(layout.panels)) {
+        for (const tab of panel.tabs) {
+          if (hasPaneId(tab.rootNode, task.paneId)) {
+            tabId = tab.id;
+            break;
+          }
         }
+        if (tabId) break;
       }
     }
   }
@@ -43,16 +46,19 @@ export function navigateToTask(task: TaskInfo) {
     if (tabId || task.paneId) {
       useAppStore.setState((state) => {
         const wsPath = task.workspacePath!;
-        const ws = state.workspaceTabs[wsPath];
-        if (!ws) return state;
+        const layout = state.workspaceLayouts[wsPath];
+        if (!layout) return state;
 
-        const updatedWs = { ...ws };
+        const panel = layout.panels[layout.activePanelId];
+        if (!panel) return state;
+
+        const updatedPanel = { ...panel };
         if (tabId) {
-          updatedWs.selectedTabId = tabId;
+          updatedPanel.selectedTabId = tabId;
         }
         if (task.paneId) {
-          const targetTabId = tabId ?? ws.selectedTabId;
-          updatedWs.tabs = updatedWs.tabs.map((s) =>
+          const targetTabId = tabId ?? panel.selectedTabId;
+          updatedPanel.tabs = updatedPanel.tabs.map((s) =>
             s.id === targetTabId
               ? { ...s, focusedPaneId: task.paneId! }
               : s,
@@ -61,9 +67,15 @@ export function navigateToTask(task: TaskInfo) {
 
         return {
           activeWorkspacePath: wsPath,
-          workspaceTabs: {
-            ...state.workspaceTabs,
-            [wsPath]: updatedWs,
+          workspaceLayouts: {
+            ...state.workspaceLayouts,
+            [wsPath]: {
+              ...layout,
+              panels: {
+                ...layout.panels,
+                [layout.activePanelId]: updatedPanel,
+              },
+            },
           },
         };
       });

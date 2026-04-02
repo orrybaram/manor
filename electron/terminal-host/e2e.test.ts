@@ -41,6 +41,7 @@ import { ScrollbackWriter, type SessionMeta } from "./scrollback";
 import {
   LayoutPersistence,
   type PersistedWorkspace,
+  type PersistedPanel,
   type PersistedTab,
 } from "./layout-persistence";
 import type { ControlRequest, ControlResponse } from "./types";
@@ -761,10 +762,19 @@ describe("E2E: layout persistence + reconciliation", () => {
       });
     }
 
+    const panelId = "panel-default";
     return {
       workspacePath: "/project/main",
-      tabs,
-      selectedTabId: "tab-1",
+      panelTree: { type: "leaf", panelId },
+      panels: {
+        [panelId]: {
+          id: panelId,
+          tabs,
+          selectedTabId: "tab-1",
+          pinnedTabIds: [],
+        },
+      },
+      activePanelId: panelId,
     };
   }
 
@@ -961,46 +971,55 @@ describe("E2E: layout persistence + reconciliation", () => {
     await c.readLine();
 
     // Layout has 3 panes: A (daemon alive), B (scrollback on disk), C (nothing)
+    const panelId = "panel-default";
     const workspace: PersistedWorkspace = {
       workspacePath: "/project/main",
-      tabs: [
-        {
-          id: "tab-1",
-          title: "Terminal",
-          rootNode: {
-            type: "split",
-            direction: "horizontal",
-            ratio: 0.5,
-            first: { type: "leaf", paneId: "pane-A" },
-            second: {
-              type: "split",
-              direction: "vertical",
-              ratio: 0.5,
-              first: { type: "leaf", paneId: "pane-B" },
-              second: { type: "leaf", paneId: "pane-C" },
+      panelTree: { type: "leaf", panelId },
+      panels: {
+        [panelId]: {
+          id: panelId,
+          tabs: [
+            {
+              id: "tab-1",
+              title: "Terminal",
+              rootNode: {
+                type: "split",
+                direction: "horizontal",
+                ratio: 0.5,
+                first: { type: "leaf", paneId: "pane-A" },
+                second: {
+                  type: "split",
+                  direction: "vertical",
+                  ratio: 0.5,
+                  first: { type: "leaf", paneId: "pane-B" },
+                  second: { type: "leaf", paneId: "pane-C" },
+                },
+              },
+              focusedPaneId: "pane-A",
+              paneSessions: {
+                "pane-A": {
+                  daemonSessionId: "pane-A",
+                  lastCwd: "/project",
+                  lastTitle: null,
+                },
+                "pane-B": {
+                  daemonSessionId: "pane-B",
+                  lastCwd: "/old",
+                  lastTitle: null,
+                },
+                "pane-C": {
+                  daemonSessionId: "pane-C",
+                  lastCwd: "/gone",
+                  lastTitle: null,
+                },
+              },
             },
-          },
-          focusedPaneId: "pane-A",
-          paneSessions: {
-            "pane-A": {
-              daemonSessionId: "pane-A",
-              lastCwd: "/project",
-              lastTitle: null,
-            },
-            "pane-B": {
-              daemonSessionId: "pane-B",
-              lastCwd: "/old",
-              lastTitle: null,
-            },
-            "pane-C": {
-              daemonSessionId: "pane-C",
-              lastCwd: "/gone",
-              lastTitle: null,
-            },
-          },
+          ],
+          selectedTabId: "tab-1",
+          pinnedTabIds: [],
         },
-      ],
-      selectedTabId: "tab-1",
+      },
+      activePanelId: panelId,
     };
     layout.saveWorkspace(workspace);
 

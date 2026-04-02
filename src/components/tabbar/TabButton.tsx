@@ -4,7 +4,7 @@ import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
@@ -38,10 +38,22 @@ export function TabButton(props: TabButtonProps) {
 
   const title = useTabTitle(tabId);
   const contentType = useAppStore((s) => {
-    const ws = selectActiveWorkspace(s);
-    const tab = ws?.tabs.find((t) => t.id === tabId);
-    const paneId = tab?.focusedPaneId;
-    return paneId ? s.paneContentType[paneId] : undefined;
+    const wsPath = s.activeWorkspacePath;
+    if (!wsPath) return undefined;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return undefined;
+    for (const panel of Object.values(layout.panels)) {
+      const tab = panel.tabs.find((t) => t.id === tabId);
+      if (tab) return s.paneContentType[tab.focusedPaneId] as string | undefined;
+    }
+    return undefined;
+  });
+  const panelCount = useAppStore((s) => {
+    const wsPath = s.activeWorkspacePath;
+    if (!wsPath) return 1;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return 1;
+    return Object.keys(layout.panels).length;
   });
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
@@ -87,6 +99,45 @@ export function TabButton(props: TabButtonProps) {
           >
             {isPinned ? "Unpin Tab" : "Pin Tab"}
           </ContextMenu.Item>
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              const store = useAppStore.getState();
+              store.selectTab(tabId);
+              store.splitPanel("horizontal");
+            }}
+          >
+            Move to New Panel Right
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              const store = useAppStore.getState();
+              store.selectTab(tabId);
+              store.splitPanel("vertical");
+            }}
+          >
+            Move to New Panel Down
+          </ContextMenu.Item>
+          {panelCount > 1 && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                const state = useAppStore.getState();
+                const wsPath = state.activeWorkspacePath;
+                if (!wsPath) return;
+                const layout = state.workspaceLayouts[wsPath];
+                if (!layout) return;
+                const panelIds = Object.keys(layout.panels);
+                const currentIdx = panelIds.indexOf(layout.activePanelId);
+                const nextPanelId = panelIds[(currentIdx + 1) % panelIds.length];
+                state.moveTabToPanel(tabId, nextPanelId);
+              }}
+            >
+              Move Tab to Next Panel
+            </ContextMenu.Item>
+          )}
           {canClose && (
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />

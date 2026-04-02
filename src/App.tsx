@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
-import { TabBar } from "./components/tabbar/TabBar/TabBar";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PaneLayout } from "./components/workspace-panes/PaneLayout/PaneLayout";
+import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
@@ -32,22 +32,8 @@ import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
+import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
-
-const TAB_BASE_STYLE: React.CSSProperties = {
-  display: "flex",
-  position: "absolute",
-  inset: "0",
-  overflow: "hidden",
-};
-const TAB_VISIBLE_STYLE: React.CSSProperties = {
-  ...TAB_BASE_STYLE,
-  visibility: "visible",
-};
-const TAB_HIDDEN_STYLE: React.CSSProperties = {
-  ...TAB_BASE_STYLE,
-  visibility: "hidden",
-};
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -221,14 +207,14 @@ function App() {
     [],
   );
 
-  const workspaceTabs = useAppStore((s) => s.workspaceTabs);
+  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
   const selectedTabId = ws?.selectedTabId ?? null;
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
-  const selectTab = useAppStore((s) => s.selectTab);
+  const selectTabByGlobalIndex = useAppStore((s) => s.selectTabByGlobalIndex);
   const selectNextTab = useAppStore((s) => s.selectNextTab);
   const selectPrevTab = useAppStore((s) => s.selectPrevTab);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -243,6 +229,11 @@ function App() {
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const focusNextPane = useAppStore((s) => s.focusNextPane);
   const focusPrevPane = useAppStore((s) => s.focusPrevPane);
+  const splitPanel = useAppStore((s) => s.splitPanel);
+  const focusNextPanel = useAppStore((s) => s.focusNextPanel);
+  const focusPrevPanel = useAppStore((s) => s.focusPrevPanel);
+  const closePanel = useAppStore((s) => s.closePanel);
+  const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -275,9 +266,11 @@ function App() {
   // Helper to get the focused browser pane's ref (if focused pane is a browser)
   function getFocusedBrowserRef(): BrowserPaneRef | undefined {
     const state = useAppStore.getState();
-    const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
-    if (!wsState) return;
-    const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+    const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+    if (!layout) return;
+    const panel = layout.panels[layout.activePanelId];
+    if (!panel) return;
+    const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
     if (!tab) return;
     const focusedPaneId = tab.focusedPaneId;
     if (!focusedPaneId) return;
@@ -324,15 +317,43 @@ function App() {
         });
       }
     },
+    "split-panel-right": () => splitPanel("horizontal"),
+    "split-panel-down": () => splitPanel("vertical"),
+    "focus-next-panel": () => focusNextPanel(),
+    "focus-prev-panel": () => focusPrevPanel(),
+    "close-panel": () => {
+      const state = useAppStore.getState();
+      const wsPath = state.activeWorkspacePath;
+      if (!wsPath) return;
+      const layout = state.workspaceLayouts[wsPath];
+      if (!layout) return;
+      closePanel(layout.activePanelId);
+    },
+    "move-tab-to-next-panel": () => {
+      const state = useAppStore.getState();
+      const wsPath = state.activeWorkspacePath;
+      if (!wsPath) return;
+      const layout = state.workspaceLayouts[wsPath];
+      if (!layout) return;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return;
+      const panelIds = Object.keys(layout.panels);
+      if (panelIds.length < 2) return;
+      const idx = panelIds.indexOf(layout.activePanelId);
+      const nextId = panelIds[(idx + 1) % panelIds.length];
+      moveTabToPanel(panel.selectedTabId, nextId);
+    },
     "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
     "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
     "browser-zoom-reset": () => getFocusedBrowserRef()?.zoomReset(),
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = useAppStore.getState();
-      const wsState = state.workspaceTabs[state.activeWorkspacePath ?? ""];
-      if (!wsState) return;
-      const tab = wsState.tabs.find(s => s.id === wsState.selectedTabId);
+      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+      if (!layout) return;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return;
+      const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
       const focusedPaneId = tab?.focusedPaneId;
       if (!focusedPaneId || state.paneContentType[focusedPaneId] !== "browser") return;
       const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
@@ -342,12 +363,7 @@ function App() {
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-tab-${i + 1}`,
-        () => {
-          const tabs = wsRef.current?.tabs;
-          if (tabs && i < tabs.length) {
-            selectTab(tabs[i].id);
-          }
-        },
+        () => selectTabByGlobalIndex(i),
       ]),
     ),
   };
@@ -386,11 +402,11 @@ function App() {
     (task: TaskInfo) => {
       // If the task is active and has a pane, switch to it instead of opening a new tab
       if (task.status === "active" && task.paneId && task.workspacePath) {
-        const wsTabs =
-          useAppStore.getState().workspaceTabs[task.workspacePath];
-        if (wsTabs) {
-          const paneExists = wsTabs.tabs.some((tab) =>
-            hasPaneId(tab.rootNode, task.paneId!),
+        const wsLayout =
+          useAppStore.getState().workspaceLayouts[task.workspacePath];
+        if (wsLayout) {
+          const paneExists = Object.values(wsLayout.panels).some((panel) =>
+            panel.tabs.some((tab) => hasPaneId(tab.rootNode, task.paneId!)),
           );
           if (paneExists) {
             navigateToTask(task);
@@ -486,37 +502,37 @@ function App() {
         )}
         <PaneDragProvider>
           <div className="main-content">
-            {hasTabs ? <TabBar onNewTask={handleNewTask} /> : <div className="drag-region" />}
-            <div className="terminal-container">
-              {/* Render all tabs across all workspaces — only show the active one.
-                Keeping all mounted prevents PTY sessions from being killed on switch. */}
-              {Object.entries(workspaceTabs).flatMap(([wpath, wsState]) =>
-                wsState.tabs.map((tab) => {
-                  const isVisible =
-                    wpath === activeWorkspacePath &&
-                    tab.id === selectedTabId;
-                  return (
-                    <div
-                      key={tab.id}
-                      style={
-                        isVisible ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE
-                      }
-                    >
-                      <PaneLayout
-                        node={tab.rootNode}
-                        workspacePath={wpath}
-                      />
+            {activeWorkspacePath && hasTabs ? (
+              <PanelLayout
+                node={workspaceLayouts[activeWorkspacePath].panelTree}
+                workspacePath={activeWorkspacePath}
+                onNewTask={handleNewTask}
+              />
+            ) : (
+              <>
+                <div className="drag-region" />
+                <div className="terminal-container">
+                  {wizardStillValid && wizardProjectId
+                    ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                    : !hasTabs &&
+                      (hasProjects
+                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
+                        : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                </div>
+              </>
+            )}
+            {/* Hidden: keep non-active workspace terminals alive */}
+            {Object.entries(workspaceLayouts)
+              .filter(([wpath]) => wpath !== activeWorkspacePath)
+              .flatMap(([wpath, wsLayout]) =>
+                Object.values(wsLayout.panels).flatMap((panel) =>
+                  panel.tabs.map((tab) => (
+                    <div key={tab.id} style={TAB_HIDDEN_STYLE}>
+                      <PaneLayout node={tab.rootNode} workspacePath={wpath} />
                     </div>
-                  );
-                }),
+                  ))
+                )
               )}
-              {wizardStillValid && wizardProjectId
-                ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                : !hasTabs &&
-                  (hasProjects
-                    ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
-                    : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
-            </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
               onNewTaskWithPrompt={handleNewTaskWithPrompt}

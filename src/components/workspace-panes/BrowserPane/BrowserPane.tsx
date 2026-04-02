@@ -27,6 +27,16 @@ interface WebviewTitleEvent extends Event {
   title: string;
 }
 
+/** Electron <webview> dialog event — returnValue must be set synchronously. */
+type WebviewDialogEvent = Event & {
+  readonly url: string;
+  readonly message: string;
+  readonly defaultPromptText: string;
+  readonly dialogType: "alert" | "confirm" | "prompt";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  returnValue: any;
+};
+
 export interface BrowserPaneNavState {
   url: string;
   canGoBack: boolean;
@@ -288,10 +298,30 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         window.electronAPI.webview.register(paneId, webContentsId);
       };
 
+      // Handle JavaScript dialogs (alert, confirm, prompt) from the guest page.
+      // Without this handler Electron silently dismisses them.
+      const onDialog = (e: Event) => {
+        const de = e as WebviewDialogEvent;
+        if (de.dialogType === "alert") {
+          window.alert(de.message);
+          de.returnValue = { action: "accept" };
+        } else if (de.dialogType === "confirm") {
+          const ok = window.confirm(de.message);
+          de.returnValue = { action: ok ? "accept" : "dismiss" };
+        } else if (de.dialogType === "prompt") {
+          const result = window.prompt(de.message, de.defaultPromptText);
+          de.returnValue =
+            result !== null
+              ? { action: "accept", text: result }
+              : { action: "dismiss" };
+        }
+      };
+
       wv.addEventListener("did-navigate", onNavigate);
       wv.addEventListener("did-navigate-in-page", onNavigate);
       wv.addEventListener("page-title-updated", onTitleUpdate);
       wv.addEventListener("did-attach", onDidAttach);
+      wv.addEventListener("dialog", onDialog);
 
       const unsubPickerResult = window.electronAPI.webview.onPickerResult(
         (resultPaneId: string, result: PickedElementResult) => {
@@ -352,6 +382,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
+        wv.removeEventListener("dialog", onDialog);
         wv.removeEventListener("focus", onWebviewFocus);
         wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);

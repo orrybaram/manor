@@ -880,6 +880,13 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  "github:closeIssue",
+  (_event, repoPath: string, issueNumber: number) => {
+    return githubManager.closeIssue(repoPath, issueNumber);
+  },
+);
+
+ipcMain.handle(
   "github:createIssue",
   (_event, title: string, body: string, labels: string[]) => {
     return githubManager.createIssue(title, body, labels);
@@ -950,6 +957,10 @@ ipcMain.handle(
 
 ipcMain.handle("linear:startIssue", async (_event, issueId: string) => {
   return linearManager.startIssue(issueId);
+});
+
+ipcMain.handle("linear:closeIssue", async (_event, issueId: string) => {
+  return linearManager.closeIssue(issueId);
 });
 
 ipcMain.handle(
@@ -1297,9 +1308,29 @@ ipcMain.handle(
         }
       };
       wc.on("console-message", newWindowListener);
+
+      // Handle beforeunload — show a native confirm dialog when the page
+      // tries to prevent navigation (e.g. unsaved changes warnings).
+      const preventUnloadHandler = (event: Electron.Event) => {
+        const win = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc);
+        const choice = dialog.showMessageBoxSync(win ?? mainWindow!, {
+          type: "question",
+          buttons: ["Leave", "Stay"],
+          defaultId: 1,
+          cancelId: 1,
+          title: "Leave site?",
+          message: "Changes you made may not be saved.",
+        });
+        if (choice === 0) {
+          event.preventDefault(); // allow navigation
+        }
+      };
+      wc.on("will-prevent-unload", preventUnloadHandler);
+
       newWindowConsoleCleanup.set(paneId, () => {
         wc.off("did-finish-load", injectNewWindowIntercept);
         wc.off("console-message", newWindowListener);
+        wc.off("will-prevent-unload", preventUnloadHandler);
       });
     }
   },

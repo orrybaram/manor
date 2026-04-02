@@ -23,6 +23,7 @@ import type {
 import type { SetupStep, StepStatus } from "./project-store";
 
 export interface ClosedPaneSnapshot {
+  kind: "pane";
   paneId: string;
   sessionId: string;
   workspacePath: string;
@@ -31,6 +32,21 @@ export interface ClosedPaneSnapshot {
   cwd?: string;
   title?: string;
 }
+
+export interface ClosedSessionSnapshot {
+  kind: "session";
+  session: Session;
+  workspacePath: string;
+  /** Per-pane metadata to restore */
+  paneMetadata: Record<string, {
+    contentType?: "terminal" | "browser" | "diff";
+    url?: string;
+    cwd?: string;
+    title?: string;
+  }>;
+}
+
+type ClosedSnapshot = ClosedPaneSnapshot | ClosedSessionSnapshot;
 
 const MAX_CLOSED_PANE_STACK = 10;
 
@@ -109,7 +125,7 @@ export interface AppState {
   /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
   closedPaneIds: Set<string>;
   /** Stack of recently closed pane snapshots for reopen (LIFO, max 10) */
-  closedPaneStack: ClosedPaneSnapshot[];
+  closedPaneStack: ClosedSnapshot[];
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
   /** Pending startup commands keyed by pane ID (for split-with-task) */
@@ -509,6 +525,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      // Snapshot the full session so it can be restored with all its panes
+      let newStack = state.closedPaneStack;
+      if (closingSession) {
+        const paneMetadata: ClosedSessionSnapshot["paneMetadata"] = {};
+        for (const pid of deadPaneIds) {
+          paneMetadata[pid] = {
+            contentType: state.paneContentType[pid],
+            url: state.paneUrl[pid],
+            cwd: state.paneCwd[pid],
+            title: state.paneTitle[pid],
+          };
+        }
+        const sessionSnapshot: ClosedSessionSnapshot = {
+          kind: "session",
+          session: closingSession,
+          workspacePath: path,
+          paneMetadata,
+        };
+        newStack = [sessionSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
+      }
+
       const idx = ws.sessions.findIndex((s) => s.id === sessionId);
       const newSessions = ws.sessions.filter((s) => s.id !== sessionId);
       const newSelected =
@@ -534,6 +571,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         closedPaneIds: newClosedPaneIds,
+        closedPaneStack: newStack,
         paneCwd: newCwd,
         paneTitle: newTitle,
         paneAgentStatus: newAgentStatus,
@@ -1038,8 +1076,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const session = ws.sessions.find((s) => hasPaneId(s.rootNode, paneId));
     if (!session) return;
 
-    // Snapshot the pane before removing it
+    const remaining = removePane(session.rootNode, paneId);
+    if (remaining === null) {
+      // Last pane in session — closeSession will push a session snapshot
+      get().closeSession(session.id);
+      return;
+    }
+
     const snapshot: ClosedPaneSnapshot = {
+      kind: "pane",
       paneId,
       sessionId: session.id,
       workspacePath: path,
@@ -1048,18 +1093,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       cwd: state.paneCwd[paneId],
       title: state.paneTitle[paneId],
     };
-
-    const remaining = removePane(session.rootNode, paneId);
-    if (remaining === null) {
-      const newClosedPaneIds = new Set(state.closedPaneIds);
-      for (const pid of allPaneIds(session.rootNode)) {
-        newClosedPaneIds.add(pid);
-      }
-      const newStack = [snapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
-      set({ closedPaneIds: newClosedPaneIds, closedPaneStack: newStack });
-      get().closeSession(session.id);
-      return;
-    }
 
     const ids = allPaneIds(remaining);
     const newFocused =
@@ -1111,11 +1144,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ws = state.workspaceSessions[path];
     if (!ws) return;
 
-    // Find the most recent snapshot for this workspace
     const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
+    if (snapshot.kind === "session") {
+      // Restore the full session (tab with all its panes)
+      set((s) => {
+        const currentWs = s.workspaceSessions[path];
+        if (!currentWs) return s;
+        const newStack = [...s.closedPaneStack];
+        newStack.splice(idx, 1);
+
+        const newContentType = { ...s.paneContentType };
+        const newCwd = { ...s.paneCwd };
+        const newUrl = { ...s.paneUrl };
+        const newTitle = { ...s.paneTitle };
+        const newClosedPaneIds = new Set(s.closedPaneIds);
+        for (const [pid, meta] of Object.entries(snapshot.paneMetadata)) {
+          if (meta.contentType) newContentType[pid] = meta.contentType;
+          if (meta.cwd) newCwd[pid] = meta.cwd;
+          if (meta.url) newUrl[pid] = meta.url;
+          if (meta.title) newTitle[pid] = meta.title;
+          newClosedPaneIds.delete(pid);
+        }
+
+        return {
+          closedPaneStack: newStack,
+          closedPaneIds: newClosedPaneIds,
+          paneContentType: newContentType,
+          paneCwd: newCwd,
+          paneUrl: newUrl,
+          paneTitle: newTitle,
+          workspaceSessions: {
+            ...s.workspaceSessions,
+            [path]: {
+              ...currentWs,
+              sessions: [...currentWs.sessions, snapshot.session],
+              selectedSessionId: snapshot.session.id,
+            },
+          },
+        };
+      });
+      return;
+    }
+
+    // Single pane restore
     const contentType = snapshot.contentType ?? "terminal";
     const originalSession = ws.sessions.find((s) => s.id === snapshot.sessionId);
 

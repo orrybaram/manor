@@ -24,6 +24,7 @@ import {
 } from "./panel-tree";
 import type {
   PersistedWorkspace,
+  PersistedPanel,
   PersistedTab,
   PersistedLayout,
   AgentState,
@@ -120,26 +121,35 @@ function createEmptyLayout(): WorkspaceLayout {
   return createSinglePanelLayout([], "", []);
 }
 
-/** Convert a PersistedWorkspace back into a WorkspaceLayout (single panel) */
+/** Convert a PersistedWorkspace (v2) back into a WorkspaceLayout */
 function restoreWorkspaceState(
   persisted: PersistedWorkspace,
 ): WorkspaceLayout {
-  const tabs: Tab[] = persisted.tabs.map((ps) => ({
-    id: ps.id,
-    title: ps.title,
-    rootNode: ps.rootNode,
-    focusedPaneId: ps.focusedPaneId,
-  }));
+  const panels: Record<string, Panel> = {};
+  for (const [panelId, pp] of Object.entries(persisted.panels)) {
+    panels[panelId] = {
+      id: pp.id,
+      tabs: pp.tabs.map((pt) => ({
+        id: pt.id,
+        title: pt.title,
+        rootNode: pt.rootNode,
+        focusedPaneId: pt.focusedPaneId,
+      })),
+      selectedTabId: pp.selectedTabId,
+      pinnedTabIds: pp.pinnedTabIds ?? [],
+    };
+  }
 
-  if (tabs.length === 0) {
+  const hasTabs = Object.values(panels).some((p) => p.tabs.length > 0);
+  if (!hasTabs) {
     return createEmptyLayout();
   }
 
-  return createSinglePanelLayout(
-    tabs,
-    persisted.selectedTabId || tabs[0].id,
-    persisted.pinnedTabIds ?? [],
-  );
+  return {
+    panelTree: persisted.panelTree,
+    panels,
+    activePanelId: persisted.activePanelId,
+  };
 }
 
 export interface AppState {
@@ -366,41 +376,43 @@ export const useAppStore = create<AppState>((set, get) => ({
           {};
         const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
-          for (const tab of ws.tabs) {
-            for (const [paneId, paneSession] of Object.entries(
-              tab.paneSessions,
-            )) {
-              if (paneSession.lastCwd) {
-                cwds[paneId] = paneSession.lastCwd;
+          for (const panel of Object.values(ws.panels)) {
+            for (const tab of panel.tabs) {
+              for (const [paneId, paneSession] of Object.entries(
+                tab.paneSessions,
+              )) {
+                if (paneSession.lastCwd) {
+                  cwds[paneId] = paneSession.lastCwd;
+                }
+                if (paneSession.lastTitle) {
+                  titles[paneId] = paneSession.lastTitle;
+                }
+                if (
+                  paneSession.lastAgentStatus &&
+                  !(
+                    paneSession.lastAgentStatus.status === "idle" &&
+                    paneSession.lastAgentStatus.kind === null
+                  )
+                ) {
+                  agents[paneId] = paneSession.lastAgentStatus as AgentState;
+                }
               }
-              if (paneSession.lastTitle) {
-                titles[paneId] = paneSession.lastTitle;
-              }
-              if (
-                paneSession.lastAgentStatus &&
-                !(
-                  paneSession.lastAgentStatus.status === "idle" &&
-                  paneSession.lastAgentStatus.kind === null
-                )
-              ) {
-                agents[paneId] = paneSession.lastAgentStatus as AgentState;
-              }
+              // Extract contentType and url from leaf nodes in the pane tree
+              const extractLeafData = (node: PaneNode): void => {
+                if (node.type === "leaf") {
+                  if (node.contentType) {
+                    contentTypes[node.paneId] = node.contentType;
+                  }
+                  if (node.url) {
+                    urls[node.paneId] = node.url;
+                  }
+                } else {
+                  extractLeafData(node.first);
+                  extractLeafData(node.second);
+                }
+              };
+              extractLeafData(tab.rootNode);
             }
-            // Extract contentType and url from leaf nodes in the pane tree
-            const extractLeafData = (node: PaneNode): void => {
-              if (node.type === "leaf") {
-                if (node.contentType) {
-                  contentTypes[node.paneId] = node.contentType;
-                }
-                if (node.url) {
-                  urls[node.paneId] = node.url;
-                }
-              } else {
-                extractLeafData(node.first);
-                extractLeafData(node.second);
-              }
-            };
-            extractLeafData(tab.rootNode);
           }
         }
 
@@ -432,14 +444,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         const persisted = _cachedLayout.workspaces.find(
           (w) => w.workspacePath === path,
         );
-        if (persisted && persisted.tabs?.length > 0) {
-          return {
-            activeWorkspacePath: path,
-            workspaceLayouts: {
-              ...state.workspaceLayouts,
-              [path]: restoreWorkspaceState(persisted),
-            },
-          };
+        if (persisted) {
+          const restored = restoreWorkspaceState(persisted);
+          // Only use restored layout if it has tabs
+          const hasTabs = Object.values(restored.panels).some(
+            (p) => p.tabs.length > 0,
+          );
+          if (hasTabs) {
+            return {
+              activeWorkspacePath: path,
+              workspaceLayouts: {
+                ...state.workspaceLayouts,
+                [path]: restored,
+              },
+            };
+          }
         }
       }
 
@@ -1921,41 +1940,48 @@ function flushLayoutSave(): void {
   const layout = state.workspaceLayouts[wsPath];
   if (!layout) return;
 
-  // For now (v1 compat), serialize the active panel as a flat workspace
-  const panel = layout.panels[layout.activePanelId];
-  if (!panel) return;
+  // Serialize all panels in the layout
+  const persistedPanels: Record<string, PersistedPanel> = {};
+  for (const [panelId, panel] of Object.entries(layout.panels)) {
+    persistedPanels[panelId] = {
+      id: panelId,
+      tabs: panel.tabs.map((tab) => {
+        const paneIds = allPaneIds(tab.rootNode);
+        const paneSessions: Record<
+          string,
+          {
+            daemonSessionId: string;
+            lastCwd: string | null;
+            lastTitle: string | null;
+            lastAgentStatus?: AgentState | null;
+          }
+        > = {};
+        for (const pid of paneIds) {
+          paneSessions[pid] = {
+            daemonSessionId: pid,
+            lastCwd: state.paneCwd[pid] ?? null,
+            lastTitle: state.paneTitle[pid] ?? null,
+            lastAgentStatus: state.paneAgentStatus[pid] ?? null,
+          };
+        }
+        return {
+          id: tab.id,
+          title: tab.title,
+          rootNode: tab.rootNode,
+          focusedPaneId: tab.focusedPaneId,
+          paneSessions,
+        } satisfies PersistedTab;
+      }),
+      selectedTabId: panel.selectedTabId,
+      pinnedTabIds: panel.pinnedTabIds,
+    };
+  }
 
   const persisted: PersistedWorkspace = {
     workspacePath: wsPath,
-    tabs: panel.tabs.map((s) => {
-      const paneIds = allPaneIds(s.rootNode);
-      const paneSessions: Record<
-        string,
-        {
-          daemonSessionId: string;
-          lastCwd: string | null;
-          lastTitle: string | null;
-          lastAgentStatus?: AgentState | null;
-        }
-      > = {};
-      for (const pid of paneIds) {
-        paneSessions[pid] = {
-          daemonSessionId: pid,
-          lastCwd: state.paneCwd[pid] ?? null,
-          lastTitle: state.paneTitle[pid] ?? null,
-          lastAgentStatus: state.paneAgentStatus[pid] ?? null,
-        };
-      }
-      return {
-        id: s.id,
-        title: s.title,
-        rootNode: s.rootNode,
-        focusedPaneId: s.focusedPaneId,
-        paneSessions,
-      } satisfies PersistedTab;
-    }),
-    selectedTabId: panel.selectedTabId,
-    pinnedTabIds: panel.pinnedTabIds,
+    panelTree: layout.panelTree,
+    panels: persistedPanels,
+    activePanelId: layout.activePanelId,
   };
 
   window.electronAPI?.layout.save(persisted);

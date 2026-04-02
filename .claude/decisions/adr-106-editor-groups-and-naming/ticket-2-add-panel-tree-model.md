@@ -1,6 +1,6 @@
 ---
 title: Add PanelNode tree model and store state
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

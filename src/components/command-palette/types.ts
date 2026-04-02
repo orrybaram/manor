@@ -43,7 +43,6 @@ export interface CommandPaletteProps {
 export type PaletteView =
   | "root"
   | "linear-all"
-  | "github"
   | "github-all"
   | "issue-detail"
   | "github-issue-detail";

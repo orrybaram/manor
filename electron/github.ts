@@ -172,7 +172,11 @@ export class GitHubManager {
     }
   }
 
-  async getMyIssues(repoPath: string, limit = 50): Promise<GitHubIssue[]> {
+  async getMyIssues(
+    repoPath: string,
+    limit = 50,
+    state: "open" | "closed" | "all" = "open",
+  ): Promise<GitHubIssue[]> {
     try {
       const { stdout } = await execFileAsync(
         "gh",
@@ -182,7 +186,7 @@ export class GitHubManager {
           "--assignee",
           "@me",
           "--state",
-          "open",
+          state,
           "--json",
           "number,title,url,state,labels,assignees",
           "--limit",
@@ -196,7 +200,11 @@ export class GitHubManager {
     }
   }
 
-  async getAllIssues(repoPath: string, limit = 50): Promise<GitHubIssue[]> {
+  async getAllIssues(
+    repoPath: string,
+    limit = 50,
+    state: "open" | "closed" | "all" = "open",
+  ): Promise<GitHubIssue[]> {
     try {
       const { stdout } = await execFileAsync(
         "gh",
@@ -204,7 +212,7 @@ export class GitHubManager {
           "issue",
           "list",
           "--state",
-          "open",
+          state,
           "--json",
           "number,title,url,state,labels,assignees",
           "--limit",
@@ -249,6 +257,22 @@ export class GitHubManager {
       );
     } catch {
       // fire-and-forget; failures should not block workspace creation
+    }
+  }
+
+  async closeIssue(repoPath: string, issueNumber: number): Promise<void> {
+    try {
+      await execFileAsync(
+        "gh",
+        ["issue", "close", String(issueNumber)],
+        {
+          cwd: repoPath,
+          encoding: "utf-8",
+          timeout: 10000,
+        },
+      );
+    } catch {
+      // fire-and-forget
     }
   }
 

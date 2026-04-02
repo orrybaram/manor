@@ -265,7 +265,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
         ))}
         <button
           className={styles.viewAll}
-          onClick={() => onOpenPaletteView?.("github")}
+          onClick={() => onOpenPaletteView?.("github-all")}
         >
           View All Issues
         </button>

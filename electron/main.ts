@@ -853,15 +853,15 @@ ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
 
 ipcMain.handle(
   "github:getMyIssues",
-  (_event, repoPath: string, limit?: number) => {
-    return githubManager.getMyIssues(repoPath, limit);
+  (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
+    return githubManager.getMyIssues(repoPath, limit, state);
   },
 );
 
 ipcMain.handle(
   "github:getAllIssues",
-  (_event, repoPath: string, limit?: number) => {
-    return githubManager.getAllIssues(repoPath, limit);
+  (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
+    return githubManager.getAllIssues(repoPath, limit, state);
   },
 );
 

@@ -335,13 +335,14 @@ export interface ElectronAPI {
       authenticated: boolean;
       username?: string;
     }>;
-    getMyIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
-    getAllIssues: (repoPath: string, limit?: number) => Promise<GitHubIssue[]>;
+    getMyIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") => Promise<GitHubIssue[]>;
+    getAllIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") => Promise<GitHubIssue[]>;
     getIssueDetail: (
       repoPath: string,
       issueNumber: number,
     ) => Promise<GitHubIssueDetail>;
     assignIssue: (repoPath: string, issueNumber: number) => Promise<void>;
+    closeIssue: (repoPath: string, issueNumber: number) => Promise<void>;
     createIssue: (
       title: string,
       body: string,
@@ -369,6 +370,7 @@ export interface ElectronAPI {
     ) => Promise<LinearIssue[]>;
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
     startIssue: (issueId: string) => Promise<void>;
+    closeIssue: (issueId: string) => Promise<void>;
     linkIssueToWorkspace: (
       projectId: string,
       workspacePath: string,

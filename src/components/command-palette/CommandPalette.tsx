@@ -123,11 +123,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     setView("linear-all");
   }, []);
 
-  const navigateToGitHub = useCallback(() => {
-    setSearch("");
-    setView("github");
-  }, []);
-
   const navigateToGitHubAll = useCallback(() => {
     setSearch("");
     setView("github-all");
@@ -239,7 +234,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   const showGitHub = githubConnected && !!repoPath;
   const isIssueListView =
     view === "linear-all" ||
-    view === "github" ||
     view === "github-all";
   const isDetailView =
     view === "issue-detail" || view === "github-issue-detail";
@@ -266,16 +260,8 @@ export function CommandPalette(props: CommandPaletteProps) {
 
     const githubItems: CommandItem[] = [
       {
-        id: "github-my-issues",
-        label: "My Issues",
-        icon: <GitHubIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: navigateToGitHub,
-        keywords: ["ticket"],
-      },
-      {
-        id: "github-all-issues",
-        label: "All Issues",
+        id: "github-issues",
+        label: "Issues",
         icon: <GitHubIcon size={14} />,
         suffix: <ChevronRight size={14} />,
         action: navigateToGitHubAll,
@@ -314,7 +300,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     showLinear,
     showGitHub,
     navigateToLinearAll,
-    navigateToGitHub,
     navigateToGitHubAll,
   ]);
 
@@ -342,8 +327,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </button>
                   <span className={styles.breadcrumbLabel}>
                     {view === "linear-all" && "Linear — Issues"}
-                    {view === "github" && "GitHub — My Issues"}
-                    {view === "github-all" && "GitHub — All Issues"}
+                    {view === "github-all" && "GitHub — Issues"}
                   </span>
                 </Row>
               )}
@@ -447,10 +431,9 @@ export function CommandPalette(props: CommandPaletteProps) {
                   />
                 )}
 
-                {(view === "github" || view === "github-all") && repoPath && (
+                {view === "github-all" && repoPath && (
                   <GitHubIssuesView
                     repoPath={repoPath}
-                    allIssues={view === "github-all"}
                     onEmptyChange={setIssueListEmpty}
                     onSelectIssue={(issueNumber) => {
                       setIssueListOrigin(view);

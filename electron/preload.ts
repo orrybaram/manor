@@ -181,14 +181,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getPrsForBranches: (repoPath: string, branches: string[]) =>
       ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
-    getMyIssues: (repoPath: string, limit?: number) =>
-      ipcRenderer.invoke("github:getMyIssues", repoPath, limit),
-    getAllIssues: (repoPath: string, limit?: number) =>
-      ipcRenderer.invoke("github:getAllIssues", repoPath, limit),
+    getMyIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") =>
+      ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
+    getAllIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") =>
+      ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
     getIssueDetail: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
     assignIssue: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
+    closeIssue: (repoPath: string, issueNumber: number) =>
+      ipcRenderer.invoke("github:closeIssue", repoPath, issueNumber),
     createIssue: (title: string, body: string, labels: string[]) =>
       ipcRenderer.invoke("github:createIssue", title, body, labels),
     uploadFeedbackImages: (images: { base64: string; name: string }[]) =>
@@ -214,6 +216,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
     startIssue: (issueId: string) =>
       ipcRenderer.invoke("linear:startIssue", issueId),
+    closeIssue: (issueId: string) =>
+      ipcRenderer.invoke("linear:closeIssue", issueId),
     linkIssueToWorkspace: (
       projectId: string,
       workspacePath: string,

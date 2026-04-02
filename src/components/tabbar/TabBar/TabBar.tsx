@@ -22,14 +22,21 @@ const TAB_GAP = 2; // matches .sessions CSS gap
 
 type TabBarProps = {
   onNewTask: () => void;
+  panelId?: string;
+  workspacePath?: string;
 };
 
 export function TabBar(props: TabBarProps) {
-  const { onNewTask } = props;
+  const { onNewTask, panelId, workspacePath } = props;
 
-  const ws = useAppStore(selectActiveWorkspace);
-  const tabs = useMemo(() => ws?.tabs ?? [], [ws?.tabs]);
-  const selectedTabId = ws?.selectedTabId ?? null;
+  const panel = useAppStore((s) => {
+    if (panelId && workspacePath) {
+      return s.workspaceLayouts[workspacePath]?.panels[panelId] ?? null;
+    }
+    return selectActiveWorkspace(s);
+  });
+  const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
+  const selectedTabId = panel?.selectedTabId ?? null;
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -37,9 +44,15 @@ export function TabBar(props: TabBarProps) {
   const reorderTabs = useAppStore((s) => s.reorderTabs);
   const togglePinTab = useAppStore((s) => s.togglePinTab);
   const pinnedTabIds = useMemo(
-    () => ws?.pinnedTabIds ?? [],
-    [ws?.pinnedTabIds],
+    () => panel?.pinnedTabIds ?? [],
+    [panel?.pinnedTabIds],
   );
+
+  const ensureFocused = useCallback(() => {
+    if (panelId) {
+      useAppStore.getState().focusPanel(panelId);
+    }
+  }, [panelId]);
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const { drag, startDrag, endDrag } = usePaneDrag();
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
@@ -255,10 +268,19 @@ export function TabBar(props: TabBarProps) {
               canClose={true}
               isDragging={dragIndex === idx}
               onSelect={() => {
-                if (!justDragged.current) selectTab(tab.id);
+                if (!justDragged.current) {
+                  ensureFocused();
+                  selectTab(tab.id);
+                }
               }}
-              onClose={() => requestCloseTab(tab.id)}
-              onTogglePin={() => togglePinTab(tab.id)}
+              onClose={() => {
+                ensureFocused();
+                requestCloseTab(tab.id);
+              }}
+              onTogglePin={() => {
+                ensureFocused();
+                togglePinTab(tab.id);
+              }}
               onPointerDown={
                 isPinned ? undefined : (e) => handleDragStart(idx, e)
               }
@@ -275,7 +297,7 @@ export function TabBar(props: TabBarProps) {
             <Popover.Anchor asChild>
               <button
                 className={styles.addButton}
-                onClick={addTab}
+                onClick={() => { ensureFocused(); addTab(); }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setAddMenuOpen(true);
@@ -295,6 +317,7 @@ export function TabBar(props: TabBarProps) {
               <button
                 className={styles.contextMenuItem}
                 onClick={() => {
+                  ensureFocused();
                   addBrowserTab("about:blank");
                   setAddMenuOpen(false);
                 }}
@@ -305,6 +328,7 @@ export function TabBar(props: TabBarProps) {
               <button
                 className={styles.contextMenuItem}
                 onClick={() => {
+                  ensureFocused();
                   onNewTask();
                   setAddMenuOpen(false);
                 }}

@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
-import { TabBar } from "./components/tabbar/TabBar/TabBar";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PaneLayout } from "./components/workspace-panes/PaneLayout/PaneLayout";
+import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
@@ -34,18 +34,11 @@ import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
 import "./App.css";
 
-const TAB_BASE_STYLE: React.CSSProperties = {
+const TAB_HIDDEN_STYLE: React.CSSProperties = {
   display: "flex",
   position: "absolute",
   inset: "0",
   overflow: "hidden",
-};
-const TAB_VISIBLE_STYLE: React.CSSProperties = {
-  ...TAB_BASE_STYLE,
-  visibility: "visible",
-};
-const TAB_HIDDEN_STYLE: React.CSSProperties = {
-  ...TAB_BASE_STYLE,
   visibility: "hidden",
 };
 
@@ -490,38 +483,37 @@ function App() {
         )}
         <PaneDragProvider>
           <div className="main-content">
-            {hasTabs ? <TabBar onNewTask={handleNewTask} /> : <div className="drag-region" />}
-            <div className="terminal-container">
-              {/* Render all tabs across all workspaces — only show the active one.
-                Keeping all mounted prevents PTY sessions from being killed on switch. */}
-              {Object.entries(workspaceLayouts).flatMap(([wpath, wsLayout]) =>
+            {activeWorkspacePath && hasTabs ? (
+              <PanelLayout
+                node={workspaceLayouts[activeWorkspacePath].panelTree}
+                workspacePath={activeWorkspacePath}
+                onNewTask={handleNewTask}
+              />
+            ) : (
+              <>
+                <div className="drag-region" />
+                <div className="terminal-container">
+                  {wizardStillValid && wizardProjectId
+                    ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                    : !hasTabs &&
+                      (hasProjects
+                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
+                        : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                </div>
+              </>
+            )}
+            {/* Hidden: keep non-active workspace terminals alive */}
+            {Object.entries(workspaceLayouts)
+              .filter(([wpath]) => wpath !== activeWorkspacePath)
+              .flatMap(([wpath, wsLayout]) =>
                 Object.values(wsLayout.panels).flatMap((panel) =>
-                panel.tabs.map((tab) => {
-                  const isVisible =
-                    wpath === activeWorkspacePath &&
-                    tab.id === selectedTabId;
-                  return (
-                    <div
-                      key={tab.id}
-                      style={
-                        isVisible ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE
-                      }
-                    >
-                      <PaneLayout
-                        node={tab.rootNode}
-                        workspacePath={wpath}
-                      />
+                  panel.tabs.map((tab) => (
+                    <div key={tab.id} style={TAB_HIDDEN_STYLE}>
+                      <PaneLayout node={tab.rootNode} workspacePath={wpath} />
                     </div>
-                  );
-                })),
+                  ))
+                )
               )}
-              {wizardStillValid && wizardProjectId
-                ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                : !hasTabs &&
-                  (hasProjects
-                    ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
-                    : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
-            </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
               onNewTaskWithPrompt={handleNewTaskWithPrompt}

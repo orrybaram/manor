@@ -26,7 +26,14 @@ export function SplitPanelLayout(props: SplitPanelLayoutProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
+  const currentRatioRef = useRef(currentRatio);
+  currentRatioRef.current = currentRatio;
   const [isDragging, setIsDragging] = useState(false);
+
+  // Sync local state when the store ratio changes (e.g., layout restore)
+  if (!isDragging && ratio !== currentRatio) {
+    setCurrentRatio(ratio);
+  }
 
   const isHorizontal = direction === "horizontal";
 
@@ -55,12 +62,8 @@ export function SplitPanelLayout(props: SplitPanelLayoutProps) {
         useDragOverlayStore.getState().decrementDragCount();
         setIsDragging(false);
 
-        // Persist the final ratio to the store using the firstLeafPanelId to identify which split to update
         const panelId = firstLeafPanelId(first);
-        setCurrentRatio((r) => {
-          useAppStore.getState().updatePanelSplitRatio(panelId, r);
-          return r;
-        });
+        useAppStore.getState().updatePanelSplitRatio(panelId, currentRatioRef.current);
 
         document.removeEventListener("mousemove", onMouseMove);
         document.removeEventListener("mouseup", cleanup);

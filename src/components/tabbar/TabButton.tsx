@@ -4,7 +4,7 @@ import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
@@ -38,10 +38,15 @@ export function TabButton(props: TabButtonProps) {
 
   const title = useTabTitle(tabId);
   const contentType = useAppStore((s) => {
-    const ws = selectActiveWorkspace(s);
-    const tab = ws?.tabs.find((t) => t.id === tabId);
-    const paneId = tab?.focusedPaneId;
-    return paneId ? s.paneContentType[paneId] : undefined;
+    const wsPath = s.activeWorkspacePath;
+    if (!wsPath) return undefined;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return undefined;
+    for (const panel of Object.values(layout.panels)) {
+      const tab = panel.tabs.find((t) => t.id === tabId);
+      if (tab) return s.paneContentType[tab.focusedPaneId] as string | undefined;
+    }
+    return undefined;
   });
   const panelCount = useAppStore((s) => {
     const wsPath = s.activeWorkspacePath;
@@ -100,7 +105,7 @@ export function TabButton(props: TabButtonProps) {
             onSelect={() => {
               const store = useAppStore.getState();
               store.selectTab(tabId);
-              setTimeout(() => useAppStore.getState().splitPanel("horizontal"), 0);
+              store.splitPanel("horizontal");
             }}
           >
             Move to New Panel Right
@@ -110,7 +115,7 @@ export function TabButton(props: TabButtonProps) {
             onSelect={() => {
               const store = useAppStore.getState();
               store.selectTab(tabId);
-              setTimeout(() => useAppStore.getState().splitPanel("vertical"), 0);
+              store.splitPanel("vertical");
             }}
           >
             Move to New Panel Down

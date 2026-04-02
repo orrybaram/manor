@@ -9,6 +9,7 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import * as Popover from "@radix-ui/react-popover";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
@@ -18,7 +19,7 @@ import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
-const TAB_GAP = 2; // matches .sessions CSS gap
+const TAB_GAP = 2; // matches .tabs CSS gap
 
 type TabBarProps = {
   onNewTask: () => void;
@@ -239,108 +240,179 @@ export function TabBar(props: TabBarProps) {
     return { transition: "transform 150ms ease" };
   };
 
-  const isPaneDragActive = drag?.type === "pane";
+  const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
+  const splitPanelWithTab = useAppStore((s) => s.splitPanelWithTab);
+  const isDragActive = drag !== null;
+  const barRef = useRef<HTMLDivElement>(null);
+  const [splitDropHint, setSplitDropHint] = useState(false);
 
   const handleTabBarDrop = useCallback(
     (e: React.PointerEvent) => {
-      if (!isPaneDragActive || !drag) return;
+      if (!drag) return;
       e.stopPropagation();
-      extractPaneToTab(drag.paneId);
+      setSplitDropHint(false);
+      if (drag.type === "pane") {
+        extractPaneToTab(drag.paneId, panelId);
+      } else if (drag.type === "tab" && panelId) {
+        // Drop on right half → split horizontally; left half → move to panel
+        const bar = barRef.current;
+        if (bar) {
+          const rect = bar.getBoundingClientRect();
+          const isRightHalf = e.clientX > rect.left + rect.width / 2;
+          if (isRightHalf) {
+            splitPanelWithTab(drag.tabId, panelId, "horizontal");
+          } else {
+            moveTabToPanel(drag.tabId, panelId);
+          }
+        } else {
+          moveTabToPanel(drag.tabId, panelId);
+        }
+      }
       endDrag();
     },
-    [isPaneDragActive, drag, extractPaneToTab, endDrag],
+    [drag, extractPaneToTab, moveTabToPanel, splitPanelWithTab, endDrag, panelId],
   );
 
+  const handleTabBarPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag || drag.type !== "tab" || !panelId) {
+        setSplitDropHint(false);
+        return;
+      }
+      const bar = barRef.current;
+      if (bar) {
+        const rect = bar.getBoundingClientRect();
+        setSplitDropHint(e.clientX > rect.left + rect.width / 2);
+      }
+    },
+    [drag, panelId],
+  );
+
+  const handleTabBarPointerLeave = useCallback(() => {
+    setSplitDropHint(false);
+  }, []);
+
+  const splitPanel = useAppStore((s) => s.splitPanel);
+
   return (
-    <div
-      className={`${styles.sessionBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isPaneDragActive ? styles.sessionBarDropTarget : ""}`}
-      onPointerUp={isPaneDragActive ? handleTabBarDrop : undefined}
-    >
-      <div ref={tabsRef} className={styles.sessions}>
-        {tabs.map((tab, idx) => {
-          const isPinned = pinnedTabIds.includes(tab.id);
-          return (
-            <TabButton
-              key={tab.id}
-              tabId={tab.id}
-              isActive={tab.id === selectedTabId}
-              isPinned={isPinned}
-              canClose={true}
-              isDragging={dragIndex === idx}
-              onSelect={() => {
-                if (!justDragged.current) {
-                  ensureFocused();
-                  selectTab(tab.id);
-                }
-              }}
-              onClose={() => {
-                ensureFocused();
-                requestCloseTab(tab.id);
-              }}
-              onTogglePin={() => {
-                ensureFocused();
-                togglePinTab(tab.id);
-              }}
-              onPointerDown={
-                isPinned ? undefined : (e) => handleDragStart(idx, e)
-              }
-              style={getTransformStyle(idx)}
-              buttonRef={(el) => {
-                if (el) itemRefs.current.set(idx, el);
-                else itemRefs.current.delete(idx);
-              }}
-            />
-          );
-        })}
-        <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
-          <Tooltip label={addMenuOpen ? "" : "New Tab"}>
-            <Popover.Anchor asChild>
-              <button
-                className={styles.addButton}
-                onClick={() => { ensureFocused(); addTab(); }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setAddMenuOpen(true);
-                }}
-              >
-                <Plus size={14} />
-              </button>
-            </Popover.Anchor>
-          </Tooltip>
-          <Popover.Portal>
-            <Popover.Content
-              className={styles.contextMenu}
-              side="bottom"
-              align="center"
-              sideOffset={4}
-            >
-              <button
-                className={styles.contextMenuItem}
-                onClick={() => {
-                  ensureFocused();
-                  addBrowserTab("about:blank");
-                  setAddMenuOpen(false);
-                }}
-              >
-                <Globe size={14} />
-                Browser
-              </button>
-              <button
-                className={styles.contextMenuItem}
-                onClick={() => {
-                  ensureFocused();
-                  onNewTask();
-                  setAddMenuOpen(false);
-                }}
-              >
-                <ListTodo size={14} />
-                Task
-              </button>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-      </div>
-      <div className={styles.spacer} />
-    </div>
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div
+          ref={barRef}
+          className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          onPointerUp={isDragActive ? handleTabBarDrop : undefined}
+          onPointerMove={isDragActive ? handleTabBarPointerMove : undefined}
+          onPointerLeave={isDragActive ? handleTabBarPointerLeave : undefined}
+        >
+          <div ref={tabsRef} className={styles.tabs}>
+            {tabs.map((tab, idx) => {
+              const isPinned = pinnedTabIds.includes(tab.id);
+              return (
+                <TabButton
+                  key={tab.id}
+                  tabId={tab.id}
+                  isActive={tab.id === selectedTabId}
+                  isPinned={isPinned}
+                  canClose={true}
+                  isDragging={dragIndex === idx}
+                  onSelect={() => {
+                    if (!justDragged.current) {
+                      ensureFocused();
+                      selectTab(tab.id);
+                    }
+                  }}
+                  onClose={() => {
+                    ensureFocused();
+                    requestCloseTab(tab.id);
+                  }}
+                  onTogglePin={() => {
+                    ensureFocused();
+                    togglePinTab(tab.id);
+                  }}
+                  onPointerDown={
+                    isPinned ? undefined : (e) => handleDragStart(idx, e)
+                  }
+                  style={getTransformStyle(idx)}
+                  buttonRef={(el) => {
+                    if (el) itemRefs.current.set(idx, el);
+                    else itemRefs.current.delete(idx);
+                  }}
+                />
+              );
+            })}
+            <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+              <Tooltip label={addMenuOpen ? "" : "New Tab"}>
+                <Popover.Anchor asChild>
+                  <button
+                    className={styles.addButton}
+                    onClick={() => { ensureFocused(); addTab(); }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setAddMenuOpen(true);
+                    }}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </Popover.Anchor>
+              </Tooltip>
+              <Popover.Portal>
+                <Popover.Content
+                  className={styles.contextMenu}
+                  side="bottom"
+                  align="center"
+                  sideOffset={4}
+                >
+                  <button
+                    className={styles.contextMenuItem}
+                    onClick={() => {
+                      ensureFocused();
+                      addBrowserTab("about:blank");
+                      setAddMenuOpen(false);
+                    }}
+                  >
+                    <Globe size={14} />
+                    Browser
+                  </button>
+                  <button
+                    className={styles.contextMenuItem}
+                    onClick={() => {
+                      ensureFocused();
+                      onNewTask();
+                      setAddMenuOpen(false);
+                    }}
+                  >
+                    <ListTodo size={14} />
+                    Task
+                  </button>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
+          <div className={styles.spacer} />
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              ensureFocused();
+              splitPanel("horizontal");
+            }}
+          >
+            Split Right
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              ensureFocused();
+              splitPanel("vertical");
+            }}
+          >
+            Split Down
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }

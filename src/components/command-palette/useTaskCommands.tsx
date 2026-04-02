@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useTaskStore } from "../../store/task-store";
+import { useKeybindingsStore } from "../../store/keybindings-store";
+import { formatCombo } from "../../lib/keybindings";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import type { TaskInfo, TaskStatus, AgentStatus } from "../../electron.d";
 import type { CommandItem } from "./types";
@@ -35,14 +37,21 @@ export function useTaskCommands({
   onNewTask,
 }: UseTaskCommandsParams): CommandItem[] {
   const tasks = useTaskStore((s) => s.tasks);
+  const bindings = useKeybindingsStore((s) => s.bindings);
 
   return useMemo(() => {
+    const platform = navigator.platform.toLowerCase().includes("mac")
+      ? ("mac" as const)
+      : ("other" as const);
+    const fmt = (id: string) =>
+      bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+
     const items: CommandItem[] = [
       {
         id: "new-task",
         label: "New Task",
         icon: <Plus size={14} />,
-        shortcut: "⌘N",
+        shortcut: fmt("new-task"),
         action: () => {
           onClose();
           onNewTask();
@@ -75,5 +84,5 @@ export function useTaskCommands({
     });
 
     return items;
-  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask]);
+  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings]);
 }

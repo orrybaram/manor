@@ -12,6 +12,7 @@ import {
   nextPaneId,
   prevPaneId,
   updateLeafContentType,
+  updateRatio,
 } from "./pane-tree";
 import {
   type PanelNode,
@@ -21,6 +22,7 @@ import {
   updatePanelRatio,
   nextPanelId,
   prevPanelId,
+  findPanelSplitContext,
 } from "./panel-tree";
 import type {
   PersistedWorkspace,
@@ -36,6 +38,7 @@ export interface ClosedPaneSnapshot {
   kind: "pane";
   paneId: string;
   tabId: string;
+  panelId: string;
   workspacePath: string;
   contentType?: "terminal" | "browser" | "diff";
   url?: string;
@@ -46,6 +49,7 @@ export interface ClosedPaneSnapshot {
 export interface ClosedTabSnapshot {
   kind: "tab";
   tab: Tab;
+  panelId: string;
   workspacePath: string;
   /** Per-pane metadata to restore */
   paneMetadata: Record<string, {
@@ -54,6 +58,13 @@ export interface ClosedTabSnapshot {
     cwd?: string;
     title?: string;
   }>;
+  /** If closing this tab caused the panel to be removed, store split context to recreate it */
+  panelSplitContext?: {
+    siblingId: string;
+    direction: SplitDirection;
+    ratio: number;
+    position: "first" | "second";
+  };
 }
 
 type ClosedSnapshot = ClosedPaneSnapshot | ClosedTabSnapshot;
@@ -121,12 +132,32 @@ function createEmptyLayout(): WorkspaceLayout {
   return createSinglePanelLayout([], "", []);
 }
 
-/** Convert a PersistedWorkspace (v2) back into a WorkspaceLayout */
+/** Convert a PersistedWorkspace back into a WorkspaceLayout.
+ *  Handles both v1 (flat tabs) and v2 (panel tree) formats — the electron
+ *  main process may not have restarted yet during dev HMR. */
 function restoreWorkspaceState(
   persisted: PersistedWorkspace,
 ): WorkspaceLayout {
+  // v1 format: has `tabs` array at top level, no `panels`
+  const v1 = persisted as unknown as { tabs?: PersistedTab[]; selectedTabId?: string; pinnedTabIds?: string[] };
+  if (!persisted.panels && v1.tabs) {
+    const tabs: Tab[] = v1.tabs.map((pt) => ({
+      id: pt.id,
+      title: pt.title,
+      rootNode: pt.rootNode,
+      focusedPaneId: pt.focusedPaneId,
+    }));
+    if (tabs.length === 0) return createEmptyLayout();
+    return createSinglePanelLayout(
+      tabs,
+      v1.selectedTabId || tabs[0].id,
+      v1.pinnedTabIds ?? [],
+    );
+  }
+
+  // v2 format: has panel tree
   const panels: Record<string, Panel> = {};
-  for (const [panelId, pp] of Object.entries(persisted.panels)) {
+  for (const [panelId, pp] of Object.entries(persisted.panels ?? {})) {
     panels[panelId] = {
       id: pp.id,
       tabs: pp.tabs.map((pt) => ({
@@ -190,6 +221,8 @@ export interface AppState {
   requestCloseTab: (tabId: string) => void;
   setPendingCloseConfirmTabId: (tabId: string | null) => void;
   selectTab: (tabId: string) => void;
+  /** Select a tab by global index across all panels (for cmd+1..9 shortcuts). */
+  selectTabByGlobalIndex: (index: number) => void;
   selectNextTab: () => void;
   selectPrevTab: () => void;
   reorderTabs: (tabIds: string[]) => void;
@@ -216,7 +249,7 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
   ) => void;
-  extractPaneToTab: (paneId: string) => void;
+  extractPaneToTab: (paneId: string, targetPanelId?: string) => void;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
   reopenClosedPane: () => void;
@@ -261,6 +294,7 @@ export interface AppState {
   focusPrevPanel: () => void;
   updatePanelSplitRatio: (firstPanelId: string, ratio: number) => void;
   moveTabToPanel: (tabId: string, targetPanelId: string) => void;
+  splitPanelWithTab: (tabId: string, targetPanelId: string, direction: SplitDirection) => void;
 
   // Worktree setup progress tracking
   worktreeSetupState: Record<
@@ -317,6 +351,44 @@ function getActivePanelContext(state: AppState): { path: string; layout: Workspa
   const panel = layout.panels[layout.activePanelId];
   if (!panel) return null;
   return { path, layout, panel };
+}
+
+function getActiveLayoutContext(state: AppState): { path: string; layout: WorkspaceLayout } | null {
+  const path = state.activeWorkspacePath;
+  if (!path) return null;
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return null;
+  return { path, layout };
+}
+
+/** Build a flat list of { tabId, panelId } in tree-traversal order across all panels. */
+function globalTabList(layout: WorkspaceLayout): Array<{ tabId: string; panelId: string }> {
+  const panelIds = allPanelIds(layout.panelTree);
+  const result: Array<{ tabId: string; panelId: string }> = [];
+  for (const pid of panelIds) {
+    const panel = layout.panels[pid];
+    if (!panel) continue;
+    for (const tab of panel.tabs) {
+      result.push({ tabId: tab.id, panelId: pid });
+    }
+  }
+  return result;
+}
+
+function findPanelWithPane(layout: WorkspaceLayout, paneId: string): { panel: Panel; tab: Tab } | null {
+  for (const panel of Object.values(layout.panels)) {
+    const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
+    if (tab) return { panel, tab };
+  }
+  return null;
+}
+
+function findPanelWithTab(layout: WorkspaceLayout, tabId: string): { panel: Panel; tab: Tab } | null {
+  for (const panel of Object.values(layout.panels)) {
+    const tab = panel.tabs.find((t) => t.id === tabId);
+    if (tab) return { panel, tab };
+  }
+  return null;
 }
 
 function updatePanel(
@@ -376,43 +448,45 @@ export const useAppStore = create<AppState>((set, get) => ({
           {};
         const urls: Record<string, string> = {};
         for (const ws of layout.workspaces) {
-          for (const panel of Object.values(ws.panels)) {
-            for (const tab of panel.tabs) {
-              for (const [paneId, paneSession] of Object.entries(
-                tab.paneSessions,
-              )) {
-                if (paneSession.lastCwd) {
-                  cwds[paneId] = paneSession.lastCwd;
-                }
-                if (paneSession.lastTitle) {
-                  titles[paneId] = paneSession.lastTitle;
-                }
-                if (
-                  paneSession.lastAgentStatus &&
-                  !(
-                    paneSession.lastAgentStatus.status === "idle" &&
-                    paneSession.lastAgentStatus.kind === null
-                  )
-                ) {
-                  agents[paneId] = paneSession.lastAgentStatus as AgentState;
-                }
+          // Handle both v1 (flat tabs) and v2 (panels) formats
+          const v1ws = ws as unknown as { tabs?: PersistedTab[] };
+          const allTabs: PersistedTab[] = ws.panels
+            ? Object.values(ws.panels).flatMap((p) => p.tabs)
+            : (v1ws.tabs ?? []);
+          for (const tab of allTabs) {
+            for (const [paneId, paneSession] of Object.entries(
+              tab.paneSessions,
+            )) {
+              if (paneSession.lastCwd) {
+                cwds[paneId] = paneSession.lastCwd;
               }
-              // Extract contentType and url from leaf nodes in the pane tree
-              const extractLeafData = (node: PaneNode): void => {
-                if (node.type === "leaf") {
-                  if (node.contentType) {
-                    contentTypes[node.paneId] = node.contentType;
-                  }
-                  if (node.url) {
-                    urls[node.paneId] = node.url;
-                  }
-                } else {
-                  extractLeafData(node.first);
-                  extractLeafData(node.second);
-                }
-              };
-              extractLeafData(tab.rootNode);
+              if (paneSession.lastTitle) {
+                titles[paneId] = paneSession.lastTitle;
+              }
+              if (
+                paneSession.lastAgentStatus &&
+                !(
+                  paneSession.lastAgentStatus.status === "idle" &&
+                  paneSession.lastAgentStatus.kind === null
+                )
+              ) {
+                agents[paneId] = paneSession.lastAgentStatus as AgentState;
+              }
             }
+            const extractLeafData = (node: PaneNode): void => {
+              if (node.type === "leaf") {
+                if (node.contentType) {
+                  contentTypes[node.paneId] = node.contentType;
+                }
+                if (node.url) {
+                  urls[node.paneId] = node.url;
+                }
+              } else {
+                extractLeafData(node.first);
+                extractLeafData(node.second);
+              }
+            };
+            extractLeafData(tab.rootNode);
           }
         }
 
@@ -610,6 +684,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      const idx = panel.tabs.findIndex((s) => s.id === tabId);
+      const newTabs = panel.tabs.filter((s) => s.id !== tabId);
+      const newSelected =
+        newTabs.length === 0
+          ? ""
+          : tabId === panel.selectedTabId
+            ? newTabs[Math.min(idx, newTabs.length - 1)].id
+            : panel.selectedTabId;
+
       // Snapshot the full tab so it can be restored with all its panes
       let newStack = state.closedPaneStack;
       if (closingTab) {
@@ -622,23 +705,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             title: state.paneTitle[pid],
           };
         }
+        // If this was the last tab and the panel will be auto-closed, capture split context
+        const panelIds = Object.keys(layout.panels);
+        const willRemovePanel = newTabs.length === 0 && panelIds.length > 1;
         const tabSnapshot: ClosedTabSnapshot = {
           kind: "tab",
           tab: closingTab,
+          panelId: panel.id,
           workspacePath: path,
           paneMetadata,
+          ...(willRemovePanel && {
+            panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
+          }),
         };
         newStack = [tabSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
       }
-
-      const idx = panel.tabs.findIndex((s) => s.id === tabId);
-      const newTabs = panel.tabs.filter((s) => s.id !== tabId);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tabId === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
 
       // Clean up metadata for dead panes
       const newCwd = { ...state.paneCwd };
@@ -713,34 +794,81 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
     }),
 
+  selectTabByGlobalIndex: (index: number) =>
+    set((state) => {
+      const ctx = getActiveLayoutContext(state);
+      if (!ctx) return state;
+      const { path, layout } = ctx;
+      const tabs = globalTabList(layout);
+      if (index < 0 || index >= tabs.length) return state;
+      const { tabId, panelId } = tabs[index];
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            activePanelId: panelId,
+            panels: {
+              ...layout.panels,
+              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
+            },
+          },
+        },
+      };
+    }),
+
   selectNextTab: () =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      if (panel.tabs.length === 0) return state;
-      const idx = panel.tabs.findIndex((s) => s.id === panel.selectedTabId);
-      const next = (idx + 1) % panel.tabs.length;
-      const nextId = panel.tabs[next].id;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        selectedTabId: nextId,
-      }));
+      const { path, layout } = ctx;
+      const tabs = globalTabList(layout);
+      if (tabs.length === 0) return state;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return state;
+      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
+      const nextIdx = (currentIdx + 1) % tabs.length;
+      const { tabId, panelId } = tabs[nextIdx];
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            activePanelId: panelId,
+            panels: {
+              ...layout.panels,
+              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
+            },
+          },
+        },
+      };
     }),
 
   selectPrevTab: () =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      if (panel.tabs.length === 0) return state;
-      const idx = panel.tabs.findIndex((s) => s.id === panel.selectedTabId);
-      const prev = (idx - 1 + panel.tabs.length) % panel.tabs.length;
-      const prevId = panel.tabs[prev].id;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        selectedTabId: prevId,
-      }));
+      const { path, layout } = ctx;
+      const tabs = globalTabList(layout);
+      if (tabs.length === 0) return state;
+      const panel = layout.panels[layout.activePanelId];
+      if (!panel) return state;
+      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
+      const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+      const { tabId, panelId } = tabs[prevIdx];
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            activePanelId: panelId,
+            panels: {
+              ...layout.panels,
+              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
+            },
+          },
+        },
+      };
     }),
 
   reorderTabs: (tabIds: string[]) =>
@@ -880,101 +1008,117 @@ export const useAppStore = create<AppState>((set, get) => ({
     position: "first" | "second",
   ) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { path, layout } = ctx;
 
-      const sourceTab = panel.tabs.find((s) =>
-        hasPaneId(s.rootNode, sourcePaneId),
-      );
-      const targetTab = panel.tabs.find((s) =>
-        hasPaneId(s.rootNode, targetPaneId),
-      );
-      if (!sourceTab || !targetTab) return state;
+      const src = findPanelWithPane(layout, sourcePaneId);
+      const tgt = findPanelWithPane(layout, targetPaneId);
+      if (!src || !tgt) return state;
+      const { panel: sourcePanel, tab: sourceTab } = src;
+      const { panel: targetPanel, tab: targetTab } = tgt;
 
-      if (sourceTab.id === targetTab.id) {
-        // Same-tab move
-        const newRoot = movePane(
-          sourceTab.rootNode,
-          sourcePaneId,
-          targetPaneId,
-          direction,
-          position,
-        );
+      // Same panel, same tab — in-place move
+      if (sourcePanel.id === targetPanel.id && sourceTab.id === targetTab.id) {
+        const newRoot = movePane(sourceTab.rootNode, sourcePaneId, targetPaneId, direction, position);
         if (newRoot === null) return state;
-        return updatePanel(state, path, layout, panel.id, (p) => ({
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: p.tabs.map((s) =>
-            s.id === sourceTab.id
-              ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId }
-              : s,
+            s.id === sourceTab.id ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId } : s,
           ),
         }));
       }
 
-      // Cross-tab move
-      const sourceRootAfterRemove = removePane(
-        sourceTab.rootNode,
-        sourcePaneId,
-      );
-      const newTargetRoot = insertSplitAt(
-        targetTab.rootNode,
-        targetPaneId,
-        direction,
-        sourcePaneId,
-        position,
-      );
+      // Same panel, cross-tab
+      if (sourcePanel.id === targetPanel.id) {
+        const sourceRootAfterRemove = removePane(sourceTab.rootNode, sourcePaneId);
+        const newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, sourcePaneId, position);
 
-      let newTabs: Tab[];
-      if (sourceRootAfterRemove === null) {
-        // Source tab had only one pane -- close it
-        newTabs = panel.tabs
-          .filter((s) => s.id !== sourceTab.id)
-          .map((s) =>
-            s.id === targetTab.id
-              ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
-              : s,
-          );
-      } else {
-        newTabs = panel.tabs.map((s) => {
-          if (s.id === sourceTab.id) {
-            const ids = allPaneIds(sourceRootAfterRemove);
-            const newFocused =
-              s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId;
-            return {
-              ...s,
-              rootNode: sourceRootAfterRemove,
-              focusedPaneId: newFocused,
-            };
-          }
-          if (s.id === targetTab.id) {
-            return {
-              ...s,
-              rootNode: newTargetRoot,
-              focusedPaneId: sourcePaneId,
-            };
-          }
-          return s;
-        });
+        let newTabs: Tab[];
+        if (sourceRootAfterRemove === null) {
+          newTabs = sourcePanel.tabs
+            .filter((s) => s.id !== sourceTab.id)
+            .map((s) => s.id === targetTab.id ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId } : s);
+        } else {
+          newTabs = sourcePanel.tabs.map((s) => {
+            if (s.id === sourceTab.id) {
+              const ids = allPaneIds(sourceRootAfterRemove);
+              return { ...s, rootNode: sourceRootAfterRemove, focusedPaneId: s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId };
+            }
+            if (s.id === targetTab.id) return { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId };
+            return s;
+          });
+        }
+
+        const newSelectedTabId =
+          sourcePanel.selectedTabId === sourceTab.id && sourceRootAfterRemove === null
+            ? targetTab.id : sourcePanel.selectedTabId;
+
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+          ...p,
+          tabs: newTabs,
+          selectedTabId: newSelectedTabId,
+          pinnedTabIds: sourceRootAfterRemove === null
+            ? (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id) : p.pinnedTabIds,
+        }));
       }
 
-      const newSelectedTabId =
-        panel.selectedTabId === sourceTab.id &&
-        sourceRootAfterRemove === null
-          ? targetTab.id
-          : panel.selectedTabId;
+      // Cross-panel move
+      const sourceRootAfterRemove = removePane(sourceTab.rootNode, sourcePaneId);
+      const newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, sourcePaneId, position);
 
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
-        selectedTabId: newSelectedTabId,
-        pinnedTabIds:
-          sourceRootAfterRemove === null
-            ? (p.pinnedTabIds ?? []).filter(
-                (id) => id !== sourceTab.id,
-              )
-            : p.pinnedTabIds,
-      }));
+      let newPanels = { ...layout.panels };
+      let newPanelTree = layout.panelTree;
+
+      // Update target panel
+      newPanels[targetPanel.id] = {
+        ...targetPanel,
+        tabs: targetPanel.tabs.map((t) =>
+          t.id === targetTab.id ? { ...t, rootNode: newTargetRoot, focusedPaneId: sourcePaneId } : t,
+        ),
+        selectedTabId: targetTab.id,
+      };
+
+      // Update source panel
+      if (sourceRootAfterRemove === null) {
+        // Source tab's only pane was moved — remove the tab
+        const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
+        if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
+          // Source panel empty — remove it
+          const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
+          if (pruned) newPanelTree = pruned;
+          delete newPanels[sourcePanel.id];
+        } else if (remainingTabs.length === 0) {
+          const fresh = createTab();
+          newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
+        } else {
+          newPanels[sourcePanel.id] = {
+            ...sourcePanel,
+            tabs: remainingTabs,
+            selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
+            pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
+          };
+        }
+      } else {
+        const ids = allPaneIds(sourceRootAfterRemove);
+        newPanels[sourcePanel.id] = {
+          ...sourcePanel,
+          tabs: sourcePanel.tabs.map((t) => {
+            if (t.id === sourceTab.id) {
+              return { ...t, rootNode: sourceRootAfterRemove, focusedPaneId: t.focusedPaneId === sourcePaneId ? ids[0] : t.focusedPaneId };
+            }
+            return t;
+          }),
+        };
+      }
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
+        },
+      };
     }),
 
   moveTabToPane: (
@@ -984,103 +1128,142 @@ export const useAppStore = create<AppState>((set, get) => ({
     position: "first" | "second",
   ) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { path, layout } = ctx;
 
-      const sourceTab = panel.tabs.find((s) => s.id === tabId);
-      const targetTab = panel.tabs.find((s) =>
-        hasPaneId(s.rootNode, targetPaneId),
-      );
-      if (
-        !sourceTab ||
-        !targetTab ||
-        sourceTab.id === targetTab.id
-      )
-        return state;
+      const src = findPanelWithTab(layout, tabId);
+      const tgt = findPanelWithPane(layout, targetPaneId);
+      if (!src || !tgt) return state;
+      const { panel: sourcePanel, tab: sourceTab } = src;
+      const { panel: targetPanel, tab: targetTab } = tgt;
+      if (sourceTab.id === targetTab.id) return state;
 
-      // Single-pane tab: delegate to movePaneToTarget logic inline
+      // Build the new target root
+      let newTargetRoot: PaneNode;
+      let focusPaneId: string;
       if (sourceTab.rootNode.type === "leaf") {
-        const sourcePaneId = sourceTab.rootNode.paneId;
-        const newTargetRoot = insertSplitAt(
-          targetTab.rootNode,
-          targetPaneId,
-          direction,
-          sourcePaneId,
-          position,
-        );
-        const newTabs = panel.tabs
+        focusPaneId = sourceTab.rootNode.paneId;
+        newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, focusPaneId, position);
+      } else {
+        focusPaneId = allPaneIds(sourceTab.rootNode)[0];
+        newTargetRoot = insertSubtreeAt(targetTab.rootNode, targetPaneId, direction, sourceTab.rootNode, position);
+      }
+
+      // Same panel — update tabs in place
+      if (sourcePanel.id === targetPanel.id) {
+        const newTabs = sourcePanel.tabs
           .filter((s) => s.id !== sourceTab.id)
-          .map((s) =>
-            s.id === targetTab.id
-              ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
-              : s,
-          );
-        const newSelectedTabId =
-          panel.selectedTabId === sourceTab.id
-            ? targetTab.id
-            : panel.selectedTabId;
-        return updatePanel(state, path, layout, panel.id, (p) => ({
+          .map((s) => s.id === targetTab.id ? { ...s, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : s);
+        const newSelectedTabId = sourcePanel.selectedTabId === sourceTab.id ? targetTab.id : sourcePanel.selectedTabId;
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: newTabs,
           selectedTabId: newSelectedTabId,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter(
-            (id) => id !== sourceTab.id,
-          ),
+          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
         }));
       }
 
-      // Multi-pane tab: insert entire subtree
-      const sourceIds = allPaneIds(sourceTab.rootNode);
-      const newTargetRoot = insertSubtreeAt(
-        targetTab.rootNode,
-        targetPaneId,
-        direction,
-        sourceTab.rootNode,
-        position,
-      );
-      const focusedPaneId = sourceIds[0];
-      const newTabs = panel.tabs
-        .filter((s) => s.id !== sourceTab.id)
-        .map((s) =>
-          s.id === targetTab.id
-            ? { ...s, rootNode: newTargetRoot, focusedPaneId }
-            : s,
-        );
-      const newSelectedTabId =
-        panel.selectedTabId === sourceTab.id
-          ? targetTab.id
-          : panel.selectedTabId;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
-        selectedTabId: newSelectedTabId,
-        pinnedTabIds: (p.pinnedTabIds ?? []).filter(
-          (id) => id !== sourceTab.id,
+      // Cross-panel
+      let newPanels = { ...layout.panels };
+      let newPanelTree = layout.panelTree;
+
+      // Update target panel
+      newPanels[targetPanel.id] = {
+        ...targetPanel,
+        tabs: targetPanel.tabs.map((t) =>
+          t.id === targetTab.id ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t,
         ),
-      }));
+        selectedTabId: targetTab.id,
+      };
+
+      // Remove tab from source panel
+      const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
+      if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
+        const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
+        if (pruned) newPanelTree = pruned;
+        delete newPanels[sourcePanel.id];
+      } else if (remainingTabs.length === 0) {
+        const fresh = createTab();
+        newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
+      } else {
+        newPanels[sourcePanel.id] = {
+          ...sourcePanel,
+          tabs: remainingTabs,
+          selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
+          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
+        };
+      }
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
+        },
+      };
     }),
 
-  extractPaneToTab: (paneId: string) =>
+  extractPaneToTab: (paneId: string, targetPanelId?: string) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { path, layout } = ctx;
 
-      const sourceTab = panel.tabs.find((s) =>
-        hasPaneId(s.rootNode, paneId),
-      );
-      if (!sourceTab) return state;
+      const src = findPanelWithPane(layout, paneId);
+      if (!src) return state;
+      const { panel: sourcePanel, tab: sourceTab } = src;
+      const destPanelId = targetPanelId ?? sourcePanel.id;
+      const destPanel = layout.panels[destPanelId];
+      if (!destPanel) return state;
 
-      // If the pane is the only pane in its tab, just select that tab
+      // If the pane is the only pane in its tab and destination is the same panel, just select it
       if (
+        sourcePanel.id === destPanelId &&
         sourceTab.rootNode.type === "leaf" &&
         sourceTab.rootNode.paneId === paneId
       ) {
-        return updatePanel(state, path, layout, panel.id, (p) => ({
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
           ...p,
           selectedTabId: sourceTab.id,
         }));
+      }
+
+      // If pane is the only pane in its tab, move the whole tab to the target panel
+      if (sourceTab.rootNode.type === "leaf" && sourceTab.rootNode.paneId === paneId) {
+        if (sourcePanel.id === destPanelId) return state;
+        // Use moveTabToPanel logic
+        const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
+        let newPanels = { ...layout.panels };
+        let newPanelTree = layout.panelTree;
+
+        newPanels[destPanelId] = {
+          ...destPanel,
+          tabs: [...destPanel.tabs, sourceTab],
+          selectedTabId: sourceTab.id,
+        };
+
+        if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
+          const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
+          if (pruned) newPanelTree = pruned;
+          delete newPanels[sourcePanel.id];
+        } else if (remainingTabs.length === 0) {
+          const fresh = createTab();
+          newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
+        } else {
+          newPanels[sourcePanel.id] = {
+            ...sourcePanel,
+            tabs: remainingTabs,
+            selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
+            pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
+          };
+        }
+
+        return {
+          workspaceLayouts: {
+            ...state.workspaceLayouts,
+            [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: destPanelId },
+          },
+        };
       }
 
       // Remove the pane from the source tab
@@ -1088,12 +1271,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!remaining) return state;
 
       const ids = allPaneIds(remaining);
-      const newFocused =
-        sourceTab.focusedPaneId === paneId
-          ? ids[0]
-          : sourceTab.focusedPaneId;
+      const newFocused = sourceTab.focusedPaneId === paneId ? ids[0] : sourceTab.focusedPaneId;
 
-      // Create a new tab with the extracted pane
       const newTab: Tab = {
         id: newTabId(),
         title: "Terminal",
@@ -1101,18 +1280,39 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: paneId,
       };
 
-      const newTabs = panel.tabs.map((s) =>
-        s.id === sourceTab.id
-          ? { ...s, rootNode: remaining, focusedPaneId: newFocused }
-          : s,
-      );
-      newTabs.push(newTab);
+      if (sourcePanel.id === destPanelId) {
+        // Same panel — just add new tab
+        const newTabs = sourcePanel.tabs.map((s) =>
+          s.id === sourceTab.id ? { ...s, rootNode: remaining, focusedPaneId: newFocused } : s,
+        );
+        newTabs.push(newTab);
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+          ...p,
+          tabs: newTabs,
+          selectedTabId: newTab.id,
+        }));
+      }
 
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
+      // Cross-panel — update source panel's tab, add new tab to destination panel
+      let newPanels = { ...layout.panels };
+      newPanels[sourcePanel.id] = {
+        ...sourcePanel,
+        tabs: sourcePanel.tabs.map((t) =>
+          t.id === sourceTab.id ? { ...t, rootNode: remaining, focusedPaneId: newFocused } : t,
+        ),
+      };
+      newPanels[destPanelId] = {
+        ...destPanel,
+        tabs: [...destPanel.tabs, newTab],
         selectedTabId: newTab.id,
-      }));
+      };
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: { ...layout, panels: newPanels, activePanelId: destPanelId },
+        },
+      };
     }),
 
   closePane: () => {
@@ -1145,6 +1345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       kind: "pane",
       paneId,
       tabId: tab.id,
+      panelId: panel.id,
       workspacePath: path,
       contentType: state.paneContentType[paneId],
       url: state.paneUrl[paneId],
@@ -1198,17 +1399,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!path) return;
     const ctx = getActivePanelContext(state);
     if (!ctx) return;
-    const { panel } = ctx;
+    const { layout, panel } = ctx;
 
     const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
     if (idx === -1) return;
     const snapshot = state.closedPaneStack[idx];
 
+    // Restore to the original panel if it still exists, otherwise fall back to active panel
+    const targetPanelId = snapshot.panelId && layout.panels[snapshot.panelId]
+      ? snapshot.panelId
+      : panel.id;
+    const targetPanel = layout.panels[targetPanelId]!;
+
     if (snapshot.kind === "tab") {
-      // Restore the full tab with all its panes into the active panel
       set((s) => {
-        const currentCtx = getActivePanelContext(s);
+        const currentCtx = getActiveLayoutContext(s);
         if (!currentCtx) return s;
+        const { path: ctxPath, layout: ctxLayout } = currentCtx;
         const newStack = [...s.closedPaneStack];
         newStack.splice(idx, 1);
 
@@ -1225,6 +1432,46 @@ export const useAppStore = create<AppState>((set, get) => ({
           newClosedPaneIds.delete(pid);
         }
 
+        // If the original panel was removed and we have split context, recreate the panel
+        const originalPanelGone = !ctxLayout.panels[snapshot.panelId];
+        const sc = snapshot.panelSplitContext;
+        if (originalPanelGone && sc && ctxLayout.panels[sc.siblingId]) {
+          const restoredPanelId = snapshot.panelId;
+          const newPanel: Panel = {
+            id: restoredPanelId,
+            tabs: [snapshot.tab],
+            selectedTabId: snapshot.tab.id,
+            pinnedTabIds: [],
+          };
+          const finalTree = insertPanelSplit(
+            ctxLayout.panelTree,
+            sc.siblingId,
+            sc.direction,
+            restoredPanelId,
+            sc.position,
+            sc.ratio,
+          );
+
+          return {
+            closedPaneStack: newStack,
+            closedPaneIds: newClosedPaneIds,
+            paneContentType: newContentType,
+            paneCwd: newCwd,
+            paneUrl: newUrl,
+            paneTitle: newTitle,
+            workspaceLayouts: {
+              ...s.workspaceLayouts,
+              [ctxPath]: {
+                ...ctxLayout,
+                panelTree: finalTree,
+                panels: { ...ctxLayout.panels, [restoredPanelId]: newPanel },
+                activePanelId: restoredPanelId,
+              },
+            },
+          };
+        }
+
+        // Original panel still exists (or no split context) — add tab to target panel
         return {
           closedPaneStack: newStack,
           closedPaneIds: newClosedPaneIds,
@@ -1232,7 +1479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneCwd: newCwd,
           paneUrl: newUrl,
           paneTitle: newTitle,
-          ...updatePanel(s, currentCtx.path, currentCtx.layout, currentCtx.panel.id, (p) => ({
+          ...updatePanel(s, ctxPath, ctxLayout, targetPanelId, (p) => ({
             ...p,
             tabs: [...p.tabs, snapshot.tab],
             selectedTabId: snapshot.tab.id,
@@ -1244,7 +1491,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Single pane restore
     const contentType = snapshot.contentType ?? "terminal";
-    const originalTab = panel.tabs.find((s) => s.id === snapshot.tabId);
+    const originalTab = targetPanel.tabs.find((s) => s.id === snapshot.tabId);
 
     // Reuse the original pane ID so the daemon session (still alive during
     // the grace period) is reattached instead of creating a fresh terminal.
@@ -1280,7 +1527,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     set((s) => {
-      const currentCtx = getActivePanelContext(s);
+      const currentCtx = getActiveLayoutContext(s);
       if (!currentCtx) return s;
       const newStack = [...s.closedPaneStack];
       newStack.splice(idx, 1);
@@ -1296,7 +1543,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...(snapshot.url && {
           paneUrl: { ...s.paneUrl, [restoredPaneId]: snapshot.url },
         }),
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, currentCtx.panel.id, (p) => ({
+        ...updatePanel(s, currentCtx.path, currentCtx.layout, targetPanelId, (p) => ({
           ...p,
           selectedTabId,
           tabs: tabsUpdater(p.tabs),
@@ -1459,7 +1706,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           const newRoot = updateLeafUrl(s.rootNode);
           return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
         });
-        if (updatedTabs !== panel.tabs) {
+        if (updatedTabs.some((t, i) => t !== panel.tabs[i])) {
           Object.assign(newState, updatePanel(state, path, layout, panel.id, (p) => ({
             ...p,
             tabs: updatedTabs,
@@ -1802,36 +2049,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   moveTabToPanel: (tabId: string, targetPanelId: string) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { path, layout } = ctx;
+
+      const src = findPanelWithTab(layout, tabId);
+      if (!src) return state;
+      const { panel: sourcePanel, tab } = src;
       const targetPanel = layout.panels[targetPanelId];
-      if (!targetPanel) return state;
+      if (!targetPanel || sourcePanel.id === targetPanelId) return state;
 
-      // Find the tab in the source (active) panel
-      const tab = panel.tabs.find((t) => t.id === tabId);
-      if (!tab) return state;
-
-      // Remove from source
-      const sourceTabs = panel.tabs.filter((t) => t.id !== tabId);
+      const sourceTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
       const sourceSelected = sourceTabs.length === 0
         ? ""
-        : tabId === panel.selectedTabId
+        : tabId === sourcePanel.selectedTabId
           ? sourceTabs[0].id
-          : panel.selectedTabId;
+          : sourcePanel.selectedTabId;
 
-      // Add to target
       const targetTabs = [...targetPanel.tabs, tab];
       const targetSelected = tab.id;
 
-      // If source panel becomes empty, close it
       if (sourceTabs.length === 0) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        if (newPanelTree === null) {
-          // Should not happen since target exists, but handle gracefully
-          return state;
-        }
+        const newPanelTree = removePanelFromTree(layout.panelTree, sourcePanel.id);
+        if (newPanelTree === null) return state;
+        const { [sourcePanel.id]: _, ...remainingPanels } = layout.panels;
         return {
           workspaceLayouts: {
             ...state.workspaceLayouts,
@@ -1855,11 +2096,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...layout,
             panels: {
               ...layout.panels,
-              [panel.id]: {
-                ...panel,
+              [sourcePanel.id]: {
+                ...sourcePanel,
                 tabs: sourceTabs,
                 selectedTabId: sourceSelected,
-                pinnedTabIds: (panel.pinnedTabIds ?? []).filter((id) => id !== tabId),
+                pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== tabId),
               },
               [targetPanelId]: { ...targetPanel, tabs: targetTabs, selectedTabId: targetSelected },
             },
@@ -1869,10 +2110,79 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  updateSplitRatio: (_firstPaneId: string, _ratio: number) =>
+  splitPanelWithTab: (tabId: string, targetPanelId: string, direction: SplitDirection) =>
     set((state) => {
-      // TODO: implement ratio update via pane-tree.updateRatio
-      return state;
+      const ctx = getActiveLayoutContext(state);
+      if (!ctx) return state;
+      const { path, layout } = ctx;
+
+      const src = findPanelWithTab(layout, tabId);
+      if (!src) return state;
+      const { panel: sourcePanel, tab } = src;
+      const targetPanel = layout.panels[targetPanelId];
+      if (!targetPanel) return state;
+
+      const newPId = newPanelId();
+
+      // Remove the tab from its source panel
+      const sourceTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
+      const sourceSelected = sourceTabs.length === 0
+        ? ""
+        : tabId === sourcePanel.selectedTabId
+          ? sourceTabs[0].id
+          : sourcePanel.selectedTabId;
+
+      // Create the new panel with the dragged tab
+      const newPanelTree = insertPanelSplit(layout.panelTree, targetPanelId, direction, newPId);
+
+      // If source is the only tab, create a fresh one so the panel isn't empty
+      let finalSourceTabs = sourceTabs;
+      let finalSourceSelected = sourceSelected;
+      if (finalSourceTabs.length === 0) {
+        const fresh = createTab();
+        finalSourceTabs = [fresh];
+        finalSourceSelected = fresh.id;
+      }
+
+      const panels = {
+        ...layout.panels,
+        [sourcePanel.id]: {
+          ...sourcePanel,
+          tabs: finalSourceTabs,
+          selectedTabId: finalSourceSelected,
+          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== tabId),
+        },
+        [newPId]: { id: newPId, tabs: [tab], selectedTabId: tab.id, pinnedTabIds: [] as string[] },
+      };
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            panelTree: newPanelTree,
+            panels,
+            activePanelId: newPId,
+          },
+        },
+      };
+    }),
+
+  updateSplitRatio: (firstPaneId: string, ratio: number) =>
+    set((state) => {
+      const ctx = getActivePanelContext(state);
+      if (!ctx) return state;
+      const { path, layout, panel } = ctx;
+      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+      if (!tab) return state;
+      const newRoot = updateRatio(tab.rootNode, firstPaneId, ratio);
+      if (newRoot === tab.rootNode) return state;
+      return updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: p.tabs.map((t) =>
+          t.id === tab.id ? { ...t, rootNode: newRoot } : t,
+        ),
+      }));
     }),
 
   setPickedElement: (paneId: string, result: PickedElementResult) =>

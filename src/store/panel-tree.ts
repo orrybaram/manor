@@ -12,45 +12,44 @@ export type PanelNode =
       second: PanelNode;
     };
 
-/** Collect every panelId in the tree. */
 export function allPanelIds(node: PanelNode): string[] {
   if (node.type === "leaf") return [node.panelId];
   return [...allPanelIds(node.first), ...allPanelIds(node.second)];
 }
 
-/** Check if a panel ID exists in the tree (short-circuits on match). */
 export function hasPanelId(node: PanelNode, id: string): boolean {
   if (node.type === "leaf") return node.panelId === id;
   return hasPanelId(node.first, id) || hasPanelId(node.second, id);
 }
 
-/** Insert a split at the given panelId, pushing the existing panel into `first`. */
 export function insertPanelSplit(
   node: PanelNode,
   targetPanelId: string,
   direction: SplitDirection,
   newPanelId: string,
+  position: "first" | "second" = "second",
+  ratio = 0.5,
 ): PanelNode {
   if (node.type === "leaf") {
     if (node.panelId === targetPanelId) {
+      const newLeaf: PanelNode = { type: "leaf", panelId: newPanelId };
       return {
         type: "split",
         direction,
-        ratio: 0.5,
-        first: node,
-        second: { type: "leaf", panelId: newPanelId },
+        ratio,
+        first: position === "first" ? newLeaf : node,
+        second: position === "first" ? node : newLeaf,
       };
     }
     return node;
   }
-  return {
-    ...node,
-    first: insertPanelSplit(node.first, targetPanelId, direction, newPanelId),
-    second: insertPanelSplit(node.second, targetPanelId, direction, newPanelId),
-  };
+  const newFirst = insertPanelSplit(node.first, targetPanelId, direction, newPanelId, position, ratio);
+  if (newFirst !== node.first) return { ...node, first: newFirst };
+  const newSecond = insertPanelSplit(node.second, targetPanelId, direction, newPanelId, position, ratio);
+  if (newSecond !== node.second) return { ...node, second: newSecond };
+  return node;
 }
 
-/** Remove a panel, collapsing its parent split. Returns null if tree is empty. */
 export function removePanel(
   node: PanelNode,
   panelId: string,
@@ -66,7 +65,7 @@ export function removePanel(
   return { ...node, first, second };
 }
 
-/** Update the split ratio at the split that directly contains targetPanelId as first child. */
+/** Only updates when firstPanelId is a direct leaf first-child of a split. */
 export function updatePanelRatio(
   node: PanelNode,
   firstPanelId: string,
@@ -76,14 +75,38 @@ export function updatePanelRatio(
   if (node.first.type === "leaf" && node.first.panelId === firstPanelId) {
     return { ...node, ratio };
   }
-  return {
-    ...node,
-    first: updatePanelRatio(node.first, firstPanelId, ratio),
-    second: updatePanelRatio(node.second, firstPanelId, ratio),
-  };
+  const newFirst = updatePanelRatio(node.first, firstPanelId, ratio);
+  if (newFirst !== node.first) return { ...node, first: newFirst };
+  const newSecond = updatePanelRatio(node.second, firstPanelId, ratio);
+  if (newSecond !== node.second) return { ...node, second: newSecond };
+  return node;
 }
 
-/** Find the next panel id after the given one (for focus cycling). */
+function firstLeafPanelId(node: PanelNode): string {
+  if (node.type === "leaf") return node.panelId;
+  return firstLeafPanelId(node.first);
+}
+
+function lastLeafPanelId(node: PanelNode): string {
+  if (node.type === "leaf") return node.panelId;
+  return lastLeafPanelId(node.second);
+}
+
+/** Find the parent split context for a panel: sibling, direction, ratio, and position. */
+export function findPanelSplitContext(
+  node: PanelNode,
+  panelId: string,
+): { siblingId: string; direction: SplitDirection; ratio: number; position: "first" | "second" } | null {
+  if (node.type === "leaf") return null;
+  if (node.first.type === "leaf" && node.first.panelId === panelId) {
+    return { siblingId: firstLeafPanelId(node.second), direction: node.direction, ratio: node.ratio, position: "first" };
+  }
+  if (node.second.type === "leaf" && node.second.panelId === panelId) {
+    return { siblingId: lastLeafPanelId(node.first), direction: node.direction, ratio: node.ratio, position: "second" };
+  }
+  return findPanelSplitContext(node.first, panelId) ?? findPanelSplitContext(node.second, panelId);
+}
+
 export function nextPanelId(
   node: PanelNode,
   currentId: string,
@@ -94,7 +117,6 @@ export function nextPanelId(
   return ids[(idx + 1) % ids.length];
 }
 
-/** Find the previous panel id before the given one (for focus cycling). */
 export function prevPanelId(
   node: PanelNode,
   currentId: string,

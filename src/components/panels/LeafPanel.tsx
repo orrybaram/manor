@@ -1,16 +1,8 @@
 import { useAppStore } from "../../store/app-store";
 import { TabBar } from "../tabbar/TabBar/TabBar";
 import { PaneLayout } from "../workspace-panes/PaneLayout/PaneLayout";
+import { TAB_VISIBLE_STYLE, TAB_HIDDEN_STYLE } from "../../lib/tab-styles";
 import styles from "./PanelLayout.module.css";
-
-const TAB_BASE_STYLE: React.CSSProperties = {
-  display: "flex",
-  position: "absolute",
-  inset: "0",
-  overflow: "hidden",
-};
-const TAB_VISIBLE_STYLE: React.CSSProperties = { ...TAB_BASE_STYLE, visibility: "visible" };
-const TAB_HIDDEN_STYLE: React.CSSProperties = { ...TAB_BASE_STYLE, visibility: "hidden" };
 
 interface LeafPanelProps {
   panelId: string;

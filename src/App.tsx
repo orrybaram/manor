@@ -32,15 +32,8 @@ import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
+import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
-
-const TAB_HIDDEN_STYLE: React.CSSProperties = {
-  display: "flex",
-  position: "absolute",
-  inset: "0",
-  overflow: "hidden",
-  visibility: "hidden",
-};
 
 function App() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -221,7 +214,7 @@ function App() {
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
-  const selectTab = useAppStore((s) => s.selectTab);
+  const selectTabByGlobalIndex = useAppStore((s) => s.selectTabByGlobalIndex);
   const selectNextTab = useAppStore((s) => s.selectNextTab);
   const selectPrevTab = useAppStore((s) => s.selectPrevTab);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -370,12 +363,7 @@ function App() {
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [
         `select-tab-${i + 1}`,
-        () => {
-          const tabs = wsRef.current?.tabs;
-          if (tabs && i < tabs.length) {
-            selectTab(tabs[i].id);
-          }
-        },
+        () => selectTabByGlobalIndex(i),
       ]),
     ),
   };

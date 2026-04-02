@@ -95,6 +95,7 @@ export function useCommands({
       {
         id: "new-browser",
         label: "New Browser Window",
+        shortcut: fmt("new-browser"),
         action: () => {
           addBrowserTab("about:blank");
           onClose();

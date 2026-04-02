@@ -64,7 +64,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const [selectedGitHubIssueNumber, setSelectedGitHubIssueNumber] = useState<
     number | null
   >(null);
-  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear");
+  const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear-all");
   const [issueListEmpty, setIssueListEmpty] = useState(false);
   const [showGhosts, setShowGhosts] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -117,11 +117,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     setIssueListEmpty(false);
     onClose();
   }, [onClose]);
-
-  const navigateToLinear = useCallback(() => {
-    setSearch("");
-    setView("linear");
-  }, []);
 
   const navigateToLinearAll = useCallback(() => {
     setSearch("");
@@ -243,7 +238,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   const showLinear = linearConnected && allTeamIds.length > 0;
   const showGitHub = githubConnected && !!repoPath;
   const isIssueListView =
-    view === "linear" ||
     view === "linear-all" ||
     view === "github" ||
     view === "github-all";
@@ -262,15 +256,8 @@ export function CommandPalette(props: CommandPaletteProps) {
 
     const linearItems: CommandItem[] = [
       {
-        id: "linear-my-issues",
-        label: "My Issues",
-        icon: <LinearIcon size={14} />,
-        suffix: <ChevronRight size={14} />,
-        action: navigateToLinear,
-      },
-      {
-        id: "linear-all-issues",
-        label: "All Issues",
+        id: "linear-issues",
+        label: "Issues",
         icon: <LinearIcon size={14} />,
         suffix: <ChevronRight size={14} />,
         action: navigateToLinearAll,
@@ -326,7 +313,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     commands,
     showLinear,
     showGitHub,
-    navigateToLinear,
     navigateToLinearAll,
     navigateToGitHub,
     navigateToGitHubAll,
@@ -355,8 +341,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     <ArrowLeft size={14} />
                   </button>
                   <span className={styles.breadcrumbLabel}>
-                    {view === "linear" && "Linear — My Issues"}
-                    {view === "linear-all" && "Linear — All Issues"}
+                    {view === "linear-all" && "Linear — Issues"}
                     {view === "github" && "GitHub — My Issues"}
                     {view === "github-all" && "GitHub — All Issues"}
                   </span>
@@ -449,10 +434,9 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </>
                 )}
 
-                {(view === "linear" || view === "linear-all") && (
+                {view === "linear-all" && (
                   <LinearIssuesView
                     allTeamIds={allTeamIds}
-                    allIssues={view === "linear-all"}
                     onEmptyChange={setIssueListEmpty}
                     onSelectIssue={(issueId) => {
                       setIssueListOrigin(view);

@@ -224,7 +224,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
         ))}
         <button
           className={styles.viewAll}
-          onClick={() => onOpenPaletteView?.("linear")}
+          onClick={() => onOpenPaletteView?.("linear-all")}
         >
           View All Tickets
         </button>

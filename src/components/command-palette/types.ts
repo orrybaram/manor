@@ -42,7 +42,6 @@ export interface CommandPaletteProps {
 
 export type PaletteView =
   | "root"
-  | "linear"
   | "linear-all"
   | "github"
   | "github-all"

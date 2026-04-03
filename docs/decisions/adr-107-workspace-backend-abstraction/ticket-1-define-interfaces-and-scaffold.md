@@ -1,6 +1,6 @@
 ---
 title: Define WorkspaceBackend interfaces and LocalBackend scaffold
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

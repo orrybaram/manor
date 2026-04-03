@@ -10,12 +10,19 @@ export class LocalBackend implements WorkspaceBackend {
   readonly git: LocalGitBackend;
   readonly shell: LocalShellBackend;
   readonly ports: LocalPortsBackend;
+  private client: TerminalHostClient;
 
   constructor(client: TerminalHostClient) {
+    this.client = client;
     this.pty = new LocalPtyBackend(client);
     this.git = new LocalGitBackend();
     this.shell = new LocalShellBackend();
     this.ports = new LocalPortsBackend();
+  }
+
+  /** Forward app version to the underlying client before connecting. */
+  setVersion(version: string): void {
+    this.client.setVersion(version);
   }
 
   async connect(): Promise<void> {

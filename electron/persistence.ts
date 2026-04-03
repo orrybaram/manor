@@ -67,6 +67,8 @@ export interface ProjectInfo {
   commands: CustomCommand[];
   themeName: string | null;
   setupComplete: boolean;
+  /** Which backend implementation drives this project. Defaults to "local". */
+  backendType?: "local" | "remote";
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -106,6 +108,8 @@ interface PersistedProject {
   commands?: CustomCommand[];
   themeName?: string | null;
   setupComplete?: boolean;
+  /** Which backend implementation drives this project. Defaults to "local". */
+  backendType?: "local" | "remote";
 }
 
 interface PersistedState {
@@ -339,6 +343,7 @@ export class ProjectManager {
       commands: p.commands ?? [],
       themeName: p.themeName ?? null,
       setupComplete: p.setupComplete ?? true,
+      backendType: p.backendType ?? "local",
     };
   }
 

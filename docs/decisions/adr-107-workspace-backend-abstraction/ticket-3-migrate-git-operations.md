@@ -1,6 +1,6 @@
 ---
 title: Implement LocalGitBackend and wire git IPC handlers
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

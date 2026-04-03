@@ -898,6 +898,8 @@ ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
   if (!editor) {
     return shell.openPath(dirPath);
   }
+  // TODO(adr-107): execFile for editor launch is intentionally direct — it opens
+  // an arbitrary user-configured binary and is not a backend abstraction concern.
   return new Promise<string>((resolve) => {
     execFile(editor, [dirPath], (err) => {
       resolve(err ? err.message : "");
@@ -1005,6 +1007,8 @@ ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
 });
 
 ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
+  // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
+  // abstracted through the backend since it is not workspace I/O.
   execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
 });
 
@@ -1342,6 +1346,8 @@ function maybeSendNotification(
   notification.show();
   const soundName = preferencesManager.get("notificationSound");
   if (typeof soundName === "string") {
+    // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
+    // abstracted through the backend since it is not workspace I/O.
     execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
   }
 }
@@ -1349,6 +1355,8 @@ function maybeSendNotification(
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths
 // where tools like `gh` live. Spawn a login shell to get the real PATH.
+// TODO(adr-107): execFileSync here is intentional — this is a synchronous startup
+// path that must complete before any async work begins. Cannot use backend abstraction.
 if (app.isPackaged) {
   try {
     const shell = process.env.SHELL || "/bin/zsh";
@@ -1478,9 +1486,9 @@ app.whenReady().then(async () => {
   process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
-  client.setVersion(app.getVersion());
+  backend.setVersion(app.getVersion());
   try {
-    await client.connect();
+    await backend.connect();
   } catch (err) {
     console.error("Failed to connect to terminal host daemon:", err);
   }

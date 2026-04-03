@@ -1,6 +1,6 @@
 ---
 title: Wire backend selection and clean up direct references
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [2, 3, 4]

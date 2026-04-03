@@ -51,7 +51,12 @@ export function CommitModal(props: CommitModalProps) {
     setError(null);
 
     const toastId = "git-commit";
-    addToast({ id: toastId, message: "Committing...", status: "loading" });
+    const noVerify = selectedFlags.has("--no-verify");
+    addToast({
+      id: toastId,
+      message: noVerify ? "Committing..." : "Running pre-commit hooks...",
+      status: "loading",
+    });
 
     try {
       const fullMessage = description.trim()
@@ -68,9 +73,17 @@ export function CommitModal(props: CommitModalProps) {
       reset();
       onOpenChange(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Commit failed";
+      const raw = err instanceof Error ? err.message : "Commit failed";
+      const msg = raw.replace(
+        /^Error invoking remote method '[^']+': Error:\s*/i,
+        "",
+      );
       setError(msg);
-      updateToast(toastId, { message: "Commit failed", status: "error", detail: msg });
+      updateToast(toastId, {
+        message: "Commit failed",
+        status: "error",
+        detail: msg.split("\n")[0],
+      });
     } finally {
       setSubmitting(false);
     }

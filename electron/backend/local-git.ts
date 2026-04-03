@@ -63,7 +63,11 @@ export class LocalGitBackend implements GitBackend {
       ...safeFlags,
       ...(hasMessage ? ["-m", message] : ["--no-edit"]),
     ];
-    await this.execGit(cwd, args, { timeout: 30000 });
+    try {
+      await this.execGit(cwd, args, { timeout: 120000 });
+    } catch (err: unknown) {
+      throw new Error(parseCommitError(err));
+    }
   }
 
   async stash(cwd: string, files: string[]): Promise<void> {
@@ -207,6 +211,7 @@ export class LocalGitBackend implements GitBackend {
     await this.execGit(cwd, args, { timeout: 300_000 });
   }
 
+  /** Build a synthetic diff for untracked files. */
   private async buildUntrackedDiff(cwd: string): Promise<string> {
     try {
       const { stdout: untrackedOut } = await this.execGit(
@@ -236,4 +241,50 @@ export class LocalGitBackend implements GitBackend {
       return "";
     }
   }
+}
+
+/**
+ * Extract a readable summary from a git commit failure.
+ * Handles lint-staged output, husky hooks, and plain git errors.
+ */
+function parseCommitError(err: unknown): string {
+  const raw =
+    (err as { stderr?: string })?.stderr ||
+    (err as { stdout?: string })?.stdout ||
+    (err instanceof Error ? err.message : String(err));
+
+  // Strip the "Command failed: git commit ..." prefix
+  const stripped = raw.replace(/^Command failed:[^\n]*\n?/, "");
+
+  // Look for [FAILED] lines from lint-staged
+  const failedTasks = stripped
+    .split("\n")
+    .filter((l: string) => /\[FAILED]/.test(l))
+    .map((l: string) => l.replace(/\[FAILED]\s*/, "").trim());
+
+  if (failedTasks.length > 0) {
+    // Extract the actual error output: lines after the task list that aren't
+    // lint-staged status markers (e.g. [STARTED], [COMPLETED], etc.)
+    const errorLines = stripped
+      .split("\n")
+      .filter(
+        (l: string) =>
+          !/^\[(?:STARTED|COMPLETED|FAILED|SKIPPED)]/.test(l.trim()) &&
+          !/^npm warn/.test(l.trim()) &&
+          l.trim() !== "",
+      );
+
+    const summary = `Pre-commit hook failed:\n${failedTasks.map((t: string) => `  - ${t}`).join("\n")}`;
+    const detail = errorLines.length > 0 ? `\n\n${errorLines.join("\n")}` : "";
+    return summary + detail;
+  }
+
+  // Not lint-staged — return a cleaned-up version
+  const cleaned = stripped
+    .split("\n")
+    .filter((l: string) => !/^npm warn/.test(l.trim()))
+    .join("\n")
+    .trim();
+
+  return cleaned || "Commit failed";
 }

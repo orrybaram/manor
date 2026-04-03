@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { GitBackend, WorktreeInfo } from "./types";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./exec";
 
 export class LocalGitBackend implements GitBackend {
   private async execGit(
@@ -210,7 +207,6 @@ export class LocalGitBackend implements GitBackend {
     await this.execGit(cwd, args, { timeout: 300_000 });
   }
 
-  /** Build synthetic diff entries for untracked files. */
   private async buildUntrackedDiff(cwd: string): Promise<string> {
     try {
       const { stdout: untrackedOut } = await this.execGit(
@@ -219,23 +215,23 @@ export class LocalGitBackend implements GitBackend {
         { timeout: 5000 },
       );
       const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
-      let untrackedDiff = "";
 
-      for (const filePath of untrackedFiles) {
-        try {
-          const content = await readFile(path.join(cwd, filePath), "utf-8");
-          const lines = content.split("\n");
-          // Remove trailing empty line from final newline
-          if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-          const hunk = `@@ -0,0 +1,${lines.length} @@`;
-          const addedLines = lines.map((l) => `+${l}`).join("\n");
-          untrackedDiff += `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
-        } catch {
-          // Skip files that can't be read (binary, permission issues, etc.)
-        }
-      }
+      const diffs = await Promise.all(
+        untrackedFiles.map(async (filePath) => {
+          try {
+            const content = await readFile(path.join(cwd, filePath), "utf-8");
+            const lines = content.split("\n");
+            if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+            const hunk = `@@ -0,0 +1,${lines.length} @@`;
+            const addedLines = lines.map((l) => `+${l}`).join("\n");
+            return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
+          } catch {
+            return "";
+          }
+        }),
+      );
 
-      return untrackedDiff;
+      return diffs.join("");
     } catch {
       return "";
     }

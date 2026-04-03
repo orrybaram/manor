@@ -234,7 +234,7 @@ const backend = new LocalBackend(client);
 const layoutPersistence = new LayoutPersistence();
 const projectManager = new ProjectManager(backend.git);
 const themeManager = new ThemeManager();
-const portScanner = new PortScanner();
+const portScanner = new PortScanner(backend.ports);
 const branchWatcher = new BranchWatcher();
 const diffWatcher = new DiffWatcher(backend.git);
 const githubManager = new GitHubManager();
@@ -1486,9 +1486,8 @@ app.whenReady().then(async () => {
   process.env.MANOR_PORTLESS_PORT = String(portlessManager.proxyPort);
 
   // Connect to daemon (spawns if needed) — now has MANOR_HOOK_PORT in env
-  backend.setVersion(app.getVersion());
   try {
-    await backend.connect();
+    await backend.connect({ version: app.getVersion() });
   } catch (err) {
     console.error("Failed to connect to terminal host daemon:", err);
   }

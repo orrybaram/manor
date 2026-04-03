@@ -56,8 +56,7 @@ export class LocalPtyBackend implements PtyBackend {
   }
 
   async updateEnv(_env: Record<string, string>): Promise<void> {
-    // The TerminalHostClient pushes env during connect() internally.
-    // This is a no-op for local; kept for interface compliance.
+    // no-op: TerminalHostClient pushes env during connect()
   }
 
   relayAgentHook(

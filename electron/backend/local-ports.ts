@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import os from "node:os";
 import type { ActivePort, PortsBackend } from "./types";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./exec";
 
 export class LocalPortsBackend implements PortsBackend {
   async scan(workspacePaths: string[]): Promise<ActivePort[]> {

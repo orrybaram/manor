@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { ShellBackend } from "./types";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./exec";
 
 export class LocalShellBackend implements ShellBackend {
   async which(bin: string): Promise<string | null> {
@@ -16,10 +13,10 @@ export class LocalShellBackend implements ShellBackend {
   }
 
   async exec(
-    command: string,
+    cmd: string,
+    args: string[],
     opts?: { cwd?: string; timeout?: number },
   ): Promise<string> {
-    const [cmd, ...args] = command.split(" ");
     const { stdout } = await execFileAsync(cmd, args, {
       cwd: opts?.cwd,
       timeout: opts?.timeout,

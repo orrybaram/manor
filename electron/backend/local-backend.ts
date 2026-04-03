@@ -20,16 +20,13 @@ export class LocalBackend implements WorkspaceBackend {
     this.ports = new LocalPortsBackend();
   }
 
-  /** Forward app version to the underlying client before connecting. */
-  setVersion(version: string): void {
-    this.client.setVersion(version);
-  }
-
-  async connect(): Promise<void> {
+  async connect(opts?: { version?: string }): Promise<void> {
+    if (opts?.version) {
+      this.client.setVersion(opts.version);
+    }
     await this.pty.ensureConnected();
   }
 
-  async disconnect(): Promise<void> {
-    // No-op for local backend — the daemon persists independently
-  }
+  async disconnect(): Promise<void> {}
+
 }

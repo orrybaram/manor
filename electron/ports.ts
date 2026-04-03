@@ -1,6 +1,5 @@
 import type { BrowserWindow } from "electron";
-import { LocalPortsBackend } from "./backend/local-ports";
-import type { ActivePort } from "./backend/types";
+import type { ActivePort, PortsBackend } from "./backend/types";
 
 export type { ActivePort };
 
@@ -9,7 +8,11 @@ export class PortScanner {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastPorts: ActivePort[] = [];
   private scanning = false;
-  private backend = new LocalPortsBackend();
+  private backend: PortsBackend;
+
+  constructor(backend: PortsBackend) {
+    this.backend = backend;
+  }
 
   start(
     window: BrowserWindow,

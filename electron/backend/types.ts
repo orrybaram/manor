@@ -1,9 +1,3 @@
-// ── Backend abstraction types ──
-//
-// These interfaces define the contract for workspace backends.
-// The LocalBackend implementation runs everything on the local machine;
-// future backends (e.g. SSH, container) will implement the same interfaces.
-
 // Re-export terminal-host types so consumers import from one place
 export type {
   SessionInfo,
@@ -99,8 +93,8 @@ export interface ShellBackend {
   /** Resolve a binary name to its absolute path (like `which`). */
   which(bin: string): Promise<string | null>;
 
-  /** Execute a shell command and return stdout. */
-  exec(command: string, opts?: { cwd?: string; timeout?: number }): Promise<string>;
+  /** Execute a command and return stdout. */
+  exec(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<string>;
 }
 
 // ── Ports Backend ──
@@ -135,6 +129,6 @@ export interface WorkspaceBackend {
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
 
-  connect(): Promise<void>;
+  connect(opts?: { version?: string }): Promise<void>;
   disconnect(): Promise<void>;
 }

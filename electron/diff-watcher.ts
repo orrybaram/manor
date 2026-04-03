@@ -23,15 +23,18 @@ export class DiffWatcher {
     this.workspaces = new Map(Object.entries(workspaces));
 
     const tick = async () => {
-      if (this.scanning) return; // skip if previous scan still running
+      if (this.scanning) return;
       this.scanning = true;
       try {
         const stats = await this.scan();
-        if (JSON.stringify(stats) !== JSON.stringify(this.lastStats)) {
+        const json = JSON.stringify(stats);
+        if (json !== JSON.stringify(this.lastStats)) {
           console.log("[DiffWatcher] emitting diffs-changed:", stats);
           window.webContents.send("diffs-changed", stats);
           this.lastStats = stats;
         }
+      } catch (err) {
+        console.error("[DiffWatcher] scan tick failed:", err);
       } finally {
         this.scanning = false;
       }
@@ -64,7 +67,9 @@ export class DiffWatcher {
     );
 
     for (const r of results) {
-      if (r.status === "fulfilled" && r.value.stats) {
+      if (r.status === "rejected") {
+        console.error("[DiffWatcher] workspace scan rejected:", r.reason);
+      } else if (r.value.stats) {
         result[r.value.wsPath] = r.value.stats;
       }
     }

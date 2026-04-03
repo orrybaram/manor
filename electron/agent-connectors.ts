@@ -284,8 +284,37 @@ export class CodexConnector implements AgentConnector {
     }
   }
 
-  registerMcp(_mcpServerScriptPath: string): void {
-    // Codex CLI doesn't have MCP config yet — no-op
+  registerMcp(mcpServerScriptPath: string): void {
+    const configPath = path.join(
+      process.env.HOME || "/tmp",
+      ".codex",
+      "config.toml",
+    );
+
+    let content = "";
+    try {
+      content = fs.readFileSync(configPath, "utf-8");
+    } catch {
+      // File doesn't exist — will create it
+    }
+
+    // Check if manor-webview MCP server is already registered
+    if (content.includes("[mcp_servers.manor-webview]")) {
+      return;
+    }
+
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+
+    const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+    const section = [
+      `\n[mcp_servers.manor-webview]`,
+      `type = "stdio"`,
+      `command = "node"`,
+      `args = [${JSON.stringify(mcpServerScriptPath)}]`,
+      "",
+    ].join("\n");
+
+    fs.writeFileSync(configPath, content + separator + section);
   }
 }
 

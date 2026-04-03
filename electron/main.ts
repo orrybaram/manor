@@ -45,6 +45,7 @@ import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 import { portlessManager } from "./portless";
+import { LocalBackend } from "./backend/local-backend";
 
 interface WorkspaceMeta {
   path: string;
@@ -229,6 +230,7 @@ function createWindow() {
 
 // Managers
 const client = new TerminalHostClient();
+const backend = new LocalBackend(client);
 const layoutPersistence = new LayoutPersistence();
 const projectManager = new ProjectManager();
 const themeManager = new ThemeManager();
@@ -271,7 +273,7 @@ ensureWebviewCli();
 registerAllAgents();
 
 // Set up stream event handler — forward events to renderer
-client.onEvent((event: StreamEvent) => {
+backend.pty.onEvent((event: StreamEvent) => {
   if (
     !mainWindow ||
     mainWindow.isDestroyed() ||
@@ -358,7 +360,7 @@ ipcMain.handle(
     assertPositiveInt(cols, "cols");
     assertPositiveInt(rows, "rows");
     try {
-      const result = await client.createOrAttach(
+      const result = await backend.pty.createOrAttach(
         paneId,
         cwd || process.env.HOME || "/",
         cols,
@@ -383,7 +385,7 @@ ipcMain.handle(
 ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
   assertString(paneId, "paneId");
   assertString(data, "data");
-  client.writeNoAck(paneId, data);
+  backend.pty.write(paneId, data);
 });
 
 ipcMain.handle(
@@ -393,7 +395,7 @@ ipcMain.handle(
     assertPositiveInt(cols, "cols");
     assertPositiveInt(rows, "rows");
     try {
-      await client.resize(paneId, cols, rows);
+      await backend.pty.resize(paneId, cols, rows);
     } catch {
       // ignore resize errors
     }
@@ -403,7 +405,7 @@ ipcMain.handle(
 ipcMain.handle("pty:close", async (_event, paneId: string) => {
   assertString(paneId, "paneId");
   try {
-    await client.kill(paneId);
+    await backend.pty.kill(paneId);
   } catch {
     // ignore close errors
   }
@@ -412,7 +414,7 @@ ipcMain.handle("pty:close", async (_event, paneId: string) => {
 ipcMain.handle("pty:detach", async (_event, paneId: string) => {
   assertString(paneId, "paneId");
   try {
-    await client.detach(paneId);
+    await backend.pty.detach(paneId);
   } catch {
     // ignore detach errors
   }
@@ -435,7 +437,7 @@ ipcMain.handle("layout:getRestoredSessions", async () => {
   // Get live daemon sessions and persisted scrollback sessions
   // so the renderer can reconcile on startup
   try {
-    const daemonSessions = await client.listSessions();
+    const daemonSessions = await backend.pty.listSessions();
     const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
     return {
       daemonSessions,
@@ -1675,7 +1677,7 @@ app.whenReady().then(async () => {
   });
 
   agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
-    client.relayAgentHook(paneId, status, kind);
+    backend.pty.relayAgentHook(paneId, status, kind);
 
     // Task persistence: create or update task for this session
     if (!sessionId) {

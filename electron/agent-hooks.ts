@@ -21,6 +21,7 @@ type PaneStatus = AgentStatus;
 
 export function mapEventToStatus(eventType: string): PaneStatus | null {
   switch (eventType) {
+    case "SessionStart":
     case "UserPromptSubmit":
     case "PostToolUse":
     case "PostToolUseFailure":

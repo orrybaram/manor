@@ -824,13 +824,17 @@ ipcMain.handle("git:stash", async (_event, wsPath: string, files: string[]) => {
 
 ipcMain.handle("git:commit", async (_event, wsPath: string, message: string, flags: string[]) => {
   assertString(wsPath, "wsPath");
-  assertString(message, "message");
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const execFileAsync = promisify(execFile);
   const allowedFlags = ["--amend", "--no-verify", "--allow-empty"];
   const safeFlags = flags.filter((f) => allowedFlags.includes(f));
-  const args = ["commit", ...safeFlags, "-m", message];
+  const hasMessage = typeof message === "string" && message.length > 0;
+  const isAmend = safeFlags.includes("--amend");
+  if (!hasMessage && !isAmend) {
+    throw new Error("Commit message is required for non-amend commits");
+  }
+  const args = ["commit", ...safeFlags, ...(hasMessage ? ["-m", message] : ["--no-edit"])];
   await execFileAsync("git", args, { cwd: wsPath, timeout: 30000 });
 });
 

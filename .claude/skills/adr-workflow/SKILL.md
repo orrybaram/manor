@@ -12,10 +12,10 @@ Every task gets an ADR before any code changes. This creates an observability la
 
 ## Overview
 
-ADRs live in `.claude/decisions/` alongside the project's docs. Implementation code lives in the repo. The ADR captures *why* and *what*; the code captures *how*.
+ADRs live in `docs/decisions/` alongside the project's docs. Implementation code lives in the repo. The ADR captures *why* and *what*; the code captures *how*.
 
 ```
-.claude/
+docs/
   decisions/
     adr-001-add-auth/
       index.md                    # The decision record
@@ -28,7 +28,7 @@ src/
 
 ## Step 1: Resolve decisions path
 
-The decisions directory is `.claude/decisions/`. Create it if it doesn't exist.
+The decisions directory is `docs/decisions/`. Create it if it doesn't exist.
 
 ## Step 2: Determine ADR number
 
@@ -36,7 +36,7 @@ Scan for existing `adr-NNN-*` folders. The next number is `max(existing) + 1`, z
 
 Choose a short slug: `adr-003-add-search-api`.
 
-Also ensure `.claude/decisions/index.md` has a database schema. Read the file if it exists; if it already contains `database:` in its frontmatter, leave it unchanged. Otherwise create or overwrite it with:
+Also ensure `docs/decisions/index.md` has a database schema. Read the file if it exists; if it already contains `database:` in its frontmatter, leave it unchanged. Otherwise create or overwrite it with:
 
 ```markdown
 ---
@@ -59,7 +59,7 @@ All architecture decisions for this project.
 
 ## Step 3: Create ADR skeleton
 
-Create directory `.claude/decisions/adr-NNN-slug/` and write `index.md`:
+Create directory `docs/decisions/adr-NNN-slug/` and write `index.md`:
 
 ```markdown
 ---
@@ -242,4 +242,4 @@ Every agent prompt includes:
 2. **PASS** → update ADR `index.md`: `status: proposed` → `status: accepted`
 3. **FAIL** → create follow-up `ticket-N-fix-integration.md`, spawn agent, re-verify
 
-**Important**: Agents write implementation code to the **repo** (the working directory). ADR files live in `.claude/decisions/`. Only the main session writes to the decisions directory — agents don't need decisions access.
+**Important**: Agents write implementation code to the **repo** (the working directory). ADR files live in `docs/decisions/`. Only the main session writes to the decisions directory — agents don't need decisions access.

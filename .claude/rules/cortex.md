@@ -18,4 +18,4 @@ its content in the agent prompt:
 Skills: `.claude/skills/`
 Rules: `.claude/rules/`
 Agents: `.claude/agents/`
-Decisions: `.claude/decisions/`
+Decisions: `docs/decisions/`

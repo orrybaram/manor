@@ -1,38 +1,64 @@
-.table {
-  width: 100%;
-  border-collapse: collapse;
+/* ── Virtual scroll container ── */
+
+.scrollContainer {
+  overflow-y: auto;
+  max-height: min(600px, 60vh);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
-  table-layout: fixed;
   border-radius: 0 0 6px 6px;
-  overflow: hidden;
+  contain: layout paint;
 }
+
+.virtualList {
+  width: 100%;
+  position: relative;
+}
+
+/* ── Row layout ── */
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── Line numbers ── */
 
 .lineNum {
   width: 50px;
   min-width: 50px;
   max-width: 50px;
+  flex-shrink: 0;
   padding: 0 8px;
   text-align: right;
   color: var(--text-dim);
   background: var(--dim);
   user-select: none;
-  vertical-align: top;
   border-right: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .lineNumAdd {
+  composes: lineNum;
   background: color-mix(in srgb, var(--green) 12%, var(--dim));
   color: var(--green);
 }
 
 .lineNumDel {
+  composes: lineNum;
   background: color-mix(in srgb, var(--red) 12%, var(--dim));
   color: var(--red);
 }
 
+/* ── Line content ── */
+
 .lineContent {
+  flex: 1;
+  min-width: 0;
   padding: 0 8px;
   white-space: pre-wrap;
   word-break: break-all;
@@ -46,8 +72,8 @@
 }
 
 .lineContentAdd {
-  background: color-mix(in srgb, var(--green) 8%, var(--bg));
   composes: lineContent;
+  background: color-mix(in srgb, var(--green) 8%, var(--bg));
 }
 
 .lineContentAdd .prefix {
@@ -55,8 +81,8 @@
 }
 
 .lineContentDel {
-  background: color-mix(in srgb, var(--red) 8%, var(--bg));
   composes: lineContent;
+  background: color-mix(in srgb, var(--red) 8%, var(--bg));
 }
 
 .lineContentDel .prefix {
@@ -65,14 +91,16 @@
 
 /* ── Hunk headers ── */
 
-.hunkRow td {
-  background: var(--surface);
-}
-
 .hunkContent {
+  flex: 1;
   padding: 2px 12px;
   color: var(--text-dim);
   font-size: 11px;
+  background: var(--surface);
+}
+
+.row:has(.hunkContent) .lineNum {
+  background: var(--surface);
 }
 
 /* ── Search highlights ── */

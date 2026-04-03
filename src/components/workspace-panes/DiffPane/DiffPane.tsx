@@ -409,17 +409,18 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                       range.commonAncestorContainer instanceof HTMLElement
                         ? range.commonAncestorContainer
                         : range.commonAncestorContainer.parentElement;
-                    const table =
-                      ancestor?.closest("table") ??
-                      ancestor?.querySelector("table");
-                    const rows = table?.querySelectorAll("tr");
+                    const container =
+                      ancestor?.closest("[data-diff-lines]") ??
+                      ancestor?.querySelector("[data-diff-lines]");
+                    const rows = container?.querySelectorAll("[data-index]");
 
                     const lines: string[] = [];
                     if (rows) {
                       for (const row of rows) {
                         if (!sel.containsNode(row, true)) continue;
-                        const numCell = row.querySelector("td:first-child");
-                        const contentCell = row.querySelector("td:last-child");
+                        const children = row.children;
+                        const numCell = children[0];
+                        const contentCell = children[1];
                         if (!contentCell) continue;
                         const num = numCell?.textContent?.trim() ?? "";
                         const content = contentCell?.textContent ?? "";

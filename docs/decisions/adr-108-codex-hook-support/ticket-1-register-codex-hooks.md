@@ -1,6 +1,6 @@
 ---
 title: Register Manor hooks in Codex hooks.json
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

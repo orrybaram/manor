@@ -1,6 +1,6 @@
 ---
 title: Map SessionStart hook event to agent status
-status: in-progress
+status: done
 priority: high
 assignee: haiku
 blocked_by: []

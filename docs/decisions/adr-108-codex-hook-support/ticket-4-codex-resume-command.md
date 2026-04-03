@@ -1,6 +1,6 @@
 ---
 title: Wire up Codex resume command support
-status: todo
+status: done
 priority: low
 assignee: haiku
 blocked_by: []

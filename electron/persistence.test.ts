@@ -4,6 +4,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { ProjectManager } from "./persistence";
+import type { GitBackend } from "./backend/types";
+
+const stubGit = {} as GitBackend;
 
 describe("ProjectManager", () => {
   let tmpDir: string;
@@ -15,7 +18,7 @@ describe("ProjectManager", () => {
       `manor-persistence-test-${crypto.randomUUID()}`,
     );
     fs.mkdirSync(tmpDir, { recursive: true });
-    manager = new ProjectManager(tmpDir);
+    manager = new ProjectManager(stubGit, tmpDir);
   });
 
   afterEach(() => {
@@ -86,7 +89,7 @@ describe("ProjectManager", () => {
       await manager.addProject("Two", "/tmp/two");
       manager.selectProject(0);
 
-      const reloaded = new ProjectManager(tmpDir);
+      const reloaded = new ProjectManager(stubGit, tmpDir);
       expect(reloaded.getSelectedProjectIndex()).toBe(0);
     });
   });
@@ -165,7 +168,7 @@ describe("ProjectManager", () => {
         defaultRunCommand: "echo hello",
       });
 
-      const reloaded = new ProjectManager(tmpDir);
+      const reloaded = new ProjectManager(stubGit, tmpDir);
       const p = (await reloaded.getProjects())[0];
       expect(p.name).toBe("Persisted");
       expect(p.defaultRunCommand).toBe("echo hello");

@@ -2,14 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { exec, execFile } from "node:child_process";
+import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
+import type { GitBackend } from "./backend/types";
 
 const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
 
 function expandHome(p: string): string {
   if (p.startsWith("~/") || p === "~") {
@@ -116,8 +116,10 @@ interface PersistedState {
 export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
+  private git: GitBackend;
 
-  constructor(dataDir?: string) {
+  constructor(git: GitBackend, dataDir?: string) {
+    this.git = git;
     this.dataDir = dataDir ?? manorDataDir();
     this.state = this.loadState();
   }
@@ -222,7 +224,7 @@ export class ProjectManager {
     this.state.selectedProjectIndex = this.state.projects.length - 1;
     this.saveState();
 
-    const workspaces = (await listGitWorkspaces(projectPath)) ?? [
+    const workspaces = (await listGitWorkspaces(this.git, projectPath)) ?? [
       { path: projectPath, branch: "main", isMain: true, name: null },
     ];
 
@@ -300,7 +302,7 @@ export class ProjectManager {
   }
 
   private async buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
-    const rawWorkspaces = (await listGitWorkspaces(p.path)) ?? [
+    const rawWorkspaces = (await listGitWorkspaces(this.git, p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ];
     // Apply persisted ordering
@@ -421,21 +423,9 @@ export class ProjectManager {
     if (deleteBranch) {
       progress("Detecting branch…");
       try {
-        const { stdout } = await execAsync("git worktree list --porcelain", {
-          cwd: project.path,
-          timeout: 10000,
-        });
-        let currentPath = "";
-        for (const line of stdout.split("\n")) {
-          if (line.startsWith("worktree ")) {
-            currentPath = line.slice(9);
-          } else if (
-            line.startsWith("branch refs/heads/") &&
-            currentPath === worktreePath
-          ) {
-            branchName = line.slice(18);
-          }
-        }
+        const worktrees = await this.git.worktreeList(project.path);
+        const match = worktrees.find((wt) => wt.path === worktreePath);
+        if (match) branchName = match.branch;
       } catch (err) {
         console.error(
           "[ProjectManager] failed to detect branch for worktree:",
@@ -462,13 +452,7 @@ export class ProjectManager {
 
     progress("Removing worktree files…");
     try {
-      await execAsync(
-        `git worktree remove --force ${JSON.stringify(worktreePath)}`,
-        {
-          cwd: project.path,
-          timeout: 300_000, // 5 minutes — large repos with node_modules can be slow
-        },
-      );
+      await this.git.worktreeRemove(project.path, worktreePath, true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[ProjectManager] git worktree remove failed:", message);
@@ -483,10 +467,7 @@ export class ProjectManager {
       // Directory is gone — prune stale git metadata and continue
       progress("Pruning stale worktree entries…");
       try {
-        await execAsync("git worktree prune", {
-          cwd: project.path,
-          timeout: 10000,
-        });
+        await this.git.exec(project.path, ["worktree", "prune"]);
       } catch (pruneErr) {
         console.error(
           "[ProjectManager] git worktree prune failed:",
@@ -513,10 +494,7 @@ export class ProjectManager {
     if (deleteBranch && branchName) {
       progress("Deleting branch…");
       try {
-        await execAsync(`git branch -D ${JSON.stringify(branchName)}`, {
-          cwd: project.path,
-          timeout: 10000,
-        });
+        await this.git.exec(project.path, ["branch", "-D", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git branch -D failed:",
@@ -537,24 +515,12 @@ export class ProjectManager {
       return { canMerge: false, reason: "Cannot merge main workspace" };
     }
 
-    // Detect branch name from git worktree list --porcelain
+    // Detect branch name from worktree list
     let branchName: string | null = null;
     try {
-      const { stdout } = await execAsync("git worktree list --porcelain", {
-        cwd: project.path,
-        timeout: 10000,
-      });
-      let currentPath = "";
-      for (const line of stdout.split("\n")) {
-        if (line.startsWith("worktree ")) {
-          currentPath = line.slice(9);
-        } else if (
-          line.startsWith("branch refs/heads/") &&
-          currentPath === worktreePath
-        ) {
-          branchName = line.slice(18);
-        }
-      }
+      const worktrees = await this.git.worktreeList(project.path);
+      const match = worktrees.find((wt) => wt.path === worktreePath);
+      if (match) branchName = match.branch;
     } catch (err) {
       console.error(
         "[ProjectManager] canQuickMerge: failed to detect branch for worktree:",
@@ -564,10 +530,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in source worktree
     try {
-      const { stdout } = await execAsync("git status --porcelain", {
-        cwd: worktreePath,
-        timeout: 10000,
-      });
+      const stdout = await this.git.exec(worktreePath, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in workspace" };
       }
@@ -580,10 +543,7 @@ export class ProjectManager {
 
     // Check for uncommitted changes in main worktree (merge target)
     try {
-      const { stdout } = await execAsync("git status --porcelain", {
-        cwd: project.path,
-        timeout: 10000,
-      });
+      const stdout = await this.git.exec(project.path, ["status", "--porcelain"]);
       if (stdout.trim().length > 0) {
         return { canMerge: false, reason: "Uncommitted changes in main workspace" };
       }
@@ -597,13 +557,12 @@ export class ProjectManager {
     // Check fast-forward eligibility
     if (branchName) {
       try {
-        await execAsync(
-          `git merge-base --is-ancestor ${JSON.stringify(project.defaultBranch)} ${JSON.stringify(branchName)}`,
-          {
-            cwd: project.path,
-            timeout: 10000,
-          },
-        );
+        await this.git.exec(project.path, [
+          "merge-base",
+          "--is-ancestor",
+          project.defaultBranch,
+          branchName,
+        ]);
       } catch {
         return { canMerge: false, reason: "Branch has diverged" };
       }
@@ -629,21 +588,9 @@ export class ProjectManager {
     // Detect branch name
     let branchName: string | null = null;
     try {
-      const { stdout } = await execAsync("git worktree list --porcelain", {
-        cwd: project.path,
-        timeout: 10000,
-      });
-      let currentPath = "";
-      for (const line of stdout.split("\n")) {
-        if (line.startsWith("worktree ")) {
-          currentPath = line.slice(9);
-        } else if (
-          line.startsWith("branch refs/heads/") &&
-          currentPath === worktreePath
-        ) {
-          branchName = line.slice(18);
-        }
-      }
+      const worktrees = await this.git.worktreeList(project.path);
+      const match = worktrees.find((wt) => wt.path === worktreePath);
+      if (match) branchName = match.branch;
     } catch (err) {
       console.error(
         "[ProjectManager] quickMergeWorktree: failed to detect branch for worktree:",
@@ -658,13 +605,7 @@ export class ProjectManager {
     }
 
     try {
-      await execAsync(
-        `git merge --ff-only ${JSON.stringify(branchName)}`,
-        {
-          cwd: project.path,
-          timeout: 30000,
-        },
-      );
+      await this.git.exec(project.path, ["merge", "--ff-only", branchName]);
     } catch (err) {
       console.error(
         "[ProjectManager] quickMergeWorktree: git merge --ff-only failed:",
@@ -682,15 +623,14 @@ export class ProjectManager {
 
     try {
       // Fetch latest remote refs so for-each-ref has up-to-date data
-      await execAsync("git fetch origin --prune", {
-        cwd: project.path,
-        timeout: 30000,
-      });
+      await this.git.exec(project.path, ["fetch", "origin", "--prune"]);
 
-      const { stdout } = await execAsync(
-        'git for-each-ref --sort=-creatordate --format="%(refname:strip=3)" refs/remotes/origin',
-        { cwd: project.path, timeout: 15000 },
-      );
+      const stdout = await this.git.exec(project.path, [
+        "for-each-ref",
+        "--sort=-creatordate",
+        "--format=%(refname:strip=3)",
+        "refs/remotes/origin",
+      ]);
 
       const branches = stdout
         .split("\n")
@@ -728,10 +668,7 @@ export class ProjectManager {
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     this.emitSetupProgress("prune", "in-progress");
     try {
-      await execFileAsync("git", ["worktree", "prune"], {
-        cwd: project.path,
-        timeout: 10000,
-      });
+      await this.git.exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -744,10 +681,7 @@ export class ProjectManager {
     this.emitSetupProgress("fetch", "in-progress");
     if (branch) {
       try {
-        await execFileAsync("git", ["fetch", "origin", branchName], {
-          cwd: project.path,
-          timeout: 30000,
-        });
+        await this.git.exec(project.path, ["fetch", "origin", branchName]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch before checkout failed:",
@@ -757,10 +691,7 @@ export class ProjectManager {
     } else {
       // Creating a new branch — fetch origin so we base off the latest remote refs
       try {
-        await execFileAsync("git", ["fetch", "origin"], {
-          cwd: project.path,
-          timeout: 30000,
-        });
+        await this.git.exec(project.path, ["fetch", "origin"]);
       } catch (err) {
         console.error(
           "[ProjectManager] git fetch origin before new worktree failed:",
@@ -777,19 +708,14 @@ export class ProjectManager {
       this.emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
       try {
         // Try checking out as a local branch first
-        await execFileAsync(
-          "git",
-          ["worktree", "add", worktreePath, branchName],
-          { cwd: project.path, timeout: 15000 },
-        );
+        await this.git.worktreeAdd(project.path, worktreePath, branchName);
       } catch {
         // Local branch doesn't exist — create local tracking branch from remote
         try {
-          await execFileAsync(
-            "git",
-            ["worktree", "add", worktreePath, "-b", branchName, `origin/${branchName}`],
-            { cwd: project.path, timeout: 15000 },
-          );
+          await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+            createBranch: true,
+            startPoint: `origin/${branchName}`,
+          });
         } catch (remoteErr) {
           console.error(
             "[ProjectManager] git worktree add existing branch failed:",
@@ -801,14 +727,10 @@ export class ProjectManager {
     } else {
       this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
       try {
-        await execFileAsync(
-          "git",
-          ["worktree", "add", worktreePath, "-b", branchName, defaultBranchRef],
-          {
-            cwd: project.path,
-            timeout: 15000,
-          },
-        );
+        await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+          createBranch: true,
+          startPoint: defaultBranchRef,
+        });
       } catch (createErr) {
         console.error(
           "[ProjectManager] git worktree add -b failed:",
@@ -816,27 +738,15 @@ export class ProjectManager {
         );
         // Branch already exists — create worktree checking out the existing branch
         try {
-          await execFileAsync(
-            "git",
-            ["worktree", "add", worktreePath, branchName],
-            {
-              cwd: project.path,
-              timeout: 15000,
-            },
-          );
+          await this.git.worktreeAdd(project.path, worktreePath, branchName);
         } catch {
           // Neither new branch nor existing local branch — try remote tracking branch
           try {
-            await execFileAsync(
-              "git",
-              ["fetch", "origin", branchName],
-              { cwd: project.path, timeout: 30000 },
-            );
-            await execFileAsync(
-              "git",
-              ["worktree", "add", worktreePath, "-b", branchName, `origin/${branchName}`],
-              { cwd: project.path, timeout: 15000 },
-            );
+            await this.git.exec(project.path, ["fetch", "origin", branchName]);
+            await this.git.worktreeAdd(project.path, worktreePath, branchName, {
+              createBranch: true,
+              startPoint: `origin/${branchName}`,
+            });
           } catch (remoteErr) {
             console.error(
               "[ProjectManager] git worktree add from remote also failed:",
@@ -879,11 +789,11 @@ export class ProjectManager {
     if (!project) return null;
 
     // Get the current branch of the main workspace
-    const { stdout: branchOut } = await execFileAsync(
-      "git",
-      ["rev-parse", "--abbrev-ref", "HEAD"],
-      { cwd: project.path, timeout: 5000 },
-    );
+    const branchOut = await this.git.exec(project.path, [
+      "rev-parse",
+      "--abbrev-ref",
+      "HEAD",
+    ]);
     const currentBranch = branchOut.trim();
 
     if (currentBranch === project.defaultBranch) {
@@ -900,10 +810,7 @@ export class ProjectManager {
 
     // Prune stale worktree entries
     try {
-      await execFileAsync("git", ["worktree", "prune"], {
-        cwd: project.path,
-        timeout: 10000,
-      });
+      await this.git.exec(project.path, ["worktree", "prune"]);
     } catch (err) {
       console.error(
         "[ProjectManager] git worktree prune failed:",
@@ -913,27 +820,18 @@ export class ProjectManager {
 
     // Checkout the default branch first — the current branch must be
     // freed before git allows it to be checked out in a new worktree.
-    await execFileAsync(
-      "git",
-      ["checkout", project.defaultBranch || "main"],
-      { cwd: project.path, timeout: 15000 },
-    );
+    await this.git.exec(project.path, [
+      "checkout",
+      project.defaultBranch || "main",
+    ]);
 
     // Create a worktree for the branch we just freed
     try {
-      await execFileAsync(
-        "git",
-        ["worktree", "add", worktreePath, currentBranch],
-        { cwd: project.path, timeout: 15000 },
-      );
+      await this.git.worktreeAdd(project.path, worktreePath, currentBranch);
     } catch (worktreeErr) {
       // Roll back: re-checkout the original branch so the user isn't stranded
       try {
-        await execFileAsync(
-          "git",
-          ["checkout", currentBranch],
-          { cwd: project.path, timeout: 15000 },
-        );
+        await this.git.exec(project.path, ["checkout", currentBranch]);
       } catch (rollbackErr) {
         console.error(
           "[ProjectManager] failed to roll back to original branch after worktree failure:",
@@ -956,61 +854,19 @@ export class ProjectManager {
 }
 
 async function listGitWorkspaces(
+  git: GitBackend,
   projectPath: string,
 ): Promise<WorkspaceInfo[] | null> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["worktree", "list", "--porcelain"],
-      {
-        cwd: projectPath,
-        timeout: 5000,
-      },
-    );
+    const worktrees = await git.worktreeList(projectPath);
+    if (worktrees.length === 0) return null;
 
-    const workspaces: WorkspaceInfo[] = [];
-    let currentPath = "";
-    let currentBranch = "";
-    let isFirst = true;
-
-    for (const line of stdout.split("\n")) {
-      if (line.startsWith("worktree ")) {
-        if (currentPath) {
-          workspaces.push({
-            path: currentPath,
-            branch: currentBranch,
-            isMain: isFirst,
-            name: null,
-          });
-          isFirst = false;
-        }
-        currentPath = line.slice(9);
-        currentBranch = "";
-      } else if (line.startsWith("branch refs/heads/")) {
-        currentBranch = line.slice(18);
-      } else if (line === "" && currentPath) {
-        workspaces.push({
-          path: currentPath,
-          branch: currentBranch,
-          isMain: isFirst,
-          name: null,
-        });
-        isFirst = false;
-        currentPath = "";
-        currentBranch = "";
-      }
-    }
-
-    if (currentPath) {
-      workspaces.push({
-        path: currentPath,
-        branch: currentBranch,
-        isMain: isFirst,
-        name: null,
-      });
-    }
-
-    return workspaces.length > 0 ? workspaces : null;
+    return worktrees.map((wt) => ({
+      path: wt.path,
+      branch: wt.branch,
+      isMain: wt.isMain,
+      name: null,
+    }));
   } catch {
     return null;
   }

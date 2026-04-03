@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { BrowserWindow } from "electron";
-
-const execFileAsync = promisify(execFile);
+import type { GitBackend } from "./backend/types";
 
 export interface DiffStats {
   added: number;
@@ -10,10 +7,15 @@ export interface DiffStats {
 }
 
 export class DiffWatcher {
-  private workspaces: Map<string, string> = new Map(); // path → defaultBranch
+  private workspaces: Map<string, string> = new Map(); // path -> defaultBranch
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastStats: Record<string, DiffStats> = {};
   private scanning = false;
+  private git: GitBackend;
+
+  constructor(git: GitBackend) {
+    this.git = git;
+  }
 
   start(window: BrowserWindow, workspaces: Record<string, string>): void {
     this.stop();
@@ -79,19 +81,19 @@ export class DiffWatcher {
     for (const ref of refs) {
       try {
         // Find the merge base so we only count changes since the branch point
-        const { stdout: mergeBaseOut } = await execFileAsync(
-          "git",
-          ["merge-base", ref, "HEAD"],
-          { cwd: wsPath, timeout: 5000 },
-        );
+        const mergeBaseOut = await this.git.exec(wsPath, [
+          "merge-base",
+          ref,
+          "HEAD",
+        ]);
         const mergeBase = mergeBaseOut.trim();
 
         // Diff working tree against merge base to include committed + staged + unstaged changes
-        const { stdout: diffOut } = await execFileAsync(
-          "git",
-          ["diff", mergeBase, "--shortstat"],
-          { cwd: wsPath, timeout: 5000 },
-        );
+        const diffOut = await this.git.exec(wsPath, [
+          "diff",
+          mergeBase,
+          "--shortstat",
+        ]);
         const output = diffOut.trim();
 
         if (!output) return null;

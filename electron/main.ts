@@ -232,11 +232,11 @@ function createWindow() {
 const client = new TerminalHostClient();
 const backend = new LocalBackend(client);
 const layoutPersistence = new LayoutPersistence();
-const projectManager = new ProjectManager();
+const projectManager = new ProjectManager(backend.git);
 const themeManager = new ThemeManager();
 const portScanner = new PortScanner();
 const branchWatcher = new BranchWatcher();
-const diffWatcher = new DiffWatcher();
+const diffWatcher = new DiffWatcher(backend.git);
 const githubManager = new GitHubManager();
 const linearManager = new LinearManager();
 
@@ -658,110 +658,14 @@ ipcMain.handle("diffs:stop", () => {
 ipcMain.handle(
   "diffs:getFullDiff",
   async (_event, wsPath: string, defaultBranch: string) => {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-    const refs = [`origin/${defaultBranch}`, defaultBranch];
-    for (const ref of refs) {
-      try {
-        const { stdout: mergeBaseOut } = await execFileAsync(
-          "git",
-          ["merge-base", ref, "HEAD"],
-          { cwd: wsPath, timeout: 5000 },
-        );
-        const mergeBase = mergeBaseOut.trim();
-        const { stdout } = await execFileAsync(
-          "git",
-          ["diff", "--no-color", mergeBase],
-          { cwd: wsPath, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
-        );
-
-        // Include untracked files as "new file" diffs
-        let untrackedDiff = "";
-        try {
-          const { stdout: untrackedOut } = await execFileAsync(
-            "git",
-            ["ls-files", "--others", "--exclude-standard"],
-            { cwd: wsPath, timeout: 5000 },
-          );
-          const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
-          const { readFile } = await import("node:fs/promises");
-          const { join } = await import("node:path");
-
-          for (const filePath of untrackedFiles) {
-            try {
-              const content = await readFile(join(wsPath, filePath), "utf-8");
-              const lines = content.split("\n");
-              // Remove trailing empty line from final newline
-              if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-              const hunk = `@@ -0,0 +1,${lines.length} @@`;
-              const addedLines = lines.map((l) => `+${l}`).join("\n");
-              untrackedDiff += `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
-            } catch {
-              // Skip files that can't be read (binary, permission issues, etc.)
-            }
-          }
-        } catch {
-          // If ls-files fails, just return the regular diff
-        }
-
-        return stdout + untrackedDiff;
-      } catch {
-        continue;
-      }
-    }
-    return null;
+    return backend.git.getFullDiff(wsPath, defaultBranch);
   },
 );
 
 ipcMain.handle(
   "diffs:getLocalDiff",
   async (_event, wsPath: string) => {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-
-    try {
-      // Staged + unstaged changes relative to HEAD
-      const { stdout } = await execFileAsync(
-        "git",
-        ["diff", "--no-color", "HEAD"],
-        { cwd: wsPath, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
-      );
-
-      // Include untracked files as "new file" diffs
-      let untrackedDiff = "";
-      try {
-        const { stdout: untrackedOut } = await execFileAsync(
-          "git",
-          ["ls-files", "--others", "--exclude-standard"],
-          { cwd: wsPath, timeout: 5000 },
-        );
-        const untrackedFiles = untrackedOut.trim().split("\n").filter(Boolean);
-        const { readFile } = await import("node:fs/promises");
-        const { join } = await import("node:path");
-
-        for (const filePath of untrackedFiles) {
-          try {
-            const content = await readFile(join(wsPath, filePath), "utf-8");
-            const lines = content.split("\n");
-            if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-            const hunk = `@@ -0,0 +1,${lines.length} @@`;
-            const addedLines = lines.map((l) => `+${l}`).join("\n");
-            untrackedDiff += `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n${hunk}\n${addedLines}\n`;
-          } catch {
-            // Skip files that can't be read
-          }
-        }
-      } catch {
-        // If ls-files fails, just return the regular diff
-      }
-
-      const result = stdout + untrackedDiff;
-      return result.trim() === "" ? null : result;
-    } catch {
-      return null;
-    }
+    return backend.git.getLocalDiff(wsPath);
   },
 );
 
@@ -769,75 +673,34 @@ ipcMain.handle(
   "diffs:getStagedFiles",
   async (_event, wsPath: string) => {
     assertString(wsPath, "wsPath");
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-
-    try {
-      const { stdout } = await execFileAsync(
-        "git",
-        ["diff", "--cached", "--name-only"],
-        { cwd: wsPath, timeout: 10000 },
-      );
-      return stdout.trim().split("\n").filter(Boolean);
-    } catch {
-      return [];
-    }
+    return backend.git.getStagedFiles(wsPath);
   },
 );
 
 // ── Git Operations IPC ──
 ipcMain.handle("git:stage", async (_event, wsPath: string, files: string[]) => {
   assertString(wsPath, "wsPath");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
-  await execFileAsync("git", ["add", "--", ...files], { cwd: wsPath, timeout: 10000 });
+  await backend.git.stage(wsPath, files);
 });
 
 ipcMain.handle("git:unstage", async (_event, wsPath: string, files: string[]) => {
   assertString(wsPath, "wsPath");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
-  await execFileAsync("git", ["restore", "--staged", "--", ...files], { cwd: wsPath, timeout: 10000 });
+  await backend.git.unstage(wsPath, files);
 });
 
 ipcMain.handle("git:discard", async (_event, wsPath: string, files: string[]) => {
   assertString(wsPath, "wsPath");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
-  try {
-    await execFileAsync("git", ["checkout", "HEAD", "--", ...files], { cwd: wsPath, timeout: 10000 });
-  } catch { /* some files may be untracked */ }
-  try {
-    await execFileAsync("git", ["clean", "-f", "--", ...files], { cwd: wsPath, timeout: 10000 });
-  } catch { /* some files may not be untracked */ }
+  await backend.git.discard(wsPath, files);
 });
 
 ipcMain.handle("git:stash", async (_event, wsPath: string, files: string[]) => {
   assertString(wsPath, "wsPath");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
-  await execFileAsync("git", ["stash", "push", "--", ...files], { cwd: wsPath, timeout: 10000 });
+  await backend.git.stash(wsPath, files);
 });
 
 ipcMain.handle("git:commit", async (_event, wsPath: string, message: string, flags: string[]) => {
   assertString(wsPath, "wsPath");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
-  const allowedFlags = ["--amend", "--no-verify", "--allow-empty"];
-  const safeFlags = flags.filter((f) => allowedFlags.includes(f));
-  const hasMessage = typeof message === "string" && message.length > 0;
-  const isAmend = safeFlags.includes("--amend");
-  if (!hasMessage && !isAmend) {
-    throw new Error("Commit message is required for non-amend commits");
-  }
-  const args = ["commit", ...safeFlags, ...(hasMessage ? ["-m", message] : ["--no-edit"])];
-  await execFileAsync("git", args, { cwd: wsPath, timeout: 30000 });
+  await backend.git.commit(wsPath, message, flags);
 });
 
 // ── GitHub IPC ──

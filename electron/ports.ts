@@ -1,23 +1,15 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import os from "node:os";
 import type { BrowserWindow } from "electron";
+import { LocalPortsBackend } from "./backend/local-ports";
+import type { ActivePort } from "./backend/types";
 
-const execFileAsync = promisify(execFile);
-
-export interface ActivePort {
-  port: number;
-  processName: string;
-  pid: number;
-  workspacePath: string | null;
-  hostname: string | null;
-}
+export type { ActivePort };
 
 export class PortScanner {
   private workspacePaths: string[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastPorts: ActivePort[] = [];
   private scanning = false;
+  private backend = new LocalPortsBackend();
 
   start(
     window: BrowserWindow,
@@ -29,7 +21,7 @@ export class PortScanner {
       if (this.scanning) return;
       this.scanning = true;
       try {
-        const ports = await this.scan();
+        const ports = await this.backend.scan(this.workspacePaths);
         const enriched = onScan ? onScan(ports) : ports;
         if (JSON.stringify(enriched) !== JSON.stringify(this.lastPorts)) {
           window.webContents.send("ports-changed", enriched);
@@ -53,121 +45,6 @@ export class PortScanner {
   }
 
   async scanNow(): Promise<ActivePort[]> {
-    return this.scan();
-  }
-
-  private async scan(): Promise<ActivePort[]> {
-    const uid = process.getuid?.() ?? 0;
-
-    let output: string;
-    try {
-      const { stdout } = await execFileAsync(
-        "/usr/sbin/lsof",
-        ["-a", "-iTCP", "-sTCP:LISTEN", "-nP", "-F", "pcn", "-u", String(uid)],
-        { timeout: 5000 },
-      );
-      output = stdout;
-    } catch {
-      return [];
-    }
-
-    const results = this.parseLsofPorts(output);
-
-    if (this.workspacePaths.length > 0 && results.length > 0) {
-      const pids = results.map((p) => p.pid);
-      const cwds = await this.cwdsByPid(pids);
-      const home = os.homedir();
-
-      for (const port of results) {
-        const cwd = cwds.get(port.pid);
-        if (cwd) {
-          const best = this.workspacePaths
-            .filter((ws) => cwd.startsWith(ws))
-            .sort((a, b) => b.length - a.length)[0];
-          if (best && best !== home) {
-            port.workspacePath = best;
-          }
-        }
-      }
-    }
-
-    return results
-      .filter((p) => p.workspacePath !== null)
-      .sort((a, b) => a.port - b.port);
-  }
-
-  private parseLsofPorts(output: string): ActivePort[] {
-    const results: ActivePort[] = [];
-    const seenPorts = new Set<number>();
-    let currentPid = 0;
-    let currentCmd = "";
-
-    for (const line of output.split("\n")) {
-      if (!line) continue;
-      const prefix = line[0];
-      const value = line.slice(1);
-
-      switch (prefix) {
-        case "p":
-          currentPid = parseInt(value, 10) || 0;
-          break;
-        case "c":
-          currentCmd = value;
-          break;
-        case "n": {
-          const colonIdx = value.lastIndexOf(":");
-          if (colonIdx >= 0) {
-            const port = parseInt(value.slice(colonIdx + 1), 10);
-            if (!isNaN(port) && !seenPorts.has(port)) {
-              seenPorts.add(port);
-              results.push({
-                port,
-                processName: currentCmd,
-                pid: currentPid,
-                workspacePath: null,
-                hostname: null,
-              });
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    return results;
-  }
-
-  private async cwdsByPid(pids: number[]): Promise<Map<number, string>> {
-    if (pids.length === 0) return new Map();
-
-    const pidList = pids.join(",");
-    let output: string;
-    try {
-      const { stdout } = await execFileAsync(
-        "/usr/sbin/lsof",
-        ["-a", "-p", pidList, "-d", "cwd", "-nP", "-F", "pn"],
-        { timeout: 5000 },
-      );
-      output = stdout;
-    } catch {
-      return new Map();
-    }
-
-    const result = new Map<number, string>();
-    let currentPid = 0;
-
-    for (const line of output.split("\n")) {
-      if (!line) continue;
-      const prefix = line[0];
-      const value = line.slice(1);
-
-      if (prefix === "p") {
-        currentPid = parseInt(value, 10) || 0;
-      } else if (prefix === "n" && currentPid !== 0) {
-        result.set(currentPid, value);
-      }
-    }
-
-    return result;
+    return this.backend.scan(this.workspacePaths);
   }
 }

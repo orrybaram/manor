@@ -627,7 +627,7 @@ ipcMain.handle("ports:scanNow", async () => {
 
 ipcMain.handle("ports:killPort", async (_event, pid: number) => {
   try {
-    process.kill(pid, "SIGTERM");
+    await backend.ports.kill(pid);
   } catch {
     // Process may have already exited — ignore
   }
@@ -915,15 +915,10 @@ ipcMain.handle(
     ];
     const found: Array<{ name: string; command: string }> = [];
     await Promise.all(
-      agents.map(
-        (agent) =>
-          new Promise<void>((resolve) => {
-            execFile("which", [agent.bin], (err) => {
-              if (!err) found.push({ name: agent.name, command: agent.command });
-              resolve();
-            });
-          }),
-      ),
+      agents.map(async (agent) => {
+        const result = await backend.shell.which(agent.bin);
+        if (result !== null) found.push({ name: agent.name, command: agent.command });
+      }),
     );
     return found;
   },

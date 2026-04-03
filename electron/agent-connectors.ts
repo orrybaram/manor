@@ -185,9 +185,11 @@ export class CodexConnector implements AgentConnector {
   readonly kind: AgentKind = "codex";
   readonly defaultCommand = "codex --yolo";
 
-  getResumeCommand(_baseCommand: string, _sessionId: string): string | null {
-    // Codex CLI doesn't support session resume yet
-    return null;
+  getResumeCommand(baseCommand: string, _sessionId: string): string | null {
+    // Extract the binary name (first token) — flags like --yolo aren't needed for resume.
+    // Codex uses `codex resume --last` to resume the most recent session.
+    const binary = baseCommand.split(" ")[0] ?? "codex";
+    return `${binary} resume --last`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {

@@ -6,7 +6,6 @@ import {
   dialog,
   shell,
   nativeImage,
-  webContents,
   clipboard,
 } from "electron";
 import { execFile, execFileSync } from "node:child_process";
@@ -52,6 +51,8 @@ import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
+import * as tasksIpc from "./ipc/tasks";
+import * as miscIpc from "./ipc/misc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -202,206 +203,8 @@ portsIpc.register(ipcDeps);
 branchesDiffsIpc.register(ipcDeps);
 integrationsIpc.register(ipcDeps);
 webviewIpc.register(ipcDeps);
-
-// ── Dialog IPC ──
-ipcMain.handle("dialog:openDirectory", async () => {
-  const result = await dialog.showOpenDialog(mainWindow!, {
-    properties: ["openDirectory"],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
-});
-
-// ── Updater IPC ──
-ipcMain.handle("updater:checkForUpdates", () => checkForUpdates());
-ipcMain.handle("updater:quitAndInstall", () => quitAndInstall());
-
-// ── Shell ──
-ipcMain.handle("shell:openExternal", async (_event, url: string) => {
-  assertString(url, "url");
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error("Invalid URL format");
-  }
-  const allowed = ["https:", "http:", "file:", "x-apple.systempreferences:"];
-  if (!allowed.includes(parsed.protocol)) {
-    throw new Error(`Blocked protocol: ${parsed.protocol}`);
-  }
-  return shell.openExternal(url);
-});
-
-ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
-  assertString(dirPath, "dirPath");
-  const editor = preferencesManager.get("defaultEditor");
-  if (!editor) {
-    return shell.openPath(dirPath);
-  }
-  // TODO(adr-107): execFile for editor launch is intentionally direct — it opens
-  // an arbitrary user-configured binary and is not a backend abstraction concern.
-  return new Promise<string>((resolve) => {
-    execFile(editor, [dirPath], (err) => {
-      resolve(err ? err.message : "");
-    });
-  });
-});
-
-ipcMain.handle(
-  "shell:discoverAgents",
-  async (): Promise<Array<{ name: string; command: string }>> => {
-    const agents = [
-      { name: "Claude Code", bin: "claude", command: "claude --dangerously-skip-permissions" },
-      { name: "Codex", bin: "codex", command: "codex --yolo" },
-      { name: "OpenCode", bin: "opencode", command: "opencode" },
-    ];
-    const found: Array<{ name: string; command: string }> = [];
-    await Promise.all(
-      agents.map(async (agent) => {
-        const result = await backend.shell.which(agent.bin);
-        if (result !== null) found.push({ name: agent.name, command: agent.command });
-      }),
-    );
-    return found;
-  },
-);
-
-// ── Clipboard IPC ──
-ipcMain.handle("clipboard:writeText", (_event, text: string) => {
-  clipboard.writeText(text);
-});
-
-// ── Task Persistence IPC ──
-ipcMain.handle(
-  "tasks:getAll",
-  (
-    _event,
-    opts?: {
-      projectId?: string;
-      status?: string;
-      limit?: number;
-      offset?: number;
-    },
-  ) => {
-    return taskManager.getAllTasks(opts);
-  },
-);
-
-ipcMain.handle("tasks:get", (_event, taskId: string) => {
-  assertString(taskId, "taskId");
-  // Find task by id (getAllTasks returns all; search through them)
-  const all = taskManager.getAllTasks();
-  return all.find((t) => t.id === taskId) ?? null;
-});
-
-ipcMain.handle(
-  "tasks:update",
-  (_event, taskId: string, updates: Record<string, unknown>) => {
-    assertString(taskId, "taskId");
-    return taskManager.updateTask(taskId, updates);
-  },
-);
-
-ipcMain.handle("tasks:delete", (_event, taskId: string) => {
-  assertString(taskId, "taskId");
-  unseenRespondedTasks.delete(taskId);
-  unseenInputTasks.delete(taskId);
-  const result = taskManager.deleteTask(taskId);
-  updateDockBadge();
-  return result;
-});
-
-ipcMain.handle("tasks:markSeen", (_event, taskId: string) => {
-  assertString(taskId, "taskId");
-  unseenRespondedTasks.delete(taskId);
-  unseenInputTasks.delete(taskId);
-  updateDockBadge();
-});
-
-ipcMain.handle(
-  "tasks:setPaneContext",
-  (
-    _event,
-    paneId: string,
-    context: { projectId: string; projectName: string; workspacePath: string },
-  ) => {
-    assertString(paneId, "paneId");
-    assertString(context.projectId, "projectId");
-    assertString(context.projectName, "projectName");
-    assertString(context.workspacePath, "workspacePath");
-    paneContextMap.set(paneId, context);
-  },
-);
-
-// ── Preferences IPC ──
-ipcMain.handle("preferences:getAll", () => {
-  return preferencesManager.getAll();
-});
-
-ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
-  assertString(key, "key");
-  preferencesManager.set(
-    key as keyof import("./preferences").AppPreferences,
-    value as never,
-  );
-});
-
-ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
-  // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
-  // abstracted through the backend since it is not workspace I/O.
-  execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
-});
-
-preferencesManager.onChange((prefs) => {
-  if (
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !mainWindow.webContents.isDestroyed()
-  ) {
-    try {
-      mainWindow.webContents.send("preferences-changed", prefs);
-    } catch {
-      // Render frame disposed — safe to ignore
-    }
-  }
-});
-
-// ── Keybindings IPC ──
-ipcMain.handle("keybindings:getAll", () => {
-  return keybindingsManager.getAll();
-});
-
-ipcMain.handle(
-  "keybindings:set",
-  (_event, commandId: string, combo: string) => {
-    assertString(commandId, "commandId");
-    assertString(combo, "combo");
-    keybindingsManager.set(commandId, combo);
-  },
-);
-
-ipcMain.handle("keybindings:reset", (_event, commandId: string) => {
-  assertString(commandId, "commandId");
-  keybindingsManager.reset(commandId);
-});
-
-ipcMain.handle("keybindings:resetAll", () => {
-  keybindingsManager.resetAll();
-});
-
-keybindingsManager.onChange((overrides) => {
-  if (
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !mainWindow.webContents.isDestroyed()
-  ) {
-    try {
-      mainWindow.webContents.send("keybindings-changed", overrides);
-    } catch {
-      // Render frame disposed — safe to ignore
-    }
-  }
-});
+tasksIpc.register(ipcDeps);
+miscIpc.register(ipcDeps);
 
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths

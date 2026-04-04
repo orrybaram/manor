@@ -1,6 +1,6 @@
 ---
 title: Extract integrations and webview IPC handlers
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

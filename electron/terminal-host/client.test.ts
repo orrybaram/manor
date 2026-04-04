@@ -136,7 +136,7 @@ class TestDaemon {
     socket: net.Socket,
     line: string,
   ): Promise<void> {
-    let req: ControlRequest;
+    let req: ControlRequest & { requestId?: string };
     try {
       req = JSON.parse(line);
     } catch {
@@ -144,8 +144,10 @@ class TestDaemon {
       return;
     }
 
+    const requestId = req.requestId;
+
     if (req.type !== "auth" && !this.authenticatedSockets.has(socket)) {
-      this.send(socket, { type: "error", message: "Not authenticated" });
+      this.send(socket, { type: "error", message: "Not authenticated" }, requestId);
       return;
     }
 
@@ -153,9 +155,9 @@ class TestDaemon {
       case "auth":
         if (req.token === this.token) {
           this.authenticatedSockets.add(socket);
-          this.send(socket, { type: "authOk" });
+          this.send(socket, { type: "authOk" }, requestId);
         } else {
-          this.send(socket, { type: "error", message: "Invalid token" });
+          this.send(socket, { type: "error", message: "Invalid token" }, requestId);
         }
         break;
       case "create": {
@@ -167,48 +169,48 @@ class TestDaemon {
             req.rows,
             req.shellArgs,
           );
-          this.send(socket, { type: "created", session });
+          this.send(socket, { type: "created", session }, requestId);
         } catch (err) {
           this.send(socket, {
             type: "error",
             message: `Create failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
+          }, requestId);
         }
         break;
       }
       case "attach": {
         const snapshot = await this.host.attach(req.sessionId, socket);
         if (snapshot) {
-          this.send(socket, { type: "attached", snapshot });
+          this.send(socket, { type: "attached", snapshot }, requestId);
         } else {
           this.send(socket, {
             type: "error",
             message: `Session ${req.sessionId} not found`,
-          });
+          }, requestId);
         }
         break;
       }
       case "detach":
         this.host.detach(req.sessionId, socket);
-        this.send(socket, { type: "detached" });
+        this.send(socket, { type: "detached" }, requestId);
         break;
       case "resize":
         this.host.resize(req.sessionId, req.cols, req.rows);
-        this.send(socket, { type: "resized" });
+        this.send(socket, { type: "resized" }, requestId);
         break;
       case "kill":
         this.host.kill(req.sessionId);
-        this.send(socket, { type: "killed" });
+        this.send(socket, { type: "killed" }, requestId);
         break;
       case "getSnapshot": {
         const snapshot = await this.host.getSnapshot(req.sessionId);
         if (snapshot) {
-          this.send(socket, { type: "snapshot", snapshot });
+          this.send(socket, { type: "snapshot", snapshot }, requestId);
         } else {
           this.send(socket, {
             type: "error",
             message: `Session ${req.sessionId} not found`,
-          });
+          }, requestId);
         }
         break;
       }
@@ -216,10 +218,10 @@ class TestDaemon {
         this.send(socket, {
           type: "sessions",
           sessions: this.host.listSessions(),
-        });
+        }, requestId);
         break;
       case "ping":
-        this.send(socket, { type: "pong" });
+        this.send(socket, { type: "pong" }, requestId);
         break;
     }
   }
@@ -249,9 +251,10 @@ class TestDaemon {
     }
   }
 
-  private send(socket: net.Socket, resp: ControlResponse): void {
+  private send(socket: net.Socket, resp: ControlResponse, requestId?: string): void {
     try {
-      socket.write(JSON.stringify(resp) + "\n");
+      const payload = requestId ? { ...resp, requestId } : resp;
+      socket.write(JSON.stringify(payload) + "\n");
     } catch {}
   }
 }
@@ -283,8 +286,11 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
           if (!line.trim()) continue;
           try {
             const resp = JSON.parse(line);
-            const pending = (client as any).pendingRequests.shift();
-            if (pending) {
+            const pendingMap = (client as any).pendingRequests as Map<string, any>;
+            const firstKey = pendingMap.keys().next().value;
+            if (firstKey !== undefined) {
+              const pending = pendingMap.get(firstKey)!;
+              pendingMap.delete(firstKey);
               clearTimeout(pending.timeout);
               pending.resolve(resp);
             }

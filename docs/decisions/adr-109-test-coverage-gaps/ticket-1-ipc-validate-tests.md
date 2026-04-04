@@ -1,6 +1,6 @@
 ---
 title: Add tests for ipc-validate.ts
-status: in-progress
+status: done
 priority: critical
 assignee: haiku
 blocked_by: []

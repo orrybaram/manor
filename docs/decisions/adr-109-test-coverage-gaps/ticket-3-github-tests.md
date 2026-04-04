@@ -1,6 +1,6 @@
 ---
 title: Add tests for github.ts
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

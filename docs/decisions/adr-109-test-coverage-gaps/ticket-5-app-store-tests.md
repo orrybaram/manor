@@ -1,6 +1,6 @@
 ---
 title: Add tests for app-store.ts core actions
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

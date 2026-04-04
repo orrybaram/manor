@@ -10,6 +10,7 @@ vi.stubGlobal("window", {
       createWorktree: vi.fn(),
       selectWorkspace: vi.fn(),
       select: vi.fn(),
+      onWorktreeSetupProgress: vi.fn(() => vi.fn()),
     },
   },
 });
@@ -59,7 +60,7 @@ describe("createWorktree setup script", () => {
     vi.clearAllMocks();
   });
 
-  it("queues start script as pending startup command and auto-creates a tab", async () => {
+  it("stores start script in worktree setup state (not pending startup commands)", async () => {
     const worktreePath = "/worktrees/test-project/my-feature";
 
     const projectWithScript = makeProject({
@@ -97,20 +98,18 @@ describe("createWorktree setup script", () => {
     // The workspace should be activated
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
 
-    // The start script should be queued as a pending startup command
+    // Start script is stored in worktreeSetupState, not pendingStartupCommands
+    const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
+    expect(setupState).toBeDefined();
+    expect(setupState.startScript).toBe("npm install");
+
+    // No pending startup command is set (setup view handles execution)
     expect(
       useAppStore.getState().pendingStartupCommands[worktreePath],
-    ).toBe("npm install");
-
-    // A terminal tab should be auto-created so the script actually runs
-    const layout = useAppStore.getState().workspaceLayouts[worktreePath];
-    expect(layout).toBeDefined();
-    const panel = layout!.panels[layout!.activePanelId];
-    expect(panel).toBeDefined();
-    expect(panel!.tabs.length).toBe(1);
+    ).toBeUndefined();
   });
 
-  it("combines start script and agent command when both provided", async () => {
+  it("stores setup-script step as pending when both start script and agent command provided", async () => {
     const worktreePath = "/worktrees/test-project/feat";
 
     const projectWithScript = makeProject({
@@ -139,9 +138,12 @@ describe("createWorktree setup script", () => {
       .getState()
       .createWorktree("proj-1", "feat", "feat", "claude");
 
-    expect(
-      useAppStore.getState().pendingStartupCommands[worktreePath],
-    ).toBe("npm install && claude");
+    // Setup state should exist with a setup-script step marked pending
+    const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
+    expect(setupState).toBeDefined();
+    const setupScriptStep = setupState.steps.find((s: any) => s.step === "setup-script");
+    expect(setupScriptStep).toBeDefined();
+    expect(setupScriptStep!.status).toBe("pending");
   });
 
   it("does not create a tab when there is no startup command", async () => {

@@ -94,17 +94,22 @@ See when Claude Code or other agents are active in a terminal — no more wonder
 
 </td>
 </tr>
-</table>
 
-<br />
+<tr>
 
-## Theming
+
+<td width="50%">
+
+### Theming
 
 Per-project themes with hundreds of options. Matches your Ghostty config automatically.
 
-<p align="center">
-  <img src=".github/assets/demo-theming.gif" alt="Manor theming" width="800" />
-</p>
+</td>
+<td width="50%">
+<img width="556" height="382" alt="CleanShot 2026-04-04 at 11 12 42@2x" src="https://github.com/user-attachments/assets/d0fa17a2-1328-4f8f-8999-7b5038130c7b" />
+</td>
+</tr>
+</table>
 
 <br />
 

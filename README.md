@@ -98,6 +98,16 @@ See when Claude Code or other agents are active in a terminal — no more wonder
 
 <br />
 
+## Theming
+
+Per-project themes with hundreds of options. Matches your Ghostty config automatically.
+
+<p align="center">
+  <img src=".github/assets/demo-theming.gif" alt="Manor theming" width="800" />
+</p>
+
+<br />
+
 ## Features
 
 - **Terminal emulation** — Powered by xterm.js with WebGL rendering, search, image support, and clipboard integration
@@ -111,7 +121,7 @@ See when Claude Code or other agents are active in a terminal — no more wonder
 - **Port scanner** — Detect running services across your workspaces
 - **Branch and diff watching** — Track git branch changes and uncommitted line counts
 - **AI agent detection** — Visual indicators when Claude Code or other agents are active in a terminal
-- **Theming** — Built-in themes with Ghostty config import support
+- **Theming** — Per-project themes with hundreds of options; matches your Ghostty config automatically
 - **Command palette** — Quick access to projects, workspaces, and actions via `Cmd+K`
 
 <br />

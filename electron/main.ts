@@ -16,7 +16,7 @@ import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
-import { PortScanner, type ActivePort } from "./ports";
+import { PortScanner } from "./ports";
 import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
@@ -30,7 +30,7 @@ import {
 import { ensureWebviewCli } from "./webview-cli-script";
 import { WebviewServer } from "./webview-server";
 import { PICKER_SCRIPT } from "./picker-script";
-import { assertString, assertPositiveInt } from "./ipc-validate";
+import { assertString } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
@@ -39,7 +39,6 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
-import type { WorkspaceMeta } from "./ipc/types";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -50,8 +49,9 @@ import {
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
 import * as projectsIpc from "./ipc/projects";
-
-let workspaceMeta: WorkspaceMeta[] = [];
+import * as themeIpc from "./ipc/theme";
+import * as portsIpc from "./ipc/ports";
+import * as branchesDiffsIpc from "./ipc/branches-diffs";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -188,162 +188,15 @@ const ipcDeps = {
   paneContextMap,
   unseenRespondedTasks,
   unseenInputTasks,
-  workspaceMeta,
+  workspaceMeta: [],
 };
 
 ptyIpc.register(ipcDeps);
 layoutIpc.register(ipcDeps);
 projectsIpc.register(ipcDeps);
-
-// ── Theme IPC ──
-ipcMain.handle("theme:get", () => {
-  return themeManager.getTheme();
-});
-
-ipcMain.handle("theme:setSelected", (_event, name: string) => {
-  themeManager.setSelectedThemeName(name);
-  return themeManager.getTheme();
-});
-
-ipcMain.handle("theme:getSelectedName", () => {
-  return themeManager.getSelectedThemeName();
-});
-
-ipcMain.handle("theme:hasGhosttyConfig", () => {
-  return themeManager.hasGhosttyConfig();
-});
-
-ipcMain.handle("theme:preview", (_event, name: string) => {
-  return themeManager.getThemeByName(name);
-});
-
-ipcMain.handle("theme:allColors", async () => {
-  return themeManager.loadAllThemeColors();
-});
-
-// ── Port Scanner IPC ──
-function enrichPorts(ports: ActivePort[]): ActivePort[] {
-  const proxyPort = portlessManager.proxyPort;
-  const routes: { hostname: string; port: number }[] = [];
-  for (const port of ports) {
-    const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
-    if (meta && proxyPort) {
-      const hostname = portlessManager.hostnameForPort(
-        meta.path,
-        meta.projectName,
-        meta.branch,
-        meta.isMain,
-      );
-      routes.push({ hostname, port: port.port });
-      // Include proxy port in hostname so renderer can build correct URLs
-      port.hostname = `${hostname}:${proxyPort}`;
-    }
-  }
-  portlessManager.updateRoutes(routes);
-  return ports;
-}
-
-ipcMain.handle("ports:startScanner", () => {
-  portScanner.start(mainWindow!, enrichPorts);
-});
-
-ipcMain.handle("ports:stopScanner", () => {
-  portScanner.stop();
-});
-
-ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
-  portScanner.updateWorkspacePaths(paths);
-});
-
-ipcMain.handle(
-  "ports:updateWorkspaceMetadata",
-  (_event, meta: WorkspaceMeta[]) => {
-    workspaceMeta = meta;
-  },
-);
-
-ipcMain.handle("ports:scanNow", async () => {
-  const ports = await portScanner.scanNow();
-  return enrichPorts(ports);
-});
-
-ipcMain.handle("ports:killPort", async (_event, pid: number) => {
-  try {
-    await backend.ports.kill(pid);
-  } catch {
-    // Process may have already exited — ignore
-  }
-  // Re-scan immediately so UI updates
-  const ports = await portScanner.scanNow();
-  const enriched = enrichPorts(ports);
-  mainWindow?.webContents.send("ports-changed", enriched);
-});
-
-// ── Branch Watcher IPC ──
-ipcMain.handle("branches:start", (_event, paths: string[]) => {
-  branchWatcher.start(mainWindow!, paths);
-});
-
-ipcMain.handle("branches:stop", () => {
-  branchWatcher.stop();
-});
-
-// ── Diff Watcher IPC ──
-ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
-  diffWatcher.start(mainWindow!, workspaces);
-});
-
-ipcMain.handle("diffs:stop", () => {
-  diffWatcher.stop();
-});
-
-ipcMain.handle(
-  "diffs:getFullDiff",
-  async (_event, wsPath: string, defaultBranch: string) => {
-    return backend.git.getFullDiff(wsPath, defaultBranch);
-  },
-);
-
-ipcMain.handle(
-  "diffs:getLocalDiff",
-  async (_event, wsPath: string) => {
-    return backend.git.getLocalDiff(wsPath);
-  },
-);
-
-ipcMain.handle(
-  "diffs:getStagedFiles",
-  async (_event, wsPath: string) => {
-    assertString(wsPath, "wsPath");
-    return backend.git.getStagedFiles(wsPath);
-  },
-);
-
-// ── Git Operations IPC ──
-ipcMain.handle("git:stage", async (_event, wsPath: string, files: string[]) => {
-  assertString(wsPath, "wsPath");
-  await backend.git.stage(wsPath, files);
-});
-
-ipcMain.handle("git:unstage", async (_event, wsPath: string, files: string[]) => {
-  assertString(wsPath, "wsPath");
-  await backend.git.unstage(wsPath, files);
-});
-
-ipcMain.handle("git:discard", async (_event, wsPath: string, files: string[]) => {
-  assertString(wsPath, "wsPath");
-  await backend.git.discard(wsPath, files);
-});
-
-ipcMain.handle("git:stash", async (_event, wsPath: string, files: string[]) => {
-  assertString(wsPath, "wsPath");
-  await backend.git.stash(wsPath, files);
-});
-
-ipcMain.handle("git:commit", async (_event, wsPath: string, message: string, flags: string[]) => {
-  assertString(wsPath, "wsPath");
-  await backend.git.commit(wsPath, message, flags);
-});
+themeIpc.register(ipcDeps);
+portsIpc.register(ipcDeps);
+branchesDiffsIpc.register(ipcDeps);
 
 // ── GitHub IPC ──
 ipcMain.handle(

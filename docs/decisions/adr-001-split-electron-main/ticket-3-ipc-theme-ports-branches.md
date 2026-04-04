@@ -1,6 +1,6 @@
 ---
 title: Extract theme, ports, and branches-diffs IPC handlers
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

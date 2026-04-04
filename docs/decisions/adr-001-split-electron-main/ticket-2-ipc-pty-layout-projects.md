@@ -1,6 +1,6 @@
 ---
 title: Extract PTY, layout, and projects IPC handlers
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

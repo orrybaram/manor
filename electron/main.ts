@@ -2,13 +2,9 @@ import {
   app,
   BrowserWindow,
   Menu,
-  ipcMain,
-  dialog,
-  shell,
   nativeImage,
-  clipboard,
 } from "electron";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
@@ -27,13 +23,12 @@ import {
   registerAllAgents,
 } from "./agent-hooks";
 import { ensureWebviewCli } from "./webview-cli-script";
-import { assertString } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
-import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
+import { initAutoUpdater } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { createWindow, saveZoomLevel } from "./window";

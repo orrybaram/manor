@@ -89,7 +89,7 @@ export interface ActivePort {
   hostname: string | null;
 }
 
-export type AgentKind = "claude" | "opencode" | "codex";
+export type AgentKind = "claude" | "opencode" | "codex" | "pi";
 export type AgentStatus =
   | "idle"
   | "thinking"

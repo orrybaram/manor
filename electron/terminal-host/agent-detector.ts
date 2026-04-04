@@ -16,6 +16,7 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
   claude: "claude",
   opencode: "opencode",
   codex: "codex",
+  pi: "pi",
 };
 
 /** Titles that are just the agent binary name — not useful as a task label */

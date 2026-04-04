@@ -23,7 +23,7 @@ export interface TaskInfo {
   projectName: string | null;
   workspacePath: string | null;
   cwd: string;
-  agentKind: "claude" | "opencode" | "codex";
+  agentKind: "claude" | "opencode" | "codex" | "pi";
   paneId: string | null;
   lastAgentStatus: string | null;
 }

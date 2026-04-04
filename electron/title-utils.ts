@@ -3,6 +3,7 @@ const GENERIC_AGENT_TITLES = new Set([
   "claude code",
   "opencode",
   "codex",
+  "pi",
 ]);
 
 export function cleanAgentTitle(

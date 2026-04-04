@@ -74,7 +74,7 @@ export type ControlResponse =
 
 // ── Agent status types ──
 
-export type AgentKind = "claude" | "opencode" | "codex";
+export type AgentKind = "claude" | "opencode" | "codex" | "pi";
 export type AgentStatus =
   | "idle"
   | "thinking"

@@ -46,15 +46,16 @@ Organize repos into projects. Manage git worktrees as workspaces. Switch context
 <td width="50%">
 
 <!-- Replace with actual GIF -->
-<img src=".github/assets/demo-projects.gif" alt="Projects and workspaces demo" width="400" />
+<img src="https://github.com/user-attachments/assets/00457aa3-7c99-48d4-9006-263255f6e00f" alt="Projects and workspaces demo" width="400" />
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
+
 <!-- Replace with actual GIF -->
-<img src=".github/assets/demo-splits.gif" alt="Pane splitting demo" width="400" />
+<img src="https://github.com/user-attachments/assets/36d9745e-8f5b-47d2-9509-0b0b2516361b" alt="Pane splitting demo" width="400" />
 
 </td>
 <td width="50%">
@@ -76,16 +77,14 @@ PR status badges appear next to branches. Browse your Linear issues and jump str
 <td width="50%">
 
 <!-- Replace with actual GIF -->
-<img src=".github/assets/demo-integrations.gif" alt="Integrations demo" width="400" />
+<img width="1172" height="1014" alt="CleanShot 2026-04-04 at 11 11 00@2x" src="https://github.com/user-attachments/assets/a113145e-d865-4abe-aec7-ad574db1c91d" />
+
 
 </td>
 </tr>
 <tr>
 <td width="50%">
-
-<!-- Replace with actual GIF -->
-<img src=".github/assets/demo-agents.gif" alt="AI agent detection demo" width="400" />
-
+<img width="556" height="382" alt="CleanShot 2026-04-04 at 11 12 42@2x" src="https://github.com/user-attachments/assets/398d5bf8-ee27-42d6-b1f1-bf54452fa87c" />
 </td>
 <td width="50%">
 

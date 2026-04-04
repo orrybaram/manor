@@ -28,8 +28,6 @@ import {
   registerAllAgents,
 } from "./agent-hooks";
 import { ensureWebviewCli } from "./webview-cli-script";
-import { WebviewServer } from "./webview-server";
-import { PICKER_SCRIPT } from "./picker-script";
 import { assertString } from "./ipc-validate";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -52,6 +50,8 @@ import * as projectsIpc from "./ipc/projects";
 import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
+import * as integrationsIpc from "./ipc/integrations";
+import * as webviewIpc from "./ipc/webview";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -167,6 +167,8 @@ backend.pty.onEvent((event: StreamEvent) => {
 
 // ── Register all IPC handlers before window creation to avoid race conditions ──
 
+const webviewServer = webviewIpc.createWebviewServer();
+
 // Build shared deps object for extracted IPC modules
 const ipcDeps = {
   get mainWindow() {
@@ -188,6 +190,7 @@ const ipcDeps = {
   paneContextMap,
   unseenRespondedTasks,
   unseenInputTasks,
+  webviewServer,
   workspaceMeta: [],
 };
 
@@ -197,166 +200,8 @@ projectsIpc.register(ipcDeps);
 themeIpc.register(ipcDeps);
 portsIpc.register(ipcDeps);
 branchesDiffsIpc.register(ipcDeps);
-
-// ── GitHub IPC ──
-ipcMain.handle(
-  "github:getPrForBranch",
-  (_event, repoPath: string, branch: string) => {
-    return githubManager.getPrForBranch(repoPath, branch);
-  },
-);
-
-ipcMain.handle(
-  "github:getPrsForBranches",
-  (_event, repoPath: string, branches: string[]) => {
-    return githubManager.getPrsForBranches(repoPath, branches);
-  },
-);
-
-ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
-
-ipcMain.handle(
-  "github:getMyIssues",
-  (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-    return githubManager.getMyIssues(repoPath, limit, state);
-  },
-);
-
-ipcMain.handle(
-  "github:getAllIssues",
-  (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-    return githubManager.getAllIssues(repoPath, limit, state);
-  },
-);
-
-ipcMain.handle(
-  "github:getIssueDetail",
-  (_event, repoPath: string, issueNumber: number) => {
-    return githubManager.getIssueDetail(repoPath, issueNumber);
-  },
-);
-
-ipcMain.handle(
-  "github:assignIssue",
-  (_event, repoPath: string, issueNumber: number) => {
-    return githubManager.assignIssue(repoPath, issueNumber);
-  },
-);
-
-ipcMain.handle(
-  "github:closeIssue",
-  (_event, repoPath: string, issueNumber: number) => {
-    return githubManager.closeIssue(repoPath, issueNumber);
-  },
-);
-
-ipcMain.handle(
-  "github:createIssue",
-  (_event, title: string, body: string, labels: string[]) => {
-    return githubManager.createIssue(title, body, labels);
-  },
-);
-
-ipcMain.handle(
-  "github:uploadFeedbackImages",
-  (_event, images: { base64: string; name: string }[]) => {
-    return githubManager.uploadFeedbackImages(images);
-  },
-);
-
-// ── Linear IPC ──
-ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
-  assertString(apiKey, "apiKey");
-  linearManager.saveToken(apiKey);
-  try {
-    const viewer = await linearManager.getViewer();
-    return viewer;
-  } catch (err) {
-    linearManager.clearToken();
-    throw err;
-  }
-});
-
-ipcMain.handle("linear:disconnect", () => {
-  linearManager.clearToken();
-});
-
-ipcMain.handle("linear:isConnected", () => {
-  return linearManager.isConnected();
-});
-
-ipcMain.handle("linear:getViewer", async () => {
-  return linearManager.getViewer();
-});
-
-ipcMain.handle("linear:getTeams", async () => {
-  return linearManager.getTeams();
-});
-
-ipcMain.handle(
-  "linear:getMyIssues",
-  async (
-    _event,
-    teamIds: string[],
-    options?: { stateTypes?: string[]; limit?: number },
-  ) => {
-    return linearManager.getMyIssues(teamIds, options);
-  },
-);
-
-ipcMain.handle("linear:getIssueDetail", async (_event, issueId: string) => {
-  return linearManager.getIssueDetail(issueId);
-});
-
-ipcMain.handle(
-  "linear:getAllIssues",
-  async (
-    _event,
-    teamIds: string[],
-    options?: { stateTypes?: string[]; limit?: number },
-  ) => {
-    return linearManager.getAllIssues(teamIds, options);
-  },
-);
-
-ipcMain.handle("linear:startIssue", async (_event, issueId: string) => {
-  return linearManager.startIssue(issueId);
-});
-
-ipcMain.handle("linear:closeIssue", async (_event, issueId: string) => {
-  return linearManager.closeIssue(issueId);
-});
-
-ipcMain.handle(
-  "linear:linkIssueToWorkspace",
-  (_e, projectId: string, workspacePath: string, issue: import("./linear").LinkedIssue) =>
-    projectManager.linkIssueToWorkspace(projectId, workspacePath, issue),
-);
-
-ipcMain.handle(
-  "linear:unlinkIssueFromWorkspace",
-  (_e, projectId: string, workspacePath: string, issueId: string) =>
-    projectManager.unlinkIssueFromWorkspace(projectId, workspacePath, issueId),
-);
-
-ipcMain.handle("linear:autoMatch", async () => {
-  const projects = await projectManager.getProjects();
-  const teams = await linearManager.getTeams();
-  const matches = linearManager.autoMatchProjects(
-    projects.map((p) => ({ id: p.id, name: p.name })),
-    teams,
-  );
-  // Apply matches to projects without existing associations
-  for (const [projectId, association] of Object.entries(matches)) {
-    const project = projects.find((p) => p.id === projectId);
-    if (project && project.linearAssociations.length === 0) {
-      projectManager.updateProject(projectId, {
-        linearAssociations: [association],
-      });
-    }
-  }
-  return matches;
-});
+integrationsIpc.register(ipcDeps);
+webviewIpc.register(ipcDeps);
 
 // ── Dialog IPC ──
 ipcMain.handle("dialog:openDirectory", async () => {
@@ -542,250 +387,6 @@ ipcMain.handle("keybindings:reset", (_event, commandId: string) => {
 
 ipcMain.handle("keybindings:resetAll", () => {
   keybindingsManager.resetAll();
-});
-
-// ── Webview registry ──
-const webviewRegistry = new Map<string, number>();
-const webviewServer = new WebviewServer(webviewRegistry);
-const webviewContextMenuCleanup = new Map<string, () => void>();
-const webviewEscapeCleanup = new Map<string, () => void>();
-const newWindowConsoleCleanup = new Map<string, () => void>();
-
-const INTERCEPT_NEW_WINDOW_SCRIPT = `
-(function() {
-  if (window.__manor_intercept_new_window__) return;
-  window.__manor_intercept_new_window__ = true;
-  document.addEventListener('click', function(e) {
-    var el = e.target;
-    while (el && el.tagName !== 'A') el = el.parentElement;
-    if (!el) return;
-    if (el.getAttribute('target') === '_blank' && el.href) {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log('__manor_new_window__:' + el.href);
-    }
-  }, true);
-  window.open = function(url) {
-    if (url) console.log('__manor_new_window__:' + url);
-    return null;
-  };
-})();
-`;
-
-ipcMain.handle(
-  "webview:register",
-  (_event, paneId: string, webContentsId: number) => {
-    assertString(paneId, "paneId");
-    webviewRegistry.set(paneId, webContentsId);
-    webviewServer.attachConsoleListener(paneId);
-
-    const rendererWebContents = _event.sender;
-
-    const wc = webContents.fromId(webContentsId);
-    if (wc) {
-      const handler = (
-        _ev: Electron.Event,
-        params: Electron.ContextMenuParams,
-      ) => {
-        const menu = Menu.buildFromTemplate([
-          {
-            label: "Inspect Element",
-            click: () => wc.inspectElement(params.x, params.y),
-          },
-        ]);
-        menu.popup();
-      };
-      wc.on("context-menu", handler);
-      webviewContextMenuCleanup.set(paneId, () => {
-        wc.off("context-menu", handler);
-      });
-
-      let lastEscapeTime = 0;
-      const escapeHandler = (
-        ev: Electron.Event,
-        input: Electron.Input,
-      ) => {
-        if (input.type !== "keyDown") return;
-
-        // Escape — double-tap to blur webview
-        if (
-          input.key === "Escape" &&
-          !input.alt &&
-          !input.control &&
-          !input.meta &&
-          !input.shift
-        ) {
-          const now = Date.now();
-          if (now - lastEscapeTime < 500) {
-            ev.preventDefault();
-            rendererWebContents.send("webview:escape", paneId);
-            lastEscapeTime = 0;
-          } else {
-            lastEscapeTime = now;
-          }
-          return;
-        }
-
-        // Browser keybindings (Cmd only, no other modifiers)
-        if (input.meta && !input.alt && !input.control && !input.shift) {
-          if (input.key === "=") {
-            ev.preventDefault();
-            wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
-          } else if (input.key === "-") {
-            ev.preventDefault();
-            wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
-          } else if (input.key === "0") {
-            ev.preventDefault();
-            wc.setZoomLevel(0);
-          } else if (input.key === "r") {
-            ev.preventDefault();
-            wc.reload();
-          } else if (input.key === "l") {
-            ev.preventDefault();
-            rendererWebContents.send("webview:focus-url", paneId);
-          }
-        }
-      };
-      wc.on("before-input-event", escapeHandler);
-      webviewEscapeCleanup.set(paneId, () => {
-        wc.off("before-input-event", escapeHandler);
-      });
-
-      // Intercept target="_blank" clicks and window.open() inside the guest page.
-      // Inject a script on each page load that captures these and relays the URL
-      // back via console.log for us to forward to the renderer as a new tab.
-      const injectNewWindowIntercept = () => {
-        if (wc.isDestroyed()) return;
-        wc.executeJavaScript(INTERCEPT_NEW_WINDOW_SCRIPT).catch(() => {});
-      };
-      wc.on("did-finish-load", injectNewWindowIntercept);
-
-      const newWindowListener = (
-        _ev: Electron.Event,
-        _level: number,
-        message: string,
-      ) => {
-        if (message.startsWith("__manor_new_window__:")) {
-          const url = message.slice("__manor_new_window__:".length);
-          rendererWebContents.send("webview:new-window", paneId, url);
-        }
-      };
-      wc.on("console-message", newWindowListener);
-
-      // Handle beforeunload — show a native confirm dialog when the page
-      // tries to prevent navigation (e.g. unsaved changes warnings).
-      const preventUnloadHandler = (event: Electron.Event) => {
-        const win = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc);
-        const choice = dialog.showMessageBoxSync(win ?? mainWindow!, {
-          type: "question",
-          buttons: ["Leave", "Stay"],
-          defaultId: 1,
-          cancelId: 1,
-          title: "Leave site?",
-          message: "Changes you made may not be saved.",
-        });
-        if (choice === 0) {
-          event.preventDefault(); // allow navigation
-        }
-      };
-      wc.on("will-prevent-unload", preventUnloadHandler);
-
-      newWindowConsoleCleanup.set(paneId, () => {
-        wc.off("did-finish-load", injectNewWindowIntercept);
-        wc.off("console-message", newWindowListener);
-        wc.off("will-prevent-unload", preventUnloadHandler);
-      });
-    }
-  },
-);
-
-ipcMain.handle("webview:unregister", (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  webviewContextMenuCleanup.get(paneId)?.();
-  webviewContextMenuCleanup.delete(paneId);
-  webviewEscapeCleanup.get(paneId)?.();
-  webviewEscapeCleanup.delete(paneId);
-  newWindowConsoleCleanup.get(paneId)?.();
-  newWindowConsoleCleanup.delete(paneId);
-  webviewServer.detachConsoleListener(paneId);
-  webviewRegistry.delete(paneId);
-});
-
-ipcMain.handle("webview:start-picker", async (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  const webContentsId = webviewRegistry.get(paneId);
-  if (!webContentsId) return;
-  const wc = webContents.fromId(webContentsId);
-  if (!wc || wc.isDestroyed()) return;
-
-  await wc.executeJavaScript(PICKER_SCRIPT);
-
-  const listener = (
-    _ev: Electron.Event,
-    _level: number,
-    message: string,
-  ) => {
-    if (
-      mainWindow &&
-      !mainWindow.isDestroyed() &&
-      !mainWindow.webContents.isDestroyed()
-    ) {
-      if (message.startsWith("__MANOR_PICK__:")) {
-        wc.off("console-message", listener);
-        try {
-          const result = JSON.parse(
-            message.slice("__MANOR_PICK__:".length),
-          );
-          mainWindow.webContents.send("webview:picker-result", paneId, result);
-        } catch {
-          // ignore parse errors
-        }
-      } else if (message === "__MANOR_PICK_CANCEL__") {
-        wc.off("console-message", listener);
-        mainWindow.webContents.send("webview:picker-cancel", paneId);
-      }
-    }
-  };
-
-  wc.on("console-message", listener);
-});
-
-ipcMain.handle("webview:cancel-picker", async (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  const webContentsId = webviewRegistry.get(paneId);
-  if (!webContentsId) return;
-  const wc = webContents.fromId(webContentsId);
-  if (!wc || wc.isDestroyed()) return;
-  await wc.executeJavaScript(
-    "if (window.__manor_picker_cancel__) window.__manor_picker_cancel__();",
-  );
-});
-
-ipcMain.handle("webview:zoom-in", (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  const webContentsId = webviewRegistry.get(paneId);
-  if (!webContentsId) return;
-  const wc = webContents.fromId(webContentsId);
-  if (!wc || wc.isDestroyed()) return;
-  wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
-});
-
-ipcMain.handle("webview:zoom-out", (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  const webContentsId = webviewRegistry.get(paneId);
-  if (!webContentsId) return;
-  const wc = webContents.fromId(webContentsId);
-  if (!wc || wc.isDestroyed()) return;
-  wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
-});
-
-ipcMain.handle("webview:zoom-reset", (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  const webContentsId = webviewRegistry.get(paneId);
-  if (!webContentsId) return;
-  const wc = webContents.fromId(webContentsId);
-  if (!wc || wc.isDestroyed()) return;
-  wc.setZoomLevel(0);
 });
 
 keybindingsManager.onChange((overrides) => {

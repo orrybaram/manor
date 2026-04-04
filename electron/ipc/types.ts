@@ -12,6 +12,7 @@ import type { AgentHookServer } from "../agent-hooks";
 import type { TaskManager } from "../task-persistence";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
+import type { WebviewServer } from "../webview-server";
 
 export interface WorkspaceMeta {
   path: string;
@@ -41,5 +42,6 @@ export interface IpcDeps {
   >;
   unseenRespondedTasks: Set<string>;
   unseenInputTasks: Set<string>;
+  webviewServer: WebviewServer;
   workspaceMeta: WorkspaceMeta[];
 }

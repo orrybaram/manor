@@ -6,11 +6,6 @@
 <h1 align="center">Manor</h1>
 
 <p align="center">
-  <strong>A terminal built for how developers actually work.</strong><br />
-  Projects. Panes. Git. Integrations. All in one place.
-</p>
-
-<p align="center">
   <span><img src="https://img.shields.io/github/package-json/v/orrybaram/manor" alt="Version" /></span>
   
 </p>
@@ -26,11 +21,6 @@
 
 ---
 
-## Why Manor?
-
-Most terminals stop at tabs and themes. Manor goes further — it understands your **projects**, watches your **branches**, surfaces your **PRs and issues**, and shows you when **AI agents** are running. It's a terminal that knows what you're working on.
-
-<br />
 
 ## Highlights
 

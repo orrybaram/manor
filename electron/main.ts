@@ -5,15 +5,12 @@ import {
   ipcMain,
   dialog,
   shell,
-  screen,
   nativeImage,
-  Notification,
   webContents,
   clipboard,
 } from "electron";
 import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
 import {
@@ -46,25 +43,18 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
-
-interface WorkspaceMeta {
-  path: string;
-  projectName: string | null;
-  branch: string | null;
-  isMain: boolean;
-}
+import type { WorkspaceMeta } from "./ipc/types";
+import { createWindow, saveZoomLevel } from "./window";
+import {
+  unseenRespondedTasks,
+  unseenInputTasks,
+  updateDockBadge as _updateDockBadge,
+  maybeSendNotification as _maybeSendNotification,
+} from "./notifications";
 
 let workspaceMeta: WorkspaceMeta[] = [];
 
 let mainWindow: BrowserWindow | null = null;
-
-interface WindowBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  isMaximized: boolean;
-}
 
 /** Read git branch synchronously from a repo or worktree root. */
 function readBranchSync(repoPath: string): string | null {
@@ -96,137 +86,6 @@ function readBranchSync(repoPath: string): string | null {
   }
 }
 
-function manorDataDir(): string {
-  return process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Application Support", "Manor")
-    : path.join(os.homedir(), ".local", "share", "Manor");
-}
-
-function windowBoundsPath(): string {
-  return path.join(manorDataDir(), "window-bounds.json");
-}
-
-function zoomLevelPath(): string {
-  return path.join(manorDataDir(), "zoom-level.json");
-}
-
-function loadZoomLevel(): number {
-  try {
-    const data = fs.readFileSync(zoomLevelPath(), "utf-8");
-    return JSON.parse(data).zoomFactor ?? 1;
-  } catch {
-    return 1;
-  }
-}
-
-function saveZoomLevel(factor: number): void {
-  try {
-    const p = zoomLevelPath();
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify({ zoomFactor: factor }));
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadWindowBounds(): WindowBounds | null {
-  try {
-    const data = fs.readFileSync(windowBoundsPath(), "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
-}
-
-function saveWindowBounds(win: BrowserWindow): void {
-  const bounds: WindowBounds = {
-    ...win.getBounds(),
-    isMaximized: win.isMaximized(),
-  };
-  try {
-    const boundsPath = windowBoundsPath();
-    fs.mkdirSync(path.dirname(boundsPath), { recursive: true });
-    fs.writeFileSync(boundsPath, JSON.stringify(bounds));
-  } catch {
-    /* ignore write errors */
-  }
-}
-
-function boundsAreVisible(bounds: WindowBounds): boolean {
-  const displays = screen.getAllDisplays();
-  // Check if the window's center point is within any display
-  const cx = bounds.x + bounds.width / 2;
-  const cy = bounds.y + bounds.height / 2;
-  return displays.some((display) => {
-    const { x, y, width, height } = display.workArea;
-    return cx >= x && cx < x + width && cy >= y && cy < y + height;
-  });
-}
-
-function createWindow() {
-  const saved = loadWindowBounds();
-  const useSaved = saved && boundsAreVisible(saved);
-
-  mainWindow = new BrowserWindow({
-    width: useSaved ? saved.width : 1200,
-    height: useSaved ? saved.height : 800,
-    ...(useSaved ? { x: saved.x, y: saved.y } : {}),
-    minWidth: 400,
-    minHeight: 300,
-    icon: path.join(__dirname, "../build/dev-icon.png"),
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 13, y: 13 },
-    backgroundColor: "#1e1e2e",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: true,
-    },
-  });
-
-  if (useSaved && saved.isMaximized) {
-    mainWindow.maximize();
-  }
-
-  // Persist bounds on move/resize (debounced)
-  let boundsTimer: ReturnType<typeof setTimeout> | null = null;
-  const persistBounds = () => {
-    if (boundsTimer) clearTimeout(boundsTimer);
-    boundsTimer = setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        saveWindowBounds(mainWindow);
-      }
-    }, 500);
-  };
-  mainWindow.on("resize", persistBounds);
-  mainWindow.on("move", persistBounds);
-  mainWindow.on("close", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      saveWindowBounds(mainWindow);
-    }
-  });
-
-  // Restore persisted zoom level
-  const savedZoom = loadZoomLevel();
-  mainWindow.webContents.setZoomFactor(savedZoom);
-
-  // Open links in default browser instead of Electron popup
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    const parsed = new URL(url);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      shell.openExternal(url);
-    }
-    return { action: "deny" };
-  });
-
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
-}
 
 // Managers
 const client = new TerminalHostClient();
@@ -249,21 +108,16 @@ const paneContextMap = new Map<
   { projectId: string; projectName: string; workspacePath: string }
 >();
 
-const unseenRespondedTasks = new Set<string>();
-const unseenInputTasks = new Set<string>();
-
 function updateDockBadge(): void {
-  if (!preferencesManager.get("dockBadgeEnabled")) {
-    app.dock?.setBadge("");
-    return;
-  }
-  if (unseenInputTasks.size > 0) {
-    app.dock?.setBadge(unseenInputTasks.size.toString());
-  } else if (unseenRespondedTasks.size > 0) {
-    app.dock?.setBadge("·");
-  } else {
-    app.dock?.setBadge("");
-  }
+  _updateDockBadge(preferencesManager);
+}
+
+function maybeSendNotification(
+  task: TaskInfo,
+  prevStatus: string | null | undefined,
+  newStatus: AgentStatus,
+): void {
+  _maybeSendNotification(task, prevStatus, newStatus, mainWindow, preferencesManager);
 }
 
 // Ensure shell integration and agent hooks are set up
@@ -1307,51 +1161,6 @@ keybindingsManager.onChange((overrides) => {
   }
 });
 
-function maybeSendNotification(
-  task: TaskInfo,
-  prevStatus: string | null | undefined,
-  newStatus: AgentStatus,
-): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isFocused()) return;
-
-  let title: string;
-  if (
-    newStatus === "responded" &&
-    prevStatus !== "responded" &&
-    preferencesManager.get("notifyOnResponse")
-  ) {
-    title = "Agent responded";
-  } else if (
-    newStatus === "requires_input" &&
-    prevStatus !== "requires_input" &&
-    preferencesManager.get("notifyOnRequiresInput")
-  ) {
-    title = "Agent needs input";
-  } else {
-    return;
-  }
-
-  const notification = new Notification({
-    title,
-    body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
-    silent: true,
-  });
-  notification.on("click", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send("notification:navigate-to-task", task.id);
-  });
-  notification.show();
-  const soundName = preferencesManager.get("notificationSound");
-  if (typeof soundName === "string") {
-    // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
-    // abstracted through the backend since it is not workspace I/O.
-    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
-  }
-}
-
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths
 // where tools like `gh` live. Spawn a login shell to get the real PATH.
@@ -1459,7 +1268,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  createWindow();
+  mainWindow = createWindow();
 
   if (devTitle && mainWindow) {
     mainWindow.setTitle(devTitle);
@@ -1691,7 +1500,7 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
   });
 });
 

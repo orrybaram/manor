@@ -1,6 +1,6 @@
 ---
 title: Extract shared types, window management, and notifications
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

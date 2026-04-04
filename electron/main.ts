@@ -13,11 +13,7 @@ import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { TerminalHostClient } from "./terminal-host/client";
-import {
-  LayoutPersistence,
-  type PersistedWorkspace,
-} from "./terminal-host/layout-persistence";
-import { ScrollbackWriter } from "./terminal-host/scrollback";
+import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner, type ActivePort } from "./ports";
@@ -51,41 +47,13 @@ import {
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
 } from "./notifications";
+import * as ptyIpc from "./ipc/pty";
+import * as layoutIpc from "./ipc/layout";
+import * as projectsIpc from "./ipc/projects";
 
 let workspaceMeta: WorkspaceMeta[] = [];
 
 let mainWindow: BrowserWindow | null = null;
-
-/** Read git branch synchronously from a repo or worktree root. */
-function readBranchSync(repoPath: string): string | null {
-  try {
-    const gitPath = path.join(repoPath, ".git");
-    const stat = fs.statSync(gitPath);
-
-    let headPath: string;
-    if (stat.isDirectory()) {
-      headPath = path.join(gitPath, "HEAD");
-    } else {
-      // Worktree: .git is a file containing "gitdir: <path>"
-      const content = fs.readFileSync(gitPath, "utf-8").trim();
-      const m = content.match(/^gitdir:\s*(.+)$/);
-      if (!m) return null;
-      const gitdir = path.isAbsolute(m[1])
-        ? m[1]
-        : path.resolve(repoPath, m[1]);
-      headPath = path.join(gitdir, "HEAD");
-    }
-
-    const head = fs.readFileSync(headPath, "utf-8").trim();
-    const refMatch = head.match(/^ref: refs\/heads\/(.+)$/);
-    if (refMatch) return refMatch[1];
-    if (/^[0-9a-f]{40}$/.test(head)) return head.slice(0, 7);
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 
 // Managers
 const client = new TerminalHostClient();
@@ -199,213 +167,33 @@ backend.pty.onEvent((event: StreamEvent) => {
 
 // ── Register all IPC handlers before window creation to avoid race conditions ──
 
-// ── PTY IPC (via daemon) ──
-ipcMain.handle(
-  "pty:create",
-  async (
-    _event,
-    paneId: string,
-    cwd: string | null,
-    cols: number,
-    rows: number,
-  ) => {
-    assertString(paneId, "paneId");
-    if (cwd !== null) assertString(cwd, "cwd");
-    assertPositiveInt(cols, "cols");
-    assertPositiveInt(rows, "rows");
-    try {
-      const result = await backend.pty.createOrAttach(
-        paneId,
-        cwd || process.env.HOME || "/",
-        cols,
-        rows,
-      );
-      // Return snapshot to the renderer so it can write it exactly once,
-      // avoiding duplicate writes from StrictMode double-mounting.
-      return {
-        ok: true,
-        snapshot: result.snapshot?.screenAnsi || null,
-      };
-    } catch (err) {
-      console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+// Build shared deps object for extracted IPC modules
+const ipcDeps = {
+  get mainWindow() {
+    return mainWindow;
   },
-);
+  backend,
+  layoutPersistence,
+  projectManager,
+  themeManager,
+  portScanner,
+  branchWatcher,
+  diffWatcher,
+  githubManager,
+  linearManager,
+  agentHookServer,
+  taskManager,
+  preferencesManager,
+  keybindingsManager,
+  paneContextMap,
+  unseenRespondedTasks,
+  unseenInputTasks,
+  workspaceMeta,
+};
 
-ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
-  assertString(paneId, "paneId");
-  assertString(data, "data");
-  backend.pty.write(paneId, data);
-});
-
-ipcMain.handle(
-  "pty:resize",
-  async (_event, paneId: string, cols: number, rows: number) => {
-    assertString(paneId, "paneId");
-    assertPositiveInt(cols, "cols");
-    assertPositiveInt(rows, "rows");
-    try {
-      await backend.pty.resize(paneId, cols, rows);
-    } catch {
-      // ignore resize errors
-    }
-  },
-);
-
-ipcMain.handle("pty:close", async (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  try {
-    await backend.pty.kill(paneId);
-  } catch {
-    // ignore close errors
-  }
-});
-
-ipcMain.handle("pty:detach", async (_event, paneId: string) => {
-  assertString(paneId, "paneId");
-  try {
-    await backend.pty.detach(paneId);
-  } catch {
-    // ignore detach errors
-  }
-});
-
-// ── Layout Persistence IPC ──
-ipcMain.handle("layout:save", (_event, workspace: PersistedWorkspace) => {
-  try {
-    layoutPersistence.saveWorkspace(workspace);
-  } catch (err) {
-    console.error("Failed to save layout:", err);
-  }
-});
-
-ipcMain.handle("layout:load", () => {
-  return layoutPersistence.load();
-});
-
-ipcMain.handle("layout:getRestoredSessions", async () => {
-  // Get live daemon sessions and persisted scrollback sessions
-  // so the renderer can reconcile on startup
-  try {
-    const daemonSessions = await backend.pty.listSessions();
-    const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
-    return {
-      daemonSessions,
-      persistedSessionIds,
-    };
-  } catch {
-    return { daemonSessions: [], persistedSessionIds: [] };
-  }
-});
-
-// ── Persistence IPC ──
-ipcMain.handle("projects:getAll", () => {
-  return projectManager.getProjects();
-});
-
-ipcMain.handle("projects:getSelectedIndex", () => {
-  return projectManager.getSelectedProjectIndex();
-});
-
-ipcMain.handle("projects:select", (_event, index: number) => {
-  projectManager.selectProject(index);
-});
-
-ipcMain.handle("projects:add", (_event, name: string, projectPath: string) => {
-  assertString(name, "name");
-  assertString(projectPath, "path");
-  return projectManager.addProject(name, projectPath);
-});
-
-ipcMain.handle("projects:remove", (_event, projectId: string) => {
-  projectManager.removeProject(projectId);
-});
-
-ipcMain.handle(
-  "projects:selectWorkspace",
-  (_event, projectId: string, workspaceIndex: number) => {
-    projectManager.selectWorkspace(projectId, workspaceIndex);
-  },
-);
-
-ipcMain.handle(
-  "projects:removeWorktree",
-  (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-    return projectManager.removeWorktree(
-      projectId,
-      worktreePath,
-      deleteBranch,
-      (step: string) => {
-        event.sender.send("projects:removeWorktree:progress", step);
-      },
-    );
-  },
-);
-
-ipcMain.handle(
-  "projects:canQuickMerge",
-  (_event, projectId: string, worktreePath: string) => {
-    return projectManager.canQuickMerge(projectId, worktreePath);
-  },
-);
-
-ipcMain.handle(
-  "projects:quickMergeWorktree",
-  (_event, projectId: string, worktreePath: string) => {
-    return projectManager.quickMergeWorktree(projectId, worktreePath);
-  },
-);
-
-ipcMain.handle(
-  "projects:createWorktree",
-  (_event, projectId: string, name: string, branch?: string, linkedIssue?: import("./linear").LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
-    return projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
-  },
-);
-
-ipcMain.handle(
-  "projects:convertMainToWorktree",
-  (_event, projectId: string, name: string) => {
-    return projectManager.convertMainToWorktree(projectId, name);
-  },
-);
-
-ipcMain.handle("projects:listRemoteBranches", (_e, projectId: string) =>
-  projectManager.listRemoteBranches(projectId),
-);
-
-ipcMain.handle(
-  "projects:renameWorkspace",
-  (_event, projectId: string, workspacePath: string, newName: string) => {
-    projectManager.renameWorkspace(projectId, workspacePath, newName);
-  },
-);
-
-ipcMain.handle(
-  "projects:reorderWorkspaces",
-  (_event, projectId: string, orderedPaths: string[]) => {
-    projectManager.reorderWorkspaces(projectId, orderedPaths);
-  },
-);
-
-ipcMain.handle("projects:reorder", (_event, orderedIds: string[]) => {
-  projectManager.reorderProjects(orderedIds);
-});
-
-ipcMain.handle(
-  "projects:update",
-  (
-    _event,
-    projectId: string,
-    updates: import("./persistence").ProjectUpdatableFields,
-  ) => {
-    return projectManager.updateProject(projectId, updates);
-  },
-);
+ptyIpc.register(ipcDeps);
+layoutIpc.register(ipcDeps);
+projectsIpc.register(ipcDeps);
 
 // ── Theme IPC ──
 ipcMain.handle("theme:get", () => {

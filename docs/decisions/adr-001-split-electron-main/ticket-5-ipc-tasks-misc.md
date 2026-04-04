@@ -1,6 +1,6 @@
 ---
 title: Extract tasks and misc IPC handlers
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

@@ -1,6 +1,6 @@
 ---
 title: Extract app lifecycle and slim down main.ts
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [5]

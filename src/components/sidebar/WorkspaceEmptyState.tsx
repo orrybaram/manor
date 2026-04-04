@@ -150,6 +150,16 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
 
   const actions: ActionItem[] = [
     {
+      icon: <Search size={16} />,
+      label: "Command Palette",
+      keys: ["⌘", "K"],
+      action: () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+        );
+      },
+    },
+    {
       icon: <Plus size={16} />,
       label: "New Task",
       keys: ["⌘", "N"],
@@ -170,16 +180,6 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
       label: "New Browser Window",
       keys: ["⌘", "⇧", "B"],
       action: () => addBrowserTab("about:blank"),
-    },
-    {
-      icon: <Search size={16} />,
-      label: "Command Palette",
-      keys: ["⌘", "K"],
-      action: () => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "k", metaKey: true }),
-        );
-      },
     },
   ];
 

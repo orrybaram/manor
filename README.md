@@ -14,6 +14,7 @@
     </svg>
 </p>
 
+
 <h1 align="center">Manor</h1>
 
 <p align="center">
@@ -30,7 +31,7 @@
 
 <!-- Replace with actual GIF/screenshot of the app -->
 <p align="center">
-  <img src=".github/assets/hero.gif" alt="Manor — terminal walkthrough" width="800" />
+  <img alt="Manor — terminal walkthrough" width="800" src="https://github.com/user-attachments/assets/10f37687-1aa3-4e25-a4aa-45eadc522305" />
 </p>
 
 <br />

@@ -417,5 +417,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel('webview:go-back', callback),
     onGoForward: (callback: (paneId: string) => void) =>
       onChannel('webview:go-forward', callback),
+    setAudioMuted: (paneId: string, muted: boolean) =>
+      ipcRenderer.invoke("webview:set-audio-muted", paneId, muted),
+    onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+        audible: boolean,
+      ) => callback(paneId, audible);
+      ipcRenderer.on("webview:audio-state-changed", listener);
+      return () => ipcRenderer.removeListener("webview:audio-state-changed", listener);
+    },
   },
 });

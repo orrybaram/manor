@@ -517,6 +517,8 @@ export interface ElectronAPI {
     onFind: (callback: (paneId: string) => void) => () => void;
     onGoBack: (callback: (paneId: string) => void) => () => void;
     onGoForward: (callback: (paneId: string) => void) => () => void;
+    setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
+    onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => () => void;
   };
 }
 

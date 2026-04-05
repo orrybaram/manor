@@ -19,6 +19,7 @@ const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
 const newWindowConsoleCleanup = new Map<string, () => void>();
 const webviewEventCleanup = new Map<string, () => void>();
+const webviewAudioCleanup = new Map<string, () => void>();
 
 const INTERCEPT_NEW_WINDOW_SCRIPT = `
 (function() {
@@ -211,11 +212,19 @@ export function register(deps: IpcDeps): void {
         };
         wc.on("found-in-page", findResultHandler);
 
+        const audioPlayingHandler = (_ev: Electron.Event & { audible: boolean }) => {
+          rendererWebContents.send("webview:audio-state-changed", paneId, _ev.audible);
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wc.on("audio-state-changed", audioPlayingHandler as any);
+
         webviewEventCleanup.set(paneId, () => {
           wc.off("did-start-loading", loadingStartHandler);
           wc.off("did-stop-loading", loadingStopHandler);
           wc.off("page-favicon-updated", faviconHandler);
           wc.off("found-in-page", findResultHandler);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          wc.off("audio-state-changed", audioPlayingHandler as any);
         });
 
         // Intercept target="_blank" clicks and window.open() inside the guest page.
@@ -274,6 +283,8 @@ export function register(deps: IpcDeps): void {
     newWindowConsoleCleanup.delete(paneId);
     webviewEventCleanup.get(paneId)?.();
     webviewEventCleanup.delete(paneId);
+    webviewAudioCleanup.get(paneId)?.();
+    webviewAudioCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     webviewRegistry.delete(paneId);
   });
@@ -381,5 +392,14 @@ export function register(deps: IpcDeps): void {
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) return;
     wc.stopFindInPage("clearSelection");
+  });
+
+  ipcMain.handle("webview:set-audio-muted", (_event, paneId: string, muted: boolean) => {
+    assertString(paneId, "paneId");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    wc.setAudioMuted(muted);
   });
 }

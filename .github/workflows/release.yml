@@ -50,6 +50,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pnpm pkg set version="$VERSION"
+
       - name: Install dependencies
         run: pnpm install
 

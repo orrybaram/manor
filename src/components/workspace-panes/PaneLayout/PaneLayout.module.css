@@ -136,6 +136,26 @@
   color: var(--text);
 }
 
+.paneFavicon {
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.paneFaviconPlaceholder {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.paneSecureIcon {
+  flex-shrink: 0;
+  color: var(--green);
+}
+
+.paneInsecureIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
 .split {
   display: flex;
   width: 100%;

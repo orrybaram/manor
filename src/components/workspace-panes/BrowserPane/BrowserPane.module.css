@@ -89,3 +89,63 @@
   z-index: 10;
   pointer-events: auto;
 }
+
+/* ── Loading Bar ── */
+
+.loadingBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 5;
+  animation: loadingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Find Bar ── */
+
+.findBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.findBarIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.findBarInput {
+  flex: 1;
+  min-width: 0;
+  max-width: 200px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+  padding: 0 4px;
+  font-family: inherit;
+}
+
+.findBarInput:focus {
+  border-color: var(--accent);
+}
+
+.findBarCount {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}

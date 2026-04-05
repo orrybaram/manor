@@ -114,6 +114,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const webviewRef = useRef<WebviewElement>(null);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
+    const [isLoading, setIsLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -430,6 +431,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const unsubLoading = window.electronAPI.webview.onLoadingChanged(
         (loadPaneId: string, loading: boolean) => {
           if (loadPaneId !== paneId) return;
+          setIsLoading(loading);
           fireNavStateChange({ isLoading: loading });
         },
       );
@@ -495,6 +497,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     return (
       <div className={styles.container}>
         <div className={styles.webviewContainer}>
+          {isLoading && <div className={styles.loadingBar} />}
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
             src={initialUrl}

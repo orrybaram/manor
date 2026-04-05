@@ -8,6 +8,11 @@ import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
 import Search from "lucide-react/dist/esm/icons/search";
 import X from "lucide-react/dist/esm/icons/x";
+import Globe from "lucide-react/dist/esm/icons/globe";
+import Lock from "lucide-react/dist/esm/icons/lock";
+import Unlock from "lucide-react/dist/esm/icons/unlock";
+import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
@@ -211,15 +216,47 @@ export function LeafPane(props: LeafPaneProps) {
                 <ArrowRight size={12} />
               </button>
             </Tooltip>
-            <Tooltip label="Reload">
-              <button
-                className={styles.paneStatusBtn}
-                onClick={() => browserRef.current?.reload()}
-                title="Reload"
-              >
-                <RotateCw size={12} />
-              </button>
-            </Tooltip>
+            {navState?.isLoading ? (
+              <Tooltip label="Stop">
+                <button
+                  className={styles.paneStatusBtn}
+                  onClick={() => browserRef.current?.stop()}
+                  title="Stop"
+                >
+                  <X size={12} />
+                </button>
+              </Tooltip>
+            ) : (
+              <Tooltip label="Reload">
+                <button
+                  className={styles.paneStatusBtn}
+                  onClick={() => browserRef.current?.reload()}
+                  title="Reload"
+                >
+                  <RotateCw size={12} />
+                </button>
+              </Tooltip>
+            )}
+            {!navState?.isBlank && (
+              <>
+                {navState?.isSecure ? (
+                  <Lock size={10} className={styles.paneSecureIcon} />
+                ) : (
+                  <Unlock size={10} className={styles.paneInsecureIcon} />
+                )}
+                {navState?.favicon ? (
+                  <img
+                    src={navState.favicon}
+                    width={12}
+                    height={12}
+                    className={styles.paneFavicon}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  />
+                ) : (
+                  <Globe size={12} className={styles.paneFaviconPlaceholder} />
+                )}
+              </>
+            )}
             <input
               ref={urlInputRef}
               data-pane-url-input={paneId}
@@ -328,6 +365,59 @@ export function LeafPane(props: LeafPaneProps) {
           </button>
         </Row>
       </div>
+      {contentType === "browser" && navState?.findBarOpen && (
+        <div className={browserStyles.findBar}>
+          <Search size={12} className={browserStyles.findBarIcon} />
+          <input
+            className={browserStyles.findBarInput}
+            value={navState.findQuery}
+            onChange={(e) => {
+              browserRef.current?.findInPage(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                browserRef.current?.findInPage(navState.findQuery, {
+                  forward: !e.shiftKey,
+                  findNext: true,
+                });
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                browserRef.current?.stopFind();
+              }
+            }}
+            placeholder="Find in page"
+            spellCheck={false}
+            autoFocus
+          />
+          {navState.findTotalMatches > 0 && (
+            <span className={browserStyles.findBarCount}>
+              {navState.findActiveMatch}/{navState.findTotalMatches}
+            </span>
+          )}
+          <button
+            className={styles.paneStatusBtn}
+            onClick={() => browserRef.current?.findInPage(navState.findQuery, { forward: false, findNext: true })}
+            title="Previous match"
+          >
+            <ChevronUp size={12} />
+          </button>
+          <button
+            className={styles.paneStatusBtn}
+            onClick={() => browserRef.current?.findInPage(navState.findQuery, { forward: true, findNext: true })}
+            title="Next match"
+          >
+            <ChevronDown size={12} />
+          </button>
+          <button
+            className={styles.paneStatusBtn}
+            onClick={() => browserRef.current?.stopFind()}
+            title="Close find"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
       {contentType === "browser" && navState && navState.suggestions.length > 0 && (
         <div className={browserStyles.autocompleteDropdown}>
           {navState.suggestions.map((entry, idx) => (

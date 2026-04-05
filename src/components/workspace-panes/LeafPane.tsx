@@ -8,7 +8,6 @@ import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
 import Search from "lucide-react/dist/esm/icons/search";
 import X from "lucide-react/dist/esm/icons/x";
-import Globe from "lucide-react/dist/esm/icons/globe";
 import Lock from "lucide-react/dist/esm/icons/lock";
 import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
@@ -28,6 +27,10 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
+
+function stripUrlForDisplay(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
+}
 
 type LeafPaneProps = {
   paneId: string;
@@ -59,11 +62,14 @@ export function LeafPane(props: LeafPaneProps) {
   const diffRef = useRef<DiffPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
+  const [urlFocused, setUrlFocused] = useState(false);
 
+  const setPaneFavicon = useAppStore((s) => s.setPaneFavicon);
   const handleNavStateChange = useCallback((state: BrowserPaneNavState) => {
     setNavState(state);
     setWebviewFocused(state.webviewFocused ? paneId : null);
-  }, [paneId, setWebviewFocused]);
+    setPaneFavicon(paneId, state.favicon);
+  }, [paneId, setWebviewFocused, setPaneFavicon]);
 
   useMountEffect(() => {
     if (contentType !== "browser") return;
@@ -237,39 +243,36 @@ export function LeafPane(props: LeafPaneProps) {
                 </button>
               </Tooltip>
             )}
-            {!navState?.isBlank && (
-              <>
-                {navState?.isSecure ? (
-                  <Lock size={10} className={styles.paneSecureIcon} />
-                ) : (
-                  <Unlock size={10} className={styles.paneInsecureIcon} />
-                )}
-                {navState?.favicon ? (
-                  <img
-                    src={navState.favicon}
-                    width={12}
-                    height={12}
-                    className={styles.paneFavicon}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                ) : (
-                  <Globe size={12} className={styles.paneFaviconPlaceholder} />
-                )}
-              </>
-            )}
-            <input
-              ref={urlInputRef}
-              data-pane-url-input={paneId}
-              className={styles.paneUrlInput}
-              value={navState?.url ?? ""}
-              onChange={browserRef.current?.urlInputHandlers.onChange ?? (() => {})}
-              onKeyDown={browserRef.current?.urlInputHandlers.onKeyDown}
-              onBlur={browserRef.current?.urlInputHandlers.onBlur}
-              onFocus={browserRef.current?.urlInputHandlers.onFocus}
-              placeholder="Enter URL"
-              spellCheck={false}
-              autoFocus={!paneUrl || paneUrl === "about:blank"}
-            />
+            <div className={styles.paneUrlInputWrapper}>
+              {!navState?.isBlank && (
+                <>
+                  {navState?.isSecure ? (
+                    <Lock size={10} className={styles.paneSecureIcon} />
+                  ) : (
+                    <Unlock size={10} className={styles.paneInsecureIcon} />
+                  )}
+                </>
+              )}
+              <input
+                ref={urlInputRef}
+                data-pane-url-input={paneId}
+                className={styles.paneUrlInput}
+                value={urlFocused ? (navState?.url ?? "") : stripUrlForDisplay(navState?.url ?? "")}
+                onChange={browserRef.current?.urlInputHandlers.onChange ?? (() => {})}
+                onKeyDown={browserRef.current?.urlInputHandlers.onKeyDown}
+                onBlur={() => {
+                  setUrlFocused(false);
+                  browserRef.current?.urlInputHandlers.onBlur();
+                }}
+                onFocus={(e) => {
+                  setUrlFocused(true);
+                  browserRef.current?.urlInputHandlers.onFocus(e);
+                }}
+                placeholder="Enter URL"
+                spellCheck={false}
+                autoFocus={!paneUrl || paneUrl === "about:blank"}
+              />
+            </div>
             <Tooltip label="Pick element">
               <button
                 className={`${styles.paneStatusBtn} ${navState?.pickerActive ? styles.paneStatusBtnActive : ""}`}

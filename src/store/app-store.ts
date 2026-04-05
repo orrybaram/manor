@@ -190,6 +190,7 @@ export interface AppState {
   paneTitle: Record<string, string>;
   paneAgentStatus: Record<string, AgentState>;
   paneContentType: Record<string, "terminal" | "browser" | "diff">;
+  paneFavicon: Record<string, string>;
   paneUrl: Record<string, string>;
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
@@ -216,6 +217,7 @@ export interface AppState {
   addTab: () => void;
   addBrowserTab: (url: string) => void;
   addDiffTab: () => void;
+  duplicateTab: (tabId: string) => void;
   openOrFocusDiff: () => void;
   closeTab: (tabId: string) => void;
   requestCloseTab: (tabId: string) => void;
@@ -271,6 +273,9 @@ export interface AppState {
     paneId: string,
     contentType: "terminal" | "browser" | "diff",
   ) => void;
+
+  // Browser favicon
+  setPaneFavicon: (paneId: string, favicon: string | null) => void;
 
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
@@ -421,6 +426,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneTitle: {},
   paneAgentStatus: {},
   paneContentType: {},
+  paneFavicon: {},
   paneUrl: {},
   panePickedElement: {},
   webviewFocusedPaneId: null,
@@ -609,6 +615,78 @@ export const useAppStore = create<AppState>((set, get) => ({
           selectedTabId: tab.id,
         })),
       };
+    }),
+
+  duplicateTab: (tabId: string) =>
+    set((state) => {
+      const wsPath = state.activeWorkspacePath;
+      if (!wsPath) return state;
+      const layout = state.workspaceLayouts[wsPath];
+      if (!layout) return state;
+      // Find the panel and tab
+      let sourcePanel: Panel | undefined;
+      let sourceTab: Tab | undefined;
+      for (const panel of Object.values(layout.panels)) {
+        const tab = panel.tabs.find((t) => t.id === tabId);
+        if (tab) {
+          sourcePanel = panel;
+          sourceTab = tab;
+          break;
+        }
+      }
+      if (!sourcePanel || !sourceTab) return state;
+      const sourcePaneId = sourceTab.focusedPaneId;
+      const contentType = state.paneContentType[sourcePaneId] as string | undefined;
+      const url = state.paneUrl[sourcePaneId] as string | undefined;
+      const newPane = newPaneId();
+      const newId = newTabId();
+      if (contentType === "browser" && url) {
+        let title: string;
+        try {
+          const parsed = new URL(url);
+          title = parsed.host || url;
+        } catch {
+          title = url;
+        }
+        const tab: Tab = {
+          id: newId,
+          title,
+          rootNode: { type: "leaf", paneId: newPane, contentType: "browser", url },
+          focusedPaneId: newPane,
+        };
+        return {
+          paneContentType: { ...state.paneContentType, [newPane]: "browser" },
+          paneUrl: { ...state.paneUrl, [newPane]: url },
+          ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
+            ...p,
+            tabs: [...p.tabs, tab],
+            selectedTabId: tab.id,
+          })),
+        };
+      } else if (contentType === "diff") {
+        const tab: Tab = {
+          id: newId,
+          title: "Diff",
+          rootNode: { type: "leaf", paneId: newPane, contentType: "diff" },
+          focusedPaneId: newPane,
+        };
+        return {
+          paneContentType: { ...state.paneContentType, [newPane]: "diff" },
+          ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
+            ...p,
+            tabs: [...p.tabs, tab],
+            selectedTabId: tab.id,
+          })),
+        };
+      } else {
+        // Terminal tab
+        const tab = createTab(sourceTab.title);
+        return updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
+          ...p,
+          tabs: [...p.tabs, tab],
+          selectedTabId: tab.id,
+        }));
+      }
     }),
 
   openOrFocusDiff: () =>
@@ -1680,6 +1758,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       if (state.paneTitle[paneId] === title) return state;
       return { paneTitle: { ...state.paneTitle, [paneId]: title } };
+    }),
+
+  setPaneFavicon: (paneId: string, favicon: string | null) =>
+    set((state) => {
+      if (favicon) {
+        if (state.paneFavicon[paneId] === favicon) return state;
+        return { paneFavicon: { ...state.paneFavicon, [paneId]: favicon } };
+      }
+      if (!(paneId in state.paneFavicon)) return state;
+      const { [paneId]: _, ...rest } = state.paneFavicon;
+      return { paneFavicon: rest };
     }),
 
   setPaneUrl: (paneId: string, url: string) =>

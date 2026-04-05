@@ -1,6 +1,6 @@
 ---
 title: Add BrowserPane state, logic, and keybindings for new features
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

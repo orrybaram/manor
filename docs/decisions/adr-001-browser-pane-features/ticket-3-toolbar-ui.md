@@ -1,6 +1,6 @@
 ---
 title: Update LeafPane toolbar UI for new browser features
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -1,4 +1,13 @@
-import { ipcMain, Menu, webContents, dialog, BrowserWindow } from "electron";
+import {
+  ipcMain,
+  Menu,
+  webContents,
+  dialog,
+  BrowserWindow,
+  clipboard,
+  nativeImage,
+  shell,
+} from "electron";
 import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
@@ -56,12 +65,60 @@ export function register(deps: IpcDeps): void {
           _ev: Electron.Event,
           params: Electron.ContextMenuParams,
         ) => {
-          const menu = Menu.buildFromTemplate([
-            {
-              label: "Inspect Element",
-              click: () => wc.inspectElement(params.x, params.y),
-            },
-          ]);
+          const template: Electron.MenuItemConstructorOptions[] = [];
+
+          if (params.mediaType === "image" && params.srcURL) {
+            template.push(
+              {
+                label: "Open Image in New Tab",
+                click: () => {
+                  rendererWebContents.send(
+                    "webview:new-window",
+                    paneId,
+                    params.srcURL,
+                  );
+                },
+              },
+              {
+                label: "Save Image As...",
+                click: async () => {
+                  const win = BrowserWindow.fromWebContents(rendererWebContents);
+                  if (!win) return;
+                  const result = await dialog.showSaveDialog(win, {
+                    defaultPath: new URL(params.srcURL).pathname
+                      .split("/")
+                      .pop() || "image",
+                  });
+                  if (!result.canceled && result.filePath) {
+                    wc.downloadURL(params.srcURL);
+                    wc.session.once("will-download", (_e, item) => {
+                      item.setSavePath(result.filePath!);
+                    });
+                  }
+                },
+              },
+              {
+                label: "Copy Image",
+                click: () => {
+                  wc.copyImageAt(params.x, params.y);
+                },
+              },
+              {
+                label: "Copy Image Address",
+                click: () => {
+                  clipboard.writeText(params.srcURL);
+                },
+              },
+              { type: "separator" },
+            );
+          }
+
+          template.push({
+            label: "Inspect Element",
+            click: () => wc.inspectElement(params.x, params.y),
+          });
+
+          const menu = Menu.buildFromTemplate(template);
           menu.popup();
         };
         wc.on("context-menu", handler);

@@ -30,11 +30,10 @@ export function useTabTitle(tabId: string): string {
     return "Diff";
   }
 
-  // For browser panes, use the URL
-  if (contentType === "browser" && paneUrl) {
-    // Strip protocol prefix (e.g., "https://", "http://")
-    const urlWithoutProtocol = paneUrl.replace(/^https?:\/\//, "");
-    return urlWithoutProtocol;
+  // For browser panes, prefer the page title; fall back to URL
+  if (contentType === "browser") {
+    if (title) return title;
+    if (paneUrl) return paneUrl.replace(/^https?:\/\//, "");
   }
 
   if (title) {

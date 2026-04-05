@@ -4,6 +4,7 @@ import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
 import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
@@ -37,17 +38,20 @@ export function TabButton(props: TabButtonProps) {
   const { tabId, isActive, isPinned, canClose, isDragging, onSelect, onClose, onTogglePin, onPointerDown, style, buttonRef } = props;
 
   const title = useTabTitle(tabId);
-  const contentType = useAppStore((s) => {
+  const { contentType, favicon } = useAppStore(useShallow((s) => {
     const wsPath = s.activeWorkspacePath;
-    if (!wsPath) return undefined;
+    if (!wsPath) return { contentType: undefined, favicon: undefined };
     const layout = s.workspaceLayouts[wsPath];
-    if (!layout) return undefined;
+    if (!layout) return { contentType: undefined, favicon: undefined };
     for (const panel of Object.values(layout.panels)) {
       const tab = panel.tabs.find((t) => t.id === tabId);
-      if (tab) return s.paneContentType[tab.focusedPaneId] as string | undefined;
+      if (tab) return {
+        contentType: s.paneContentType[tab.focusedPaneId] as string | undefined,
+        favicon: s.paneFavicon[tab.focusedPaneId] as string | undefined,
+      };
     }
-    return undefined;
-  });
+    return { contentType: undefined, favicon: undefined };
+  }));
   const panelCount = useAppStore((s) => {
     const wsPath = s.activeWorkspacePath;
     if (!wsPath) return 1;
@@ -69,7 +73,17 @@ export function TabButton(props: TabButtonProps) {
         >
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
-          {isBrowser && <Globe size={12} className={styles.tabIcon} />}
+          {isBrowser && (favicon ? (
+            <img
+              src={favicon}
+              width={12}
+              height={12}
+              className={styles.tabIcon}
+              onError={(e) => { (e.target as HTMLImageElement).replaceWith(document.createElement("span")); }}
+            />
+          ) : (
+            <Globe size={12} className={styles.tabIcon} />
+          ))}
           <span className={styles.tabTitle}>
             {isPinned ? shortenTitle(title) : title}
           </span>
@@ -98,6 +112,14 @@ export function TabButton(props: TabButtonProps) {
             onSelect={onTogglePin}
           >
             {isPinned ? "Unpin Tab" : "Pin Tab"}
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={styles.contextMenuItem}
+            onSelect={() => {
+              useAppStore.getState().duplicateTab(tabId);
+            }}
+          >
+            Duplicate Tab
           </ContextMenu.Item>
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item

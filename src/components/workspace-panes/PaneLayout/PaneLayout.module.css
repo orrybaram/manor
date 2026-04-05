@@ -119,16 +119,29 @@
   min-width: 0;
 }
 
+.paneUrlInputWrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  background: var(--dim);
+  border-radius: 4px;
+  padding: 0 6px;
+  gap: 4px;
+  margin-right: 4px;
+}
+
 .paneUrlInput {
   flex: 1;
   min-width: 0;
-  height: 18px;
+  height: 100%;
   border: none;
   background: transparent;
   font-size: 11px;
   color: var(--text-dim);
   outline: none;
-  padding: 0 4px;
+  padding: 0;
   font-family: inherit;
 }
 

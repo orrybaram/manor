@@ -21,6 +21,7 @@ interface WebviewElement extends HTMLElement {
 
 interface WebviewNavigateEvent extends Event {
   url: string;
+  isMainFrame: boolean;
 }
 
 interface WebviewTitleEvent extends Event {
@@ -53,6 +54,8 @@ export interface BrowserPaneNavState {
   findQuery: string;
   findActiveMatch: number;
   findTotalMatches: number;
+  audible: boolean;
+  muted: boolean;
 }
 
 export interface BrowserPaneRef {
@@ -70,6 +73,7 @@ export interface BrowserPaneRef {
   findInPage(query: string, options?: { forward?: boolean; findNext?: boolean }): void;
   stopFind(): void;
   toggleFindBar(): void;
+  toggleMute(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
   getUrlInputValue(): string;
   /** Handlers for the URL input element rendered by LeafPane. */
@@ -143,6 +147,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       findQuery: "",
       findActiveMatch: 0,
       findTotalMatches: 0,
+      audible: false,
+      muted: false,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -310,6 +316,12 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           fireNavStateChange({ findBarOpen: true });
         }
       },
+      toggleMute() {
+        const newMuted = !navStateRef.current.muted;
+        window.electronAPI.webview.setAudioMuted(paneId, newMuted);
+        fireNavStateChange({ muted: newMuted });
+        useAppStore.getState().setPaneAudioMuted(paneId, newMuted);
+      },
       getUrlInputValue() {
         return urlRef.current;
       },
@@ -327,7 +339,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       if (!wv) return;
 
       const onNavigate = (e: Event) => {
-        const newUrl = (e as WebviewNavigateEvent).url;
+        const nav = e as WebviewNavigateEvent;
+        if (nav.isMainFrame === false) return;
+        const newUrl = nav.url;
         const blank = newUrl === "about:blank";
         setUrl(blank ? "" : newUrl);
         setIsBlank(blank);
@@ -443,6 +457,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubAudioState = window.electronAPI.webview.onAudioStateChanged(
+        (audioPaneId: string, audible: boolean) => {
+          if (audioPaneId !== paneId) return;
+          fireNavStateChange({ audible });
+          useAppStore.getState().setPaneAudioPlaying(paneId, audible);
+        },
+      );
+
       const unsubFindResult = window.electronAPI.webview.onFindResult(
         (findPaneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => {
           if (findPaneId !== paneId) return;
@@ -487,6 +509,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubNewWindow();
         unsubLoading();
         unsubFavicon();
+        unsubAudioState();
         unsubFindResult();
         unsubFind();
         unsubGoBack();

@@ -73,8 +73,35 @@
 }
 
 .tabDragging {
-  opacity: 0.8;
+  opacity: 0.3;
   z-index: 10;
+}
+
+.tabDragGhost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 200px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  transform: scale(1.04);
+  opacity: 0.95;
+}
+
+.tabDropTarget {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .tabIcon {
@@ -87,6 +114,20 @@
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+}
+
+.tabAudio {
+  flex-shrink: 0;
+  opacity: 0.6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  transition: opacity 0.15s;
+}
+
+.tabAudio:hover {
+  opacity: 1;
 }
 
 .tabClose {

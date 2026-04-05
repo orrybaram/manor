@@ -46,7 +46,35 @@
 }
 
 .leafDragging {
-  opacity: 0.5;
+  opacity: 0.3;
+}
+
+.paneDragGhost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  height: 24px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 240px;
+  border-radius: 4px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  transform: scale(1.04);
+  opacity: 0.95;
+}
+
+.paneDragGhostTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .paneStatusBarFocused {

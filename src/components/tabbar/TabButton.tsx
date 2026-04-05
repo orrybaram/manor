@@ -2,6 +2,8 @@ import { type PointerEvent as ReactPointerEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import Volume2 from "lucide-react/dist/esm/icons/volume-2";
+import VolumeX from "lucide-react/dist/esm/icons/volume-x";
 import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
@@ -26,31 +28,38 @@ type TabButtonProps = {
   isPinned: boolean;
   canClose: boolean;
   isDragging: boolean;
+  isDropTarget?: boolean;
   onSelect: () => void;
   onClose: () => void;
   onTogglePin: () => void;
   onPointerDown?: (e: ReactPointerEvent) => void;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+  onPointerUp?: (e: ReactPointerEvent) => void;
   style: React.CSSProperties;
   buttonRef: (el: HTMLDivElement | null) => void;
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, isActive, isPinned, canClose, isDragging, onSelect, onClose, onTogglePin, onPointerDown, style, buttonRef } = props;
+  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, onSelect, onClose, onTogglePin, onPointerDown, onPointerEnter, onPointerLeave, onPointerUp, style, buttonRef } = props;
 
   const title = useTabTitle(tabId);
-  const { contentType, favicon } = useAppStore(useShallow((s) => {
+  const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
     const wsPath = s.activeWorkspacePath;
-    if (!wsPath) return { contentType: undefined, favicon: undefined };
+    if (!wsPath) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const layout = s.workspaceLayouts[wsPath];
-    if (!layout) return { contentType: undefined, favicon: undefined };
+    if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     for (const panel of Object.values(layout.panels)) {
       const tab = panel.tabs.find((t) => t.id === tabId);
       if (tab) return {
         contentType: s.paneContentType[tab.focusedPaneId] as string | undefined,
         favicon: s.paneFavicon[tab.focusedPaneId] as string | undefined,
+        audioPlaying: !!s.paneAudioPlaying[tab.focusedPaneId],
+        audioMuted: !!s.paneAudioMuted[tab.focusedPaneId],
+        focusedPaneId: tab.focusedPaneId,
       };
     }
-    return { contentType: undefined, favicon: undefined };
+    return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
   }));
   const panelCount = useAppStore((s) => {
     const wsPath = s.activeWorkspacePath;
@@ -66,9 +75,12 @@ export function TabButton(props: TabButtonProps) {
       <ContextMenu.Trigger asChild>
         <div
           ref={buttonRef}
-          className={`${styles.tab} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""}`}
+          className={`${styles.tab} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
           onPointerDown={onPointerDown}
+          onPointerEnter={onPointerEnter}
+          onPointerLeave={onPointerLeave}
+          onPointerUp={onPointerUp}
           style={style}
         >
           <TabAgentDot tabId={tabId} />
@@ -87,6 +99,26 @@ export function TabButton(props: TabButtonProps) {
           <span className={styles.tabTitle}>
             {isPinned ? shortenTitle(title) : title}
           </span>
+          {(audioPlaying || audioMuted) && (
+            <Tooltip label={audioMuted ? "Unmute Tab" : "Mute Tab"}>
+              <span
+                className={styles.tabAudio}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (focusedPaneId) {
+                    const newMuted = !audioMuted;
+                    window.electronAPI.webview.setAudioMuted(focusedPaneId, newMuted);
+                    useAppStore.getState().setPaneAudioMuted(focusedPaneId, newMuted);
+                  }
+                }}
+              >
+                {audioMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+              </span>
+            </Tooltip>
+          )}
           {canClose && !isPinned && (
             <Tooltip label="Close Tab">
               <span

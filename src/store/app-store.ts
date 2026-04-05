@@ -191,6 +191,8 @@ export interface AppState {
   paneAgentStatus: Record<string, AgentState>;
   paneContentType: Record<string, "terminal" | "browser" | "diff">;
   paneFavicon: Record<string, string>;
+  paneAudioPlaying: Record<string, boolean>;
+  paneAudioMuted: Record<string, boolean>;
   paneUrl: Record<string, string>;
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
@@ -277,6 +279,10 @@ export interface AppState {
   // Browser favicon
   setPaneFavicon: (paneId: string, favicon: string | null) => void;
 
+  // Browser audio state
+  setPaneAudioPlaying: (paneId: string, playing: boolean) => void;
+  setPaneAudioMuted: (paneId: string, muted: boolean) => void;
+
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
 
@@ -300,6 +306,7 @@ export interface AppState {
   updatePanelSplitRatio: (firstPanelId: string, ratio: number) => void;
   moveTabToPanel: (tabId: string, targetPanelId: string) => void;
   splitPanelWithTab: (tabId: string, targetPanelId: string, direction: SplitDirection) => void;
+  mergeTabIntoTab: (sourceTabId: string, targetTabId: string) => void;
 
   // Worktree setup progress tracking
   worktreeSetupState: Record<
@@ -427,6 +434,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneAgentStatus: {},
   paneContentType: {},
   paneFavicon: {},
+  paneAudioPlaying: {},
+  paneAudioMuted: {},
   paneUrl: {},
   panePickedElement: {},
   webviewFocusedPaneId: null,
@@ -1771,6 +1780,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneFavicon: rest };
     }),
 
+  setPaneAudioPlaying: (paneId: string, playing: boolean) =>
+    set((state) => {
+      if (playing) {
+        if (state.paneAudioPlaying[paneId] === true) return state;
+        return { paneAudioPlaying: { ...state.paneAudioPlaying, [paneId]: true } };
+      }
+      if (!(paneId in state.paneAudioPlaying)) return state;
+      const { [paneId]: _, ...rest } = state.paneAudioPlaying;
+      return { paneAudioPlaying: rest };
+    }),
+
+  setPaneAudioMuted: (paneId: string, muted: boolean) =>
+    set((state) => {
+      if (muted) {
+        if (state.paneAudioMuted[paneId] === true) return state;
+        return { paneAudioMuted: { ...state.paneAudioMuted, [paneId]: true } };
+      }
+      if (!(paneId in state.paneAudioMuted)) return state;
+      const { [paneId]: _, ...rest } = state.paneAudioMuted;
+      return { paneAudioMuted: rest };
+    }),
+
   setPaneUrl: (paneId: string, url: string) =>
     set((state) => {
       if (state.paneUrl[paneId] === url) return state;
@@ -2253,6 +2284,79 @@ export const useAppStore = create<AppState>((set, get) => ({
             panels,
             activePanelId: newPId,
           },
+        },
+      };
+    }),
+
+  mergeTabIntoTab: (sourceTabId: string, targetTabId: string) =>
+    set((state) => {
+      const ctx = getActiveLayoutContext(state);
+      if (!ctx) return state;
+      const { path, layout } = ctx;
+      if (sourceTabId === targetTabId) return state;
+
+      const src = findPanelWithTab(layout, sourceTabId);
+      const tgt = findPanelWithTab(layout, targetTabId);
+      if (!src || !tgt) return state;
+      const { panel: sourcePanel, tab: sourceTab } = src;
+      const { panel: targetPanel, tab: targetTab } = tgt;
+
+      // Merge source pane tree into target as a horizontal split
+      const newTargetRoot: PaneNode = {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: targetTab.rootNode,
+        second: sourceTab.rootNode,
+      };
+      const focusPaneId = allPaneIds(sourceTab.rootNode)[0];
+
+      // Same panel
+      if (sourcePanel.id === targetPanel.id) {
+        const newTabs = sourcePanel.tabs
+          .filter((t) => t.id !== sourceTabId)
+          .map((t) => t.id === targetTabId ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t);
+        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
+          ...p,
+          tabs: newTabs,
+          selectedTabId: targetTabId,
+          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
+        }));
+      }
+
+      // Cross-panel
+      let newPanels = { ...layout.panels };
+      let newPanelTree = layout.panelTree;
+
+      newPanels[targetPanel.id] = {
+        ...targetPanel,
+        tabs: targetPanel.tabs.map((t) =>
+          t.id === targetTabId ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t,
+        ),
+        selectedTabId: targetTabId,
+      };
+
+      const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTabId);
+      if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
+        const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
+        if (pruned) newPanelTree = pruned;
+        delete newPanels[sourcePanel.id];
+      } else if (remainingTabs.length === 0) {
+        const fresh = createTab();
+        newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
+      } else {
+        newPanels[sourcePanel.id] = {
+          ...sourcePanel,
+          tabs: remainingTabs,
+          selectedTabId: sourcePanel.selectedTabId === sourceTabId ? remainingTabs[0].id : sourcePanel.selectedTabId,
+          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
+        };
+      }
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
         },
       };
     }),

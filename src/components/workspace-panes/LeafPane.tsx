@@ -13,6 +13,7 @@ import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { hasPaneId } from "../../store/pane-tree";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
@@ -93,8 +94,19 @@ export function LeafPane(props: LeafPaneProps) {
   const dragStartY = useRef(0);
   const dragActive = useRef(false);
 
+  const dragTabId = drag?.type === "tab" ? drag.tabId : null;
+  const paneIsInDraggedTab = useAppStore((s) => {
+    if (!dragTabId) return false;
+    const panel = selectActiveWorkspace(s);
+    if (!panel) return false;
+    const tab = panel.tabs.find((t) => t.id === dragTabId);
+    return tab ? hasPaneId(tab.rootNode, paneId) : false;
+  });
+
   const showDropZone =
-    drag !== null && !(drag.type === "pane" && drag.paneId === paneId);
+    drag !== null &&
+    !(drag.type === "pane" && drag.paneId === paneId) &&
+    !paneIsInDraggedTab;
 
   let title =
     paneTitle || (paneCwd ? paneCwd.split("/").pop() : "") || "Terminal";
@@ -124,10 +136,16 @@ export function LeafPane(props: LeafPaneProps) {
     if (target.closest("button") || target.closest("input")) return;
 
     const statusBarEl = e.currentTarget;
+    const statusBarRect = statusBarEl.getBoundingClientRect();
     const pointerId = e.pointerId;
     dragStartX.current = e.clientX;
     dragStartY.current = e.clientY;
     dragActive.current = false;
+
+    const grabOffset = {
+      x: e.clientX - statusBarRect.left,
+      y: e.clientY - statusBarRect.top,
+    };
 
     statusBarEl.setPointerCapture(pointerId);
 
@@ -145,7 +163,7 @@ export function LeafPane(props: LeafPaneProps) {
         } catch {
           /* may already be released */
         }
-        startDrag({ type: "pane", paneId });
+        startDrag({ type: "pane", paneId, grabOffset });
       }
     };
 

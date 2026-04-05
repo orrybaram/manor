@@ -16,6 +16,7 @@ import { useProjectStore } from "../../../store/project-store";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { TabButton } from "../TabButton";
+import { TabDragGhost } from "../TabDragGhost";
 import styles from "./TabBar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
@@ -65,8 +66,10 @@ export function TabBar(props: TabBarProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const dragStartX = useRef(0);
+  const dragGrabOffset = useRef({ x: 0, y: 0 });
   const dragActive = useRef(false);
   const dragCleanedUp = useRef(false);
   const dropIndexRef = useRef<number | null>(null);
@@ -82,7 +85,12 @@ export function TabBar(props: TabBarProps) {
       if (target.closest(`.${styles.tabClose}`)) return;
 
       const tabEl = e.currentTarget as HTMLElement;
+      const tabRect = tabEl.getBoundingClientRect();
       dragStartX.current = e.clientX;
+      dragGrabOffset.current = {
+        x: e.clientX - tabRect.left,
+        y: e.clientY - tabRect.top,
+      };
       dragActive.current = false;
       dragCleanedUp.current = false;
       draggedPointerId.current = e.pointerId;
@@ -116,6 +124,10 @@ export function TabBar(props: TabBarProps) {
         }
 
         setDragOffset(dx);
+        setDragPos({
+          x: ev.clientX - dragGrabOffset.current.x,
+          y: ev.clientY - dragGrabOffset.current.y,
+        });
 
         let offset = 0;
         let targetIdx = idx;
@@ -149,12 +161,13 @@ export function TabBar(props: TabBarProps) {
             } catch {
               /* pointer may already be released */
             }
-            startDrag({ type: "tab", tabId: tabs[idx].id });
+            startDrag({ type: "tab", tabId: tabs[idx].id, grabOffset: dragGrabOffset.current });
             handedOffToPaneDrop.current = true;
             // Clean up tab bar drag visuals
             setDragIndex(null);
             setDropIndex(null);
             setDragOffset(0);
+            setDragPos(null);
 
             // Global listener to end drag if user drops outside any pane
             const globalCleanup = () => {
@@ -179,6 +192,7 @@ export function TabBar(props: TabBarProps) {
           setDragIndex(null);
           setDropIndex(null);
           setDragOffset(0);
+          setDragPos(null);
           return;
         }
 
@@ -208,6 +222,7 @@ export function TabBar(props: TabBarProps) {
         setDragIndex(null);
         setDropIndex(null);
         setDragOffset(0);
+        setDragPos(null);
       };
 
       tabEl.addEventListener("pointermove", onMove);
@@ -242,9 +257,11 @@ export function TabBar(props: TabBarProps) {
 
   const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
   const splitPanelWithTab = useAppStore((s) => s.splitPanelWithTab);
+  const mergeTabIntoTab = useAppStore((s) => s.mergeTabIntoTab);
   const isDragActive = drag !== null;
   const barRef = useRef<HTMLDivElement>(null);
   const [splitDropHint, setSplitDropHint] = useState(false);
+  const [dropTargetTabId, setDropTargetTabId] = useState<string | null>(null);
 
   const handleTabBarDrop = useCallback(
     (e: React.PointerEvent) => {
@@ -290,6 +307,7 @@ export function TabBar(props: TabBarProps) {
 
   const handleTabBarPointerLeave = useCallback(() => {
     setSplitDropHint(false);
+    setDropTargetTabId(null);
   }, []);
 
   const splitPanel = useAppStore((s) => s.splitPanel);
@@ -307,6 +325,7 @@ export function TabBar(props: TabBarProps) {
           <div ref={tabsRef} className={styles.tabs}>
             {tabs.map((tab, idx) => {
               const isPinned = pinnedTabIds.includes(tab.id);
+              const isDropTarget = dropTargetTabId === tab.id;
               return (
                 <TabButton
                   key={tab.id}
@@ -315,6 +334,7 @@ export function TabBar(props: TabBarProps) {
                   isPinned={isPinned}
                   canClose={true}
                   isDragging={dragIndex === idx}
+                  isDropTarget={isDropTarget}
                   onSelect={() => {
                     if (!justDragged.current) {
                       ensureFocused();
@@ -331,6 +351,26 @@ export function TabBar(props: TabBarProps) {
                   }}
                   onPointerDown={
                     isPinned ? undefined : (e) => handleDragStart(idx, e)
+                  }
+                  onPointerEnter={
+                    isDragActive && drag?.type === "tab" && drag.tabId !== tab.id
+                      ? () => setDropTargetTabId(tab.id)
+                      : undefined
+                  }
+                  onPointerLeave={
+                    isDragActive && drag?.type === "tab"
+                      ? () => setDropTargetTabId((prev) => prev === tab.id ? null : prev)
+                      : undefined
+                  }
+                  onPointerUp={
+                    isDragActive && drag?.type === "tab" && drag.tabId !== tab.id
+                      ? (e) => {
+                          e.stopPropagation();
+                          mergeTabIntoTab(drag.tabId, tab.id);
+                          endDrag();
+                          setDropTargetTabId(null);
+                        }
+                      : undefined
                   }
                   style={getTransformStyle(idx)}
                   buttonRef={(el) => {
@@ -389,6 +429,13 @@ export function TabBar(props: TabBarProps) {
             </Popover.Root>
           </div>
           <div className={styles.spacer} />
+          {dragIndex !== null && dragPos && (
+            <TabDragGhost
+              tabId={tabs[dragIndex].id}
+              x={dragPos.x}
+              y={dragPos.y}
+            />
+          )}
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

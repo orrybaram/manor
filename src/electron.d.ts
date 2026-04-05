@@ -508,6 +508,15 @@ export interface ElectronAPI {
     onNewWindow: (
       callback: (paneId: string, url: string) => void,
     ) => () => void;
+    stop: (paneId: string) => Promise<void>;
+    findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<void>;
+    stopFindInPage: (paneId: string) => Promise<void>;
+    onLoadingChanged: (callback: (paneId: string, isLoading: boolean) => void) => () => void;
+    onFaviconUpdated: (callback: (paneId: string, faviconUrl: string) => void) => () => void;
+    onFindResult: (callback: (paneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) => () => void;
+    onFind: (callback: (paneId: string) => void) => () => void;
+    onGoBack: (callback: (paneId: string) => void) => () => void;
+    onGoForward: (callback: (paneId: string) => void) => () => void;
   };
 }
 

@@ -379,5 +379,43 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () =>
         ipcRenderer.removeListener("webview:new-window", listener);
     },
+    stop: (paneId: string) => ipcRenderer.invoke("webview:stop", paneId),
+    findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) =>
+      ipcRenderer.invoke("webview:find-in-page", paneId, query, options),
+    stopFindInPage: (paneId: string) =>
+      ipcRenderer.invoke("webview:stop-find-in-page", paneId),
+    onLoadingChanged: (callback: (paneId: string, isLoading: boolean) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+        isLoading: boolean,
+      ) => callback(paneId, isLoading);
+      ipcRenderer.on("webview:loading-changed", listener);
+      return () => ipcRenderer.removeListener("webview:loading-changed", listener);
+    },
+    onFaviconUpdated: (callback: (paneId: string, faviconUrl: string) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+        faviconUrl: string,
+      ) => callback(paneId, faviconUrl);
+      ipcRenderer.on("webview:favicon-updated", listener);
+      return () => ipcRenderer.removeListener("webview:favicon-updated", listener);
+    },
+    onFindResult: (callback: (paneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        paneId: string,
+        result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean },
+      ) => callback(paneId, result);
+      ipcRenderer.on("webview:find-result", listener);
+      return () => ipcRenderer.removeListener("webview:find-result", listener);
+    },
+    onFind: (callback: (paneId: string) => void) =>
+      onChannel('webview:find', callback),
+    onGoBack: (callback: (paneId: string) => void) =>
+      onChannel('webview:go-back', callback),
+    onGoForward: (callback: (paneId: string) => void) =>
+      onChannel('webview:go-forward', callback),
   },
 });

@@ -9,6 +9,7 @@ export const webviewRegistry = new Map<string, number>();
 const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
 const newWindowConsoleCleanup = new Map<string, () => void>();
+const webviewEventCleanup = new Map<string, () => void>();
 
 const INTERCEPT_NEW_WINDOW_SCRIPT = `
 (function() {
@@ -111,12 +112,53 @@ export function register(deps: IpcDeps): void {
             } else if (input.key === "l") {
               ev.preventDefault();
               rendererWebContents.send("webview:focus-url", paneId);
+            } else if (input.key === "f") {
+              ev.preventDefault();
+              rendererWebContents.send("webview:find", paneId);
+            } else if (input.key === "[") {
+              ev.preventDefault();
+              rendererWebContents.send("webview:go-back", paneId);
+            } else if (input.key === "]") {
+              ev.preventDefault();
+              rendererWebContents.send("webview:go-forward", paneId);
             }
           }
         };
         wc.on("before-input-event", escapeHandler);
         webviewEscapeCleanup.set(paneId, () => {
           wc.off("before-input-event", escapeHandler);
+        });
+
+        const loadingStartHandler = () => {
+          rendererWebContents.send("webview:loading-changed", paneId, true);
+        };
+        const loadingStopHandler = () => {
+          rendererWebContents.send("webview:loading-changed", paneId, false);
+        };
+        wc.on("did-start-loading", loadingStartHandler);
+        wc.on("did-stop-loading", loadingStopHandler);
+
+        const faviconHandler = (_ev: Electron.Event, favicons: string[]) => {
+          if (favicons.length > 0) {
+            rendererWebContents.send("webview:favicon-updated", paneId, favicons[0]);
+          }
+        };
+        wc.on("page-favicon-updated", faviconHandler);
+
+        const findResultHandler = (_ev: Electron.Event, result: Electron.FoundInPageResult) => {
+          rendererWebContents.send("webview:find-result", paneId, {
+            activeMatchOrdinal: result.activeMatchOrdinal,
+            matches: result.matches,
+            finalUpdate: result.finalUpdate,
+          });
+        };
+        wc.on("found-in-page", findResultHandler);
+
+        webviewEventCleanup.set(paneId, () => {
+          wc.off("did-start-loading", loadingStartHandler);
+          wc.off("did-stop-loading", loadingStopHandler);
+          wc.off("page-favicon-updated", faviconHandler);
+          wc.off("found-in-page", findResultHandler);
         });
 
         // Intercept target="_blank" clicks and window.open() inside the guest page.
@@ -173,6 +215,8 @@ export function register(deps: IpcDeps): void {
     webviewEscapeCleanup.delete(paneId);
     newWindowConsoleCleanup.get(paneId)?.();
     newWindowConsoleCleanup.delete(paneId);
+    webviewEventCleanup.get(paneId)?.();
+    webviewEventCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     webviewRegistry.delete(paneId);
   });
@@ -253,5 +297,32 @@ export function register(deps: IpcDeps): void {
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) return;
     wc.setZoomLevel(0);
+  });
+
+  ipcMain.handle("webview:stop", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    wc.stop();
+  });
+
+  ipcMain.handle("webview:find-in-page", (_event, paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => {
+    assertString(paneId, "paneId");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    wc.findInPage(query, options);
+  });
+
+  ipcMain.handle("webview:stop-find-in-page", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    wc.stopFindInPage("clearSelection");
   });
 }

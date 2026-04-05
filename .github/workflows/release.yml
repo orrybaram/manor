@@ -54,7 +54,7 @@ jobs:
         run: pnpm install
 
       - name: Build and publish
-        run: pnpm run build && electron-builder --publish always
+        run: pnpm run build && pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}

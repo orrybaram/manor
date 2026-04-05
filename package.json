@@ -7,7 +7,7 @@
     "dev": "node scripts/patch-electron-name.mjs && vite",
     "build": "vite build",
     "preview": "vite preview",
-    "package": "vite build && electron-builder",
+    "package": "source .env && vite build && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -84,11 +84,11 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null,
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
     },
     "files": [
       "dist/**/*",

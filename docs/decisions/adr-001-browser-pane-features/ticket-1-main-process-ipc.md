@@ -1,6 +1,6 @@
 ---
 title: Add main process IPC handlers for new browser features
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

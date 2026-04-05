@@ -168,6 +168,24 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "browser",
   },
   {
+    id: "browser-back",
+    label: "Browser Back",
+    defaultCombo: metaCombo("["),
+    category: "browser",
+  },
+  {
+    id: "browser-forward",
+    label: "Browser Forward",
+    defaultCombo: metaCombo("]"),
+    category: "browser",
+  },
+  {
+    id: "browser-find",
+    label: "Find in Page",
+    defaultCombo: metaCombo("f"),
+    category: "browser",
+  },
+  {
     id: "reopen-pane",
     label: "Reopen Closed Pane",
     defaultCombo: metaCombo("t", true),

@@ -46,12 +46,20 @@ export interface BrowserPaneNavState {
   suggestions: HistoryEntry[];
   highlightIndex: number;
   webviewFocused: boolean;
+  isLoading: boolean;
+  isSecure: boolean;
+  favicon: string | null;
+  findBarOpen: boolean;
+  findQuery: string;
+  findActiveMatch: number;
+  findTotalMatches: number;
 }
 
 export interface BrowserPaneRef {
   goBack(): void;
   goForward(): void;
   reload(): void;
+  stop(): void;
   startPicker(): void;
   cancelPicker(): void;
   navigate(url: string): void;
@@ -59,6 +67,9 @@ export interface BrowserPaneRef {
   zoomIn(): void;
   zoomOut(): void;
   zoomReset(): void;
+  findInPage(query: string, options?: { forward?: boolean; findNext?: boolean }): void;
+  stopFind(): void;
+  toggleFindBar(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
   getUrlInputValue(): string;
   /** Handlers for the URL input element rendered by LeafPane. */
@@ -124,6 +135,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       suggestions: [],
       highlightIndex: -1,
       webviewFocused: false,
+      isLoading: false,
+      isSecure: false,
+      favicon: null,
+      findBarOpen: false,
+      findQuery: "",
+      findActiveMatch: 0,
+      findTotalMatches: 0,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -149,10 +167,18 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const navigateTo = useCallback((target: string) => {
       const wv = webviewRef.current;
       if (!wv) return;
-      let resolved = target;
+      let resolved = target.trim();
       if (!/^https?:\/\//i.test(resolved)) {
         const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(resolved);
-        resolved = `${isLocal ? 'http' : 'https'}://${resolved}`;
+        if (isLocal) {
+          resolved = `http://${resolved}`;
+        } else if (/^[\w-]+(\.[\w-]+)+/.test(resolved)) {
+          // Has dots — treat as a domain (e.g. "github.com", "foo.bar.com/path")
+          resolved = `https://${resolved}`;
+        } else {
+          // No dots, no protocol, not localhost — treat as a search query
+          resolved = `https://www.google.com/search?q=${encodeURIComponent(resolved)}`;
+        }
       }
       wv.src = resolved;
       setUrl(resolved);
@@ -237,6 +263,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       reload() {
         webviewRef.current?.reload();
       },
+      stop() {
+        window.electronAPI.webview.stop(paneId);
+      },
       startPicker() {
         if (navStateRef.current.pickerActive) return;
         fireNavStateChange({ pickerActive: true });
@@ -260,6 +289,25 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       },
       zoomReset() {
         window.electronAPI.webview.zoomReset(paneId);
+      },
+      findInPage(query: string, options?: { forward?: boolean; findNext?: boolean }) {
+        fireNavStateChange({ findQuery: query });
+        if (query) {
+          window.electronAPI.webview.findInPage(paneId, query, options);
+        }
+      },
+      stopFind() {
+        window.electronAPI.webview.stopFindInPage(paneId);
+        fireNavStateChange({ findBarOpen: false, findQuery: "", findActiveMatch: 0, findTotalMatches: 0 });
+      },
+      toggleFindBar() {
+        const open = !navStateRef.current.findBarOpen;
+        if (!open) {
+          window.electronAPI.webview.stopFindInPage(paneId);
+          fireNavStateChange({ findBarOpen: false, findQuery: "", findActiveMatch: 0, findTotalMatches: 0 });
+        } else {
+          fireNavStateChange({ findBarOpen: true });
+        }
       },
       getUrlInputValue() {
         return urlRef.current;
@@ -287,7 +335,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         clearPickedElement(paneId);
         const title = useAppStore.getState().paneTitle[paneId] ?? newUrl;
         useBrowserHistoryStore.getState().addEntry(newUrl, title);
-        fireNavStateChange({ url: blank ? "" : newUrl, isBlank: blank });
+        const isSecure = newUrl.startsWith("https://");
+        fireNavStateChange({ url: blank ? "" : newUrl, isBlank: blank, isSecure });
       };
 
       const onTitleUpdate = (e: Event) => {
@@ -378,6 +427,48 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubLoading = window.electronAPI.webview.onLoadingChanged(
+        (loadPaneId: string, loading: boolean) => {
+          if (loadPaneId !== paneId) return;
+          fireNavStateChange({ isLoading: loading });
+        },
+      );
+
+      const unsubFavicon = window.electronAPI.webview.onFaviconUpdated(
+        (favPaneId: string, faviconUrl: string) => {
+          if (favPaneId !== paneId) return;
+          fireNavStateChange({ favicon: faviconUrl });
+        },
+      );
+
+      const unsubFindResult = window.electronAPI.webview.onFindResult(
+        (findPaneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => {
+          if (findPaneId !== paneId) return;
+          fireNavStateChange({ findActiveMatch: result.activeMatchOrdinal, findTotalMatches: result.matches });
+        },
+      );
+
+      const unsubFind = window.electronAPI.webview.onFind(
+        (findPaneId: string) => {
+          if (findPaneId !== paneId) return;
+          fireNavStateChange({ findBarOpen: true });
+        },
+      );
+
+      const unsubGoBack = window.electronAPI.webview.onGoBack(
+        (navPaneId: string) => {
+          if (navPaneId !== paneId) return;
+          webviewRef.current?.goBack();
+        },
+      );
+
+      const unsubGoForward = window.electronAPI.webview.onGoForward(
+        (navPaneId: string) => {
+          if (navPaneId !== paneId) return;
+          webviewRef.current?.goForward();
+        },
+      );
+
       return () => {
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
@@ -392,6 +483,12 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubEscape();
         unsubFocusUrl();
         unsubNewWindow();
+        unsubLoading();
+        unsubFavicon();
+        unsubFindResult();
+        unsubFind();
+        unsubGoBack();
+        unsubGoForward();
       };
     });
 

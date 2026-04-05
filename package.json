@@ -2,6 +2,7 @@
   "name": "manor",
   "private": true,
   "version": "0.2.1",
+  "packageManager": "pnpm@10.23.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node scripts/patch-electron-name.mjs && vite",

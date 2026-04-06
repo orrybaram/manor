@@ -26,6 +26,7 @@ export function terminalOptions(
     cursorInactiveStyle: "outline",
     macOptionIsMeta: false,
     allowProposedApi: true,
+    rescaleOverlappingGlyphs: true,
     scrollback: 10_000,
     ...overrides,
   };

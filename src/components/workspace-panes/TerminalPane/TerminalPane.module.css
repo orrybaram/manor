@@ -4,14 +4,15 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* Layout/paint containment creates a compositing layer at the container
+     level so the WebGL canvas inside is at integer (0,0) within the layer,
+     avoiding the per-row sub-pixel waviness that translateZ(0) on the
+     canvas itself can cause. */
+  contain: strict;
 }
 
-/* Force the canvas onto its own GPU compositing layer so it snaps to the
-   device pixel grid, preventing sub-pixel blurriness from fractional flex
-   positions. display:block removes the inline baseline descender gap. */
 .container canvas {
   display: block;
-  transform: translateZ(0);
 }
 
 /* Error dialog — shown when PTY creation fails */

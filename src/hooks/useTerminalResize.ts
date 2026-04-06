@@ -13,15 +13,19 @@
 import { useRef } from "react";
 import { useMountEffect } from "./useMountEffect";
 import type { FitAddon } from "@xterm/addon-fit";
+import type { Terminal } from "@xterm/xterm";
 
 export function useTerminalResize(
   containerRef: React.RefObject<HTMLDivElement | null>,
   fitAddon: FitAddon | null,
+  term: Terminal | null,
 ) {
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
   const fitAddonRef = useRef<FitAddon | null>(fitAddon);
   fitAddonRef.current = fitAddon;
+  const termRef = useRef<Terminal | null>(term);
+  termRef.current = term;
   const prevFitAddonRef = useRef<FitAddon | null>(null);
 
   // Render-time setup: when fitAddon changes (null → value), tear down the
@@ -44,6 +48,10 @@ export function useTerminalResize(
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(() => {
           fitAddonRef.current?.fit();
+          // Force a full viewport refresh after fit to fix WebGL renderer
+          // glitches where text becomes garbled until the next resize.
+          const t = termRef.current;
+          if (t) t.refresh(0, t.rows - 1);
         });
       });
       observerRef.current.observe(container);

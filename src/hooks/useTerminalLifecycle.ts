@@ -65,7 +65,7 @@ export function useTerminalLifecycle(
   useTerminalStream(paneId, term, write, setPtyError);
 
   // Auto-resize
-  useTerminalResize(containerRef, fitAddon);
+  useTerminalResize(containerRef, fitAddon, term);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes

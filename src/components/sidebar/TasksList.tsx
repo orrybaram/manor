@@ -1,25 +1,31 @@
 import { useMemo } from "react";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks";
 import X from "lucide-react/dist/esm/icons/x";
-import type { AgentStatus, TaskInfo, TaskStatus } from "../../electron.d";
+import type { TaskInfo } from "../../electron.d";
 import { useTaskStore } from "../../store/task-store";
 import { useAppStore } from "../../store/app-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToTask } from "../../utils/task-navigation";
+import { useTaskDisplay } from "../../hooks/useTaskDisplay";
 import styles from "./TasksList.module.css";
 
-function taskAgentStatus(task: TaskInfo): AgentStatus | undefined {
-  if (task.status === "active" && task.lastAgentStatus) {
-    return task.lastAgentStatus as AgentStatus;
-  }
-  const statusMap: Record<TaskStatus, AgentStatus> = {
-    active: "working",
-    completed: "complete",
-    error: "error",
-    abandoned: "idle",
-  };
-  return statusMap[task.status];
+function TaskRow({ task, shouldPulse, onClose, onClick }: {
+  task: TaskInfo;
+  shouldPulse: boolean;
+  onClose: () => void;
+  onClick: () => void;
+}) {
+  const { title, status } = useTaskDisplay(task);
+  return (
+    <button className={styles.agentItem} onClick={onClick}>
+      <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
+      <span className={styles.agentName}>{title}</span>
+      <span className={styles.taskClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close task">
+        <X size={12} />
+      </span>
+    </button>
+  );
 }
 
 type TasksListProps = {
@@ -116,38 +122,22 @@ export function TasksList(props: TasksListProps) {
           <div key={projectName} className={styles.taskGroup}>
             <div className={styles.taskGroupHeader}>{projectName}</div>
             {groupTasks.map((task) => {
-              const agentStatus = taskAgentStatus(task);
               const isVisible =
                 task.paneId != null && visiblePaneIds.has(task.paneId);
               const shouldPulse = !isVisible && !seenTaskIds.has(task.id);
               return (
-                <button
+                <TaskRow
                   key={task.id}
-                  className={styles.agentItem}
+                  task={task}
+                  shouldPulse={shouldPulse}
                   onClick={() => navigateToTask(task)}
-                >
-                  <AgentDot
-                    status={agentStatus}
-                    size="sidebar"
-                    pulse={shouldPulse}
-                  />
-                  <span className={styles.agentName}>
-                    {task.name || "Agent"}
-                  </span>
-                  <span
-                    className={styles.taskClose}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (task.paneId) {
-                        useAppStore.getState().closePaneById(task.paneId);
-                      }
-                      useTaskStore.getState().removeTask(task.id);
-                    }}
-                    title="Close task"
-                  >
-                    <X size={12} />
-                  </span>
-                </button>
+                  onClose={() => {
+                    if (task.paneId) {
+                      useAppStore.getState().closePaneById(task.paneId);
+                    }
+                    useTaskStore.getState().removeTask(task.id);
+                  }}
+                />
               );
             })}
           </div>

@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { usePreferencesStore } from "../../store/preferences-store";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -34,6 +35,7 @@ interface UseCommandsParams {
   setShowGhosts: (show: boolean) => void;
   activePorts: ActivePort[];
   openOrFocusDiff: () => void;
+  openDiffInNewPanel: () => void;
 }
 
 export function useCommands({
@@ -55,6 +57,7 @@ export function useCommands({
   setShowGhosts,
   activePorts,
   openOrFocusDiff,
+  openDiffInNewPanel,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -105,9 +108,15 @@ export function useCommands({
       {
         id: "open-diff",
         label: "Open Diff",
+        shortcut: fmt("open-diff"),
         keywords: ["git", "changes", "diff", "staged"],
         action: () => {
-          openOrFocusDiff();
+          const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+          if (diffOpensInNewPanel) {
+            openDiffInNewPanel();
+          } else {
+            openOrFocusDiff();
+          }
           onClose();
         },
       },

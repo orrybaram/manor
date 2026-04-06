@@ -45,6 +45,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const selectedTabId = ws?.selectedTabId ?? null;
   const closeTab = useAppStore((s) => s.closeTab);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
+  const openDiffInNewPanel = useAppStore((s) => s.openDiffInNewPanel);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
@@ -169,6 +170,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     setShowGhosts,
     activePorts,
     openOrFocusDiff,
+    openDiffInNewPanel,
   });
 
   const taskCommands = useTaskCommands({

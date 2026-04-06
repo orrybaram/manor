@@ -222,6 +222,7 @@ export interface AppState {
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
   openOrFocusDiff: () => void;
+  openDiffInNewPanel: () => void;
   closeTab: (tabId: string) => void;
   requestCloseTab: (tabId: string) => void;
   setPendingCloseConfirmTabId: (tabId: string | null) => void;
@@ -772,6 +773,72 @@ export const useAppStore = create<AppState>((set, get) => ({
           tabs: [...p.tabs, tab],
           selectedTabId: tab.id,
         })),
+      };
+    }),
+
+  openDiffInNewPanel: () =>
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      const layout = state.workspaceLayouts[path];
+      if (!layout) return state;
+
+      // Look for an existing diff pane across ALL panels' tabs
+      for (const [pId, panel] of Object.entries(layout.panels)) {
+        for (const tab of panel.tabs) {
+          for (const paneId of allPaneIds(tab.rootNode)) {
+            if (state.paneContentType[paneId] === "diff") {
+              return {
+                workspaceLayouts: {
+                  ...state.workspaceLayouts,
+                  [path]: {
+                    ...layout,
+                    activePanelId: pId,
+                    panels: {
+                      ...layout.panels,
+                      [pId]: {
+                        ...panel,
+                        selectedTabId: tab.id,
+                        tabs: panel.tabs.map((s) =>
+                          s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
+                        ),
+                      },
+                    },
+                  },
+                },
+              };
+            }
+          }
+        }
+      }
+
+      // No existing diff pane — create a new panel split with a diff tab
+      const ctx = getActivePanelContext(state);
+      if (!ctx) return state;
+      const { panel } = ctx;
+      const newPId = newPanelId();
+      const paneId = newPaneId();
+      const tab: Tab = {
+        id: newTabId(),
+        title: "Diff",
+        rootNode: { type: "leaf", paneId, contentType: "diff" },
+        focusedPaneId: paneId,
+      };
+      const newPanelTree = insertPanelSplit(layout.panelTree, panel.id, "horizontal", newPId);
+      return {
+        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            panelTree: newPanelTree,
+            panels: {
+              ...layout.panels,
+              [newPId]: { id: newPId, tabs: [tab], selectedTabId: tab.id, pinnedTabIds: [] },
+            },
+            activePanelId: newPId,
+          },
+        },
       };
     }),
 

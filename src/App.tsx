@@ -26,6 +26,7 @@ import { comboFromEvent, comboMatches } from "./lib/keybindings";
 import { getBrowserPaneRef } from "./lib/browser-pane-registry";
 import type { BrowserPaneRef } from "./components/workspace-panes/BrowserPane/BrowserPane";
 import { useThemeStore } from "./store/theme-store";
+import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import type { TaskInfo } from "./electron.d";
@@ -234,6 +235,8 @@ function App() {
   const focusPrevPanel = useAppStore((s) => s.focusPrevPanel);
   const closePanel = useAppStore((s) => s.closePanel);
   const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
+  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
+  const openDiffInNewPanel = useAppStore((s) => s.openDiffInNewPanel);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -359,6 +362,14 @@ function App() {
       const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
       input?.focus();
       input?.select();
+    },
+    "open-diff": () => {
+      const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+      if (diffOpensInNewPanel) {
+        openDiffInNewPanel();
+      } else {
+        openOrFocusDiff();
+      }
     },
     ...Object.fromEntries(
       Array.from({ length: 9 }, (_, i) => [

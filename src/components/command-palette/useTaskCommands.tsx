@@ -3,25 +3,12 @@ import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useTaskStore } from "../../store/task-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
+import { useAppStore } from "../../store/app-store";
 import { formatCombo } from "../../lib/keybindings";
+import { deriveStatus } from "../../hooks/useTaskDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
-import type { TaskInfo, TaskStatus, AgentStatus } from "../../electron.d";
+import type { TaskInfo } from "../../electron.d";
 import type { CommandItem } from "./types";
-
-function mapTaskStatusToAgentStatus(task: TaskInfo): AgentStatus | undefined {
-  if (task.status === "active" && task.lastAgentStatus) {
-    return task.lastAgentStatus as AgentStatus;
-  }
-
-  const statusMap: Record<TaskStatus, AgentStatus> = {
-    active: "working",
-    completed: "complete",
-    error: "error",
-    abandoned: "idle",
-  };
-
-  return statusMap[task.status];
-}
 
 interface UseTaskCommandsParams {
   onResumeTask: (task: TaskInfo) => void;
@@ -38,6 +25,7 @@ export function useTaskCommands({
 }: UseTaskCommandsParams): CommandItem[] {
   const tasks = useTaskStore((s) => s.tasks);
   const bindings = useKeybindingsStore((s) => s.bindings);
+  const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
 
   return useMemo(() => {
     const platform = navigator.platform.toLowerCase().includes("mac")
@@ -60,17 +48,21 @@ export function useTaskCommands({
     ];
 
     items.push(
-      ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => ({
-        id: `task-${task.id}`,
-        label: task.name || "Untitled Task",
-        icon: (
-          <AgentDot status={mapTaskStatusToAgentStatus(task)} size="sidebar" />
-        ),
-        action: () => {
-          onClose();
-          onResumeTask(task);
-        },
-      })),
+      ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => {
+        const liveAgent = task.paneId ? paneAgentStatus[task.paneId] ?? null : null;
+        const agentStatus = deriveStatus(task, liveAgent);
+        return {
+          id: `task-${task.id}`,
+          label: task.name ?? "Agent",
+          icon: (
+            <AgentDot status={agentStatus} size="sidebar" />
+          ),
+          action: () => {
+            onClose();
+            onResumeTask(task);
+          },
+        };
+      }),
     );
 
     items.push({
@@ -84,5 +76,5 @@ export function useTaskCommands({
     });
 
     return items;
-  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings]);
+  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings, paneAgentStatus]);
 }

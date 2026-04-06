@@ -14,6 +14,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
+import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { useTerminalConnection } from "./useTerminalConnection";
@@ -159,6 +160,11 @@ export function useTerminalLifecycle(
     } catch {
       // ignored
     }
+
+    // File path links (CMD+click to open in editor)
+    t.registerLinkProvider(
+      createFileLinkProvider(t, paneId, cwd ?? ""),
+    );
 
     // Hotkeys
     attachHandler(t, write);

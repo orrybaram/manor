@@ -438,6 +438,7 @@ export interface ElectronAPI {
   shell: {
     openExternal: (url: string) => Promise<void>;
     openInEditor: (path: string) => Promise<string>;
+    resolveFilePath: (filePath: string, cwd: string) => Promise<string | null>;
     discoverAgents: () => Promise<Array<{ name: string; command: string }>>;
   };
 

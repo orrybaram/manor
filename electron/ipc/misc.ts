@@ -1,5 +1,7 @@
 import { ipcMain, dialog, shell, clipboard } from "electron";
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { assertString } from "../ipc-validate";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import type { IpcDeps } from "./types";
@@ -54,6 +56,23 @@ export function register(deps: IpcDeps): void {
       });
     });
   });
+
+  ipcMain.handle(
+    "shell:resolveFilePath",
+    async (_event, filePath: string, cwd: string): Promise<string | null> => {
+      assertString(filePath, "filePath");
+      assertString(cwd, "cwd");
+      const resolved = path.isAbsolute(filePath)
+        ? filePath
+        : path.resolve(cwd, filePath);
+      try {
+        const stat = await fs.promises.stat(resolved);
+        return stat.isFile() ? resolved : null;
+      } catch {
+        return null;
+      }
+    },
+  );
 
   ipcMain.handle(
     "shell:discoverAgents",

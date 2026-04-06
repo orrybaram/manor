@@ -528,7 +528,7 @@ function App() {
                     ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                     : !hasTabs &&
                       (hasProjects
-                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} />
+                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
                         : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
                 </div>
               </>

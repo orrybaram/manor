@@ -4,6 +4,7 @@ import Search from "lucide-react/dist/esm/icons/search";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
+import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
@@ -27,11 +28,12 @@ type WorkspaceEmptyStateProps = {
       | { type: "github"; issueNumber: number },
   ) => void;
   onOpenPaletteView?: (view: PaletteView) => void;
+  onNewWorkspace?: () => void;
 };
 
 /** Shown when the active workspace has no tabs. */
 export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
-  const { onOpenIssueDetail, onOpenPaletteView } = props;
+  const { onOpenIssueDetail, onOpenPaletteView, onNewWorkspace } = props;
 
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -148,7 +150,19 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
     [onOpenIssueDetail],
   );
 
+  const isMain = workspace?.isMain ?? false;
+
   const actions: ActionItem[] = [
+    ...(isMain && onNewWorkspace
+      ? [
+          {
+            icon: <FolderPlus size={16} />,
+            label: "New Workspace",
+            keys: ["⌘", "⇧", "N"] as string[],
+            action: onNewWorkspace,
+          },
+        ]
+      : []),
     {
       icon: <Search size={16} />,
       label: "Command Palette",

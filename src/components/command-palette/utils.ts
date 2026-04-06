@@ -18,9 +18,8 @@ const isSubsequence = (hay: string, needle: string): boolean => {
 export const wordPrefixFilter = (value: string, search: string) => {
   const val = value.toLowerCase();
   const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return 1;
   const words = val.split(/\s+/);
-
-
 
   let score = 0;
   for (const t of terms) {

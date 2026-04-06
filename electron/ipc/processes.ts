@@ -48,12 +48,19 @@ export function register(deps: IpcDeps): void {
       { name: "portlessManager", port: portlessManager.proxyPort },
     ];
 
-    const sessionList = await backend.pty.listSessions();
-    const sessions = sessionList.map((s) => ({
-      sessionId: s.sessionId,
-      alive: s.alive,
-      cwd: s.cwd,
-    }));
+    let sessions: Array<{ sessionId: string; alive: boolean; cwd: string }> = [];
+    if (alive) {
+      try {
+        const sessionList = await backend.pty.listSessions();
+        sessions = sessionList.map((s) => ({
+          sessionId: s.sessionId,
+          alive: s.alive,
+          cwd: s.cwd,
+        }));
+      } catch {
+        // Daemon unreachable — return empty session list
+      }
+    }
 
     const rawPorts = await portScanner.scanNow();
     const ports: ActivePort[] = rawPorts;
@@ -69,9 +76,21 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "processes:killSession",
     async (_event, sessionId: string) => {
-      await backend.pty.kill(sessionId);
+      try {
+        await backend.pty.kill(sessionId);
+      } catch {
+        // Daemon unreachable — session is effectively dead
+      }
     },
   );
+
+  ipcMain.handle("processes:cleanupDead", async () => {
+    try {
+      await backend.pty.disposeDead();
+    } catch {
+      // Daemon may be unreachable — nothing to clean up
+    }
+  });
 
   ipcMain.handle("processes:killDaemon", async () => {
     const pid = readDaemonPid();
@@ -100,29 +119,35 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("processes:killAll", async () => {
-    // 1. List all sessions
-    const sessions = await backend.pty.listSessions();
-
-    // 2. Kill each session
-    for (const session of sessions) {
-      try {
-        await backend.pty.kill(session.sessionId);
-      } catch {
-        // Session may already be dead
+    // 1. Try to list and kill sessions via daemon (may be unreachable)
+    try {
+      const sessions = await backend.pty.listSessions();
+      for (const session of sessions) {
+        try {
+          await backend.pty.kill(session.sessionId);
+        } catch {
+          // Session may already be dead
+        }
       }
+    } catch {
+      // Daemon unreachable — skip session cleanup, will kill daemon by PID below
     }
 
-    // 3. Kill all workspace-associated ports
-    const ports = await portScanner.scanNow();
-    for (const port of ports) {
-      try {
-        await backend.ports.kill(port.pid);
-      } catch {
-        // Process may already be dead
+    // 2. Kill all workspace-associated ports
+    try {
+      const ports = await portScanner.scanNow();
+      for (const port of ports) {
+        try {
+          await backend.ports.kill(port.pid);
+        } catch {
+          // Process may already be dead
+        }
       }
+    } catch {
+      // Port scan failed — continue to daemon kill
     }
 
-    // 4. Kill the daemon
+    // 3. Kill the daemon by PID (works even if socket is dead)
     const pid = readDaemonPid();
     if (pid !== null) {
       try {

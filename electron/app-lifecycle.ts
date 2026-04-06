@@ -134,7 +134,7 @@ export function initApp(devTitle: string | null): void {
           const cleaned = cleanAgentTitle(event.agent.title);
           if (cleaned) {
             const task = taskManager.getTaskByPaneId(event.sessionId);
-            if (task && !task.name) {
+            if (task && task.name !== cleaned) {
               const updated = taskManager.updateTask(task.id, { name: cleaned });
               if (
                 updated &&

@@ -150,6 +150,12 @@ async function handleControlMessage(
       break;
     }
 
+    case "disposeDead": {
+      host.disposeDeadSessions();
+      sendResponse(socket, { type: "disposedDead" }, requestId);
+      break;
+    }
+
     case "listSessions": {
       const sessions = host.listSessions();
       sendResponse(socket, { type: "sessions", sessions }, requestId);

@@ -5,7 +5,6 @@ import Activity from "lucide-react/dist/esm/icons/activity";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import X from "lucide-react/dist/esm/icons/x";
-import Info from "lucide-react/dist/esm/icons/info";
 import type { ManorProcessInfo } from "../../electron.d";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -69,14 +68,15 @@ const INTERNAL_SERVER_NAMES: Record<string, string> = {
   portlessManager: "Portless Proxy",
 };
 
-const INTERNAL_SERVER_TOOLTIPS: Record<string, string> = {
-  agentHookServer: "Receives lifecycle events from AI agents like Claude Code",
-  webviewServer: "Provides inspection and interaction API for browser panes",
-  portlessManager: "Routes .localhost hostnames to your local dev server ports",
+const INTERNAL_SERVER_DESCRIPTIONS: Record<string, string> = {
+  agentHookServer: "Receives lifecycle events from AI agents",
+  webviewServer: "Inspection and interaction API for browser panes",
+  portlessManager: "Routes .localhost hostnames to dev server ports",
 };
 
 export function ProcessesView() {
   const [info, setInfo] = useState<ManorProcessInfo | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
 
   const fetchInfo = useCallback(async () => {
     try {
@@ -113,8 +113,18 @@ export function ProcessesView() {
   );
 
   const handleCleanupDead = useCallback(async () => {
-    await window.electronAPI.processes.cleanupDead();
-    void fetchInfo();
+    setCleaningUp(true);
+    const { success } = await window.electronAPI.processes.cleanupDead();
+    await fetchInfo();
+    if (!success) {
+      // Daemon unreachable — filter dead sessions client-side
+      setInfo((prev) =>
+        prev
+          ? { ...prev, sessions: prev.sessions.filter((s) => s.alive) }
+          : prev,
+      );
+    }
+    setCleaningUp(false);
   }, [fetchInfo]);
 
   if (!info) {
@@ -126,113 +136,112 @@ export function ProcessesView() {
 
   return (
     <>
-      <Command.Group heading="Manor Internal" className={styles.group}>
+      {/* ── Daemon ── */}
+      <Command.Group heading="Daemon" className={styles.group}>
+        <div className={styles.sectionDescription}>
+          Keeps terminal sessions alive across app restarts
+        </div>
         <Command.Item
           value={`daemon Terminal Host Daemon ${daemon.pid ?? ""}`}
-          className={styles.item}
+          className={styles.processCard}
           onSelect={() => {}}
         >
-          <span className={styles.icon}>
-            <Activity size={14} />
-          </span>
-          <span
-            className={styles.label}
-            style={daemon.alive ? undefined : { opacity: 0.4 }}
-          >
-            Terminal Host Daemon{daemon.pid != null ? ` — PID ${daemon.pid}` : ""}
-          </span>
-          {daemon.alive ? (
-            <span className={styles.statusAlive} />
-          ) : (
-            <span className={styles.statusDead} />
-          )}
-          <Tooltip label="Background process that keeps your terminal sessions alive across app restarts" side="top">
-            <button
-              className={styles.processInfo}
-              tabIndex={-1}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Info size={12} />
-            </button>
-          </Tooltip>
-          {daemon.alive && (
-            <Tooltip label="Kill daemon" side="top">
-              <button
-                className={styles.processKill}
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleKillDaemon();
-                }}
-              >
-                <X size={12} />
-              </button>
-            </Tooltip>
+          <div className={styles.processCardHeader}>
+            <span className={styles.processCardIcon}>
+              <Activity size={16} />
+            </span>
+            <span className={styles.processCardTitle} style={daemon.alive ? undefined : { opacity: 0.4 }}>
+              Terminal Host
+            </span>
+            {daemon.alive ? (
+              <span className={styles.statusAlive} />
+            ) : (
+              <span className={styles.statusDead} />
+            )}
+            {daemon.alive && (
+              <Tooltip label="Kill daemon" side="top">
+                <button
+                  className={styles.processKill}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleKillDaemon();
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+          {daemon.pid != null && (
+            <span className={styles.processCardDetail}>PID {daemon.pid}</span>
           )}
         </Command.Item>
+      </Command.Group>
 
+      {/* ── Internal Services ── */}
+      <Command.Group heading="Services" className={styles.group}>
+        <div className={styles.sectionDescription}>
+          Internal servers that power Manor features
+        </div>
         {internalServers.map((server) => {
           const displayName = INTERNAL_SERVER_NAMES[server.name] ?? server.name;
-          const tooltip = INTERNAL_SERVER_TOOLTIPS[server.name] ?? "";
+          const description = INTERNAL_SERVER_DESCRIPTIONS[server.name] ?? "";
           return (
             <Command.Item
               key={server.name}
               value={`internal server ${displayName} ${server.port ?? ""}`}
-              className={styles.item}
+              className={styles.processCard}
               onSelect={() => {}}
             >
-              <span className={styles.icon}>
-                <Globe size={14} />
-              </span>
-              <span className={styles.label}>
-                {displayName}
-                {server.port != null ? ` — :${server.port}` : ""}
-              </span>
-              <Tooltip label={tooltip} side="top">
-                <button
-                  className={styles.processInfo}
-                  tabIndex={-1}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Info size={12} />
-                </button>
-              </Tooltip>
+              <div className={styles.processCardHeader}>
+                <span className={styles.processCardIcon}>
+                  <Globe size={16} />
+                </span>
+                <span className={styles.processCardTitle}>
+                  {displayName}
+                </span>
+                {server.port != null && (
+                  <span className={styles.processCardPort}>:{server.port}</span>
+                )}
+              </div>
+              {description && (
+                <span className={styles.processCardDetail}>{description}</span>
+              )}
             </Command.Item>
           );
         })}
       </Command.Group>
 
+      {/* ── Sessions ── */}
       <Command.Group
         heading={
           (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ display: "flex", alignItems: "center", width: "100%" }}>
               Sessions
-              <Tooltip label="Each terminal pane runs in its own isolated subprocess" side="right">
-                <button
-                  className={styles.processInfo}
-                  tabIndex={-1}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Info size={12} />
-                </button>
-              </Tooltip>
               {hasDeadSessions && (
-                <button
-                  className={styles.processCleanup}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  style={{ marginLeft: "auto" }}
                   tabIndex={-1}
+                  disabled={cleaningUp}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleCleanupDead();
                   }}
                 >
-                  Clean Up
-                </button>
+                  {cleaningUp ? "Cleaning..." : "Clean Up"}
+                </Button>
               )}
             </span>
           ) as unknown as string
         }
         className={styles.group}
       >
+        <div className={styles.sectionDescription}>
+          Each terminal pane runs in its own isolated subprocess
+        </div>
         {sessions.length === 0 ? (
           <div className={styles.empty}>No active sessions</div>
         ) : (
@@ -283,25 +292,11 @@ export function ProcessesView() {
         )}
       </Command.Group>
 
-      <Command.Group
-        heading={
-          (
-            <span style={{ display: "inline-flex", alignItems: "center" }}>
-              Ports
-              <Tooltip label="TCP ports listening on localhost, typically dev servers" side="right">
-                <button
-                  className={styles.processInfo}
-                  tabIndex={-1}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Info size={12} />
-                </button>
-              </Tooltip>
-            </span>
-          ) as unknown as string
-        }
-        className={styles.group}
-      >
+      {/* ── Ports ── */}
+      <Command.Group heading="Ports" className={styles.group}>
+        <div className={styles.sectionDescription}>
+          TCP ports listening on localhost
+        </div>
         {ports.length === 0 ? (
           <div className={styles.empty}>No listening ports</div>
         ) : (
@@ -335,7 +330,6 @@ export function ProcessesView() {
           ))
         )}
       </Command.Group>
-
     </>
   );
 }

@@ -320,6 +320,7 @@ export interface ElectronAPI {
   processes: {
     list: () => Promise<ManorProcessInfo>;
     killSession: (sessionId: string) => Promise<void>;
+    cleanupDead: () => Promise<{ success: boolean }>;
     killDaemon: () => Promise<void>;
     killAll: () => Promise<void>;
   };

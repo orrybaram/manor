@@ -157,7 +157,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     onNewWorkspace,
   });
 
-  const commands = useCommands({
+  const commandCategories = useCommands({
     addTab,
     addBrowserTab,
     closePane,
@@ -289,7 +289,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         visible: customCommands.length > 0,
         items: customCommands,
       },
-      { id: "commands", heading: "Commands", visible: true, items: commands },
+      ...commandCategories,
       {
         id: "linear",
         heading: "Linear",
@@ -307,7 +307,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     taskCommands,
     customCommands,
     workspaceGroups,
-    commands,
+    commandCategories,
     showLinear,
     showGitHub,
     navigateToLinearAll,
@@ -343,20 +343,23 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </span>
                 </Row>
               )}
-              {!isDetailView && view !== "processes" && !(isIssueListView && issueListEmpty) && (
-                <Command.Input
-                  className={styles.input}
-                  placeholder={
-                    isIssueListView ? "Search issues..." : "Type a command..."
-                  }
-                  autoFocus
-                  value={search}
-                  onValueChange={(v) => {
-                    setSearch(v);
-                    listRef.current?.scrollTo(0, 0);
-                  }}
-                />
-              )}
+              <Command.Input
+                className={styles.input}
+                placeholder={
+                  isIssueListView ? "Search issues..." : "Type a command..."
+                }
+                autoFocus
+                value={search}
+                onValueChange={(v) => {
+                  setSearch(v);
+                  listRef.current?.scrollTo(0, 0);
+                }}
+                style={
+                  isDetailView || view === "processes" || (isIssueListView && issueListEmpty)
+                    ? { position: "absolute", opacity: 0, pointerEvents: "none", height: 0, padding: 0, border: "none" }
+                    : undefined
+                }
+              />
               <Command.List
                 ref={listRef}
                 className={styles.list}

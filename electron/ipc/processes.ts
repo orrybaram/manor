@@ -84,11 +84,12 @@ export function register(deps: IpcDeps): void {
     },
   );
 
-  ipcMain.handle("processes:cleanupDead", async () => {
+  ipcMain.handle("processes:cleanupDead", async (): Promise<{ success: boolean }> => {
     try {
       await backend.pty.disposeDead();
+      return { success: true };
     } catch {
-      // Daemon may be unreachable — nothing to clean up
+      return { success: false };
     }
   });
 

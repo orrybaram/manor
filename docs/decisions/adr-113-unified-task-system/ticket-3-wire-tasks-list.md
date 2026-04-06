@@ -1,6 +1,6 @@
 ---
 title: Wire TasksList to use useTaskDisplay hook
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [2]

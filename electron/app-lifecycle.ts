@@ -47,6 +47,7 @@ import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
+import * as processesIpc from "./ipc/processes";
 
 export function initApp(devTitle: string | null): void {
   let mainWindow: BrowserWindow | null = null;
@@ -200,6 +201,7 @@ export function initApp(devTitle: string | null): void {
   webviewIpc.register(ipcDeps);
   tasksIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
+  processesIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {

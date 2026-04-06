@@ -51,6 +51,10 @@ export class LocalPtyBackend implements PtyBackend {
     return this.client.listSessions();
   }
 
+  async disposeDead(): Promise<void> {
+    await this.client.disposeDead();
+  }
+
   onEvent(handler: StreamEventHandler): void {
     this.client.onEvent(handler);
   }

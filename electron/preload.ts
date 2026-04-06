@@ -142,6 +142,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     list: () => ipcRenderer.invoke("processes:list"),
     killSession: (sessionId: string) =>
       ipcRenderer.invoke("processes:killSession", sessionId),
+    cleanupDead: () => ipcRenderer.invoke("processes:cleanupDead"),
     killDaemon: () => ipcRenderer.invoke("processes:killDaemon"),
     killAll: () => ipcRenderer.invoke("processes:killAll"),
   },

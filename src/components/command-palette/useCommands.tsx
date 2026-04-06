@@ -4,11 +4,15 @@ import Activity from "lucide-react/dist/esm/icons/activity";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
+import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
+import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
+import Settings from "lucide-react/dist/esm/icons/settings";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
-import type { CommandItem } from "./types";
+import type { CommandItem, CategoryConfig } from "./types";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
@@ -17,6 +21,7 @@ import { useToastStore } from "../../store/toast-store";
 import { DEFAULT_AGENT_COMMAND, getAgentCommand } from "../../agent-defaults";
 import { openInEditor } from "../../lib/editor";
 import type { ActivePort } from "../../electron.d.ts";
+import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
   addTab: () => void;
@@ -62,7 +67,7 @@ export function useCommands({
   openOrFocusDiff,
   openDiffInNewPanel,
   navigateToProcesses,
-}: UseCommandsParams): CommandItem[] {
+}: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
@@ -90,7 +95,8 @@ export function useCommands({
       : ("other" as const);
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id], platform) : undefined;
-    return [
+
+    const tabItems: CommandItem[] = [
       {
         id: "new-tab",
         label: "New Tab",
@@ -110,20 +116,36 @@ export function useCommands({
         },
       },
       {
-        id: "open-diff",
-        label: "Open Diff",
-        shortcut: fmt("open-diff"),
-        keywords: ["git", "changes", "diff", "staged"],
+        id: "close-tab",
+        label: "Close Tab",
+        shortcut: fmt("close-tab"),
         action: () => {
-          const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
-          if (diffOpensInNewPanel) {
-            openDiffInNewPanel();
-          } else {
-            openOrFocusDiff();
-          }
+          const tab = tabs.find((s) => s.id === selectedTabId);
+          if (tab) closeTab(tab.id);
           onClose();
         },
       },
+      {
+        id: "next-tab",
+        label: "Next Tab",
+        shortcut: fmt("next-tab"),
+        action: () => {
+          selectNextTab();
+          onClose();
+        },
+      },
+      {
+        id: "prev-tab",
+        label: "Previous Tab",
+        shortcut: fmt("prev-tab"),
+        action: () => {
+          selectPrevTab();
+          onClose();
+        },
+      },
+    ];
+
+    const paneItems: CommandItem[] = [
       {
         id: "close-pane",
         label: "Close Pane",
@@ -134,12 +156,20 @@ export function useCommands({
         },
       },
       {
-        id: "close-tab",
-        label: "Close Tab",
-        shortcut: fmt("close-tab"),
+        id: "next-pane",
+        label: "Next Pane",
+        shortcut: fmt("next-pane"),
         action: () => {
-          const tab = tabs.find((s) => s.id === selectedTabId);
-          if (tab) closeTab(tab.id);
+          focusNextPane();
+          onClose();
+        },
+      },
+      {
+        id: "prev-pane",
+        label: "Previous Pane",
+        shortcut: fmt("prev-pane"),
+        action: () => {
+          focusPrevPane();
           onClose();
         },
       },
@@ -249,10 +279,8 @@ export function useCommands({
             const command = getAgentCommand(state.activeWorkspacePath);
             const currentType = state.paneContentType[focusedPaneId] ?? "terminal";
             if (currentType === "terminal") {
-              // Terminal already mounted — write directly
               window.electronAPI.pty.write(focusedPaneId, command + "\n");
             } else {
-              // Switching from browser/diff — terminal will mount fresh
               setPaneContentType(focusedPaneId, "terminal");
               useAppStore.setState((s) => ({
                 pendingPaneCommands: { ...s.pendingPaneCommands, [focusedPaneId]: command },
@@ -262,51 +290,9 @@ export function useCommands({
           onClose();
         },
       },
-      {
-        id: "next-tab",
-        label: "Next Tab",
-        shortcut: fmt("next-tab"),
-        action: () => {
-          selectNextTab();
-          onClose();
-        },
-      },
-      {
-        id: "prev-tab",
-        label: "Previous Tab",
-        shortcut: fmt("prev-tab"),
-        action: () => {
-          selectPrevTab();
-          onClose();
-        },
-      },
-      {
-        id: "next-pane",
-        label: "Next Pane",
-        shortcut: fmt("next-pane"),
-        action: () => {
-          focusNextPane();
-          onClose();
-        },
-      },
-      {
-        id: "prev-pane",
-        label: "Previous Pane",
-        shortcut: fmt("prev-pane"),
-        action: () => {
-          focusPrevPane();
-          onClose();
-        },
-      },
-      {
-        id: "toggle-sidebar",
-        label: "Toggle Sidebar",
-        shortcut: fmt("toggle-sidebar"),
-        action: () => {
-          toggleSidebar();
-          onClose();
-        },
-      },
+    ];
+
+    const panelItems: CommandItem[] = [
       {
         id: "split-panel-right",
         label: "Split Panel Right",
@@ -326,20 +312,6 @@ export function useCommands({
         keywords: ["panel", "split", "down"],
         action: () => {
           useAppStore.getState().splitPanel("vertical");
-          onClose();
-        },
-      },
-      {
-        id: "close-panel",
-        label: "Close Panel",
-        keywords: ["panel", "close"],
-        action: () => {
-          const state = useAppStore.getState();
-          const wsPath = state.activeWorkspacePath;
-          if (!wsPath) return;
-          const layout = state.workspaceLayouts[wsPath];
-          if (!layout) return;
-          state.closePanel(layout.activePanelId);
           onClose();
         },
       },
@@ -364,23 +336,22 @@ export function useCommands({
         },
       },
       {
-        id: "settings",
-        label: "Settings",
-        shortcut: fmt("settings"),
+        id: "close-panel",
+        label: "Close Panel",
+        keywords: ["panel", "close"],
         action: () => {
-          onOpenSettings?.();
+          const state = useAppStore.getState();
+          const wsPath = state.activeWorkspacePath;
+          if (!wsPath) return;
+          const layout = state.workspaceLayouts[wsPath];
+          if (!layout) return;
+          state.closePanel(layout.activePanelId);
           onClose();
         },
       },
-      {
-        id: "submit-feedback",
-        label: "Submit Feedback",
-        keywords: ["bug", "feature", "request", "report"],
-        action: () => {
-          onOpenFeedback?.();
-          onClose();
-        },
-      },
+    ];
+
+    const gitItems: CommandItem[] = [
       {
         id: "copy-branch",
         label: "Copy Branch Name",
@@ -405,9 +376,82 @@ export function useCommands({
         },
       },
       {
+        id: "open-diff",
+        label: "Open Diff",
+        shortcut: fmt("open-diff"),
+        keywords: ["git", "changes", "diff", "staged"],
+        action: () => {
+          const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
+          if (diffOpensInNewPanel) {
+            openDiffInNewPanel();
+          } else {
+            openOrFocusDiff();
+          }
+          onClose();
+        },
+      },
+    ];
+
+    const portItems: CommandItem[] = activePorts.map((p): CommandItem => {
+      const url = p.hostname
+        ? `http://${p.hostname}`
+        : `http://localhost:${p.port}`;
+      const displayName = p.hostname
+        ? p.hostname.replace(/\.localhost(:\d+)?$/, "")
+        : p.processName;
+      return {
+        id: `open-port-${p.port}`,
+        label: `Open Browser ${displayName}`,
+        icon: <Globe size={14} />,
+        keywords: [
+          "port",
+          "browser",
+          "localhost",
+          "server",
+          "web",
+          "preview",
+          "dev",
+          "open",
+          "launch",
+          String(p.port),
+          p.processName,
+        ],
+        action: () => {
+          addBrowserTab(url);
+          onClose();
+        },
+      };
+    });
+
+    const editorName = usePreferencesStore.getState().preferences.defaultEditor || undefined;
+
+    const generalItems: CommandItem[] = [
+      {
+        id: "settings",
+        label: "Settings",
+        icon: <Settings size={14} />,
+        shortcut: fmt("settings"),
+        action: () => {
+          onOpenSettings?.();
+          onClose();
+        },
+      },
+      {
+        id: "toggle-sidebar",
+        label: "Toggle Sidebar",
+        icon: <PanelLeft size={14} />,
+        shortcut: fmt("toggle-sidebar"),
+        action: () => {
+          toggleSidebar();
+          onClose();
+        },
+      },
+      {
         id: "open-in-editor",
         label: "Open in Editor",
-        keywords: ["code"],
+        icon: <ExternalLink size={14} />,
+        keywords: ["code", ...(editorName ? [editorName] : [])],
+        suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
         action: () => {
           if (activeWorkspacePath) {
             openInEditor(activeWorkspacePath);
@@ -426,6 +470,16 @@ export function useCommands({
         },
       },
       {
+        id: "submit-feedback",
+        label: "Submit Feedback",
+        icon: <MessageSquare size={14} />,
+        keywords: ["bug", "feature", "request", "report"],
+        action: () => {
+          onOpenFeedback?.();
+          onClose();
+        },
+      },
+      {
         id: "ghosts",
         label: "Ghosts!?",
         icon: <span>👻</span>,
@@ -435,36 +489,15 @@ export function useCommands({
           setTimeout(() => setShowGhosts(false), 5000);
         },
       },
-      ...activePorts.map((p): CommandItem => {
-        const url = p.hostname
-          ? `http://${p.hostname}`
-          : `http://localhost:${p.port}`;
-        const displayName = p.hostname
-          ? p.hostname.replace(/\.localhost(:\d+)?$/, "")
-          : p.processName;
-        return {
-          id: `open-port-${p.port}`,
-          label: `Open Browser ${displayName}`,
-          icon: <Globe size={14} />,
-          keywords: [
-            "port",
-            "browser",
-            "localhost",
-            "server",
-            "web",
-            "preview",
-            "dev",
-            "open",
-            "launch",
-            String(p.port),
-            p.processName,
-          ],
-          action: () => {
-            addBrowserTab(url);
-            onClose();
-          },
-        };
-      }),
+    ];
+
+    return [
+      { id: "tabs", heading: "Tabs", visible: true, items: tabItems },
+      { id: "panes", heading: "Panes", visible: true, items: paneItems },
+      { id: "panels", heading: "Panels", visible: true, items: panelItems },
+      { id: "git", heading: "Git", visible: true, items: gitItems },
+      { id: "ports", heading: "Ports", visible: portItems.length > 0, items: portItems },
+      { id: "general", heading: "General", visible: true, items: generalItems },
     ];
   }, [
     addTab,

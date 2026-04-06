@@ -1,6 +1,6 @@
 ---
 title: Wire useTaskCommands to use useTaskDisplay
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [2]

@@ -1,6 +1,6 @@
 ---
 title: Extract cleanAgentTitle to shared renderer utility
-status: todo
+status: done
 priority: high
 assignee: haiku
 blocked_by: []

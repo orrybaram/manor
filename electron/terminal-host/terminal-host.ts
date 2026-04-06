@@ -95,6 +95,16 @@ export class TerminalHost {
     }
   }
 
+  /** Dispose all dead sessions */
+  disposeDeadSessions(): void {
+    for (const [id, session] of this.sessions) {
+      if (!session.info.alive) {
+        session.dispose();
+        this.sessions.delete(id);
+      }
+    }
+  }
+
   /** Dispose all sessions and clean up */
   disposeAll(): void {
     for (const session of this.sessions.values()) {

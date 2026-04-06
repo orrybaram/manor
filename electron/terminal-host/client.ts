@@ -249,6 +249,12 @@ export class TerminalHostClient {
     await this.request({ type: "detach", sessionId });
   }
 
+  /** Dispose all dead sessions */
+  async disposeDead(): Promise<void> {
+    await this.ensureConnected();
+    await this.request({ type: "disposeDead" });
+  }
+
   /** Get a session snapshot */
   async getSnapshot(sessionId: string): Promise<TerminalSnapshot | null> {
     await this.ensureConnected();

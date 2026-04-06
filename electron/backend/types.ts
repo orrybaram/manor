@@ -42,6 +42,8 @@ export interface PtyBackend {
 
   listSessions(): Promise<SessionInfo[]>;
 
+  disposeDead(): Promise<void>;
+
   onEvent(handler: StreamEventHandler): void;
 
   updateEnv(env: Record<string, string>): Promise<void>;

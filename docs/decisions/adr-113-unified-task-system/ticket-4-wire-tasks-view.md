@@ -1,6 +1,6 @@
 ---
 title: Wire TasksView to use useTaskDisplay hook
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

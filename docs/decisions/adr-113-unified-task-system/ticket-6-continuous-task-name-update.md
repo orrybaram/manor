@@ -1,6 +1,6 @@
 ---
 title: Keep persisted task name updated from agent title stream
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

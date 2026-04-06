@@ -69,7 +69,7 @@ export function initApp(devTitle: string | null): void {
   const keybindingsManager = new KeybindingsManager();
   const paneContextMap = new Map<
     string,
-    { projectId: string; projectName: string; workspacePath: string }
+    { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
   >();
 
   function updateDockBadge(): void {
@@ -405,6 +405,7 @@ export function initApp(devTitle: string | null): void {
             workspacePath: paneContext?.workspacePath ?? null,
             cwd: paneContext?.workspacePath ?? "",
             agentKind: kind,
+            agentCommand: paneContext?.agentCommand ?? null,
             paneId,
             lastAgentStatus: status,
           });

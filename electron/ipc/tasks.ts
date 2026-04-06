@@ -62,7 +62,7 @@ export function register(deps: IpcDeps): void {
     (
       _event,
       paneId: string,
-      context: { projectId: string; projectName: string; workspacePath: string },
+      context: { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null },
     ) => {
       assertString(paneId, "paneId");
       assertString(context.projectId, "projectId");

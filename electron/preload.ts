@@ -293,6 +293,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         projectId: string;
         projectName: string;
         workspacePath: string;
+        agentCommand: string | null;
       },
     ) => ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
     markSeen: (taskId: string) => ipcRenderer.invoke("tasks:markSeen", taskId),

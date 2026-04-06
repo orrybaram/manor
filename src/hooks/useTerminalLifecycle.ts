@@ -196,6 +196,7 @@ export function useTerminalLifecycle(
               projectId: project?.id ?? "",
               projectName: project?.name ?? "",
               workspacePath: cwd,
+              agentCommand: project?.agentCommand ?? null,
             });
           }
 

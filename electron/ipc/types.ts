@@ -38,7 +38,7 @@ export interface IpcDeps {
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<
     string,
-    { projectId: string; projectName: string; workspacePath: string }
+    { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
   >;
   unseenRespondedTasks: Set<string>;
   unseenInputTasks: Set<string>;

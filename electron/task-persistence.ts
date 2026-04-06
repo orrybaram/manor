@@ -24,6 +24,7 @@ export interface TaskInfo {
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex" | "pi";
+  agentCommand: string | null;
   paneId: string | null;
   lastAgentStatus: string | null;
 }

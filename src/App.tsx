@@ -424,14 +424,15 @@ function App() {
         const taskProject = projects.find((p) =>
           p.workspaces.some((w) => w.path === wsPath),
         );
-        const baseCommand =
-          taskProject?.agentCommand?.split(" ")[0] ??
+        const agentCommand =
+          task.agentCommand ??
+          taskProject?.agentCommand ??
           DEFAULT_AGENT_COMMAND;
         useAppStore
           .getState()
           .setPendingStartupCommand(
             activePath,
-            `${baseCommand} --resume ${task.agentSessionId}`,
+            `${agentCommand} --resume ${task.agentSessionId}`,
           );
       }
       addTab();

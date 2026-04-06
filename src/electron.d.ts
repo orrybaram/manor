@@ -23,6 +23,7 @@ export interface TaskInfo {
   workspacePath: string | null;
   cwd: string;
   agentKind: "claude" | "opencode" | "codex";
+  agentCommand: string | null;
   paneId: string | null;
   lastAgentStatus: string | null;
 }
@@ -458,6 +459,7 @@ export interface ElectronAPI {
         projectId: string;
         projectName: string;
         workspacePath: string;
+        agentCommand: string | null;
       },
     ) => Promise<void>;
     markSeen: (taskId: string) => Promise<void>;

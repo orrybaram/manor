@@ -119,7 +119,7 @@ console.log("Generating changelog with Claude...\n");
 let changelog;
 try {
   changelog = execSync(
-    `echo ${JSON.stringify(commits)} | claude --print -s ${JSON.stringify(systemPrompt)}`,
+    `echo ${JSON.stringify(commits)} | claude --print --system-prompt ${JSON.stringify(systemPrompt)}`,
     { cwd: ROOT, encoding: "utf-8", stdio: ["pipe", "pipe", "inherit"] },
   ).trim();
 } catch (e) {

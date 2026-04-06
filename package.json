@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "electron-rebuild",
-    "kill": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock"
+    "kill": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@electron/osx-sign": "^2.3.0",

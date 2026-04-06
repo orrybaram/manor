@@ -51,7 +51,7 @@
   background: transparent;
   color: var(--text-dim);
   font-size: 12px;
-  border-radius: 4px;
+  border-radius: 4px 4px 0 0;
   cursor: pointer;
   white-space: nowrap;
   min-width: 32px;
@@ -60,6 +60,19 @@
   transition:
     background 0.15s,
     color 0.15s;
+  border-bottom: 2px solid transparent;
+}
+
+.tabTerminal {
+  border-bottom-color: var(--fg-a10);
+}
+
+.tabBrowser {
+  border-bottom-color: var(--blue-a40);
+}
+
+.tabDiff {
+  border-bottom-color: var(--green-a40);
 }
 
 .tab:hover {

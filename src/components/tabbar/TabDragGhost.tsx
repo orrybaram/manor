@@ -36,10 +36,11 @@ export function TabDragGhost({ tabId, x, y }: TabDragGhostProps) {
 
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
+  const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
 
   return createPortal(
     <div
-      className={styles.tabDragGhost}
+      className={`${styles.tabDragGhost} ${contentTypeClass}`}
       style={{
         left: x,
         top: y,

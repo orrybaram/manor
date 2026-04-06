@@ -138,6 +138,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("ports-changed", callback),
   },
 
+  processes: {
+    list: () => ipcRenderer.invoke("processes:list"),
+    killSession: (sessionId: string) =>
+      ipcRenderer.invoke("processes:killSession", sessionId),
+    killDaemon: () => ipcRenderer.invoke("processes:killDaemon"),
+    killAll: () => ipcRenderer.invoke("processes:killAll"),
+  },
+
   branches: {
     start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
     stop: () => ipcRenderer.invoke("branches:stop"),

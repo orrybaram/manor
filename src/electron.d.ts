@@ -92,6 +92,24 @@ export interface ActivePort {
   hostname: string | null;
 }
 
+export interface ManorProcessInfo {
+  daemon: {
+    pid: number | null;
+    alive: boolean;
+    version: string;
+  };
+  internalServers: Array<{
+    name: string;
+    port: number | null;
+  }>;
+  sessions: Array<{
+    sessionId: string;
+    alive: boolean;
+    cwd: string | null;
+  }>;
+  ports: ActivePort[];
+}
+
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
 export type AgentStatus =
   | "idle"
@@ -297,6 +315,13 @@ export interface ElectronAPI {
     killPort: (pid: number) => Promise<void>;
     scanNow: () => Promise<ActivePort[]>;
     onChange: (callback: (ports: ActivePort[]) => void) => () => void;
+  };
+
+  processes: {
+    list: () => Promise<ManorProcessInfo>;
+    killSession: (sessionId: string) => Promise<void>;
+    killDaemon: () => Promise<void>;
+    killAll: () => Promise<void>;
   };
 
   branches: {

@@ -1,6 +1,8 @@
 import { useCallback, useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
+import Activity from "lucide-react/dist/esm/icons/activity";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
@@ -36,6 +38,7 @@ interface UseCommandsParams {
   activePorts: ActivePort[];
   openOrFocusDiff: () => void;
   openDiffInNewPanel: () => void;
+  navigateToProcesses: () => void;
 }
 
 export function useCommands({
@@ -58,6 +61,7 @@ export function useCommands({
   activePorts,
   openOrFocusDiff,
   openDiffInNewPanel,
+  navigateToProcesses,
 }: UseCommandsParams): CommandItem[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -412,6 +416,16 @@ export function useCommands({
         },
       },
       {
+        id: "processes",
+        label: "Processes",
+        icon: <Activity size={14} />,
+        suffix: <ChevronRight size={14} />,
+        keywords: ["process", "port", "kill", "daemon", "terminal", "activity", "monitor"],
+        action: () => {
+          navigateToProcesses();
+        },
+      },
+      {
         id: "ghosts",
         label: "Ghosts!?",
         icon: <span>👻</span>,
@@ -474,5 +488,6 @@ export function useCommands({
     activeWorkspacePath,
     activePorts,
     openOrFocusDiff,
+    navigateToProcesses,
   ]);
 }

@@ -45,4 +45,5 @@ export type PaletteView =
   | "linear-all"
   | "github-all"
   | "issue-detail"
-  | "github-issue-detail";
+  | "github-issue-detail"
+  | "processes";

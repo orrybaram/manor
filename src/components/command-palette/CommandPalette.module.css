@@ -670,3 +670,61 @@
     transform: translateY(-110vh) rotate(var(--ghost-rotate, 20deg));
   }
 }
+
+/* ── Process view ── */
+
+.processKill {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.processKill:hover {
+  color: var(--red);
+}
+
+.processMeta {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.statusAlive {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.statusDead {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.4;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.processInfo {
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  color: var(--text-dim);
+  margin-left: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+}

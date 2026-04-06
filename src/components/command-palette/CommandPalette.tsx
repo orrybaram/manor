@@ -16,6 +16,7 @@ import { LinearIssuesView } from "./LinearIssuesView";
 import { GitHubIssuesView } from "./GitHubIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
+import { ProcessesView } from "./ProcessesView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type {
@@ -129,6 +130,11 @@ export function CommandPalette(props: CommandPaletteProps) {
     setView("github-all");
   }, []);
 
+  const navigateToProcesses = useCallback(() => {
+    setSearch("");
+    setView("processes");
+  }, []);
+
   const navigateToRoot = useCallback(() => {
     setSearch("");
     setSelectedIssueId(null);
@@ -171,6 +177,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     activePorts,
     openOrFocusDiff,
     openDiffInNewPanel,
+    navigateToProcesses,
   });
 
   const taskCommands = useTaskCommands({
@@ -237,7 +244,8 @@ export function CommandPalette(props: CommandPaletteProps) {
   const showGitHub = githubConnected && !!repoPath;
   const isIssueListView =
     view === "linear-all" ||
-    view === "github-all";
+    view === "github-all" ||
+    view === "processes";
   const isDetailView =
     view === "issue-detail" || view === "github-issue-detail";
 
@@ -331,6 +339,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   <span className={styles.breadcrumbLabel}>
                     {view === "linear-all" && "Linear — Issues"}
                     {view === "github-all" && "GitHub — Issues"}
+                    {view === "processes" && "Processes"}
                   </span>
                 </Row>
               )}
@@ -446,6 +455,8 @@ export function CommandPalette(props: CommandPaletteProps) {
                     }}
                   />
                 )}
+
+                {view === "processes" && <ProcessesView />}
               </Command.List>
               {view === "issue-detail" && selectedIssueId && (
                 <IssueDetailView

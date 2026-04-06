@@ -1,6 +1,12 @@
 # Changelog
 
 
+
+## [0.4.2] - 2026-04-05
+
+**Improvements**
+- Added a helpful hint when prompted to save your Linear API key to the keychain
+
 ## [0.4.1] - 2026-04-05
 
 **Features**

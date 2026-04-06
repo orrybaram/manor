@@ -132,6 +132,8 @@ export function LinearIntegrationSection() {
             >
               Linear Settings
             </a>
+            . Your key is stored securely in the macOS Keychain — you may be
+            prompted for your login password.
           </div>
         </Stack>
       )}

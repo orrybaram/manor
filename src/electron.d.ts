@@ -4,6 +4,7 @@ export interface AppPreferences {
   notifyOnRequiresInput: boolean;
   notificationSound: string | false;
   defaultEditor: string;
+  editorIsTerminal: boolean;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";

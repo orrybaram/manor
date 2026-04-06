@@ -217,6 +217,7 @@ export interface AppState {
 
   // Tab operations
   addTab: () => void;
+  addTerminalTab: (command: string) => void;
   addBrowserTab: (url: string) => void;
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
@@ -572,6 +573,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
       }));
+    }),
+
+  addTerminalTab: (command: string) =>
+    set((state) => {
+      const ctx = getActivePanelContext(state);
+      if (!ctx) return state;
+      const { path, layout, panel } = ctx;
+      const tab = createTab();
+      const paneId = tab.focusedPaneId;
+      return {
+        ...updatePanel(state, path, layout, panel.id, (p) => ({
+          ...p,
+          tabs: [...p.tabs, tab],
+          selectedTabId: tab.id,
+        })),
+        pendingPaneCommands: {
+          ...state.pendingPaneCommands,
+          [paneId]: command,
+        },
+      };
     }),
 
   addBrowserTab: (url: string) =>

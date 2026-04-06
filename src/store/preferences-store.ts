@@ -16,6 +16,7 @@ const defaultPreferences: AppPreferences = {
   notifyOnRequiresInput: true,
   notificationSound: "Glass",
   defaultEditor: "",
+  editorIsTerminal: false,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

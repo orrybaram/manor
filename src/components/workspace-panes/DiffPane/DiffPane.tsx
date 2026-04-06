@@ -27,6 +27,7 @@ import { EmptyState } from "./EmptyState/EmptyState";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
+import { openInEditor } from "../../../lib/editor";
 
 export type DiffPaneRef = {
   toggleSearch: () => void;
@@ -473,7 +474,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                       <ContextMenu.Item
                         className={styles.contextMenuItem}
                         onSelect={() => {
-                          window.electronAPI.shell.openInEditor(
+                          openInEditor(
                             `${workspacePath}/${file.path}`,
                           );
                         }}

@@ -4,10 +4,12 @@ import X from "lucide-react/dist/esm/icons/x";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Palette from "lucide-react/dist/esm/icons/palette";
+import Settings from "lucide-react/dist/esm/icons/settings";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import { useProjectStore } from "../../../store/project-store";
+import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
@@ -23,6 +25,7 @@ type SettingsModalProps = {
 };
 
 type SettingsPage =
+  | { type: "general" }
   | { type: "app" }
   | { type: "keybindings" }
   | { type: "notifications" }
@@ -33,7 +36,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const { open, onClose, initialProjectId } = props;
 
   const projects = useProjectStore((s) => s.projects);
-  const [page, setPage] = useState<SettingsPage>({ type: "app" });
+  const [page, setPage] = useState<SettingsPage>({ type: "general" });
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   const prevOpenRef = useRef(false);
@@ -41,7 +44,7 @@ export function SettingsModal(props: SettingsModalProps) {
     if (initialProjectId) {
       setPage({ type: "project", projectId: initialProjectId });
     } else {
-      setPage({ type: "app" });
+      setPage({ type: "general" });
     }
     setProjectsExpanded(true);
   }
@@ -84,6 +87,14 @@ export function SettingsModal(props: SettingsModalProps) {
           <div className={styles.layout}>
             {/* Sidebar */}
             <nav className={styles.sidebar}>
+              <button
+                className={`${styles.navItem} ${page.type === "general" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "general" })}
+              >
+                <Settings size={14} />
+                <span>General</span>
+              </button>
+
               <button
                 className={`${styles.navItem} ${page.type === "app" ? styles.navItemActive : ""}`}
                 onClick={() => setPage({ type: "app" })}
@@ -150,6 +161,7 @@ export function SettingsModal(props: SettingsModalProps) {
 
             {/* Content */}
             <div className={styles.content}>
+              {page.type === "general" && <GeneralSettingsPage />}
               {page.type === "app" && <AppSettingsPage />}
               {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}

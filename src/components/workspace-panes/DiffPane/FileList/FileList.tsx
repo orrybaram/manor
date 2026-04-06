@@ -13,6 +13,7 @@ import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import { useToastStore } from "../../../../store/toast-store";
+import { openInEditor } from "../../../../lib/editor";
 import styles from "./FileList.module.css";
 import { Row } from "../../../ui/Layout/Layout";
 
@@ -113,7 +114,7 @@ export function FileList(props: FileListProps) {
   const handleOpenInEditor = useCallback(() => {
     if (!workspacePath) return;
     for (const path of selectedFiles) {
-      window.electronAPI.shell.openInEditor(`${workspacePath}/${path}`);
+      openInEditor(`${workspacePath}/${path}`);
     }
   }, [workspacePath, selectedFiles]);
 

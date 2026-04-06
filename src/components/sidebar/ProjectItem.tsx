@@ -24,6 +24,7 @@ import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { useWorkspaceDrag } from "../../hooks/useWorkspaceDrag";
+import { openInEditor } from "../../lib/editor";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -417,9 +418,7 @@ export function ProjectItem(props: ProjectItemProps) {
                       </ContextMenu.Item>
                       <ContextMenu.Item
                         className={styles.contextMenuItem}
-                        onSelect={() =>
-                          window.electronAPI.shell.openInEditor(ws.path)
-                        }
+                        onSelect={() => openInEditor(ws.path)}
                       >
                         Open in Editor
                       </ContextMenu.Item>

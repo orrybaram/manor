@@ -205,18 +205,21 @@ export function useTerminalLifecycle(
 
           // Pane-specific command (e.g. split-with-task) takes priority
           const paneCmd = store.consumePendingPaneCommand(paneId);
-          if (paneCmd) {
-            setTimeout(() => {
-              if (!disposed) write(paneCmd + "\n");
-            }, 500);
-          } else if (wsPath && cwd === wsPath) {
-            const cmd = store.consumePendingStartupCommand(wsPath);
-            if (cmd) {
-              // Small delay to let the shell initialize before writing the command
-              setTimeout(() => {
-                if (!disposed) write(cmd + "\n");
-              }, 500);
-            }
+          const startupCmd =
+            !paneCmd && wsPath && cwd === wsPath
+              ? store.consumePendingStartupCommand(wsPath)
+              : null;
+          const pendingCmd = paneCmd || startupCmd;
+          if (pendingCmd) {
+            // Wait for the shell to emit its first output (the prompt)
+            // before sending the command, instead of a blind timeout.
+            const unsubReady = window.electronAPI.pty.onOutput(
+              paneId,
+              () => {
+                unsubReady();
+                if (!disposed) write(pendingCmd + "\n");
+              },
+            );
           }
         }
       },

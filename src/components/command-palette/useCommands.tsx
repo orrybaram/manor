@@ -12,6 +12,7 @@ import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { DEFAULT_AGENT_COMMAND, getAgentCommand } from "../../agent-defaults";
+import { openInEditor } from "../../lib/editor";
 import type { ActivePort } from "../../electron.d.ts";
 
 interface UseCommandsParams {
@@ -396,7 +397,7 @@ export function useCommands({
         keywords: ["code"],
         action: () => {
           if (activeWorkspacePath) {
-            window.electronAPI.shell.openInEditor(activeWorkspacePath);
+            openInEditor(activeWorkspacePath);
           }
           onClose();
         },

@@ -198,6 +198,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "workspace",
   },
   {
+    id: "open-diff",
+    label: "Open Diff",
+    defaultCombo: metaCombo("g", true), // Cmd+Shift+G
+    category: "workspace",
+  },
+  {
     id: "split-panel-right",
     label: "Split Panel Right",
     defaultCombo: metaCombo("\\", false, true),

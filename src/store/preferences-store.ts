@@ -17,6 +17,7 @@ const defaultPreferences: AppPreferences = {
   notificationSound: "Glass",
   defaultEditor: "",
   editorIsTerminal: false,
+  diffOpensInNewPanel: true,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

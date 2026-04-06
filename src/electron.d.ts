@@ -5,6 +5,7 @@ export interface AppPreferences {
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
+  diffOpensInNewPanel: boolean;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";

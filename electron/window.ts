@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell } from "electron";
+import { app, BrowserWindow, screen, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -88,7 +88,7 @@ export function createWindow(): BrowserWindow {
     ...(useSaved ? { x: saved.x, y: saved.y } : {}),
     minWidth: 400,
     minHeight: 300,
-    icon: path.join(__dirname, "../build/dev-icon.png"),
+    ...(!app.isPackaged && { icon: path.join(__dirname, "../build/dev-icon.png") }),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { Command } from "cmdk";
+import * as Dialog from "@radix-ui/react-dialog";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
@@ -7,7 +8,60 @@ import X from "lucide-react/dist/esm/icons/x";
 import Info from "lucide-react/dist/esm/icons/info";
 import type { ManorProcessInfo } from "../../electron.d";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { Button } from "../ui/Button/Button";
 import styles from "./CommandPalette.module.css";
+import dialogStyles from "../sidebar/dialogs.module.css";
+
+export function KillAllFooter({ onKillAll }: { onKillAll: () => Promise<void> }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  return (
+    <>
+      <div className={styles.detailFooter}>
+        <button
+          className={`${styles.footerHint} ${styles.footerHintDanger}`}
+          onClick={() => setConfirmOpen(true)}
+        >
+          Kill All
+        </button>
+      </div>
+
+      <Dialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={dialogStyles.confirmOverlay} />
+          <Dialog.Content className={dialogStyles.confirmDialog}>
+            <Dialog.Title className={dialogStyles.confirmTitle}>
+              Kill All Processes
+            </Dialog.Title>
+            <Dialog.Description className={dialogStyles.confirmDescription}>
+              This will kill the daemon, all terminal sessions, and any
+              listening ports. You may need to restart Manor to restore
+              full functionality.
+            </Dialog.Description>
+            <div className={dialogStyles.confirmActions}>
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  void onKillAll();
+                }}
+              >
+                Kill All
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
 
 const INTERNAL_SERVER_NAMES: Record<string, string> = {
   agentHookServer: "Agent Hook Server",
@@ -58,8 +112,8 @@ export function ProcessesView() {
     [fetchInfo],
   );
 
-  const handleKillAll = useCallback(async () => {
-    await window.electronAPI.processes.killAll();
+  const handleCleanupDead = useCallback(async () => {
+    await window.electronAPI.processes.cleanupDead();
     void fetchInfo();
   }, [fetchInfo]);
 
@@ -68,6 +122,7 @@ export function ProcessesView() {
   }
 
   const { daemon, internalServers, sessions, ports } = info;
+  const hasDeadSessions = sessions.some((s) => !s.alive);
 
   return (
     <>
@@ -91,26 +146,28 @@ export function ProcessesView() {
           ) : (
             <span className={styles.statusDead} />
           )}
-          <button
-            className={styles.processInfo}
-            title="Background process that keeps your terminal sessions alive across app restarts"
-            tabIndex={-1}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Info size={12} />
-          </button>
-          {daemon.alive && (
+          <Tooltip label="Background process that keeps your terminal sessions alive across app restarts" side="top">
             <button
-              className={styles.processKill}
-              title="Kill daemon"
+              className={styles.processInfo}
               tabIndex={-1}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleKillDaemon();
-              }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <X size={12} />
+              <Info size={12} />
             </button>
+          </Tooltip>
+          {daemon.alive && (
+            <Tooltip label="Kill daemon" side="top">
+              <button
+                className={styles.processKill}
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleKillDaemon();
+                }}
+              >
+                <X size={12} />
+              </button>
+            </Tooltip>
           )}
         </Command.Item>
 
@@ -131,14 +188,15 @@ export function ProcessesView() {
                 {displayName}
                 {server.port != null ? ` — :${server.port}` : ""}
               </span>
-              <button
-                className={styles.processInfo}
-                title={tooltip}
-                tabIndex={-1}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Info size={12} />
-              </button>
+              <Tooltip label={tooltip} side="top">
+                <button
+                  className={styles.processInfo}
+                  tabIndex={-1}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Info size={12} />
+                </button>
+              </Tooltip>
             </Command.Item>
           );
         })}
@@ -147,16 +205,29 @@ export function ProcessesView() {
       <Command.Group
         heading={
           (
-            <span style={{ display: "inline-flex", alignItems: "center" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Sessions
-              <button
-                className={styles.processInfo}
-                title="Each terminal pane runs in its own isolated subprocess"
-                tabIndex={-1}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Info size={12} />
-              </button>
+              <Tooltip label="Each terminal pane runs in its own isolated subprocess" side="right">
+                <button
+                  className={styles.processInfo}
+                  tabIndex={-1}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Info size={12} />
+                </button>
+              </Tooltip>
+              {hasDeadSessions && (
+                <button
+                  className={styles.processCleanup}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleCleanupDead();
+                  }}
+                >
+                  Clean Up
+                </button>
+              )}
             </span>
           ) as unknown as string
         }
@@ -193,17 +264,18 @@ export function ProcessesView() {
                   <span className={styles.statusDead} />
                 )}
                 {session.alive && (
-                  <button
-                    className={styles.processKill}
-                    title="Kill session"
-                    tabIndex={-1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleKillSession(session.sessionId);
-                    }}
-                  >
-                    <X size={12} />
-                  </button>
+                  <Tooltip label="Kill session" side="top">
+                    <button
+                      className={styles.processKill}
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleKillSession(session.sessionId);
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </Tooltip>
                 )}
               </Command.Item>
             );
@@ -216,14 +288,15 @@ export function ProcessesView() {
           (
             <span style={{ display: "inline-flex", alignItems: "center" }}>
               Ports
-              <button
-                className={styles.processInfo}
-                title="TCP ports listening on localhost, typically dev servers"
-                tabIndex={-1}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Info size={12} />
-              </button>
+              <Tooltip label="TCP ports listening on localhost, typically dev servers" side="right">
+                <button
+                  className={styles.processInfo}
+                  tabIndex={-1}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Info size={12} />
+                </button>
+              </Tooltip>
             </span>
           ) as unknown as string
         }
@@ -246,30 +319,23 @@ export function ProcessesView() {
                 :{p.port} — {p.processName}
               </span>
               <span className={styles.processMeta}>PID {p.pid}</span>
-              <button
-                className={styles.processKill}
-                title={`Kill PID ${p.pid}`}
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleKillPort(p.pid);
-                }}
-              >
-                <X size={12} />
-              </button>
+              <Tooltip label={`Kill PID ${p.pid}`} side="top">
+                <button
+                  className={styles.processKill}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleKillPort(p.pid);
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </Tooltip>
             </Command.Item>
           ))
         )}
       </Command.Group>
 
-      <div className={styles.detailFooter}>
-        <button
-          className={`${styles.footerHint} ${styles.footerHintDanger}`}
-          onClick={() => void handleKillAll()}
-        >
-          Kill All
-        </button>
-      </div>
     </>
   );
 }

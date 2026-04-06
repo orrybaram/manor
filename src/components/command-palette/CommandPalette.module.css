@@ -728,3 +728,19 @@
   border: none;
   padding: 0;
 }
+
+.processCleanup {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.processCleanup:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}

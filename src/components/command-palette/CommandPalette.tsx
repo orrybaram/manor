@@ -16,7 +16,7 @@ import { LinearIssuesView } from "./LinearIssuesView";
 import { GitHubIssuesView } from "./GitHubIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
-import { ProcessesView } from "./ProcessesView";
+import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type {
@@ -343,7 +343,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   </span>
                 </Row>
               )}
-              {!isDetailView && !(isIssueListView && issueListEmpty) && (
+              {!isDetailView && view !== "processes" && !(isIssueListView && issueListEmpty) && (
                 <Command.Input
                   className={styles.input}
                   placeholder={
@@ -458,6 +458,13 @@ export function CommandPalette(props: CommandPaletteProps) {
 
                 {view === "processes" && <ProcessesView />}
               </Command.List>
+              {view === "processes" && (
+                <KillAllFooter
+                  onKillAll={async () => {
+                    await window.electronAPI.processes.killAll();
+                  }}
+                />
+              )}
               {view === "issue-detail" && selectedIssueId && (
                 <IssueDetailView
                   issueId={selectedIssueId}

@@ -6,6 +6,7 @@
  */
 
 import * as fs from "node:fs";
+import * as http from "node:http";
 import * as path from "node:path";
 import { createProxyServer, type RouteInfo, type ProxyServer } from "portless";
 
@@ -34,6 +35,17 @@ export class PortlessManager {
         proxyPort: port,
         getRoutes: () => this.routes,
       });
+
+      // Disable Node.js default timeouts that cause proxied pages to
+      // force-refresh.  headersTimeout defaults to 60 000 ms — the server
+      // terminates idle keep-alive sockets after ~60 s, which Chromium
+      // interprets as a connection reset and triggers a visible reload.
+      // This proxy only listens on 127.0.0.1, so the timeouts add no
+      // security value.
+      if (this.server instanceof http.Server) {
+        this.server.headersTimeout = 0;
+        this.server.requestTimeout = 0;
+      }
 
       try {
         await new Promise<void>((resolve, reject) => {

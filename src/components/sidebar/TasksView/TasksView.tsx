@@ -2,9 +2,10 @@ import { useState, useCallback, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import type { TaskInfo, AgentStatus, TaskStatus } from "../../../electron.d";
+import type { TaskInfo } from "../../../electron.d";
 import { useTaskStore } from "../../../store/task-store";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
+import { useTaskDisplay } from "../../../hooks/useTaskDisplay";
 import styles from "./TasksView.module.css";
 
 // ── Helpers ──
@@ -44,21 +45,6 @@ function getDateBucket(dateStr: string): DateBucket {
   return "Older";
 }
 
-function mapTaskStatusToAgentStatus(task: TaskInfo): AgentStatus | undefined {
-  if (task.status === "active" && task.lastAgentStatus) {
-    return task.lastAgentStatus as AgentStatus;
-  }
-
-  const statusMap: Record<TaskStatus, AgentStatus> = {
-    active: "working",
-    completed: "complete",
-    error: "error",
-    abandoned: "idle",
-  };
-
-  return statusMap[task.status];
-}
-
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -89,21 +75,21 @@ function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
 
 // ── Components ──
 
-type TaskRowProps = {
+type TaskViewRowProps = {
   task: TaskInfo;
   onResumeTask: (task: TaskInfo) => void;
   onRemoveTask: (taskId: string) => void;
 };
 
-const TaskRow = memo(function TaskRow(props: TaskRowProps) {
+const TaskViewRow = memo(function TaskViewRow(props: TaskViewRowProps) {
   const { task, onResumeTask, onRemoveTask } = props;
 
-  const agentStatus = mapTaskStatusToAgentStatus(task);
+  const { title, status } = useTaskDisplay(task);
 
   return (
     <button className={styles.taskRow} onClick={() => onResumeTask(task)}>
-      <AgentDot status={agentStatus} size="sidebar" />
-      <span className={styles.taskName}>{task.name || "Untitled Task"}</span>
+      <AgentDot status={status} size="sidebar" />
+      <span className={styles.taskName}>{title}</span>
       <span className={styles.taskProject}>
         {task.projectName || "No Project"}
       </span>
@@ -242,7 +228,7 @@ export function TasksModal(props: TasksModalProps) {
                           {projectName}
                         </div>
                         {projectTasks.map((task) => (
-                          <TaskRow
+                          <TaskViewRow
                             key={task.id}
                             task={task}
                             onResumeTask={handleResume}

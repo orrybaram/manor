@@ -40,6 +40,20 @@ export function GeneralSettingsPage() {
           new terminal tab instead of launching an external window.
         </div>
       </Stack>
+      <Stack gap="xs">
+        <div className={styles.sectionTitle}>Diff</div>
+        <label className={styles.notifRow}>
+          <span>Open diff in new panel</span>
+          <Switch
+            checked={preferences.diffOpensInNewPanel}
+            onCheckedChange={(checked) => set("diffOpensInNewPanel", checked)}
+          />
+        </label>
+        <div className={styles.fieldHint}>
+          When enabled, the diff view opens in a new side-by-side panel instead
+          of a tab in the current panel.
+        </div>
+      </Stack>
     </Stack>
   );
 }

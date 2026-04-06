@@ -3,7 +3,9 @@
  * Release script that bumps the version, generates a changelog via Claude CLI,
  * commits, tags, and pushes.
  *
- * Usage: node scripts/release.mjs <version> [--dry-run]
+ * Usage: node scripts/release.mjs [--major | --minor] [--dry-run]
+ *
+ * Defaults to a patch bump. Use --minor or --major to bump those instead.
  */
 
 import { execSync } from "node:child_process";
@@ -44,17 +46,39 @@ function today() {
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
-const version = args.find((a) => !a.startsWith("--"));
+const bumpMajor = args.includes("--major");
+const bumpMinor = args.includes("--minor");
 
-if (!version) {
-  die("Version argument is required.\n  Usage: node scripts/release.mjs <version> [--dry-run]");
+if (bumpMajor && bumpMinor) {
+  die("Cannot use both --major and --minor.");
 }
 
-if (!isValidSemver(version)) {
-  die(`Invalid semver format: "${version}". Expected X.Y.Z`);
+// ---------------------------------------------------------------------------
+// Determine next version
+// ---------------------------------------------------------------------------
+
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8"));
+const currentVersion = pkg.version;
+
+if (!isValidSemver(currentVersion)) {
+  die(`Current version in package.json is not valid semver: "${currentVersion}"`);
+}
+
+const [major, minor, patch] = currentVersion.split(".").map(Number);
+
+let version;
+if (bumpMajor) {
+  version = `${major + 1}.0.0`;
+} else if (bumpMinor) {
+  version = `${major}.${minor + 1}.0`;
+} else {
+  version = `${major}.${minor}.${patch + 1}`;
 }
 
 const tag = `v${version}`;
+
+console.log(`Current version: ${currentVersion}`);
+console.log(`Bumping to: ${version}\n`);
 
 // ---------------------------------------------------------------------------
 // Step 1 — Validate

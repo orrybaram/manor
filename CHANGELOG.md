@@ -2,6 +2,24 @@
 
 
 
+
+## [0.5.0] - 2026-04-06
+
+**Features**
+- Add process kill support from the command palette
+- Add confirmation dialog for "Kill All" action
+- Add "New Workspace" action to the local workspace empty state
+- Add processes management to the command palette
+- Add colored bottom borders to tabs by content type
+- CMD+click on file paths in the terminal now opens them in your editor
+- Tasks now display a unified title and status from agent streams
+
+**Fixes**
+- Fix garbled and wavy text in terminal rendering
+- Fix errors when the daemon is unreachable and empty filter edge case
+- Fix dock badge notification dot appearance
+- Fix periodic page refreshes caused by proxy server timeouts
+
 ## [0.4.2] - 2026-04-05
 
 **Improvements**

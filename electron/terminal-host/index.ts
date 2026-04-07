@@ -138,6 +138,16 @@ async function handleControlMessage(
       break;
     }
 
+    case "writeAfterReady": {
+      const ok = host.writeAfterReady(request.sessionId, request.data);
+      if (ok) {
+        sendResponse(socket, { type: "writeQueued" }, requestId);
+      } else {
+        sendResponse(socket, { type: "error", message: `Session ${request.sessionId} not found` }, requestId);
+      }
+      break;
+    }
+
     case "getSnapshot": {
       const snapshot = await host.getSnapshot(request.sessionId);
       if (snapshot) {

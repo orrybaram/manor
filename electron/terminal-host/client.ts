@@ -242,7 +242,15 @@ export class TerminalHostClient {
     this.streamWrite({ type: "write", sessionId, data });
   }
 
-
+  /** Queue a write that fires after the session's first output (shell prompt).
+   *  Uses a control request so the caller gets confirmation the write was queued. */
+  async writeAfterReady(sessionId: string, data: string): Promise<void> {
+    await this.ensureConnected();
+    const resp = await this.request({ type: "writeAfterReady", sessionId, data });
+    if (resp.type === "error") {
+      throw new Error(resp.message);
+    }
+  }
 
   /** Relay an agent hook event to the daemon (fire-and-forget) */
   relayAgentHook(

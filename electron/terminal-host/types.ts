@@ -58,6 +58,7 @@ export type ControlRequest =
   | { type: "kill"; sessionId: string }
   | { type: "getSnapshot"; sessionId: string }
   | { type: "listSessions" }
+  | { type: "writeAfterReady"; sessionId: string; data: string }
   | { type: "ping" }
   | { type: "updateEnv"; env: Record<string, string> };
 
@@ -72,6 +73,7 @@ export type ControlResponse =
   | { type: "sessions"; sessions: SessionInfo[] }
   | { type: "pong" }
   | { type: "envUpdated" }
+  | { type: "writeQueued" }
   | { type: "error"; message: string };
 
 // ── Agent status types ──

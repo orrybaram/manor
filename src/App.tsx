@@ -259,16 +259,12 @@ function App() {
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
-  // Keep the prewarmed session in sync with the active workspace
+  // Keep the prewarmed session CWD in sync with the active workspace
   useEffect(() => {
     if (activeWorkspacePath) {
-      const currentProject = projects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
-      const agentCommand = currentProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, agentCommand);
+      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath);
     }
-  }, [activeWorkspacePath, projects]);
+  }, [activeWorkspacePath]);
 
   // Keybindings
   const activeTabRef = useRef(activeTab);
@@ -457,15 +453,14 @@ function App() {
             `${agentCommand} --resume ${task.agentSessionId}`,
           );
       }
-      // Don't use prewarmed session — resume has a specific command
-      addTab();
+      const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+      addTab(prewarmPaneId ?? undefined);
     },
     [setActiveWorkspace, addTab, projects],
   );
 
   const handleNewTask = useCallback(async () => {
-    const prewarmed = await window.electronAPI.pty.consumePrewarmed();
-    if (activeWorkspacePath && !prewarmed?.commandInjected) {
+    if (activeWorkspacePath) {
       const currentProject = projects.find((p) =>
         p.workspaces.some((w) => w.path === activeWorkspacePath),
       );
@@ -475,12 +470,13 @@ function App() {
         .getState()
         .setPendingStartupCommand(activeWorkspacePath, command);
     }
-    addTab(prewarmed?.paneId);
+    const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+    addTab(prewarmPaneId ?? undefined);
   }, [addTab, projects, activeWorkspacePath]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
-    (prompt: string) => {
+    async (prompt: string) => {
       if (activeWorkspacePath) {
         const currentProject = projects.find((p) =>
           p.workspaces.some((w) => w.path === activeWorkspacePath),
@@ -499,9 +495,8 @@ function App() {
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
       }
-      // Don't use prewarmed session — it already has the base agent command running
-      // without the prompt. Cold start with the full command instead.
-      addTab();
+      const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+      addTab(prewarmPaneId ?? undefined);
     },
     [addTab, projects, activeWorkspacePath],
   );

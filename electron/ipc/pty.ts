@@ -120,8 +120,8 @@ export function register(deps: IpcDeps): void {
     return deps.prewarmManager?.consume() ?? null;
   });
 
-  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null) => {
+  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string) => {
     assertString(cwd, "cwd");
-    await deps.prewarmManager?.updateCwd(cwd, agentCommand);
+    await deps.prewarmManager?.updateCwd(cwd);
   });
 }

@@ -1,48 +1,147 @@
 ---
-title: Wire pty:create to use PrewarmManager
-status: done
+title: Wire renderer to use prewarmed sessions
+status: todo
 priority: high
 assignee: sonnet
-blocked_by: [2]
+blocked_by: [1, 2]
 ---
 
-# Wire pty:create to use PrewarmManager
+# Wire renderer to use prewarmed sessions
 
-Modify the `pty:create` IPC handler to try the prewarmed session first, falling back to the existing `createOrAttach` path.
+Connect the PrewarmManager to the renderer's new-task flow so prewarmed sessions are consumed transparently.
 
-## Implementation
+## 1. Allow createTab to accept a paneId
 
-In the `pty:create` handler in `electron/main.ts`:
+In `src/store/app-store.ts`, modify `createTab()` to accept an optional paneId:
+
+```typescript
+function createTab(title?: string, paneId?: string): Tab {
+  const id = paneId ?? newPaneId();
+  return {
+    id: newTabId(),
+    title: title ?? "Terminal",
+    rootNode: { type: "leaf", paneId: id },
+    focusedPaneId: id,
+  };
+}
+```
+
+Update `addTab` action to pass through the paneId:
+```typescript
+addTab: (paneId?: string) => {
+  // ... existing context logic
+  const tab = createTab(undefined, paneId);
+  // ... rest unchanged
+}
+```
+
+Similarly update `addTabWithCommand` to accept an optional paneId.
+
+## 2. Consume prewarmed session in handleNewTask
+
+In `src/App.tsx`, modify `handleNewTask()`:
+
+```typescript
+const handleNewTask = useCallback(async () => {
+  const path = useAppStore.getState().activeWorkspacePath;
+  if (!path) return;
+
+  const projects = useProjectStore.getState().projects;
+  const project = projects.find((p) =>
+    p.workspaces.some((ws) => ws.path === path),
+  );
+  const cmd = project?.agentCommand || defaultAgentCommand;
+  useAppStore.getState().setPendingStartupCommand(path, cmd);
+
+  // Try to use a prewarmed session for instant startup
+  const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+  useAppStore.getState().addTab(prewarmPaneId ?? undefined);
+}, [defaultAgentCommand]);
+```
+
+Note: `handleNewTask` becomes async but `addTab` is still synchronous.
+
+## 3. Return prewarmed flag from pty:create
+
+In `electron/ipc/pty.ts`, modify the `pty:create` handler to detect when the session was prewarmed. The warm-restore path in `createOrAttach` finds the existing session via `getSnapshot`. To distinguish prewarmed from regular warm-restore:
+
+Check if the session was prewarmed before `createOrAttach` consumes it:
 
 ```typescript
 ipcMain.handle("pty:create", async (_event, paneId, cwd, cols, rows) => {
+  // ... existing validation ...
   try {
-    // Try prewarmed session first
-    const prewarmed = await prewarmManager.consume(paneId, cwd || process.env.HOME || "/", cols, rows);
-    if (prewarmed) {
-      return {
-        ok: true,
-        snapshot: prewarmed.snapshot?.screenAnsi || null,
-      };
-    }
-    // Fallback to normal create
-    const result = await client.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
-    return { ok: true, snapshot: result.snapshot?.screenAnsi || null };
+    // Check if this is a prewarmed session (snapshot exists = warm restore)
+    const snapshot = await backend.pty.getSnapshot(paneId);
+    const isPrewarmed = snapshot !== null;
+
+    const result = await backend.pty.createOrAttach(paneId, cwd || process.env.HOME || "/", cols, rows);
+    return {
+      ok: true,
+      snapshot: result.snapshot?.screenAnsi || null,
+      prewarmed: isPrewarmed,
+    };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    // ... existing error handling ...
   }
 });
 ```
 
-### Startup command timing
+## 4. Handle prewarmed flag in useTerminalLifecycle
 
-When a prewarmed session is consumed, the shell is already initialized. The 500ms `setTimeout` in `useTerminalLifecycle.ts` (line 181) is unnecessary for prewarmed sessions. To handle this:
+In `src/hooks/useTerminalLifecycle.ts`, update the `create()` callback response handling:
 
-- Add a `prewarmed: boolean` field to the `pty:create` return value
-- In `useTerminalLifecycle.ts`, if `result.prewarmed` is true, write the startup command immediately (no setTimeout)
-- If false, keep the existing 500ms delay
+```typescript
+create(cwd ?? null, cols, rows).then(
+  (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
+    if (!disposed && !result.ok) {
+      setPtyError(result.error ?? "Failed to create terminal session");
+      return;
+    }
+    if (!disposed && result.ok) {
+      if (result.snapshot) {
+        t.write(result.snapshot);
+      }
+
+      // ... existing pane context logic ...
+
+      const store = useAppStore.getState();
+      const wsPath = store.activeWorkspacePath;
+      const paneCmd = store.consumePendingPaneCommand(paneId);
+      const startupCmd =
+        !paneCmd && wsPath && cwd === wsPath
+          ? store.consumePendingStartupCommand(wsPath)
+          : null;
+      const pendingCmd = paneCmd || startupCmd;
+
+      if (pendingCmd) {
+        if (result.prewarmed) {
+          // Shell is already initialized — write command immediately
+          write(pendingCmd + "\n");
+        } else {
+          // Cold start — wait for first prompt
+          const unsubReady = window.electronAPI.pty.onOutput(paneId, () => {
+            unsubReady();
+            if (!disposed) write(pendingCmd + "\n");
+          });
+        }
+      }
+    }
+  },
+);
+```
+
+## 5. Update types
+
+In `src/electron.d.ts`, update the `pty.create` return type to include `prewarmed`:
+```typescript
+create: (paneId: string, cwd: string | null, cols: number, rows: number) =>
+  Promise<{ ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }>;
+```
 
 ## Files to touch
-- `electron/main.ts` — Modify `pty:create` handler to try prewarmManager first, add `prewarmed` field to response
-- `src/hooks/useTerminalLifecycle.ts` — Check `result.prewarmed` flag to skip the 500ms delay
-- `src/electron.d.ts` — Update `pty.create` return type to include `prewarmed` field (if typed)
+- `src/store/app-store.ts` — `createTab()` and `addTab` accept optional paneId
+- `src/App.tsx` — `handleNewTask()` consumes prewarmed paneId
+- `electron/ipc/pty.ts` — `pty:create` returns `prewarmed` flag
+- `src/hooks/useTerminalLifecycle.ts` — Skip prompt wait when `prewarmed` is true
+- `src/electron.d.ts` — Update return type

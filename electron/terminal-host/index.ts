@@ -94,6 +94,7 @@ async function handleControlMessage(
           request.cols,
           request.rows,
           request.shellArgs,
+          request.prewarmed,
         );
         sendResponse(socket, { type: "created", session }, requestId);
       } catch (err) {
@@ -140,6 +141,7 @@ async function handleControlMessage(
     case "getSnapshot": {
       const snapshot = await host.getSnapshot(request.sessionId);
       if (snapshot) {
+        host.clearPrewarmed(request.sessionId);
         sendResponse(socket, { type: "snapshot", snapshot }, requestId);
       } else {
         sendResponse(socket, {

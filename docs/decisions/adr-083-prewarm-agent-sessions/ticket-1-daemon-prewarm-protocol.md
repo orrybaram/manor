@@ -1,39 +1,83 @@
 ---
-title: Add prewarm and claim protocol to daemon
-status: done
+title: Add prewarmed flag and createNoSubscribe to client
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: []
 ---
 
-# Add prewarm and claim protocol to daemon
+# Add prewarmed flag and createNoSubscribe to client
 
-Add two new request types to the terminal host daemon's control protocol and implement them in the `TerminalHost` class.
+Two small changes to support pre-warming without new daemon protocol types.
 
-## New request types
+## 1. Session prewarmed flag
 
-### `prewarm`
+Add a mutable `prewarmed` boolean to `Session` so prewarmed sessions can be excluded from `listSessions()`.
+
+In `electron/terminal-host/session.ts`:
+- Add `prewarmed = false` property to `Session`
+
+In `electron/terminal-host/terminal-host.ts`:
+- Add optional `prewarmed` param to `create()`: `create(sessionId, cwd, cols, rows, shellArgs, prewarmed?)`
+- After creating the Session, set `session.prewarmed = prewarmed ?? false`
+- In `listSessions()`, filter out sessions where `prewarmed === true`
+
+In `electron/terminal-host/types.ts`:
+- Add `prewarmed?: boolean` to the `create` ControlRequest variant
+- Add `prewarmed?: boolean` to `SessionInfo`
+
+In `electron/terminal-host/index.ts` (daemon):
+- Pass `request.prewarmed` through to `host.create()` in the `case "create"` handler
+
+## 2. Client createNoSubscribe method
+
+In `electron/terminal-host/client.ts`, add:
+
 ```typescript
-{ type: "prewarm", sessionId: string, cwd: string, cols: number, rows: number }
+async createNoSubscribe(
+  sessionId: string,
+  cwd: string,
+  cols: number,
+  rows: number,
+  prewarmed = false,
+): Promise<SessionInfo> {
+  await this.ensureConnected();
+  const resp = await this.request({
+    type: "create",
+    sessionId,
+    cwd,
+    cols,
+    rows,
+    prewarmed,
+  });
+  if (resp.type !== "created") {
+    throw new Error(
+      `Create failed: ${resp.type === "error" ? resp.message : resp.type}`
+    );
+  }
+  return resp.session;
+}
 ```
-- Creates a new `Session` (same as `create`) and calls `spawn()`
-- Marks the session internally as `prewarmed: true` so it's excluded from `listSessions` responses (UI shouldn't see it)
-- Returns `{ type: "prewarmed", session: SessionInfo }`
 
-### `claimPrewarmed`
+This sends the existing `create` control request but does NOT call `streamWrite({ type: "subscribe" })`. The session boots silently — no output events flow to the renderer.
+
+## 3. Clear prewarmed flag on warm-restore
+
+When `createOrAttach` finds an existing session via `getSnapshot`, the session is being claimed. The prewarmed flag should be cleared so it appears in future `listSessions` calls.
+
+In `electron/terminal-host/terminal-host.ts`, add a method:
 ```typescript
-{ type: "claimPrewarmed", oldSessionId: string, newSessionId: string, cwd?: string, cols?: number, rows?: number }
+clearPrewarmed(sessionId: string): void {
+  const session = this.sessions.get(sessionId);
+  if (session) session.prewarmed = false;
+}
 ```
-- Finds the session by `oldSessionId`, removes it from the sessions map
-- Re-inserts it under `newSessionId` (updates the session's internal `sessionId`)
-- If `cwd` differs from the session's current CWD, writes `cd <cwd>\n` to the PTY
-- If `cols`/`rows` differ, resizes the PTY
-- Clears the `prewarmed` flag
-- Returns `{ type: "claimed", session: SessionInfo, snapshot: TerminalSnapshot }`
-- Returns error if session not found or not prewarmed
+
+In `electron/terminal-host/index.ts`, in the `case "getSnapshot"` handler, after finding the snapshot, call `host.clearPrewarmed(request.sessionId)`. This is safe because `getSnapshot` is only called during warm-restore (in `createOrAttach`).
 
 ## Files to touch
-- `electron/terminal-host/terminal-host.ts` — Add handlers for `prewarm` and `claimPrewarmed` request types, add `prewarmed` flag tracking
-- `electron/terminal-host/session.ts` — Add `sessionId` setter or rename method, add `prewarmed` flag
-- `electron/terminal-host/types.ts` — Add new request/response types to the protocol type definitions
-- `electron/terminal-host/client.ts` — Add `prewarm()` and `claimPrewarmed()` methods to `TerminalHostClient`
+- `electron/terminal-host/session.ts` — Add `prewarmed` property
+- `electron/terminal-host/terminal-host.ts` — Add `prewarmed` param to `create()`, filter `listSessions()`, add `clearPrewarmed()`
+- `electron/terminal-host/types.ts` — Add `prewarmed` to create request and SessionInfo
+- `electron/terminal-host/index.ts` — Pass `prewarmed` in create handler, call `clearPrewarmed` in getSnapshot handler
+- `electron/terminal-host/client.ts` — Add `createNoSubscribe()` method

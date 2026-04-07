@@ -212,6 +212,31 @@ export class TerminalHostClient {
     }
   }
 
+  /** Create a session without subscribing to its stream (boots silently) */
+  async createNoSubscribe(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    prewarmed = false,
+  ): Promise<SessionInfo> {
+    await this.ensureConnected();
+    const resp = await this.request({
+      type: "create",
+      sessionId,
+      cwd,
+      cols,
+      rows,
+      prewarmed,
+    });
+    if (resp.type !== "created") {
+      throw new Error(
+        `Create failed: ${resp.type === "error" ? resp.message : resp.type}`,
+      );
+    }
+    return resp.session;
+  }
+
   /** Write terminal input — fire-and-forget via stream socket */
   writeNoAck(sessionId: string, data: string): void {
     this.streamWrite({ type: "write", sessionId, data });

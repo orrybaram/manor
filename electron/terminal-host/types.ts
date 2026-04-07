@@ -36,6 +36,7 @@ export interface SessionInfo {
   cols: number;
   rows: number;
   alive: boolean;
+  prewarmed?: boolean;
 }
 
 // ── Control socket request types ──
@@ -49,6 +50,7 @@ export type ControlRequest =
       cols: number;
       rows: number;
       shellArgs?: string[];
+      prewarmed?: boolean;
     }
   | { type: "attach"; sessionId: string }
   | { type: "detach"; sessionId: string }

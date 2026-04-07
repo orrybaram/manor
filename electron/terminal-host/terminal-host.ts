@@ -30,12 +30,14 @@ export class TerminalHost {
     cols: number,
     rows: number,
     shellArgs: string[] = [],
+    prewarmed?: boolean,
   ): SessionInfo {
     if (this.sessions.has(sessionId)) {
       return this.sessions.get(sessionId)!.info;
     }
 
     const session = new Session(sessionId, cwd, cols, rows, this.sessionsDir);
+    session.prewarmed = prewarmed ?? false;
     this.sessions.set(sessionId, session);
     session.spawn(shellArgs);
     return session.info;
@@ -81,9 +83,17 @@ export class TerminalHost {
     return this.sessions.get(sessionId)?.getSnapshot() ?? null;
   }
 
-  /** List all sessions */
+  /** List all sessions (excludes prewarmed sessions) */
   listSessions(): SessionInfo[] {
-    return Array.from(this.sessions.values()).map((s) => s.info);
+    return Array.from(this.sessions.values())
+      .filter((s) => !s.prewarmed)
+      .map((s) => s.info);
+  }
+
+  /** Clear the prewarmed flag on a session (called on warm restore) */
+  clearPrewarmed(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (session) session.prewarmed = false;
   }
 
   /** Dispose a specific session */

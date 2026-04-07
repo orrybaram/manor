@@ -39,6 +39,7 @@ import { DEFAULT_TERMINAL_MODES } from "./types";
 
 export class Session {
   readonly sessionId: string;
+  prewarmed = false;
   private subprocess: ChildProcess | null = null;
   private decoder: FrameDecoder;
   private headless: HeadlessTerminal;

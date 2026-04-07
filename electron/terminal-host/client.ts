@@ -243,10 +243,11 @@ export class TerminalHostClient {
   }
 
   /** Queue a write that fires after the session's first output (shell prompt).
-   *  Uses a control request so the caller gets confirmation the write was queued. */
+   *  Uses a control request so the caller gets confirmation the write was queued.
+   *  Short timeout (2s) so a stale daemon doesn't block the mutex. */
   async writeAfterReady(sessionId: string, data: string): Promise<void> {
     await this.ensureConnected();
-    const resp = await this.request({ type: "writeAfterReady", sessionId, data });
+    const resp = await this.request({ type: "writeAfterReady", sessionId, data }, 2_000);
     if (resp.type === "error") {
       throw new Error(resp.message);
     }

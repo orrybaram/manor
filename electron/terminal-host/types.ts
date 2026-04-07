@@ -107,6 +107,7 @@ export type StreamEvent =
 
 export type StreamCommand =
   | { type: "write"; sessionId: string; data: string }
+  | { type: "writeAfterReady"; sessionId: string; data: string }
   | { type: "subscribe"; sessionId: string }
   | { type: "unsubscribe"; sessionId: string }
   | {

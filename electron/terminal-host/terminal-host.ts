@@ -65,6 +65,11 @@ export class TerminalHost {
     this.sessions.get(sessionId)?.write(data);
   }
 
+  /** Queue a write that fires after the session's first output (shell prompt) */
+  writeAfterReady(sessionId: string, data: string): void {
+    this.sessions.get(sessionId)?.writeAfterReady(data);
+  }
+
   /** Resize a session's PTY */
   resize(sessionId: string, cols: number, rows: number): void {
     this.sessions.get(sessionId)?.resize(cols, rows);

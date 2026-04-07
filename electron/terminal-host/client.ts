@@ -242,6 +242,11 @@ export class TerminalHostClient {
     this.streamWrite({ type: "write", sessionId, data });
   }
 
+  /** Queue a write that fires after the session's first output (shell prompt) */
+  writeAfterReady(sessionId: string, data: string): void {
+    this.streamWrite({ type: "writeAfterReady", sessionId, data });
+  }
+
   /** Relay an agent hook event to the daemon (fire-and-forget) */
   relayAgentHook(
     sessionId: string,

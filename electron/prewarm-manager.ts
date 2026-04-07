@@ -8,6 +8,8 @@ export class PrewarmManager {
   private state: PrewarmState = "idle";
   private prewarmPaneId: string | null = null;
   private currentCwd: string;
+  private currentAgentCommand: string | null = null;
+  private commandInjected = false;
   private defaultCols = 80;
   private defaultRows = 24;
 
@@ -17,11 +19,13 @@ export class PrewarmManager {
   }
 
   /** Start warming a session in the background */
-  async warm(cwd?: string): Promise<void> {
+  async warm(cwd?: string, agentCommand?: string | null): Promise<void> {
     if (cwd) this.currentCwd = cwd;
+    if (agentCommand !== undefined) this.currentAgentCommand = agentCommand;
     if (this.state === "warming") return;
 
     this.state = "warming";
+    this.commandInjected = false;
     const paneId = `pane-${crypto.randomUUID()}`;
 
     try {
@@ -34,37 +38,49 @@ export class PrewarmManager {
       );
       this.prewarmPaneId = paneId;
       this.state = "ready";
+
+      // Inject agent command so it's already booting when consumed
+      if (this.currentAgentCommand) {
+        this.client.writeAfterReady(paneId, this.currentAgentCommand + "\n");
+        this.commandInjected = true;
+      }
     } catch (err) {
       console.error("[PrewarmManager] Failed to warm session:", err);
       this.state = "idle";
       this.prewarmPaneId = null;
+      this.commandInjected = false;
     }
   }
 
   /**
    * Consume the prewarmed session.
-   * Returns the pre-generated paneId, or null if no session is ready.
+   * Returns the pre-generated paneId and whether the agent command was already injected,
+   * or null if no session is ready.
    */
-  consume(): string | null {
+  consume(): { paneId: string; commandInjected: boolean } | null {
     if (this.state !== "ready" || !this.prewarmPaneId) {
       return null;
     }
 
     const paneId = this.prewarmPaneId;
+    const commandInjected = this.commandInjected;
     this.prewarmPaneId = null;
     this.state = "idle";
+    this.commandInjected = false;
 
     // Replenish in the background
     this.warm().catch(() => {});
 
-    return paneId;
+    return { paneId, commandInjected };
   }
 
-  /** Update CWD (e.g. on workspace switch) — kill stale, warm fresh */
-  async updateCwd(cwd: string): Promise<void> {
-    if (cwd === this.currentCwd && this.state === "ready") return;
+  /** Update CWD and/or agent command (e.g. on workspace switch) — kill stale, warm fresh */
+  async updateCwd(cwd: string, agentCommand?: string | null): Promise<void> {
+    const cwdChanged = cwd !== this.currentCwd;
+    const cmdChanged = agentCommand !== undefined && agentCommand !== this.currentAgentCommand;
+    if (!cwdChanged && !cmdChanged && this.state === "ready") return;
     await this.dispose();
-    await this.warm(cwd);
+    await this.warm(cwd, agentCommand);
   }
 
   /** Kill the prewarmed session */
@@ -78,12 +94,14 @@ export class PrewarmManager {
     }
     this.prewarmPaneId = null;
     this.state = "idle";
+    this.commandInjected = false;
   }
 
   /** Reset state without killing (e.g. after daemon reconnect when session is already gone) */
   reset(): void {
     this.prewarmPaneId = null;
     this.state = "idle";
+    this.commandInjected = false;
   }
 
   /** Check if a prewarmed session is available */

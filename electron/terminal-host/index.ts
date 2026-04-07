@@ -199,6 +199,9 @@ async function handleStreamMessage(
     case "write":
       host.write(command.sessionId, command.data);
       break;
+    case "writeAfterReady":
+      host.writeAfterReady(command.sessionId, command.data);
+      break;
     case "subscribe":
       await host.attach(command.sessionId, socket);
       streamSockets.add(socket);

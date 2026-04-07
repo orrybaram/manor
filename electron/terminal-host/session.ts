@@ -70,6 +70,10 @@ export class Session {
   private oscTitleParser: OscTitleParser;
   private pidSweepTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Pending writes queued before first output (for prewarmed command injection)
+  private pendingWrites: string[] = [];
+  private hasReceivedOutput = false;
+
   // OSC 7 parser state
   private oscBuf: number[] = [];
   private inOsc7 = false;
@@ -211,6 +215,15 @@ export class Session {
       case MSG.DATA: {
         const data = payload.toString("utf-8");
 
+        // Flush any writes queued before first output (e.g. prewarmed agent command)
+        if (!this.hasReceivedOutput) {
+          this.hasReceivedOutput = true;
+          for (const pending of this.pendingWrites) {
+            this.write(pending);
+          }
+          this.pendingWrites = [];
+        }
+
         // Feed headless emulator (async — write callback fires after processing)
         this.headlessWritesPending++;
         this.headless.write(data, () => {
@@ -301,6 +314,15 @@ export class Session {
   write(data: string): void {
     if (!this._alive || !this.subprocess) return;
     this.writeToSubprocess(encodeFrame(MSG.WRITE, data));
+  }
+
+  /** Queue a write that will be sent after the shell emits its first output (prompt) */
+  writeAfterReady(data: string): void {
+    if (this.hasReceivedOutput) {
+      this.write(data);
+    } else {
+      this.pendingWrites.push(data);
+    }
   }
 
   /** Resize the PTY */

@@ -13,6 +13,7 @@ import type { TaskManager } from "../task-persistence";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
+import type { PrewarmManager } from "../prewarm-manager";
 
 export interface WorkspaceMeta {
   path: string;
@@ -44,4 +45,5 @@ export interface IpcDeps {
   unseenInputTasks: Set<string>;
   webviewServer: WebviewServer;
   workspaceMeta: WorkspaceMeta[];
+  prewarmManager: PrewarmManager;
 }

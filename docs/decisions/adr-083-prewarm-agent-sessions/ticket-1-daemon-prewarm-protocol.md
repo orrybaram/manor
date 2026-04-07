@@ -1,6 +1,6 @@
 ---
 title: Add prewarmed flag and createNoSubscribe to client
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

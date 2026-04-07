@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pty:resize", paneId, cols, rows),
     close: (paneId: string) => ipcRenderer.invoke("pty:close", paneId),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
+    consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
     onOutput: (paneId: string, callback: (data: string) => void) =>
       onChannel(`pty-output-${paneId}`, callback),
     onExit: (paneId: string, callback: () => void) =>

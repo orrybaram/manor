@@ -110,4 +110,8 @@ export function register(deps: IpcDeps): void {
       // ignore detach errors
     }
   });
+
+  ipcMain.handle("pty:consumePrewarmed", () => {
+    return deps.prewarmManager?.consume() ?? null;
+  });
 }

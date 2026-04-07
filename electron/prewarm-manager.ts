@@ -1,20 +1,3 @@
----
-title: Create PrewarmManager in Electron main
-status: in-progress
-priority: high
-assignee: sonnet
-blocked_by: [1]
----
-
-# Create PrewarmManager in Electron main
-
-New class that manages the lifecycle of a single prewarmed daemon session.
-
-## Implementation
-
-Create `electron/prewarm-manager.ts`:
-
-```typescript
 import { TerminalHostClient } from "./terminal-host/client";
 import crypto from "node:crypto";
 
@@ -97,61 +80,14 @@ export class PrewarmManager {
     this.state = "idle";
   }
 
+  /** Reset state without killing (e.g. after daemon reconnect when session is already gone) */
+  reset(): void {
+    this.prewarmPaneId = null;
+    this.state = "idle";
+  }
+
   /** Check if a prewarmed session is available */
   get isReady(): boolean {
     return this.state === "ready" && this.prewarmPaneId !== null;
   }
 }
-```
-
-## Integration in app-lifecycle.ts
-
-In `electron/app-lifecycle.ts`:
-
-1. Import and instantiate after the client:
-   ```typescript
-   import { PrewarmManager } from "./prewarm-manager";
-   // ... after client is created:
-   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
-   ```
-
-2. After the daemon connects (after backend.pty.ensureConnected() or first IPC call succeeds), start warming:
-   ```typescript
-   // In the app.whenReady() flow, after ensuring daemon is connected:
-   prewarmManager.warm().catch(() => {});
-   ```
-
-3. Pass `prewarmManager` to the IPC deps so `pty:create` can access it.
-
-4. On `before-quit`, dispose:
-   ```typescript
-   app.on("before-quit", async () => {
-     await prewarmManager.dispose();
-   });
-   ```
-
-## IPC for renderer access
-
-Register a new IPC handler so the renderer can get the prewarmed paneId:
-
-```typescript
-ipcMain.handle("pty:consumePrewarmed", () => {
-  return prewarmManager.consume();
-});
-```
-
-Add to the preload/electronAPI type:
-```typescript
-pty: {
-  // ... existing methods
-  consumePrewarmed: () => Promise<string | null>;
-}
-```
-
-## Files to touch
-- `electron/prewarm-manager.ts` — New file
-- `electron/app-lifecycle.ts` — Instantiate PrewarmManager, dispose on quit, pass to deps
-- `electron/ipc/pty.ts` — Add `pty:consumePrewarmed` handler
-- `electron/ipc/types.ts` — Add prewarmManager to IpcDeps
-- `electron/preload.ts` — Expose `consumePrewarmed` in electronAPI
-- `src/electron.d.ts` — Update pty type with `consumePrewarmed`

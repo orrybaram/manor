@@ -203,6 +203,7 @@ export interface ElectronAPI {
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
     close: (paneId: string) => Promise<void>;
     detach: (paneId: string) => Promise<void>;
+    consumePrewarmed: () => Promise<string | null>;
     onOutput: (paneId: string, callback: (data: string) => void) => () => void;
     onExit: (paneId: string, callback: () => void) => () => void;
     onCwd: (paneId: string, callback: (cwd: string) => void) => () => void;

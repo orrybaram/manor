@@ -30,6 +30,7 @@ import type { AgentStatus, StreamEvent } from "./terminal-host/types";
 import { initAutoUpdater } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
+import { PrewarmManager } from "./prewarm-manager";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -64,6 +65,7 @@ export function initApp(devTitle: string | null): void {
   const githubManager = new GitHubManager();
   const linearManager = new LinearManager();
 
+  const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
   const taskManager = new TaskManager();
   const preferencesManager = new PreferencesManager();
@@ -189,6 +191,7 @@ export function initApp(devTitle: string | null): void {
     unseenInputTasks,
     webviewServer,
     workspaceMeta: [],
+    prewarmManager,
   };
 
   ptyIpc.register(ipcDeps);
@@ -302,6 +305,9 @@ export function initApp(devTitle: string | null): void {
     } catch (err) {
       console.error("Failed to connect to terminal host daemon:", err);
     }
+
+    // Pre-warm a terminal session for instant new-task
+    prewarmManager.warm().catch(() => {});
 
     // Set the relay callback now that the client is connected.
     // Hook events route through the daemon's AgentDetector state machine.
@@ -515,5 +521,6 @@ export function initApp(devTitle: string | null): void {
     agentHookServer.stop();
     webviewServer.stop();
     portlessManager.stop();
+    prewarmManager.dispose().catch(() => {});
   });
 }

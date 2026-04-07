@@ -7,6 +7,7 @@ export class PrewarmManager {
   private client: TerminalHostClient;
   private state: PrewarmState = "idle";
   private prewarmPaneId: string | null = null;
+  private warmingPaneId: string | null = null;
   private currentCwd: string;
   private currentAgentCommand: string | null = null;
   private commandInjected = false;
@@ -27,6 +28,7 @@ export class PrewarmManager {
     this.state = "warming";
     this.commandInjected = false;
     const paneId = `pane-${crypto.randomUUID()}`;
+    this.warmingPaneId = paneId;
 
     try {
       await this.client.createNoSubscribe(
@@ -34,20 +36,28 @@ export class PrewarmManager {
         this.currentCwd,
         this.defaultCols,
         this.defaultRows,
-        true, // prewarmed flag
+        true,
       );
+
+      // Check if we were disposed while awaiting (e.g. updateCwd race)
+      if (this.warmingPaneId !== paneId) {
+        // Session was superseded — kill the orphan
+        this.client.kill(paneId).catch(() => {});
+        return;
+      }
+
       this.prewarmPaneId = paneId;
+      this.warmingPaneId = null;
       this.state = "ready";
 
       // Inject agent command so it's already booting when consumed.
-      // writeAfterReady is a control request — we only set commandInjected
-      // after the daemon confirms the write was queued.
+      // Uses a control request — commandInjected is only set after
+      // the daemon confirms the write was queued.
       if (this.currentAgentCommand) {
         try {
           await this.client.writeAfterReady(paneId, this.currentAgentCommand + "\n");
           this.commandInjected = true;
         } catch {
-          // Write failed — fall back to renderer-side injection
           this.commandInjected = false;
         }
       }
@@ -55,6 +65,7 @@ export class PrewarmManager {
       console.error("[PrewarmManager] Failed to warm session:", err);
       this.state = "idle";
       this.prewarmPaneId = null;
+      this.warmingPaneId = null;
       this.commandInjected = false;
     }
   }
@@ -90,23 +101,28 @@ export class PrewarmManager {
     await this.warm(cwd, agentCommand);
   }
 
-  /** Kill the prewarmed session */
+  /** Kill the prewarmed session (ready or in-flight) */
   async dispose(): Promise<void> {
-    if (this.prewarmPaneId) {
+    const toKill = this.prewarmPaneId || this.warmingPaneId;
+    // Clear warmingPaneId so an in-flight warm() detects it was superseded
+    this.warmingPaneId = null;
+    this.prewarmPaneId = null;
+    this.state = "idle";
+    this.commandInjected = false;
+
+    if (toKill) {
       try {
-        await this.client.kill(this.prewarmPaneId);
+        await this.client.kill(toKill);
       } catch {
         // ignore — daemon may have restarted
       }
     }
-    this.prewarmPaneId = null;
-    this.state = "idle";
-    this.commandInjected = false;
   }
 
   /** Reset state without killing (e.g. after daemon reconnect when session is already gone) */
   reset(): void {
     this.prewarmPaneId = null;
+    this.warmingPaneId = null;
     this.state = "idle";
     this.commandInjected = false;
   }

@@ -259,16 +259,18 @@ function App() {
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
-  // Keep the prewarmed session in sync with the active workspace
+  // Keep the prewarmed session in sync with the active workspace.
+  // Derive agentCommand outside the effect so it only re-fires when the
+  // command actually changes, not on every unrelated project mutation.
+  const activeProject = projects.find((p) =>
+    p.workspaces.some((w) => w.path === activeWorkspacePath),
+  );
+  const prewarmAgentCommand = activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
     if (activeWorkspacePath) {
-      const currentProject = projects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
-      const agentCommand = currentProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, agentCommand);
+      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand);
     }
-  }, [activeWorkspacePath, projects]);
+  }, [activeWorkspacePath, prewarmAgentCommand]);
 
   // Keybindings
   const activeTabRef = useRef(activeTab);

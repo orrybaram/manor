@@ -51,10 +51,6 @@ export function register(deps: IpcDeps): void {
       assertPositiveInt(cols, "cols");
       assertPositiveInt(rows, "rows");
       try {
-        // Check if this is a prewarmed session before createOrAttach
-        const existingSnapshot = await backend.pty.getSnapshot(paneId);
-        const isPrewarmed = existingSnapshot !== null;
-
         const result = await backend.pty.createOrAttach(
           paneId,
           cwd || process.env.HOME || "/",
@@ -63,10 +59,11 @@ export function register(deps: IpcDeps): void {
         );
         // Return snapshot to the renderer so it can write it exactly once,
         // avoiding duplicate writes from StrictMode double-mounting.
+        // A non-null snapshot means the session already existed (prewarmed).
         return {
           ok: true,
           snapshot: result.snapshot?.screenAnsi || null,
-          prewarmed: isPrewarmed,
+          prewarmed: result.snapshot !== null,
         };
       } catch (err) {
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);

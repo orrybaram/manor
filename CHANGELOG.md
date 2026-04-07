@@ -3,6 +3,18 @@
 
 
 
+
+## [0.5.1] - 2026-04-06
+
+**Features**
+- Pre-warmed terminal sessions for instant new task startup
+- Agent command injection during prewarm for faster session initialization
+
+**Fixes**
+- Fixed macOS notification permissions not registering correctly
+- Fixed agent command not starting in certain prewarm scenarios
+- Fixed potential blocking when writing to prewarmed sessions
+
 ## [0.5.0] - 2026-04-06
 
 **Features**

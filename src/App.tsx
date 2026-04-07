@@ -410,7 +410,7 @@ function App() {
   });
 
   const handleResumeTask = useCallback(
-    (task: TaskInfo) => {
+    async (task: TaskInfo) => {
       // If the task is active and has a pane, switch to it instead of opening a new tab
       if (task.status === "active" && task.paneId && task.workspacePath) {
         const wsLayout =
@@ -446,12 +446,13 @@ function App() {
             `${agentCommand} --resume ${task.agentSessionId}`,
           );
       }
-      addTab();
+      const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+      addTab(prewarmPaneId ?? undefined);
     },
     [setActiveWorkspace, addTab, projects],
   );
 
-  const handleNewTask = useCallback(() => {
+  const handleNewTask = useCallback(async () => {
     if (activeWorkspacePath) {
       const currentProject = projects.find((p) =>
         p.workspaces.some((w) => w.path === activeWorkspacePath),
@@ -462,12 +463,13 @@ function App() {
         .getState()
         .setPendingStartupCommand(activeWorkspacePath, command);
     }
-    addTab();
+    const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+    addTab(prewarmPaneId ?? undefined);
   }, [addTab, projects, activeWorkspacePath]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
-    (prompt: string) => {
+    async (prompt: string) => {
       if (activeWorkspacePath) {
         const currentProject = projects.find((p) =>
           p.workspaces.some((w) => w.path === activeWorkspacePath),
@@ -486,7 +488,8 @@ function App() {
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
       }
-      addTab();
+      const prewarmPaneId = await window.electronAPI.pty.consumePrewarmed();
+      addTab(prewarmPaneId ?? undefined);
     },
     [addTab, projects, activeWorkspacePath],
   );

@@ -51,6 +51,10 @@ export function register(deps: IpcDeps): void {
       assertPositiveInt(cols, "cols");
       assertPositiveInt(rows, "rows");
       try {
+        // Check if this is a prewarmed session before createOrAttach
+        const existingSnapshot = await backend.pty.getSnapshot(paneId);
+        const isPrewarmed = existingSnapshot !== null;
+
         const result = await backend.pty.createOrAttach(
           paneId,
           cwd || process.env.HOME || "/",
@@ -62,6 +66,7 @@ export function register(deps: IpcDeps): void {
         return {
           ok: true,
           snapshot: result.snapshot?.screenAnsi || null,
+          prewarmed: isPrewarmed,
         };
       } catch (err) {
         console.error(`Failed to create/attach PTY for ${paneId}:`, err);

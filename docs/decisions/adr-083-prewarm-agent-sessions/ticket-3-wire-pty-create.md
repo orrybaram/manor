@@ -1,6 +1,6 @@
 ---
 title: Wire renderer to use prewarmed sessions
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]

@@ -178,7 +178,7 @@ export function useTerminalLifecycle(
     const rows = t.rows;
     let disposed = false;
     create(cwd ?? null, cols, rows).then(
-      (result: { ok: boolean; snapshot?: string | null; error?: string }) => {
+      (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
         if (!disposed && !result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
@@ -218,15 +218,20 @@ export function useTerminalLifecycle(
               : null;
           const pendingCmd = paneCmd || startupCmd;
           if (pendingCmd) {
-            // Wait for the shell to emit its first output (the prompt)
-            // before sending the command, instead of a blind timeout.
-            const unsubReady = window.electronAPI.pty.onOutput(
-              paneId,
-              () => {
-                unsubReady();
-                if (!disposed) write(pendingCmd + "\n");
-              },
-            );
+            if (result.prewarmed) {
+              // Shell is already initialized — write command immediately
+              write(pendingCmd + "\n");
+            } else {
+              // Cold start — wait for the shell to emit its first output (the
+              // prompt) before sending the command, instead of a blind timeout.
+              const unsubReady = window.electronAPI.pty.onOutput(
+                paneId,
+                () => {
+                  unsubReady();
+                  if (!disposed) write(pendingCmd + "\n");
+                },
+              );
+            }
           }
         }
       },

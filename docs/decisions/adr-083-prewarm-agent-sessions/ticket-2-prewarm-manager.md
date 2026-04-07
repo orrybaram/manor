@@ -1,6 +1,6 @@
 ---
 title: Create PrewarmManager in Electron main
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

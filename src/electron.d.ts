@@ -198,7 +198,7 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
-    ) => Promise<{ ok: boolean; snapshot?: string | null }>;
+    ) => Promise<{ ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }>;
     write: (paneId: string, data: string) => Promise<void>;
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
     close: (paneId: string) => Promise<void>;

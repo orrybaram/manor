@@ -86,13 +86,13 @@ export interface Tab {
   focusedPaneId: string;
 }
 
-function createTab(title?: string): Tab {
-  const paneId = newPaneId();
+function createTab(title?: string, paneId?: string): Tab {
+  const id = paneId ?? newPaneId();
   return {
     id: newTabId(),
     title: title ?? "Terminal",
-    rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
+    rootNode: { type: "leaf", paneId: id },
+    focusedPaneId: id,
   };
 }
 
@@ -216,8 +216,8 @@ export interface AppState {
   loadPersistedLayout: () => Promise<void>;
 
   // Tab operations
-  addTab: () => void;
-  addTerminalTab: (command: string) => void;
+  addTab: (paneId?: string) => void;
+  addTerminalTab: (command: string, paneId?: string) => void;
   addBrowserTab: (url: string) => void;
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
@@ -563,12 +563,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  addTab: () =>
+  addTab: (paneId?: string) =>
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const tab = createTab();
+      const tab = createTab(undefined, paneId);
       return updatePanel(state, path, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
@@ -576,13 +576,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
     }),
 
-  addTerminalTab: (command: string) =>
+  addTerminalTab: (command: string, paneId?: string) =>
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const tab = createTab();
-      const paneId = tab.focusedPaneId;
+      const tab = createTab(undefined, paneId);
+      const tabPaneId = tab.focusedPaneId;
       return {
         ...updatePanel(state, path, layout, panel.id, (p) => ({
           ...p,
@@ -591,7 +591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
         pendingPaneCommands: {
           ...state.pendingPaneCommands,
-          [paneId]: command,
+          [tabPaneId]: command,
         },
       };
     }),

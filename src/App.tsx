@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PaneLayout } from "./components/workspace-panes/PaneLayout/PaneLayout";
@@ -258,6 +258,13 @@ function App() {
   const activeTab = ws?.tabs.find((s) => s.id === selectedTabId);
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
+
+  // Keep the prewarmed session CWD in sync with the active workspace
+  useEffect(() => {
+    if (activeWorkspacePath) {
+      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath);
+    }
+  }, [activeWorkspacePath]);
 
   // Keybindings
   const activeTabRef = useRef(activeTab);

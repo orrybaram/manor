@@ -204,6 +204,7 @@ export interface ElectronAPI {
     close: (paneId: string) => Promise<void>;
     detach: (paneId: string) => Promise<void>;
     consumePrewarmed: () => Promise<string | null>;
+    updatePrewarmCwd: (cwd: string) => Promise<void>;
     onOutput: (paneId: string, callback: (data: string) => void) => () => void;
     onExit: (paneId: string, callback: () => void) => () => void;
     onCwd: (paneId: string, callback: (cwd: string) => void) => () => void;

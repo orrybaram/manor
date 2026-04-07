@@ -1,6 +1,6 @@
 ---
 title: Handle workspace switches and app lifecycle
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [2]

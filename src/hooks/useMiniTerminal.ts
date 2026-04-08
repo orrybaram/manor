@@ -108,15 +108,31 @@ export function useMiniTerminal(
     let commandSent = false;
     const cmdToSend = command && exitOnComplete ? `${command}; exit` : command;
 
-    // Set up a fallback timer to send command if no output arrives quickly
+    const sendCommand = () => {
+      if (commandSent || !cmdToSend) return;
+      commandSent = true;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      window.electronAPI.pty.write(sessionId, cmdToSend + "\r");
+    };
+
+    // Wait for the shell prompt before sending the command.
+    // Manor's custom .zshrc emits OSC 7 (CWD) via a precmd hook,
+    // which fires right before the prompt — so the first CWD event
+    // means ZLE is ready for input.
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     if (cmdToSend) {
+      const unsubCwd = window.electronAPI.pty.onCwd(sessionId, () => {
+        unsubCwd();
+        sendCommand();
+      });
+      cleanupFnsRef.current.push(unsubCwd);
+
+      // Fallback: if no CWD event arrives (e.g. non-zsh shell),
+      // send after a generous timeout.
       fallbackTimer = setTimeout(() => {
-        if (!commandSent && paneIdRef.current) {
-          commandSent = true;
-          window.electronAPI.pty.write(paneIdRef.current, cmdToSend + "\r");
-        }
-      }, 500);
+        fallbackTimer = null;
+        sendCommand();
+      }, 3000);
       cleanupFnsRef.current.push(() => {
         if (fallbackTimer) clearTimeout(fallbackTimer);
       });
@@ -126,12 +142,6 @@ export function useMiniTerminal(
       sessionId,
       (data: string) => {
         term.write(data);
-        // Send the command once the shell has produced its first output (prompt)
-        if (cmdToSend && !commandSent) {
-          commandSent = true;
-          if (fallbackTimer) clearTimeout(fallbackTimer);
-          window.electronAPI.pty.write(sessionId, cmdToSend + "\r");
-        }
         onOutput?.(data);
       },
     );

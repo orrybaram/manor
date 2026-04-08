@@ -3,7 +3,7 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -57,13 +57,14 @@ export function useTerminalLifecycle(
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const resettingRef = useRef(false);
   const { write, resize, create, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
 
   // Subscribe to stream events (pass write so the stream handler can
   // respond to kitty keyboard protocol queries on behalf of xterm.js)
-  useTerminalStream(paneId, term, write, setPtyError);
+  useTerminalStream(paneId, term, write, setPtyError, resettingRef);
 
   // Auto-resize
   useTerminalResize(containerRef, fitAddon, term);
@@ -222,15 +223,20 @@ export function useTerminalLifecycle(
               // Shell is already initialized — write command immediately
               write(pendingCmd + "\n");
             } else {
-              // Cold start — wait for the shell to emit its first output (the
-              // prompt) before sending the command, instead of a blind timeout.
-              const unsubReady = window.electronAPI.pty.onOutput(
-                paneId,
-                () => {
-                  unsubReady();
-                  if (!disposed) write(pendingCmd + "\n");
-                },
-              );
+              // Cold start — wait for the shell prompt (CWD/OSC 7 event from
+              // the precmd hook) before sending the command. Sending on first
+              // output is too early: the shell may still be sourcing .zshrc,
+              // and ZLE discards buffered input when it initializes.
+              let sent = false;
+              const send = () => {
+                if (sent || disposed) return;
+                sent = true;
+                clearTimeout(fallback);
+                unsubCwd();
+                write(pendingCmd + "\n");
+              };
+              const unsubCwd = window.electronAPI.pty.onCwd(paneId, send);
+              const fallback = setTimeout(send, 3000);
             }
           }
         }
@@ -277,5 +283,23 @@ export function useTerminalLifecycle(
     };
   });
 
-  return { term, fitAddon, ptyError, write };
+  /** Kill the current PTY, reset xterm, and spawn a fresh shell session. */
+  const reset = useCallback(async () => {
+    const t = termRef.current;
+    if (!t) return;
+    // Suppress the exit handler so the pane isn't closed during reset
+    resettingRef.current = true;
+    try {
+      await window.electronAPI.pty.close(paneId);
+      t.reset();
+      const result = await create(cwd ?? null, t.cols, t.rows);
+      if (!result.ok) {
+        setPtyError(result.error ?? "Failed to create terminal session");
+      }
+    } finally {
+      resettingRef.current = false;
+    }
+  }, [paneId, cwd, create]);
+
+  return { term, fitAddon, ptyError, write, reset };
 }

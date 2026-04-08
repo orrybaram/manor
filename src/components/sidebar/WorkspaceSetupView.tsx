@@ -7,6 +7,7 @@ import { useAppStore } from "../../store/app-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { Button } from "../ui/Button/Button";
 import { MiniTerminal } from "../ui/MiniTerminal";
 import styles from "./WorkspaceSetupView.module.css";
 
@@ -131,6 +132,15 @@ export function WorkspaceSetupView({
     updateStep(workspacePath, "setup-script", "done");
   }, [updateStep, workspacePath]);
 
+  const handleSkip = useCallback(() => {
+    // Force all steps to done so the setup view can dismiss
+    for (const s of steps) {
+      if (s.status !== "done") {
+        updateStep(workspacePath, s.step, "done");
+      }
+    }
+  }, [steps, updateStep, workspacePath]);
+
   const terminalSessionId = `setup-${workspacePath.replace(/\//g, "-")}`;
   const showTerminal =
     hasSetupScriptStep &&
@@ -165,6 +175,12 @@ export function WorkspaceSetupView({
               className={styles.terminal}
             />
           </div>
+        )}
+
+        {!fading && (
+          <Button variant="ghost" size="sm" onClick={handleSkip}>
+            Skip
+          </Button>
         )}
       </Stack>
       </Row>

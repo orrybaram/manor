@@ -361,6 +361,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // Migrate __pending__ key to the real workspace path
       useAppStore.getState().migrateWorktreeSetupPath("__pending__", wsPath);
 
+      // Force all IPC-driven steps to "done" — the successful IPC return
+      // guarantees they completed, but progress events delivered via
+      // webContents.send may arrive after the ipcMain.handle response,
+      // racing with unsubProgress() above.
+      const ipcSteps: SetupStep[] = ["prune", "fetch", "create-worktree", "persist"];
+      for (const step of ipcSteps) {
+        useAppStore.getState().updateWorktreeSetupStep(wsPath, step, "done");
+      }
+
       // Emit switch step as in-progress
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "in-progress");
 

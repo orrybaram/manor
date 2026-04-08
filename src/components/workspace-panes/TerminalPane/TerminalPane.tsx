@@ -29,7 +29,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
 
-  const { ptyError, term, write } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
+  const { ptyError, term, write, reset } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);
@@ -143,12 +143,7 @@ export function TerminalPane(props: TerminalPaneProps) {
 
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => {
-              if (term) {
-                term.reset();
-                write("\x1bc");
-              }
-            }}
+            onSelect={reset}
           >
             <RotateCw size={14} />
             Reset Terminal

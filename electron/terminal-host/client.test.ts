@@ -199,7 +199,7 @@ class TestDaemon {
         this.send(socket, { type: "resized" }, requestId);
         break;
       case "kill":
-        this.host.kill(req.sessionId);
+        await this.host.kill(req.sessionId);
         this.send(socket, { type: "killed" }, requestId);
         break;
       case "getSnapshot": {

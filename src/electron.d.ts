@@ -202,6 +202,12 @@ export interface ElectronAPI {
     write: (paneId: string, data: string) => Promise<void>;
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
     close: (paneId: string) => Promise<void>;
+    reset: (
+      paneId: string,
+      cwd: string | null,
+      cols: number,
+      rows: number,
+    ) => Promise<{ ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }>;
     detach: (paneId: string) => Promise<void>;
     consumePrewarmed: () => Promise<{ paneId: string; commandInjected: boolean } | null>;
     updatePrewarmCwd: (cwd: string, agentCommand?: string | null) => Promise<void>;

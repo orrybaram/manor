@@ -22,6 +22,7 @@ export function useTerminalStream(
   term: Terminal | null,
   ptyWrite?: (data: string) => void,
   onError?: (message: string) => void,
+  resettingRef?: React.RefObject<boolean>,
 ) {
   const termRef = useRef(term);
   termRef.current = term;
@@ -61,6 +62,7 @@ export function useTerminalStream(
     );
 
     const unsubExit = window.electronAPI.pty.onExit(paneId, () => {
+      if (resettingRef?.current) return;
       useAppStore.getState().closePaneById(paneId);
     });
 

@@ -34,6 +34,14 @@ export function readBranchSync(repoPath: string): string | null {
   }
 }
 
+function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows: number): string {
+  assertString(paneId, "paneId");
+  if (cwd !== null) assertString(cwd, "cwd");
+  assertPositiveInt(cols, "cols");
+  assertPositiveInt(rows, "rows");
+  return cwd || process.env.HOME || "/";
+}
+
 export function register(deps: IpcDeps): void {
   const { backend } = deps;
 
@@ -46,14 +54,11 @@ export function register(deps: IpcDeps): void {
       cols: number,
       rows: number,
     ) => {
-      assertString(paneId, "paneId");
-      if (cwd !== null) assertString(cwd, "cwd");
-      assertPositiveInt(cols, "cols");
-      assertPositiveInt(rows, "rows");
+      const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
       try {
         const result = await backend.pty.createOrAttach(
           paneId,
-          cwd || process.env.HOME || "/",
+          resolvedCwd,
           cols,
           rows,
         );
@@ -103,6 +108,58 @@ export function register(deps: IpcDeps): void {
       // ignore close errors
     }
   });
+
+  ipcMain.handle(
+    "pty:reset",
+    async (
+      _event,
+      paneId: string,
+      cwd: string | null,
+      cols: number,
+      rows: number,
+    ) => {
+      const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
+      try {
+        try {
+          await backend.pty.kill(paneId);
+        } catch {
+          // Session may not exist.
+        }
+
+        // The daemon may still have the old session in its map if the
+        // shell hasn't fully exited yet. Retry until we get a fresh
+        // session (snapshot === null).
+        const deadline = Date.now() + 3_000;
+        while (true) {
+          if (Date.now() >= deadline) {
+            return {
+              ok: false,
+              error: "Reset timed out — old session still active",
+            };
+          }
+
+          try { await backend.pty.disposeDead(); } catch { /* ignore */ }
+
+          const result = await backend.pty.createOrAttach(
+            paneId, resolvedCwd, cols, rows,
+          );
+          if (!result.snapshot) {
+            return { ok: true, snapshot: null, prewarmed: false };
+          }
+
+          // Reattached to old (dying) session — detach and retry.
+          try { await backend.pty.detach(paneId); } catch { /* ignore */ }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      } catch (err) {
+        console.error(`Failed to reset PTY for ${paneId}:`, err);
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 
   ipcMain.handle("pty:detach", async (_event, paneId: string) => {
     assertString(paneId, "paneId");

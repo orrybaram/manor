@@ -336,15 +336,29 @@ export class Session {
     }
   }
 
-  /** Kill the PTY process */
-  kill(): void {
-    if (this.subprocess && this._alive) {
-      this.writeToSubprocess(encodeFrame(MSG.KILL));
-    }
-  }
-
   /** Dispose of this session entirely */
   dispose(): void {
+    this.disposeInternal();
+  }
+
+  /** Dispose and wait for the subprocess to fully exit (used by kill path). */
+  async disposeAndWait(timeoutMs = 3_000): Promise<void> {
+    const proc = this.subprocess;
+    this.disposeInternal();
+    if (!proc || proc.exitCode !== null) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        console.warn(`[session ${this.sessionId}] subprocess did not exit within ${timeoutMs}ms`);
+        resolve();
+      }, timeoutMs);
+      proc.on("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  private disposeInternal(): void {
     if (this.subprocess) {
       try {
         this.writeToSubprocess(encodeFrame(MSG.DISPOSE));

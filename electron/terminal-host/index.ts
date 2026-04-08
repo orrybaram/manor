@@ -133,7 +133,7 @@ async function handleControlMessage(
     }
 
     case "kill": {
-      host.kill(request.sessionId);
+      await host.kill(request.sessionId);
       sendResponse(socket, { type: "killed" }, requestId);
       break;
     }

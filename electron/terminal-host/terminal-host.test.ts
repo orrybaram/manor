@@ -249,14 +249,14 @@ describe("TerminalHost", () => {
   });
 
   describe("kill", () => {
-    it("kill sends kill to session", () => {
+    it("kill disposes and removes session", async () => {
       host.create("s1", "/tmp", 80, 24);
-      host.kill("s1");
-      expect(host.listSessions()).toHaveLength(1);
+      await host.kill("s1");
+      expect(host.listSessions()).toHaveLength(0);
     });
 
-    it("kill nonexistent session is a no-op", () => {
-      host.kill("nonexistent");
+    it("kill nonexistent session is a no-op", async () => {
+      await host.kill("nonexistent");
     });
   });
 

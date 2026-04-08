@@ -189,7 +189,7 @@ class E2EDaemon {
         this.send(socket, { type: "resized" });
         break;
       case "kill":
-        this.host.kill(req.sessionId);
+        await this.host.kill(req.sessionId);
         this.send(socket, { type: "killed" });
         break;
       case "getSnapshot": {

@@ -58,6 +58,7 @@ export function useTerminalLifecycle(
   const [ptyError, setPtyError] = useState<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const resettingRef = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, resize, create, detach } =
     useTerminalConnection(paneId);
   const { attachHandler } = useTerminalHotkeys();
@@ -264,6 +265,7 @@ export function useTerminalLifecycle(
     return () => {
       disposed = true;
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       titleDisposable.dispose();
       dataDisposable.dispose();
       resizeDisposable.dispose();
@@ -287,19 +289,29 @@ export function useTerminalLifecycle(
   const reset = useCallback(async () => {
     const t = termRef.current;
     if (!t) return;
-    // Suppress the exit handler so the pane isn't closed during reset
+    // Suppress the exit handler so the pane isn't closed during reset.
     resettingRef.current = true;
     try {
-      await window.electronAPI.pty.close(paneId);
       t.reset();
-      const result = await create(cwd ?? null, t.cols, t.rows);
+      const result = await window.electronAPI.pty.reset(
+        paneId,
+        cwd ?? null,
+        t.cols,
+        t.rows,
+      );
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");
       }
     } finally {
-      resettingRef.current = false;
+      // Keep suppressing exit events briefly — the old session's exit
+      // event may still be in the IPC pipeline after the reset resolves.
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
+        resetTimerRef.current = null;
+        resettingRef.current = false;
+      }, 1_000);
     }
-  }, [paneId, cwd, create]);
+  }, [paneId, cwd]);
 
   return { term, fitAddon, ptyError, write, reset };
 }

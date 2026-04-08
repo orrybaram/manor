@@ -78,11 +78,12 @@ export class TerminalHost {
     this.sessions.get(sessionId)?.resize(cols, rows);
   }
 
-  /** Kill a session's PTY process */
-  kill(sessionId: string): void {
+  /** Kill a session's PTY process and remove it so the ID can be reused */
+  async kill(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.kill();
+      this.sessions.delete(sessionId);
+      await session.disposeAndWait();
     }
   }
 

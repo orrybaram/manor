@@ -1,7 +1,7 @@
 {
   "name": "manor",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "packageManager": "pnpm@10.23.0",
   "main": "dist-electron/main.js",
   "scripts": {

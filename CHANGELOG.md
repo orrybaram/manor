@@ -4,6 +4,17 @@
 
 
 
+
+## [0.5.2] - 2026-04-07
+
+**Fixes**
+- Reset terminal now properly kills the old shell and starts a fresh session
+- Startup commands no longer fire before the shell is ready
+- Feedback dialog automatically focuses the title field when opened
+
+**Features**
+- Screenshots now render inline in Linear ticket detail view
+
 ## [0.5.1] - 2026-04-06
 
 **Features**

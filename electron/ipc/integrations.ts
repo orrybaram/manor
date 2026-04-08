@@ -146,6 +146,11 @@ export function register(deps: IpcDeps): void {
       projectManager.unlinkIssueFromWorkspace(projectId, workspacePath, issueId),
   );
 
+  ipcMain.handle("linear:proxyImage", async (_event, url: string) => {
+    assertString(url, "url");
+    return linearManager.proxyImage(url);
+  });
+
   ipcMain.handle("linear:autoMatch", async () => {
     const projects = await projectManager.getProjects();
     const teams = await linearManager.getTeams();

@@ -366,6 +366,22 @@ export class LinearManager {
     return result;
   }
 
+  async proxyImage(url: string): Promise<string> {
+    const token = this.getToken();
+    if (!token) throw new Error("Not connected to Linear");
+
+    const res = await fetch(url, {
+      headers: { Authorization: token },
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch image: ${res.status}`);
+    }
+
+    const contentType = res.headers.get("content-type") ?? "image/png";
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return `data:${contentType};base64,${buffer.toString("base64")}`;
+  }
+
   private async graphql<T>(
     query: string,
     variables?: Record<string, unknown>,

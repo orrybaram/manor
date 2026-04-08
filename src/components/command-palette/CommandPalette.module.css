@@ -300,6 +300,19 @@
   word-break: break-word;
 }
 
+.detailScreenshots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.detailScreenshot {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--surface);
+}
+
 .detailSidebar {
   border-left: 1px solid var(--surface);
   padding: 12px 16px;

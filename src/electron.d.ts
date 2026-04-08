@@ -424,6 +424,7 @@ export interface ElectronAPI {
       teamIds: string[],
       options?: { stateTypes?: string[]; limit?: number },
     ) => Promise<LinearIssue[]>;
+    proxyImage: (url: string) => Promise<string>;
     autoMatch: () => Promise<Record<string, LinearAssociation>>;
     startIssue: (issueId: string) => Promise<void>;
     closeIssue: (issueId: string) => Promise<void>;

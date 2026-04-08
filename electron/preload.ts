@@ -224,6 +224,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       teamIds: string[],
       options?: { stateTypes?: string[]; limit?: number },
     ) => ipcRenderer.invoke("linear:getAllIssues", teamIds, options),
+    proxyImage: (url: string) =>
+      ipcRenderer.invoke("linear:proxyImage", url),
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
     startIssue: (issueId: string) =>
       ipcRenderer.invoke("linear:startIssue", issueId),

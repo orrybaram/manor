@@ -1,11 +1,11 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import type { LinearIssue, LinearIssueDetail } from "../../electron.d";
-import { PRIORITY_LABELS, stripMarkdown } from "./utils";
+import { PRIORITY_LABELS, stripMarkdown, extractImages } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
@@ -204,6 +204,9 @@ export function IssueDetailView(props: IssueDetailViewProps) {
   const description = issueDetail.description
     ? stripMarkdown(issueDetail.description)
     : null;
+  const images = issueDetail.description
+    ? extractImages(issueDetail.description)
+    : [];
 
   return (
     <>
@@ -217,6 +220,13 @@ export function IssueDetailView(props: IssueDetailViewProps) {
           <h2 className={styles.detailTitle}>{issueDetail.title}</h2>
           {description && (
             <div className={styles.detailDescription}>{description}</div>
+          )}
+          {images.length > 0 && (
+            <div className={styles.detailScreenshots}>
+              {images.map((img) => (
+                <ProxiedImage key={img.url} url={img.url} alt={img.alt} />
+              ))}
+            </div>
           )}
         </div>
         <div className={styles.detailSidebar}>
@@ -314,5 +324,30 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         </button>
       </div>
     </>
+  );
+}
+
+function ProxiedImage({ url, alt }: { url: string; alt: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI.linear.proxyImage(url).then((dataUrl) => {
+      if (!cancelled) setSrc(dataUrl);
+    }).catch(() => {
+      // Fallback to raw URL if proxy fails
+      if (!cancelled) setSrc(url);
+    });
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (!src) return null;
+
+  return (
+    <img
+      src={src}
+      alt={alt || "Screenshot"}
+      className={styles.detailScreenshot}
+    />
   );
 }

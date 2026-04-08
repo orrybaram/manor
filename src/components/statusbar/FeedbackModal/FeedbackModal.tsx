@@ -41,6 +41,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
   const [selectedTag, setSelectedTag] = useState<Tag | null>(null);
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addToast, updateToast } = useToastStore();
 
@@ -172,16 +173,16 @@ export function FeedbackModal(props: FeedbackModalProps) {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.dialog} onPaste={handlePaste}>
+        <Dialog.Content className={styles.dialog} onPaste={handlePaste} onOpenAutoFocus={(e) => { e.preventDefault(); titleInputRef.current?.focus(); }}>
           <Dialog.Title className={styles.title}>Send Feedback</Dialog.Title>
 
           <div className={styles.field}>
             <label className={styles.label}>Title</label>
             <Input
+              ref={titleInputRef}
               placeholder="Brief summary..."
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              autoFocus
             />
           </div>
 

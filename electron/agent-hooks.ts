@@ -205,7 +205,11 @@ export function ensureHookScript(): void {
 
 /** Register hooks and MCP for all known agent connectors */
 export function registerAllAgents(): void {
-  const mcpServerScriptPath = path.join(__dirname, "mcp-webview-server.js");
+  // In packaged builds, the asar archive is not readable by plain Node.js,
+  // so we point to the unpacked copy extracted by electron-builder's asarUnpack.
+  const mcpServerScriptPath = path
+    .join(__dirname, "mcp-webview-server.js")
+    .replace("app.asar", "app.asar.unpacked");
 
   for (const connector of getAllConnectors()) {
     connector.registerHooks(HOOK_SCRIPT_PATH);

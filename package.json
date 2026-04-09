@@ -100,6 +100,9 @@
       "!dist/mac-arm64",
       "!dist/builder-effective-config.yaml",
       "dist-electron/**/*"
+    ],
+    "asarUnpack": [
+      "dist-electron/mcp-webview-server.js"
     ]
   },
   "pnpm": {

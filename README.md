@@ -141,7 +141,20 @@ pnpm install
 pnpm dev
 ```
 
-### Building a distributable
+<br />
+
+## Distribution
+
+`pnpm package` produces a signed, notarized `.dmg`/`.zip` for release. It requires Apple Developer credentials — **most contributors only need `pnpm dev`.**
+
+Create a `.env` file from the provided example and fill in your Apple Developer credentials:
+
+```bash
+cp .env.example .env
+# edit .env with your APPLE_ID, APPLE_ID_PASSWORD, APPLE_TEAM_ID, and certificate details
+```
+
+Then run:
 
 ```bash
 pnpm package

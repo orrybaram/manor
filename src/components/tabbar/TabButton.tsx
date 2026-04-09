@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent } from "react";
+import { type PointerEvent as ReactPointerEvent, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -68,6 +68,7 @@ export function TabButton(props: TabButtonProps) {
     if (!layout) return 1;
     return Object.keys(layout.panels).length;
   });
+  const [faviconError, setFaviconError] = useState(false);
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
@@ -86,13 +87,13 @@ export function TabButton(props: TabButtonProps) {
         >
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
-          {isBrowser && (favicon ? (
+          {isBrowser && (favicon && !faviconError ? (
             <img
               src={favicon}
               width={12}
               height={12}
               className={styles.tabIcon}
-              onError={(e) => { (e.target as HTMLImageElement).replaceWith(document.createElement("span")); }}
+              onError={() => setFaviconError(true)}
             />
           ) : (
             <Globe size={12} className={styles.tabIcon} />

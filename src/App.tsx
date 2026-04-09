@@ -533,6 +533,7 @@ function App() {
           <div className="main-content">
             {activeWorkspacePath && hasTabs ? (
               <PanelLayout
+                key={activeWorkspacePath}
                 node={workspaceLayouts[activeWorkspacePath].panelTree}
                 workspacePath={activeWorkspacePath}
                 onNewTask={handleNewTask}

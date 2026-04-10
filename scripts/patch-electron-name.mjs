@@ -66,7 +66,9 @@ try {
 
 // Create a symlink with the desired name so macOS shows it in the Dock.
 // The Dock label comes from the .app folder name, not the plist.
-const appBundle = `${name}.app`;
+// Use slug (not name) for the filename: branch names may contain '/' which
+// path.join() interprets as a directory separator, breaking symlinkSync.
+const appBundle = `Manor (${slug}).app`;
 const symlinkPath = path.join(DIST, appBundle);
 const pathTxt = path.join(ELECTRON_DIR, "path.txt");
 

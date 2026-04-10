@@ -374,7 +374,21 @@ function shutdown(): void {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-// Keep daemon alive
+// Log uncaught exceptions and exit — a broken daemon should restart rather
+// than spin at 100% CPU. The guard prevents recursive exceptions (e.g. if
+// err.stack itself throws) from causing an infinite exception loop.
+let handlingUncaught = false;
 process.on("uncaughtException", (err) => {
-  log(`Uncaught exception: ${err.message}\n${err.stack}`);
+  if (handlingUncaught) {
+    process.stderr.write("[terminal-host] recursive uncaughtException — exiting\n");
+    process.exit(1);
+  }
+  handlingUncaught = true;
+  try {
+    log(`Uncaught exception: ${err?.message ?? err}\n${err?.stack ?? ""}`);
+  } catch {
+    process.stderr.write("[terminal-host] uncaughtException handler threw\n");
+  }
+  // Clean up and exit so the client can spawn a fresh daemon
+  shutdown();
 });

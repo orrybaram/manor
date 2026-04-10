@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { ProjectManager } from "./persistence";
 import type { GitBackend } from "./backend/types";
+
+vi.mock("electron", () => ({
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+}));
 
 const stubGit = {} as GitBackend;
 
@@ -249,6 +253,110 @@ describe("ProjectManager", () => {
         fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
       );
       expect(state.projects[0].workspaceNames["/tmp/proj"]).toBeUndefined();
+    });
+  });
+
+  describe("createWorktree", () => {
+    let gitMock: GitBackend;
+
+    beforeEach(() => {
+      gitMock = {
+        exec: vi.fn().mockResolvedValue(""),
+        worktreeAdd: vi.fn().mockResolvedValue(undefined),
+        worktreeList: vi.fn().mockResolvedValue([
+          { path: "/tmp/proj", branch: "main", isMain: true },
+        ]),
+        stage: vi.fn(),
+        unstage: vi.fn(),
+        discard: vi.fn(),
+        commit: vi.fn(),
+        stash: vi.fn(),
+        getFullDiff: vi.fn(),
+        getLocalDiff: vi.fn(),
+        getStagedFiles: vi.fn(),
+        worktreeRemove: vi.fn(),
+      } as unknown as GitBackend;
+      manager = new ProjectManager(gitMock, tmpDir);
+    });
+
+    it("useExistingBranch: true — checks out local branch without createBranch", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      await manager.createWorktree(
+        project.id,
+        "my-workspace",
+        "feature/existing",
+        undefined,
+        undefined,
+        true,
+      );
+
+      const worktreeAdd = vi.mocked(gitMock.worktreeAdd);
+      expect(worktreeAdd).toHaveBeenCalledWith(
+        "/tmp/proj",
+        expect.stringContaining("my-workspace"),
+        "feature/existing",
+      );
+      // Must NOT have been called with createBranch: true on the first attempt
+      const firstCall = worktreeAdd.mock.calls[0];
+      expect(firstCall[3]).toBeUndefined();
+    });
+
+    it("useExistingBranch: true — falls back to remote tracking branch when local is missing", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      vi.mocked(gitMock.worktreeAdd).mockRejectedValueOnce(
+        new Error("fatal: no such branch"),
+      );
+
+      await manager.createWorktree(
+        project.id,
+        "my-workspace",
+        "feature/existing",
+        undefined,
+        undefined,
+        true,
+      );
+
+      const worktreeAdd = vi.mocked(gitMock.worktreeAdd);
+      expect(worktreeAdd).toHaveBeenCalledTimes(2);
+      expect(worktreeAdd).toHaveBeenLastCalledWith(
+        "/tmp/proj",
+        expect.stringContaining("my-workspace"),
+        "feature/existing",
+        { createBranch: true, startPoint: "origin/feature/existing" },
+      );
+    });
+
+    it("useExistingBranch: false — creates new branch from default ref", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      await manager.createWorktree(project.id, "my-workspace", "new-feature");
+
+      expect(vi.mocked(gitMock.worktreeAdd)).toHaveBeenCalledWith(
+        "/tmp/proj",
+        expect.any(String),
+        "new-feature",
+        { createBranch: true, startPoint: "origin/main" },
+      );
+    });
+
+    it("useExistingBranch: false — respects explicit baseBranch as startPoint", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      await manager.createWorktree(
+        project.id,
+        "my-workspace",
+        "new-feature",
+        undefined,
+        "origin/develop",
+      );
+
+      expect(vi.mocked(gitMock.worktreeAdd)).toHaveBeenCalledWith(
+        "/tmp/proj",
+        expect.any(String),
+        "new-feature",
+        { createBranch: true, startPoint: "origin/develop" },
+      );
     });
   });
 });

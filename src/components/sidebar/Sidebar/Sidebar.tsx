@@ -310,8 +310,8 @@ export function Sidebar(props: SidebarProps) {
                           onReorderWorkspaces={(orderedPaths) =>
                             reorderWorkspaces(project.id, orderedPaths)
                           }
-                          onCreateWorktree={(name, branch) =>
-                            createWorktree(project.id, name, branch)
+                          onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
+                            createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
                           }
                           onOpenSettings={() =>
                             onOpenProjectSettings?.(project.id)

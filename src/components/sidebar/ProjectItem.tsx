@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -224,6 +225,12 @@ export function ProjectItem(props: ProjectItemProps) {
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
+
+  // Clear deletingPaths when workspaces change (deletion finished or path reused by new workspace)
+  useEffect(() => {
+    setDeletingPaths((prev) => (prev.size > 0 ? new Set() : prev));
+  }, [project.workspaces]);
+
   const [mergeState, setMergeState] = useState<{
     canMerge: boolean;
     reason?: string;

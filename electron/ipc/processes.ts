@@ -119,6 +119,10 @@ export function register(deps: IpcDeps): void {
     }
   });
 
+  ipcMain.handle("processes:restartPortless", async () => {
+    await portlessManager.restart();
+  });
+
   ipcMain.handle("processes:killAll", async () => {
     // 1. Try to list and kill sessions via daemon (may be unreachable)
     try {

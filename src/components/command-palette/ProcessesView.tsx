@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import X from "lucide-react/dist/esm/icons/x";
 import type { ManorProcessInfo } from "../../electron.d";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -112,6 +113,11 @@ export function ProcessesView() {
     [fetchInfo],
   );
 
+  const handleRestartPortless = useCallback(async () => {
+    await window.electronAPI.processes.restartPortless();
+    void fetchInfo();
+  }, [fetchInfo]);
+
   const handleCleanupDead = useCallback(async () => {
     setCleaningUp(true);
     const { success } = await window.electronAPI.processes.cleanupDead();
@@ -203,6 +209,20 @@ export function ProcessesView() {
                 </span>
                 {server.port != null && (
                   <span className={styles.processCardPort}>:{server.port}</span>
+                )}
+                {server.name === "portlessManager" && (
+                  <Tooltip label="Restart proxy" side="top">
+                    <button
+                      className={styles.processKill}
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleRestartPortless();
+                      }}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  </Tooltip>
                 )}
               </div>
               {description && (

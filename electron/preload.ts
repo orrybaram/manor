@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     cleanupDead: () => ipcRenderer.invoke("processes:cleanupDead"),
     killDaemon: () => ipcRenderer.invoke("processes:killDaemon"),
     killAll: () => ipcRenderer.invoke("processes:killAll"),
+    restartPortless: () => ipcRenderer.invoke("processes:restartPortless"),
   },
 
   branches: {

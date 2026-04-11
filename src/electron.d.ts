@@ -331,6 +331,7 @@ export interface ElectronAPI {
     cleanupDead: () => Promise<{ success: boolean }>;
     killDaemon: () => Promise<void>;
     killAll: () => Promise<void>;
+    restartPortless: () => Promise<void>;
   };
 
   branches: {

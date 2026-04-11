@@ -97,6 +97,15 @@ export class PortlessManager {
     }
   }
 
+  /** Restart the proxy server, preserving the current route table. */
+  async restart(): Promise<void> {
+    const previousRoutes = this.routes;
+    const previousPort = this.proxyPort ?? undefined;
+    this.stop();
+    await this.start(previousPort);
+    this.routes = previousRoutes;
+  }
+
   /**
    * Replace the current route table.
    * No proxy reload needed — portless calls `getRoutes()` on every request.

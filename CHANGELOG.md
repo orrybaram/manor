@@ -5,6 +5,23 @@
 
 
 
+
+## [0.5.3] - 2026-04-11
+
+**Features**
+- Add restart button for portless proxies in the Processes view
+
+**Fixes**
+- Include local branches in the existing branch dropdown when creating workspaces
+- Clear stale greyed-out state when workspaces change
+- Pass base branch and existing branch options through the full worktree creation flow
+- Unpack MCP webview server from asar so agents can read it
+- Use React state for favicon error handling instead of imperative DOM manipulation
+- Fix panel layout crash by keying on workspace path
+
+**Improvements**
+- Add recursion guard and fail-fast to uncaught exception handler
+
 ## [0.5.2] - 2026-04-07
 
 **Fixes**

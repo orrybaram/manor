@@ -268,6 +268,7 @@ export interface ElectronAPI {
       name: string,
     ) => Promise<import("./store/project-store").ProjectInfo | null>;
     listRemoteBranches: (projectId: string) => Promise<string[]>;
+    listLocalBranches: (projectId: string) => Promise<string[]>;
     renameWorkspace: (
       projectId: string,
       workspacePath: string,

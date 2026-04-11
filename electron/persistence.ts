@@ -620,6 +620,33 @@ export class ProjectManager {
     await this.removeWorktree(projectId, worktreePath, true);
   }
 
+  async listLocalBranches(projectId: string): Promise<string[]> {
+    const project = this.findProject(projectId);
+    if (!project) return [];
+
+    try {
+      const stdout = await this.git.exec(project.path, [
+        "for-each-ref",
+        "--sort=-creatordate",
+        "--format=%(refname:strip=2)",
+        "refs/heads",
+      ]);
+
+      const branches = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((b) => b && b !== "HEAD");
+
+      return branches;
+    } catch (err) {
+      console.error(
+        "[ProjectManager] listLocalBranches failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return [];
+    }
+  }
+
   async listRemoteBranches(projectId: string): Promise<string[]> {
     const project = this.findProject(projectId);
     if (!project) return [];

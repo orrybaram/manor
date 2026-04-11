@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("projects:convertMainToWorktree", projectId, name),
     listRemoteBranches: (projectId: string) =>
       ipcRenderer.invoke("projects:listRemoteBranches", projectId),
+    listLocalBranches: (projectId: string) =>
+      ipcRenderer.invoke("projects:listLocalBranches", projectId),
     renameWorkspace: (
       projectId: string,
       workspacePath: string,

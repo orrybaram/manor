@@ -80,12 +80,22 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const defaultBranch = activeProject?.defaultBranch ?? "main";
 
   // Fetch remote branches when dialog opens or project changes
-  const { data: remoteBranches = [], isLoading: loadingBranches } = useQuery({
+  const { data: remoteBranches = [], isLoading: loadingRemote } = useQuery({
     queryKey: ["remote-branches", activeProjectId],
     queryFn: () =>
       window.electronAPI.projects.listRemoteBranches(activeProjectId),
     enabled: open && !!activeProjectId,
   });
+
+  // Fetch local branches
+  const { data: localBranches = [], isLoading: loadingLocal } = useQuery({
+    queryKey: ["local-branches", activeProjectId],
+    queryFn: () =>
+      window.electronAPI.projects.listLocalBranches(activeProjectId),
+    enabled: open && !!activeProjectId,
+  });
+
+  const loadingBranches = loadingRemote || loadingLocal;
 
   // Build the dropdown item list for base branch selection:
   // 1. defaultBranch (local)
@@ -102,11 +112,24 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [defaultBranch, remoteBranches],
   );
 
-  // Remote branches for "existing branch" mode (just the branch names, no origin/ prefix)
-  const existingBranchOptions = useMemo(
-    () => remoteBranches.filter((b) => b !== defaultBranch),
-    [remoteBranches, defaultBranch],
-  );
+  // All branches for "existing branch" mode — local-only branches first, then remote-only
+  const existingBranchOptions = useMemo(() => {
+    const remoteSet = new Set(remoteBranches);
+    const localSet = new Set(localBranches);
+
+    // Local branches that don't exist on remote (truly local-only)
+    const localOnly = localBranches.filter(
+      (b) => b !== defaultBranch && !remoteSet.has(b),
+    );
+    // Remote branches (excluding default)
+    const remote = remoteBranches.filter((b) => b !== defaultBranch);
+    // Branches on both local and remote (excluding default)
+    const both = localBranches.filter(
+      (b) => b !== defaultBranch && remoteSet.has(b),
+    );
+
+    return [...both, ...localOnly, ...remote.filter((b) => !localSet.has(b))];
+  }, [remoteBranches, localBranches, defaultBranch]);
 
   const projectOptions = useMemo(
     () => projects.map((p) => ({ value: p.id, label: p.name })),

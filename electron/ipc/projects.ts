@@ -86,6 +86,10 @@ export function register(deps: IpcDeps): void {
     projectManager.listRemoteBranches(projectId),
   );
 
+  ipcMain.handle("projects:listLocalBranches", (_e, projectId: string) =>
+    projectManager.listLocalBranches(projectId),
+  );
+
   ipcMain.handle(
     "projects:renameWorkspace",
     (_event, projectId: string, workspacePath: string, newName: string) => {

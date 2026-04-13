@@ -113,9 +113,14 @@ export class DiffWatcher {
 
         return { added, removed };
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Silently skip refs that don't exist (e.g. local-only repo with no upstream)
+        if (msg.includes("Not a valid object name")) {
+          continue;
+        }
         console.error(
           `[DiffWatcher] git diff failed for ${wsPath} with ref ${ref}:`,
-          err instanceof Error ? err.message : err,
+          msg,
         );
         continue;
       }

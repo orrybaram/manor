@@ -458,6 +458,77 @@ describe("LayoutPersistence", () => {
     });
   });
 
+  describe("getActiveSessionIds (ADR-117)", () => {
+    it("returns empty set when no layout exists", () => {
+      const ids = persistence.getActiveSessionIds();
+      expect(ids.size).toBe(0);
+    });
+
+    it("returns all daemon session IDs from a single workspace", () => {
+      const layout: PersistedLayout = {
+        version: 2,
+        workspaces: [
+          makeV2Workspace(
+            "/project/main",
+            [makeLeafTab("p1", "ds1"), makeLeafTab("p2", "ds2")],
+            "x",
+          ),
+        ],
+      };
+      persistence.save(layout);
+      const ids = persistence.getActiveSessionIds();
+      expect(ids.has("ds1")).toBe(true);
+      expect(ids.has("ds2")).toBe(true);
+      expect(ids.size).toBe(2);
+    });
+
+    it("collects session IDs across multiple workspaces", () => {
+      const layout: PersistedLayout = {
+        version: 2,
+        workspaces: [
+          makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+          makeV2Workspace("/project/feature", [makeLeafTab("p2", "ds2")], "y"),
+        ],
+      };
+      persistence.save(layout);
+      const ids = persistence.getActiveSessionIds();
+      expect(ids.has("ds1")).toBe(true);
+      expect(ids.has("ds2")).toBe(true);
+      expect(ids.size).toBe(2);
+    });
+
+    it("collects session IDs from split panes", () => {
+      const layout: PersistedLayout = {
+        version: 2,
+        workspaces: [
+          makeV2Workspace(
+            "/project/main",
+            [makeSplitTab(["p1", "p2"], ["ds1", "ds2"])],
+            "x",
+          ),
+        ],
+      };
+      persistence.save(layout);
+      const ids = persistence.getActiveSessionIds();
+      expect(ids.has("ds1")).toBe(true);
+      expect(ids.has("ds2")).toBe(true);
+      expect(ids.size).toBe(2);
+    });
+
+    it("does not include session IDs absent from the layout", () => {
+      const layout: PersistedLayout = {
+        version: 2,
+        workspaces: [
+          makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+        ],
+      };
+      persistence.save(layout);
+      const ids = persistence.getActiveSessionIds();
+      expect(ids.has("ds-orphaned")).toBe(false);
+      expect(ids.size).toBe(1);
+    });
+  });
+
   describe("v1 migration", () => {
     it("migrates v1 layout to v2 on load", () => {
       const tab = makeLeafTab("p1", "ds1");

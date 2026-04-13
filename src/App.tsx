@@ -57,6 +57,7 @@ function App() {
         if (ws) setActiveWorkspace(ws.path);
       }
       setAppReady(true);
+      window.electronAPI.tasks.reconcileStale().catch(console.error);
     });
   });
 

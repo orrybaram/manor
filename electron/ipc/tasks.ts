@@ -73,6 +73,31 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  ipcMain.handle("tasks:abandonForPane", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    const task = taskManager.getTaskByPaneId(paneId);
+    if (!task || task.status !== "active") return;
+    const updated = taskManager.updateTask(task.id, {
+      status: "abandoned",
+      completedAt: new Date().toISOString(),
+    });
+    if (updated) {
+      const { mainWindow } = deps;
+      if (
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        !mainWindow.webContents.isDestroyed()
+      ) {
+        try {
+          mainWindow.webContents.send("task-updated", updated);
+        } catch {
+          // Render frame disposed — safe to ignore
+        }
+      }
+      updateDockBadge(preferencesManager);
+    }
+  });
+
   ipcMain.handle("tasks:reconcileStale", async () => {
     let liveSessions: Array<{ sessionId: string }>;
     try {

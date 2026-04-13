@@ -320,6 +320,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
     markSeen: (taskId: string) => ipcRenderer.invoke("tasks:markSeen", taskId),
     reconcileStale: () => ipcRenderer.invoke("tasks:reconcileStale"),
+    abandonForPane: (paneId: string) => ipcRenderer.invoke("tasks:abandonForPane", paneId),
     onUpdate: (callback: (task: unknown) => void) =>
       onChannel("task-updated", callback),
   },

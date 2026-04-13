@@ -60,7 +60,9 @@ export type ControlRequest =
   | { type: "listSessions" }
   | { type: "writeAfterReady"; sessionId: string; data: string }
   | { type: "ping" }
-  | { type: "updateEnv"; env: Record<string, string> };
+  | { type: "updateEnv"; env: Record<string, string> }
+  | { type: "disposeDead" }
+  | { type: "handshake"; clientVersion: string };
 
 export type ControlResponse =
   | { type: "authOk"; version?: string }
@@ -74,6 +76,8 @@ export type ControlResponse =
   | { type: "pong" }
   | { type: "envUpdated" }
   | { type: "writeQueued" }
+  | { type: "disposedDead" }
+  | { type: "handshake"; daemonVersion: string }
   | { type: "error"; message: string };
 
 // ── Agent status types ──

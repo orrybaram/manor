@@ -1,6 +1,6 @@
 ---
 title: Pane closure hook — abandon task when pane is explicitly closed
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

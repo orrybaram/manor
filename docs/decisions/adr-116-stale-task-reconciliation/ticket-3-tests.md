@@ -1,6 +1,6 @@
 ---
 title: Tests for stale task reconciliation and pane closure abandonment
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]

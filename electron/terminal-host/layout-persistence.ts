@@ -189,6 +189,26 @@ export class LayoutPersistence {
   }
 
   /**
+   * Return the set of all daemonSessionIds referenced by any pane in the persisted layout.
+   * Used to identify orphaned daemon sessions (alive in daemon but not in any pane).
+   */
+  getActiveSessionIds(): Set<string> {
+    const layout = this.load();
+    const ids = new Set<string>();
+    if (!layout) return ids;
+    for (const workspace of layout.workspaces) {
+      for (const panel of Object.values(workspace.panels)) {
+        for (const tab of panel.tabs) {
+          for (const paneSession of Object.values(tab.paneSessions)) {
+            ids.add(paneSession.daemonSessionId);
+          }
+        }
+      }
+    }
+    return ids;
+  }
+
+  /**
    * Reconcile persisted layout against running daemon sessions.
    *
    * For each pane in the persisted layout:

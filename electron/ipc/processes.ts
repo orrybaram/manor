@@ -1,18 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { ipcMain, app } from "electron";
+import { ipcMain } from "electron";
 import { portlessManager } from "../portless";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
+import { LayoutPersistence } from "../terminal-host/layout-persistence";
 
-function getDaemonDir(): string {
-  const version = app.getVersion();
-  return path.join(os.homedir(), ".manor", "daemons", version);
-}
+const DAEMON_DIR = path.join(os.homedir(), ".manor", "daemon");
 
 function getPidPath(): string {
-  return path.join(getDaemonDir(), "terminal-host.pid");
+  return path.join(DAEMON_DIR, "terminal-host.pid");
 }
 
 function readDaemonPid(): number | null {
@@ -38,7 +36,6 @@ export function register(deps: IpcDeps): void {
   const { backend, portScanner, agentHookServer, webviewServer } = deps;
 
   ipcMain.handle("processes:list", async () => {
-    const version = app.getVersion();
     const pid = readDaemonPid();
     const alive = pid !== null ? isDaemonAlive(pid) : false;
 
@@ -48,7 +45,12 @@ export function register(deps: IpcDeps): void {
       { name: "portlessManager", port: portlessManager.proxyPort },
     ];
 
-    let sessions: Array<{ sessionId: string; alive: boolean; cwd: string }> = [];
+    // Get the set of session IDs that are referenced by active layout panes.
+    // Sessions alive in the daemon but NOT in this set are "orphaned" — their
+    // pane was closed or lost, but the processes inside are still running.
+    const activeLayoutSessionIds = new LayoutPersistence().getActiveSessionIds();
+
+    let sessions: Array<{ sessionId: string; alive: boolean; cwd: string | null; orphaned: boolean }> = [];
     if (alive) {
       try {
         const sessionList = await backend.pty.listSessions();
@@ -56,6 +58,7 @@ export function register(deps: IpcDeps): void {
           sessionId: s.sessionId,
           alive: s.alive,
           cwd: s.cwd,
+          orphaned: !activeLayoutSessionIds.has(s.sessionId),
         }));
       } catch {
         // Daemon unreachable — return empty session list
@@ -66,7 +69,7 @@ export function register(deps: IpcDeps): void {
     const ports: ActivePort[] = rawPorts;
 
     return {
-      daemon: { pid, alive, version },
+      daemon: { pid, alive },
       internalServers,
       sessions,
       ports,
@@ -103,20 +106,8 @@ export function register(deps: IpcDeps): void {
       // Process may already be dead
     }
 
-    const daemonDir = getDaemonDir();
-    const socketPath = path.join(daemonDir, "terminal-host.sock");
-    const pidPath = getPidPath();
-
-    try {
-      fs.unlinkSync(socketPath);
-    } catch {
-      // Ignore if already gone
-    }
-    try {
-      fs.unlinkSync(pidPath);
-    } catch {
-      // Ignore if already gone
-    }
+    try { fs.unlinkSync(path.join(DAEMON_DIR, "terminal-host.sock")); } catch { /* already gone */ }
+    try { fs.unlinkSync(getPidPath()); } catch { /* already gone */ }
   });
 
   ipcMain.handle("processes:restartPortless", async () => {

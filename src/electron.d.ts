@@ -96,7 +96,6 @@ export interface ManorProcessInfo {
   daemon: {
     pid: number | null;
     alive: boolean;
-    version: string;
   };
   internalServers: Array<{
     name: string;
@@ -106,6 +105,8 @@ export interface ManorProcessInfo {
     sessionId: string;
     alive: boolean;
     cwd: string | null;
+    /** True when the session is alive in the daemon but has no matching pane in the layout */
+    orphaned: boolean;
   }>;
   ports: ActivePort[];
 }

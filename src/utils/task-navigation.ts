@@ -2,6 +2,7 @@ import type { TaskInfo } from "../electron.d";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { useTaskStore } from "../store/task-store";
+import { useToastStore } from "../store/toast-store";
 import { hasPaneId } from "../store/pane-tree";
 
 export function navigateToTask(task: TaskInfo) {
@@ -83,4 +84,5 @@ export function navigateToTask(task: TaskInfo) {
   }
   window.electronAPI?.tasks.markSeen(task.id);
   useTaskStore.getState().markTaskSeen(task.id);
+  useToastStore.getState().removeToast(`task-input-${task.id}`);
 }

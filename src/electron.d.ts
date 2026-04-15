@@ -27,6 +27,8 @@ export interface TaskInfo {
   agentCommand: string | null;
   paneId: string | null;
   lastAgentStatus: string | null;
+  /** ISO timestamp set when auto-resume fires for this task, to prevent double-launch */
+  resumedAt: string | null;
 }
 
 export interface LinearTeam {

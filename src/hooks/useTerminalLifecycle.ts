@@ -239,6 +239,35 @@ export function useTerminalLifecycle(
               const unsubCwd = window.electronAPI.pty.onCwd(paneId, send);
               const fallback = setTimeout(send, 3000);
             }
+          } else if (!result.snapshot) {
+            // No pending command and no warm-restore snapshot → cold or fresh session.
+            // Check for an active task that was interrupted (e.g. version upgrade,
+            // app crash) and auto-relaunch its agent command.
+            void (async () => {
+              const activeTasks = await window.electronAPI.tasks.getAll({ status: "active" });
+              const resumeTask = activeTasks.find(
+                (t) => t.paneId === paneId && !t.resumedAt && t.agentCommand,
+              );
+              if (!resumeTask || disposed) return;
+
+              // Mark resumed immediately to prevent double-launch on re-mount
+              void window.electronAPI.tasks.update(resumeTask.id, {
+                resumedAt: new Date().toISOString(),
+              });
+
+              // Wait for shell prompt (CWD event), then relaunch
+              let sent = false;
+              let unsubCwd: (() => void) | null = null;
+              const send = () => {
+                if (sent || disposed) return;
+                sent = true;
+                if (resumeFallback) clearTimeout(resumeFallback);
+                unsubCwd?.();
+                write(resumeTask.agentCommand! + "\n");
+              };
+              unsubCwd = window.electronAPI.pty.onCwd(paneId, send);
+              const resumeFallback = setTimeout(send, 3000);
+            })();
           }
         }
       },

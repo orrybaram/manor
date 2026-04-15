@@ -20,7 +20,7 @@ vi.mock("../shell", () => ({
   },
 }));
 
-import { Session } from "./session";
+import { Session, buildShellEnv } from "./session";
 import type { StreamEvent } from "./types";
 
 function pushDataFrame(session: Session, data: string): void {
@@ -276,5 +276,79 @@ describe("Session", () => {
       expect(session.info.cols).toBe(120);
       expect(session.info.rows).toBe(40);
     });
+  });
+});
+
+describe("buildShellEnv", () => {
+  it("strips NODE_ENV from base env", () => {
+    const result = buildShellEnv({ NODE_ENV: "development", PATH: "/usr/bin" }, {});
+    expect(result).not.toHaveProperty("NODE_ENV");
+    expect(result.PATH).toBe("/usr/bin");
+  });
+
+  it("strips all ELECTRON_* keys", () => {
+    const result = buildShellEnv(
+      {
+        ELECTRON_RUN_AS_NODE: "1",
+        ELECTRON_NO_ASAR: "1",
+        ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+        HOME: "/Users/test",
+      },
+      {},
+    );
+    expect(result).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
+    expect(result).not.toHaveProperty("ELECTRON_NO_ASAR");
+    expect(result).not.toHaveProperty("ELECTRON_DISABLE_SECURITY_WARNINGS");
+    expect(result.HOME).toBe("/Users/test");
+  });
+
+  it("passes through unrelated vars unchanged", () => {
+    const result = buildShellEnv(
+      { HOME: "/Users/test", PATH: "/usr/bin:/usr/local/bin", LANG: "en_US.UTF-8" },
+      {},
+    );
+    expect(result.HOME).toBe("/Users/test");
+    expect(result.PATH).toBe("/usr/bin:/usr/local/bin");
+    expect(result.LANG).toBe("en_US.UTF-8");
+  });
+
+  it("merges overrides last, overrides take precedence over base", () => {
+    const result = buildShellEnv(
+      { TERM: "dumb", PATH: "/usr/bin" },
+      { TERM: "xterm-256color", MANOR_PANE_ID: "pane-42" },
+    );
+    expect(result.TERM).toBe("xterm-256color");
+    expect(result.MANOR_PANE_ID).toBe("pane-42");
+    expect(result.PATH).toBe("/usr/bin");
+  });
+
+  it("preserves MANOR_* vars from overrides", () => {
+    const result = buildShellEnv(
+      { HOME: "/Users/test" },
+      {
+        MANOR_PANE_ID: "session-abc",
+        MANOR_HISTFILE: "/tmp/hist",
+        TERM: "xterm-256color",
+        ZDOTDIR: "/tmp/zdot",
+        REAL_ZDOTDIR: "/Users/test",
+      },
+    );
+    expect(result.MANOR_PANE_ID).toBe("session-abc");
+    expect(result.MANOR_HISTFILE).toBe("/tmp/hist");
+    expect(result.ZDOTDIR).toBe("/tmp/zdot");
+    expect(result.REAL_ZDOTDIR).toBe("/Users/test");
+  });
+
+  it("skips undefined values in base env", () => {
+    const base: NodeJS.ProcessEnv = { HOME: "/Users/test", UNDEFINED_VAR: undefined };
+    const result = buildShellEnv(base, {});
+    expect(result).not.toHaveProperty("UNDEFINED_VAR");
+    expect(result.HOME).toBe("/Users/test");
+  });
+
+  it("clean base produces no NODE_ENV even if overrides omit it", () => {
+    const result = buildShellEnv({}, { TERM: "xterm-256color" });
+    expect(result).not.toHaveProperty("NODE_ENV");
+    expect(result.TERM).toBe("xterm-256color");
   });
 });

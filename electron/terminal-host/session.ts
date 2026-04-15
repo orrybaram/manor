@@ -37,6 +37,34 @@ import type {
 } from "./types";
 import { DEFAULT_TERMINAL_MODES } from "./types";
 
+/**
+ * Build the environment for a user-facing PTY shell.
+ *
+ * Strips vars that must not leak from the Manor Electron process into user shells:
+ *   - NODE_ENV  — set to 'development' by Vite; tools like Jest and Next.js need
+ *                 to set it themselves from a clean slate.
+ *   - ELECTRON_* — Electron-runtime vars with no meaning in a user shell.
+ *
+ * The pty-subprocess.js fork() is intentionally excluded from this filtering; it
+ * is a Node.js subprocess that legitimately needs the full process environment.
+ *
+ * @param base      Source environment (pass process.env in production)
+ * @param overrides Manor-specific vars merged in last (MANOR_PANE_ID, TERM, etc.)
+ */
+export function buildShellEnv(
+  base: NodeJS.ProcessEnv,
+  overrides: Record<string, string>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    if (key === "NODE_ENV") continue;
+    if (key.startsWith("ELECTRON_")) continue;
+    env[key] = value;
+  }
+  return { ...env, ...overrides };
+}
+
 export class Session {
   readonly sessionId: string;
   prewarmed = false;
@@ -192,14 +220,13 @@ export class Session {
           cwd: this.cwd || process.env.HOME || "/",
           cols: this.cols,
           rows: this.rows,
-          env: {
-            ...(process.env as Record<string, string>),
+          env: buildShellEnv(process.env, {
             MANOR_PANE_ID: this.sessionId,
             TERM: "xterm-256color",
             ZDOTDIR: zdotdir,
             REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
             MANOR_HISTFILE: histfile,
-          },
+          }),
         };
 
         this.writeToSubprocess(encodeJsonFrame(MSG.SPAWN, spawnPayload));

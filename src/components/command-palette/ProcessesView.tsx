@@ -139,6 +139,8 @@ export function ProcessesView() {
 
   const { daemon, internalServers, sessions, ports } = info;
   const hasDeadSessions = sessions.some((s) => !s.alive);
+  const activeSessions = sessions.filter((s) => !s.orphaned);
+  const orphanedSessions = sessions.filter((s) => s.orphaned);
 
   return (
     <>
@@ -262,10 +264,10 @@ export function ProcessesView() {
         <div className={styles.sectionDescription}>
           Each terminal pane runs in its own isolated subprocess
         </div>
-        {sessions.length === 0 ? (
+        {activeSessions.length === 0 ? (
           <div className={styles.empty}>No active sessions</div>
         ) : (
-          sessions.map((session) => {
+          activeSessions.map((session) => {
             const shortId = session.sessionId.slice(0, 8);
             const cwd = session.cwd
               ? session.cwd.split("/").filter(Boolean).pop() ?? session.cwd
@@ -311,6 +313,49 @@ export function ProcessesView() {
           })
         )}
       </Command.Group>
+
+      {/* ── Orphaned Sessions ── */}
+      {orphanedSessions.length > 0 && (
+        <Command.Group heading="Orphaned Sessions" className={styles.group}>
+          <div className={styles.sectionDescription}>
+            Sessions with no matching pane — processes may still be running inside
+          </div>
+          {orphanedSessions.map((session) => {
+            const shortId = session.sessionId.slice(0, 8);
+            const cwd = session.cwd
+              ? session.cwd.split("/").filter(Boolean).pop() ?? session.cwd
+              : null;
+            return (
+              <Command.Item
+                key={session.sessionId}
+                value={`orphaned session ${session.sessionId} ${cwd ?? ""}`}
+                className={styles.item}
+                onSelect={() => {}}
+              >
+                <span className={styles.icon}>
+                  <Terminal size={14} />
+                </span>
+                <span className={styles.label} style={{ opacity: 0.7 }}>
+                  {shortId}
+                  {cwd ? ` — ${cwd}` : ""}
+                </span>
+                <Tooltip label="Kill orphaned session" side="top">
+                  <button
+                    className={styles.processKill}
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleKillSession(session.sessionId);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </Tooltip>
+              </Command.Item>
+            );
+          })}
+        </Command.Group>
+      )}
 
       {/* ── Ports ── */}
       <Command.Group heading="Ports" className={styles.group}>

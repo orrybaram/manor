@@ -242,6 +242,13 @@ export function useTerminalLifecycle(
           }
         }
       },
+      (err: unknown) => {
+        if (!disposed) {
+          setPtyError(
+            err instanceof Error ? err.message : "Failed to create terminal session",
+          );
+        }
+      },
     );
 
     // Terminal title changes (OSC sequences) → store

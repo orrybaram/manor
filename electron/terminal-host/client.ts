@@ -47,6 +47,7 @@ export class TerminalHostClient {
   private eventHandler: StreamEventHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
+  private _migratedOldDaemons = false;
 
   constructor(version?: string) {
     this.clientVersion = version;
@@ -57,7 +58,7 @@ export class TerminalHostClient {
   }
 
   private get daemonDir(): string {
-    return path.join(MANOR_DIR, "daemons", this.clientVersion || "unknown");
+    return path.join(MANOR_DIR, "daemon");
   }
 
   private get SOCKET_PATH(): string {
@@ -91,6 +92,9 @@ export class TerminalHostClient {
   }
 
   private async doConnect(): Promise<void> {
+    // One-time cleanup of old versioned daemons from the previous path scheme
+    await this.migrateOldDaemons();
+
     // Check if daemon is running
     if (!this.isDaemonRunning()) {
       await this.spawnDaemon();
@@ -100,12 +104,32 @@ export class TerminalHostClient {
     await this.connectControlSocket();
 
     // Authenticate
-    const token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
+    let token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
     const authResp = await this.request({ type: "auth", token });
     if (authResp.type !== "authOk") {
       throw new Error(
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
       );
+    }
+
+    // Version handshake: if the running daemon is from a different app version,
+    // kill it and spawn a fresh one that matches. This preserves sessions across
+    // same-version restarts while ensuring the daemon binary is never mismatched.
+    const clientVer = this.clientVersion ?? "unknown";
+    const hsResp = await this.request({ type: "handshake", clientVersion: clientVer });
+    if (hsResp.type === "handshake" && hsResp.daemonVersion !== clientVer) {
+      // Stale daemon — replace it
+      this.cleanup();
+      await this.killAndRespawn();
+      // Reconnect to the fresh daemon
+      await this.connectControlSocket();
+      token = fs.readFileSync(this.TOKEN_PATH, "utf-8").trim();
+      const authResp2 = await this.request({ type: "auth", token });
+      if (authResp2.type !== "authOk") {
+        throw new Error(
+          `Auth failed after daemon respawn: ${authResp2.type === "error" ? authResp2.message : "unknown"}`,
+        );
+      }
     }
 
     // Push current env vars to the daemon so new PTY sessions inherit fresh
@@ -343,6 +367,41 @@ export class TerminalHostClient {
       process.kill(pid, "SIGTERM");
     } catch {
       // PID file missing or process already gone — ignore
+    }
+  }
+
+  /** Kill the current daemon and spawn a fresh replacement. */
+  private async killAndRespawn(): Promise<void> {
+    await this.killDaemonByPid();
+    // Grace period for the process to exit and release the socket
+    await new Promise<void>((r) => setTimeout(r, 500));
+    try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* already gone */ }
+    try { fs.unlinkSync(this.PID_PATH); } catch { /* already gone */ }
+    await this.spawnDaemon();
+  }
+
+  /**
+   * One-time migration: SIGTERM any leftover daemons from the old versioned
+   * path scheme (~/.manor/daemons/{version}/). Runs once per process lifetime.
+   */
+  private async migrateOldDaemons(): Promise<void> {
+    if (this._migratedOldDaemons) return;
+    this._migratedOldDaemons = true;
+    const legacyDaemonsDir = path.join(MANOR_DIR, "daemons");
+    try {
+      const entries = fs.readdirSync(legacyDaemonsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const pidFile = path.join(legacyDaemonsDir, entry.name, "terminal-host.pid");
+        try {
+          const pid = parseInt(fs.readFileSync(pidFile, "utf-8").trim(), 10);
+          if (!isNaN(pid)) process.kill(pid, "SIGTERM");
+        } catch {
+          // PID file missing or process already gone — skip
+        }
+      }
+    } catch {
+      // Legacy directory doesn't exist — nothing to migrate
     }
   }
 

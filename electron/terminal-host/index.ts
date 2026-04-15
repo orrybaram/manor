@@ -17,8 +17,7 @@ import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
 
 const MANOR_DIR = path.join(os.homedir(), ".manor");
-const version = process.env.MANOR_VERSION || "unknown";
-const DAEMON_DIR = path.join(MANOR_DIR, "daemons", version);
+const DAEMON_DIR = path.join(MANOR_DIR, "daemon");
 const SOCKET_PATH = path.join(DAEMON_DIR, "terminal-host.sock");
 const TOKEN_PATH = path.join(DAEMON_DIR, "terminal-host.token");
 const PID_PATH = path.join(DAEMON_DIR, "terminal-host.pid");
@@ -187,6 +186,13 @@ async function handleControlMessage(
         process.env[key] = value;
       }
       sendResponse(socket, { type: "envUpdated" }, requestId);
+      break;
+    }
+
+    case "handshake": {
+      // Client sends its app version; daemon replies with its own.
+      // Version mismatch causes the client to kill and respawn the daemon.
+      sendResponse(socket, { type: "handshake", daemonVersion: daemonVersion ?? "unknown" }, requestId);
       break;
     }
   }

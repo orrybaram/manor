@@ -10,6 +10,7 @@ export function register(deps: IpcDeps): void {
     unseenRespondedTasks,
     unseenInputTasks,
     preferencesManager,
+    backend,
   } = deps;
 
   ipcMain.handle(
@@ -71,4 +72,70 @@ export function register(deps: IpcDeps): void {
       paneContextMap.set(paneId, context);
     },
   );
+
+  ipcMain.handle("tasks:abandonForPane", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    const task = taskManager.getTaskByPaneId(paneId);
+    if (!task || task.status !== "active") return;
+    const updated = taskManager.updateTask(task.id, {
+      status: "abandoned",
+      completedAt: new Date().toISOString(),
+    });
+    if (updated) {
+      const { mainWindow } = deps;
+      if (
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        !mainWindow.webContents.isDestroyed()
+      ) {
+        try {
+          mainWindow.webContents.send("task-updated", updated);
+        } catch {
+          // Render frame disposed — safe to ignore
+        }
+      }
+      updateDockBadge(preferencesManager);
+    }
+  });
+
+  ipcMain.handle("tasks:reconcileStale", async () => {
+    let liveSessions: Array<{ sessionId: string }>;
+    try {
+      liveSessions = await backend.pty.listSessions();
+    } catch {
+      // Daemon unreachable — skip reconciliation
+      return;
+    }
+
+    const liveIds = new Set(liveSessions.map((s) => s.sessionId));
+    const allTasks = taskManager.getAllTasks();
+
+    for (const task of allTasks) {
+      if (
+        task.status === "active" &&
+        task.agentSessionId &&
+        !liveIds.has(task.agentSessionId)
+      ) {
+        const updated = taskManager.updateTask(task.id, {
+          status: "abandoned",
+          completedAt: new Date().toISOString(),
+        });
+        if (updated) {
+          const { mainWindow } = deps;
+          if (
+            mainWindow &&
+            !mainWindow.isDestroyed() &&
+            !mainWindow.webContents.isDestroyed()
+          ) {
+            try {
+              mainWindow.webContents.send("task-updated", updated);
+            } catch {
+              // Render frame disposed — safe to ignore
+            }
+          }
+          updateDockBadge(preferencesManager);
+        }
+      }
+    }
+  });
 }

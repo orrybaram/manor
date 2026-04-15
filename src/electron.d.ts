@@ -502,6 +502,8 @@ export interface ElectronAPI {
       },
     ) => Promise<void>;
     markSeen: (taskId: string) => Promise<void>;
+    reconcileStale: () => Promise<void>;
+    abandonForPane: (paneId: string) => Promise<void>;
     onUpdate: (callback: (task: TaskInfo) => void) => () => void;
   };
 

@@ -8,6 +8,6 @@ type TabAgentDotProps = {
 export function TabAgentDot(props: TabAgentDotProps) {
   const { tabId } = props;
 
-  const status = useTabAgentStatus(tabId);
-  return <AgentDot status={status ?? undefined} size="tab" />;
+  const { status, pulse } = useTabAgentStatus(tabId);
+  return <AgentDot status={status ?? undefined} size="tab" pulse={pulse} />;
 }

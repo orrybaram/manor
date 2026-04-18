@@ -86,7 +86,7 @@ const WorkspaceItem = React.forwardRef<
     ...rest
   } = props;
 
-  const workspaceStatus = useWorkspaceAgentStatus(ws.path);
+  const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(ws.path);
 
   return (
     <div
@@ -124,7 +124,7 @@ const WorkspaceItem = React.forwardRef<
         <>
           <span className={styles.workspaceIcon}>
             {workspaceStatus ? (
-              <AgentDot status={workspaceStatus} size="sidebar" />
+              <AgentDot status={workspaceStatus} size="sidebar" pulse={workspacePulse} />
             ) : ws.isMain ? (
               <House size={12} />
             ) : (
@@ -249,7 +249,7 @@ export function ProjectItem(props: ProjectItemProps) {
     editingPath,
   });
 
-  const projectStatus = useProjectAgentStatus(project);
+  const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
@@ -299,7 +299,7 @@ export function ProjectItem(props: ProjectItemProps) {
               {project.name}
             </span>
             {collapsed && projectStatus && (
-              <AgentDot status={projectStatus} size="sidebar" />
+              <AgentDot status={projectStatus} size="sidebar" pulse={projectPulse} />
             )}
             <button
               className={styles.projectAction}

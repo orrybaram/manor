@@ -136,7 +136,7 @@ export function initApp(devTitle: string | null): void {
           // Update persisted task name from agent title
           const cleaned = cleanAgentTitle(event.agent.title);
           if (cleaned) {
-            const task = taskManager.getTaskByPaneId(event.sessionId);
+            const task = taskManager.getTaskBySessionId(event.sessionId);
             if (task && task.name !== cleaned) {
               const updated = taskManager.updateTask(task.id, { name: cleaned });
               if (
@@ -402,6 +402,14 @@ export function initApp(devTitle: string | null): void {
         const now = new Date().toISOString();
 
         if (!task) {
+          // Unlink any previous task for this pane so it no longer appears in the
+          // sidebar via the activePaneIds filter. This prevents duplicates when
+          // auto-resume re-runs an agent (new session ID) on the same pane.
+          const prevPaneTask = taskManager.getTaskByPaneId(paneId);
+          if (prevPaneTask) {
+            taskManager.updateTask(prevPaneTask.id, { paneId: null });
+          }
+
           const paneContext = paneContextMap.get(paneId);
           task = taskManager.createTask({
             agentSessionId: sessionId,

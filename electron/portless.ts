@@ -9,12 +9,9 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { createProxyServer, type RouteInfo, type ProxyServer } from "portless";
+import { portlessProxyPortFile } from "./paths";
 
-const PORT_FILE = path.join(
-  process.env.HOME || "/tmp",
-  ".manor",
-  "portless-proxy-port",
-);
+const PORT_FILE = portlessProxyPortFile();
 
 const DEFAULT_PROXY_PORT = 1355;
 

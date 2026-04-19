@@ -1,6 +1,6 @@
 ---
 title: Migrate 7 files that duplicate manorDataDir() to use paths.ts
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -14,14 +14,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { webviewServerPortFile } from "./paths";
 
 // ── Port discovery ──
 
-const PORT_FILE = path.join(
-  process.env.HOME || "/tmp",
-  ".manor",
-  "webview-server-port",
-);
+const PORT_FILE = webviewServerPortFile();
 
 function readPort(): number {
   const envPort = process.env.MANOR_WEBVIEW_PORT;

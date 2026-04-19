@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// Keep in sync with manorHomeDir() in paths.ts — this string is embedded in a shell script.
 const WEBVIEW_CLI_PATH = path.join(
   process.env.HOME || "/tmp",
   ".manor",

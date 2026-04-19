@@ -1,6 +1,6 @@
 ---
 title: Migrate hardcoded ~/.manor paths to paths.ts getters
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -11,16 +11,15 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
+import { daemonDir, daemonSocketFile, daemonTokenFile, daemonPidFile } from "../paths";
 
-const MANOR_DIR = path.join(os.homedir(), ".manor");
-const DAEMON_DIR = path.join(MANOR_DIR, "daemon");
-const SOCKET_PATH = path.join(DAEMON_DIR, "terminal-host.sock");
-const TOKEN_PATH = path.join(DAEMON_DIR, "terminal-host.token");
-const PID_PATH = path.join(DAEMON_DIR, "terminal-host.pid");
+const DAEMON_DIR = daemonDir();
+const SOCKET_PATH = daemonSocketFile();
+const TOKEN_PATH = daemonTokenFile();
+const PID_PATH = daemonPidFile();
 
 const daemonVersion = process.env.MANOR_VERSION;
 

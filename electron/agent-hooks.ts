@@ -16,6 +16,7 @@ import * as path from "node:path";
 // Map hook event names to our status
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
 import { getAllConnectors } from "./agent-connectors";
+import { hookScriptPath, hookPortFile } from "./paths";
 
 type PaneStatus = AgentStatus;
 
@@ -140,18 +141,9 @@ export class AgentHookServer {
 
 // ── Hook Script & Registration ──
 
-export const HOOK_SCRIPT_PATH = path.join(
-  process.env.HOME || "/tmp",
-  ".manor",
-  "hooks",
-  "notify.sh",
-);
+export const HOOK_SCRIPT_PATH = hookScriptPath();
 
-const HOOK_PORT_FILE = path.join(
-  process.env.HOME || "/tmp",
-  ".manor",
-  "hook-port",
-);
+const HOOK_PORT_FILE = hookPortFile();
 
 const HOOK_SCRIPT = `#!/bin/bash
 # Manor agent hook — notifies the app of agent lifecycle events.
@@ -165,6 +157,7 @@ else
 fi
 
 # Resolve hook port: prefer file (always fresh), fall back to env var
+# Keep in sync with hookPortFile() in paths.ts — this string is embedded in a shell script.
 PORT=$(cat "$HOME/.manor/hook-port" 2>/dev/null)
 PORT=\${PORT:-$MANOR_HOOK_PORT}
 

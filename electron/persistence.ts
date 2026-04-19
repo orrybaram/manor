@@ -8,7 +8,7 @@ import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
-import { manorDataDir } from "./paths";
+import { manorDataDir, worktreesDir } from "./paths";
 
 const execAsync = promisify(exec);
 
@@ -686,7 +686,7 @@ export class ProjectManager {
     const slug = slugify(name);
     const baseDir = project.worktreePath
       ? expandHome(project.worktreePath)
-      : path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
+      : path.join(worktreesDir(), slugify(project.name));
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
@@ -829,7 +829,7 @@ export class ProjectManager {
     const slug = slugify(name);
     const baseDir = project.worktreePath
       ? expandHome(project.worktreePath)
-      : path.join(os.homedir(), ".manor", "worktrees", slugify(project.name));
+      : path.join(worktreesDir(), slugify(project.name));
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries

@@ -9,8 +9,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { layoutFile } from "../paths";
 /**
  * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
  * Vite entry point and cannot import from the renderer bundle.
@@ -39,7 +39,7 @@ function allLeaves(node: PaneNode): LeafInfo[] {
   return [...allLeaves(node.first), ...allLeaves(node.second)];
 }
 
-export const LAYOUT_FILE = path.join(os.homedir(), ".manor", "layout.json");
+export const LAYOUT_FILE = layoutFile();
 
 /** Agent state snapshot for persistence */
 export interface PersistedAgentState {

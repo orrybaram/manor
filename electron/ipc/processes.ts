@@ -1,16 +1,13 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import { ipcMain } from "electron";
 import { portlessManager } from "../portless";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
-
-const DAEMON_DIR = path.join(os.homedir(), ".manor", "daemon");
+import { daemonPidFile } from "../paths";
 
 function getPidPath(): string {
-  return path.join(DAEMON_DIR, "terminal-host.pid");
+  return daemonPidFile();
 }
 
 function readDaemonPid(): number | null {

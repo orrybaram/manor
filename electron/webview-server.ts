@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
+import { webviewServerPortFile } from "./paths";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -44,11 +45,7 @@ async function captureElementRegion(
   return image.toPNG().toString("base64");
 }
 
-const PORT_FILE = path.join(
-  process.env.HOME || "/tmp",
-  ".manor",
-  "webview-server-port",
-);
+const PORT_FILE = webviewServerPortFile();
 
 export class WebviewServer {
   private server: http.Server | null = null;

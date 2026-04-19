@@ -8,9 +8,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
+import { scrollbackSessionsDir } from "../paths";
 
-export const SESSIONS_DIR = path.join(os.homedir(), ".manor", "sessions");
+export const SESSIONS_DIR = scrollbackSessionsDir();
 export const MAX_SCROLLBACK_BYTES = 5 * 1024 * 1024; // 5MB
 export const COLD_RESTORE_MAX_BYTES = 500 * 1024; // 500KB read limit for cold restore
 

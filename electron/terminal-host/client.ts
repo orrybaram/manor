@@ -9,7 +9,6 @@
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import type {
   ControlRequest,
@@ -20,8 +19,9 @@ import type {
   AgentStatus,
   AgentKind,
 } from "./types";
+import { manorHomeDir } from "../paths";
 
-const MANOR_DIR = path.join(os.homedir(), ".manor");
+const MANOR_DIR = manorHomeDir();
 
 type StreamEventHandler = (event: StreamEvent) => void;
 

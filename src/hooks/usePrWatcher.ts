@@ -1,7 +1,7 @@
 import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
-const PR_POLL_INTERVAL = 60_000;
+const PR_POLL_INTERVAL = 15_000;
 
 function computeFingerprint() {
   const projects = useProjectStore.getState().projects;
@@ -74,6 +74,12 @@ export function usePrWatcher() {
     fetchPrs();
     startPolling();
 
+    const handleFocus = () => {
+      fetchPrs();
+      startPolling();
+    };
+    window.addEventListener("focus", handleFocus);
+
     // Subscribe to store changes to detect fingerprint changes
     const unsub = useProjectStore.subscribe(() => {
       const fp = computeFingerprint();
@@ -87,6 +93,7 @@ export function usePrWatcher() {
     return () => {
       unsub();
       if (timer) clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
     };
   });
 }

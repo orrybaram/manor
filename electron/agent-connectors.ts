@@ -47,6 +47,7 @@ export interface AgentConnector {
 // ── Claude Code Connector ──
 
 const CLAUDE_HOOK_ENTRIES = [
+  { event: "SessionStart", matcher: undefined },
   { event: "UserPromptSubmit", matcher: undefined },
   { event: "Stop", matcher: undefined },
   { event: "PostToolUse", matcher: "*" },

@@ -136,7 +136,7 @@ export function initApp(devTitle: string | null): void {
           // Update persisted task name from agent title
           const cleaned = cleanAgentTitle(event.agent.title);
           if (cleaned) {
-            const task = taskManager.getTaskBySessionId(event.sessionId);
+            const task = taskManager.getTaskByPaneId(event.sessionId);
             if (task && task.name !== cleaned) {
               const updated = taskManager.updateTask(task.id, { name: cleaned });
               if (
@@ -366,6 +366,22 @@ export function initApp(devTitle: string | null): void {
         console.debug(
           `[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`,
         );
+        return;
+      }
+
+      // SessionStart means a new conversation began on this pane (e.g. /clear).
+      // Reset root session tracking so the new session_id becomes the new root.
+      if (eventType === "SessionStart") {
+        const oldRoot = paneRootSessionMap.get(paneId);
+        if (oldRoot && oldRoot !== sessionId) {
+          console.debug(
+            `[task-lifecycle] SessionStart: resetting root session on pane ${paneId} (${oldRoot} → ${sessionId})`,
+          );
+          paneRootSessionMap.delete(paneId);
+          sessionStateMap.delete(oldRoot);
+        }
+        // Don't create a task for SessionStart — wait for UserPromptSubmit.
+        paneRootSessionMap.set(paneId, sessionId);
         return;
       }
 

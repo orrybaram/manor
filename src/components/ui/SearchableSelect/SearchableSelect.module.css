@@ -13,10 +13,20 @@
   font-size: 12px;
   transition: background-color 150ms ease, opacity 150ms ease;
   -webkit-app-region: no-drag;
+  overflow: hidden;
 }
 
 .trigger:hover {
   background: var(--surface);
+}
+
+.triggerContent {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .triggerText {

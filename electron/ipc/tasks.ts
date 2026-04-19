@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
 import { updateDockBadge } from "../notifications";
+import { cleanAgentTitle } from "../title-utils";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -73,14 +74,19 @@ export function register(deps: IpcDeps): void {
     },
   );
 
-  ipcMain.handle("tasks:abandonForPane", (_event, paneId: string) => {
+  ipcMain.handle("tasks:abandonForPane", (_event, paneId: string, title?: string | null) => {
     assertString(paneId, "paneId");
     const task = taskManager.getTaskByPaneId(paneId);
     if (!task || task.status !== "active") return;
-    const updated = taskManager.updateTask(task.id, {
+    const updates: Parameters<typeof taskManager.updateTask>[1] = {
       status: "abandoned",
       completedAt: new Date().toISOString(),
-    });
+    };
+    if (!task.name && title) {
+      const cleaned = cleanAgentTitle(title);
+      if (cleaned) updates.name = cleaned;
+    }
+    const updated = taskManager.updateTask(task.id, updates);
     if (updated) {
       const { mainWindow } = deps;
       if (

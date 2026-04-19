@@ -145,3 +145,13 @@
 .fileNew {
   animation: fadeSlideIn 300ms ease forwards;
 }
+
+.pushError {
+  margin: 8px 16px 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--error, #e05252);
+  background: color-mix(in srgb, var(--error, #e05252) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error, #e05252) 30%, transparent);
+  border-radius: 6px;
+}

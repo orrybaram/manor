@@ -368,6 +368,7 @@ export interface ElectronAPI {
     discard: (wsPath: string, files: string[]) => Promise<void>;
     stash: (wsPath: string, files: string[]) => Promise<void>;
     commit: (wsPath: string, message: string, flags: string[]) => Promise<void>;
+    push: (wsPath: string, remote?: string, branch?: string) => Promise<void>;
   };
 
   github: {

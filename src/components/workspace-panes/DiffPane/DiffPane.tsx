@@ -13,6 +13,7 @@ import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
+import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import { useProjectStore } from "../../../store/project-store";
 import { Stack } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
@@ -51,6 +52,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [searchQuery, setSearchQuery] = useState("");
     const [currentMatch, setCurrentMatch] = useState(0);
     const [commitOpen, setCommitOpen] = useState(false);
+    const [pushing, setPushing] = useState(false);
+    const [pushError, setPushError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const savedSelection = useRef<string>("");
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -282,6 +285,24 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       setSearchQuery("");
     }, []);
 
+    const handlePush = useCallback(async () => {
+      if (!workspacePath) return;
+      setPushing(true);
+      setPushError(null);
+      try {
+        await window.electronAPI.git.push(workspacePath);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const detail = message.replace(
+          /^Error invoking remote method '[^']+': Error:\s*/i,
+          "",
+        );
+        setPushError(detail);
+      } finally {
+        setPushing(false);
+      }
+    }, [workspacePath]);
+
     if (loading) {
       return (
         <div className={styles.container}>
@@ -356,6 +377,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         <div className={styles.topBar}>
           <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
           <Button
+            variant="secondary"
+            onClick={handlePush}
+            disabled={pushing}
+          >
+            <CloudUpload size={13} />
+            Push
+          </Button>
+          <Button
             onClick={() => setCommitOpen(true)}
             disabled={stagedFiles.size === 0}
             variant="primary"
@@ -364,6 +393,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             Commit
           </Button>
         </div>
+        {pushError && (
+          <div className={styles.pushError}>{pushError}</div>
+        )}
         <Stack gap="lg" className={styles.fileStack}>
           <FileList
             files={files}

@@ -5,7 +5,7 @@ import { useTaskStore } from "../../store/task-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
 import { formatCombo } from "../../lib/keybindings";
-import { deriveStatus } from "../../hooks/useTaskDisplay";
+import { deriveStatus, cleanLiveTitle } from "../../hooks/useTaskDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import type { TaskInfo } from "../../electron.d";
 import type { CommandItem } from "./types";
@@ -26,6 +26,7 @@ export function useTaskCommands({
   const tasks = useTaskStore((s) => s.tasks);
   const bindings = useKeybindingsStore((s) => s.bindings);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
+  const paneTitle = useAppStore((s) => s.paneTitle);
 
   return useMemo(() => {
     const platform = navigator.platform.toLowerCase().includes("mac")
@@ -51,9 +52,11 @@ export function useTaskCommands({
       ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => {
         const liveAgent = task.paneId ? paneAgentStatus[task.paneId] ?? null : null;
         const agentStatus = deriveStatus(task, liveAgent);
+        const liveTitle = task.paneId ? paneTitle[task.paneId] ?? null : null;
+        const label = cleanLiveTitle(liveTitle) ?? task.name ?? "Agent";
         return {
           id: `task-${task.id}`,
-          label: task.name ?? "Agent",
+          label,
           icon: (
             <AgentDot status={agentStatus} size="sidebar" />
           ),
@@ -76,5 +79,5 @@ export function useTaskCommands({
     });
 
     return items;
-  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings, paneAgentStatus]);
+  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings, paneAgentStatus, paneTitle]);
 }

@@ -129,7 +129,21 @@
   background: var(--border);
 }
 
+.pushSpinner {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--text-dim);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
 /* ── Animations ── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 @keyframes fadeSlideIn {
   from {

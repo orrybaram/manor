@@ -117,7 +117,8 @@ export function register(deps: IpcDeps): void {
       if (
         task.status === "active" &&
         task.agentSessionId &&
-        !liveIds.has(task.agentSessionId)
+        !liveIds.has(task.agentSessionId) &&
+        task.lastAgentStatus !== "responded"
       ) {
         const updated = taskManager.updateTask(task.id, {
           status: "abandoned",

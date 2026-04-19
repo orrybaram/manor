@@ -36,6 +36,12 @@ export function deriveStatus(
     return task.lastAgentStatus as AgentStatus;
   }
 
+  // For non-active tasks that have a known last status, prefer it over the static map
+  // (e.g. a "responded" task that got incorrectly abandoned should still show the dot)
+  if (task.lastAgentStatus) {
+    return task.lastAgentStatus as AgentStatus;
+  }
+
   // Static fallback based on task lifecycle status
   const statusMap: Record<TaskStatus, AgentStatus> = {
     active: "working",

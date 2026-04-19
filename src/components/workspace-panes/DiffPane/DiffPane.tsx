@@ -381,8 +381,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             onClick={handlePush}
             disabled={pushing}
           >
-            <CloudUpload size={13} />
-            Push
+            {pushing ? <span className={styles.pushSpinner} /> : <CloudUpload size={13} />}
+            {pushing ? "Pushing…" : "Push"}
           </Button>
           <Button
             onClick={() => setCommitOpen(true)}

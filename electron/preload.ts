@@ -189,6 +189,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("git:stash", wsPath, files),
     commit: (wsPath: string, message: string, flags: string[]) =>
       ipcRenderer.invoke("git:commit", wsPath, message, flags),
+    push: (wsPath: string, remote?: string, branch?: string) =>
+      ipcRenderer.invoke("git:push", wsPath, remote, branch),
   },
 
   github: {

@@ -74,4 +74,9 @@ export function register(deps: IpcDeps): void {
     assertString(wsPath, "wsPath");
     await backend.git.commit(wsPath, message, flags);
   });
+
+  ipcMain.handle("git:push", async (_event, wsPath: string, remote?: string, branch?: string) => {
+    assertString(wsPath, "wsPath");
+    await backend.git.push(wsPath, remote, branch);
+  });
 }

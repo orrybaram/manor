@@ -71,6 +71,8 @@ export interface GitBackend {
 
   stash(cwd: string, files: string[]): Promise<void>;
 
+  push(cwd: string, remote?: string, branch?: string): Promise<void>;
+
   getFullDiff(cwd: string, defaultBranch: string): Promise<string | null>;
 
   getLocalDiff(cwd: string): Promise<string | null>;

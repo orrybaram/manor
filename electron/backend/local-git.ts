@@ -76,6 +76,26 @@ export class LocalGitBackend implements GitBackend {
     });
   }
 
+  async push(cwd: string, remote?: string, branch?: string): Promise<void> {
+    let resolvedBranch = branch;
+    if (!resolvedBranch) {
+      const { stdout } = await this.execGit(
+        cwd,
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { timeout: 10000 },
+      );
+      resolvedBranch = stdout.trim();
+    }
+    try {
+      await this.execGit(cwd, ["push", remote ?? "origin", resolvedBranch], {
+        timeout: 60000,
+      });
+    } catch (err: unknown) {
+      const stderr = (err as { stderr?: string })?.stderr ?? "";
+      throw new Error(stderr.trim() || "Push failed");
+    }
+  }
+
   async getFullDiff(
     cwd: string,
     defaultBranch: string,

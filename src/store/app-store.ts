@@ -271,6 +271,7 @@ export interface AppState {
 
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
+  clearPaneTitle: (paneId: string) => void;
 
   // Pane content type
   setPaneContentType: (
@@ -1856,6 +1857,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       if (state.paneTitle[paneId] === title) return state;
       return { paneTitle: { ...state.paneTitle, [paneId]: title } };
+    }),
+
+  clearPaneTitle: (paneId: string) =>
+    set((state) => {
+      if (!(paneId in state.paneTitle)) return state;
+      const { [paneId]: _, ...rest } = state.paneTitle;
+      return { paneTitle: rest };
     }),
 
   setPaneFavicon: (paneId: string, favicon: string | null) =>

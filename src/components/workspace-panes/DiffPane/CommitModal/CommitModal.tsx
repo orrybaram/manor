@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Input, Textarea } from "../../../ui/Input/Input";
 import { Button } from "../../../ui/Button/Button";
-import { useToastStore } from "../../../../store/toast-store";
 import styles from "./CommitModal.module.css";
 
 const FLAGS = [
@@ -27,13 +26,14 @@ export function CommitModal(props: CommitModalProps) {
   const [selectedFlags, setSelectedFlags] = useState<Set<FlagKey>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { addToast, updateToast } = useToastStore();
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setMessage("");
     setDescription("");
     setSelectedFlags(new Set());
     setError(null);
+    setStatusMessage(null);
   }, []);
 
   const toggleFlag = useCallback((flag: FlagKey) => {
@@ -45,18 +45,18 @@ export function CommitModal(props: CommitModalProps) {
     });
   }, []);
 
+  const handleCancel = useCallback(() => {
+    reset();
+    onOpenChange(false);
+  }, [reset, onOpenChange]);
+
   const handleSubmit = useCallback(async () => {
     if (!message.trim() && !selectedFlags.has("--amend")) return;
     setSubmitting(true);
     setError(null);
 
-    const toastId = "git-commit";
     const noVerify = selectedFlags.has("--no-verify");
-    addToast({
-      id: toastId,
-      message: noVerify ? "Committing..." : "Running pre-commit hooks...",
-      status: "loading",
-    });
+    setStatusMessage(noVerify ? "Committing..." : "Running pre-commit hooks...");
 
     try {
       const fullMessage = description.trim()
@@ -69,7 +69,6 @@ export function CommitModal(props: CommitModalProps) {
         Array.from(selectedFlags),
       );
 
-      updateToast(toastId, { message: "Committed!", status: "success" });
       reset();
       onOpenChange(false);
     } catch (err) {
@@ -79,20 +78,16 @@ export function CommitModal(props: CommitModalProps) {
         "",
       );
       setError(msg);
-      updateToast(toastId, {
-        message: "Commit failed",
-        status: "error",
-        detail: msg.split("\n")[0],
-      });
+      setStatusMessage(null);
     } finally {
       setSubmitting(false);
     }
-  }, [message, description, selectedFlags, workspacePath, addToast, updateToast, reset, onOpenChange]);
+  }, [message, description, selectedFlags, workspacePath, reset, onOpenChange]);
 
   const canSubmit = (message.trim() || selectedFlags.has("--amend")) && !submitting;
 
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
@@ -146,10 +141,17 @@ export function CommitModal(props: CommitModalProps) {
             </div>
           </div>
 
+          {statusMessage && (
+            <div className={styles.status}>
+              <span className={styles.spinner} />
+              {statusMessage}
+            </div>
+          )}
+
           {error && <div className={styles.error}>{error}</div>}
 
           <div className={styles.actions}>
-            <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            <Button variant="secondary" onClick={handleCancel} disabled={submitting}>
               Cancel
             </Button>
             <Button
@@ -157,7 +159,7 @@ export function CommitModal(props: CommitModalProps) {
               onClick={handleSubmit}
               disabled={!canSubmit}
             >
-              Commit
+              Commit <kbd className={styles.kbd}>⌘↵</kbd>
             </Button>
           </div>
         </Dialog.Content>

@@ -209,7 +209,10 @@ export const useTaskStore = create<TaskState>((set, get) => {
           tasks = [...s.tasks];
           tasks[idx] = task;
         } else {
-          // Prepend new task
+          // Prepend new task — clear stale pane title from the previous session
+          if (task.paneId) {
+            useAppStore.getState().clearPaneTitle(task.paneId);
+          }
           tasks = [task, ...s.tasks];
         }
         // Re-sort by createdAt descending

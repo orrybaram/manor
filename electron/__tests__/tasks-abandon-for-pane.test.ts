@@ -100,4 +100,48 @@ describe("tasks:abandonForPane handler", () => {
 
     expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
   });
+
+  it("sets task name from title when task has no name", () => {
+    deps.taskManager.getTaskByPaneId.mockReturnValue({
+      id: "t1",
+      status: "active",
+      name: null,
+    });
+
+    const handler = handlers.get("tasks:abandonForPane")!;
+    handler({} as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
+
+    expect(deps.taskManager.updateTask).toHaveBeenCalledWith(
+      "t1",
+      expect.objectContaining({ name: "Fix conversation naming after slash clear command" }),
+    );
+  });
+
+  it("preserves existing task name when title is also provided", () => {
+    deps.taskManager.getTaskByPaneId.mockReturnValue({
+      id: "t1",
+      status: "active",
+      name: "Existing task name",
+    });
+
+    const handler = handlers.get("tasks:abandonForPane")!;
+    handler({} as never, "pane-1", "Some other title");
+
+    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    expect(updates).not.toHaveProperty("name");
+  });
+
+  it("does not set name when title is a generic agent name", () => {
+    deps.taskManager.getTaskByPaneId.mockReturnValue({
+      id: "t1",
+      status: "active",
+      name: null,
+    });
+
+    const handler = handlers.get("tasks:abandonForPane")!;
+    handler({} as never, "pane-1", "claude ⠋");
+
+    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    expect(updates).not.toHaveProperty("name");
+  });
 });

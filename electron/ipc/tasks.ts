@@ -78,15 +78,12 @@ export function register(deps: IpcDeps): void {
     assertString(paneId, "paneId");
     const task = taskManager.getTaskByPaneId(paneId);
     if (!task || task.status !== "active") return;
-    const updates: Parameters<typeof taskManager.updateTask>[1] = {
+    const nameUpdate = !task.name && title ? cleanAgentTitle(title) : null;
+    const updated = taskManager.updateTask(task.id, {
       status: "abandoned",
       completedAt: new Date().toISOString(),
-    };
-    if (!task.name && title) {
-      const cleaned = cleanAgentTitle(title);
-      if (cleaned) updates.name = cleaned;
-    }
-    const updated = taskManager.updateTask(task.id, updates);
+      ...(nameUpdate ? { name: nameUpdate } : {}),
+    });
     if (updated) {
       const { mainWindow } = deps;
       if (

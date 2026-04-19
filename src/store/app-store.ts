@@ -1502,7 +1502,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closePaneById: (paneId: string) => {
-    window.electronAPI.tasks.abandonForPane(paneId).catch(console.error);
+    const currentTitle = get().paneTitle[paneId] ?? null;
+    window.electronAPI.tasks.abandonForPane(paneId, currentTitle).catch(console.error);
     const state = get();
     const ctx = getActivePanelContext(state);
     if (!ctx) return;

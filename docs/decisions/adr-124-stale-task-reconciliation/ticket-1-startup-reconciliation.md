@@ -90,6 +90,6 @@ When your implementation is complete, you MUST create a git commit. This is not 
 
 Run:
   git add -A
-  git commit -m "feat(adr-116): startup reconciliation — abandon tasks with dead sessions"
+  git commit -m "feat(adr-124): startup reconciliation — abandon tasks with dead sessions"
 
 Do not push.

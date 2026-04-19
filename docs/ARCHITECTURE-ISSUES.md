@@ -8,43 +8,35 @@ Log of issues surfaced while producing [`ARCHITECTURE.md`](./ARCHITECTURE.md). E
 
 ## High
 
-### 1. `pnpm kill` script targets the wrong daemon paths
+### 1. `pnpm kill` script targets the wrong daemon paths — ✅ Resolved
 
 **Location:** `package.json:19`
 
-```json
-"kill": "test -f ~/.manor/terminal-host.pid && kill $(cat ~/.manor/terminal-host.pid) 2>/dev/null; rm -f ~/.manor/terminal-host.pid ~/.manor/terminal-host.sock"
-```
-
-The daemon actually writes its socket, PID, and token files to `~/.manor/daemon/` (see `electron/terminal-host/client.ts:60-73` and `electron/terminal-host/index.ts:20`). The `kill` script never finds the PID file, never kills the daemon, and never removes the stale socket. A developer running `pnpm kill` gets a silent no-op.
-
-**Fix:** Update the script to use `~/.manor/daemon/terminal-host.{pid,sock,token}`, or (better) call a small Node script that imports `DAEMON_DIR` to avoid drift.
+Script now points at `~/.manor/daemon/terminal-host.{pid,sock,token}`. A follow-up could replace the inline shell with a Node script that imports `DAEMON_DIR` to prevent future drift.
 
 ---
 
-### 2. Duplicate ADR numbers in `docs/decisions/`
+### 2. Duplicate ADR numbers in `docs/decisions/` — ✅ Resolved
 
-Multiple ADRs share the same number, which breaks the "next ADR = max + 1" assumption the workflow relies on:
+Collisions renumbered using the "oldest wins the number" rule (alphabetical tiebreak). New numbers:
 
-- **adr-001** — four directories: `browser-pane-features`, `git-push`, `linear-issue-detail-subview`, `split-electron-main`
-- **adr-057** — `new-browser-command`, `webview-context-menu-devtools`
-- **adr-077** — `quick-merge-worktree` (inside `decisions/`) AND `docs/ADR-077-project-setup-wizard.md` (orphaned at `docs/` root)
-- **adr-093** — `button-component`, `standardize-input-component`
-- **adr-116** — `daemon-version-socket`, `stale-task-reconciliation`
+- `adr-001-split-electron-main` → `adr-119`
+- `adr-001-browser-pane-features` → `adr-120`
+- `adr-001-git-push` → `adr-121`
+- `adr-057-webview-context-menu-devtools` → `adr-122`
+- `adr-093-standardize-input-component` → `adr-123`
+- `adr-116-stale-task-reconciliation` → `adr-124`
 
-Likely cause: parallel worktrees each allocating "the next ADR number" without coordination.
-
-**Fix:** Renumber collisions. Have the ADR workflow skill pull the current max from `main` and/or use a timestamp-suffixed number reserved via a lockfile.
+Root-cause fix (ADR workflow skill coordinating number allocation across worktrees) still pending.
 
 ---
 
-### 3. Orphan ADR files at `docs/` root
+### 3. Orphan ADR files at `docs/` root — ✅ Resolved
 
-**Location:** `docs/ADR-077-project-setup-wizard.md`, `docs/ADR-session-restore.md`
+- `docs/ADR-077-project-setup-wizard.md` → `docs/decisions/adr-125-project-setup-wizard/index.md`
+- `docs/ADR-session-restore.md` → `docs/decisions/adr-126-session-restore/index.md`
 
-Two ADR-style files live at the root of `docs/` instead of under `docs/decisions/`, use capitalized `ADR-` prefixes (convention in `decisions/` is lowercase), and in the 077 case collide with an existing ADR number.
-
-**Fix:** Move into `docs/decisions/` with renumbered slugs; rename to match the lowercase convention.
+Titles updated to match lowercase-slug / numbered convention. No `adr-session-restore*` family exists — issue #20's "may be superseded" note was stale.
 
 ---
 
@@ -215,13 +207,9 @@ README tells contributors to `cp .env.example .env` before `pnpm package`. This 
 
 ---
 
-### 20. Session-persistence ADR is draft-quality and misfiled
+### 20. Session-persistence ADR is draft-quality and misfiled — ✅ Resolved via issue #3
 
-**Location:** `docs/ADR-session-restore.md`
-
-The session-restore ADR lives at `docs/` root (not `decisions/`), has no ADR number, and has no `## Status` marker that I could parse. It may be superseded by the numbered `docs/decisions/adr-session-restore*` family — worth a read-through to decide whether it's the current design doc or historical.
-
-**Fix:** Either renumber and move into `decisions/`, or delete if superseded.
+Moved to `docs/decisions/adr-126-session-restore/index.md` with a proper ADR number. Status is `Proposed` (confirmed on re-read); content is still draft-quality but that's a separate concern.
 
 ---
 
@@ -229,9 +217,9 @@ The session-restore ADR lives at `docs/` root (not `decisions/`), has no ADR num
 
 | # | Severity | Area | One-line fix |
 |---|---|---|---|
-| 1 | High | Build | Update `pnpm kill` daemon paths |
-| 2 | High | Docs | Renumber colliding ADRs |
-| 3 | High | Docs | Relocate orphan ADR files |
+| 1 | ✅ | Build | Update `pnpm kill` daemon paths |
+| 2 | ✅ | Docs | Renumber colliding ADRs |
+| 3 | ✅ | Docs | Relocate orphan ADR files |
 | 4 | High | Code | Deduplicate `manorDataDir()` |
 | 5 | High | Code | Document/unify `~/.manor` vs data dir |
 | 6 | Medium | Code | Consistent IPC arg validation |
@@ -248,4 +236,4 @@ The session-restore ADR lives at `docs/` root (not `decisions/`), has no ADR num
 | 17 | Low | Code | Rate-limit external APIs |
 | 18 | Low | Code | Version localStorage keys |
 | 19 | Process | Docs | Reorder README |
-| 20 | Process | Docs | Fix session-restore ADR placement |
+| 20 | ✅ | Docs | Fix session-restore ADR placement |

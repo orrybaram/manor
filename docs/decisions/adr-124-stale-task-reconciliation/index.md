@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-116: Stale Task Reconciliation
+# ADR-124: Stale Task Reconciliation
 
 Closes #122
 

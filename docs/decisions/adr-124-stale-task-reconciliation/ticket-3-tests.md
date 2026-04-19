@@ -107,6 +107,6 @@ When your implementation is complete, you MUST create a git commit. This is not 
 
 Run:
   git add -A
-  git commit -m "test(adr-116): tests for stale task reconciliation and pane closure abandonment"
+  git commit -m "test(adr-124): tests for stale task reconciliation and pane closure abandonment"
 
 Do not push.

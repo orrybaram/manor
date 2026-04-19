@@ -1,4 +1,4 @@
-# ADR-077: First-Run UX — Project Setup Wizard
+# ADR-125: First-Run UX — Project Setup Wizard
 
 ## Status
 

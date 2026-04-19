@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-057: Add right-click "Inspect Element" context menu to webviews
+# ADR-122: Add right-click "Inspect Element" context menu to webviews
 
 ## Context
 

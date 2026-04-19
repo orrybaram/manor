@@ -74,6 +74,6 @@ When your implementation is complete, you MUST create a git commit. This is not 
 
 Run:
   git add -A
-  git commit -m "feat(adr-116): pane closure hook — abandon task when pane is explicitly closed"
+  git commit -m "feat(adr-124): pane closure hook — abandon task when pane is explicitly closed"
 
 Do not push.

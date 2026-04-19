@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-001: Push to Remote from Diff Tab
+# ADR-121: Push to Remote from Diff Tab
 
 ## Context
 

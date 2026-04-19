@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-001: Split electron/main.ts into focused modules
+# ADR-119: Split electron/main.ts into focused modules
 
 ## Context
 

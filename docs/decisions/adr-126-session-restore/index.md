@@ -1,4 +1,4 @@
-# ADR: Daemon-Backed Session Restore
+# ADR-126: Daemon-Backed Session Restore
 
 ## Status
 

@@ -17,7 +17,7 @@ database:
   groupBy: status
 ---
 
-# ADR-093: Standardize Input Component
+# ADR-123: Standardize Input Component
 
 ## Context
 

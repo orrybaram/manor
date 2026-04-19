@@ -215,6 +215,40 @@ Files under the data dir:
 
 **Renderer-local (`localStorage`)**: sidebar width, collapsed project state, transient UI flags from `preferences-store.ts` — anything cheap to lose.
 
+### Filesystem layout
+
+Manor writes to two root directories. The split is intentional and enforced by `electron/paths.ts`, which is the single source of truth for every path the app touches.
+
+**`manorDataDir()`** — `~/Library/Application Support/Manor/` on macOS, `~/.local/share/Manor/` on Linux. Everything here is Electron-main-only state:
+
+| File | Purpose |
+|---|---|
+| `projects.json` | Project + workspace registry |
+| `tasks.json` | Task persistence |
+| `preferences.json` | App preferences |
+| `keybindings.json` | User keybinding overrides |
+| `window-bounds.json` | Window position/size |
+| `zoom-level.json` | Renderer zoom factor |
+| `linear-token.enc` | Encrypted Linear API key |
+| `sessions/` | Zsh history files (one per pane) |
+| `zdotdir/` | Zsh dotfiles shim for history tracking |
+
+**`manorHomeDir()`** — `~/.manor/`. A stable, well-known path for anything an *external* process needs to find:
+
+| Path | Consumer |
+|---|---|
+| `daemon/terminal-host.{sock,pid,token}` | Detached daemon process |
+| `hook-port`, `hooks/notify.sh` | Shell-level agent hooks (Claude Code, etc.) |
+| `webview-server-port` | Standalone MCP webview server |
+| `portless-proxy-port` | External tools discovering the portless proxy |
+| `sessions/` | Daemon's terminal scrollback (distinct from data-dir `sessions/`) |
+| `layout.json` | Daemon's layout persistence |
+| `worktrees/` | Default base for `git worktree` — user-facing, visible in IDEs |
+
+**Rule for adding a new path:** if a file is read only by Electron main, put it under `manorDataDir()`. If anything outside Electron main needs to find it (another process, a shell script, git, the user's file manager), put it under `manorHomeDir()`.
+
+**Naming collision worth knowing:** both roots have a `sessions/` directory. They hold different things — zsh history (data-dir) vs terminal scrollback (home-dir) — and serve different readers. Renaming is scoped out; noted here for anyone chasing a path through the code.
+
 ## Build & packaging
 
 **Vite** (`vite.config.ts`) runs the renderer plus five Electron-side builds via `vite-plugin-electron`:

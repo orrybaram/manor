@@ -40,17 +40,15 @@ Titles updated to match lowercase-slug / numbered convention. No `adr-session-re
 
 ---
 
-### 4. `manorDataDir()` duplicated across seven files
+### 4. `manorDataDir()` duplicated across seven files — ✅ Resolved
 
 **Locations:** `electron/persistence.ts:30`, `electron/task-persistence.ts:6`, `electron/preferences.ts:5`, `electron/keybindings.ts`, `electron/window.ts:14`, `electron/linear.ts`, `electron/shell.ts`
 
-Each file defines its own copy of the platform-aware data directory helper. Any change (new platform support, reorganization) has to be made in seven places. Some exports the helper, some don't. `electron/window.ts` exports it; the rest keep it private, so even internal callers can't reuse.
-
-**Fix:** Centralize in a single `electron/paths.ts` module that exports `manorDataDir`, `manorHomeDir` (for the fixed `~/.manor` usages), and named file getters.
+**Resolved:** via ADR-127. All duplicated definitions have been consolidated into `electron/paths.ts`, which is now the single source of truth for `manorDataDir()`, `manorHomeDir()`, and named file getters. All call sites import from this central module.
 
 ---
 
-### 5. Two conflicting persistence roots (`~/Library/Application Support/Manor` vs `~/.manor`)
+### 5. Two conflicting persistence roots (`~/Library/Application Support/Manor` vs `~/.manor`) — ✅ Resolved
 
 Manor stores app data in two different locations depending on who writes it:
 
@@ -59,9 +57,7 @@ Manor stores app data in two different locations depending on who writes it:
 | `manorDataDir()` → `~/Library/Application Support/Manor/` (macOS) | projects, tasks, prefs, keybindings, theme, window state | yes |
 | `~/.manor/` (hardcoded) | daemon socket/pid/token, hook port, webview server port, worktrees, hook scripts | no |
 
-There's a semi-defensible reason — `~/.manor/` files are discovered by external tools (agent hooks, MCP server), and a stable well-known path beats a platform-dependent one. But this isn't documented, and some files (e.g. worktrees at `~/.manor/worktrees/`) aren't consumed by external tools at all and could live under the data dir.
-
-**Fix:** Document the split (which files *need* `~/.manor/` because external tools read them, which are there by accident). Move the accidental ones into `manorDataDir()`.
+**Resolved:** via ADR-127. The split is now documented in `ARCHITECTURE.md` under "Filesystem layout". The intentional design — `~/.manor/` for external-tool discovery, `manorDataDir()` for internal-only state — is explained. See the "Rule for adding a new path" section for guidance on where new files should go.
 
 ---
 
@@ -220,8 +216,8 @@ Moved to `docs/decisions/adr-126-session-restore/index.md` with a proper ADR num
 | 1 | ✅ | Build | Update `pnpm kill` daemon paths |
 | 2 | ✅ | Docs | Renumber colliding ADRs |
 | 3 | ✅ | Docs | Relocate orphan ADR files |
-| 4 | High | Code | Deduplicate `manorDataDir()` |
-| 5 | High | Code | Document/unify `~/.manor` vs data dir |
+| 4 | ✅ | Code | Deduplicate `manorDataDir()` |
+| 5 | ✅ | Code | Document/unify `~/.manor` vs data dir |
 | 6 | Medium | Code | Consistent IPC arg validation |
 | 7 | Medium | Code | Split `app-store.ts` |
 | 8 | Medium | Security | Use keychain for Linear key |

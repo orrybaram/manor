@@ -8,6 +8,7 @@ import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
+import { manorDataDir } from "./paths";
 
 const execAsync = promisify(exec);
 
@@ -25,13 +26,6 @@ function slugify(str: string): string {
     .replace(/[\s_]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-function manorDataDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "Manor");
-  }
-  return path.join(os.homedir(), ".local", "share", "Manor");
 }
 
 export interface CustomCommand {

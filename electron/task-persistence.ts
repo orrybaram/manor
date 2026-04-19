@@ -1,14 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 
-function manorDataDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "Manor");
-  }
-  return path.join(os.homedir(), ".local", "share", "Manor");
-}
+import { manorDataDir } from "./paths";
 
 export interface TaskInfo {
   id: string;

@@ -1,21 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 
-function manorDataDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "Manor");
-  }
-  return path.join(os.homedir(), ".local", "share", "Manor");
-}
+import { shellSessionsDir, shellZdotdir } from "./paths";
 
 export class ShellManager {
   static sessionsDir(): string {
-    return path.join(manorDataDir(), "sessions");
+    return shellSessionsDir();
   }
 
   static zdotdirPath(): string {
-    return path.join(manorDataDir(), "zdotdir");
+    return shellZdotdir();
   }
 
   static historyFileFor(paneId: string): string {

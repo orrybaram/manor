@@ -1,7 +1,8 @@
 import { app, BrowserWindow, screen, shell } from "electron";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+
+import { windowBoundsFile, zoomLevelFile } from "./paths";
 
 interface WindowBounds {
   x: number;
@@ -11,23 +12,9 @@ interface WindowBounds {
   isMaximized: boolean;
 }
 
-export function manorDataDir(): string {
-  return process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Application Support", "Manor")
-    : path.join(os.homedir(), ".local", "share", "Manor");
-}
-
-function windowBoundsPath(): string {
-  return path.join(manorDataDir(), "window-bounds.json");
-}
-
-function zoomLevelPath(): string {
-  return path.join(manorDataDir(), "zoom-level.json");
-}
-
 export function loadZoomLevel(): number {
   try {
-    const data = fs.readFileSync(zoomLevelPath(), "utf-8");
+    const data = fs.readFileSync(zoomLevelFile(), "utf-8");
     return JSON.parse(data).zoomFactor ?? 1;
   } catch {
     return 1;
@@ -36,7 +23,7 @@ export function loadZoomLevel(): number {
 
 export function saveZoomLevel(factor: number): void {
   try {
-    const p = zoomLevelPath();
+    const p = zoomLevelFile();
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, JSON.stringify({ zoomFactor: factor }));
   } catch {
@@ -46,7 +33,7 @@ export function saveZoomLevel(factor: number): void {
 
 function loadWindowBounds(): WindowBounds | null {
   try {
-    const data = fs.readFileSync(windowBoundsPath(), "utf-8");
+    const data = fs.readFileSync(windowBoundsFile(), "utf-8");
     return JSON.parse(data);
   } catch {
     return null;
@@ -59,7 +46,7 @@ export function saveWindowBounds(win: BrowserWindow): void {
     isMaximized: win.isMaximized(),
   };
   try {
-    const boundsPath = windowBoundsPath();
+    const boundsPath = windowBoundsFile();
     fs.mkdirSync(path.dirname(boundsPath), { recursive: true });
     fs.writeFileSync(boundsPath, JSON.stringify(bounds));
   } catch {

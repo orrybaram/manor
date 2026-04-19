@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { safeStorage } from "electron";
+
+import { linearTokenFile } from "./paths";
 
 export interface LinearTeam {
   id: string;
@@ -49,18 +50,11 @@ export interface GetMyIssuesOptions {
   limit?: number;
 }
 
-function manorDataDir(): string {
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "Manor");
-  }
-  return path.join(os.homedir(), ".local", "share", "Manor");
-}
-
 export class LinearManager {
   private tokenPath: string;
 
   constructor() {
-    this.tokenPath = path.join(manorDataDir(), "linear-token.enc");
+    this.tokenPath = linearTokenFile();
   }
 
   saveToken(apiKey: string): void {

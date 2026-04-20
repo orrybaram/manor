@@ -1,6 +1,6 @@
 ---
 title: Tests for subagent Set tracking and stale-Stop safety net
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2]

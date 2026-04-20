@@ -21,6 +21,11 @@ import {
   ensureHookScript,
   registerAllAgents,
 } from "./agent-hooks";
+import {
+  createHookRelay,
+  STALE_STOP_MS,
+  SWEEP_INTERVAL_MS,
+} from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -312,54 +317,6 @@ export function initApp(devTitle: string | null): void {
     // Set the relay callback now that the client is connected.
     // Hook events route through the daemon's AgentDetector state machine.
 
-    // Session state map for activity gating and subagent tracking
-    interface SessionState {
-      activeSubagents: Set<string>;
-      hasBeenActive: boolean;
-      pendingStopAt: number | null;
-      lastHookEventAt: number;
-    }
-    const sessionStateMap = new Map<string, SessionState>();
-
-    // Maps paneId to the first (root) sessionId seen on that pane.
-    // Used to skip task persistence for subagent sessions.
-    const paneRootSessionMap = new Map<string, string>();
-
-    const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
-      "thinking",
-      "working",
-      "requires_input",
-    ]);
-
-    function getOrCreateSessionState(sessionId: string): SessionState {
-      let state = sessionStateMap.get(sessionId);
-      if (!state) {
-        state = {
-          activeSubagents: new Set(),
-          hasBeenActive: false,
-          pendingStopAt: null,
-          lastHookEventAt: Date.now(),
-        };
-        sessionStateMap.set(sessionId, state);
-      }
-      return state;
-    }
-
-    function applyStopForSession(sessionId: string): void {
-      const task = taskManager.getTaskBySessionId(sessionId);
-      if (!task) return;
-      const prevStatus = task.lastAgentStatus;
-      const updated = taskManager.updateTask(task.id, {
-        lastAgentStatus: "responded",
-        status: "active",
-      });
-      if (updated) {
-        unseenRespondedTasks.add(updated.id);
-        maybeSendNotification(updated, prevStatus, "responded");
-        broadcastTask(updated);
-      }
-    }
-
     function broadcastTask(task: TaskInfo): void {
       if (
         mainWindow &&
@@ -380,178 +337,22 @@ export function initApp(devTitle: string | null): void {
       updateDockBadge();
     });
 
-    agentHookServer.setRelay((paneId, status, kind, sessionId, eventType, toolUseId) => {
-      backend.pty.relayAgentHook(paneId, status, kind);
-
-      // Task persistence: create or update task for this session
-      if (!sessionId) {
-        console.debug(
-          `[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`,
-        );
-        return;
-      }
-
-      // SessionStart means a new conversation began on this pane (e.g. /clear).
-      // Reset root session tracking so the new session_id becomes the new root.
-      if (eventType === "SessionStart") {
-        const oldRoot = paneRootSessionMap.get(paneId);
-        if (oldRoot && oldRoot !== sessionId) {
-          console.debug(
-            `[task-lifecycle] SessionStart: resetting root session on pane ${paneId} (${oldRoot} → ${sessionId})`,
-          );
-          paneRootSessionMap.delete(paneId);
-          sessionStateMap.delete(oldRoot);
-        }
-        // Don't create a task for SessionStart — wait for UserPromptSubmit.
-        paneRootSessionMap.set(paneId, sessionId);
-        return;
-      }
-
-      // Root session tracking: first sessionId on a pane is the root (parent).
-      // Any different sessionId on the same pane is a subagent — skip task persistence.
-      const rootSession = paneRootSessionMap.get(paneId);
-      if (!rootSession) {
-        paneRootSessionMap.set(paneId, sessionId);
-      } else if (rootSession !== sessionId) {
-        console.debug(
-          `[task-lifecycle] Subagent session ${sessionId} on pane ${paneId} (root=${rootSession}) — skipping task persistence`,
-        );
-        return;
-      }
-
-      const sessionState = getOrCreateSessionState(sessionId);
-      sessionState.lastHookEventAt = Date.now();
-
-      // ── Active statuses: thinking, working, requires_input ──
-      if (ACTIVE_STATUSES.has(status)) {
-        sessionState.hasBeenActive = true;
-
-        // Subagent tracking on active events
-        if (eventType === "SubagentStart") {
-          const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
-          sessionState.activeSubagents.add(id);
-        } else if (eventType === "SubagentStop") {
-          if (toolUseId) {
-            sessionState.activeSubagents.delete(toolUseId);
-          } else {
-            // Fallback: no id available — remove any one entry (prefer a fallback entry if present)
-            const first = sessionState.activeSubagents.values().next().value;
-            if (first !== undefined) sessionState.activeSubagents.delete(first);
-          }
-        }
-
-        // Create or update task
-        let task = taskManager.getTaskBySessionId(sessionId);
-        const now = new Date().toISOString();
-
-        if (!task) {
-          // Unlink any previous task for this pane so it no longer appears in the
-          // sidebar via the activePaneIds filter. This prevents duplicates when
-          // auto-resume re-runs an agent (new session ID) on the same pane.
-          const prevPaneTask = taskManager.getTaskByPaneId(paneId);
-          if (prevPaneTask) {
-            taskManager.updateTask(prevPaneTask.id, { paneId: null });
-          }
-
-          const paneContext = paneContextMap.get(paneId);
-          task = taskManager.createTask({
-            agentSessionId: sessionId,
-            name: null,
-            status: "active",
-            completedAt: null,
-            projectId: paneContext?.projectId ?? null,
-            projectName: paneContext?.projectName ?? null,
-            workspacePath: paneContext?.workspacePath ?? null,
-            cwd: paneContext?.workspacePath ?? "",
-            agentKind: kind,
-            agentCommand: paneContext?.agentCommand ?? null,
-            paneId,
-            lastAgentStatus: status,
-          });
-          // Set activatedAt immediately after creation
-          task = taskManager.updateTask(task.id, { activatedAt: now });
-          if (task && status === "requires_input") {
-            unseenInputTasks.add(task.id);
-          }
-        } else {
-          const prevStatus = task.lastAgentStatus;
-          task = taskManager.updateTask(task.id, {
-            lastAgentStatus: status,
-            status: "active",
-            ...(task.activatedAt ? {} : { activatedAt: now }),
-          });
-          if (task) {
-            if (status === "requires_input") {
-              unseenInputTasks.add(task.id);
-            }
-            maybeSendNotification(task, prevStatus, status);
-          }
-        }
-
-        if (task) broadcastTask(task);
-        return;
-      }
-
-      // ── Terminal / completion statuses: complete, error, idle ──
-
-      // Activity gating: if session was never active, skip
-      if (!sessionState.hasBeenActive) {
-        console.debug(
-          `[task-lifecycle] Skipping ${status} for session ${sessionId} — never activated`,
-        );
-        return;
-      }
-
-      let task = taskManager.getTaskBySessionId(sessionId);
-
-      if (eventType === "Stop") {
-        // If subagents are still running, this Stop is from a subagent — ignore it.
-        // The parent's real Stop will arrive once activeSubagents is empty.
-        if (sessionState.activeSubagents.size > 0) {
-          sessionState.pendingStopAt = Date.now();
-          return;
-        }
-
-        // No subagents: clear any pending marker and set responded
-        sessionState.pendingStopAt = null;
-        applyStopForSession(sessionId);
-      } else if (eventType === "SessionEnd") {
-        // Session truly over — always complete
-        if (task) {
-          task = taskManager.updateTask(task.id, {
-            lastAgentStatus: "complete",
-            status: "completed",
-            completedAt: new Date().toISOString(),
-          });
-          if (task) {
-            unseenRespondedTasks.delete(task.id);
-            unseenInputTasks.delete(task.id);
-            broadcastTask(task);
-          }
-        }
-        sessionStateMap.delete(sessionId);
-        // Allow pane to accept a new root session
-        paneRootSessionMap.delete(paneId);
-      } else if (eventType === "StopFailure") {
-        // Error — transition regardless of subagent state
-        if (task) {
-          task = taskManager.updateTask(task.id, {
-            lastAgentStatus: status,
-            status: "error",
-            completedAt: new Date().toISOString(),
-          });
-          if (task) {
-            unseenRespondedTasks.delete(task.id);
-            unseenInputTasks.delete(task.id);
-            broadcastTask(task);
-          }
-        }
-        sessionStateMap.delete(sessionId);
-      }
+    const {
+      relay,
+      sessionStateMap,
+      applyStopForSession,
+    } = createHookRelay({
+      relayAgentHook: (paneId, status, kind) =>
+        backend.pty.relayAgentHook(paneId, status, kind),
+      taskManager,
+      getPaneContext: (paneId) => paneContextMap.get(paneId),
+      unseenRespondedTasks,
+      unseenInputTasks,
+      broadcastTask,
+      maybeSendNotification,
     });
 
-    const STALE_STOP_MS = 15_000;
-    const SWEEP_INTERVAL_MS = 10_000;
+    agentHookServer.setRelay(relay);
 
     const staleStopSweep = setInterval(() => {
       const now = Date.now();

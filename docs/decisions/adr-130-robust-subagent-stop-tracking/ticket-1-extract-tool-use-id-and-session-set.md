@@ -1,6 +1,6 @@
 ---
 title: Extract tool_use_id in hook script and track subagents as a Set
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

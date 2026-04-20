@@ -1,6 +1,6 @@
 ---
 title: Add stale-Stop safety net with session inactivity sweep
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -271,6 +271,38 @@ describe("AgentHookServer", () => {
       expect(relayFn).not.toHaveBeenCalled();
     });
   });
+
+  describe("toolUseId forwarding", () => {
+    it("passes toolUseId to relay when present in query", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=SubagentStart&toolUseId=abc123",
+      );
+      expect(relayFn).toHaveBeenCalledWith(
+        "p1",
+        "working",
+        "claude",
+        null,
+        "SubagentStart",
+        "abc123",
+      );
+    });
+
+    it("passes null toolUseId when absent", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Stop",
+      );
+      expect(relayFn).toHaveBeenCalledWith(
+        "p1",
+        "responded",
+        "claude",
+        null,
+        "Stop",
+        null,
+      );
+    });
+  });
 });
 
 describe("ClaudeConnector.registerHooks", () => {

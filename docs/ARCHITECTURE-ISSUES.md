@@ -105,11 +105,11 @@ A runtime error in any rendering component crashes the entire app window to a wh
 
 ---
 
-### 11. No UI end-to-end tests
+### 11. No UI end-to-end tests — ✅ Resolved (initial coverage)
 
-Vitest covers stores, managers, and the daemon. The renderer UI has no Playwright / WebdriverIO / Spectron coverage. Manual regressions around pane layout, modal focus, and keyboard shortcut interactions are observed and documented in the ADR log but can't be caught automatically.
+**Resolved:** via ADR-128. Playwright smoke suite added with a pane-lifecycle test (import project → new workspace → open terminal → split pane → close pane). Run via `pnpm test:e2e`. Selector strategy uses `data-testid` — vocabulary documented in `tests/e2e/README.md`.
 
-**Fix:** Add a thin Playwright setup for a handful of critical flows (new workspace → new terminal → agent status detected → pane split → pane close). Running against a dev build is fine — don't need packaged.
+**Deferred:** agent-status detection (needs a Claude process stub/mock — separate ADR) and CI integration. Broader test coverage can be added incrementally using the existing fixtures.
 
 ---
 
@@ -217,7 +217,7 @@ Moved to `docs/decisions/adr-126-session-restore/index.md` with a proper ADR num
 | 8 | Medium | Security | Use keychain for Linear key |
 | 9 | ✅ | Docs | Remove ADR-107 TODO breadcrumbs |
 | 10 | Medium | Code | Add top-level error boundary |
-| 11 | Medium | Tests | Add Playwright smoke suite |
+| 11 | ✅ | Tests | Add Playwright smoke suite |
 | 12 | Low | Types | Type preload return values |
 | 13 | Low | Tooling | `import/no-cycle` lint rule |
 | 14 | Low | Build | Harden postinstall |

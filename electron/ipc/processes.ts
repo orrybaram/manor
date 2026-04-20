@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { ipcMain } from "electron";
 import { portlessManager } from "../portless";
+import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -76,6 +77,7 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "processes:killSession",
     async (_event, sessionId: string) => {
+      assertString(sessionId, "sessionId");
       try {
         await backend.pty.kill(sessionId);
       } catch {

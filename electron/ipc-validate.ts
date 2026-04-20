@@ -25,3 +25,17 @@ export function assertPositiveInt(
     throw new Error(`${name}: expected positive integer, got ${value}`);
   }
 }
+
+export function assertStringArray(
+  value: unknown,
+  name: string,
+): asserts value is string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${name}: expected array, got ${typeof value}`);
+  }
+  for (let i = 0; i < value.length; i++) {
+    if (typeof value[i] !== "string") {
+      throw new Error(`${name}[${i}]: expected string, got ${typeof value[i]}`);
+    }
+  }
+}

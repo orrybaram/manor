@@ -63,13 +63,11 @@ Manor stores app data in two different locations depending on who writes it:
 
 ## Medium
 
-### 6. Inconsistent IPC argument validation
+### 6. Inconsistent IPC argument validation — ✅ Resolved (primitives)
 
-**Location:** `electron/ipc/*.ts`
+**Resolved:** Validator usage extended to `theme.ts`, `processes.ts`, and `ports.ts`. Added `assertStringArray` helper to `ipc-validate.ts`. All primitive (string, number, string[]) handler args now validate at the IPC boundary.
 
-`electron/ipc-validate.ts` provides `assertString`, `assertPositiveInt`, etc. Seven IPC files use them (`misc`, `tasks`, `branches-diffs`, `pty`, `webview`, `projects`, `integrations`); six files do not (`layout`, `ports`, `theme`, `processes`, plus `types.ts` / `index.ts` which are non-handler). The renderer is trusted because it's in-process, but the IPC surface is also exposed to the preload — a misbehaving renderer extension or a future API consumer can send malformed args and hit runtime type errors.
-
-**Fix:** Extend validator usage to all handler files, or add a schema wrapper (zod/valibot) that each `ipcMain.handle` is required to go through.
+**Deferred:** Complex object args (`layout:save` `PersistedWorkspace`, `ports:updateWorkspaceMetadata` `WorkspaceMeta[]`) remain trusted. Shallow shape checks are fragile and low-value; proper structural validation wants a schema layer (zod/valibot). File a follow-up ADR if the IPC surface grows or starts being consumed by external clients.
 
 ---
 
@@ -214,7 +212,7 @@ Moved to `docs/decisions/adr-126-session-restore/index.md` with a proper ADR num
 | 3 | ✅ | Docs | Relocate orphan ADR files |
 | 4 | ✅ | Code | Deduplicate `manorDataDir()` |
 | 5 | ✅ | Code | Document/unify `~/.manor` vs data dir |
-| 6 | Medium | Code | Consistent IPC arg validation |
+| 6 | ✅ | Code | Consistent IPC arg validation (primitives) |
 | 7 | Medium | Code | Split `app-store.ts` |
 | 8 | Medium | Security | Use keychain for Linear key |
 | 9 | ✅ | Docs | Remove ADR-107 TODO breadcrumbs |

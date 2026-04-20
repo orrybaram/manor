@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -9,6 +10,7 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("theme:setSelected", (_event, name: string) => {
+    assertString(name, "name");
     themeManager.setSelectedThemeName(name);
     return themeManager.getTheme();
   });
@@ -22,6 +24,7 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("theme:preview", (_event, name: string) => {
+    assertString(name, "name");
     return themeManager.getThemeByName(name);
   });
 

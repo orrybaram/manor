@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
 import { portlessManager } from "../portless";
+import { assertPositiveInt, assertStringArray } from "../ipc-validate";
 import type { IpcDeps, WorkspaceMeta } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -43,6 +44,7 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("ports:updateWorkspacePaths", (_event, paths: string[]) => {
+    assertStringArray(paths, "paths");
     portScanner.updateWorkspacePaths(paths);
   });
 
@@ -59,6 +61,7 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("ports:killPort", async (_event, pid: number) => {
+    assertPositiveInt(pid, "pid");
     try {
       await backend.ports.kill(pid);
     } catch {

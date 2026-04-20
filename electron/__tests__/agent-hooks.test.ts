@@ -90,7 +90,7 @@ describe("mapEventToStatus", () => {
 
 describe("AgentHookServer", () => {
   let server: AgentHookServer;
-  let relayFn: (paneId: string, status: AgentStatus, kind: AgentKind) => void;
+  let relayFn: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string, toolUseId: string | null) => void;
 
   beforeEach(async () => {
     server = new AgentHookServer();
@@ -98,6 +98,9 @@ describe("AgentHookServer", () => {
       paneId: string,
       status: AgentStatus,
       kind: AgentKind,
+      sessionId: string | null,
+      eventType: string,
+      toolUseId: string | null,
     ) => void;
     await server.start();
     server.setRelay(relayFn);
@@ -182,6 +185,7 @@ describe("AgentHookServer", () => {
         "claude",
         null,
         "Stop",
+        null,
       );
     });
 
@@ -194,6 +198,7 @@ describe("AgentHookServer", () => {
         "claude",
         null,
         "Stop",
+        null,
       );
     });
 
@@ -209,6 +214,7 @@ describe("AgentHookServer", () => {
         "codex",
         null,
         "Stop",
+        null,
       );
     });
 
@@ -230,6 +236,7 @@ describe("AgentHookServer", () => {
         "claude",
         null,
         "Stop",
+        null,
       );
       expect(relayFn).toHaveBeenNthCalledWith(
         2,
@@ -238,6 +245,7 @@ describe("AgentHookServer", () => {
         "claude",
         null,
         "UserPromptSubmit",
+        null,
       );
     });
 

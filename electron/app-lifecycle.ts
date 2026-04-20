@@ -314,7 +314,7 @@ export function initApp(devTitle: string | null): void {
 
     // Session state map for activity gating and subagent tracking
     interface SessionState {
-      subagentCount: number;
+      activeSubagents: Set<string>;
       hasBeenActive: boolean;
     }
     const sessionStateMap = new Map<string, SessionState>();
@@ -332,7 +332,7 @@ export function initApp(devTitle: string | null): void {
     function getOrCreateSessionState(sessionId: string): SessionState {
       let state = sessionStateMap.get(sessionId);
       if (!state) {
-        state = { subagentCount: 0, hasBeenActive: false };
+        state = { activeSubagents: new Set(), hasBeenActive: false };
         sessionStateMap.set(sessionId, state);
       }
       return state;
@@ -358,7 +358,7 @@ export function initApp(devTitle: string | null): void {
       updateDockBadge();
     });
 
-    agentHookServer.setRelay((paneId, status, kind, sessionId, eventType) => {
+    agentHookServer.setRelay((paneId, status, kind, sessionId, eventType, toolUseId) => {
       backend.pty.relayAgentHook(paneId, status, kind);
 
       // Task persistence: create or update task for this session
@@ -405,12 +405,16 @@ export function initApp(devTitle: string | null): void {
 
         // Subagent tracking on active events
         if (eventType === "SubagentStart") {
-          sessionState.subagentCount++;
+          const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
+          sessionState.activeSubagents.add(id);
         } else if (eventType === "SubagentStop") {
-          sessionState.subagentCount = Math.max(
-            0,
-            sessionState.subagentCount - 1,
-          );
+          if (toolUseId) {
+            sessionState.activeSubagents.delete(toolUseId);
+          } else {
+            // Fallback: no id available — remove any one entry (prefer a fallback entry if present)
+            const first = sessionState.activeSubagents.values().next().value;
+            if (first !== undefined) sessionState.activeSubagents.delete(first);
+          }
         }
 
         // Create or update task
@@ -479,8 +483,8 @@ export function initApp(devTitle: string | null): void {
 
       if (eventType === "Stop") {
         // If subagents are still running, this Stop is from a subagent — ignore it.
-        // The parent's real Stop will arrive once subagentCount reaches 0.
-        if (sessionState.subagentCount > 0) {
+        // The parent's real Stop will arrive once activeSubagents is empty.
+        if (sessionState.activeSubagents.size > 0) {
           return;
         }
 

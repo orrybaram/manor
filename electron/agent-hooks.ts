@@ -55,6 +55,7 @@ export class AgentHookServer {
         kind: AgentKind,
         sessionId: string | null,
         eventType: string,
+        toolUseId: string | null,
       ) => void)
     | null = null;
 
@@ -70,6 +71,7 @@ export class AgentHookServer {
       kind: AgentKind,
       sessionId: string | null,
       eventType: string,
+      toolUseId: string | null,
     ) => void,
   ): void {
     this.relayFn = relay;
@@ -96,6 +98,7 @@ export class AgentHookServer {
       const eventType = url.searchParams.get("eventType");
       const sessionId = url.searchParams.get("sessionId");
       const kind = (url.searchParams.get("kind") ?? "claude") as AgentKind;
+      const toolUseId = url.searchParams.get("toolUseId");
 
       if (!paneId || !eventType) {
         res.writeHead(400);
@@ -105,10 +108,10 @@ export class AgentHookServer {
 
       const status = mapEventToStatus(eventType);
       console.debug(
-        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} → status=${status ?? "unmapped"}`,
+        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} toolUseId=${toolUseId} → status=${status ?? "unmapped"}`,
       );
       if (status) {
-        this.relayFn?.(paneId, status, kind, sessionId, eventType);
+        this.relayFn?.(paneId, status, kind, sessionId, eventType, toolUseId);
       }
 
       res.writeHead(200);
@@ -170,6 +173,9 @@ EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]
 # Extract session id
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
 
+# Extract tool_use_id (present on subagent events, absent on others)
+TOOL_USE_ID=$(echo "$INPUT" | grep -oE '"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
+
 # Agent kind — set by Manor when spawning the PTY, defaults to "claude"
 KIND=\${MANOR_AGENT_KIND:-claude}
 
@@ -183,6 +189,9 @@ CURL_ARGS=(
 )
 if [ -n "$SESSION_ID" ]; then
   CURL_ARGS+=(--data-urlencode "sessionId=$SESSION_ID")
+fi
+if [ -n "$TOOL_USE_ID" ]; then
+  CURL_ARGS+=(--data-urlencode "toolUseId=$TOOL_USE_ID")
 fi
 curl "\${CURL_ARGS[@]}" > /dev/null 2>&1
 

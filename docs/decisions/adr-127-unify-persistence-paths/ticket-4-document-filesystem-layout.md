@@ -1,6 +1,6 @@
 ---
 title: Document the filesystem layout in ARCHITECTURE.md
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [3]

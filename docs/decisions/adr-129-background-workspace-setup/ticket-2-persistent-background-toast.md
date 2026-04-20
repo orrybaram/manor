@@ -1,6 +1,6 @@
 ---
 title: Persistent toast when setup is running in the background
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

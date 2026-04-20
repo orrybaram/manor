@@ -4,7 +4,9 @@ import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
+import { useToastStore } from "../../store/toast-store";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
@@ -77,6 +79,18 @@ function SetupChecklist({
   );
 }
 
+function resolveWorkspaceName(wsPath: string): string {
+  if (wsPath === "__pending__") return "workspace";
+  const projects = useProjectStore.getState().projects;
+  for (const project of projects) {
+    const ws = project.workspaces.find((w) => w.path === wsPath);
+    if (ws) {
+      return ws.name || ws.branch || wsPath.split("/").pop() || "workspace";
+    }
+  }
+  return wsPath.split("/").pop() || "workspace";
+}
+
 export function WorkspaceSetupView({
   workspacePath,
   onComplete,
@@ -97,6 +111,31 @@ export function WorkspaceSetupView({
 
   // Derive fading from whether all steps are done
   const fading = allDone;
+
+  // Clear any background toast when the user returns to the setup view
+  useEffect(() => {
+    useToastStore.getState().removeToast(`worktree-setup-${workspacePath}`);
+  }, [workspacePath]);
+
+  // Emit a persistent toast when the view unmounts while setup is still running
+  useEffect(() => {
+    return () => {
+      const latest = useAppStore.getState().worktreeSetupState[workspacePath];
+      if (!latest || latest.completed) return;
+      const setupScriptStep = latest.steps.find((s) => s.step === "setup-script");
+      const stillRunning =
+        setupScriptStep &&
+        (setupScriptStep.status === "in-progress" || setupScriptStep.status === "pending");
+      if (!stillRunning) return;
+      const wsName = resolveWorkspaceName(workspacePath);
+      useToastStore.getState().addToast({
+        id: `worktree-setup-${workspacePath}`,
+        message: `Setting up "${wsName}"…`,
+        status: "loading",
+        persistent: true,
+      });
+    };
+  }, [workspacePath]);
 
   // Transition setup-script to in-progress when all other steps are done
   useEffect(() => {

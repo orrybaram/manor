@@ -1,6 +1,6 @@
 ---
 title: Move setup-script PTY to store; add MiniTerminal attach mode
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

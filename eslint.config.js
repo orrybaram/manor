@@ -48,5 +48,14 @@ export default tseslint.config(
       "no-empty": "off",
     },
   },
+  {
+    // E2E test files — Playwright fixtures use a `use` callback that looks like
+    // a React hook to ESLint; disable the false-positive rule here.
+    files: ["tests/e2e/**/*.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+      "react-refresh/only-export-components": "off",
+    },
+  },
   eslintConfigPrettier,
 );

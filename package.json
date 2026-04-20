@@ -11,6 +11,7 @@
     "package": "source .env && vite build && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vite build && playwright test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -54,6 +55,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^25.5.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

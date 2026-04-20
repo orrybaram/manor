@@ -95,6 +95,8 @@ const WorkspaceItem = React.forwardRef<
         if (typeof forwardedRef === "function") forwardedRef(el);
         else if (forwardedRef) forwardedRef.current = el;
       }}
+      data-testid="workspace-item"
+      data-workspace-path={ws.path}
       {...rest}
       className={`${styles.workspace} ${
         isSelected && idx === selectedWorkspaceIndex

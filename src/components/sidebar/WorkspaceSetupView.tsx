@@ -188,6 +188,7 @@ export function WorkspaceSetupView({
 
   return (
     <div
+      data-testid="workspace-setup-view"
       className={`${fading ? styles.fadeOut : ""}`}
       onTransitionEnd={handleTransitionEnd}
       style={{ height: "100%", opacity: fading ? undefined : 1 }}

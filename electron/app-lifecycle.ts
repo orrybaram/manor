@@ -316,6 +316,8 @@ export function initApp(devTitle: string | null): void {
     interface SessionState {
       activeSubagents: Set<string>;
       hasBeenActive: boolean;
+      pendingStopAt: number | null;
+      lastHookEventAt: number;
     }
     const sessionStateMap = new Map<string, SessionState>();
 
@@ -332,10 +334,30 @@ export function initApp(devTitle: string | null): void {
     function getOrCreateSessionState(sessionId: string): SessionState {
       let state = sessionStateMap.get(sessionId);
       if (!state) {
-        state = { activeSubagents: new Set(), hasBeenActive: false };
+        state = {
+          activeSubagents: new Set(),
+          hasBeenActive: false,
+          pendingStopAt: null,
+          lastHookEventAt: Date.now(),
+        };
         sessionStateMap.set(sessionId, state);
       }
       return state;
+    }
+
+    function applyStopForSession(sessionId: string): void {
+      const task = taskManager.getTaskBySessionId(sessionId);
+      if (!task) return;
+      const prevStatus = task.lastAgentStatus;
+      const updated = taskManager.updateTask(task.id, {
+        lastAgentStatus: "responded",
+        status: "active",
+      });
+      if (updated) {
+        unseenRespondedTasks.add(updated.id);
+        maybeSendNotification(updated, prevStatus, "responded");
+        broadcastTask(updated);
+      }
     }
 
     function broadcastTask(task: TaskInfo): void {
@@ -398,6 +420,7 @@ export function initApp(devTitle: string | null): void {
       }
 
       const sessionState = getOrCreateSessionState(sessionId);
+      sessionState.lastHookEventAt = Date.now();
 
       // ── Active statuses: thinking, working, requires_input ──
       if (ACTIVE_STATUSES.has(status)) {
@@ -485,22 +508,13 @@ export function initApp(devTitle: string | null): void {
         // If subagents are still running, this Stop is from a subagent — ignore it.
         // The parent's real Stop will arrive once activeSubagents is empty.
         if (sessionState.activeSubagents.size > 0) {
+          sessionState.pendingStopAt = Date.now();
           return;
         }
 
-        // No subagents: set responded and keep task active
-        if (task) {
-          const prevStatus = task.lastAgentStatus;
-          task = taskManager.updateTask(task.id, {
-            lastAgentStatus: "responded",
-            status: "active",
-          });
-          if (task) {
-            unseenRespondedTasks.add(task.id);
-            maybeSendNotification(task, prevStatus, "responded");
-            broadcastTask(task);
-          }
-        }
+        // No subagents: clear any pending marker and set responded
+        sessionState.pendingStopAt = null;
+        applyStopForSession(sessionId);
       } else if (eventType === "SessionEnd") {
         // Session truly over — always complete
         if (task) {
@@ -534,6 +548,31 @@ export function initApp(devTitle: string | null): void {
         }
         sessionStateMap.delete(sessionId);
       }
+    });
+
+    const STALE_STOP_MS = 15_000;
+    const SWEEP_INTERVAL_MS = 10_000;
+
+    const staleStopSweep = setInterval(() => {
+      const now = Date.now();
+      for (const [sessionId, state] of sessionStateMap) {
+        if (
+          state.pendingStopAt !== null &&
+          now - state.lastHookEventAt > STALE_STOP_MS
+        ) {
+          console.debug(
+            `[task-lifecycle] stale-stop sweep: forcing responded on session ${sessionId} ` +
+              `(activeSubagents=${state.activeSubagents.size}, idle=${now - state.lastHookEventAt}ms)`,
+          );
+          state.activeSubagents.clear();
+          state.pendingStopAt = null;
+          applyStopForSession(sessionId);
+        }
+      }
+    }, SWEEP_INTERVAL_MS);
+
+    app.on("before-quit", () => {
+      clearInterval(staleStopSweep);
     });
 
     app.on("activate", () => {

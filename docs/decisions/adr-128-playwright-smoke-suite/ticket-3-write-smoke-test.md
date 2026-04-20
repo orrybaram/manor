@@ -1,6 +1,6 @@
 ---
 title: Write the pane-lifecycle smoke test
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]
@@ -17,7 +17,7 @@ Replace the placeholder smoke test from ticket 1 with the real flow: **new works
 2. **Flow to cover** (single `test("pane lifecycle", ...)`):
    a. Launch Electron with the fixture. `tempHome` already has `<tempHome>/test-project` seeded as a git repo on `main`.
    b. If the project-setup-wizard appears on fresh launch (testid `project-setup-wizard`), dismiss/complete it. If dismissing isn't possible, drive it through to completion using the seeded test-project path.
-   c. Import the seeded test project via the `import-project-*` testids. If ticket 2 reported that the import flow differs (e.g., native file picker via `dialog.showOpenDialog`), use Playwright's `electronApp.evaluate(({ dialog }) => dialog.showOpenDialog = ...)` pattern to stub it to return `<tempHome>/test-project`.
+   c. **Import uses native file picker.** Ticket 2 confirmed `import-project-path-input` and `import-project-submit` do NOT exist as DOM nodes — clicking `import-project-button` calls `window.electronAPI.dialog.openDirectory()` which opens the OS-native picker. The preload bridge is backed by `dialog.showOpenDialog()` in the main process. **Stub it** before clicking: `await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, seededProjectPath);`. Then click `import-project-button` and wait for the project to appear in the sidebar. Verify the stub works by watching for a project row to render.
    d. Click `sidebar-new-workspace-button` for the imported project.
    e. Wait for `new-workspace-dialog` to be visible.
    f. Fill `new-workspace-name-input` with `smoke-test-workspace`.

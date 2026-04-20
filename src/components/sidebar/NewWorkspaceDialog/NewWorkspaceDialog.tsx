@@ -230,6 +230,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
           className={styles.dialog}
+          data-testid="new-workspace-dialog"
           onOpenAutoFocus={handleOpenAutoFocus}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
@@ -271,6 +272,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                           setError(null);
                         }}
                         placeholder={existingBranch || "Workspace name"}
+                        data-testid="new-workspace-name-input"
                       />
                     </Stack>
                     <Stack>
@@ -309,6 +311,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                           setError(null);
                         }}
                         placeholder="My Feature"
+                        data-testid="new-workspace-name-input"
                       />
                       <Input
                         variant="ghost"
@@ -334,6 +337,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         options={projectOptions}
                         icon={<Box size={12} />}
                         maxWidth={160}
+                        data-testid="new-workspace-project-select"
                       />
                     )}
                     {mode === "new" && (
@@ -348,6 +352,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         emptyMessage="No matching branches"
                         icon={<GitBranch size={12} />}
                         maxWidth={180}
+                        data-testid="new-workspace-base-branch-select"
                       />
                     )}
                   </Row>
@@ -355,7 +360,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     <Button type="button" variant="secondary" onClick={onClose}>
                       Cancel
                     </Button>
-                    <Button type="submit" variant="primary" disabled={isCreating}>
+                    <Button type="submit" variant="primary" disabled={isCreating} data-testid="new-workspace-submit">
                       {isCreating ? (
                         <>
                           <Loader2 size={14} className={styles.spinner} />

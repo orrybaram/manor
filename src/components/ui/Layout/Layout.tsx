@@ -8,6 +8,7 @@ interface LayoutProps {
   justify?: React.CSSProperties["justifyContent"];
   className?: string;
   children: React.ReactNode;
+  "data-testid"?: string;
 }
 
 const gapScale: Record<GapSize, number> = {
@@ -24,7 +25,7 @@ const gapScale: Record<GapSize, number> = {
 
 export const Stack = React.forwardRef<HTMLDivElement, LayoutProps>(
   function Stack(props, ref) {
-    const { gap, align, justify, className, children } = props;
+    const { gap, align, justify, className, children, "data-testid": dataTestId } = props;
 
     const style: React.CSSProperties = {
       display: "flex",
@@ -35,7 +36,7 @@ export const Stack = React.forwardRef<HTMLDivElement, LayoutProps>(
     };
 
     return (
-      <div ref={ref} style={style} className={className}>
+      <div ref={ref} style={style} className={className} data-testid={dataTestId}>
         {children}
       </div>
     );
@@ -46,7 +47,7 @@ Stack.displayName = "Stack";
 
 export const Row = React.forwardRef<HTMLDivElement, LayoutProps>(
   function Row(props, ref) {
-    const { gap, align, justify, className, children } = props;
+    const { gap, align, justify, className, children, "data-testid": dataTestId } = props;
 
     const style: React.CSSProperties = {
       display: "flex",
@@ -57,7 +58,7 @@ export const Row = React.forwardRef<HTMLDivElement, LayoutProps>(
     };
 
     return (
-      <div ref={ref} style={style} className={className}>
+      <div ref={ref} style={style} className={className} data-testid={dataTestId}>
         {children}
       </div>
     );

@@ -60,6 +60,7 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        data-testid="import-project-button"
       >
         <Row align="center" gap="sm" className={styles.title}>
           <FolderOpen size={20} />

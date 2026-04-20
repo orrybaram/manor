@@ -37,7 +37,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div ref={containerRef} className={styles.container}>
+        <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
           <Dialog.Root open={!!ptyError && !dismissed} onOpenChange={(open) => { if (!open) setDismissed(true); }}>
             <Dialog.Portal>
               <Dialog.Overlay className={styles.errorOverlay} />

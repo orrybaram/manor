@@ -309,6 +309,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 setNewWorkspaceOpen(true);
               }}
               title="New Workspace"
+              data-testid="sidebar-new-workspace-button"
             >
               <Plus size={12} />
             </button>

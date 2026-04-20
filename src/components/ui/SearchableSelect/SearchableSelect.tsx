@@ -18,6 +18,7 @@ type SearchableSelectProps = {
   maxWidth?: number;
   loading?: boolean;
   emptyMessage?: string;
+  "data-testid"?: string;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -32,6 +33,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     maxWidth = 250,
     loading = false,
     emptyMessage = "No results",
+    "data-testid": dataTestId,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -124,6 +126,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
           role="combobox"
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
+          data-testid={dataTestId}
         >
           <div className={styles.triggerContent}>
             {icon}

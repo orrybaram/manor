@@ -569,7 +569,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
   };
 
   return (
-    <Row align="center" justify="center" className={styles.container}>
+    <Row align="center" justify="center" className={styles.container} data-testid="project-setup-wizard">
       <div className={styles.card} onKeyDown={handleKeyDown}>
         <Row align="center" justify="space-between" className={styles.header}>
           <div className={styles.title}>Project Setup</div>

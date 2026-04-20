@@ -1,6 +1,6 @@
 ---
 title: Add data-testid selectors to smoke-test touch points
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

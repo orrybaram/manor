@@ -1,6 +1,6 @@
 ---
 title: Document the E2E suite in README
-status: todo
+status: in-progress
 priority: low
 assignee: haiku
 blocked_by: [3]

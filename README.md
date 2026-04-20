@@ -164,6 +164,20 @@ The output will be in the `dist/` directory.
 
 <br />
 
+## Testing
+
+### End-to-end tests
+
+The E2E suite covers pane lifecycle smoke tests using Playwright:
+
+```bash
+pnpm test:e2e
+```
+
+Runs a full `vite build` first; expect 30–60s per run. See `tests/e2e/README.md` for details on adding new tests.
+
+<br />
+
 ## Keyboard Shortcuts
 
 All shortcuts are customizable via **Settings > Keybindings**.

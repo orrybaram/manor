@@ -91,13 +91,9 @@ Linear authenticates with a user-supplied API key that Manor writes to disk in p
 
 ---
 
-### 9. Forward-looking TODOs reference an unimplemented ADR (`adr-107`)
+### 9. Forward-looking TODOs reference an unimplemented ADR (`adr-107`) — ✅ Resolved
 
-**Locations:** `electron/main.ts:10`, `electron/ipc/misc.ts:51, 115`, `electron/notifications.ts:65`, `electron/branch-watcher.ts:57`
-
-Five `TODO(adr-107)` / `TODO(remote-backend)` comments mark places where direct `execFile` / filesystem reads bypass the backend abstraction. These aren't bugs — they're intentional markers for when the remote backend lands. But there's no ADR-107 in `docs/decisions/`, so a reader following the trail hits a dead end.
-
-**Fix:** Either (a) write ADR-107 describing the remote backend plan so the TODOs link to real context, or (b) drop the TODO markers and document the boundary in `ARCHITECTURE.md` instead.
+**Resolved:** The five `TODO(adr-107)` / `TODO(remote-backend)` comments have been removed. The backend-abstraction boundary is documented in `ARCHITECTURE.md`; platform utilities (`afplay`, editor launch, startup `$PATH` probe) and direct `.git/HEAD` reads are acceptable today. If a remote backend is pursued later, the boundary will be revisited as part of that ADR — no breadcrumbs needed in the interim.
 
 ---
 
@@ -221,7 +217,7 @@ Moved to `docs/decisions/adr-126-session-restore/index.md` with a proper ADR num
 | 6 | Medium | Code | Consistent IPC arg validation |
 | 7 | Medium | Code | Split `app-store.ts` |
 | 8 | Medium | Security | Use keychain for Linear key |
-| 9 | Medium | Docs | Write ADR-107 or remove TODOs |
+| 9 | ✅ | Docs | Remove ADR-107 TODO breadcrumbs |
 | 10 | Medium | Code | Add top-level error boundary |
 | 11 | Medium | Tests | Add Playwright smoke suite |
 | 12 | Low | Types | Type preload return values |

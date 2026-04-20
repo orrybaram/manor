@@ -48,8 +48,6 @@ export function register(deps: IpcDeps): void {
     if (!editor) {
       return shell.openPath(dirPath);
     }
-    // TODO(adr-107): execFile for editor launch is intentionally direct — it opens
-    // an arbitrary user-configured binary and is not a backend abstraction concern.
     return new Promise<string>((resolve) => {
       execFile(editor, [dirPath], (err) => {
         resolve(err ? err.message : "");
@@ -112,8 +110,6 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
-    // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
-    // abstracted through the backend since it is not workspace I/O.
     execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
   });
 

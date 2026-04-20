@@ -7,8 +7,6 @@ import { initApp } from "./app-lifecycle";
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths
 // where tools like `gh` live. Spawn a login shell to get the real PATH.
-// TODO(adr-107): execFileSync here is intentional — this is a synchronous startup
-// path that must complete before any async work begins. Cannot use backend abstraction.
 if (app.isPackaged) {
   try {
     const shell = process.env.SHELL || "/bin/zsh";

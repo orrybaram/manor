@@ -54,9 +54,6 @@ export class BranchWatcher {
     return result;
   }
 
-  // TODO(remote-backend): This reads .git/HEAD directly via the filesystem.
-  // For a remote backend (SSH/container), this would need to be delegated
-  // to a GitBackend method (e.g. `git.currentBranch(cwd)`).
   private async readBranch(wsPath: string): Promise<string | null> {
     const gitPath = path.join(wsPath, ".git");
 

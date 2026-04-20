@@ -62,8 +62,6 @@ export function maybeSendNotification(
   notification.show();
   const soundName = preferencesManager.get("notificationSound");
   if (typeof soundName === "string") {
-    // TODO(adr-107): execFile("afplay") is macOS-specific platform utility — not
-    // abstracted through the backend since it is not workspace I/O.
     execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
   }
 }

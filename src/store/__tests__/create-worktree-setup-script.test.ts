@@ -12,6 +12,14 @@ vi.stubGlobal("window", {
       select: vi.fn(),
       onWorktreeSetupProgress: vi.fn(() => vi.fn()),
     },
+    pty: {
+      create: vi.fn(() => Promise.resolve()),
+      write: vi.fn(),
+      close: vi.fn(),
+      onExit: vi.fn(() => vi.fn()),
+      onCwd: vi.fn(() => vi.fn()),
+      onOutput: vi.fn(() => vi.fn()),
+    },
   },
 });
 

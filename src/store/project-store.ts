@@ -55,6 +55,81 @@ function saveCollapsedIds(ids: Set<string>): void {
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
 }
 
+/**
+ * Store-level orchestrator for the workspace setup-script PTY.
+ *
+ * Owns creation, command submission, and exit handling for the setup script
+ * at store scope so its lifetime is decoupled from any view. The MiniTerminal
+ * rendered by WorkspaceSetupView attaches (via `attach` prop) to the same
+ * session for live display but never creates or closes the PTY.
+ */
+function startSetupScript(wsPath: string, script: string): void {
+  const sessionId = `setup-${wsPath.replace(/\//g, "-")}`;
+  // Reasonable defaults; the view re-fits xterm when/if it mounts.
+  const DEFAULT_COLS = 80;
+  const DEFAULT_ROWS = 24;
+
+  let commandSent = false;
+  let unsubCwd: (() => void) | null = null;
+  let unsubExit: (() => void) | null = null;
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const disposeCommandWaiters = () => {
+    if (unsubCwd) {
+      unsubCwd();
+      unsubCwd = null;
+    }
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+  };
+
+  const sendCommand = () => {
+    if (commandSent) return;
+    commandSent = true;
+    disposeCommandWaiters();
+    window.electronAPI.pty.write(sessionId, `${script}; exit\r`);
+  };
+
+  const handleExit = () => {
+    disposeCommandWaiters();
+    useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "done");
+    useAppStore.getState().completeWorktreeSetup(wsPath);
+    // Remove the background persistent toast (ticket 2 creates it; unconditional
+    // remove is a no-op if absent).
+    useToastStore.getState().removeToast(`worktree-setup-${wsPath}`);
+    // Success toast — fires regardless of whether the setup view is mounted.
+    useToastStore.getState().addToast({
+      id: `workspace-setup-${Date.now()}`,
+      message: "Workspace setup complete",
+      status: "success",
+    });
+    if (unsubExit) {
+      unsubExit();
+      unsubExit = null;
+    }
+  };
+
+  // Subscribe to exit BEFORE pty.create so no events are missed.
+  unsubExit = window.electronAPI.pty.onExit(sessionId, handleExit);
+
+  // Wait for the shell-ready signal (first CWD event from the zsh precmd hook)
+  // before writing the command. Fallback send after 3s for non-zsh shells.
+  unsubCwd = window.electronAPI.pty.onCwd(sessionId, () => {
+    sendCommand();
+  });
+  fallbackTimer = setTimeout(() => {
+    fallbackTimer = null;
+    sendCommand();
+  }, 3000);
+
+  // Kick off the PTY. The promise resolves after main process spawns it.
+  // Errors here are rare and we let the view's own exit observation (or the
+  // lack of onExit) surface them; keeping this simple.
+  void window.electronAPI.pty.create(sessionId, wsPath, DEFAULT_COLS, DEFAULT_ROWS);
+}
+
 export interface CustomCommand {
   id: string;
   name: string;
@@ -381,12 +456,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");
 
       if (startScript) {
-        // Store the start script in setup state; WorkspaceSetupView will handle execution
-        // Do NOT call setPendingStartupCommand or addTab here
-        // If there's also an agentCommand, store it alongside so the setup view can chain them
+        // Preserve existing conditional: only re-mark pending when an agent
+        // command is also present (legacy chaining hook). The setup-script
+        // step was already initialised as "pending" by initWorktreeSetup.
         if (agentCommand) {
           useAppStore.getState().updateWorktreeSetupStep(wsPath, "setup-script", "pending");
         }
+        // Kick off the setup script at store scope so its PTY outlives the
+        // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
+        // to observe the same session without owning its lifecycle.
+        startSetupScript(wsPath, startScript);
       } else if (agentCommand) {
         // No start script — use the existing pending startup command + addTab pattern
         useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);

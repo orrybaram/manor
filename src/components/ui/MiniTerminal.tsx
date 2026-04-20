@@ -14,6 +14,12 @@ export interface MiniTerminalProps {
   onExit?: () => void;
   /** If true, appends "; exit" to the command so the shell exits after completion */
   exitOnComplete?: boolean;
+  /**
+   * Attach to an existing PTY session instead of creating a new one.
+   * When true, start() skips pty.create and cleanup() skips pty.close,
+   * so the underlying PTY outlives the component lifecycle.
+   */
+  attach?: boolean;
   autoStart?: boolean;
   className?: string;
 }
@@ -34,6 +40,7 @@ export function MiniTerminal(
     onOutput,
     onExit,
     exitOnComplete = false,
+    attach = false,
     autoStart = true,
     className,
     handleRef,
@@ -50,6 +57,7 @@ export function MiniTerminal(
     onOutput,
     onExit,
     exitOnComplete,
+    attach,
   });
 
   // Expose imperative handle via ref

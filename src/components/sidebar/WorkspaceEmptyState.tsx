@@ -8,7 +8,6 @@ import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
-import { useToastStore } from "../../store/toast-store";
 import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import type { LinearIssue, GitHubIssue } from "../../electron.d";
@@ -348,13 +347,9 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   }, [setupActive, phase]);
 
   const handleSetupComplete = useCallback(() => {
-    // Show success toast
-    useToastStore.getState().addToast({
-      id: `workspace-setup-${Date.now()}`,
-      message: "Workspace setup complete",
-      status: "success",
-    });
-    // Start cross-fade transition
+    // The orchestrator (startSetupScript in project-store) owns the success
+    // toast now so it fires even when this view is unmounted. Here we only
+    // drive the fade-out transition.
     setPhase("transitioning");
   }, []);
 

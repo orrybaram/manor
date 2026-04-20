@@ -170,6 +170,7 @@ export function WorkspaceSetupView({
               command={startScript}
               interactive={false}
               exitOnComplete
+              attach
               onExit={handleTerminalExit}
               autoStart
               className={styles.terminal}

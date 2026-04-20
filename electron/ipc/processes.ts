@@ -5,7 +5,7 @@ import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
-import { daemonPidFile } from "../paths";
+import { daemonPidFile, daemonSocketFile } from "../paths";
 
 function getPidPath(): string {
   return daemonPidFile();
@@ -105,7 +105,7 @@ export function register(deps: IpcDeps): void {
       // Process may already be dead
     }
 
-    try { fs.unlinkSync(path.join(DAEMON_DIR, "terminal-host.sock")); } catch { /* already gone */ }
+    try { fs.unlinkSync(daemonSocketFile()); } catch { /* already gone */ }
     try { fs.unlinkSync(getPidPath()); } catch { /* already gone */ }
   });
 

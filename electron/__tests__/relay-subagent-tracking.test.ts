@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createHookRelay,
   STALE_STOP_MS,
+  STALE_ACTIVE_MS,
   SWEEP_INTERVAL_MS,
   type HookRelayDeps,
 } from "../hook-relay";
@@ -195,7 +196,7 @@ describe("createHookRelay — subagent Set tracking", () => {
   });
 });
 
-describe("createHookRelay — stale-Stop safety-net sweep", () => {
+describe("createHookRelay — sweep safety nets", () => {
   let ctx: ReturnType<typeof buildRelay>;
 
   beforeEach(() => {
@@ -216,25 +217,8 @@ describe("createHookRelay — stale-Stop safety-net sweep", () => {
     fire(relay, "pane-1", "responded", "claude", "sess-sw", "Stop", null);
   }
 
-  function runSweep(
-    sessionStateMap: ReturnType<typeof buildRelay>["sessionStateMap"],
-    applyStopForSession: ReturnType<typeof buildRelay>["applyStopForSession"],
-  ) {
-    const now = Date.now();
-    for (const [sessionId, state] of sessionStateMap) {
-      if (
-        state.pendingStopAt !== null &&
-        now - state.lastHookEventAt > STALE_STOP_MS
-      ) {
-        state.activeSubagents.clear();
-        state.pendingStopAt = null;
-        applyStopForSession(sessionId);
-      }
-    }
-  }
-
   it("case 3: safety-net recovery — sweep fires after 16s of inactivity", () => {
-    const { relay, sessionStateMap, applyStopForSession } = ctx;
+    const { relay, sessionStateMap, sweepStaleSessions } = ctx;
     setupScenario2(relay);
 
     const state = sessionStateMap.get("sess-sw")!;
@@ -243,7 +227,7 @@ describe("createHookRelay — stale-Stop safety-net sweep", () => {
     // Advance time by 16s (> STALE_STOP_MS = 15s)
     vi.advanceTimersByTime(16_000);
 
-    runSweep(sessionStateMap, applyStopForSession);
+    sweepStaleSessions();
 
     // After sweep, Stop should be applied
     expect(state.pendingStopAt).toBeNull();
@@ -252,7 +236,7 @@ describe("createHookRelay — stale-Stop safety-net sweep", () => {
   });
 
   it("case 4: safety-net defers — PostToolUse resets lastHookEventAt, sweep does not fire", () => {
-    const { relay, sessionStateMap, applyStopForSession } = ctx;
+    const { relay, sessionStateMap, sweepStaleSessions } = ctx;
     setupScenario2(relay);
 
     const state = sessionStateMap.get("sess-sw")!;
@@ -266,7 +250,7 @@ describe("createHookRelay — stale-Stop safety-net sweep", () => {
     // Advance another 10s (20s total wall clock, but only 10s since last event)
     vi.advanceTimersByTime(10_000);
 
-    runSweep(sessionStateMap, applyStopForSession);
+    sweepStaleSessions();
 
     // pendingStopAt should still be set — sweep did NOT apply
     expect(state.pendingStopAt).not.toBeNull();
@@ -277,5 +261,152 @@ describe("createHookRelay — stale-Stop safety-net sweep", () => {
   it("STALE_STOP_MS is 15000 and SWEEP_INTERVAL_MS is 10000", () => {
     expect(STALE_STOP_MS).toBe(15_000);
     expect(SWEEP_INTERVAL_MS).toBe(10_000);
+  });
+
+  it("case 7: stale-active sweep fires after STALE_ACTIVE_MS when Stop never arrived", () => {
+    const { relay, sweepStaleSessions } = ctx;
+
+    // UserPromptSubmit sets hasBeenActive = true via "thinking" status
+    fire(relay, "pane-1", "thinking", "claude", "sess-7", "UserPromptSubmit", null);
+
+    // Advance time by 61s (> STALE_ACTIVE_MS = 60s)
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
+
+    sweepStaleSessions();
+
+    const task = ctx.taskManager.getTaskBySessionId("sess-7");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("case 9: stale-active sweep does NOT fire if task is already terminal", () => {
+    const { relay, sweepStaleSessions } = ctx;
+
+    // UserPromptSubmit then Stop (no subagents, so Stop applies immediately)
+    fire(relay, "pane-1", "thinking", "claude", "sess-9", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "responded", "claude", "sess-9", "Stop", null);
+
+    const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-9");
+    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
+
+    sweepStaleSessions();
+
+    // Still responded — unchanged
+    const task = ctx.taskManager.getTaskBySessionId("sess-9");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("case 10: stale-active sweep does NOT fire if activity is fresh", () => {
+    const { relay, sweepStaleSessions } = ctx;
+
+    // UserPromptSubmit (thinking) then PostToolUse refreshes lastHookEventAt
+    fire(relay, "pane-1", "thinking", "claude", "sess-10", "UserPromptSubmit", null);
+
+    // Advance a bit then fire PostToolUse to refresh lastHookEventAt
+    vi.advanceTimersByTime(10_000);
+    fire(relay, "pane-1", "thinking", "claude", "sess-10", "PostToolUse", null);
+
+    // Advance to 55s since last event (under STALE_ACTIVE_MS)
+    vi.advanceTimersByTime(STALE_ACTIVE_MS - 5_000);
+
+    sweepStaleSessions();
+
+    // Task should still be active (thinking), not responded
+    const task = ctx.taskManager.getTaskBySessionId("sess-10");
+    expect(task?.lastAgentStatus).not.toBe("responded");
+  });
+
+  it("case 11: pending-stop branch still wins over stale-active branch", () => {
+    const { relay, sweepStaleSessions } = ctx;
+
+    // SubagentStart then Stop (dropped due to active subagent)
+    fire(relay, "pane-1", "thinking", "claude", "sess-11", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "working", "claude", "sess-11", "SubagentStart", "tool-a");
+    fire(relay, "pane-1", "responded", "claude", "sess-11", "Stop", null);
+
+    const state = ctx.sessionStateMap.get("sess-11")!;
+    expect(state.pendingStopAt).not.toBeNull();
+
+    // Advance 16s (> STALE_STOP_MS=15s, but < STALE_ACTIVE_MS=60s)
+    vi.advanceTimersByTime(STALE_STOP_MS + 1_000);
+
+    sweepStaleSessions();
+
+    // pending-Stop branch should have fired
+    const task = ctx.taskManager.getTaskBySessionId("sess-11");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+});
+
+describe("createHookRelay — AgentDetector gone-bridge", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    ctx = buildRelay();
+  });
+
+  it("bridge-1: notifyAgentDetectorGone force-closes active task", () => {
+    const { relay, notifyAgentDetectorGone, sessionStateMap } = ctx;
+
+    // Activate session on pane-1
+    fire(relay, "pane-1", "thinking", "claude", "sess-b1", "UserPromptSubmit", null);
+
+    notifyAgentDetectorGone("pane-1");
+
+    const task = ctx.taskManager.getTaskBySessionId("sess-b1");
+    expect(task?.lastAgentStatus).toBe("responded");
+
+    const state = sessionStateMap.get("sess-b1")!;
+    expect(state.activeSubagents.size).toBe(0);
+  });
+
+  it("bridge-2: notifyAgentDetectorGone is a no-op on unknown pane", () => {
+    const { notifyAgentDetectorGone, broadcastTask } = ctx;
+
+    const callsBefore = broadcastTask.mock.calls.length;
+    notifyAgentDetectorGone("pane-does-not-exist");
+    expect(broadcastTask.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("bridge-3: notifyAgentDetectorGone is a no-op if task already terminal", () => {
+    const { relay, notifyAgentDetectorGone, broadcastTask } = ctx;
+
+    // Activate and then stop normally
+    fire(relay, "pane-1", "thinking", "claude", "sess-b3", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "responded", "claude", "sess-b3", "Stop", null);
+
+    const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-b3");
+    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+
+    const callsBefore = broadcastTask.mock.calls.length;
+
+    notifyAgentDetectorGone("pane-1");
+
+    // broadcastTask should not be called again
+    expect(broadcastTask.mock.calls.length).toBe(callsBefore);
+    // Task status unchanged
+    const task = ctx.taskManager.getTaskBySessionId("sess-b3");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("bridge-4: notifyAgentDetectorGone clears pendingStopAt too", () => {
+    const { relay, notifyAgentDetectorGone, sessionStateMap } = ctx;
+
+    // SubagentStart then Stop (dropped — pendingStopAt is set)
+    fire(relay, "pane-1", "thinking", "claude", "sess-b4", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "working", "claude", "sess-b4", "SubagentStart", "tool-a");
+    fire(relay, "pane-1", "responded", "claude", "sess-b4", "Stop", null);
+
+    const state = sessionStateMap.get("sess-b4")!;
+    expect(state.pendingStopAt).not.toBeNull();
+
+    notifyAgentDetectorGone("pane-1");
+
+    expect(state.pendingStopAt).toBeNull();
+    expect(state.activeSubagents.size).toBe(0);
+
+    const task = ctx.taskManager.getTaskBySessionId("sess-b4");
+    expect(task?.lastAgentStatus).toBe("responded");
   });
 });

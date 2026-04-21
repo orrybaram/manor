@@ -157,6 +157,9 @@ export function initApp(devTitle: string | null): void {
               }
             }
           }
+          if (event.agent.status === "idle" && event.agent.kind === null) {
+            notifyAgentDetectorGone(event.sessionId);
+          }
           break;
         }
       }
@@ -339,6 +342,7 @@ export function initApp(devTitle: string | null): void {
     const {
       relay,
       sweepStaleSessions,
+      notifyAgentDetectorGone,
     } = createHookRelay({
       relayAgentHook: (paneId, status, kind) =>
         backend.pty.relayAgentHook(paneId, status, kind),

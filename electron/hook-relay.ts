@@ -78,6 +78,7 @@ export interface HookRelayContext {
   /** Apply a pending Stop for the given session (exported for sweep use) */
   applyStopForSession: (sessionId: string) => void;
   sweepStaleSessions: () => void;
+  notifyAgentDetectorGone: (paneId: string) => void;
 }
 
 export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
@@ -316,5 +317,27 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     }
   }
 
-  return { relay, sessionStateMap, paneRootSessionMap, applyStopForSession, sweepStaleSessions };
+  function notifyAgentDetectorGone(paneId: string): void {
+    const rootSession = paneRootSessionMap.get(paneId);
+    if (!rootSession) return;
+    const task = taskManager.getTaskBySessionId(rootSession);
+    if (!task) return;
+    if (
+      task.lastAgentStatus !== "thinking" &&
+      task.lastAgentStatus !== "working"
+    ) {
+      return;
+    }
+    console.debug(
+      `[task-lifecycle] bridge: AgentDetector gone on pane ${paneId} → force-apply Stop on ${rootSession}`,
+    );
+    const state = sessionStateMap.get(rootSession);
+    if (state) {
+      state.activeSubagents.clear();
+      state.pendingStopAt = null;
+    }
+    applyStopForSession(rootSession);
+  }
+
+  return { relay, sessionStateMap, paneRootSessionMap, applyStopForSession, sweepStaleSessions, notifyAgentDetectorGone };
 }

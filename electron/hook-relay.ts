@@ -60,6 +60,7 @@ export type RelayFn = (
 // ── Constants (exported for tests) ──
 
 export const STALE_STOP_MS = 15_000;
+export const STALE_ACTIVE_MS = 60_000;
 export const SWEEP_INTERVAL_MS = 10_000;
 
 const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
@@ -76,6 +77,7 @@ export interface HookRelayContext {
   paneRootSessionMap: Map<string, string>;
   /** Apply a pending Stop for the given session (exported for sweep use) */
   applyStopForSession: (sessionId: string) => void;
+  sweepStaleSessions: () => void;
 }
 
 export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
@@ -277,5 +279,42 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     }
   }
 
-  return { relay, sessionStateMap, paneRootSessionMap, applyStopForSession };
+  function sweepStaleSessions(): void {
+    const now = Date.now();
+    for (const [sessionId, state] of sessionStateMap) {
+      const idle = now - state.lastHookEventAt;
+
+      // Branch 1 (ADR-130): Stop received but blocked by active subagents
+      if (state.pendingStopAt !== null && idle > STALE_STOP_MS) {
+        console.debug(
+          `[task-lifecycle] stale-stop sweep: forcing responded on ${sessionId} ` +
+            `(activeSubagents=${state.activeSubagents.size}, idle=${idle}ms)`,
+        );
+        state.activeSubagents.clear();
+        state.pendingStopAt = null;
+        applyStopForSession(sessionId);
+        continue;
+      }
+
+      // Branch 2 (ADR-131): Stop never arrived — force close if the task
+      // is still flagged active and the session has gone quiet.
+      if (state.hasBeenActive && idle > STALE_ACTIVE_MS) {
+        const task = taskManager.getTaskBySessionId(sessionId);
+        if (
+          task &&
+          (task.lastAgentStatus === "thinking" ||
+            task.lastAgentStatus === "working")
+        ) {
+          console.debug(
+            `[task-lifecycle] stale-active sweep: forcing responded on ${sessionId} ` +
+              `(lastAgentStatus=${task.lastAgentStatus}, idle=${idle}ms)`,
+          );
+          state.activeSubagents.clear();
+          applyStopForSession(sessionId);
+        }
+      }
+    }
+  }
+
+  return { relay, sessionStateMap, paneRootSessionMap, applyStopForSession, sweepStaleSessions };
 }

@@ -23,7 +23,6 @@ import {
 } from "./agent-hooks";
 import {
   createHookRelay,
-  STALE_STOP_MS,
   SWEEP_INTERVAL_MS,
 } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
@@ -339,8 +338,7 @@ export function initApp(devTitle: string | null): void {
 
     const {
       relay,
-      sessionStateMap,
-      applyStopForSession,
+      sweepStaleSessions,
     } = createHookRelay({
       relayAgentHook: (paneId, status, kind) =>
         backend.pty.relayAgentHook(paneId, status, kind),
@@ -355,21 +353,7 @@ export function initApp(devTitle: string | null): void {
     agentHookServer.setRelay(relay);
 
     const staleStopSweep = setInterval(() => {
-      const now = Date.now();
-      for (const [sessionId, state] of sessionStateMap) {
-        if (
-          state.pendingStopAt !== null &&
-          now - state.lastHookEventAt > STALE_STOP_MS
-        ) {
-          console.debug(
-            `[task-lifecycle] stale-stop sweep: forcing responded on session ${sessionId} ` +
-              `(activeSubagents=${state.activeSubagents.size}, idle=${now - state.lastHookEventAt}ms)`,
-          );
-          state.activeSubagents.clear();
-          state.pendingStopAt = null;
-          applyStopForSession(sessionId);
-        }
-      }
+      sweepStaleSessions();
     }, SWEEP_INTERVAL_MS);
 
     app.on("before-quit", () => {

@@ -23,6 +23,7 @@ export interface ITaskManager {
   updateTask(id: string, updates: Partial<TaskInfo>): TaskInfo | null;
   getTaskBySessionId(sessionId: string): TaskInfo | null;
   getTaskByPaneId(paneId: string): TaskInfo | null;
+  getActiveTasks(): TaskInfo[];
 }
 
 export interface HookRelayDeps {
@@ -331,6 +332,29 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
           applyStopForSession(sessionId);
         }
       }
+    }
+
+    // Branch 3 (ADR-132): task is active but its session state is gone.
+    // Catches orphans from SessionStart replacement, SessionEnd races, and
+    // main-process restarts that rehydrate tasks without their sessionState.
+    const ORPHAN_TASK_MS = STALE_ACTIVE_MS; // share the 60s threshold
+    const nowMs = Date.now();
+    for (const task of taskManager.getActiveTasks()) {
+      if (!task.agentSessionId) continue;
+      if (sessionStateMap.has(task.agentSessionId)) continue;
+      if (
+        task.lastAgentStatus !== "thinking" &&
+        task.lastAgentStatus !== "working"
+      ) continue;
+
+      const activatedMs = task.activatedAt ? Date.parse(task.activatedAt) : 0;
+      if (!activatedMs || nowMs - activatedMs < ORPHAN_TASK_MS) continue;
+
+      console.debug(
+        `[task-lifecycle] orphan-task sweep: forcing responded on ${task.agentSessionId} ` +
+          `(task.id=${task.id}, lastAgentStatus=${task.lastAgentStatus}, age=${nowMs - activatedMs}ms)`,
+      );
+      applyStopForSession(task.agentSessionId);
     }
   }
 

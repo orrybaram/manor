@@ -177,6 +177,10 @@ export class TaskManager {
     return null;
   }
 
+  getActiveTasks(): TaskInfo[] {
+    return Array.from(this.tasks.values()).filter((t) => t.status === "active");
+  }
+
   deleteTask(id: string): boolean {
     for (const [sessionId, task] of this.tasks) {
       if (task.id === id) {

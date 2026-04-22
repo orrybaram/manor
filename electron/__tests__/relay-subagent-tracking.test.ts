@@ -59,7 +59,11 @@ function makeFakeTaskManager() {
     return null;
   }
 
-  return { createTask, updateTask, getTaskBySessionId, getTaskByPaneId, tasks };
+  function getActiveTasks(): TaskInfo[] {
+    return Array.from(tasks.values()).filter((t) => t.status === "active");
+  }
+
+  return { createTask, updateTask, getTaskBySessionId, getTaskByPaneId, getActiveTasks, tasks };
 }
 
 // ── Relay builder ──

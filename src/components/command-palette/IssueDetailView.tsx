@@ -56,7 +56,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         selectWorkspace(project.id, existingIdx);
         const existingWs = current?.workspaces[existingIdx];
         if (existingWs) {
-          window.electronAPI.linear.linkIssueToWorkspace(project.id, existingWs.path, {
+          useProjectStore.getState().linkIssueToWorkspace(project.id, existingWs.path, {
             id: issue.id,
             identifier: issue.identifier,
             title: issue.title,
@@ -113,7 +113,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         p.workspaces.some((w) => w.path === activeWorkspacePath),
       );
       if (project && activeWorkspacePath) {
-        window.electronAPI.linear.linkIssueToWorkspace(
+        useProjectStore.getState().linkIssueToWorkspace(
           project.id,
           activeWorkspacePath,
           {

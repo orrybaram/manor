@@ -276,6 +276,11 @@ interface ProjectState {
     projectId: string,
     updates: ProjectUpdatableFields,
   ) => Promise<void>;
+  linkIssueToWorkspace: (
+    projectId: string,
+    workspacePath: string,
+    issue: LinkedIssue,
+  ) => Promise<void>;
   updateWorkspaceBranch: (workspacePath: string, branch: string) => void;
   updateWorkspaceDiffStats: (
     workspacePath: string,
@@ -633,6 +638,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
       }));
     }
+  },
+
+  linkIssueToWorkspace: async (
+    projectId: string,
+    workspacePath: string,
+    issue: LinkedIssue,
+  ) => {
+    await window.electronAPI.linear.linkIssueToWorkspace(
+      projectId,
+      workspacePath,
+      issue,
+    );
+    await get().loadProjects();
   },
 
   updateWorkspaceBranch: (workspacePath: string, branch: string) =>

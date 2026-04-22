@@ -167,20 +167,20 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     const sessionState = getOrCreateSessionState(sessionId);
     sessionState.lastHookEventAt = Date.now();
 
+    if (eventType === "SubagentStart") {
+      const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
+      sessionState.activeSubagents.add(id);
+    } else if (eventType === "SubagentStop") {
+      if (toolUseId) {
+        sessionState.activeSubagents.delete(toolUseId);
+      } else {
+        const first = sessionState.activeSubagents.values().next().value;
+        if (first !== undefined) sessionState.activeSubagents.delete(first);
+      }
+    }
+
     if (ACTIVE_STATUSES.has(status)) {
       sessionState.hasBeenActive = true;
-
-      if (eventType === "SubagentStart") {
-        const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
-        sessionState.activeSubagents.add(id);
-      } else if (eventType === "SubagentStop") {
-        if (toolUseId) {
-          sessionState.activeSubagents.delete(toolUseId);
-        } else {
-          const first = sessionState.activeSubagents.values().next().value;
-          if (first !== undefined) sessionState.activeSubagents.delete(first);
-        }
-      }
 
       let task = taskManager.getTaskBySessionId(sessionId);
       const now = new Date().toISOString();

@@ -6,6 +6,34 @@
 
 
 
+
+## [0.5.4] - 2026-04-22
+
+- Features
+- Duplicate tab now preserves the full pane layout
+- Push button added to the diff pane for pushing commits directly from Manor
+- Auto-resume active Claude sessions after Manor restarts
+- Background setup scripts show a persistent toast and can be reattached via MiniTerminal
+- Better tracking of agent subagent start/stop activity
+
+- Fixes
+- Fixed a race when creating new terminals that could miss the initial working directory
+- Unified agent status across the tab bar and sidebar
+- Orphaned daemon sessions now appear in the Processes view
+- Daemon sessions survive version upgrades via a stable socket path
+- Task-input toast clears on sidebar navigation; diff watcher quieter for local-only repos
+- Previous pane task is properly unlinked on auto-resume
+- Handle PTY creation failures gracefully in the terminal lifecycle
+- Corrected agent title and status handling
+- Commit modal keeps its own state instead of relying on a toast
+
+- Improvements
+- Stale and orphaned tasks are now reconciled on startup and when panes close
+- More reliable detection of finished agent runs with inactivity and gone-state sweeps
+- Cleaner shell environment inheritance for spawned terminals
+- Existing worktrees are handled more gracefully
+- Centralized filesystem paths for a more consistent ~/.manor layout
+
 ## [0.5.3] - 2026-04-11
 
 **Features**

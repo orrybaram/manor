@@ -179,6 +179,39 @@ export function useTerminalLifecycle(
     const cols = t.cols;
     const rows = t.rows;
     let disposed = false;
+
+    // Arm the CWD listener BEFORE create() resolves. The shell can emit its
+    // first OSC 7 (precmd) event in the gap between promise resolution and
+    // subscription setup — if we subscribe in the .then() we race that event
+    // and miss it, causing the command to wait for the 3s fallback (or never
+    // run at all if the fallback is cleared elsewhere).
+    let cwdSeen = false;
+    let cwdPending: (() => void) | null = null;
+    const cwdLatchUnsub = window.electronAPI.pty.onCwd(paneId, () => {
+      cwdSeen = true;
+      const fn = cwdPending;
+      cwdPending = null;
+      fn?.();
+    });
+    const onShellReady = (fn: () => void) => {
+      if (cwdSeen) fn();
+      else cwdPending = fn;
+    };
+
+    // Send `cmd` once: either when the shell prompt is ready (CWD event) or
+    // after a 3s fallback, whichever comes first.
+    const sendOnShellReady = (cmd: string) => {
+      let sent = false;
+      const send = () => {
+        if (sent || disposed) return;
+        sent = true;
+        clearTimeout(fallback);
+        write(cmd + "\n");
+      };
+      onShellReady(send);
+      const fallback = setTimeout(send, 3000);
+    };
+
     create(cwd ?? null, cols, rows).then(
       (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
         if (!disposed && !result.ok) {
@@ -228,16 +261,7 @@ export function useTerminalLifecycle(
               // the precmd hook) before sending the command. Sending on first
               // output is too early: the shell may still be sourcing .zshrc,
               // and ZLE discards buffered input when it initializes.
-              let sent = false;
-              const send = () => {
-                if (sent || disposed) return;
-                sent = true;
-                clearTimeout(fallback);
-                unsubCwd();
-                write(pendingCmd + "\n");
-              };
-              const unsubCwd = window.electronAPI.pty.onCwd(paneId, send);
-              const fallback = setTimeout(send, 3000);
+              sendOnShellReady(pendingCmd);
             }
           } else if (!result.snapshot) {
             // No pending command and no warm-restore snapshot → cold or fresh session.
@@ -256,17 +280,7 @@ export function useTerminalLifecycle(
               });
 
               // Wait for shell prompt (CWD event), then relaunch
-              let sent = false;
-              let unsubCwd: (() => void) | null = null;
-              const send = () => {
-                if (sent || disposed) return;
-                sent = true;
-                if (resumeFallback) clearTimeout(resumeFallback);
-                unsubCwd?.();
-                write(resumeTask.agentCommand! + "\n");
-              };
-              unsubCwd = window.electronAPI.pty.onCwd(paneId, send);
-              const resumeFallback = setTimeout(send, 3000);
+              sendOnShellReady(resumeTask.agentCommand!);
             })();
           }
         }
@@ -300,6 +314,7 @@ export function useTerminalLifecycle(
 
     return () => {
       disposed = true;
+      cwdLatchUnsub();
       if (resizeTimer) clearTimeout(resizeTimer);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       titleDisposable.dispose();

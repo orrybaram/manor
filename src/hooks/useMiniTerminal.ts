@@ -113,10 +113,6 @@ export function useMiniTerminal(
     const cols = term.cols;
     const rows = term.rows;
 
-    if (!attach) {
-      await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
-    }
-
     let commandSent = false;
     const cmdToSend = command && exitOnComplete ? `${command}; exit` : command;
 
@@ -127,10 +123,13 @@ export function useMiniTerminal(
       window.electronAPI.pty.write(sessionId, cmdToSend + "\r");
     };
 
-    // Wait for the shell prompt before sending the command.
-    // Manor's custom .zshrc emits OSC 7 (CWD) via a precmd hook,
-    // which fires right before the prompt — so the first CWD event
-    // means ZLE is ready for input.
+    // Arm the CWD listener BEFORE pty.create() resolves. The shell's first
+    // OSC 7 event can fire in the gap between promise resolution and the
+    // listener being registered — if we subscribe after create() awaits,
+    // the event is dropped and the command waits for the 3s fallback.
+    // Manor's custom .zshrc emits OSC 7 (CWD) via a precmd hook, which
+    // fires right before the prompt — so the first CWD event means ZLE
+    // is ready for input.
     // In attach mode the PTY and its command are owned by an upstream
     // orchestrator — the view is a pure observer and must not re-send.
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -150,6 +149,10 @@ export function useMiniTerminal(
       cleanupFnsRef.current.push(() => {
         if (fallbackTimer) clearTimeout(fallbackTimer);
       });
+    }
+
+    if (!attach) {
+      await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
     }
 
     const unsubOutput = window.electronAPI.pty.onOutput(

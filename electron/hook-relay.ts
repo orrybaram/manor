@@ -144,6 +144,23 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     if (eventType === "SessionStart") {
       const oldRoot = paneRootSessionMap.get(paneId);
       if (oldRoot && oldRoot !== sessionId) {
+        const oldState = sessionStateMap.get(oldRoot);
+        const oldTask = taskManager.getTaskBySessionId(oldRoot);
+        if (
+          oldTask &&
+          oldState?.hasBeenActive &&
+          (oldTask.lastAgentStatus === "thinking" ||
+            oldTask.lastAgentStatus === "working")
+        ) {
+          console.debug(
+            `[task-lifecycle] SessionStart replacement: forcing responded on old session ${oldRoot}`,
+          );
+          if (oldState) {
+            oldState.activeSubagents.clear();
+            oldState.pendingStopAt = null;
+          }
+          applyStopForSession(oldRoot);
+        }
         console.debug(
           `[task-lifecycle] SessionStart: resetting root session on pane ${paneId} (${oldRoot} → ${sessionId})`,
         );

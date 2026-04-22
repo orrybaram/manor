@@ -343,6 +343,281 @@ describe("createHookRelay — sweep safety nets", () => {
   });
 });
 
+describe("createHookRelay — ADR-132 recovery fixes", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ctx = buildRelay();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // ── Fix 1: Terminal-status SubagentStop clears the tracker ──
+
+  it("fix1-a: SubagentStop with terminal status (complete) clears the active subagent", () => {
+    const { relay, sessionStateMap } = ctx;
+
+    // Activate root session
+    fire(relay, "pane-1", "thinking", "claude", "sess-f1", "UserPromptSubmit", null);
+
+    // SubagentStart with active status
+    fire(relay, "pane-1", "working", "claude", "sess-f1", "SubagentStart", "tool-f1");
+
+    const state = sessionStateMap.get("sess-f1")!;
+    expect(state.activeSubagents.size).toBe(1);
+
+    // SubagentStop arrives with terminal status (complete), not active
+    fire(relay, "pane-1", "complete", "claude", "sess-f1", "SubagentStop", "tool-f1");
+
+    // Subagent should be cleared from the tracker
+    expect(state.activeSubagents.size).toBe(0);
+  });
+
+  it("fix1-b: after terminal-status SubagentStop, parent Stop applies immediately (responded)", () => {
+    const { relay, sessionStateMap } = ctx;
+
+    fire(relay, "pane-1", "thinking", "claude", "sess-f1b", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "working", "claude", "sess-f1b", "SubagentStart", "tool-f1b");
+
+    // SubagentStop with terminal status clears tracker
+    fire(relay, "pane-1", "complete", "claude", "sess-f1b", "SubagentStop", "tool-f1b");
+
+    const state = sessionStateMap.get("sess-f1b")!;
+    expect(state.activeSubagents.size).toBe(0);
+
+    // Parent Stop should apply immediately (no pending — subagents are cleared)
+    fire(relay, "pane-1", "responded", "claude", "sess-f1b", "Stop", null);
+
+    // pendingStopAt must be null (Stop was not dropped)
+    expect(state.pendingStopAt).toBeNull();
+
+    // Task transitions to responded
+    const task = ctx.taskManager.getTaskBySessionId("sess-f1b");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("fix1-c: SubagentStop with idle status also clears the tracker", () => {
+    const { relay, sessionStateMap } = ctx;
+
+    fire(relay, "pane-1", "thinking", "claude", "sess-f1c", "UserPromptSubmit", null);
+    fire(relay, "pane-1", "working", "claude", "sess-f1c", "SubagentStart", "tool-f1c");
+
+    const state = sessionStateMap.get("sess-f1c")!;
+    expect(state.activeSubagents.size).toBe(1);
+
+    // SubagentStop with idle (terminal) status
+    fire(relay, "pane-1", "idle", "claude", "sess-f1c", "SubagentStop", "tool-f1c");
+    expect(state.activeSubagents.size).toBe(0);
+
+    // Stop now applies directly — pendingStopAt stays null
+    fire(relay, "pane-1", "responded", "claude", "sess-f1c", "Stop", null);
+    expect(state.pendingStopAt).toBeNull();
+    const task = ctx.taskManager.getTaskBySessionId("sess-f1c");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  // ── Fix 2: SessionStart on the same pane force-closes the old task ──
+
+  it("fix2-a: SessionStart replacement force-closes the old active task", () => {
+    const { relay, sessionStateMap } = ctx;
+
+    // Establish sessionA on paneX, drive it to working
+    fire(relay, "pane-x", "thinking", "claude", "sess-a", "UserPromptSubmit", null);
+    fire(relay, "pane-x", "working", "claude", "sess-a", "PostToolUse", null);
+
+    // Confirm sessionA task is working
+    const taskA = ctx.taskManager.getTaskBySessionId("sess-a");
+    expect(taskA?.lastAgentStatus).toBe("working");
+
+    // Deliver SessionStart for sessionB on the same paneX
+    fire(relay, "pane-x", "thinking", "claude", "sess-b", "SessionStart", null);
+
+    // sessionA's task should be force-closed to responded
+    const taskAAfter = ctx.taskManager.getTaskBySessionId("sess-a");
+    expect(taskAAfter?.lastAgentStatus).toBe("responded");
+    expect(taskAAfter?.status).toBe("active"); // applyStopForSession sets status: "active"
+
+    // sessionStateMap should no longer track sessionA (it was cleaned up)
+    expect(sessionStateMap.has("sess-a")).toBe(false);
+
+    // sessionB hasn't received any non-SessionStart event — no state entry yet
+    expect(sessionStateMap.has("sess-b")).toBe(false);
+  });
+
+  it("fix2-b: SessionStart replacement does NOT force-close if old task was never active (hasBeenActive=false)", () => {
+    const { relay, sessionStateMap } = ctx;
+
+    // Deliver SessionStart for sessionC on paneY (no subsequent active events)
+    fire(relay, "pane-y", "thinking", "claude", "sess-c", "SessionStart", null);
+
+    // Since SessionStart doesn't create session state, sessionC has no entry and hasBeenActive is false
+    // Now deliver SessionStart for sessionD on the same paneY
+    fire(relay, "pane-y", "thinking", "claude", "sess-d", "SessionStart", null);
+
+    // sessionC never activated, so no task was created and no force-close happens
+    const taskC = ctx.taskManager.getTaskBySessionId("sess-c");
+    expect(taskC).toBeNull();
+
+    // sessionD also has no state entry (hasn't received a non-SessionStart event)
+    expect(sessionStateMap.has("sess-d")).toBe(false);
+  });
+
+  it("fix2-c: SessionStart replacement does NOT force-close if old task lastAgentStatus is already terminal", () => {
+    const { relay } = ctx;
+
+    // Activate sessionE then stop it normally
+    fire(relay, "pane-z", "thinking", "claude", "sess-e", "UserPromptSubmit", null);
+    fire(relay, "pane-z", "responded", "claude", "sess-e", "Stop", null);
+
+    const taskEAfterStop = ctx.taskManager.getTaskBySessionId("sess-e");
+    expect(taskEAfterStop?.lastAgentStatus).toBe("responded");
+
+    const broadcastCallsBefore = ctx.broadcastTask.mock.calls.length;
+
+    // Deliver SessionStart for a new session on pane-z
+    fire(relay, "pane-z", "thinking", "claude", "sess-f-new", "SessionStart", null);
+
+    // broadcastTask should NOT have been called again (no force-close)
+    expect(ctx.broadcastTask.mock.calls.length).toBe(broadcastCallsBefore);
+
+    // sessionE task unchanged
+    const taskEFinal = ctx.taskManager.getTaskBySessionId("sess-e");
+    expect(taskEFinal?.lastAgentStatus).toBe("responded");
+  });
+
+  // ── Fix 3: Orphan-task sweep ──
+
+  it("fix3-a: orphan-task sweep closes a stale working task with no session state", () => {
+    const { sweepStaleSessions, taskManager } = ctx;
+
+    // Seed an orphan task directly — no session state, old activatedAt
+    const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "orphan-session",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-orphan",
+      lastAgentStatus: "working",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: oldTime });
+
+    // No session state for "orphan-session"
+    expect(ctx.sessionStateMap.has("orphan-session")).toBe(false);
+
+    // Advance time past the orphan threshold
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 5_000);
+
+    sweepStaleSessions();
+
+    const taskAfter = taskManager.getTaskBySessionId("orphan-session");
+    expect(taskAfter?.lastAgentStatus).toBe("responded");
+  });
+
+  it("fix3-b (negative): orphan sweep leaves task unchanged if activatedAt is too recent", () => {
+    const { sweepStaleSessions, taskManager } = ctx;
+
+    // Recent activatedAt — within STALE_ACTIVE_MS
+    const recentTime = new Date(Date.now() - 5_000).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "young-orphan",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-young",
+      lastAgentStatus: "working",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: recentTime });
+
+    expect(ctx.sessionStateMap.has("young-orphan")).toBe(false);
+
+    sweepStaleSessions();
+
+    const taskAfter = taskManager.getTaskBySessionId("young-orphan");
+    expect(taskAfter?.lastAgentStatus).toBe("working");
+  });
+
+  it("fix3-c (negative): orphan sweep leaves task unchanged if status is not working/thinking", () => {
+    const { sweepStaleSessions, taskManager } = ctx;
+
+    const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "responded-orphan",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-responded-orphan",
+      lastAgentStatus: "responded",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: oldTime });
+
+    expect(ctx.sessionStateMap.has("responded-orphan")).toBe(false);
+
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 5_000);
+    sweepStaleSessions();
+
+    const taskAfter = taskManager.getTaskBySessionId("responded-orphan");
+    // Still responded — orphan branch skips non-working/thinking tasks
+    expect(taskAfter?.lastAgentStatus).toBe("responded");
+  });
+
+  it("fix3-d (negative): orphan sweep does not run orphan branch when session state is present", () => {
+    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+
+    // Create a task via the relay (which also creates session state)
+    fire(relay, "pane-live", "thinking", "claude", "live-session", "UserPromptSubmit", null);
+
+    const taskBefore = taskManager.getTaskBySessionId("live-session");
+    expect(taskBefore?.lastAgentStatus).toBe("thinking");
+
+    // Confirm session state exists for this session
+    expect(sessionStateMap.has("live-session")).toBe(true);
+
+    // Advance time past orphan threshold
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 5_000);
+
+    sweepStaleSessions();
+
+    // stale-active sweep (branch 2) will fire here because lastHookEventAt is old
+    // That's expected. The key assertion: the orphan branch (branch 3) did NOT
+    // also apply — we verify by confirming session state was present, which gates
+    // the orphan branch. The result after sweep is the same either way (responded),
+    // but we can verify that if we seed a task with a fresh session state entry
+    // (pendingStopAt=null, hasBeenActive=true) the orphan branch short-circuits.
+    // Simplest observable: task is responded (stale-active handled it) and the
+    // sessionStateMap entry still exists (orphan branch didn't delete it).
+    const taskAfter = taskManager.getTaskBySessionId("live-session");
+    expect(taskAfter?.lastAgentStatus).toBe("responded");
+
+    // Session state entry is preserved — orphan branch skipped it (only stale-active ran)
+    expect(sessionStateMap.has("live-session")).toBe(true);
+  });
+});
+
 describe("createHookRelay — AgentDetector gone-bridge", () => {
   let ctx: ReturnType<typeof buildRelay>;
 

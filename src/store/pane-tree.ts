@@ -23,6 +23,27 @@ export function allPaneIds(node: PaneNode): string[] {
   return [...allPaneIds(node.first), ...allPaneIds(node.second)];
 }
 
+/**
+ * Deep-clone a pane tree, assigning a fresh paneId to every leaf via `mintId`.
+ * Returns the new tree and an old→new paneId map so callers can remap any
+ * per-pane side-state (contentType, url, etc.).
+ */
+export function clonePaneTree(
+  node: PaneNode,
+  mintId: () => string,
+): { tree: PaneNode; idMap: Record<string, string> } {
+  const idMap: Record<string, string> = {};
+  const walk = (n: PaneNode): PaneNode => {
+    if (n.type === "leaf") {
+      const id = mintId();
+      idMap[n.paneId] = id;
+      return { ...n, paneId: id };
+    }
+    return { ...n, first: walk(n.first), second: walk(n.second) };
+  };
+  return { tree: walk(node), idMap };
+}
+
 /** Check if a pane ID exists in the tree (short-circuits on match). */
 export function hasPaneId(node: PaneNode, paneId: string): boolean {
   if (node.type === "leaf") return node.paneId === paneId;

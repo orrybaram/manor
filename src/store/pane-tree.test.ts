@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   allPaneIds,
+  clonePaneTree,
   insertSplit,
   removePane,
   movePane,
@@ -282,5 +283,62 @@ describe("movePane", () => {
     }
     // Outer structure unchanged
     expect(allPaneIds(result!)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("clonePaneTree", () => {
+  it("assigns a fresh paneId to a single leaf and records the mapping", () => {
+    const leaf: PaneNode = {
+      type: "leaf",
+      paneId: "a",
+      contentType: "browser",
+      url: "https://example.com",
+    };
+    let n = 0;
+    const { tree, idMap } = clonePaneTree(leaf, () => `new-${n++}`);
+    expect(tree).toEqual({
+      type: "leaf",
+      paneId: "new-0",
+      contentType: "browser",
+      url: "https://example.com",
+    });
+    expect(idMap).toEqual({ a: "new-0" });
+  });
+
+  it("clones a nested split tree, preserving structure and direction", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.4,
+      first: { type: "leaf", paneId: "a" },
+      second: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.7,
+        first: { type: "leaf", paneId: "b" },
+        second: { type: "leaf", paneId: "c" },
+      },
+    };
+    let n = 0;
+    const { tree: cloned, idMap } = clonePaneTree(tree, () => `x${n++}`);
+    expect(allPaneIds(cloned)).toEqual(["x0", "x1", "x2"]);
+    expect(idMap).toEqual({ a: "x0", b: "x1", c: "x2" });
+    // Splits retain direction and ratio.
+    if (cloned.type !== "split") throw new Error("expected split");
+    expect(cloned.direction).toBe("horizontal");
+    expect(cloned.ratio).toBe(0.4);
+  });
+
+  it("does not mutate the source tree", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    const snapshot = JSON.stringify(tree);
+    clonePaneTree(tree, () => "mint");
+    expect(JSON.stringify(tree)).toBe(snapshot);
   });
 });

@@ -84,6 +84,9 @@ export function TabButton(props: TabButtonProps) {
           onPointerLeave={onPointerLeave}
           onPointerUp={onPointerUp}
           style={style}
+          data-testid="tab"
+          data-tab-id={tabId}
+          aria-selected={isActive}
         >
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}

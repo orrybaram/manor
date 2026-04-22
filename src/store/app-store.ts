@@ -3,6 +3,7 @@ import {
   type PaneNode,
   type SplitDirection,
   allPaneIds,
+  clonePaneTree,
   hasPaneId,
   insertSplit,
   insertSplitAt,
@@ -655,7 +656,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!wsPath) return state;
       const layout = state.workspaceLayouts[wsPath];
       if (!layout) return state;
-      // Find the panel and tab
       let sourcePanel: Panel | undefined;
       let sourceTab: Tab | undefined;
       for (const panel of Object.values(layout.panels)) {
@@ -667,58 +667,35 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       if (!sourcePanel || !sourceTab) return state;
-      const sourcePaneId = sourceTab.focusedPaneId;
-      const contentType = state.paneContentType[sourcePaneId] as string | undefined;
-      const url = state.paneUrl[sourcePaneId] as string | undefined;
-      const newPane = newPaneId();
-      const newId = newTabId();
-      if (contentType === "browser" && url) {
-        let title: string;
-        try {
-          const parsed = new URL(url);
-          title = parsed.host || url;
-        } catch {
-          title = url;
-        }
-        const tab: Tab = {
-          id: newId,
-          title,
-          rootNode: { type: "leaf", paneId: newPane, contentType: "browser", url },
-          focusedPaneId: newPane,
-        };
-        return {
-          paneContentType: { ...state.paneContentType, [newPane]: "browser" },
-          paneUrl: { ...state.paneUrl, [newPane]: url },
-          ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
-            ...p,
-            tabs: [...p.tabs, tab],
-            selectedTabId: tab.id,
-          })),
-        };
-      } else if (contentType === "diff") {
-        const tab: Tab = {
-          id: newId,
-          title: "Diff",
-          rootNode: { type: "leaf", paneId: newPane, contentType: "diff" },
-          focusedPaneId: newPane,
-        };
-        return {
-          paneContentType: { ...state.paneContentType, [newPane]: "diff" },
-          ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
-            ...p,
-            tabs: [...p.tabs, tab],
-            selectedTabId: tab.id,
-          })),
-        };
-      } else {
-        // Terminal tab
-        const tab = createTab(sourceTab.title);
-        return updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
+
+      const { tree: clonedRoot, idMap } = clonePaneTree(
+        sourceTab.rootNode,
+        newPaneId,
+      );
+      const nextContentType = { ...state.paneContentType };
+      const nextUrl = { ...state.paneUrl };
+      for (const [oldId, newId] of Object.entries(idMap)) {
+        const ct = state.paneContentType[oldId];
+        if (ct) nextContentType[newId] = ct;
+        const u = state.paneUrl[oldId];
+        if (u !== undefined) nextUrl[newId] = u;
+      }
+
+      const tab: Tab = {
+        id: newTabId(),
+        title: sourceTab.title,
+        rootNode: clonedRoot,
+        focusedPaneId: idMap[sourceTab.focusedPaneId] ?? allPaneIds(clonedRoot)[0],
+      };
+      return {
+        paneContentType: nextContentType,
+        paneUrl: nextUrl,
+        ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
           ...p,
           tabs: [...p.tabs, tab],
           selectedTabId: tab.id,
-        }));
-      }
+        })),
+      };
     }),
 
   openOrFocusDiff: () =>

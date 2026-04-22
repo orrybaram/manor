@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import {
   _electron,
+  expect,
   test as base,
   type ElectronApplication,
   type Page,
@@ -95,3 +96,67 @@ export const test = base.extend<{
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * Import the seeded project, dismiss the setup wizard, create a workspace,
+ * open a terminal tab, and return once the first workspace-pane is ready.
+ * Shared across e2e tests that need a warm workspace+terminal to exercise UI.
+ */
+export async function bootWorkspaceWithTerminal(
+  app: ElectronApplication,
+  window: Page,
+  tempHome: string,
+  workspaceName: string,
+): Promise<void> {
+  const seededProjectPath = path.join(tempHome, "test-project");
+
+  await app.evaluate(
+    ({ dialog }, projectPath) => {
+      dialog.showOpenDialog = async () => ({
+        canceled: false,
+        filePaths: [projectPath],
+      });
+    },
+    seededProjectPath,
+  );
+
+  await window.locator('[data-testid="import-project-button"]').click();
+
+  const wizard = window.locator('[data-testid="project-setup-wizard"]');
+  const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });
+  await expect(wizard).toBeVisible({ timeout: 10_000 });
+  for (let i = 0; i < 5; i++) {
+    if (!(await wizard.isVisible())) break;
+    await skipButton.click();
+  }
+  await expect(wizard).not.toBeVisible({ timeout: 5_000 });
+
+  await window.locator('[data-testid="sidebar-new-workspace-button"]').click();
+  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await window
+    .locator('[data-testid="new-workspace-name-input"]')
+    .fill(workspaceName);
+  await window.locator('[data-testid="new-workspace-submit"]').click();
+  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+
+  await window.keyboard.press("Meta+t");
+  await expect(window.locator('[data-testid="terminal-pane"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await assertVisiblePaneCount(window, 1);
+}
+
+/** Poll the count of visible workspace-panes (only the active tab's tree counts). */
+export async function assertVisiblePaneCount(
+  window: Page,
+  count: number,
+  timeout = 10_000,
+): Promise<void> {
+  await expect
+    .poll(
+      () => window.locator('[data-testid="workspace-pane"]:visible').count(),
+      { timeout },
+    )
+    .toBe(count);
+}

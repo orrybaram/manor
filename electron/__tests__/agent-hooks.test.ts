@@ -362,6 +362,76 @@ describe("AgentHookServer", () => {
       );
     });
   });
+
+  describe("Notification event — notificationKind gating", () => {
+    it("relays Notification with requires_input when notificationKind=permission_prompt", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Notification&kind=claude&notificationKind=permission_prompt",
+      );
+      expect(res.status).toBe(200);
+      expect(relayFn).toHaveBeenCalledWith(
+        "p1",
+        "requires_input",
+        "claude",
+        null,
+        "Notification",
+        null,
+      );
+    });
+
+    it("returns 200 but does NOT relay for non-permission notificationKind (e.g. auto_compact)", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Notification&kind=claude&notificationKind=auto_compact",
+      );
+      expect(res.status).toBe(200);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 but does NOT relay for any unknown notificationKind", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Notification&kind=claude&notificationKind=some_future_type",
+      );
+      expect(res.status).toBe(200);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("relays Notification when notificationKind is absent (legacy — preserve backwards compat)", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Notification&kind=claude",
+      );
+      expect(res.status).toBe(200);
+      expect(relayFn).toHaveBeenCalledWith(
+        "p1",
+        "requires_input",
+        "claude",
+        null,
+        "Notification",
+        null,
+      );
+    });
+
+    it("does not affect non-Notification events with notificationKind present (safety)", async () => {
+      // A hypothetical weird request that has notificationKind but eventType=Stop should
+      // still be relayed normally — the gate is specific to Notification events.
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=p1&eventType=Stop&kind=claude&notificationKind=some_value",
+      );
+      expect(res.status).toBe(200);
+      expect(relayFn).toHaveBeenCalledWith(
+        "p1",
+        "responded",
+        "claude",
+        null,
+        "Stop",
+        null,
+      );
+    });
+  });
 });
 
 describe("AgentHookServer — buffering (pre-relay queue)", () => {

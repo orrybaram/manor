@@ -28,8 +28,10 @@ const agentHook = require("../scripts/agent-hook.js") as {
       kind?: string;
       sessionId?: string | null;
       toolUseId?: string | null;
+      notificationKind?: string | null;
     },
   ) => string | null;
+  extractNotificationKind: (payload: unknown) => string | null;
 };
 
 type FakeStderr = { write: (chunk: string) => boolean; lines: string[] };
@@ -395,5 +397,207 @@ describe("agent-hook.js — buildUrl()", () => {
     const parsed = new URL(url!);
     expect(parsed.searchParams.get("paneId")).toBe("p&id=evil");
     expect(parsed.searchParams.get("sessionId")).toBe("x y/z");
+  });
+
+  it("includes notificationKind in URL when provided", () => {
+    const url = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "Notification",
+      notificationKind: "permission_prompt",
+    });
+    expect(url).toBeTruthy();
+    const parsed = new URL(url!);
+    expect(parsed.searchParams.get("notificationKind")).toBe("permission_prompt");
+  });
+
+  it("omits notificationKind when null", () => {
+    const url = agentHook.buildUrl(1234, {
+      paneId: "p",
+      eventType: "Notification",
+      notificationKind: null,
+    });
+    expect(url).toBeTruthy();
+    const parsed = new URL(url!);
+    expect(parsed.searchParams.has("notificationKind")).toBe(false);
+  });
+});
+
+describe("agent-hook.js — extractNotificationKind()", () => {
+  it("returns null for null input", () => {
+    expect(agentHook.extractNotificationKind(null)).toBeNull();
+  });
+
+  it("returns null for non-object input", () => {
+    expect(agentHook.extractNotificationKind("string")).toBeNull();
+    expect(agentHook.extractNotificationKind(42)).toBeNull();
+  });
+
+  it("returns null when no notification sub-object", () => {
+    expect(agentHook.extractNotificationKind({ hook_event_name: "Notification" })).toBeNull();
+  });
+
+  it("returns null when notification sub-object has no known discriminator", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        hook_event_name: "Notification",
+        notification: { message: "something" },
+      }),
+    ).toBeNull();
+  });
+
+  it("extracts kind from notification.type (Claude Code permission_prompt shape)", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        hook_event_name: "Notification",
+        notification: { type: "permission_prompt", tool_name: "bash" },
+      }),
+    ).toBe("permission_prompt");
+  });
+
+  it("extracts kind from notification.kind when type is absent", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        hook_event_name: "Notification",
+        notification: { kind: "auto_compact" },
+      }),
+    ).toBe("auto_compact");
+  });
+
+  it("extracts kind from notification.category as last fallback", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        hook_event_name: "Notification",
+        notification: { category: "info" },
+      }),
+    ).toBe("info");
+  });
+
+  it("prefers type over kind when both are present", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        notification: { type: "permission_prompt", kind: "something_else" },
+      }),
+    ).toBe("permission_prompt");
+  });
+
+  it("ignores empty string discriminator values", () => {
+    expect(
+      agentHook.extractNotificationKind({
+        notification: { type: "", kind: "auto_compact" },
+      }),
+    ).toBe("auto_compact");
+  });
+});
+
+describe("agent-hook.js — Notification event: notificationKind forwarding", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-hook-notif-test-${crypto.randomUUID()}`,
+    );
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "7777");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("forwards notificationKind=permission_prompt when notification.type is permission_prompt", async () => {
+    const { fn: fetchFn, calls } = makeFetch();
+
+    const payload = JSON.stringify({
+      hook_event_name: "Notification",
+      session_id: "sess-perm",
+      notification: { type: "permission_prompt", tool_name: "bash" },
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-notif", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("eventType")).toBe("Notification");
+    expect(url.searchParams.get("notificationKind")).toBe("permission_prompt");
+  });
+
+  it("forwards notificationKind=auto_compact for non-permission notifications", async () => {
+    const { fn: fetchFn, calls } = makeFetch();
+
+    const payload = JSON.stringify({
+      hook_event_name: "Notification",
+      session_id: "sess-compact",
+      notification: { type: "auto_compact" },
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-notif", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("eventType")).toBe("Notification");
+    expect(url.searchParams.get("notificationKind")).toBe("auto_compact");
+  });
+
+  it("omits notificationKind when Notification payload has no notification sub-object (legacy)", async () => {
+    const { fn: fetchFn, calls } = makeFetch();
+
+    const payload = JSON.stringify({
+      hook_event_name: "Notification",
+      session_id: "sess-legacy",
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-notif", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("eventType")).toBe("Notification");
+    expect(url.searchParams.has("notificationKind")).toBe(false);
+  });
+
+  it("does NOT set notificationKind for non-Notification events even if payload has notification field", async () => {
+    const { fn: fetchFn, calls } = makeFetch();
+
+    // Weird payload that has a notification field but is actually a Stop event
+    const payload = JSON.stringify({
+      hook_event_name: "Stop",
+      notification: { type: "permission_prompt" },
+    });
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(payload),
+      env: { MANOR_PANE_ID: "pane-notif", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("eventType")).toBe("Stop");
+    expect(url.searchParams.has("notificationKind")).toBe(false);
   });
 });

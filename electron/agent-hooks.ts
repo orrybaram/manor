@@ -113,6 +113,9 @@ export class AgentHookServer {
       const sessionId = url.searchParams.get("sessionId");
       const rawKind = url.searchParams.get("kind");
       const toolUseId = url.searchParams.get("toolUseId");
+      // notificationKind is only set for Notification events; null means legacy
+      // (Claude Code version that doesn't send the discriminator field).
+      const notificationKind = url.searchParams.get("notificationKind");
 
       // Validate kind against registered connectors — single source of truth.
       // Unknown or missing kind returns 400; no silent coerce to "claude".
@@ -133,9 +136,29 @@ export class AgentHookServer {
         return;
       }
 
+      // For Notification events: only relay when the kind indicates a
+      // permission-style notification. If notificationKind is absent (null),
+      // treat it as permission-style to preserve backwards-compat with Claude
+      // Code versions that don't send the discriminator. If it is explicitly
+      // present but not "permission_prompt", drop the event silently — it's an
+      // informational notification (e.g. auto_compact) that should not flip
+      // the task to requires_input.
+      if (
+        eventType === "Notification" &&
+        notificationKind !== null &&
+        notificationKind !== "permission_prompt"
+      ) {
+        console.debug(
+          `[agent-hooks] ignoring non-permission Notification: paneId=${paneId} notificationKind=${notificationKind}`,
+        );
+        res.writeHead(200);
+        res.end("ok");
+        return;
+      }
+
       const status = mapEventToStatus(eventType);
       console.debug(
-        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} toolUseId=${toolUseId} → status=${status ?? "unmapped"}`,
+        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} toolUseId=${toolUseId} notificationKind=${notificationKind ?? "unset"} → status=${status ?? "unmapped"}`,
       );
       if (status) {
         if (this.relayFn) {

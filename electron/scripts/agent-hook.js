@@ -75,6 +75,35 @@ function resolvePort(env, homeDir) {
 }
 
 /**
+ * Extract a notification kind discriminator from the payload.
+ *
+ * Claude Code's Notification hook payload may carry a `notification`
+ * sub-object that identifies the reason for the notification. Known shapes
+ * observed in the wild:
+ *   { notification: { type: "permission_prompt", ... } }
+ *   { notification: { kind: "permission_prompt", ... } }
+ *
+ * We extract whichever string field is present (type > kind > category)
+ * and forward it so the hook server can decide whether to flip status.
+ * If no discriminator is present we return null and the server falls back
+ * to treating the notification as permission-style (preserving legacy
+ * behaviour for old Claude Code versions that don't send the field).
+ *
+ * @param {unknown} payload - Parsed JSON payload from the hook.
+ * @returns {string|null}
+ */
+function extractNotificationKind(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const notification = /** @type {Record<string,unknown>} */ (payload).notification;
+  if (!notification || typeof notification !== "object") return null;
+  const n = /** @type {Record<string,unknown>} */ (notification);
+  for (const key of ["type", "kind", "category"]) {
+    if (typeof n[key] === "string" && n[key]) return n[key];
+  }
+  return null;
+}
+
+/**
  * Build the URL with whichever fields are present.
  * Returns null if required fields (paneId, eventType) are missing.
  */
@@ -86,6 +115,7 @@ function buildUrl(port, params) {
   url.searchParams.set("kind", params.kind || "claude");
   if (params.sessionId) url.searchParams.set("sessionId", params.sessionId);
   if (params.toolUseId) url.searchParams.set("toolUseId", params.toolUseId);
+  if (params.notificationKind) url.searchParams.set("notificationKind", params.notificationKind);
   return url.toString();
 }
 
@@ -146,7 +176,12 @@ async function main(opts) {
     typeof payload.tool_use_id === "string" ? payload.tool_use_id : null;
   const kind = env.MANOR_AGENT_KIND || "claude";
 
-  const url = buildUrl(port, { paneId, eventType, kind, sessionId, toolUseId });
+  // For Notification events, extract the kind discriminator so the server can
+  // decide whether to flip status (only permission-style notifications should).
+  const notificationKind =
+    eventType === "Notification" ? extractNotificationKind(payload) : null;
+
+  const url = buildUrl(port, { paneId, eventType, kind, sessionId, toolUseId, notificationKind });
   if (!url) return;
 
   try {
@@ -159,7 +194,7 @@ async function main(opts) {
   }
 }
 
-module.exports = { main, readInput, resolvePort, buildUrl };
+module.exports = { main, readInput, resolvePort, buildUrl, extractNotificationKind };
 
 // Run as a CLI when invoked directly (not when imported by tests).
 if (require.main === module) {

@@ -76,7 +76,7 @@ manor/
 │   ├── portless.ts + ports.ts  port scanner + named preview URLs
 │   ├── agent-hooks.ts        localhost HTTP server for agent shell hooks
 │   ├── agent-connectors.ts   writes MCP config into agent tool configs
-│   ├── notifications.ts      dock badge, system notifications
+│   ├── notifications.ts      dock badge, system notifications, task-updated broadcasts
 │   ├── prewarm-manager.ts    pre-spawns a PTY for faster pane creation
 │   ├── updater.ts            electron-updater wrapper
 │   ├── webview-server.ts     in-app HTTP server backing the MCP webview tools
@@ -128,7 +128,7 @@ manor/
 │   ├── store/                Zustand stores
 │   │   ├── app-store.ts          active workspace, panes, tabs, panels (largest)
 │   │   ├── project-store.ts      projects list, setup state, custom commands
-│   │   ├── task-store.ts         task list + filters
+│   │   ├── task-store.ts         paginated task list, unseen-flag cache
 │   │   ├── theme-store.ts        selection + preview
 │   │   ├── preferences-store.ts  UI layout prefs
 │   │   ├── keybindings-store.ts  custom bindings overlay
@@ -200,7 +200,7 @@ Manor has no database. All persistence is JSON files on disk.
 
 Files under the data dir:
 - `projects.json` — projects, workspaces, linked issues, setup scripts, custom commands (`ProjectManager`)
-- `tasks.json` — agent tasks across panes (`TaskManager`)
+- `tasks.json` — agent tasks across panes (`TaskManager`); pruned on boot per `taskRetentionDays` (default 90)
 - `preferences.json` — app prefs (`PreferencesManager`)
 - `keybindings.json` — custom bindings overrides (`KeybindingsManager`)
 - `theme.json` — selected theme (`ThemeManager`)
@@ -305,6 +305,8 @@ Invariants are stated as absences — what the codebase deliberately does *not* 
 - **IPC handler files are thin.** They validate, forward to a manager, and return. Business logic lives in managers under `electron/`.
 - **There is no database.** Adding one is a cross-cutting change that touches every manager; prefer extending the JSON files unless an ADR argues otherwise.
 - **Agent state is derived, not set.** Nothing outside the daemon tells a session what its status is.
+- **Renderer cannot write task lifecycle fields.** The `tasks:update` IPC allowlists fields the renderer may write (today: `name`). Lifecycle fields (`status`, `agentSessionId`, `lastAgentStatus`, `activatedAt`, `completedAt`, `resumedAt`, `paneId`) are owned by main; widening the allowlist is a deliberate decision, not a default. See ADR-136.
+- **Main is authoritative for unseen-flag state.** The `unseenRespondedTasks` / `unseenInputTasks` Sets in main drive the dock badge and the renderer's pulse animation. The renderer holds a cache populated from `tasks:getUnseen` (boot) and from the `task-updated` broadcast payload, which carries fresh flags on every update. The renderer never resets unseen state locally. Single send-site: `sendTaskUpdate` in `electron/notifications.ts`.
 - **Projects vs workspaces**: projects are directories, workspaces are git worktrees. A workspace's path can exist independently of the project (a worktree can be anywhere on disk); the project is the logical parent, not the filesystem parent.
 
 ## Where to look next

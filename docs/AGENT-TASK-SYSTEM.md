@@ -45,7 +45,7 @@ recorded on the task.
 
 | File | Role |
 |------|------|
-| `store/task-store.ts` | Zustand store holding `tasks[]` + `seenTaskIds`. Subscribes to `task-updated` IPC. |
+| `store/task-store.ts` | Zustand store holding paginated `tasks[]` + `unseenRespondedTaskIds` / `unseenInputTaskIds` caches. Subscribes to `task-updated` IPC; primes from `tasks:getUnseen` on boot. |
 | `store/app-store.ts` | Massive Zustand store (2k+ lines) holding layout, panes, terminals, agent statuses, project selection. |
 | `components/sidebar/TasksList.tsx` | Sidebar list (active + recent). |
 | `components/sidebar/TasksView/TasksView.tsx` | Modal: full history grouped by date. |
@@ -424,14 +424,9 @@ Week / This Month / Older, filtered by status pill (All / Active /
 Completed-incl-error+abandoned). Resume → navigate; delete → IPC
 `tasks:delete`.
 
-> **🚩 Flaw — no pagination.** `loadTasks` and `loadMoreTasks` exist on the
-> store, but `tasks-store.ts:44-50` calls `getAll()` with no opts at app
-> start, loading the entire `tasks.json`. With 10k tasks this becomes a
-> noticeable boot stall and a permanent renderer-side memory cost.
+> **✅ Resolved (ADR-136 T2) — pagination.** Boot now calls `tasks:getActive` for the sidebar plus `tasks:getAll({limit:100, offset:0})` for the first history page; `loadMoreTasks` is wired to a scroll sentinel in the history modal.
 
-> **🚩 Flaw — no auto-pruning.** `tasks.json` grows forever. Even
-> `deleteTask` requires manual UI action. There is no retention policy
-> (e.g. drop completed tasks > 30 days old).
+> **✅ Resolved (ADR-136 T2) — retention.** `TaskManager` constructor calls `pruneOlderThan(taskRetentionDays)` (default 90, 0 disables). One-time toast surfaces the prune count via `tasks:consumePruneNotice`, gated by the `taskPruneNoticeShown` preference.
 
 ### 6.3 Navigation atomicity
 
@@ -440,10 +435,7 @@ Zustand mutations: select project → select workspace → select tab → focus
 pane → mark seen. Comments suggest atomicity, but it's actually four
 discrete `setState` calls. Each triggers a render.
 
-> **🚩 Flaw — multi-step state mutation.** If any subscriber re-renders and
-> dispatches between steps, the intermediate state is observable. In
-> practice this hasn't bitten anyone but the sequence is not safe under
-> concurrent updates.
+> **✅ Resolved (ADR-136 T4) — atomic navigation.** Added `navigateToContext` to `useAppStore`: a single `set(state => ...)` call that updates `activeWorkspacePath`, `activePanelId`, `selectedTabId`, and `focusedPaneId` together. `navigateToTask` calls it once instead of four discrete `setState`s.
 
 ### 6.4 Toast / notification dual-source
 
@@ -457,12 +449,7 @@ The OS-level desktop notification is fired separately by `maybeSendNotification`
 in the **main process** based on its own preferences and the `task-updated`
 broadcast. The two paths are independent.
 
-> **🚩 Flaw — dual seen-flag bookkeeping.** Main keeps `unseenRespondedTasks`
-> + `unseenInputTasks` (Sets). Renderer keeps `seenTaskIds`. Sync is via
-> `tasks:markSeen` IPC, but the renderer also clears its own flag on status
-> change (`task-store.ts:115-120`) without telling main. Main's "unseen"
-> sets are only used for the dock badge count, so visual desync is muted —
-> but the dock badge can over-count after a rapid status flip.
+> **✅ Resolved (ADR-136 T3) — single source of truth for unseen.** Main is authoritative; renderer holds a cache. `task-updated` broadcast payload is now `(task, { responded, requires_input })` — flags reflect main's Sets at broadcast time. Renderer drops its local "clear seen on status change" branch. `tasks:markSeen` re-broadcasts via `sendTaskUpdate` so the cache stays in sync. Boot primes the cache from `tasks:getUnseen`. Single send-site: `sendTaskUpdate` in `electron/notifications.ts`.
 
 ---
 
@@ -473,25 +460,24 @@ broadcast. The two paths are independent.
 | Channel | Purpose |
 |---------|---------|
 | `tasks:getAll(opts?)` | Read with optional `{projectId,status,limit,offset}` |
+| `tasks:getActive()` | Fast path: just active tasks, no sort/slice (ADR-136 T2) |
+| `tasks:getRecent({limit})` | Top-N most recent (ADR-136 T2; defensively exposed, not yet consumed) |
+| `tasks:getUnseen()` | `{responded: string[], requires_input: string[]}` — primes renderer cache (ADR-136 T3) |
 | `tasks:get(taskId)` | Single task lookup (linear scan) |
-| `tasks:update(taskId, partial)` | Generic partial update |
+| `tasks:update(taskId, {name?})` | Renderer-writable allowlist (ADR-136 T1). Lifecycle fields rejected. |
+| `tasks:markResumed(taskId)` | Sets `resumedAt` from main; replaces renderer-side write (ADR-136 T1 follow-up) |
 | `tasks:delete(taskId)` | Remove + clear unseen flags + update dock |
-| `tasks:markSeen(taskId)` | Clear unseen flags + update dock |
+| `tasks:markSeen(taskId)` | Clear unseen flags, update dock, re-broadcast `task-updated` (ADR-136 T3) |
+| `tasks:consumePruneNotice()` | One-shot read of last prune count, gated by `taskPruneNoticeShown` preference (ADR-136 T2) |
 | `tasks:setPaneContext(paneId, ctx)` | Register projectId/name/workspacePath/agentCommand for a pane |
 | `tasks:abandonForPane(paneId, title?)` | Called on pane close — flip active task to `abandoned` |
 | `tasks:reconcileStale()` | Diff `getActiveTasks()` against `backend.pty.listSessions()`; abandon orphans whose `lastAgentStatus !== "responded"` |
 
-### 7.2 `tasks:update` is unbounded
+### 7.2 `tasks:update` allowlist (ADR-136 T1)
 
-`ipcMain.handle("tasks:update", (_e, taskId, updates) => taskManager.updateTask(taskId, updates))` —
-no validation. The renderer can write any field, including `status`,
-`agentSessionId`, `id`. `TaskManager.updateTask` does `id: task.id` to
-prevent id mutation, but everything else is wide open.
+The handler validates `updates` against `ALLOWED_RENDERER_TASK_FIELDS` (today: `name`) and throws on any other key. Lifecycle fields (`status`, `agentSessionId`, `lastAgentStatus`, `activatedAt`, `completedAt`, `resumedAt`, `paneId`) are owned by main; widening the allowlist is a deliberate decision, not a default.
 
-> **🚩 Flaw — IPC trust boundary.** Renderer-supplied partials are trusted.
-> A buggy or malicious renderer call could rewrite `agentSessionId` (which
-> is the Map key) and either lose the task or collide with another. Should
-> be a typed, allowlisted updater.
+> **✅ Resolved — IPC trust boundary.** Renderer can no longer rewrite `agentSessionId` (the Map key) or any lifecycle field. `tasks:markResumed` provides the one auxiliary path the renderer needed.
 
 ### 7.3 `tasks:get` is O(n)
 
@@ -501,9 +487,7 @@ is gratuitous. `TaskManager` only indexes by `agentSessionId`, not by `id`.
 
 ### 7.4 `task-updated` broadcast (main → renderer)
 
-Single channel, payload is the full `TaskInfo`. Sent on every task mutation
-that the relay produces, plus from the stream handler when the agent title
-changes (`app-lifecycle.ts:140-159`). No batching, no diff.
+Single channel, payload is `(task: TaskInfo, unseen: { responded: boolean; requires_input: boolean })` (ADR-136 T3). The unseen flags reflect main's `unseenRespondedTasks` / `unseenInputTasks` Sets at the moment of the broadcast. Sent via `sendTaskUpdate` in `electron/notifications.ts` — the single send-site, called from the relay, the stream handler (when the agent title changes), `tasks:abandonForPane`, `tasks:reconcileStale`, and `tasks:markSeen`. No batching, no diff.
 
 ---
 
@@ -643,8 +627,8 @@ Severity is my judgment, not the team's.
 5. **Boot-window hook drop** — events between daemon spawn and `setRelay` are silently lost.
 6. **Bash regex JSON parsing** — fragile; hides errors with `exit 0` and `> /dev/null 2>&1`.
 7. **Wall-clock-based sweeps** — laptop sleep/wake force-completes everything alive.
-8. **Renderer-trusted `tasks:update`** — wide-open partial update; `agentSessionId` (the Map key) is mutable.
-9. **Initial `getAll()` loads everything** — no pagination, no retention, unbounded growth.
+8. ~~**Renderer-trusted `tasks:update`**~~ — ✅ Resolved (ADR-136 T1).
+9. ~~**Initial `getAll()` loads everything**~~ — ✅ Resolved (ADR-136 T2: pagination + retention).
 10. **Stale `paneContextMap` entries** — never deleted; small per-entry but unbounded in lifetime.
 
 ### Medium
@@ -656,8 +640,8 @@ Severity is my judgment, not the team's.
 15. **PrewarmManager has no daemon-reconnect recovery** — stale paneId after daemon restart.
 16. **PrewarmManager updateCwd race** — orphaned pane may get the agent command queued before kill.
 17. **`tasks:get` linear scan + sort on every call.**
-18. **Dual seen-flag bookkeeping** between main and renderer — dock-badge desync after rapid status flips.
-19. **Multi-step `navigateToTask` Zustand mutations** — observable intermediate states.
+18. ~~**Dual seen-flag bookkeeping**~~ — ✅ Resolved (ADR-136 T3: main is authoritative; renderer is a cache).
+19. ~~**Multi-step `navigateToTask` Zustand mutations**~~ — ✅ Resolved (ADR-136 T4: atomic `navigateToContext`).
 
 ### Low / speculative
 
@@ -672,10 +656,10 @@ Severity is my judgment, not the team's.
 
 ## 13. Suggested Order of Operations (if you wanted to fix things)
 
-1. Verify and fix the `reconcileStale` namespace bug — this is the only one I'd call out as a likely silent corruption today. Reproduce by: (a) start agent in pane → wait for response, (b) run `/clear` or `claude --resume <other>` in same pane, (c) restart Manor, (d) check task history for the pre-clear task's status. If it's `abandoned` despite the agent having responded normally, the bug is real.
-2. Wrap `tasks.json` writes in tmp+rename. Trivial fix, big payoff.
+1. ✅ Verify and fix the `reconcileStale` namespace bug — resolved by ADR-133 (reconcile by `paneId`, not `agentSessionId`).
+2. ✅ Wrap `tasks.json` writes in tmp+rename — resolved by ADR-134 (atomic writes).
 3. Add a `requires_input` arm to all three sweep branches and to `notifyAgentDetectorGone`.
 4. Make sweep idle math monotonic (`process.hrtime.bigint()`).
-5. Tighten `tasks:update` to an allowlist.
+5. ✅ Tighten `tasks:update` to an allowlist — resolved by ADR-136 T1.
 6. Decide whether `agentSessionId` is "agent's session id" or "Manor's task key" and split the two if both are needed.
 7. Rest of the list is cleanup / sturdiness work.

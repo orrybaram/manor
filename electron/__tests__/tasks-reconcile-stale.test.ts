@@ -30,12 +30,14 @@ function makeTask(
     id: string;
     status: string;
     agentSessionId: string | null;
+    paneId: string | null;
   }> = {},
 ) {
   return {
     id: "t1",
     status: "active",
-    agentSessionId: "s1",
+    agentSessionId: "agent-uuid-default",
+    paneId: "pane-default",
     ...overrides,
   };
 }
@@ -78,10 +80,11 @@ describe("tasks:reconcileStale handler", () => {
 
   it("marks active tasks with dead sessions as abandoned", async () => {
     deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "active", agentSessionId: "s1" }), // dead
-      makeTask({ id: "t2", status: "active", agentSessionId: "s2" }), // alive
+      makeTask({ id: "t1", status: "active", paneId: "pane-1" }), // dead
+      makeTask({ id: "t2", status: "active", paneId: "pane-2" }), // alive
     ]);
-    deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "s2" }]);
+    // listSessions() returns pane IDs — only pane-2 is live
+    deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-2" }]);
 
     const handler = handlers.get("tasks:reconcileStale")!;
     await handler({} as never);
@@ -106,9 +109,9 @@ describe("tasks:reconcileStale handler", () => {
     expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
   });
 
-  it("skips tasks with null agentSessionId", async () => {
+  it("skips tasks with null paneId", async () => {
     deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "active", agentSessionId: null }),
+      makeTask({ id: "t1", status: "active", paneId: null }),
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
@@ -120,13 +123,35 @@ describe("tasks:reconcileStale handler", () => {
 
   it("skips non-active tasks", async () => {
     deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "completed", agentSessionId: "s1" }),
+      makeTask({ id: "t1", status: "completed", paneId: "pane-1" }),
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
     const handler = handlers.get("tasks:reconcileStale")!;
     await handler({} as never);
 
+    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("regression: does not abandon a task when paneId is live but agentSessionId is not", async () => {
+    // This is the original namespace bug: the old code compared agentSessionId
+    // against listSessions().sessionId, which actually returns pane IDs.
+    // A task with paneId "pane-1" should be considered live when listSessions()
+    // returns [{ sessionId: "pane-1" }], even if agentSessionId is a different UUID.
+    deps.taskManager.getAllTasks.mockReturnValue([
+      makeTask({
+        id: "t1",
+        status: "active",
+        agentSessionId: "agent-uuid-1", // different namespace — NOT in listSessions results
+        paneId: "pane-1",              // correct namespace — IS in listSessions results
+      }),
+    ]);
+    deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-1" }]);
+
+    const handler = handlers.get("tasks:reconcileStale")!;
+    await handler({} as never);
+
+    // paneId "pane-1" is live → task must NOT be abandoned
     expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
   });
 });

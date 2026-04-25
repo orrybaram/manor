@@ -1,6 +1,6 @@
 ---
 title: Add id-index for O(1) task lookups
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: []

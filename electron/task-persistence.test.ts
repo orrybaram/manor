@@ -186,4 +186,56 @@ describe("TaskManager", () => {
       expect(fresh.getAllTasks().length).toBe(1);
     });
   });
+
+  describe("getTaskById / idIndex (ADR-138)", () => {
+    it("returns the task after createTask", () => {
+      const task = makeTask();
+      const found = manager.getTaskById(task.id);
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(task.id);
+      expect(manager.getAllTasks().length).toBe(1);
+    });
+
+    it("returns updated task after updateTask", () => {
+      const task = makeTask();
+      manager.updateTask(task.id, { name: "Updated name" });
+      const found = manager.getTaskById(task.id);
+      expect(found).not.toBeNull();
+      expect(found!.name).toBe("Updated name");
+    });
+
+    it("returns null after deleteTask and idIndex stays in sync", () => {
+      const task = makeTask();
+      manager.deleteTask(task.id);
+      expect(manager.getTaskById(task.id)).toBeNull();
+      // Verify structural invariant: idIndex.size === tasks.size
+      const allTasks = manager.getAllTasks();
+      expect(allTasks.length).toBe(0);
+    });
+
+    it("idIndex is rebuilt from disk after loadState", async () => {
+      const task1 = makeTask();
+      const task2 = makeTask();
+
+      // Wait for debounced save
+      await new Promise((r) => setTimeout(r, 600));
+
+      const fresh = new TaskManager(tmpDir);
+      expect(fresh.getTaskById(task1.id)).not.toBeNull();
+      expect(fresh.getTaskById(task1.id)!.id).toBe(task1.id);
+      expect(fresh.getTaskById(task2.id)).not.toBeNull();
+      expect(fresh.getTaskById(task2.id)!.id).toBe(task2.id);
+      // idIndex.size should match tasks map size
+      expect(fresh.getAllTasks().length).toBe(2);
+    });
+
+    it("updateTask throws if agentSessionId is included in updates", () => {
+      const task = makeTask();
+      expect(() =>
+        manager.updateTask(task.id, {
+          agentSessionId: "new-session-id",
+        } as Partial<typeof task>),
+      ).toThrow("agentSessionId is immutable");
+    });
+  });
 });

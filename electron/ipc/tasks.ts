@@ -50,8 +50,7 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle("tasks:get", (_event, taskId: string) => {
     assertString(taskId, "taskId");
-    const all = taskManager.getAllTasks();
-    return all.find((t) => t.id === taskId) ?? null;
+    return taskManager.getTaskById(taskId);
   });
 
   ipcMain.handle("tasks:getActive", () => {

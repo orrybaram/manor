@@ -32,6 +32,8 @@ interface PersistedState {
 export class TaskManager {
   private dataDir: string;
   private tasks: Map<string, TaskInfo>;
+  /** Secondary index: taskId → agentSessionId, kept in sync with `tasks`. */
+  private idIndex: Map<string, string> = new Map();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private retentionDays: number;
   /**
@@ -56,6 +58,7 @@ export class TaskManager {
       const data = fs.readFileSync(this.tasksFilePath(), "utf-8");
       const state: PersistedState = JSON.parse(data);
       const map = new Map<string, TaskInfo>();
+      const idIndex = new Map<string, string>();
       for (const task of state.tasks ?? []) {
         // Migrate legacy claudeSessionId → agentSessionId
         const migrated = task as TaskInfo & { claudeSessionId?: string };
@@ -64,7 +67,9 @@ export class TaskManager {
           delete migrated.claudeSessionId;
         }
         map.set(migrated.agentSessionId, migrated);
+        idIndex.set(migrated.id, migrated.agentSessionId);
       }
+      this.idIndex = idIndex;
       return map;
     } catch {
       return new Map();
@@ -96,12 +101,16 @@ export class TaskManager {
       activatedAt: null,
     };
     this.tasks.set(task.agentSessionId, task);
+    this.idIndex.set(task.id, task.agentSessionId);
     this.saveState();
     return task;
   }
 
   updateTask(id: string, updates: Partial<TaskInfo>): TaskInfo | null {
-    const task = Array.from(this.tasks.values()).find((t) => t.id === id);
+    if ("agentSessionId" in updates) {
+      throw new Error("updateTask: agentSessionId is immutable and cannot be updated");
+    }
+    const task = this.getTaskById(id);
     if (!task) return null;
     const updated: TaskInfo = {
       ...task,
@@ -116,6 +125,12 @@ export class TaskManager {
 
   getTaskBySessionId(agentSessionId: string): TaskInfo | null {
     return this.tasks.get(agentSessionId) ?? null;
+  }
+
+  getTaskById(id: string): TaskInfo | null {
+    const sessionId = this.idIndex.get(id);
+    if (!sessionId) return null;
+    return this.tasks.get(sessionId) ?? null;
   }
 
   getAllTasks(opts?: {
@@ -149,7 +164,7 @@ export class TaskManager {
   }
 
   setTaskStatus(id: string, status: TaskInfo["status"]): void {
-    const task = Array.from(this.tasks.values()).find((t) => t.id === id);
+    const task = this.getTaskById(id);
     if (!task) return;
 
     const now = new Date().toISOString();
@@ -190,14 +205,12 @@ export class TaskManager {
   }
 
   deleteTask(id: string): boolean {
-    for (const [sessionId, task] of this.tasks) {
-      if (task.id === id) {
-        this.tasks.delete(sessionId);
-        this.saveState();
-        return true;
-      }
-    }
-    return false;
+    const sessionId = this.idIndex.get(id);
+    if (!sessionId) return false;
+    this.tasks.delete(sessionId);
+    this.idIndex.delete(id);
+    this.saveState();
+    return true;
   }
 
   unlinkPane(paneId: string): void {
@@ -228,6 +241,7 @@ export class TaskManager {
       const completedMs = task.completedAt ? Date.parse(task.completedAt) : 0;
       if (completedMs && completedMs < cutoff) {
         this.tasks.delete(sessionId);
+        this.idIndex.delete(task.id);
         pruned += 1;
       }
     }

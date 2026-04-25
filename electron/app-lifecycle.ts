@@ -153,8 +153,13 @@ export function initApp(devTitle: string | null): void {
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
-  const taskManager = new TaskManager();
+  // PreferencesManager must be constructed before TaskManager so we can pass
+  // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
+  const taskManager = new TaskManager(
+    undefined,
+    preferencesManager.get("taskRetentionDays"),
+  );
   const keybindingsManager = new KeybindingsManager();
   const paneContextMap = new Map<
     string,

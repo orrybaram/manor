@@ -10,6 +10,17 @@ export interface AppPreferences {
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
+  /**
+   * Number of days to retain non-active tasks. Tasks with `status !== "active"`
+   * whose `completedAt` is older than this are pruned on TaskManager construction.
+   * Set to 0 (or any non-positive number) to disable pruning.
+   */
+  taskRetentionDays: number;
+  /**
+   * Set the first time the prune-on-boot path actually deletes any tasks.
+   * Used to surface a one-time notice; never reset automatically.
+   */
+  taskPruneNoticeShown: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -19,6 +30,8 @@ const DEFAULTS: AppPreferences = {
   notificationSound: "Glass",
   defaultEditor: "",
   editorIsTerminal: false,
+  taskRetentionDays: 90,
+  taskPruneNoticeShown: false,
 };
 
 export class PreferencesManager {

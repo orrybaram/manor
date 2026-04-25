@@ -6,6 +6,10 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   diffOpensInNewPanel: boolean;
+  /** Days to retain non-active tasks. Set to 0 to disable pruning. */
+  taskRetentionDays: number;
+  /** True after the one-time prune notice has been shown to the user. */
+  taskPruneNoticeShown: boolean;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";
@@ -491,6 +495,13 @@ export interface ElectronAPI {
       limit?: number;
       offset?: number;
     }) => Promise<TaskInfo[]>;
+    getActive: () => Promise<TaskInfo[]>;
+    getRecent: (opts?: { limit?: number }) => Promise<TaskInfo[]>;
+    /**
+     * Returns the number of tasks pruned during the most recent boot, exactly
+     * once. Renderer should show a one-time notice if count > 0.
+     */
+    consumePruneNotice: () => Promise<number>;
     get: (taskId: string) => Promise<TaskInfo | null>;
     update: (
       taskId: string,

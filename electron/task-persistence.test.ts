@@ -94,4 +94,96 @@ describe("TaskManager", () => {
       expect(needResume.map((t) => t.id)).not.toContain(resumed.id);
     });
   });
+
+  describe("pruneOlderThan (ADR-136)", () => {
+    function isoDaysAgo(days: number): string {
+      return new Date(Date.now() - days * 86_400_000).toISOString();
+    }
+
+    it("removes non-active tasks older than the cutoff", () => {
+      const old = makeTask({
+        status: "completed",
+        completedAt: isoDaysAgo(120),
+      });
+      const recent = makeTask({
+        status: "completed",
+        completedAt: isoDaysAgo(10),
+      });
+      const abandoned = makeTask({
+        status: "abandoned",
+        completedAt: isoDaysAgo(200),
+      });
+
+      const removed = manager.pruneOlderThan(90);
+
+      expect(removed).toBe(2);
+      expect(manager.getAllTasks().map((t) => t.id)).toEqual([recent.id]);
+      // Sanity-check: tasks pruned were the old + abandoned ones
+      expect(manager.getAllTasks().map((t) => t.id)).not.toContain(old.id);
+      expect(manager.getAllTasks().map((t) => t.id)).not.toContain(abandoned.id);
+    });
+
+    it("never removes active tasks regardless of completedAt", () => {
+      // Pathological: an active task with an old completedAt should be kept
+      // (active tasks are exempt from retention by definition).
+      const active = makeTask({
+        status: "active",
+        completedAt: isoDaysAgo(500),
+      });
+      const removed = manager.pruneOlderThan(90);
+      expect(removed).toBe(0);
+      expect(manager.getAllTasks().map((t) => t.id)).toContain(active.id);
+    });
+
+    it("treats tasks without completedAt as not-prunable", () => {
+      const noCompleted = makeTask({
+        status: "completed",
+        completedAt: null,
+      });
+      const removed = manager.pruneOlderThan(90);
+      expect(removed).toBe(0);
+      expect(manager.getAllTasks().map((t) => t.id)).toContain(noCompleted.id);
+    });
+
+    it("returns 0 and no-ops when retentionDays <= 0", () => {
+      makeTask({ status: "completed", completedAt: isoDaysAgo(1000) });
+      const before = manager.getAllTasks().length;
+
+      expect(manager.pruneOlderThan(0)).toBe(0);
+      expect(manager.pruneOlderThan(-5)).toBe(0);
+      expect(manager.pruneOlderThan(Number.NaN)).toBe(0);
+      expect(manager.pruneOlderThan(Number.POSITIVE_INFINITY)).toBe(0);
+
+      expect(manager.getAllTasks().length).toBe(before);
+    });
+
+    it("runs from the constructor and reports count via getLastPruneCount()", async () => {
+      // Seed an old completed task with the existing manager, then flush to disk.
+      const old = makeTask({
+        status: "completed",
+        completedAt: isoDaysAgo(200),
+      });
+      const recent = makeTask({
+        status: "completed",
+        completedAt: isoDaysAgo(5),
+      });
+      // Wait for debounced save
+      await new Promise((r) => setTimeout(r, 600));
+
+      // Reload with retentionDays = 90: the old task should be pruned at construction.
+      const fresh = new TaskManager(tmpDir, 90);
+      expect(fresh.getLastPruneCount()).toBe(1);
+      expect(fresh.getAllTasks().map((t) => t.id)).toContain(recent.id);
+      expect(fresh.getAllTasks().map((t) => t.id)).not.toContain(old.id);
+    });
+
+    it("constructor with retentionDays=0 disables pruning", async () => {
+      makeTask({ status: "completed", completedAt: isoDaysAgo(1000) });
+      await new Promise((r) => setTimeout(r, 600));
+
+      const fresh = new TaskManager(tmpDir, 0);
+      expect(fresh.getLastPruneCount()).toBe(0);
+      expect(fresh.getAllTasks().length).toBe(1);
+    });
+  });
 });

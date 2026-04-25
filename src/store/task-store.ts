@@ -5,10 +5,17 @@ import { useAppStore } from "./app-store";
 import { navigateToTask } from "../utils/task-navigation";
 import { hasPaneId } from "./pane-tree";
 
+/** Page size used for the initial task load and for `loadMoreTasks`. */
+const TASK_PAGE_SIZE = 100;
+
 interface TaskState {
   tasks: TaskInfo[];
   loading: boolean;
   loaded: boolean;
+  /** True when `tasks:getAll` last returned a full page — more may exist on disk. */
+  hasMore: boolean;
+  /** True while `loadMoreTasks` is in flight, to coalesce repeated scroll events. */
+  loadingMore: boolean;
   seenTaskIds: Set<string>;
   loadTasks: (opts?: {
     projectId?: string;
@@ -40,19 +47,59 @@ export const useTaskStore = create<TaskState>((set, get) => {
     }
   });
 
-  // Eagerly load all tasks on store creation
-  window.electronAPI?.tasks
-    .getAll()
-    .then((tasks) => {
-      tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      set({ tasks, loading: false, loaded: true });
-    })
-    .catch(() => {});
+  // Paginated initial load: active tasks (full set, used by sidebar) +
+  // the first page of all tasks (used by the history modal). The two are
+  // merged + deduped so the store stays a single source of truth.
+  const init = async (): Promise<void> => {
+    if (!window.electronAPI?.tasks) return;
+    try {
+      const [active, recentPage] = await Promise.all([
+        window.electronAPI.tasks.getActive(),
+        window.electronAPI.tasks.getAll({ limit: TASK_PAGE_SIZE, offset: 0 }),
+      ]);
+      const seen = new Set<string>();
+      const merged: TaskInfo[] = [];
+      for (const t of [...active, ...recentPage]) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        merged.push(t);
+      }
+      merged.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      set({
+        tasks: merged,
+        loading: false,
+        loaded: true,
+        hasMore: recentPage.length === TASK_PAGE_SIZE,
+      });
+
+      // One-time prune notice. Surfaces only when the most recent boot
+      // actually deleted tasks AND the user has not been notified yet.
+      try {
+        const prunedCount = await window.electronAPI.tasks.consumePruneNotice();
+        if (prunedCount > 0) {
+          useToastStore.getState().addToast({
+            id: "task-prune-notice",
+            message: `Pruned ${prunedCount} old task${prunedCount === 1 ? "" : "s"}`,
+            detail: "Configure retention in Preferences",
+            status: "success",
+            duration: 8_000,
+          });
+        }
+      } catch {
+        // Older preload — feature absent. Safe to ignore.
+      }
+    } catch {
+      set({ loading: false });
+    }
+  };
+  init();
 
   return {
     tasks: [],
     loading: true,
     loaded: false,
+    hasMore: false,
+    loadingMore: false,
     seenTaskIds: new Set<string>(),
 
     loadTasks: async (opts) => {
@@ -60,18 +107,34 @@ export const useTaskStore = create<TaskState>((set, get) => {
       try {
         const tasks = await window.electronAPI.tasks.getAll(opts);
         tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        set({ tasks, loading: false, loaded: true });
+        set({
+          tasks,
+          loading: false,
+          loaded: true,
+          // If the caller passed an explicit limit, treat a full result as
+          // "may have more". For unbounded calls there is by definition no
+          // next page.
+          hasMore:
+            opts?.limit !== undefined ? tasks.length === opts.limit : false,
+        });
       } catch {
         set({ loading: false });
       }
     },
 
     loadMoreTasks: async (offset: number) => {
-      set({ loading: true });
+      const s = get();
+      // Coalesce repeated scroll events and short-circuit when we've
+      // already exhausted the underlying store.
+      if (s.loadingMore || !s.hasMore) return;
+      set({ loadingMore: true });
       try {
-        const newTasks = await window.electronAPI.tasks.getAll({ offset });
-        set((s) => {
-          const merged = [...s.tasks, ...newTasks];
+        const newTasks = await window.electronAPI.tasks.getAll({
+          offset,
+          limit: TASK_PAGE_SIZE,
+        });
+        set((state) => {
+          const merged = [...state.tasks, ...newTasks];
           // Deduplicate by id, keeping the first occurrence (existing tasks take priority)
           const seen = new Set<string>();
           const deduped = merged.filter((t) => {
@@ -80,10 +143,14 @@ export const useTaskStore = create<TaskState>((set, get) => {
             return true;
           });
           deduped.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-          return { tasks: deduped, loading: false };
+          return {
+            tasks: deduped,
+            loadingMore: false,
+            hasMore: newTasks.length === TASK_PAGE_SIZE,
+          };
         });
       } catch {
-        set({ loading: false });
+        set({ loadingMore: false });
       }
     },
 

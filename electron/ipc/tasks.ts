@@ -50,6 +50,28 @@ export function register(deps: IpcDeps): void {
     return all.find((t) => t.id === taskId) ?? null;
   });
 
+  ipcMain.handle("tasks:getActive", () => {
+    return taskManager.getActiveTasks();
+  });
+
+  ipcMain.handle("tasks:getRecent", (_event, opts?: { limit?: number }) => {
+    const limit = opts?.limit ?? 50;
+    return taskManager.getAllTasks({ limit });
+  });
+
+  /**
+   * Returns the count of tasks pruned during the most recent TaskManager
+   * boot, exactly once per upgrade. After the renderer consumes it, the
+   * `taskPruneNoticeShown` flag is set so subsequent boots return 0.
+   */
+  ipcMain.handle("tasks:consumePruneNotice", () => {
+    const count = taskManager.getLastPruneCount();
+    if (count <= 0) return 0;
+    if (preferencesManager.get("taskPruneNoticeShown")) return 0;
+    preferencesManager.set("taskPruneNoticeShown", true);
+    return count;
+  });
+
   ipcMain.handle(
     "tasks:update",
     (_event, taskId: string, updates: unknown) => {

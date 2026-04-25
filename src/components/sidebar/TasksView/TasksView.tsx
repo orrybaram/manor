@@ -1,4 +1,4 @@
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, useEffect, useRef, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -128,8 +128,17 @@ type TasksModalProps = {
 export function TasksModal(props: TasksModalProps) {
   const { open, onClose, onResumeTask } = props;
 
-  const { tasks, loading, loaded, removeTask } = useTaskStore();
+  const {
+    tasks,
+    loading,
+    loaded,
+    hasMore,
+    loadingMore,
+    removeTask,
+    loadMoreTasks,
+  } = useTaskStore();
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const handleResume = useCallback(
     (task: TaskInfo) => {
@@ -145,6 +154,30 @@ export function TasksModal(props: TasksModalProps) {
     },
     [onClose],
   );
+
+  // When the bottom sentinel scrolls into view, request the next page.
+  // The store's `loadMoreTasks` coalesces overlapping calls and short-circuits
+  // when `hasMore` is false, so the observer firing more than once is safe.
+  useEffect(() => {
+    if (!open) return;
+    if (!hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            loadMoreTasks(tasks.length);
+            break;
+          }
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [open, hasMore, tasks.length, loadMoreTasks]);
 
   const filtered = tasks.filter((t) => matchesFilter(t, filter));
 
@@ -241,6 +274,17 @@ export function TasksModal(props: TasksModalProps) {
                 </div>
               );
             })}
+
+            {hasMore && (
+              <div
+                ref={sentinelRef}
+                data-testid="tasks-load-more-sentinel"
+                className={styles.loadMore}
+                aria-hidden="true"
+              >
+                {loadingMore ? "Loading more..." : ""}
+              </div>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

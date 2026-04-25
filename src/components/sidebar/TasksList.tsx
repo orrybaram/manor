@@ -71,7 +71,14 @@ export function TasksList(props: TasksListProps) {
     return ids;
   }, [workspaceLayouts]);
 
-  // Show active tasks always; show completed/error/abandoned only if their pane is still active
+  // Show active tasks always; show completed/error/abandoned only if their pane is still active.
+  //
+  // Pagination note (ADR-136): the task store loads `tasks:getActive` (all active)
+  // plus the first page of `tasks:getAll` (most recent N). A non-active task whose
+  // paneId is still in the current layout is by construction recent — its pane
+  // hasn't been closed yet — and is therefore expected to be inside the first
+  // page. If a user closes the modal before scrolling far enough to load older
+  // tasks, the visible set here is unaffected.
   const visibleTasks = useMemo(
     () =>
       tasks.filter(

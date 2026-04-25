@@ -33,10 +33,18 @@ export class TaskManager {
   private dataDir: string;
   private tasks: Map<string, TaskInfo>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private retentionDays: number;
+  /**
+   * Number of tasks pruned during construction. Surfaces to UI via
+   * `getLastPruneCount()` so the renderer can show a one-time notice.
+   */
+  private lastPruneCount = 0;
 
-  constructor(dataDir?: string) {
+  constructor(dataDir?: string, retentionDays = 90) {
     this.dataDir = dataDir ?? manorDataDir();
+    this.retentionDays = retentionDays;
     this.tasks = this.loadState();
+    this.lastPruneCount = this.pruneOlderThan(this.retentionDays);
   }
 
   private tasksFilePath(): string {
@@ -205,5 +213,30 @@ export class TaskManager {
       }
     }
     if (changed) this.saveState();
+  }
+
+  /**
+   * Removes non-active tasks whose `completedAt` is older than `days` days.
+   * Returns the number of tasks pruned. Setting `days <= 0` disables pruning.
+   */
+  pruneOlderThan(days: number): number {
+    if (!Number.isFinite(days) || days <= 0) return 0;
+    const cutoff = Date.now() - days * 86_400_000;
+    let pruned = 0;
+    for (const [sessionId, task] of this.tasks) {
+      if (task.status === "active") continue;
+      const completedMs = task.completedAt ? Date.parse(task.completedAt) : 0;
+      if (completedMs && completedMs < cutoff) {
+        this.tasks.delete(sessionId);
+        pruned += 1;
+      }
+    }
+    if (pruned > 0) this.saveState();
+    return pruned;
+  }
+
+  /** Number of tasks pruned during the last constructor call. */
+  getLastPruneCount(): number {
+    return this.lastPruneCount;
   }
 }

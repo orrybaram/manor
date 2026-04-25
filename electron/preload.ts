@@ -307,6 +307,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       limit?: number;
       offset?: number;
     }) => ipcRenderer.invoke("tasks:getAll", opts),
+    getActive: () => ipcRenderer.invoke("tasks:getActive"),
+    getRecent: (opts?: { limit?: number }) =>
+      ipcRenderer.invoke("tasks:getRecent", opts),
+    consumePruneNotice: () => ipcRenderer.invoke("tasks:consumePruneNotice"),
     get: (taskId: string) => ipcRenderer.invoke("tasks:get", taskId),
     update: (taskId: string, updates: { name?: string | null }) =>
       ipcRenderer.invoke("tasks:update", taskId, updates),

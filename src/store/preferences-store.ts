@@ -18,6 +18,8 @@ const defaultPreferences: AppPreferences = {
   defaultEditor: "",
   editorIsTerminal: false,
   diffOpensInNewPanel: true,
+  taskRetentionDays: 90,
+  taskPruneNoticeShown: false,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

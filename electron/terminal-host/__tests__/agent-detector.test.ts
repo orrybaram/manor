@@ -347,11 +347,6 @@ describe("AgentDetector", () => {
       // No error thrown
     });
 
-    it("processOutput() is a no-op", () => {
-      detector.processOutput("some terminal output");
-      expect(detector.getState().status).toBe("idle");
-    });
-
     it("setAltScreen() is a no-op", () => {
       detector.setAltScreen(true);
       expect(detector.getState().status).toBe("idle");

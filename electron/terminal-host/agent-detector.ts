@@ -19,9 +19,6 @@ const KNOWN_AGENTS: Record<string, AgentKind> = {
   pi: "pi",
 };
 
-/** Titles that are just the agent binary name — not useful as a task label */
-const _GENERIC_TITLES = new Set(["claude", "claude code", "opencode", "codex"]);
-
 const KNOWN_SHELLS = new Set([
   "zsh",
   "bash",
@@ -322,11 +319,6 @@ export class AgentDetector {
       this.log("sweepStalePids: all PIDs dead, forcing gone");
       this.transitionToGone();
     }
-  }
-
-  /** Called when terminal output is received — no-op, hooks handle status */
-  processOutput(_data: string): void {
-    // Kept for API compatibility; hook events drive status transitions now.
   }
 
   /** Update alt screen state (from mode tracking) */

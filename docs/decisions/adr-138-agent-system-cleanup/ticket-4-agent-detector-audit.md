@@ -1,6 +1,6 @@
 ---
 title: Audit AgentDetector for branches superseded by hook signal
-status: todo
+status: done
 priority: low
 assignee: opus
 blocked_by: []

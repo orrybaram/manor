@@ -1,6 +1,6 @@
 ---
 title: Stage claudeSessionId migration for removal next release
-status: todo
+status: done
 priority: low
 assignee: sonnet
 blocked_by: []

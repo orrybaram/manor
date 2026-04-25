@@ -5,6 +5,30 @@
  * The caller (app-lifecycle) wires up the real deps; tests inject fakes.
  */
 
+/**
+ * Identifier namespaces inside the relay
+ *
+ * - `paneId`     — the daemon's session id (== paneId on the renderer side).
+ *                 Lifetime: created on `pty:create`, destroyed on `pty:close`.
+ * - `sessionId`  — the agent CLI's session UUID, extracted from hook payloads.
+ *                 Lifetime: created on `SessionStart`, destroyed on `SessionEnd`.
+ *                 One pane can host multiple sessions over its lifetime
+ *                 (`/clear`, `claude --resume`).
+ *
+ * Two maps:
+ * - paneRootSessionMap: Map<paneId, sessionId>
+ *     The current root session on each pane. Used to ignore subagent
+ *     SessionStart events and to resolve the pane's *current* task when a hook
+ *     event arrives without enough context.
+ * - sessionStateMap: Map<sessionId, SessionState>
+ *     Per-agent-session bookkeeping (active subagents, pendingStopAt, etc).
+ *     Cleared on SessionEnd, on SessionStart replacement, and by stale-orphan
+ *     sweeps.
+ *
+ * Always carry the namespace explicitly: the bug fixed by ADR-133 was a sweep
+ * comparing a sessionId against a paneId set.
+ */
+
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
 import type { TaskInfo } from "./task-persistence";
 

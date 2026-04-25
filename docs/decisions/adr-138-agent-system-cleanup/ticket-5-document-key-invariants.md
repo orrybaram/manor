@@ -1,6 +1,6 @@
 ---
 title: Document task and relay key invariants
-status: todo
+status: in-progress
 priority: low
 assignee: haiku
 blocked_by: [1]

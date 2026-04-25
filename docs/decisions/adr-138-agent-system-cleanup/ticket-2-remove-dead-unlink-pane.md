@@ -1,6 +1,6 @@
 ---
 title: Remove dead unlinkPane method
-status: todo
+status: in-progress
 priority: low
 assignee: haiku
 blocked_by: []

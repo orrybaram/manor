@@ -213,21 +213,6 @@ export class TaskManager {
     return true;
   }
 
-  unlinkPane(paneId: string): void {
-    let changed = false;
-    for (const [sessionId, task] of this.tasks) {
-      if (task.paneId === paneId) {
-        this.tasks.set(sessionId, {
-          ...task,
-          paneId: null,
-          updatedAt: new Date().toISOString(),
-        });
-        changed = true;
-      }
-    }
-    if (changed) this.saveState();
-  }
-
   /**
    * Removes non-active tasks whose `completedAt` is older than `days` days.
    * Returns the number of tasks pruned. Setting `days <= 0` disables pruning.

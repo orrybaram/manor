@@ -35,7 +35,7 @@ type TasksListProps = {
 export function TasksList(props: TasksListProps) {
   const { onShowAll } = props;
 
-  const { tasks, seenTaskIds } = useTaskStore();
+  const { tasks, unseenRespondedTaskIds, unseenInputTaskIds } = useTaskStore();
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
 
   // Collect all active pane IDs across all workspace layouts
@@ -131,7 +131,14 @@ export function TasksList(props: TasksListProps) {
             {groupTasks.map((task) => {
               const isVisible =
                 task.paneId != null && visiblePaneIds.has(task.paneId);
-              const shouldPulse = !isVisible && !seenTaskIds.has(task.id);
+              // Pulse predicate (ADR-136 §"Change 3"): main owns the unseen
+              // flags; pulse iff the current status matches an unseen axis.
+              const shouldPulse =
+                !isVisible &&
+                ((task.lastAgentStatus === "responded" &&
+                  unseenRespondedTaskIds.has(task.id)) ||
+                  (task.lastAgentStatus === "requires_input" &&
+                    unseenInputTaskIds.has(task.id)));
               return (
                 <TaskRow
                   key={task.id}

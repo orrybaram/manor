@@ -1,6 +1,6 @@
 ---
 title: Make main authoritative for unseen flags
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: []

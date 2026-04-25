@@ -310,6 +310,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getActive: () => ipcRenderer.invoke("tasks:getActive"),
     getRecent: (opts?: { limit?: number }) =>
       ipcRenderer.invoke("tasks:getRecent", opts),
+    getUnseen: () => ipcRenderer.invoke("tasks:getUnseen"),
     consumePruneNotice: () => ipcRenderer.invoke("tasks:consumePruneNotice"),
     get: (taskId: string) => ipcRenderer.invoke("tasks:get", taskId),
     update: (taskId: string, updates: { name?: string | null }) =>
@@ -328,8 +329,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
     markResumed: (taskId: string) => ipcRenderer.invoke("tasks:markResumed", taskId),
     reconcileStale: () => ipcRenderer.invoke("tasks:reconcileStale"),
     abandonForPane: (paneId: string, title?: string | null) => ipcRenderer.invoke("tasks:abandonForPane", paneId, title),
-    onUpdate: (callback: (task: unknown) => void) =>
-      onChannel("task-updated", callback),
+    onUpdate: (
+      callback: (
+        task: unknown,
+        unseen: { responded: boolean; requires_input: boolean },
+      ) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        task: unknown,
+        unseen: { responded: boolean; requires_input: boolean },
+      ) => callback(task, unseen);
+      ipcRenderer.on("task-updated", listener);
+      return () => ipcRenderer.removeListener("task-updated", listener);
+    },
   },
 
   preferences: {

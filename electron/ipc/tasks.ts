@@ -1,6 +1,10 @@
 import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
-import { updateDockBadge } from "../notifications";
+import {
+  getUnseenSnapshot,
+  sendTaskUpdate,
+  updateDockBadge,
+} from "../notifications";
 import { cleanAgentTitle } from "../title-utils";
 import type { IpcDeps } from "./types";
 
@@ -60,6 +64,15 @@ export function register(deps: IpcDeps): void {
   });
 
   /**
+   * Returns the full unseen-flag snapshot from main as `{ responded, requires_input }`
+   * arrays of task ids. Used by the renderer on boot to prime its cache so
+   * the pulse-state matches main exactly. See ADR-136 §"Change 3".
+   */
+  ipcMain.handle("tasks:getUnseen", () => {
+    return getUnseenSnapshot();
+  });
+
+  /**
    * Returns the count of tasks pruned during the most recent TaskManager
    * boot, exactly once per upgrade. After the renderer consumes it, the
    * `taskPruneNoticeShown` flag is set so subsequent boots return 0.
@@ -94,7 +107,18 @@ export function register(deps: IpcDeps): void {
     assertString(taskId, "taskId");
     unseenRespondedTasks.delete(taskId);
     unseenInputTasks.delete(taskId);
-    updateDockBadge(preferencesManager);
+    // Re-broadcast so the renderer cache reflects the cleared flags. The task
+    // itself didn't mutate, but `sendTaskUpdate` ships the unseen flags
+    // alongside it — this is what keeps main authoritative for pulse state.
+    const all = taskManager.getAllTasks();
+    const task = all.find((t) => t.id === taskId) ?? null;
+    if (task) {
+      sendTaskUpdate(deps.mainWindow, task, preferencesManager);
+    } else {
+      // Task is gone (deleted before markSeen reached us) — at least refresh
+      // the dock badge since the Sets just shrank.
+      updateDockBadge(preferencesManager);
+    }
   });
 
   ipcMain.handle("tasks:markResumed", (_event, taskId: string) => {
@@ -130,19 +154,7 @@ export function register(deps: IpcDeps): void {
       ...(nameUpdate ? { name: nameUpdate } : {}),
     });
     if (updated) {
-      const { mainWindow } = deps;
-      if (
-        mainWindow &&
-        !mainWindow.isDestroyed() &&
-        !mainWindow.webContents.isDestroyed()
-      ) {
-        try {
-          mainWindow.webContents.send("task-updated", updated);
-        } catch {
-          // Render frame disposed — safe to ignore
-        }
-      }
-      updateDockBadge(preferencesManager);
+      sendTaskUpdate(deps.mainWindow, updated, preferencesManager);
     }
   });
 
@@ -169,19 +181,7 @@ export function register(deps: IpcDeps): void {
         completedAt: new Date().toISOString(),
       });
       if (updated) {
-        const { mainWindow } = deps;
-        if (
-          mainWindow &&
-          !mainWindow.isDestroyed() &&
-          !mainWindow.webContents.isDestroyed()
-        ) {
-          try {
-            mainWindow.webContents.send("task-updated", updated);
-          } catch {
-            // Render frame disposed — safe to ignore
-          }
-        }
-        updateDockBadge(preferencesManager);
+        sendTaskUpdate(deps.mainWindow, updated, preferencesManager);
       }
     }
   });

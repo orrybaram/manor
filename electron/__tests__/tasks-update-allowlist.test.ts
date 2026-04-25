@@ -14,6 +14,8 @@ vi.mock("electron", () => ({
 // ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
+  sendTaskUpdate: vi.fn(),
+  getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
 // ── Mock ipc-validate ──────────────────────────────────────────────────────────

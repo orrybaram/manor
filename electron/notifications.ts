@@ -7,6 +7,67 @@ import type { AgentStatus } from "./terminal-host/types";
 export const unseenRespondedTasks = new Set<string>();
 export const unseenInputTasks = new Set<string>();
 
+/**
+ * Per-task unseen flags as broadcast to the renderer alongside `task-updated`.
+ *
+ * The renderer keeps two Sets (`unseenRespondedTaskIds`, `unseenInputTaskIds`)
+ * as a *cache* of these flags — see ADR-136 §"Change 3". Always derive the flags
+ * from main's Sets at the moment of the broadcast so the renderer never drifts.
+ */
+export type TaskUnseenFlags = {
+  responded: boolean;
+  requires_input: boolean;
+};
+
+export function getUnseenFlagsForTask(taskId: string): TaskUnseenFlags {
+  return {
+    responded: unseenRespondedTasks.has(taskId),
+    requires_input: unseenInputTasks.has(taskId),
+  };
+}
+
+/**
+ * Snapshot of the full unseen state, used by `tasks:getUnseen` to prime the
+ * renderer cache on boot.
+ */
+export function getUnseenSnapshot(): {
+  responded: string[];
+  requires_input: string[];
+} {
+  return {
+    responded: Array.from(unseenRespondedTasks),
+    requires_input: Array.from(unseenInputTasks),
+  };
+}
+
+/**
+ * Broadcast a `task-updated` event to the renderer with the current unseen
+ * flags, then refresh the dock badge. This is the single send-site for
+ * `task-updated`; do not call `webContents.send("task-updated", ...)` directly.
+ */
+export function sendTaskUpdate(
+  mainWindow: BrowserWindow | null,
+  task: TaskInfo,
+  preferencesManager: PreferencesManager,
+): void {
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed()
+  ) {
+    try {
+      mainWindow.webContents.send(
+        "task-updated",
+        task,
+        getUnseenFlagsForTask(task.id),
+      );
+    } catch {
+      // Render frame disposed — safe to ignore
+    }
+  }
+  updateDockBadge(preferencesManager);
+}
+
 export function updateDockBadge(preferencesManager: PreferencesManager): void {
   if (!preferencesManager.get("dockBadgeEnabled")) {
     app.dock?.setBadge("");

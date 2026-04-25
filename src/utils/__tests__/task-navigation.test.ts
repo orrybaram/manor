@@ -119,7 +119,11 @@ describe("navigateToTask toast cleanup", () => {
       workspaceLayouts: { [WS_PATH]: makeLayout() },
     });
     useToastStore.setState({ toasts: [] });
-    useTaskStore.setState({ tasks: [], seenTaskIds: new Set() });
+    useTaskStore.setState({
+      tasks: [],
+      unseenRespondedTaskIds: new Set(),
+      unseenInputTaskIds: new Set(),
+    });
   });
 
   it("removes the task-input toast when navigating to the task", () => {

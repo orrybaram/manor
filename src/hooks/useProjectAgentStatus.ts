@@ -11,7 +11,8 @@ export function useProjectAgentStatus(
   project: ProjectInfo,
 ): { status: AgentStatus | null; pulse: boolean } {
   const tasks = useTaskStore((s) => s.tasks);
-  const seenTaskIds = useTaskStore((s) => s.seenTaskIds);
+  const unseenRespondedTaskIds = useTaskStore((s) => s.unseenRespondedTaskIds);
+  const unseenInputTaskIds = useTaskStore((s) => s.unseenInputTaskIds);
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
 
@@ -48,7 +49,18 @@ export function useProjectAgentStatus(
       }
     }
 
-    const pulse = bestTaskId ? !seenTaskIds.has(bestTaskId) : true;
+    // Pulse predicate (ADR-136 §"Change 3"): main owns unseen state.
+    const pulse = bestTaskId
+      ? (best === "responded" && unseenRespondedTaskIds.has(bestTaskId)) ||
+        (best === "requires_input" && unseenInputTaskIds.has(bestTaskId))
+      : true;
     return { status: best, pulse };
-  }, [project.workspaces, workspaceLayouts, paneAgentStatus, tasks, seenTaskIds]);
+  }, [
+    project.workspaces,
+    workspaceLayouts,
+    paneAgentStatus,
+    tasks,
+    unseenRespondedTaskIds,
+    unseenInputTaskIds,
+  ]);
 }

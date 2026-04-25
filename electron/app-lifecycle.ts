@@ -41,6 +41,7 @@ import {
   unseenInputTasks,
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
+  sendTaskUpdate,
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
@@ -59,6 +60,7 @@ export function handleStreamEvent(
   event: StreamEvent,
   window: BrowserWindow,
   taskManager: TaskManager,
+  preferencesManager: PreferencesManager,
   notifyAgentDetectorGone?: (sessionId: string) => void,
 ): void {
   try {
@@ -80,11 +82,7 @@ export function handleStreamEvent(
           if (task && task.status === "active" && task.cwd !== event.cwd) {
             const updated = taskManager.updateTask(task.id, { cwd: event.cwd });
             if (updated) {
-              try {
-                window.webContents.send("task-updated", updated);
-              } catch {
-                // Render frame disposed — safe to ignore
-              }
+              sendTaskUpdate(window, updated, preferencesManager);
             }
           }
         }
@@ -106,17 +104,8 @@ export function handleStreamEvent(
           const task = taskManager.getTaskByPaneId(event.sessionId);
           if (task && task.name !== cleaned) {
             const updated = taskManager.updateTask(task.id, { name: cleaned });
-            if (
-              updated &&
-              window &&
-              !window.isDestroyed() &&
-              !window.webContents.isDestroyed()
-            ) {
-              try {
-                window.webContents.send("task-updated", updated);
-              } catch {
-                // Render frame disposed — safe to ignore
-              }
+            if (updated) {
+              sendTaskUpdate(window, updated, preferencesManager);
             }
           }
         }
@@ -202,7 +191,13 @@ export function initApp(devTitle: string | null): void {
     } catch {
       return;
     }
-    handleStreamEvent(event, mainWindow, taskManager, notifyAgentDetectorGone);
+    handleStreamEvent(
+      event,
+      mainWindow,
+      taskManager,
+      preferencesManager,
+      notifyAgentDetectorGone,
+    );
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
@@ -354,18 +349,7 @@ export function initApp(devTitle: string | null): void {
     // Hook events route through the daemon's AgentDetector state machine.
 
     function broadcastTask(task: TaskInfo): void {
-      if (
-        mainWindow &&
-        !mainWindow.isDestroyed() &&
-        !mainWindow.webContents.isDestroyed()
-      ) {
-        try {
-          mainWindow.webContents.send("task-updated", task);
-        } catch {
-          // Render frame disposed — safe to ignore
-        }
-      }
-      updateDockBadge();
+      sendTaskUpdate(mainWindow, task, preferencesManager);
     }
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)

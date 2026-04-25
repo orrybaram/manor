@@ -1,6 +1,6 @@
 ---
 title: Paginate task loads + add retention pruning
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

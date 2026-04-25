@@ -10,7 +10,8 @@ export function useWorkspaceAgentStatus(
   workspacePath: string,
 ): { status: AgentStatus | null; pulse: boolean } {
   const tasks = useTaskStore((s) => s.tasks);
-  const seenTaskIds = useTaskStore((s) => s.seenTaskIds);
+  const unseenRespondedTaskIds = useTaskStore((s) => s.unseenRespondedTaskIds);
+  const unseenInputTaskIds = useTaskStore((s) => s.unseenInputTaskIds);
   const layout = useAppStore((s) => s.workspaceLayouts[workspacePath] ?? null);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
 
@@ -44,7 +45,11 @@ export function useWorkspaceAgentStatus(
       }
     }
 
-    const pulse = bestTaskId ? !seenTaskIds.has(bestTaskId) : true;
+    // Pulse predicate (ADR-136 §"Change 3"): main owns unseen state.
+    const pulse = bestTaskId
+      ? (best === "responded" && unseenRespondedTaskIds.has(bestTaskId)) ||
+        (best === "requires_input" && unseenInputTaskIds.has(bestTaskId))
+      : true;
     return { status: best, pulse };
-  }, [layout, paneAgentStatus, tasks, seenTaskIds]);
+  }, [layout, paneAgentStatus, tasks, unseenRespondedTaskIds, unseenInputTaskIds]);
 }

@@ -10,6 +10,7 @@ const tasksApi = {
   getAll: vi.fn(),
   getActive: vi.fn(),
   getRecent: vi.fn(),
+  getUnseen: vi.fn().mockResolvedValue({ responded: [], requires_input: [] }),
   consumePruneNotice: vi.fn(),
   get: vi.fn(),
   update: vi.fn(),

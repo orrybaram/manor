@@ -17,7 +17,8 @@ export const STATUS_PRIORITY: Record<AgentStatus, number> = {
 
 export function useTabAgentStatus(tabId: string): { status: AgentStatus | null; pulse: boolean } {
   const tasks = useTaskStore((s) => s.tasks);
-  const seenTaskIds = useTaskStore((s) => s.seenTaskIds);
+  const unseenRespondedTaskIds = useTaskStore((s) => s.unseenRespondedTaskIds);
+  const unseenInputTaskIds = useTaskStore((s) => s.unseenInputTaskIds);
   const tab = useAppStore((s) => {
     const ws = selectActiveWorkspace(s);
     return ws?.tabs.find((t) => t.id === tabId) ?? null;
@@ -51,7 +52,13 @@ export function useTabAgentStatus(tabId: string): { status: AgentStatus | null; 
       }
     }
 
-    const pulse = bestTaskId ? !seenTaskIds.has(bestTaskId) : true;
+    // Pulse predicate (ADR-136 §"Change 3"): main owns unseen state. Pulse
+    // iff the winning status matches an axis that's still unseen for that
+    // task.
+    const pulse = bestTaskId
+      ? (best === "responded" && unseenRespondedTaskIds.has(bestTaskId)) ||
+        (best === "requires_input" && unseenInputTaskIds.has(bestTaskId))
+      : true;
     return { status: best, pulse };
-  }, [tab, paneAgentStatus, tasks, seenTaskIds]);
+  }, [tab, paneAgentStatus, tasks, unseenRespondedTaskIds, unseenInputTaskIds]);
 }

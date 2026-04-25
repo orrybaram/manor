@@ -16,7 +16,15 @@ interface TaskState {
   hasMore: boolean;
   /** True while `loadMoreTasks` is in flight, to coalesce repeated scroll events. */
   loadingMore: boolean;
-  seenTaskIds: Set<string>;
+  /**
+   * Cache of main's unseen-responded Set (ADR-136 §"Change 3"). Populated by
+   * the initial `tasks:getUnseen` snapshot and reconciled on every
+   * `task-updated` broadcast. Renderer never resets entries on its own —
+   * status-change resets are owned by main and arrive via the broadcast.
+   */
+  unseenRespondedTaskIds: Set<string>;
+  /** Cache of main's unseen-requires-input Set. See `unseenRespondedTaskIds`. */
+  unseenInputTaskIds: Set<string>;
   loadTasks: (opts?: {
     projectId?: string;
     status?: string;
@@ -25,14 +33,20 @@ interface TaskState {
   }) => Promise<void>;
   loadMoreTasks: (offset: number) => Promise<void>;
   removeTask: (taskId: string) => Promise<void>;
-  receiveTaskUpdate: (task: TaskInfo) => void;
+  receiveTaskUpdate: (
+    task: TaskInfo,
+    unseen?: { responded: boolean; requires_input: boolean },
+  ) => void;
   markTaskSeen: (taskId: string) => void;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => {
-  // Subscribe to live task updates on store creation
-  window.electronAPI?.tasks.onUpdate((task) => {
-    get().receiveTaskUpdate(task);
+  // Subscribe to live task updates on store creation. The second argument
+  // carries main's unseen flags for the broadcast task — see ADR-136
+  // §"Change 3". Older preloads omit it; we pass through `undefined` and
+  // let `receiveTaskUpdate` skip cache reconciliation in that case.
+  window.electronAPI?.tasks.onUpdate((task, unseen) => {
+    get().receiveTaskUpdate(task, unseen);
   });
 
   // Navigate to task when a desktop notification is clicked
@@ -48,20 +62,27 @@ export const useTaskStore = create<TaskState>((set, get) => {
   });
 
   // Paginated initial load: active tasks (full set, used by sidebar) +
-  // the first page of all tasks (used by the history modal). The two are
-  // merged + deduped so the store stays a single source of truth.
+  // the first page of all tasks (used by the history modal) + main's
+  // unseen-flag snapshot (ADR-136 §"Change 3"). The three are merged so
+  // the store stays a single source of truth.
   const init = async (): Promise<void> => {
     if (!window.electronAPI?.tasks) return;
     try {
-      const [active, recentPage] = await Promise.all([
+      const [active, recentPage, unseen] = await Promise.all([
         window.electronAPI.tasks.getActive(),
         window.electronAPI.tasks.getAll({ limit: TASK_PAGE_SIZE, offset: 0 }),
+        // Older preloads may not expose `getUnseen` — fall back to empty.
+        window.electronAPI.tasks.getUnseen
+          ? window.electronAPI.tasks
+              .getUnseen()
+              .catch(() => ({ responded: [] as string[], requires_input: [] as string[] }))
+          : Promise.resolve({ responded: [] as string[], requires_input: [] as string[] }),
       ]);
-      const seen = new Set<string>();
+      const dedupe = new Set<string>();
       const merged: TaskInfo[] = [];
       for (const t of [...active, ...recentPage]) {
-        if (seen.has(t.id)) continue;
-        seen.add(t.id);
+        if (dedupe.has(t.id)) continue;
+        dedupe.add(t.id);
         merged.push(t);
       }
       merged.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -70,6 +91,8 @@ export const useTaskStore = create<TaskState>((set, get) => {
         loading: false,
         loaded: true,
         hasMore: recentPage.length === TASK_PAGE_SIZE,
+        unseenRespondedTaskIds: new Set(unseen.responded),
+        unseenInputTaskIds: new Set(unseen.requires_input),
       });
 
       // One-time prune notice. Surfaces only when the most recent boot
@@ -100,7 +123,8 @@ export const useTaskStore = create<TaskState>((set, get) => {
     loaded: false,
     hasMore: false,
     loadingMore: false,
-    seenTaskIds: new Set<string>(),
+    unseenRespondedTaskIds: new Set<string>(),
+    unseenInputTaskIds: new Set<string>(),
 
     loadTasks: async (opts) => {
       set({ loading: true });
@@ -164,28 +188,62 @@ export const useTaskStore = create<TaskState>((set, get) => {
     },
 
     markTaskSeen: (taskId: string) => {
+      // Optimistically clear from the local cache. Main re-broadcasts on
+      // `tasks:markSeen`, which will reconcile this same state shortly —
+      // but clearing optimistically keeps the pulse from lingering visibly
+      // for the duration of the IPC round-trip.
       const s = get();
-      if (!s.seenTaskIds.has(taskId)) {
-        const next = new Set(s.seenTaskIds);
-        next.add(taskId);
-        set({ seenTaskIds: next });
+      const hadResponded = s.unseenRespondedTaskIds.has(taskId);
+      const hadInput = s.unseenInputTaskIds.has(taskId);
+      if (hadResponded || hadInput) {
+        const nextResponded = hadResponded
+          ? new Set(s.unseenRespondedTaskIds)
+          : s.unseenRespondedTaskIds;
+        const nextInput = hadInput
+          ? new Set(s.unseenInputTaskIds)
+          : s.unseenInputTaskIds;
+        if (hadResponded) nextResponded.delete(taskId);
+        if (hadInput) nextInput.delete(taskId);
+        set({
+          unseenRespondedTaskIds: nextResponded,
+          unseenInputTaskIds: nextInput,
+        });
       }
+      window.electronAPI?.tasks.markSeen(taskId);
     },
 
-    receiveTaskUpdate: (task: TaskInfo) => {
+    receiveTaskUpdate: (
+      task: TaskInfo,
+      unseen?: { responded: boolean; requires_input: boolean },
+    ) => {
       const s = get();
       const idx = s.tasks.findIndex((t) => t.id === task.id);
       const prevStatus = idx >= 0 ? s.tasks[idx].lastAgentStatus : null;
       const nextStatus = task.lastAgentStatus;
 
-      if (prevStatus !== nextStatus) {
-        // Clear seen flag when status changes so a new response pulses again
-        if (s.seenTaskIds.has(task.id)) {
-          const next = new Set(s.seenTaskIds);
-          next.delete(task.id);
-          set({ seenTaskIds: next });
+      // Reconcile the unseen-flag cache to match main's snapshot for this
+      // task. Older preloads may not include the `unseen` argument; in that
+      // case we leave the cache alone.
+      if (unseen) {
+        const hadResponded = s.unseenRespondedTaskIds.has(task.id);
+        const hadInput = s.unseenInputTaskIds.has(task.id);
+        const wantsResponded = unseen.responded;
+        const wantsInput = unseen.requires_input;
+        if (hadResponded !== wantsResponded || hadInput !== wantsInput) {
+          const nextResponded = new Set(s.unseenRespondedTaskIds);
+          const nextInput = new Set(s.unseenInputTaskIds);
+          if (wantsResponded) nextResponded.add(task.id);
+          else nextResponded.delete(task.id);
+          if (wantsInput) nextInput.add(task.id);
+          else nextInput.delete(task.id);
+          set({
+            unseenRespondedTaskIds: nextResponded,
+            unseenInputTaskIds: nextInput,
+          });
         }
+      }
 
+      if (prevStatus !== nextStatus) {
         // Don't show toasts if the task's pane is visible in the active tab
         const appState = useAppStore.getState();
         let isAlreadyVisible = false;
@@ -211,7 +269,9 @@ export const useTaskStore = create<TaskState>((set, get) => {
           isAlreadyVisible &&
           (nextStatus === "responded" || nextStatus === "requires_input")
         ) {
-          window.electronAPI?.tasks.markSeen(task.id);
+          // Main will re-broadcast on markSeen with cleared flags; the cache
+          // converges on that. We also call markTaskSeen() to clear locally
+          // for instant feedback.
           get().markTaskSeen(task.id);
         }
 

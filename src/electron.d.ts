@@ -498,6 +498,12 @@ export interface ElectronAPI {
     getActive: () => Promise<TaskInfo[]>;
     getRecent: (opts?: { limit?: number }) => Promise<TaskInfo[]>;
     /**
+     * Returns main's full unseen-flag snapshot. Used by the renderer on boot
+     * to prime its `unseenRespondedTaskIds` / `unseenInputTaskIds` Sets so
+     * pulse-state matches main exactly. See ADR-136 §"Change 3".
+     */
+    getUnseen: () => Promise<{ responded: string[]; requires_input: string[] }>;
+    /**
      * Returns the number of tasks pruned during the most recent boot, exactly
      * once. Renderer should show a one-time notice if count > 0.
      */
@@ -521,7 +527,17 @@ export interface ElectronAPI {
     markResumed: (taskId: string) => Promise<TaskInfo | null>;
     reconcileStale: () => Promise<void>;
     abandonForPane: (paneId: string, title?: string | null) => Promise<void>;
-    onUpdate: (callback: (task: TaskInfo) => void) => () => void;
+    /**
+     * Subscribe to live task updates. The second argument carries main's
+     * authoritative unseen flags for the broadcast task at the moment it
+     * was sent. The renderer treats these flags as the source of truth.
+     */
+    onUpdate: (
+      callback: (
+        task: TaskInfo,
+        unseen: { responded: boolean; requires_input: boolean },
+      ) => void,
+    ) => () => void;
   };
 
   preferences: {

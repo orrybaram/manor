@@ -272,6 +272,14 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       sessionState.pendingStopAt = null;
       applyStopForSession(sessionId);
     } else if (eventType === "SessionEnd") {
+      if (sessionState.pendingStopAt !== null) {
+        sessionState.activeSubagents.clear();
+        sessionState.pendingStopAt = null;
+        applyStopForSession(sessionId);
+        // applyStopForSession mutated the task; re-fetch so the completed transition
+        // sees the updated lastAgentStatus.
+        task = taskManager.getTaskBySessionId(sessionId);
+      }
       if (task) {
         task = taskManager.updateTask(task.id, {
           lastAgentStatus: "complete",

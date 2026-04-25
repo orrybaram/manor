@@ -92,7 +92,9 @@ function buildRelay() {
     ...ctx,
     taskManager,
     unseenRespondedTasks,
+    unseenInputTasks,
     broadcastTask,
+    maybeSendNotification,
     relayAgentHook,
   };
 }
@@ -687,6 +689,76 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
 
     const task = ctx.taskManager.getTaskBySessionId("sess-b4");
     expect(task?.lastAgentStatus).toBe("responded");
+  });
+});
+
+describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    ctx = buildRelay();
+  });
+
+  it("t3-1: pending Stop + SessionEnd fires 'responded' notification then task reaches 'completed'", () => {
+    const { relay, taskManager, maybeSendNotification, unseenRespondedTasks } = ctx;
+
+    // Drive session to working, start a subagent so Stop gets blocked
+    fire(relay, "pane-t3a", "thinking", "claude", "sess-t3a", "UserPromptSubmit", null);
+    fire(relay, "pane-t3a", "working", "claude", "sess-t3a", "SubagentStart", "tool-t3a");
+
+    // Stop arrives while subagent is active → pendingStopAt is set
+    fire(relay, "pane-t3a", "responded", "claude", "sess-t3a", "Stop", null);
+
+    const state = ctx.sessionStateMap.get("sess-t3a")!;
+    expect(state.pendingStopAt).not.toBeNull();
+
+    // SessionEnd arrives before sweep drains the pending Stop
+    fire(relay, "pane-t3a", "complete", "claude", "sess-t3a", "SessionEnd", null);
+
+    // maybeSendNotification must have been called with "responded"
+    const respondedCall = maybeSendNotification.mock.calls.find(
+      (args: [TaskInfo, string | null, string]) => args[2] === "responded",
+    );
+    expect(respondedCall).toBeDefined();
+
+    // unseenRespondedTasks was added by applyStopForSession then deleted by SessionEnd cleanup
+    expect(unseenRespondedTasks.has(respondedCall![0].id)).toBe(false);
+
+    // Final task state
+    const task = taskManager.getTaskBySessionId("sess-t3a");
+    expect(task?.status).toBe("completed");
+    expect(task?.lastAgentStatus).toBe("complete");
+
+    // sessionState is removed
+    expect(ctx.sessionStateMap.has("sess-t3a")).toBe(false);
+    expect(ctx.paneRootSessionMap.has("pane-t3a")).toBe(false);
+  });
+
+  it("t3-2 (negative): SessionEnd without pending Stop behaves identically to current behavior", () => {
+    const { relay, taskManager, maybeSendNotification, sessionStateMap, paneRootSessionMap } = ctx;
+
+    // Activate session normally (no subagent, so Stop applies immediately)
+    fire(relay, "pane-t3c", "thinking", "claude", "sess-t3c", "UserPromptSubmit", null);
+    fire(relay, "pane-t3c", "responded", "claude", "sess-t3c", "Stop", null);
+
+    const taskAfterStop = taskManager.getTaskBySessionId("sess-t3c");
+    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+
+    const notifyCallsBefore = maybeSendNotification.mock.calls.length;
+
+    // SessionEnd arrives — no pending Stop
+    fire(relay, "pane-t3c", "complete", "claude", "sess-t3c", "SessionEnd", null);
+
+    // maybeSendNotification NOT called again (no extra "responded" fired)
+    expect(maybeSendNotification.mock.calls.length).toBe(notifyCallsBefore);
+
+    const finalTask = taskManager.getTaskBySessionId("sess-t3c");
+    expect(finalTask?.status).toBe("completed");
+    expect(finalTask?.lastAgentStatus).toBe("complete");
+
+    // Session state cleaned up
+    expect(sessionStateMap.has("sess-t3c")).toBe(false);
+    expect(paneRootSessionMap.has("pane-t3c")).toBe(false);
   });
 });
 

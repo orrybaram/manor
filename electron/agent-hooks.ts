@@ -16,7 +16,7 @@ import * as path from "node:path";
 // Map hook event names to our status
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
 import { getAllConnectors } from "./agent-connectors";
-import { hookScriptPath, hookPortFile } from "./paths";
+import { hookScriptPath, hookScriptJsPath, hookPortFile } from "./paths";
 
 type PaneStatus = AgentStatus;
 
@@ -155,64 +155,58 @@ export class AgentHookServer {
 // ── Hook Script & Registration ──
 
 export const HOOK_SCRIPT_PATH = hookScriptPath();
+export const HOOK_SCRIPT_JS_PATH = hookScriptJsPath();
 
 const HOOK_PORT_FILE = hookPortFile();
 
+/**
+ * Resolve the path to the bundled agent-hook.js source. In packaged
+ * builds the asar archive isn't readable by plain Node when invoked
+ * via `node /path/to/agent-hook.js`, so we point at the unpacked copy
+ * extracted by electron-builder's asarUnpack. Mirrors the MCP-server
+ * pattern below in registerAllAgents().
+ */
+function bundledAgentHookJsPath(): string {
+  return path
+    .join(__dirname, "agent-hook.js")
+    .replace("app.asar", "app.asar.unpacked");
+}
+
+/**
+ * Bash wrapper that exec's the Node script with stdin and any args
+ * forwarded. Two reasons we keep a wrapper rather than registering
+ * `node /path/...` directly with the agent CLIs:
+ *   1. Backward compat: existing user configs already point at .sh.
+ *   2. Lets us evolve the JS path/argv without rewriting agent configs.
+ */
 const HOOK_SCRIPT = `#!/bin/bash
-# Manor agent hook — notifies the app of agent lifecycle events.
-# Called by Claude Code (and other agent CLIs) via their hook system.
-
-# Read event JSON from stdin or first argument
-if [ -n "$1" ]; then
-  INPUT="$1"
-else
-  INPUT=$(cat)
-fi
-
-# Resolve hook port: prefer file (always fresh), fall back to env var
-# Keep in sync with hookPortFile() in paths.ts — this string is embedded in a shell script.
-PORT=$(cat "$HOME/.manor/hook-port" 2>/dev/null)
-PORT=\${PORT:-$MANOR_HOOK_PORT}
-
-# Extract event type
-EVENT_TYPE=$(echo "$INPUT" | grep -oE '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-[ -z "$EVENT_TYPE" ] && exit 0
-[ -z "$MANOR_PANE_ID" ] && exit 0
-[ -z "$PORT" ] && exit 0
-
-# Extract session id
-SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-
-# Extract tool_use_id (present on subagent events, absent on others)
-TOOL_USE_ID=$(echo "$INPUT" | grep -oE '"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -oE '"[^"]*"$' | tr -d '"')
-
-# Agent kind — set by Manor when spawning the PTY, defaults to "claude"
-KIND=\${MANOR_AGENT_KIND:-claude}
-
-# Notify the app
-CURL_ARGS=(
-  -sG "http://127.0.0.1:\${PORT}/hook/event"
-  --connect-timeout 1 --max-time 2
-  --data-urlencode "paneId=$MANOR_PANE_ID"
-  --data-urlencode "eventType=$EVENT_TYPE"
-  --data-urlencode "kind=$KIND"
-)
-if [ -n "$SESSION_ID" ]; then
-  CURL_ARGS+=(--data-urlencode "sessionId=$SESSION_ID")
-fi
-if [ -n "$TOOL_USE_ID" ]; then
-  CURL_ARGS+=(--data-urlencode "toolUseId=$TOOL_USE_ID")
-fi
-curl "\${CURL_ARGS[@]}" > /dev/null 2>&1
-
-exit 0
+# Manor agent hook — thin shim that delegates to the Node implementation.
+# The real logic lives in notify.js next to this file.
+exec node "$(dirname "$0")/notify.js" "$@"
 `;
 
-/** Ensure the hook script exists on disk */
+/**
+ * Ensure both hook scripts exist on disk: the bash wrapper agents
+ * register against, and the Node script that does the real work.
+ */
 export function ensureHookScript(): void {
   const dir = path.dirname(HOOK_SCRIPT_PATH);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(HOOK_SCRIPT_PATH, HOOK_SCRIPT, { mode: 0o755 });
+
+  // Copy the bundled JS implementation alongside the wrapper. In
+  // unit tests this module runs directly from source (vitest loads
+  // agent-hooks.ts) and the bundled file doesn't exist; fall back to
+  // the source under electron/scripts/.
+  const jsSrc = bundledAgentHookJsPath();
+  let jsContent: string;
+  try {
+    jsContent = fs.readFileSync(jsSrc, "utf-8");
+  } catch {
+    const devSrc = path.join(__dirname, "scripts", "agent-hook.js");
+    jsContent = fs.readFileSync(devSrc, "utf-8");
+  }
+  fs.writeFileSync(HOOK_SCRIPT_JS_PATH, jsContent, { mode: 0o755 });
 }
 
 /** Register hooks and MCP for all known agent connectors */

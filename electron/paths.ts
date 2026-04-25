@@ -101,6 +101,10 @@ export function hookScriptPath(): string {
   return path.join(hooksDir(), "notify.sh");
 }
 
+export function hookScriptJsPath(): string {
+  return path.join(hooksDir(), "notify.js");
+}
+
 export function webviewServerPortFile(): string {
   return path.join(manorHomeDir(), "webview-server-port");
 }

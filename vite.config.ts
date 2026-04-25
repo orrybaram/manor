@@ -91,6 +91,24 @@ export default defineConfig({
           },
         },
       },
+      {
+        // Agent hook — standalone Node script invoked by agent CLIs (Claude
+        // Code etc.) via the bash wrapper at ~/.manor/hooks/notify.sh.
+        // Bundled to dist-electron so it can be copied to the user's
+        // ~/.manor/hooks/notify.js on startup.
+        entry: "electron/scripts/agent-hook.js",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              output: {
+                format: "cjs",
+                entryFileNames: "agent-hook.js",
+              },
+            },
+          },
+        },
+      },
     ]),
     renderer(),
   ],

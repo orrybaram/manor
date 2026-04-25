@@ -560,24 +560,35 @@ describe("ensureHookScript", () => {
     expect(stat.mode & 0o755).toBe(0o755);
   });
 
-  it("script contains curl command to MANOR_HOOK_PORT", async () => {
+  it("bash wrapper exec's the node implementation alongside it", async () => {
     const { ensureHookScript } = await freshImport();
     ensureHookScript();
 
     const scriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
     const content = fs.readFileSync(scriptPath, "utf-8");
-    expect(content).toContain("curl");
-    expect(content).toContain("MANOR_HOOK_PORT");
     expect(content).toContain("#!/bin/bash");
+    expect(content).toContain("exec node");
+    expect(content).toContain("notify.js");
   });
 
-  it("script passes MANOR_AGENT_KIND to hook server", async () => {
+  it("writes notify.js alongside notify.sh with executable permission", async () => {
     const { ensureHookScript } = await freshImport();
     ensureHookScript();
 
-    const scriptPath = path.join(tmpDir, ".manor", "hooks", "notify.sh");
-    const content = fs.readFileSync(scriptPath, "utf-8");
+    const jsPath = path.join(tmpDir, ".manor", "hooks", "notify.js");
+    expect(fs.existsSync(jsPath)).toBe(true);
+    const stat = fs.statSync(jsPath);
+    expect(stat.mode & 0o755).toBe(0o755);
+  });
+
+  it("notify.js sources the agent hook implementation (uses MANOR_HOOK_PORT and MANOR_AGENT_KIND)", async () => {
+    const { ensureHookScript } = await freshImport();
+    ensureHookScript();
+
+    const jsPath = path.join(tmpDir, ".manor", "hooks", "notify.js");
+    const content = fs.readFileSync(jsPath, "utf-8");
+    expect(content).toContain("MANOR_HOOK_PORT");
     expect(content).toContain("MANOR_AGENT_KIND");
-    expect(content).toContain("kind=");
+    expect(content).toContain("hook_event_name");
   });
 });

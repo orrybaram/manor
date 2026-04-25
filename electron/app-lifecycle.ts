@@ -54,6 +54,88 @@ import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 
+// Extract stream event handler for testability
+export function handleStreamEvent(
+  event: StreamEvent,
+  window: BrowserWindow,
+  taskManager: TaskManager,
+  notifyAgentDetectorGone?: (sessionId: string) => void,
+): void {
+  try {
+    switch (event.type) {
+      case "data":
+        window.webContents.send(
+          `pty-output-${event.sessionId}`,
+          event.data,
+        );
+        break;
+      case "exit":
+        window.webContents.send(`pty-exit-${event.sessionId}`);
+        break;
+      case "cwd":
+        window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
+        // Update task's cwd if active and differs from current
+        {
+          const task = taskManager.getTaskByPaneId(event.sessionId);
+          if (task && task.status === "active" && task.cwd !== event.cwd) {
+            const updated = taskManager.updateTask(task.id, { cwd: event.cwd });
+            if (updated) {
+              try {
+                window.webContents.send("task-updated", updated);
+              } catch {
+                // Render frame disposed — safe to ignore
+              }
+            }
+          }
+        }
+        break;
+      case "error":
+        window.webContents.send(
+          `pty-error-${event.sessionId}`,
+          event.message,
+        );
+        break;
+      case "agentStatus": {
+        window.webContents.send(
+          `pty-agent-status-${event.sessionId}`,
+          event.agent,
+        );
+        // Update persisted task name from agent title
+        const cleaned = cleanAgentTitle(event.agent.title);
+        if (cleaned) {
+          const task = taskManager.getTaskByPaneId(event.sessionId);
+          if (task && task.name !== cleaned) {
+            const updated = taskManager.updateTask(task.id, { name: cleaned });
+            if (
+              updated &&
+              window &&
+              !window.isDestroyed() &&
+              !window.webContents.isDestroyed()
+            ) {
+              try {
+                window.webContents.send("task-updated", updated);
+              } catch {
+                // Render frame disposed — safe to ignore
+              }
+            }
+          }
+        }
+        if (event.agent.status === "idle" && event.agent.kind === null) {
+          if (notifyAgentDetectorGone) {
+            notifyAgentDetectorGone(event.sessionId);
+          }
+        }
+        break;
+      }
+    }
+  } catch (err) {
+    // Render frame disposed during window reload or close — safe to ignore
+    if (!(err instanceof Error) || !err.message.includes("disposed")) {
+      console.error("Error in stream event handler:", err);
+    }
+  }
+}
+
 export function initApp(devTitle: string | null): void {
   let mainWindow: BrowserWindow | null = null;
 
@@ -97,6 +179,9 @@ export function initApp(devTitle: string | null): void {
   ensureWebviewCli();
   registerAllAgents();
 
+  // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
+  let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;
+
   // Set up stream event handler — forward events to renderer
   backend.pty.onEvent((event: StreamEvent) => {
     if (
@@ -112,63 +197,7 @@ export function initApp(devTitle: string | null): void {
     } catch {
       return;
     }
-    try {
-      switch (event.type) {
-        case "data":
-          mainWindow.webContents.send(
-            `pty-output-${event.sessionId}`,
-            event.data,
-          );
-          break;
-        case "exit":
-          mainWindow.webContents.send(`pty-exit-${event.sessionId}`);
-          break;
-        case "cwd":
-          mainWindow.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
-          break;
-        case "error":
-          mainWindow.webContents.send(
-            `pty-error-${event.sessionId}`,
-            event.message,
-          );
-          break;
-        case "agentStatus": {
-          mainWindow.webContents.send(
-            `pty-agent-status-${event.sessionId}`,
-            event.agent,
-          );
-          // Update persisted task name from agent title
-          const cleaned = cleanAgentTitle(event.agent.title);
-          if (cleaned) {
-            const task = taskManager.getTaskByPaneId(event.sessionId);
-            if (task && task.name !== cleaned) {
-              const updated = taskManager.updateTask(task.id, { name: cleaned });
-              if (
-                updated &&
-                mainWindow &&
-                !mainWindow.isDestroyed() &&
-                !mainWindow.webContents.isDestroyed()
-              ) {
-                try {
-                  mainWindow.webContents.send("task-updated", updated);
-                } catch {
-                  // Render frame disposed — safe to ignore
-                }
-              }
-            }
-          }
-          if (event.agent.status === "idle" && event.agent.kind === null) {
-            notifyAgentDetectorGone(event.sessionId);
-          }
-          break;
-        }
-      }
-    } catch (err) {
-      // Render frame disposed during window reload or close — safe to ignore
-      if (!(err instanceof Error) || !err.message.includes("disposed")) {
-        console.error("Error in stream event handler:", err);
-      }
-    }
+    handleStreamEvent(event, mainWindow, taskManager, notifyAgentDetectorGone);
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
@@ -342,7 +371,7 @@ export function initApp(devTitle: string | null): void {
     const {
       relay,
       sweepStaleSessions,
-      notifyAgentDetectorGone,
+      notifyAgentDetectorGone: notifyAgentDetectorGoneFn,
     } = createHookRelay({
       relayAgentHook: (paneId, status, kind) =>
         backend.pty.relayAgentHook(paneId, status, kind),
@@ -353,6 +382,9 @@ export function initApp(devTitle: string | null): void {
       broadcastTask,
       maybeSendNotification,
     });
+
+    // Now that the hook relay is created, set the notifyAgentDetectorGone reference
+    notifyAgentDetectorGone = notifyAgentDetectorGoneFn;
 
     agentHookServer.setRelay(relay);
 

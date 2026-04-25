@@ -167,8 +167,9 @@ export class TerminalHostClient {
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
-    return this.doCreateOrAttach(sessionId, cwd, cols, rows, shellArgs, true);
+    return this.doCreateOrAttach(sessionId, cwd, cols, rows, shellArgs, true, env);
   }
 
   private async doCreateOrAttach(
@@ -178,6 +179,7 @@ export class TerminalHostClient {
     rows: number,
     shellArgs?: string[],
     canRetry = true,
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
     await this.ensureConnected();
 
@@ -209,6 +211,7 @@ export class TerminalHostClient {
         cols,
         rows,
         shellArgs,
+        ...(env ? { env } : {}),
       });
       if (createResp.type !== "created") {
         throw new Error(
@@ -230,6 +233,7 @@ export class TerminalHostClient {
           rows,
           shellArgs,
           false,
+          env,
         );
       }
       throw err;
@@ -243,6 +247,7 @@ export class TerminalHostClient {
     cols: number,
     rows: number,
     prewarmed = false,
+    env?: Record<string, string>,
   ): Promise<SessionInfo> {
     await this.ensureConnected();
     const resp = await this.request({
@@ -252,6 +257,7 @@ export class TerminalHostClient {
       cols,
       rows,
       prewarmed,
+      ...(env ? { env } : {}),
     });
     if (resp.type !== "created") {
       throw new Error(

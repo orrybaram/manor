@@ -106,17 +106,22 @@ export class Session {
   private oscBuf: number[] = [];
   private inOsc7 = false;
 
+  /** Optional extra env vars injected on top of the shell env at spawn time */
+  private envOverrides: Record<string, string>;
+
   constructor(
     sessionId: string,
     cwd: string,
     cols: number,
     rows: number,
     sessionsDir?: string,
+    envOverrides?: Record<string, string>,
   ) {
     this.sessionId = sessionId;
     this.cwd = cwd;
     this.cols = cols;
     this.rows = rows;
+    this.envOverrides = envOverrides ?? {};
 
     // Set up headless terminal for snapshots
     this.headless = new HeadlessTerminal({
@@ -226,6 +231,7 @@ export class Session {
             ZDOTDIR: zdotdir,
             REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
             MANOR_HISTFILE: histfile,
+            ...this.envOverrides,
           }),
         };
 

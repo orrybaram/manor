@@ -15,7 +15,7 @@ import * as path from "node:path";
 
 // Map hook event names to our status
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
-import { getAllConnectors } from "./agent-connectors";
+import { getAllConnectors, getAllAgentKinds } from "./agent-connectors";
 import { hookScriptPath, hookScriptJsPath, hookPortFile } from "./paths";
 
 type PaneStatus = AgentStatus;
@@ -111,8 +111,21 @@ export class AgentHookServer {
       const paneId = url.searchParams.get("paneId");
       const eventType = url.searchParams.get("eventType");
       const sessionId = url.searchParams.get("sessionId");
-      const kind = (url.searchParams.get("kind") ?? "claude") as AgentKind;
+      const rawKind = url.searchParams.get("kind");
       const toolUseId = url.searchParams.get("toolUseId");
+
+      // Validate kind against registered connectors — single source of truth.
+      // Unknown or missing kind returns 400; no silent coerce to "claude".
+      const KNOWN_KINDS = new Set<string>(getAllAgentKinds());
+      if (!rawKind || !KNOWN_KINDS.has(rawKind)) {
+        console.warn(
+          `[agent-hooks] dropping hook with unknown kind=${rawKind} paneId=${paneId} event=${eventType}`,
+        );
+        res.writeHead(400);
+        res.end();
+        return;
+      }
+      const kind = rawKind as AgentKind;
 
       if (!paneId || !eventType) {
         res.writeHead(400);

@@ -53,14 +53,20 @@ export function register(deps: IpcDeps): void {
       cwd: string | null,
       cols: number,
       rows: number,
+      agentKind?: string | null,
     ) => {
       const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
+      const env: Record<string, string> | undefined = agentKind
+        ? { MANOR_AGENT_KIND: agentKind }
+        : undefined;
       try {
         const result = await backend.pty.createOrAttach(
           paneId,
           resolvedCwd,
           cols,
           rows,
+          undefined,
+          env,
         );
         // Return snapshot to the renderer so it can write it exactly once,
         // avoiding duplicate writes from StrictMode double-mounting.
@@ -174,8 +180,8 @@ export function register(deps: IpcDeps): void {
     return deps.prewarmManager?.consume() ?? null;
   });
 
-  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null) => {
+  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null, agentKind?: string | null) => {
     assertString(cwd, "cwd");
-    await deps.prewarmManager?.updateCwd(cwd, agentCommand);
+    await deps.prewarmManager?.updateCwd(cwd, agentCommand, agentKind);
   });
 }

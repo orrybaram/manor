@@ -157,22 +157,40 @@ describe("AgentHookServer", () => {
   });
 
   describe("HTTP request handling", () => {
-    it("returns 200 for valid request", async () => {
+    it("returns 200 for valid request with known kind", async () => {
       const res = await httpGet(
         server.hookPort,
-        "/hook/event?paneId=abc&eventType=UserPromptSubmit",
+        "/hook/event?paneId=abc&eventType=UserPromptSubmit&kind=claude",
       );
       expect(res.status).toBe(200);
     });
 
     it("returns 400 when paneId is missing", async () => {
-      const res = await httpGet(server.hookPort, "/hook/event?eventType=Stop");
+      const res = await httpGet(server.hookPort, "/hook/event?eventType=Stop&kind=claude");
       expect(res.status).toBe(400);
     });
 
     it("returns 400 when eventType is missing", async () => {
-      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc");
+      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&kind=claude");
       expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when kind is missing (no default)", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop",
+      );
+      expect(res.status).toBe(400);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when kind is unknown (e.g. banana)", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop&kind=banana",
+      );
+      expect(res.status).toBe(400);
+      expect(relayFn).not.toHaveBeenCalled();
     });
 
     it("returns 404 for unknown path", async () => {
@@ -183,16 +201,24 @@ describe("AgentHookServer", () => {
     it("returns 200 for valid request with unknown eventType (accepted but relay not called)", async () => {
       const res = await httpGet(
         server.hookPort,
-        "/hook/event?paneId=abc&eventType=UnknownThing",
+        "/hook/event?paneId=abc&eventType=UnknownThing&kind=claude",
       );
       expect(res.status).toBe(200);
       expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 for kind=codex with valid event", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop&kind=codex",
+      );
+      expect(res.status).toBe(200);
     });
   });
 
   describe("relay callback invocation", () => {
     it("calls relay with correct paneId and status for a valid event", async () => {
-      await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
+      await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop&kind=claude");
 
       expect(relayFn).toHaveBeenCalledTimes(1);
       expect(relayFn).toHaveBeenCalledWith(
@@ -205,13 +231,30 @@ describe("AgentHookServer", () => {
       );
     });
 
-    it("defaults kind to claude when not specified", async () => {
-      await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
+    it("returns 400 and does not invoke relay when kind is missing", async () => {
+      const res = await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop");
+      expect(res.status).toBe(400);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
 
+    it("returns 400 and does not invoke relay when kind is unknown", async () => {
+      const res = await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop&kind=banana",
+      );
+      expect(res.status).toBe(400);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("invokes relay with kind=codex when kind=codex", async () => {
+      await httpGet(
+        server.hookPort,
+        "/hook/event?paneId=abc&eventType=Stop&kind=codex",
+      );
       expect(relayFn).toHaveBeenCalledWith(
         "abc",
         "responded",
-        "claude",
+        "codex",
         null,
         "Stop",
         null,
@@ -237,11 +280,11 @@ describe("AgentHookServer", () => {
     it("calls relay with correct paneId for each request", async () => {
       await httpGet(
         server.hookPort,
-        "/hook/event?paneId=pane-1&eventType=Stop",
+        "/hook/event?paneId=pane-1&eventType=Stop&kind=claude",
       );
       await httpGet(
         server.hookPort,
-        "/hook/event?paneId=pane-2&eventType=UserPromptSubmit",
+        "/hook/event?paneId=pane-2&eventType=UserPromptSubmit&kind=claude",
       );
 
       expect(relayFn).toHaveBeenCalledTimes(2);
@@ -268,7 +311,7 @@ describe("AgentHookServer", () => {
     it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {
       await httpGet(
         server.hookPort,
-        "/hook/event?paneId=pane-1&eventType=Stop",
+        "/hook/event?paneId=pane-1&eventType=Stop&kind=claude",
       );
 
       expect(relayFn).toHaveBeenCalledTimes(1);
@@ -281,7 +324,7 @@ describe("AgentHookServer", () => {
     it("does not call relay for unknown eventType", async () => {
       const res = await httpGet(
         server.hookPort,
-        "/hook/event?paneId=abc&eventType=SomeUnknown",
+        "/hook/event?paneId=abc&eventType=SomeUnknown&kind=claude",
       );
       expect(res.status).toBe(200);
       expect(relayFn).not.toHaveBeenCalled();
@@ -292,7 +335,7 @@ describe("AgentHookServer", () => {
     it("passes toolUseId to relay when present in query", async () => {
       await httpGet(
         server.hookPort,
-        "/hook/event?paneId=p1&eventType=SubagentStart&toolUseId=abc123",
+        "/hook/event?paneId=p1&eventType=SubagentStart&toolUseId=abc123&kind=claude",
       );
       expect(relayFn).toHaveBeenCalledWith(
         "p1",
@@ -307,7 +350,7 @@ describe("AgentHookServer", () => {
     it("passes null toolUseId when absent", async () => {
       await httpGet(
         server.hookPort,
-        "/hook/event?paneId=p1&eventType=Stop",
+        "/hook/event?paneId=p1&eventType=Stop&kind=claude",
       );
       expect(relayFn).toHaveBeenCalledWith(
         "p1",
@@ -337,9 +380,9 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
   it("queues events sent before setRelay is called", async () => {
     const relay = vi.fn();
 
-    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop");
-    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit");
-    await httpGet(server.hookPort, "/hook/event?paneId=p3&eventType=PreToolUse");
+    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop&kind=claude");
+    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit&kind=claude");
+    await httpGet(server.hookPort, "/hook/event?paneId=p3&eventType=PreToolUse&kind=claude");
 
     // relay not yet wired — nothing delivered
     expect(relay).not.toHaveBeenCalled();
@@ -357,8 +400,8 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     const relay = vi.fn();
     server.setRelay(relay);
 
-    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop");
-    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit");
+    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop&kind=claude");
+    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit&kind=claude");
 
     expect(relay).toHaveBeenCalledTimes(2);
     expect(relay).toHaveBeenNthCalledWith(1, "p1", "responded", "claude", null, "Stop", null);
@@ -369,7 +412,7 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     const relay = vi.fn();
 
     // Queue one event before relay is set
-    await httpGet(server.hookPort, "/hook/event?paneId=before&eventType=Stop");
+    await httpGet(server.hookPort, "/hook/event?paneId=before&eventType=Stop&kind=claude");
 
     server.setRelay(relay);
 
@@ -378,7 +421,7 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     expect(relay).toHaveBeenNthCalledWith(1, "before", "responded", "claude", null, "Stop", null);
 
     // Post-setRelay event goes straight through
-    await httpGet(server.hookPort, "/hook/event?paneId=after&eventType=PreToolUse");
+    await httpGet(server.hookPort, "/hook/event?paneId=after&eventType=PreToolUse&kind=claude");
     expect(relay).toHaveBeenCalledTimes(2);
     expect(relay).toHaveBeenNthCalledWith(2, "after", "working", "claude", null, "PreToolUse", null);
   });
@@ -390,14 +433,14 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     // care about the final count, not the arrival order within the fill batch.
     const fills: Promise<unknown>[] = [];
     for (let i = 0; i < max; i++) {
-      fills.push(httpGet(server.hookPort, `/hook/event?paneId=fill-${i}&eventType=Stop`));
+      fills.push(httpGet(server.hookPort, `/hook/event?paneId=fill-${i}&eventType=Stop&kind=claude`));
     }
     await Promise.all(fills);
 
     // Send overflow events sequentially AFTER the queue is known to be full.
     // These must be dropped because the queue is already at capacity.
-    await httpGet(server.hookPort, "/hook/event?paneId=overflow-1&eventType=Stop");
-    await httpGet(server.hookPort, "/hook/event?paneId=overflow-2&eventType=Stop");
+    await httpGet(server.hookPort, "/hook/event?paneId=overflow-1&eventType=Stop&kind=claude");
+    await httpGet(server.hookPort, "/hook/event?paneId=overflow-2&eventType=Stop&kind=claude");
 
     const relay = vi.fn();
     server.setRelay(relay);
@@ -442,7 +485,7 @@ describe("ClaudeConnector.registerHooks", () => {
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     expect(settings.hooks).toBeDefined();
-    expect(Object.keys(settings.hooks)).toHaveLength(11);
+    expect(Object.keys(settings.hooks)).toHaveLength(12);
   });
 
   it("creates hooks when file exists but has no hooks key", () => {
@@ -464,7 +507,7 @@ describe("ClaudeConnector.registerHooks", () => {
     freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    expect(Object.keys(settings.hooks)).toHaveLength(11);
+    expect(Object.keys(settings.hooks)).toHaveLength(12);
     // Stop should still have exactly 1 entry (not duplicated)
     expect(settings.hooks.Stop).toHaveLength(1);
   });
@@ -497,11 +540,12 @@ describe("ClaudeConnector.registerHooks", () => {
     expect(settings.hooks).toBeDefined();
   });
 
-  it("registers all 11 event types", () => {
+  it("registers all 12 event types", () => {
     freshConnector().registerHooks(hookScriptPath);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     const expectedEvents = [
+      "SessionStart",
       "UserPromptSubmit",
       "Stop",
       "PostToolUse",

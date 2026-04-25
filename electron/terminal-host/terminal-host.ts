@@ -31,12 +31,13 @@ export class TerminalHost {
     rows: number,
     shellArgs: string[] = [],
     prewarmed?: boolean,
+    envOverrides?: Record<string, string>,
   ): SessionInfo {
     if (this.sessions.has(sessionId)) {
       return this.sessions.get(sessionId)!.info;
     }
 
-    const session = new Session(sessionId, cwd, cols, rows, this.sessionsDir);
+    const session = new Session(sessionId, cwd, cols, rows, this.sessionsDir, envOverrides);
     session.prewarmed = prewarmed ?? false;
     this.sessions.set(sessionId, session);
     session.spawn(shellArgs);

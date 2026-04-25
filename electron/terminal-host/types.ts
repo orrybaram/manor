@@ -51,6 +51,7 @@ export type ControlRequest =
       rows: number;
       shellArgs?: string[];
       prewarmed?: boolean;
+      env?: Record<string, string>;
     }
   | { type: "attach"; sessionId: string }
   | { type: "detach"; sessionId: string }

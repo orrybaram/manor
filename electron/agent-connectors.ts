@@ -534,6 +534,12 @@ export function getAllConnectors(): AgentConnector[] {
   return Array.from(connectors.values());
 }
 
+/** Get all known agent kinds derived from registered connectors */
+export function getAllAgentKinds(): AgentKind[] {
+  ensureDefaults();
+  return Array.from(connectors.keys());
+}
+
 /**
  * Detect which connector matches a given agent command string.
  * Falls back to the default (Claude) connector if no match.

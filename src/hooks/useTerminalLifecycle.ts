@@ -17,6 +17,7 @@ import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { getAgentKindForCommand } from "../agent-defaults";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -212,7 +213,19 @@ export function useTerminalLifecycle(
       const fallback = setTimeout(send, 3000);
     };
 
-    create(cwd ?? null, cols, rows).then(
+    // Derive agentKind from the project's agent command so MANOR_AGENT_KIND
+    // is set in the PTY env for connector-aware spawns.
+    const agentKindForCreate: string | null = (() => {
+      if (!cwd) return null;
+      const projects = useProjectStore.getState().projects;
+      const project = projects.find((p) =>
+        p.workspaces.some((ws) => ws.path === cwd),
+      );
+      const command = project?.agentCommand ?? null;
+      return command ? getAgentKindForCommand(command) : "claude";
+    })();
+
+    create(cwd ?? null, cols, rows, agentKindForCreate).then(
       (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
         if (!disposed && !result.ok) {
           setPtyError(

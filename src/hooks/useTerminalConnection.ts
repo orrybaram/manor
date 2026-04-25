@@ -17,8 +17,8 @@ export function useTerminalConnection(paneId: string) {
   }, []);
 
   const create = useCallback(
-    (cwd: string | null, cols: number, rows: number) => {
-      return window.electronAPI.pty.create(paneIdRef.current, cwd, cols, rows);
+    (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {
+      return window.electronAPI.pty.create(paneIdRef.current, cwd, cols, rows, agentKind);
     },
     [],
   );

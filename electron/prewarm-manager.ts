@@ -10,6 +10,7 @@ export class PrewarmManager {
   private warmingPaneId: string | null = null;
   private currentCwd: string;
   private currentAgentCommand: string | null = null;
+  private currentKind: string | null = null;
   private commandInjected = false;
   private defaultCols = 80;
   private defaultRows = 24;
@@ -20,15 +21,20 @@ export class PrewarmManager {
   }
 
   /** Start warming a session in the background */
-  async warm(cwd?: string, agentCommand?: string | null): Promise<void> {
+  async warm(cwd?: string, agentCommand?: string | null, kind?: string | null): Promise<void> {
     if (cwd) this.currentCwd = cwd;
     if (agentCommand !== undefined) this.currentAgentCommand = agentCommand;
+    if (kind !== undefined) this.currentKind = kind;
     if (this.state === "warming") return;
 
     this.state = "warming";
     this.commandInjected = false;
     const paneId = `pane-${crypto.randomUUID()}`;
     this.warmingPaneId = paneId;
+
+    const spawnEnv: Record<string, string> | undefined = this.currentKind
+      ? { MANOR_AGENT_KIND: this.currentKind }
+      : undefined;
 
     try {
       await this.client.createNoSubscribe(
@@ -37,6 +43,7 @@ export class PrewarmManager {
         this.defaultCols,
         this.defaultRows,
         true,
+        spawnEnv,
       );
 
       // Check if we were disposed while awaiting (e.g. updateCwd race)
@@ -92,13 +99,14 @@ export class PrewarmManager {
     return { paneId, commandInjected };
   }
 
-  /** Update CWD and/or agent command (e.g. on workspace switch) — kill stale, warm fresh */
-  async updateCwd(cwd: string, agentCommand?: string | null): Promise<void> {
+  /** Update CWD, agent command, and/or kind (e.g. on workspace switch) — kill stale, warm fresh */
+  async updateCwd(cwd: string, agentCommand?: string | null, kind?: string | null): Promise<void> {
     const cwdChanged = cwd !== this.currentCwd;
     const cmdChanged = agentCommand !== undefined && agentCommand !== this.currentAgentCommand;
-    if (!cwdChanged && !cmdChanged && this.state === "ready") return;
+    const kindChanged = kind !== undefined && kind !== this.currentKind;
+    if (!cwdChanged && !cmdChanged && !kindChanged && this.state === "ready") return;
     await this.dispose();
-    await this.warm(cwd, agentCommand);
+    await this.warm(cwd, agentCommand, kind);
   }
 
   /** Kill the prewarmed session (ready or in-flight) */

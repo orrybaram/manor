@@ -93,6 +93,7 @@ async function handleControlMessage(
           request.rows,
           request.shellArgs,
           request.prewarmed,
+          request.env,
         );
         sendResponse(socket, { type: "created", session }, requestId);
       } catch (err) {

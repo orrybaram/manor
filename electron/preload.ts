@@ -12,8 +12,8 @@ function onChannel<T>(
 
 contextBridge.exposeInMainWorld("electronAPI", {
   pty: {
-    create: (paneId: string, cwd: string | null, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows),
+    create: (paneId: string, cwd: string | null, cols: number, rows: number, agentKind?: string | null) =>
+      ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
     write: (paneId: string, data: string) =>
       ipcRenderer.invoke("pty:write", paneId, data),
     resize: (paneId: string, cols: number, rows: number) =>
@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
-    updatePrewarmCwd: (cwd: string, agentCommand?: string | null) => ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand),
+    updatePrewarmCwd: (cwd: string, agentCommand?: string | null, agentKind?: string | null) => ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
     onOutput: (paneId: string, callback: (data: string) => void) =>
       onChannel(`pty-output-${paneId}`, callback),
     onExit: (paneId: string, callback: () => void) =>

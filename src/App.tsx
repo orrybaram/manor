@@ -32,7 +32,7 @@ import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
-import { DEFAULT_AGENT_COMMAND } from "./agent-defaults";
+import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
@@ -269,7 +269,8 @@ function App() {
   const prewarmAgentCommand = activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
     if (activeWorkspacePath) {
-      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand);
+      const prewarmKind = getAgentKindForCommand(prewarmAgentCommand);
+      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand, prewarmKind);
     }
   }, [activeWorkspacePath, prewarmAgentCommand]);
 

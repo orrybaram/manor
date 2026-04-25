@@ -70,6 +70,12 @@ const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
   "requires_input",
 ]);
 
+/** Statuses that indicate the task is "stuck active" and should be recovered by sweeps / replacement. */
+const STUCK_ACTIVE: ReadonlySet<string> = new Set(["thinking", "working", "requires_input"]);
+function isStuckActive(status: string | null | undefined): boolean {
+  return status != null && STUCK_ACTIVE.has(status);
+}
+
 // ── Factory ──
 
 export interface HookRelayContext {
@@ -150,8 +156,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
         if (
           oldTask &&
           oldState?.hasBeenActive &&
-          (oldTask.lastAgentStatus === "thinking" ||
-            oldTask.lastAgentStatus === "working")
+          isStuckActive(oldTask.lastAgentStatus)
         ) {
           console.debug(
             `[task-lifecycle] SessionStart replacement: forcing responded on old session ${oldRoot}`,
@@ -319,11 +324,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       // is still flagged active and the session has gone quiet.
       if (state.hasBeenActive && idle > STALE_ACTIVE_MS) {
         const task = taskManager.getTaskBySessionId(sessionId);
-        if (
-          task &&
-          (task.lastAgentStatus === "thinking" ||
-            task.lastAgentStatus === "working")
-        ) {
+        if (task && isStuckActive(task.lastAgentStatus)) {
           console.debug(
             `[task-lifecycle] stale-active sweep: forcing responded on ${sessionId} ` +
               `(lastAgentStatus=${task.lastAgentStatus}, idle=${idle}ms)`,
@@ -342,10 +343,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     for (const task of taskManager.getActiveTasks()) {
       if (!task.agentSessionId) continue;
       if (sessionStateMap.has(task.agentSessionId)) continue;
-      if (
-        task.lastAgentStatus !== "thinking" &&
-        task.lastAgentStatus !== "working"
-      ) continue;
+      if (!isStuckActive(task.lastAgentStatus)) continue;
 
       const activatedMs = task.activatedAt ? Date.parse(task.activatedAt) : 0;
       if (!activatedMs || nowMs - activatedMs < ORPHAN_TASK_MS) continue;
@@ -363,10 +361,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     if (!rootSession) return;
     const task = taskManager.getTaskBySessionId(rootSession);
     if (!task) return;
-    if (
-      task.lastAgentStatus !== "thinking" &&
-      task.lastAgentStatus !== "working"
-    ) {
+    if (!isStuckActive(task.lastAgentStatus)) {
       return;
     }
     console.debug(

@@ -689,3 +689,120 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     expect(task?.lastAgentStatus).toBe("responded");
   });
 });
+
+describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ctx = buildRelay();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Helper: seed a task with requires_input status directly into taskManager,
+   * bypassing the relay (to simulate a zombie with no session state).
+   */
+  function seedRequiresInputOrphan(taskManager: ReturnType<typeof makeFakeTaskManager>, sessionId: string, paneId: string) {
+    const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: sessionId,
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId,
+      lastAgentStatus: "requires_input",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: oldTime });
+    return task;
+  }
+
+  it("ri-1: requires_input orphan (no session state) recovered by sweep", () => {
+    const { sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+
+    seedRequiresInputOrphan(taskManager, "sess-ri1", "pane-ri1");
+
+    // No session state for this session
+    expect(sessionStateMap.has("sess-ri1")).toBe(false);
+
+    // Advance time past the orphan threshold
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 5_000);
+
+    sweepStaleSessions();
+
+    const task = taskManager.getTaskBySessionId("sess-ri1");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("ri-2: requires_input zombie recovered by notifyAgentDetectorGone", () => {
+    const { relay, notifyAgentDetectorGone, taskManager } = ctx;
+
+    // Establish a root session mapping by firing a SessionStart
+    fire(relay, "pane-ri2", "thinking", "claude", "sess-ri2", "SessionStart", null);
+
+    // Manually update the task to requires_input (simulate a scenario where the
+    // agent asked for input but its session state is still present)
+    fire(relay, "pane-ri2", "requires_input", "claude", "sess-ri2", "UserPromptSubmit", null);
+
+    const taskBefore = taskManager.getTaskBySessionId("sess-ri2");
+    expect(taskBefore?.lastAgentStatus).toBe("requires_input");
+
+    notifyAgentDetectorGone("pane-ri2");
+
+    const task = taskManager.getTaskBySessionId("sess-ri2");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("ri-3: SessionStart replacement force-closes old requires_input task", () => {
+    const { relay, taskManager } = ctx;
+
+    // Activate sessionA on pane-ri3, drive it to requires_input
+    fire(relay, "pane-ri3", "thinking", "claude", "sess-ri3a", "UserPromptSubmit", null);
+    fire(relay, "pane-ri3", "requires_input", "claude", "sess-ri3a", "PostToolUse", null);
+
+    const taskA = taskManager.getTaskBySessionId("sess-ri3a");
+    expect(taskA?.lastAgentStatus).toBe("requires_input");
+
+    // Deliver SessionStart for a new session on the same pane
+    fire(relay, "pane-ri3", "thinking", "claude", "sess-ri3b", "SessionStart", null);
+
+    // Old task should be force-closed to responded
+    const taskAAfter = taskManager.getTaskBySessionId("sess-ri3a");
+    expect(taskAAfter?.lastAgentStatus).toBe("responded");
+  });
+
+  it("ri-4 (negative): task already in responded is not affected by sweep", () => {
+    const { relay, sweepStaleSessions, broadcastTask, taskManager } = ctx;
+
+    // Activate then stop normally
+    fire(relay, "pane-ri4", "thinking", "claude", "sess-ri4", "UserPromptSubmit", null);
+    fire(relay, "pane-ri4", "responded", "claude", "sess-ri4", "Stop", null);
+
+    const taskAfterStop = taskManager.getTaskBySessionId("sess-ri4");
+    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+
+    const broadcastCallsBefore = broadcastTask.mock.calls.length;
+
+    // Advance time well past all thresholds
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 10_000);
+
+    sweepStaleSessions();
+
+    // broadcastTask should NOT have been called again
+    expect(broadcastTask.mock.calls.length).toBe(broadcastCallsBefore);
+
+    // Task status still responded
+    const task = taskManager.getTaskBySessionId("sess-ri4");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+});

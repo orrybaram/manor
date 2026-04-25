@@ -110,35 +110,33 @@ export function register(deps: IpcDeps): void {
       return;
     }
 
-    const liveIds = new Set(liveSessions.map((s) => s.sessionId));
+    const livePaneIds = new Set(liveSessions.map((s) => s.sessionId));
     const allTasks = taskManager.getAllTasks();
 
     for (const task of allTasks) {
-      if (
-        task.status === "active" &&
-        task.agentSessionId &&
-        !liveIds.has(task.agentSessionId) &&
-        task.lastAgentStatus !== "responded"
-      ) {
-        const updated = taskManager.updateTask(task.id, {
-          status: "abandoned",
-          completedAt: new Date().toISOString(),
-        });
-        if (updated) {
-          const { mainWindow } = deps;
-          if (
-            mainWindow &&
-            !mainWindow.isDestroyed() &&
-            !mainWindow.webContents.isDestroyed()
-          ) {
-            try {
-              mainWindow.webContents.send("task-updated", updated);
-            } catch {
-              // Render frame disposed — safe to ignore
-            }
+      if (task.status !== "active") continue;
+      if (!task.paneId) continue;
+      if (livePaneIds.has(task.paneId)) continue;
+      if (task.lastAgentStatus === "responded") continue;
+
+      const updated = taskManager.updateTask(task.id, {
+        status: "abandoned",
+        completedAt: new Date().toISOString(),
+      });
+      if (updated) {
+        const { mainWindow } = deps;
+        if (
+          mainWindow &&
+          !mainWindow.isDestroyed() &&
+          !mainWindow.webContents.isDestroyed()
+        ) {
+          try {
+            mainWindow.webContents.send("task-updated", updated);
+          } catch {
+            // Render frame disposed — safe to ignore
           }
-          updateDockBadge(preferencesManager);
         }
+        updateDockBadge(preferencesManager);
       }
     }
   });

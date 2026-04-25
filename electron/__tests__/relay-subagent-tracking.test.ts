@@ -68,7 +68,14 @@ function makeFakeTaskManager() {
 
 // ── Relay builder ──
 
-function buildRelay() {
+interface BuildRelayOptions {
+  /** Inject a fake monotonic clock. Defaults to Date.now() so vi.advanceTimersByTime advances it. */
+  monoClock?: () => number;
+  /** Inject a fake wall clock. Defaults to Date.now(). */
+  wallClock?: () => number;
+}
+
+function buildRelay(options: BuildRelayOptions = {}) {
   const taskManager = makeFakeTaskManager();
   const unseenRespondedTasks = new Set<string>();
   const unseenInputTasks = new Set<string>();
@@ -76,6 +83,9 @@ function buildRelay() {
   const maybeSendNotification = vi.fn();
   const relayAgentHook = vi.fn();
 
+  // By default mono and wall both follow Date.now() so existing tests using
+  // vi.useFakeTimers() / vi.advanceTimersByTime() keep advancing the relay's
+  // idle clock. ADR-135 ticket-4 tests pass explicit clocks to simulate suspend.
   const deps: HookRelayDeps = {
     relayAgentHook,
     taskManager,
@@ -84,6 +94,8 @@ function buildRelay() {
     unseenInputTasks,
     broadcastTask,
     maybeSendNotification,
+    monoClock: options.monoClock ?? (() => Date.now()),
+    wallClock: options.wallClock ?? (() => Date.now()),
   };
 
   const ctx = createHookRelay(deps);
@@ -876,5 +888,247 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
     // Task status still responded
     const task = taskManager.getTaskBySessionId("sess-ri4");
     expect(task?.lastAgentStatus).toBe("responded");
+  });
+});
+
+describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
+  /**
+   * These tests inject independent fake mono and wall clocks to simulate the
+   * laptop-suspend scenario where Date.now() jumps forward but the monotonic
+   * clock does not.
+   */
+
+  it("t4-1: suspend simulation — wall jumps 60min, mono unchanged → sweep does NOT fire", () => {
+    let mono = 1_000_000; // arbitrary monotonic baseline (ms)
+    let wall = 1_700_000_000_000; // arbitrary wall baseline (ms — ~Nov 2023)
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { relay, sweepStaleSessions, taskManager } = ctx;
+
+    // Activate a session so it's tracked by the sweep.
+    fire(relay, "pane-t4a", "thinking", "claude", "sess-t4a", "UserPromptSubmit", null);
+
+    const taskBefore = taskManager.getTaskBySessionId("sess-t4a");
+    expect(taskBefore?.lastAgentStatus).toBe("thinking");
+
+    // Suspend simulation: wall clock jumps forward by 60 minutes; mono untouched.
+    wall += 60 * 60 * 1_000;
+    // Real elapsed monotonic time: 1 second (well below STALE_ACTIVE_MS = 60s).
+    mono += 1_000;
+
+    sweepStaleSessions();
+
+    // Branch 2 must NOT fire because monotonic idle (~1s) is far below STALE_ACTIVE_MS.
+    const taskAfter = taskManager.getTaskBySessionId("sess-t4a");
+    expect(taskAfter?.lastAgentStatus).toBe("thinking");
+  });
+
+  it("t4-2: real 70s monotonic idle still trips Branch 2 (regression check)", () => {
+    let mono = 0;
+    let wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { relay, sweepStaleSessions, taskManager } = ctx;
+
+    fire(relay, "pane-t4b", "thinking", "claude", "sess-t4b", "UserPromptSubmit", null);
+
+    // 70 seconds of real monotonic idle (and wall — they advance together).
+    mono += 70_000;
+    wall += 70_000;
+
+    sweepStaleSessions();
+
+    const task = taskManager.getTaskBySessionId("sess-t4b");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("t4-3: real 16s monotonic idle still trips Branch 1 with pendingStopAt", () => {
+    let mono = 0;
+    let wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+
+    // Drive the session into pendingStopAt (subagent active, Stop dropped).
+    fire(relay, "pane-t4c", "thinking", "claude", "sess-t4c", "UserPromptSubmit", null);
+    fire(relay, "pane-t4c", "working", "claude", "sess-t4c", "SubagentStart", "tool-t4c");
+    fire(relay, "pane-t4c", "responded", "claude", "sess-t4c", "Stop", null);
+
+    const state = sessionStateMap.get("sess-t4c")!;
+    expect(state.pendingStopAt).not.toBeNull();
+
+    // 16s of real monotonic + wall idle (> STALE_STOP_MS).
+    mono += 16_000;
+    wall += 16_000;
+
+    sweepStaleSessions();
+
+    expect(state.pendingStopAt).toBeNull();
+    const task = taskManager.getTaskBySessionId("sess-t4c");
+    expect(task?.lastAgentStatus).toBe("responded");
+  });
+
+  it("t4-4: pendingStopAt — wall jumps 60min while mono unchanged → Branch 1 does NOT fire", () => {
+    let mono = 1_000_000;
+    let wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+
+    fire(relay, "pane-t4d", "thinking", "claude", "sess-t4d", "UserPromptSubmit", null);
+    fire(relay, "pane-t4d", "working", "claude", "sess-t4d", "SubagentStart", "tool-t4d");
+    fire(relay, "pane-t4d", "responded", "claude", "sess-t4d", "Stop", null);
+
+    const state = sessionStateMap.get("sess-t4d")!;
+    expect(state.pendingStopAt).not.toBeNull();
+
+    // Suspend: wall jumps 60min; mono only +1s.
+    wall += 60 * 60 * 1_000;
+    mono += 1_000;
+
+    sweepStaleSessions();
+
+    // Branch 1 should NOT have fired — monotonic idle (~1s) is below STALE_STOP_MS.
+    expect(state.pendingStopAt).not.toBeNull();
+    const task = taskManager.getTaskBySessionId("sess-t4d");
+    expect(task?.lastAgentStatus).not.toBe("responded");
+  });
+
+  it("t4-5: Branch 3 (orphan) — wall jumped 60min, mono only 5s → sweep is a no-op", () => {
+    let mono = 1_000_000;
+    let wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+
+    // Seed an orphan task whose activatedAt is "now" (right after relay boot).
+    const activatedAtIso = new Date(wall).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "orphan-t4e",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-t4e",
+      lastAgentStatus: "working",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+
+    expect(sessionStateMap.has("orphan-t4e")).toBe(false);
+
+    // Suspend: wall jumps 60 minutes (wallAge would be 60min); mono only +5s.
+    wall += 60 * 60 * 1_000;
+    mono += 5_000;
+
+    sweepStaleSessions();
+
+    // taskMonotonicAgeMs clamps to monoSinceBoot (5s) — well under ORPHAN_TASK_MS (60s).
+    const taskAfter = taskManager.getTaskBySessionId("orphan-t4e");
+    expect(taskAfter?.lastAgentStatus).toBe("working");
+  });
+
+  it("t4-6: Branch 3 (orphan) — real monotonic 65s elapsed → sweep fires", () => {
+    let mono = 1_000_000;
+    let wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { sweepStaleSessions, taskManager } = ctx;
+
+    const activatedAtIso = new Date(wall).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "orphan-t4f",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-t4f",
+      lastAgentStatus: "working",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+
+    // Real elapsed time: 65s on both clocks (no suspend).
+    mono += 65_000;
+    wall += 65_000;
+
+    sweepStaleSessions();
+
+    const taskAfter = taskManager.getTaskBySessionId("orphan-t4f");
+    expect(taskAfter?.lastAgentStatus).toBe("responded");
+  });
+
+  it("t4-7: Branch 3 (orphan) — pre-relay-boot task with stale wall age, no suspend → sweep fires", () => {
+    // Task was activated long before the relay started (e.g. main-process restart).
+    // wallSinceBoot ≤ monoSinceBoot, so taskMonotonicAgeMs falls through to wallAge.
+    const mono = 5_000_000;
+    const wall = 1_700_000_000_000;
+
+    const ctx = buildRelay({
+      monoClock: () => mono,
+      wallClock: () => wall,
+    });
+
+    const { sweepStaleSessions, taskManager } = ctx;
+
+    // activatedAt is 10 minutes before relay boot wall — pre-existing orphan.
+    const activatedAtIso = new Date(wall - 10 * 60 * 1_000).toISOString();
+    const task = taskManager.createTask({
+      agentSessionId: "orphan-t4g",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-t4g",
+      lastAgentStatus: "working",
+      resumedAt: null,
+    });
+    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+
+    // No further time advance — wallSinceBoot = 0, monoSinceBoot = 0.
+    // wallSinceBoot is NOT > monoSinceBoot, so wallAge (10min) is used unclamped → fires.
+    sweepStaleSessions();
+
+    const taskAfter = taskManager.getTaskBySessionId("orphan-t4g");
+    expect(taskAfter?.lastAgentStatus).toBe("responded");
   });
 });

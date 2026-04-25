@@ -13,8 +13,20 @@ import type { TaskInfo } from "./task-persistence";
 export interface SessionState {
   activeSubagents: Set<string>;
   hasBeenActive: boolean;
+  /** Monotonic ms (process.hrtime.bigint() / 1e6) — see ADR-135 ticket-4. */
   pendingStopAt: number | null;
+  /** Monotonic ms (process.hrtime.bigint() / 1e6) — see ADR-135 ticket-4. */
   lastHookEventAt: number;
+}
+
+/** Default monotonic clock — wraps process.hrtime.bigint() to ms. */
+export function defaultMonoClock(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
+/** Default wall clock — wraps Date.now(). */
+export function defaultWallClock(): number {
+  return Date.now();
 }
 
 /** Structural interface for the task persistence layer (allows fakes in tests). */
@@ -47,6 +59,10 @@ export interface HookRelayDeps {
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ) => void;
+  /** Optional monotonic clock injection for tests. Defaults to process.hrtime.bigint() / 1e6. */
+  monoClock?: () => number;
+  /** Optional wall clock injection for tests. Defaults to Date.now(). */
+  wallClock?: () => number;
 }
 
 export type RelayFn = (
@@ -97,7 +113,40 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     unseenInputTasks,
     broadcastTask,
     maybeSendNotification,
+    monoClock = defaultMonoClock,
+    wallClock = defaultWallClock,
   } = deps;
+
+  // Per-relay boot timestamps — captured in the factory closure (NOT module scope).
+  // Used by taskMonotonicAgeMs() to clamp wall-clock task ages by the relay's
+  // actual monotonic run-time, defeating wall-clock jumps from suspend/resume.
+  const RELAY_BOOT_MONO_MS = monoClock();
+  const RELAY_BOOT_WALL_MS = wallClock();
+
+  function nowMonoMs(): number {
+    return monoClock();
+  }
+
+  /**
+   * Compute a task's age in milliseconds, clamped by the relay's monotonic run-time.
+   *
+   * `task.activatedAt` is a wall-clock ISO string (kept for display + cross-restart
+   * durability). After a laptop suspend/resume the wall clock jumps forward but the
+   * relay's monotonic clock does not, so wall-only math would force-complete every
+   * mid-session task on first wake. Clamping by the monotonic time the relay has
+   * been running ensures we wait the full STALE_ACTIVE_MS of *real* run-time.
+   */
+  function taskMonotonicAgeMs(task: TaskInfo): number {
+    if (!task.activatedAt) return 0;
+    const wallAge = wallClock() - Date.parse(task.activatedAt);
+    if (Number.isNaN(wallAge) || wallAge < 0) return 0;
+    const monoSinceBoot = nowMonoMs() - RELAY_BOOT_MONO_MS;
+    const wallSinceBoot = wallClock() - RELAY_BOOT_WALL_MS;
+    if (wallSinceBoot > monoSinceBoot) {
+      return Math.min(wallAge, monoSinceBoot);
+    }
+    return wallAge;
+  }
 
   const sessionStateMap = new Map<string, SessionState>();
   const paneRootSessionMap = new Map<string, string>();
@@ -109,7 +158,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
         activeSubagents: new Set(),
         hasBeenActive: false,
         pendingStopAt: null,
-        lastHookEventAt: Date.now(),
+        lastHookEventAt: nowMonoMs(),
       };
       sessionStateMap.set(sessionId, state);
     }
@@ -188,7 +237,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     }
 
     const sessionState = getOrCreateSessionState(sessionId);
-    sessionState.lastHookEventAt = Date.now();
+    sessionState.lastHookEventAt = nowMonoMs();
 
     if (eventType === "SubagentStart") {
       const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
@@ -266,7 +315,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
 
     if (eventType === "Stop") {
       if (sessionState.activeSubagents.size > 0) {
-        sessionState.pendingStopAt = Date.now();
+        sessionState.pendingStopAt = nowMonoMs();
         return;
       }
       sessionState.pendingStopAt = null;
@@ -312,9 +361,11 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   }
 
   function sweepStaleSessions(): void {
-    const now = Date.now();
+    const nowMono = nowMonoMs();
     for (const [sessionId, state] of sessionStateMap) {
-      const idle = now - state.lastHookEventAt;
+      // Idle is monotonic — wall-clock jumps from suspend/resume can't push us
+      // past the threshold artificially.
+      const idle = nowMono - state.lastHookEventAt;
 
       // Branch 1 (ADR-130): Stop received but blocked by active subagents
       if (state.pendingStopAt !== null && idle > STALE_STOP_MS) {
@@ -346,19 +397,20 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     // Branch 3 (ADR-132): task is active but its session state is gone.
     // Catches orphans from SessionStart replacement, SessionEnd races, and
     // main-process restarts that rehydrate tasks without their sessionState.
+    // Uses taskMonotonicAgeMs() to clamp the wall-clock activatedAt by the
+    // relay's monotonic run-time so suspend/resume can't trip the threshold.
     const ORPHAN_TASK_MS = STALE_ACTIVE_MS; // share the 60s threshold
-    const nowMs = Date.now();
     for (const task of taskManager.getActiveTasks()) {
       if (!task.agentSessionId) continue;
       if (sessionStateMap.has(task.agentSessionId)) continue;
       if (!isStuckActive(task.lastAgentStatus)) continue;
 
-      const activatedMs = task.activatedAt ? Date.parse(task.activatedAt) : 0;
-      if (!activatedMs || nowMs - activatedMs < ORPHAN_TASK_MS) continue;
+      const age = taskMonotonicAgeMs(task);
+      if (age < ORPHAN_TASK_MS) continue;
 
       console.debug(
         `[task-lifecycle] orphan-task sweep: forcing responded on ${task.agentSessionId} ` +
-          `(task.id=${task.id}, lastAgentStatus=${task.lastAgentStatus}, age=${nowMs - activatedMs}ms)`,
+          `(task.id=${task.id}, lastAgentStatus=${task.lastAgentStatus}, age=${age}ms)`,
       );
       applyStopForSession(task.agentSessionId);
     }

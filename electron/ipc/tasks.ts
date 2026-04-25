@@ -75,6 +75,13 @@ export function register(deps: IpcDeps): void {
     updateDockBadge(preferencesManager);
   });
 
+  ipcMain.handle("tasks:markResumed", (_event, taskId: string) => {
+    assertString(taskId, "taskId");
+    return taskManager.updateTask(taskId, {
+      resumedAt: new Date().toISOString(),
+    });
+  });
+
   ipcMain.handle(
     "tasks:setPaneContext",
     (

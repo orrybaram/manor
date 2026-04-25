@@ -288,9 +288,7 @@ export function useTerminalLifecycle(
               if (!resumeTask || disposed) return;
 
               // Mark resumed immediately to prevent double-launch on re-mount
-              void window.electronAPI.tasks.update(resumeTask.id, {
-                resumedAt: new Date().toISOString(),
-              });
+              void window.electronAPI.tasks.markResumed(resumeTask.id);
 
               // Wait for shell prompt (CWD event), then relaunch
               sendOnShellReady(resumeTask.agentCommand!);

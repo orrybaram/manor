@@ -20,6 +20,15 @@ import { hookScriptPath, hookPortFile } from "./paths";
 
 type PaneStatus = AgentStatus;
 
+type RelayArgs = [
+  paneId: string,
+  status: AgentStatus,
+  kind: AgentKind,
+  sessionId: string | null,
+  eventType: string,
+  toolUseId: string | null,
+];
+
 export function mapEventToStatus(eventType: string): PaneStatus | null {
   switch (eventType) {
     case "SessionStart":
@@ -48,33 +57,26 @@ export function mapEventToStatus(eventType: string): PaneStatus | null {
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn:
-    | ((
-        paneId: string,
-        status: AgentStatus,
-        kind: AgentKind,
-        sessionId: string | null,
-        eventType: string,
-        toolUseId: string | null,
-      ) => void)
-    | null = null;
+  private relayFn: ((...args: RelayArgs) => void) | null = null;
+  private pending: RelayArgs[] = [];
+  static readonly MAX_PENDING = 1000;
 
   get hookPort(): number {
     return this.port;
   }
 
-  /** Set or update the relay function (called when hook events arrive) */
-  setRelay(
-    relay: (
-      paneId: string,
-      status: AgentStatus,
-      kind: AgentKind,
-      sessionId: string | null,
-      eventType: string,
-      toolUseId: string | null,
-    ) => void,
-  ): void {
+  /** Set the relay function. Any events buffered before this call are replayed in order. */
+  setRelay(relay: (...args: RelayArgs) => void): void {
     this.relayFn = relay;
+    const queued = this.pending;
+    this.pending = [];
+    for (const args of queued) {
+      try {
+        relay(...args);
+      } catch (err) {
+        console.error("[agent-hooks] error replaying queued event:", err);
+      }
+    }
   }
 
   /** Start the HTTP server on a random port */
@@ -111,7 +113,15 @@ export class AgentHookServer {
         `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} toolUseId=${toolUseId} → status=${status ?? "unmapped"}`,
       );
       if (status) {
-        this.relayFn?.(paneId, status, kind, sessionId, eventType, toolUseId);
+        if (this.relayFn) {
+          this.relayFn(paneId, status, kind, sessionId, eventType, toolUseId);
+        } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
+          this.pending.push([paneId, status, kind, sessionId, eventType, toolUseId]);
+        } else {
+          console.warn(
+            `[agent-hooks] dropping hook event (queue full): paneId=${paneId} event=${eventType}`,
+          );
+        }
       }
 
       res.writeHead(200);

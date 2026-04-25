@@ -305,6 +305,98 @@ describe("AgentHookServer", () => {
   });
 });
 
+describe("AgentHookServer — buffering (pre-relay queue)", () => {
+  let server: AgentHookServer;
+
+  beforeEach(async () => {
+    server = new AgentHookServer();
+    await server.start();
+    // Intentionally NOT calling setRelay here so events are buffered
+  });
+
+  afterEach(() => {
+    server.stop();
+  });
+
+  it("queues events sent before setRelay is called", async () => {
+    const relay = vi.fn();
+
+    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop");
+    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit");
+    await httpGet(server.hookPort, "/hook/event?paneId=p3&eventType=PreToolUse");
+
+    // relay not yet wired — nothing delivered
+    expect(relay).not.toHaveBeenCalled();
+
+    server.setRelay(relay);
+
+    // All three events replayed in order
+    expect(relay).toHaveBeenCalledTimes(3);
+    expect(relay).toHaveBeenNthCalledWith(1, "p1", "responded", "claude", null, "Stop", null);
+    expect(relay).toHaveBeenNthCalledWith(2, "p2", "thinking", "claude", null, "UserPromptSubmit", null);
+    expect(relay).toHaveBeenNthCalledWith(3, "p3", "working", "claude", null, "PreToolUse", null);
+  });
+
+  it("delivers post-setRelay events directly without queueing", async () => {
+    const relay = vi.fn();
+    server.setRelay(relay);
+
+    await httpGet(server.hookPort, "/hook/event?paneId=p1&eventType=Stop");
+    await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit");
+
+    expect(relay).toHaveBeenCalledTimes(2);
+    expect(relay).toHaveBeenNthCalledWith(1, "p1", "responded", "claude", null, "Stop", null);
+    expect(relay).toHaveBeenNthCalledWith(2, "p2", "thinking", "claude", null, "UserPromptSubmit", null);
+  });
+
+  it("replays buffered events then immediately delivers subsequent events", async () => {
+    const relay = vi.fn();
+
+    // Queue one event before relay is set
+    await httpGet(server.hookPort, "/hook/event?paneId=before&eventType=Stop");
+
+    server.setRelay(relay);
+
+    // Replayed immediately on setRelay
+    expect(relay).toHaveBeenCalledTimes(1);
+    expect(relay).toHaveBeenNthCalledWith(1, "before", "responded", "claude", null, "Stop", null);
+
+    // Post-setRelay event goes straight through
+    await httpGet(server.hookPort, "/hook/event?paneId=after&eventType=PreToolUse");
+    expect(relay).toHaveBeenCalledTimes(2);
+    expect(relay).toHaveBeenNthCalledWith(2, "after", "working", "claude", null, "PreToolUse", null);
+  });
+
+  it("caps the queue at MAX_PENDING and drops newest overflow events", async () => {
+    const max = AgentHookServer.MAX_PENDING;
+
+    // Fill the queue to the cap. Requests run in parallel for speed — we only
+    // care about the final count, not the arrival order within the fill batch.
+    const fills: Promise<unknown>[] = [];
+    for (let i = 0; i < max; i++) {
+      fills.push(httpGet(server.hookPort, `/hook/event?paneId=fill-${i}&eventType=Stop`));
+    }
+    await Promise.all(fills);
+
+    // Send overflow events sequentially AFTER the queue is known to be full.
+    // These must be dropped because the queue is already at capacity.
+    await httpGet(server.hookPort, "/hook/event?paneId=overflow-1&eventType=Stop");
+    await httpGet(server.hookPort, "/hook/event?paneId=overflow-2&eventType=Stop");
+
+    const relay = vi.fn();
+    server.setRelay(relay);
+
+    // Exactly MAX_PENDING calls — the two overflow events were dropped
+    expect(relay).toHaveBeenCalledTimes(max);
+
+    // None of the relayed calls should have an overflow paneId
+    const relayMock = relay as ReturnType<typeof vi.fn>;
+    const paneIds = relayMock.mock.calls.map((c) => (c as string[])[0]);
+    expect(paneIds).not.toContain("overflow-1");
+    expect(paneIds).not.toContain("overflow-2");
+  });
+});
+
 describe("ClaudeConnector.registerHooks", () => {
   let tmpDir: string;
   let settingsPath: string;

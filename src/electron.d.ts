@@ -494,7 +494,7 @@ export interface ElectronAPI {
     get: (taskId: string) => Promise<TaskInfo | null>;
     update: (
       taskId: string,
-      updates: Partial<TaskInfo>,
+      updates: { name?: string | null },
     ) => Promise<TaskInfo | null>;
     delete: (taskId: string) => Promise<boolean>;
     setPaneContext: (

@@ -4,6 +4,21 @@ import { updateDockBadge } from "../notifications";
 import { cleanAgentTitle } from "../title-utils";
 import type { IpcDeps } from "./types";
 
+const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
+  "name",
+]);
+
+function assertRendererTaskUpdate(updates: unknown): asserts updates is Record<string, unknown> {
+  if (!updates || typeof updates !== "object") {
+    throw new Error("tasks:update: updates must be an object");
+  }
+  for (const key of Object.keys(updates as object)) {
+    if (!ALLOWED_RENDERER_TASK_FIELDS.has(key)) {
+      throw new Error(`tasks:update: field "${key}" is not writable from renderer`);
+    }
+  }
+}
+
 export function register(deps: IpcDeps): void {
   const {
     taskManager,
@@ -37,8 +52,9 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "tasks:update",
-    (_event, taskId: string, updates: Record<string, unknown>) => {
+    (_event, taskId: string, updates: unknown) => {
       assertString(taskId, "taskId");
+      assertRendererTaskUpdate(updates);
       return taskManager.updateTask(taskId, updates);
     },
   );

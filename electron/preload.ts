@@ -308,7 +308,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       offset?: number;
     }) => ipcRenderer.invoke("tasks:getAll", opts),
     get: (taskId: string) => ipcRenderer.invoke("tasks:get", taskId),
-    update: (taskId: string, updates: object) =>
+    update: (taskId: string, updates: { name?: string | null }) =>
       ipcRenderer.invoke("tasks:update", taskId, updates),
     delete: (taskId: string) => ipcRenderer.invoke("tasks:delete", taskId),
     setPaneContext: (

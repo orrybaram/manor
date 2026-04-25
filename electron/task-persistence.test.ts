@@ -187,6 +187,107 @@ describe("TaskManager", () => {
     });
   });
 
+  describe("claudeSessionId migration (ADR-138)", () => {
+    function writeLegacyTasksJson(dir: string, tasks: object[]): void {
+      const state = { tasks };
+      fs.writeFileSync(
+        path.join(dir, "tasks.json"),
+        JSON.stringify(state, null, 2),
+      );
+    }
+
+    it("rewrites the file without the legacy key on first construction", () => {
+      const legacySessionId = `session-${crypto.randomUUID()}`;
+      const taskId = crypto.randomUUID();
+      writeLegacyTasksJson(tmpDir, [
+        {
+          id: taskId,
+          claudeSessionId: legacySessionId,
+          name: "Legacy task",
+          status: "active",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          completedAt: null,
+          activatedAt: null,
+          projectId: null,
+          projectName: null,
+          workspacePath: null,
+          cwd: "/project",
+          agentKind: "claude",
+          agentCommand: null,
+          paneId: null,
+          lastAgentStatus: null,
+          resumedAt: null,
+        },
+      ]);
+
+      // Discard the manager created in beforeEach (no tasks.json existed then).
+      const fresh = new TaskManager(tmpDir);
+
+      // The task should be accessible under the migrated agentSessionId.
+      const task = fresh.getTaskBySessionId(legacySessionId);
+      expect(task).not.toBeNull();
+      expect(task!.agentSessionId).toBe(legacySessionId);
+
+      // The file on disk must no longer contain the legacy key.
+      const onDisk = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "tasks.json"), "utf-8"),
+      );
+      expect(JSON.stringify(onDisk)).not.toContain("claudeSessionId");
+      expect(onDisk.tasks[0].agentSessionId).toBe(legacySessionId);
+    });
+
+    it("does not re-migrate (idempotent) on a second construction", () => {
+      const legacySessionId = `session-${crypto.randomUUID()}`;
+      const taskId = crypto.randomUUID();
+      writeLegacyTasksJson(tmpDir, [
+        {
+          id: taskId,
+          claudeSessionId: legacySessionId,
+          name: "Legacy task",
+          status: "active",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          completedAt: null,
+          activatedAt: null,
+          projectId: null,
+          projectName: null,
+          workspacePath: null,
+          cwd: "/project",
+          agentKind: "claude",
+          agentCommand: null,
+          paneId: null,
+          lastAgentStatus: null,
+          resumedAt: null,
+        },
+      ]);
+
+      // First construction: migrates and flushes synchronously.
+      new TaskManager(tmpDir);
+
+      // Capture mtime after first flush.
+      const mtimeAfterFirst = fs.statSync(
+        path.join(tmpDir, "tasks.json"),
+      ).mtimeMs;
+
+      // Second construction: file is already clean; no migration should occur.
+      new TaskManager(tmpDir);
+
+      const mtimeAfterSecond = fs.statSync(
+        path.join(tmpDir, "tasks.json"),
+      ).mtimeMs;
+
+      // File must still not contain the legacy key.
+      const onDisk = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "tasks.json"), "utf-8"),
+      );
+      expect(JSON.stringify(onDisk)).not.toContain("claudeSessionId");
+
+      // mtime must be unchanged — the second construction did not flush.
+      expect(mtimeAfterSecond).toBe(mtimeAfterFirst);
+    });
+  });
+
   describe("getTaskById / idIndex (ADR-138)", () => {
     it("returns the task after createTask", () => {
       const task = makeTask();

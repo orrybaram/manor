@@ -41,11 +41,21 @@ export class TaskManager {
    * `getLastPruneCount()` so the renderer can show a one-time notice.
    */
   private lastPruneCount = 0;
+  /**
+   * Set to true by loadState when any task was migrated from the legacy
+   * claudeSessionId field. Triggers an immediate synchronous flush so the
+   * rewritten file no longer contains the legacy key on disk.
+   */
+  private migrationPerformed = false;
 
   constructor(dataDir?: string, retentionDays = 90) {
     this.dataDir = dataDir ?? manorDataDir();
     this.retentionDays = retentionDays;
     this.tasks = this.loadState();
+    if (this.migrationPerformed) {
+      // Bypass the debounce: write immediately so future loads don't re-migrate.
+      this.flushNow();
+    }
     this.lastPruneCount = this.pruneOlderThan(this.retentionDays);
   }
 
@@ -65,6 +75,7 @@ export class TaskManager {
         if (!migrated.agentSessionId && migrated.claudeSessionId) {
           migrated.agentSessionId = migrated.claudeSessionId;
           delete migrated.claudeSessionId;
+          this.migrationPerformed = true;
         }
         map.set(migrated.agentSessionId, migrated);
         idIndex.set(migrated.id, migrated.agentSessionId);
@@ -87,6 +98,22 @@ export class TaskManager {
       fs.mkdirSync(this.dataDir, { recursive: true });
       fs.writeFileSync(this.tasksFilePath(), JSON.stringify(state, null, 2));
     }, 500);
+  }
+
+  /**
+   * Writes the current state to disk synchronously, cancelling any pending
+   * debounced save. Used after a one-shot migration so the rewritten file is
+   * on disk before the process can crash or be killed.
+   */
+  private flushNow(): void {
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    const tasks = Array.from(this.tasks.values());
+    const state: PersistedState = { tasks };
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.tasksFilePath(), JSON.stringify(state, null, 2));
   }
 
   createTask(

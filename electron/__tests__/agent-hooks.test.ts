@@ -115,6 +115,22 @@ describe("AgentHookServer", () => {
       expect(server.hookPort).toBeGreaterThan(0);
     });
 
+    it("writes port file atomically and parses to valid port number", () => {
+      const portFilePath = path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
+      expect(fs.existsSync(portFilePath)).toBe(true);
+
+      const content = fs.readFileSync(portFilePath, "utf-8");
+      const parsedPort = parseInt(content, 10);
+      expect(parsedPort).toBeGreaterThan(0);
+      expect(parsedPort).toBe(server.hookPort);
+    });
+
+    it("does not leave .tmp file after atomic write", () => {
+      const portFilePath = path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
+      const tmpPath = `${portFilePath}.tmp`;
+      expect(fs.existsSync(tmpPath)).toBe(false);
+    });
+
     it("stop() closes cleanly and port becomes unusable", async () => {
       const port = server.hookPort;
       server.stop();

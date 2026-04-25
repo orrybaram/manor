@@ -29,6 +29,18 @@ type RelayArgs = [
   toolUseId: string | null,
 ];
 
+/**
+ * Atomically write the port number to the hook port file.
+ * Uses tmp + rename pattern to ensure the file is never in a half-written state,
+ * preventing hook scripts from reading garbage if a write is interrupted.
+ */
+function writePortFileAtomic(port: number): void {
+  fs.mkdirSync(path.dirname(HOOK_PORT_FILE), { recursive: true });
+  const tmp = `${HOOK_PORT_FILE}.tmp`;
+  fs.writeFileSync(tmp, String(port));
+  fs.renameSync(tmp, HOOK_PORT_FILE);
+}
+
 export function mapEventToStatus(eventType: string): PaneStatus | null {
   switch (eventType) {
     case "SessionStart":
@@ -133,8 +145,7 @@ export class AgentHookServer {
         const addr = this.server!.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
-          fs.mkdirSync(path.dirname(HOOK_PORT_FILE), { recursive: true });
-          fs.writeFileSync(HOOK_PORT_FILE, String(this.port));
+          writePortFileAtomic(this.port);
         }
         resolve();
       });

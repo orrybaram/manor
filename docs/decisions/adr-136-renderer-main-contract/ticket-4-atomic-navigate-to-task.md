@@ -1,6 +1,6 @@
 ---
 title: Atomic navigateToTask via single Zustand action
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

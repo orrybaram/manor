@@ -213,6 +213,19 @@ export interface AppState {
   // Workspace activation
   setActiveWorkspace: (path: string) => void;
 
+  /**
+   * Atomically navigate to a specific pane inside a workspace.
+   * Sets activeWorkspacePath, activePanelId, selectedTabId, and focusedPaneId
+   * in a single Zustand set() call so subscribers see no intermediate states.
+   * Bails (no state change) if the workspacePath has no layout or the tabId
+   * does not exist in any panel.
+   */
+  navigateToContext: (ctx: {
+    workspacePath: string;
+    tabId: string;
+    paneId: string;
+  }) => void;
+
   // Layout restore — called once on startup
   loadPersistedLayout: () => Promise<void>;
 
@@ -561,6 +574,39 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceLayouts: {
           ...state.workspaceLayouts,
           [path]: createEmptyLayout(),
+        },
+      };
+    }),
+
+  navigateToContext: ({ workspacePath, tabId, paneId }) =>
+    set((state) => {
+      const layout = state.workspaceLayouts[workspacePath];
+      if (!layout) return state;
+
+      // Find the panel that contains the requested tab
+      const entry = findPanelWithTab(layout, tabId);
+      if (!entry) return state;
+
+      const { panel } = entry;
+
+      return {
+        activeWorkspacePath: workspacePath,
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [workspacePath]: {
+            ...layout,
+            activePanelId: panel.id,
+            panels: {
+              ...layout.panels,
+              [panel.id]: {
+                ...panel,
+                selectedTabId: tabId,
+                tabs: panel.tabs.map((t) =>
+                  t.id === tabId ? { ...t, focusedPaneId: paneId } : t,
+                ),
+              },
+            },
+          },
         },
       };
     }),

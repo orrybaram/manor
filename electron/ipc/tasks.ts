@@ -109,8 +109,7 @@ export function register(deps: IpcDeps): void {
     // Re-broadcast so the renderer cache reflects the cleared flags. The task
     // itself didn't mutate, but `sendTaskUpdate` ships the unseen flags
     // alongside it — this is what keeps main authoritative for pulse state.
-    const all = taskManager.getAllTasks();
-    const task = all.find((t) => t.id === taskId) ?? null;
+    const task = taskManager.getTaskById(taskId);
     if (task) {
       sendTaskUpdate(deps.mainWindow, task, preferencesManager);
     } else {

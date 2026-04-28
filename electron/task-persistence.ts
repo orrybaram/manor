@@ -114,16 +114,20 @@ export class TaskManager {
     }
   }
 
+  private writeStateSync(): void {
+    const tasks = Array.from(this.tasks.values());
+    const state: PersistedState = { tasks };
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.tasksFilePath(), JSON.stringify(state, null, 2));
+  }
+
   private saveState(): void {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
     }
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      const tasks = Array.from(this.tasks.values());
-      const state: PersistedState = { tasks };
-      fs.mkdirSync(this.dataDir, { recursive: true });
-      fs.writeFileSync(this.tasksFilePath(), JSON.stringify(state, null, 2));
+      this.writeStateSync();
     }, 500);
   }
 
@@ -137,10 +141,7 @@ export class TaskManager {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    const tasks = Array.from(this.tasks.values());
-    const state: PersistedState = { tasks };
-    fs.mkdirSync(this.dataDir, { recursive: true });
-    fs.writeFileSync(this.tasksFilePath(), JSON.stringify(state, null, 2));
+    this.writeStateSync();
   }
 
   createTask(

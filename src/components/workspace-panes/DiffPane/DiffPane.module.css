@@ -4,6 +4,14 @@
   overflow: auto;
   background: var(--bg);
   position: relative;
+  container-type: size;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
 }
 
 .topBar {
@@ -11,7 +19,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 16px 16px 0;
+  padding: 16px 16px 12px;
+}
+
+.actionGroup {
+  flex-shrink: 0;
+}
+
+.body {
+  padding: 0 16px 16px;
+}
+
+.fileListWrapper {
+  margin-bottom: 16px;
+}
+
+@container (min-width: 880px) {
+  .body {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .fileListWrapper {
+    position: sticky;
+    top: var(--diff-header-offset, 64px);
+    margin-bottom: 0;
+    max-height: calc(100cqh - var(--diff-header-offset, 64px) - 16px);
+    overflow: auto;
+  }
 }
 
 .commitBtn {
@@ -57,7 +94,7 @@
 /* ── Per-file block ── */
 
 .fileStack {
-  padding: 16px;
+  min-width: 0;
 }
 
 .file {
@@ -161,7 +198,7 @@
 }
 
 .pushError {
-  margin: 8px 16px 0;
+  margin: 0 16px 12px;
   padding: 6px 10px;
   font-size: 11px;
   color: var(--error, #e05252);

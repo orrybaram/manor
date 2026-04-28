@@ -15,7 +15,7 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import { useProjectStore } from "../../../store/project-store";
-import { Stack } from "../../ui/Layout/Layout";
+import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
 import { countMatches } from "./search-utils";
 import { SearchBar } from "./SearchBar/SearchBar";
@@ -55,8 +55,24 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [pushing, setPushing] = useState(false);
     const [pushError, setPushError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
     const savedSelection = useRef<string>("");
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!headerEl || !container) return;
+      const update = () => {
+        container.style.setProperty(
+          "--diff-header-offset",
+          `${headerEl.offsetHeight}px`,
+        );
+      };
+      update();
+      const observer = new ResizeObserver(update);
+      observer.observe(headerEl);
+      return () => observer.disconnect();
+    }, [headerEl]);
 
     useImperativeHandle(ref, () => ({
       toggleSearch: () => setSearchOpen((v) => !v),
@@ -303,20 +319,38 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       }
     }, [workspacePath]);
 
+    const topBar = (
+      <div className={styles.topBar}>
+        <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
+        <Row gap="xs" align="center" className={styles.actionGroup}>
+          <Button
+            variant="secondary"
+            onClick={handlePush}
+            disabled={pushing}
+          >
+            {pushing ? (
+              <span className={styles.pushSpinner} />
+            ) : (
+              <CloudUpload size={13} />
+            )}
+            {pushing ? "Pushing…" : "Push"}
+          </Button>
+          <Button
+            onClick={() => setCommitOpen(true)}
+            disabled={stagedFiles.size === 0}
+            variant="primary"
+          >
+            <GitCommitVertical size={13} />
+            Commit
+          </Button>
+        </Row>
+      </div>
+    );
+
     if (loading) {
       return (
         <div className={styles.container}>
-          <div className={styles.topBar}>
-            <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
-            <Button
-              onClick={() => setCommitOpen(true)}
-              disabled={stagedFiles.size === 0}
-              variant="primary"
-            >
-              <GitCommitVertical size={13} />
-              Commit
-            </Button>
-          </div>
+          <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <div className={styles.status}>Loading diff...</div>
           {workspacePath && (
             <CommitModal
@@ -333,17 +367,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     if (error) {
       return (
         <div className={styles.container}>
-          <div className={styles.topBar}>
-            <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
-            <Button
-              onClick={() => setCommitOpen(true)}
-              disabled={stagedFiles.size === 0}
-              variant="primary"
-            >
-              <GitCommitVertical size={13} />
-              Commit
-            </Button>
-          </div>
+          <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <EmptyState message={error} />
           {workspacePath && (
             <CommitModal
@@ -363,52 +387,39 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         ref={containerRef}
         onScroll={handleScroll}
       >
-        {searchOpen && (
-          <SearchBar
-            query={searchQuery}
-            onChange={handleSearchChange}
-            totalMatches={totalMatches}
-            currentMatch={currentMatch}
-            onNext={handleSearchNext}
-            onPrev={handleSearchPrev}
-            onClose={handleSearchClose}
-          />
-        )}
-        <div className={styles.topBar}>
-          <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
-          <Button
-            variant="secondary"
-            onClick={handlePush}
-            disabled={pushing}
-          >
-            {pushing ? <span className={styles.pushSpinner} /> : <CloudUpload size={13} />}
-            {pushing ? "Pushing…" : "Push"}
-          </Button>
-          <Button
-            onClick={() => setCommitOpen(true)}
-            disabled={stagedFiles.size === 0}
-            variant="primary"
-          >
-            <GitCommitVertical size={13} />
-            Commit
-          </Button>
+        <div className={styles.header} ref={setHeaderEl}>
+          {searchOpen && (
+            <SearchBar
+              query={searchQuery}
+              onChange={handleSearchChange}
+              totalMatches={totalMatches}
+              currentMatch={currentMatch}
+              onNext={handleSearchNext}
+              onPrev={handleSearchPrev}
+              onClose={handleSearchClose}
+            />
+          )}
+          {topBar}
+          {pushError && (
+            <div className={styles.pushError}>{pushError}</div>
+          )}
         </div>
-        {pushError && (
-          <div className={styles.pushError}>{pushError}</div>
-        )}
-        <Stack gap="lg" className={styles.fileStack}>
-          <FileList
-            files={files}
-            onSelectFile={scrollToFile}
-            animationState={animationState}
-            diffMode={diffMode}
-            workspacePath={workspacePath}
-            selectedFiles={selectedFiles}
-            onSelectionChange={setSelectedFiles}
-            stagedFiles={stagedFiles}
-            onStagedFilesChange={(updater) => setStagedFiles(updater)}
-          />
-          {files.map((file) => (
+        <div className={styles.body}>
+          <div className={styles.fileListWrapper}>
+            <FileList
+              files={files}
+              onSelectFile={scrollToFile}
+              animationState={animationState}
+              diffMode={diffMode}
+              workspacePath={workspacePath}
+              selectedFiles={selectedFiles}
+              onSelectionChange={setSelectedFiles}
+              stagedFiles={stagedFiles}
+              onStagedFilesChange={(updater) => setStagedFiles(updater)}
+            />
+          </div>
+          <Stack gap="lg" className={styles.fileStack}>
+            {files.map((file) => (
             <ContextMenu.Root
               key={file.path}
               onOpenChange={(open) => {
@@ -520,7 +531,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               </ContextMenu.Portal>
             </ContextMenu.Root>
           ))}
-        </Stack>
+          </Stack>
+        </div>
         {showBackToTop && (
           <button
             className={styles.backToTop}

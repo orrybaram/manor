@@ -8,8 +8,8 @@
   cursor: pointer;
   user-select: none;
   position: sticky;
-  top: 0;
-  z-index: 5;
+  top: var(--diff-header-offset, 0);
+  z-index: 4;
   margin: -4px -1px 0;
   border: 1px solid var(--border);
   border-radius: 6px 6px 0 0;

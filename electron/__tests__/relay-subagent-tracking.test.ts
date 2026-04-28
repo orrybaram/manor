@@ -502,6 +502,23 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     expect(taskEFinal?.lastAgentStatus).toBe("responded");
   });
 
+  it("fix2-d: SessionStart does NOT flip AgentDetector status (no spinner on bare process startup)", () => {
+    const { relay, relayAgentHook, paneRootSessionMap } = ctx;
+
+    fire(relay, "pane-q", "thinking", "claude", "sess-q", "SessionStart", null);
+
+    // AgentDetector must not be touched — otherwise the pane's spinner would
+    // appear before any user activity (regression from ADR-014 lifecycle).
+    expect(relayAgentHook).not.toHaveBeenCalled();
+
+    // The relay still tracks the root session for the pane.
+    expect(paneRootSessionMap.get("pane-q")).toBe("sess-q");
+
+    // A subsequent UserPromptSubmit DOES flip the AgentDetector.
+    fire(relay, "pane-q", "thinking", "claude", "sess-q", "UserPromptSubmit", null);
+    expect(relayAgentHook).toHaveBeenCalledWith("pane-q", "thinking", "claude");
+  });
+
   // ── Fix 3: Orphan-task sweep ──
 
   it("fix3-a: orphan-task sweep closes a stale working task with no session state", () => {

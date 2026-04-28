@@ -212,7 +212,14 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     eventType: string,
     toolUseId: string | null,
   ): void {
-    relayAgentHook(paneId, status, kind);
+    // SessionStart fires when the agent CLI launches — before any user
+    // activity. Per ADR-014, the agent should remain idle until a real event
+    // (UserPromptSubmit, PreToolUse, etc.) arrives. Skip the AgentDetector
+    // flip so the spinner doesn't appear on bare process startup. The relay
+    // still processes SessionStart below to maintain paneRootSessionMap.
+    if (eventType !== "SessionStart") {
+      relayAgentHook(paneId, status, kind);
+    }
 
     if (!sessionId) {
       console.debug(

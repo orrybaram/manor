@@ -7,6 +7,33 @@
 
 
 
+
+## [0.5.5] - 2026-04-29
+
+### Features
+- Diff pane: sticky action bar, sidebar layout at wide widths, grouped push+commit action
+- Task list: pagination with retention pruning for faster loads
+- Working directory now refreshes live from terminal `cd` events
+
+### Fixes
+- Generic terminal notifications no longer flip task status incorrectly
+- Recover stuck "requires input" tasks during sweeps, bridge handoff, and replacement
+- Hook events buffered until the relay connects, preventing lost signals
+- Pending Stop signals now apply before sessions transition to completed
+- Stale task reconciliation now keys off paneId instead of agent session ID
+- Skip spurious agent-detection flip on session start
+
+### Improvements
+- More robust hook script (Node-based JSON parsing replaces bash)
+- Atomic write for `~/.manor/hook-port` to avoid partial reads
+- Validate `agentKind` values and inject `MANOR_AGENT_KIND` per connector
+- Monotonic clock for idle sweep math (immune to wall-clock jumps)
+- Main process is now authoritative for unseen flags and `resumedAt` timestamps
+- Atomic task navigation via a single store action
+- Allowlisted fields for `tasks:update` IPC for tighter safety
+- O(1) task lookups via id-index
+- Removed dead `unlinkPane` code path
+
 ## [0.5.4] - 2026-04-22
 
 **Features**

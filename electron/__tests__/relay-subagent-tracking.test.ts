@@ -519,6 +519,57 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     expect(relayAgentHook).toHaveBeenCalledWith("pane-q", "thinking", "claude");
   });
 
+  // ── PROBE: late active hook after Stop should NOT re-activate task/dot ──
+
+  it("PROBE-h1-postooluse-after-stop: late PostToolUse after Stop must not flip task back to thinking", () => {
+    const { relay, relayAgentHook } = ctx;
+
+    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "UserPromptSubmit", null);
+    fire(relay, "pane-h1", "working", "claude", "sess-h1", "PreToolUse", null);
+    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "PostToolUse", null);
+    fire(relay, "pane-h1", "responded", "claude", "sess-h1", "Stop", null);
+
+    const afterStop = ctx.taskManager.getTaskBySessionId("sess-h1");
+    expect(afterStop?.lastAgentStatus).toBe("responded");
+
+    relayAgentHook.mockClear();
+
+    // Late PostToolUse arrives after Stop (HTTP reordering / delayed delivery).
+    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "PostToolUse", null);
+
+    const afterLate = ctx.taskManager.getTaskBySessionId("sess-h1");
+    // Task should remain responded — the agent already finished its turn.
+    expect(afterLate?.lastAgentStatus).toBe("responded");
+    // AgentDetector dot should not flip back to thinking.
+    expect(relayAgentHook).not.toHaveBeenCalledWith("pane-h1", "thinking", "claude");
+  });
+
+  it("PROBE-h1-pretooluse-after-stop: late PreToolUse after Stop must not flip task back to working", () => {
+    const { relay, relayAgentHook } = ctx;
+
+    fire(relay, "pane-h1b", "thinking", "claude", "sess-h1b", "UserPromptSubmit", null);
+    fire(relay, "pane-h1b", "responded", "claude", "sess-h1b", "Stop", null);
+    expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
+
+    relayAgentHook.mockClear();
+    fire(relay, "pane-h1b", "working", "claude", "sess-h1b", "PreToolUse", null);
+
+    expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
+    expect(relayAgentHook).not.toHaveBeenCalledWith("pane-h1b", "working", "claude");
+  });
+
+  it("PROBE-h1-allowed-userpromptsubmit: UserPromptSubmit after Stop SHOULD legitimately re-activate task", () => {
+    const { relay } = ctx;
+
+    fire(relay, "pane-h1c", "thinking", "claude", "sess-h1c", "UserPromptSubmit", null);
+    fire(relay, "pane-h1c", "responded", "claude", "sess-h1c", "Stop", null);
+    expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("responded");
+
+    fire(relay, "pane-h1c", "thinking", "claude", "sess-h1c", "UserPromptSubmit", null);
+
+    expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("thinking");
+  });
+
   // ── Fix 3: Orphan-task sweep ──
 
   it("fix3-a: orphan-task sweep closes a stale working task with no session state", () => {

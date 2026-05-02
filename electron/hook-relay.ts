@@ -212,6 +212,28 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     eventType: string,
     toolUseId: string | null,
   ): void {
+    // Drop late active-status events for an already-responded session.
+    // Hook delivery is independent HTTP per event; PostToolUse/PreToolUse
+    // can race in after Stop, which would otherwise flip both the task
+    // (lastAgentStatus → thinking/working) and the AgentDetector dot
+    // back into an active state. Only UserPromptSubmit legitimately
+    // re-activates a responded session (next turn). SessionStart/SessionEnd
+    // are lifecycle events handled by their own branches below.
+    if (
+      sessionId &&
+      ACTIVE_STATUSES.has(status) &&
+      eventType !== "UserPromptSubmit" &&
+      eventType !== "SessionStart"
+    ) {
+      const existing = taskManager.getTaskBySessionId(sessionId);
+      if (existing?.lastAgentStatus === "responded") {
+        console.debug(
+          `[task-lifecycle] dropping late ${eventType} on responded session ${sessionId}`,
+        );
+        return;
+      }
+    }
+
     // SessionStart fires when the agent CLI launches — before any user
     // activity. Per ADR-014, the agent should remain idle until a real event
     // (UserPromptSubmit, PreToolUse, etc.) arrives. Skip the AgentDetector

@@ -8,6 +8,15 @@
 
 
 
+
+## [0.5.6] - 2026-05-02
+
+### Fixes
+- Late hook events on responded sessions now dropped correctly
+
+### Improvements
+- Hook event handling refactored with typed events and pure state transitions for reliability
+
 ## [0.5.5] - 2026-04-29
 
 ### Features

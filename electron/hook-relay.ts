@@ -27,6 +27,16 @@
  *
  * Always carry the namespace explicitly: the bug fixed by ADR-133 was a sweep
  * comparing a sessionId against a paneId set.
+ *
+ * Lifecycle invariants
+ *
+ * - A session that has reached `responded` (via `Stop`) must not be flipped
+ *   back into an active status by any subsequent hook event other than
+ *   `UserPromptSubmit` (legitimate next turn) or the lifecycle events
+ *   `SessionStart` / `SessionEnd`. Hook delivery is independent HTTP, so a
+ *   tool's `PostToolUse` can race in after `Stop` — without this guard the
+ *   late event re-activates the task and the AgentDetector dot.
+ *   Enforced at the top of `relay()`.
  */
 
 import type { AgentStatus, AgentKind } from "./terminal-host/types";

@@ -29,6 +29,8 @@ import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
 import { openInEditor } from "../../../lib/editor";
+import { categorizePushError, type PushError } from "../../../lib/push-error";
+import { useToastStore } from "../../../store/toast-store";
 
 export type DiffPaneRef = {
   toggleSearch: () => void;
@@ -53,8 +55,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [currentMatch, setCurrentMatch] = useState(0);
     const [commitOpen, setCommitOpen] = useState(false);
     const [pushing, setPushing] = useState(false);
-    const [pushError, setPushError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    // Cancel detection: set to true when the user clicks the toast's Cancel
+    // action so the `done` handler can distinguish a SIGTERM-induced exit from
+    // a real error. Reset at the start of every push.
+    const cancelledRef = useRef(false);
+    // Holds the elapsed-counter setInterval handle so we can clear it from the
+    // `done` handler (and on unmount).
+    const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
     const savedSelection = useRef<string>("");
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -301,23 +309,164 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       setSearchQuery("");
     }, []);
 
-    const handlePush = useCallback(async () => {
+    const runPush = useCallback(
+      async (opts: { setUpstream?: boolean } = {}) => {
+        if (!workspacePath) return;
+        const pushId = workspacePath;
+        const { addToast, updateToast } = useToastStore.getState();
+
+        // Reset cancel flag for this push attempt.
+        cancelledRef.current = false;
+        setPushing(true);
+
+        // Show the loading toast immediately — before awaiting `start` — so
+        // the user has feedback even on the brief gap before the first
+        // progress event arrives.
+        const startedAt = Date.now();
+        addToast({
+          id: pushId,
+          status: "loading",
+          message: "Pushing… 0s",
+          persistent: true,
+          action: {
+            label: "Cancel",
+            onClick: () => {
+              cancelledRef.current = true;
+              void window.electronAPI.git.push.cancel(pushId);
+            },
+          },
+        });
+
+        // Tick the elapsed counter every 1s. Stored in a ref so the `done`
+        // handler (and unmount) can clear it.
+        if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+          useToastStore
+            .getState()
+            .updateToast(pushId, { message: `Pushing… ${elapsed}s` });
+        }, 1000);
+
+        try {
+          await window.electronAPI.git.push.start({
+            wsPath: workspacePath,
+            setUpstream: opts.setUpstream,
+          });
+        } catch (err) {
+          // start() rejected (e.g. "already in progress"). Surface as an
+          // error toast and clean up the interval — no `done` event will fire.
+          if (elapsedTimerRef.current) {
+            clearInterval(elapsedTimerRef.current);
+            elapsedTimerRef.current = null;
+          }
+          setPushing(false);
+          const message = err instanceof Error ? err.message : String(err);
+          updateToast(pushId, {
+            status: "error",
+            message: message.replace(
+              /^Error invoking remote method '[^']+': Error:\s*/i,
+              "",
+            ),
+            persistent: true,
+            action: undefined,
+            detail: undefined,
+          });
+        }
+      },
+      [workspacePath],
+    );
+
+    const handlePush = useCallback(() => {
+      void runPush();
+    }, [runPush]);
+
+    // Subscribe to push progress events for this workspace and drive toast
+    // lifecycle from them. The handler filters by pushId === workspacePath so
+    // each DiffPane only reacts to its own push.
+    useEffect(() => {
       if (!workspacePath) return;
-      setPushing(true);
-      setPushError(null);
-      try {
-        await window.electronAPI.git.push(workspacePath);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const detail = message.replace(
-          /^Error invoking remote method '[^']+': Error:\s*/i,
-          "",
-        );
-        setPushError(detail);
-      } finally {
-        setPushing(false);
-      }
-    }, [workspacePath]);
+      const unsubscribe = window.electronAPI.git.push.onProgress((evt) => {
+        if (evt.pushId !== workspacePath) return;
+        const { updateToast } = useToastStore.getState();
+
+        if (evt.type === "line") {
+          // Only the latest line is shown in `detail` while loading; the full
+          // log is reconstructed in the `done` branch via `stderr`.
+          updateToast(evt.pushId, { detail: evt.line });
+          return;
+        }
+
+        if (evt.type === "done") {
+          if (elapsedTimerRef.current) {
+            clearInterval(elapsedTimerRef.current);
+            elapsedTimerRef.current = null;
+          }
+          setPushing(false);
+
+          // Success
+          if (evt.exitCode === 0) {
+            updateToast(evt.pushId, {
+              status: "success",
+              message: "Pushed",
+              persistent: false,
+              action: undefined,
+              detail: undefined,
+              duration: 3000,
+            });
+            return;
+          }
+
+          // Cancelled — detected via the ref-tracked Cancel callback rather
+          // than parsing exit codes (SIGTERM exit varies by platform).
+          if (cancelledRef.current) {
+            updateToast(evt.pushId, {
+              status: "error",
+              message: "Push cancelled",
+              persistent: false,
+              action: undefined,
+              detail: undefined,
+              duration: 3000,
+            });
+            return;
+          }
+
+          // Categorized failure
+          const pushError: PushError = categorizePushError(evt.stderr);
+          const stderrTrimmed = evt.stderr.trim();
+          updateToast(evt.pushId, {
+            status: "error",
+            message: pushError.message,
+            detail: stderrTrimmed.length > 0 ? stderrTrimmed : undefined,
+            persistent: true,
+            autoExpand: true,
+            action:
+              pushError.action?.kind === "set-upstream"
+                ? {
+                    label: pushError.action.label,
+                    onClick: () => {
+                      void runPush({ setUpstream: true });
+                    },
+                  }
+                : undefined,
+            // NOTE: pull-and-retry has no IPC `pull` method available yet, so
+            // we omit the action button. Tracked as ADR-140 follow-up.
+          });
+        }
+      });
+      return () => {
+        unsubscribe();
+      };
+    }, [workspacePath, runPush]);
+
+    // Clear any pending elapsed-counter interval on unmount so we don't leak.
+    useEffect(() => {
+      return () => {
+        if (elapsedTimerRef.current) {
+          clearInterval(elapsedTimerRef.current);
+          elapsedTimerRef.current = null;
+        }
+      };
+    }, []);
 
     const topBar = (
       <div className={styles.topBar}>
@@ -400,9 +549,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             />
           )}
           {topBar}
-          {pushError && (
-            <div className={styles.pushError}>{pushError}</div>
-          )}
         </div>
         <div className={styles.body}>
           <div className={styles.fileListWrapper}>

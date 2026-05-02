@@ -21,11 +21,18 @@ export function ToastItem(props: ToastItemProps) {
 
   const removeToast = useToastStore((s) => s.removeToast);
   const [exiting, setExiting] = useState(false);
-  const [expanded, setExpanded] = useState(toast.autoExpand ?? false);
+  // `userExpanded` is null until the user toggles. While null, we defer to
+  // `toast.autoExpand`, which can transition true after mount (e.g. a loading
+  // toast that updates to an error toast with autoExpand: true). Once the
+  // user toggles, their choice sticks and overrides further autoExpand
+  // changes — so they can collapse a noisy error.
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const expandable = isExpandable(toast.detail);
+  const expanded =
+    userExpanded === null ? (toast.autoExpand ?? false) : userExpanded;
 
   useMountEffect(() => {
     if (toast.status === "loading") return;
@@ -47,7 +54,7 @@ export function ToastItem(props: ToastItemProps) {
 
   function handleBodyClick() {
     if (!expandable) return;
-    setExpanded((e) => !e);
+    setUserExpanded(!expanded);
   }
 
   return (

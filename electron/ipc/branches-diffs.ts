@@ -2,6 +2,16 @@ import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
+// Track in-flight pushes for cancellation, keyed by pushId (= workspace path).
+const activePushes = new Map<string, { cancel: () => void }>();
+
+/** Cancel all in-flight pushes. Called by app-lifecycle on before-quit. */
+export function killAllActivePushes(): void {
+  for (const [, entry] of activePushes) {
+    entry.cancel();
+  }
+}
+
 export function register(deps: IpcDeps): void {
   const { branchWatcher, diffWatcher, backend } = deps;
 
@@ -75,8 +85,47 @@ export function register(deps: IpcDeps): void {
     await backend.git.commit(wsPath, message, flags);
   });
 
-  ipcMain.handle("git:push", async (_event, wsPath: string, remote?: string, branch?: string) => {
-    assertString(wsPath, "wsPath");
-    await backend.git.push(wsPath, remote, branch);
+  ipcMain.handle(
+    "git:push:start",
+    async (event, args: { wsPath: string; setUpstream?: boolean }) => {
+      assertString(args.wsPath, "wsPath");
+      const pushId = args.wsPath;
+
+      if (activePushes.has(pushId)) {
+        throw new Error("Push already in progress for this workspace");
+      }
+
+      const webContents = event.sender;
+
+      const { cancel } = backend.git.pushStream(
+        args.wsPath,
+        { setUpstream: args.setUpstream },
+        {
+          onLine(line) {
+            if (!webContents.isDestroyed()) {
+              webContents.send("git:push:progress", { pushId, type: "line", line });
+            }
+          },
+          onDone({ exitCode, stderr }) {
+            activePushes.delete(pushId);
+            if (!webContents.isDestroyed()) {
+              webContents.send("git:push:progress", { pushId, type: "done", exitCode, stderr });
+            }
+          },
+        },
+      );
+
+      activePushes.set(pushId, { cancel });
+
+      return { pushId, startedAt: Date.now() };
+    },
+  );
+
+  ipcMain.handle("git:push:cancel", (_event, args: { pushId: string }) => {
+    const entry = activePushes.get(args.pushId);
+    if (entry) {
+      // Do NOT remove from map here — let onDone remove it so the done event still fires.
+      entry.cancel();
+    }
   });
 }

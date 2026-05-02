@@ -49,6 +49,7 @@ import * as projectsIpc from "./ipc/projects";
 import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
+import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as tasksIpc from "./ipc/tasks";
@@ -399,5 +400,6 @@ export function initApp(devTitle: string | null): void {
     webviewServer.stop();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
+    killAllActivePushes();
   });
 }

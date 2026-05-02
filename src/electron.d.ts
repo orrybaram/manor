@@ -198,6 +198,10 @@ export interface RestoredSessionsInfo {
   persistedSessionIds: string[];
 }
 
+export type PushProgressEvent =
+  | { pushId: string; type: "line"; line: string }
+  | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
+
 export interface ElectronAPI {
   pty: {
     create: (
@@ -373,7 +377,11 @@ export interface ElectronAPI {
     discard: (wsPath: string, files: string[]) => Promise<void>;
     stash: (wsPath: string, files: string[]) => Promise<void>;
     commit: (wsPath: string, message: string, flags: string[]) => Promise<void>;
-    push: (wsPath: string, remote?: string, branch?: string) => Promise<void>;
+    push: {
+      start: (args: { wsPath: string; setUpstream?: boolean }) => Promise<{ pushId: string; startedAt: number }>;
+      cancel: (pushId: string) => Promise<void>;
+      onProgress: (handler: (evt: PushProgressEvent) => void) => () => void;
+    };
   };
 
   github: {

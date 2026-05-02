@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+export type PushProgressEvent =
+  | { pushId: string; type: "line"; line: string }
+  | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
+
 function onChannel<T>(
   channel: string,
   callback: (value: T) => void,
@@ -189,8 +193,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("git:stash", wsPath, files),
     commit: (wsPath: string, message: string, flags: string[]) =>
       ipcRenderer.invoke("git:commit", wsPath, message, flags),
-    push: (wsPath: string, remote?: string, branch?: string) =>
-      ipcRenderer.invoke("git:push", wsPath, remote, branch),
+    push: {
+      start: (args: { wsPath: string; setUpstream?: boolean }) =>
+        ipcRenderer.invoke("git:push:start", args),
+      cancel: (pushId: string) =>
+        ipcRenderer.invoke("git:push:cancel", { pushId }),
+      onProgress: (handler: (evt: PushProgressEvent) => void) => {
+        const listener = (_e: unknown, evt: PushProgressEvent) => handler(evt);
+        ipcRenderer.on("git:push:progress", listener);
+        return () => ipcRenderer.removeListener("git:push:progress", listener);
+      },
+    },
   },
 
   github: {

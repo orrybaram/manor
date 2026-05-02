@@ -14,7 +14,8 @@ import {
   type HookRelayDeps,
 } from "../hook-relay";
 import type { TaskInfo } from "../task-persistence";
-import type { AgentStatus, AgentKind } from "../terminal-host/types";
+import type { AgentKind } from "../terminal-host/types";
+import type { AgentHookEvent } from "../agent-hook-events";
 
 // ── Fake TaskManager ──
 
@@ -111,18 +112,97 @@ function buildRelay(options: BuildRelayOptions = {}) {
   };
 }
 
-// Shorthand event types
-type FireArgs = [
-  paneId: string,
-  status: AgentStatus,
-  kind: AgentKind,
-  sessionId: string | null,
-  eventType: string,
-  toolUseId: string | null,
-];
+// ── Per-variant event builders ──
+//
+// One per AgentHookEvent variant. agentKind defaults to "claude" (every test
+// in this file is claude-flavoured). sessionId is required (most tests rely
+// on it being set), but may be null. toolUseId is required on subagent
+// variants — the compiler enforces this at the call site.
 
-function fire(relay: ReturnType<typeof buildRelay>["relay"], ...args: FireArgs) {
-  return relay(...args);
+interface BaseInput {
+  paneId: string;
+  sessionId: string | null;
+  agentKind?: AgentKind;
+}
+
+interface SubagentInput extends BaseInput {
+  toolUseId: string | null;
+}
+
+const base = (i: BaseInput) => ({
+  paneId: i.paneId,
+  sessionId: i.sessionId,
+  agentKind: i.agentKind ?? ("claude" as AgentKind),
+});
+
+export const sessionStart = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "SessionStart",
+  status: "thinking",
+});
+export const sessionEnd = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "SessionEnd",
+  status: "idle",
+});
+export const userPromptSubmit = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "UserPromptSubmit",
+  status: "thinking",
+});
+export const preToolUse = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "PreToolUse",
+  status: "working",
+});
+export const postToolUse = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "PostToolUse",
+  status: "thinking",
+});
+export const postToolUseFailure = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "PostToolUseFailure",
+  status: "thinking",
+});
+export const stop = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "Stop",
+  status: "responded",
+});
+export const stopFailure = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "StopFailure",
+  status: "error",
+});
+export const permissionRequest = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "PermissionRequest",
+  status: "requires_input",
+});
+export const notification = (i: BaseInput): AgentHookEvent => ({
+  ...base(i),
+  type: "Notification",
+  status: "requires_input",
+});
+export const subagentStart = (i: SubagentInput): AgentHookEvent => ({
+  ...base(i),
+  type: "SubagentStart",
+  status: "working",
+  toolUseId: i.toolUseId,
+});
+export const subagentStop = (i: SubagentInput): AgentHookEvent => ({
+  ...base(i),
+  type: "SubagentStop",
+  status: "thinking",
+  toolUseId: i.toolUseId,
+});
+
+function fire(
+  relay: ReturnType<typeof buildRelay>["relay"],
+  event: AgentHookEvent,
+) {
+  return relay(event);
 }
 
 // ── Tests ──
@@ -138,30 +218,30 @@ describe("createHookRelay — subagent Set tracking", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Activate the session first (so hasBeenActive = true)
-    fire(relay, "pane-1", "thinking", "claude", "sess-1", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-1" }));
 
     // First SubagentStart
-    fire(relay, "pane-1", "working", "claude", "sess-1", "SubagentStart", "tool-a");
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-1", toolUseId: "tool-a" }));
     // Second SubagentStart with same id
-    fire(relay, "pane-1", "working", "claude", "sess-1", "SubagentStart", "tool-a");
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-1", toolUseId: "tool-a" }));
 
     const state = sessionStateMap.get("sess-1")!;
     expect(state.activeSubagents.size).toBe(1);
 
     // Stop is dropped because subagent is still running
-    fire(relay, "pane-1", "responded", "claude", "sess-1", "Stop", null);
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-1" }));
     expect(state.pendingStopAt).not.toBeNull();
     // Task should NOT be updated to responded yet
     const task = ctx.taskManager.getTaskBySessionId("sess-1");
     expect(task?.lastAgentStatus).not.toBe("responded");
 
     // SubagentStop clears the Set
-    fire(relay, "pane-1", "thinking", "claude", "sess-1", "SubagentStop", "tool-a");
+    fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-1", toolUseId: "tool-a" }));
     expect(state.activeSubagents.size).toBe(0);
 
     // Now Stop should apply (reset pendingStopAt and call applyStopForSession)
     // Manually invoke the pending stop path — fire another Stop event
-    fire(relay, "pane-1", "responded", "claude", "sess-1", "Stop", null);
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-1" }));
     expect(state.pendingStopAt).toBeNull();
     const taskAfter = ctx.taskManager.getTaskBySessionId("sess-1");
     expect(taskAfter?.lastAgentStatus).toBe("responded");
@@ -170,13 +250,13 @@ describe("createHookRelay — subagent Set tracking", () => {
   it("case 2: missing SubagentStop — Stop is dropped, pendingStopAt is set", () => {
     const { relay, sessionStateMap } = ctx;
 
-    fire(relay, "pane-1", "thinking", "claude", "sess-2", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-2", "SubagentStart", "tool-a");
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-2" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-2", toolUseId: "tool-a" }));
 
     const state = sessionStateMap.get("sess-2")!;
     expect(state.activeSubagents.size).toBe(1);
 
-    fire(relay, "pane-1", "responded", "claude", "sess-2", "Stop", null);
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-2" }));
     expect(state.pendingStopAt).not.toBeNull();
     // Task still active, not responded (last status was "working" from SubagentStart)
     const task = ctx.taskManager.getTaskBySessionId("sess-2");
@@ -186,14 +266,14 @@ describe("createHookRelay — subagent Set tracking", () => {
   it("case 5: SubagentStop with unknown toolUseId is a no-op", () => {
     const { relay, sessionStateMap } = ctx;
 
-    fire(relay, "pane-1", "thinking", "claude", "sess-5", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-5", "SubagentStart", "tool-known");
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-5" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-5", toolUseId: "tool-known" }));
 
     const state = sessionStateMap.get("sess-5")!;
     expect(state.activeSubagents.size).toBe(1);
 
     // Stop with unknown id
-    fire(relay, "pane-1", "thinking", "claude", "sess-5", "SubagentStop", "tool-unknown");
+    fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-5", toolUseId: "tool-unknown" }));
     // Set should still have the original entry
     expect(state.activeSubagents.size).toBe(1);
     expect(state.activeSubagents.has("tool-known")).toBe(true);
@@ -202,8 +282,8 @@ describe("createHookRelay — subagent Set tracking", () => {
   it("case 6: null toolUseId on SubagentStart stores a synthesized fallback id", () => {
     const { relay, sessionStateMap } = ctx;
 
-    fire(relay, "pane-1", "thinking", "claude", "sess-6", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-6", "SubagentStart", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-6" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-6", toolUseId: null }));
 
     const state = sessionStateMap.get("sess-6")!;
     expect(state.activeSubagents.size).toBe(1);
@@ -230,9 +310,9 @@ describe("createHookRelay — sweep safety nets", () => {
    * Helper: set up scenario 2 (SubagentStart then Stop dropped).
    */
   function setupScenario2(relay: ReturnType<typeof buildRelay>["relay"]) {
-    fire(relay, "pane-1", "thinking", "claude", "sess-sw", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-sw", "SubagentStart", "tool-a");
-    fire(relay, "pane-1", "responded", "claude", "sess-sw", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-sw" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-sw", toolUseId: "tool-a" }));
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-sw" }));
   }
 
   it("case 3: safety-net recovery — sweep fires after 16s of inactivity", () => {
@@ -263,7 +343,7 @@ describe("createHookRelay — sweep safety nets", () => {
     vi.advanceTimersByTime(10_000);
 
     // Fresh activity: fire PostToolUse (resets lastHookEventAt)
-    fire(relay, "pane-1", "thinking", "claude", "sess-sw", "PostToolUse", null);
+    fire(relay, postToolUse({ paneId: "pane-1", sessionId: "sess-sw" }));
 
     // Advance another 10s (20s total wall clock, but only 10s since last event)
     vi.advanceTimersByTime(10_000);
@@ -285,7 +365,7 @@ describe("createHookRelay — sweep safety nets", () => {
     const { relay, sweepStaleSessions } = ctx;
 
     // UserPromptSubmit sets hasBeenActive = true via "thinking" status
-    fire(relay, "pane-1", "thinking", "claude", "sess-7", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-7" }));
 
     // Advance time by 61s (> STALE_ACTIVE_MS = 60s)
     vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
@@ -300,8 +380,8 @@ describe("createHookRelay — sweep safety nets", () => {
     const { relay, sweepStaleSessions } = ctx;
 
     // UserPromptSubmit then Stop (no subagents, so Stop applies immediately)
-    fire(relay, "pane-1", "thinking", "claude", "sess-9", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "responded", "claude", "sess-9", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-9" }));
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-9" }));
 
     const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-9");
     expect(taskAfterStop?.lastAgentStatus).toBe("responded");
@@ -319,11 +399,11 @@ describe("createHookRelay — sweep safety nets", () => {
     const { relay, sweepStaleSessions } = ctx;
 
     // UserPromptSubmit (thinking) then PostToolUse refreshes lastHookEventAt
-    fire(relay, "pane-1", "thinking", "claude", "sess-10", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-10" }));
 
     // Advance a bit then fire PostToolUse to refresh lastHookEventAt
     vi.advanceTimersByTime(10_000);
-    fire(relay, "pane-1", "thinking", "claude", "sess-10", "PostToolUse", null);
+    fire(relay, postToolUse({ paneId: "pane-1", sessionId: "sess-10" }));
 
     // Advance to 55s since last event (under STALE_ACTIVE_MS)
     vi.advanceTimersByTime(STALE_ACTIVE_MS - 5_000);
@@ -339,9 +419,9 @@ describe("createHookRelay — sweep safety nets", () => {
     const { relay, sweepStaleSessions } = ctx;
 
     // SubagentStart then Stop (dropped due to active subagent)
-    fire(relay, "pane-1", "thinking", "claude", "sess-11", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-11", "SubagentStart", "tool-a");
-    fire(relay, "pane-1", "responded", "claude", "sess-11", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-11" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-11", toolUseId: "tool-a" }));
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-11" }));
 
     const state = ctx.sessionStateMap.get("sess-11")!;
     expect(state.pendingStopAt).not.toBeNull();
@@ -375,16 +455,16 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Activate root session
-    fire(relay, "pane-1", "thinking", "claude", "sess-f1", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-f1" }));
 
     // SubagentStart with active status
-    fire(relay, "pane-1", "working", "claude", "sess-f1", "SubagentStart", "tool-f1");
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-f1", toolUseId: "tool-f1" }));
 
     const state = sessionStateMap.get("sess-f1")!;
     expect(state.activeSubagents.size).toBe(1);
 
     // SubagentStop arrives with terminal status (complete), not active
-    fire(relay, "pane-1", "complete", "claude", "sess-f1", "SubagentStop", "tool-f1");
+    fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-f1", toolUseId: "tool-f1" }));
 
     // Subagent should be cleared from the tracker
     expect(state.activeSubagents.size).toBe(0);
@@ -393,17 +473,17 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("fix1-b: after terminal-status SubagentStop, parent Stop applies immediately (responded)", () => {
     const { relay, sessionStateMap } = ctx;
 
-    fire(relay, "pane-1", "thinking", "claude", "sess-f1b", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-f1b", "SubagentStart", "tool-f1b");
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-f1b" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-f1b", toolUseId: "tool-f1b" }));
 
     // SubagentStop with terminal status clears tracker
-    fire(relay, "pane-1", "complete", "claude", "sess-f1b", "SubagentStop", "tool-f1b");
+    fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-f1b", toolUseId: "tool-f1b" }));
 
     const state = sessionStateMap.get("sess-f1b")!;
     expect(state.activeSubagents.size).toBe(0);
 
     // Parent Stop should apply immediately (no pending — subagents are cleared)
-    fire(relay, "pane-1", "responded", "claude", "sess-f1b", "Stop", null);
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-f1b" }));
 
     // pendingStopAt must be null (Stop was not dropped)
     expect(state.pendingStopAt).toBeNull();
@@ -416,18 +496,18 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("fix1-c: SubagentStop with idle status also clears the tracker", () => {
     const { relay, sessionStateMap } = ctx;
 
-    fire(relay, "pane-1", "thinking", "claude", "sess-f1c", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-f1c", "SubagentStart", "tool-f1c");
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-f1c" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-f1c", toolUseId: "tool-f1c" }));
 
     const state = sessionStateMap.get("sess-f1c")!;
     expect(state.activeSubagents.size).toBe(1);
 
     // SubagentStop with idle (terminal) status
-    fire(relay, "pane-1", "idle", "claude", "sess-f1c", "SubagentStop", "tool-f1c");
+    fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-f1c", toolUseId: "tool-f1c" }));
     expect(state.activeSubagents.size).toBe(0);
 
     // Stop now applies directly — pendingStopAt stays null
-    fire(relay, "pane-1", "responded", "claude", "sess-f1c", "Stop", null);
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-f1c" }));
     expect(state.pendingStopAt).toBeNull();
     const task = ctx.taskManager.getTaskBySessionId("sess-f1c");
     expect(task?.lastAgentStatus).toBe("responded");
@@ -439,15 +519,15 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Establish sessionA on paneX, drive it to working
-    fire(relay, "pane-x", "thinking", "claude", "sess-a", "UserPromptSubmit", null);
-    fire(relay, "pane-x", "working", "claude", "sess-a", "PostToolUse", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-x", sessionId: "sess-a" }));
+    fire(relay, preToolUse({ paneId: "pane-x", sessionId: "sess-a" }));
 
     // Confirm sessionA task is working
     const taskA = ctx.taskManager.getTaskBySessionId("sess-a");
     expect(taskA?.lastAgentStatus).toBe("working");
 
     // Deliver SessionStart for sessionB on the same paneX
-    fire(relay, "pane-x", "thinking", "claude", "sess-b", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-x", sessionId: "sess-b" }));
 
     // sessionA's task should be force-closed to responded
     const taskAAfter = ctx.taskManager.getTaskBySessionId("sess-a");
@@ -465,11 +545,11 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Deliver SessionStart for sessionC on paneY (no subsequent active events)
-    fire(relay, "pane-y", "thinking", "claude", "sess-c", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-y", sessionId: "sess-c" }));
 
     // Since SessionStart doesn't create session state, sessionC has no entry and hasBeenActive is false
     // Now deliver SessionStart for sessionD on the same paneY
-    fire(relay, "pane-y", "thinking", "claude", "sess-d", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-y", sessionId: "sess-d" }));
 
     // sessionC never activated, so no task was created and no force-close happens
     const taskC = ctx.taskManager.getTaskBySessionId("sess-c");
@@ -483,8 +563,8 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const { relay } = ctx;
 
     // Activate sessionE then stop it normally
-    fire(relay, "pane-z", "thinking", "claude", "sess-e", "UserPromptSubmit", null);
-    fire(relay, "pane-z", "responded", "claude", "sess-e", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-z", sessionId: "sess-e" }));
+    fire(relay, stop({ paneId: "pane-z", sessionId: "sess-e" }));
 
     const taskEAfterStop = ctx.taskManager.getTaskBySessionId("sess-e");
     expect(taskEAfterStop?.lastAgentStatus).toBe("responded");
@@ -492,7 +572,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const broadcastCallsBefore = ctx.broadcastTask.mock.calls.length;
 
     // Deliver SessionStart for a new session on pane-z
-    fire(relay, "pane-z", "thinking", "claude", "sess-f-new", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-z", sessionId: "sess-f-new" }));
 
     // broadcastTask should NOT have been called again (no force-close)
     expect(ctx.broadcastTask.mock.calls.length).toBe(broadcastCallsBefore);
@@ -505,7 +585,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("fix2-d: SessionStart does NOT flip AgentDetector status (no spinner on bare process startup)", () => {
     const { relay, relayAgentHook, paneRootSessionMap } = ctx;
 
-    fire(relay, "pane-q", "thinking", "claude", "sess-q", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-q", sessionId: "sess-q" }));
 
     // AgentDetector must not be touched — otherwise the pane's spinner would
     // appear before any user activity (regression from ADR-014 lifecycle).
@@ -515,7 +595,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     expect(paneRootSessionMap.get("pane-q")).toBe("sess-q");
 
     // A subsequent UserPromptSubmit DOES flip the AgentDetector.
-    fire(relay, "pane-q", "thinking", "claude", "sess-q", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-q", sessionId: "sess-q" }));
     expect(relayAgentHook).toHaveBeenCalledWith("pane-q", "thinking", "claude");
   });
 
@@ -524,10 +604,10 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("PROBE-h1-postooluse-after-stop: late PostToolUse after Stop must not flip task back to thinking", () => {
     const { relay, relayAgentHook } = ctx;
 
-    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "UserPromptSubmit", null);
-    fire(relay, "pane-h1", "working", "claude", "sess-h1", "PreToolUse", null);
-    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "PostToolUse", null);
-    fire(relay, "pane-h1", "responded", "claude", "sess-h1", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-h1", sessionId: "sess-h1" }));
+    fire(relay, preToolUse({ paneId: "pane-h1", sessionId: "sess-h1" }));
+    fire(relay, postToolUse({ paneId: "pane-h1", sessionId: "sess-h1" }));
+    fire(relay, stop({ paneId: "pane-h1", sessionId: "sess-h1" }));
 
     const afterStop = ctx.taskManager.getTaskBySessionId("sess-h1");
     expect(afterStop?.lastAgentStatus).toBe("responded");
@@ -535,7 +615,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     relayAgentHook.mockClear();
 
     // Late PostToolUse arrives after Stop (HTTP reordering / delayed delivery).
-    fire(relay, "pane-h1", "thinking", "claude", "sess-h1", "PostToolUse", null);
+    fire(relay, postToolUse({ paneId: "pane-h1", sessionId: "sess-h1" }));
 
     const afterLate = ctx.taskManager.getTaskBySessionId("sess-h1");
     // Task should remain responded — the agent already finished its turn.
@@ -547,12 +627,12 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("PROBE-h1-pretooluse-after-stop: late PreToolUse after Stop must not flip task back to working", () => {
     const { relay, relayAgentHook } = ctx;
 
-    fire(relay, "pane-h1b", "thinking", "claude", "sess-h1b", "UserPromptSubmit", null);
-    fire(relay, "pane-h1b", "responded", "claude", "sess-h1b", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
+    fire(relay, stop({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
     expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
 
     relayAgentHook.mockClear();
-    fire(relay, "pane-h1b", "working", "claude", "sess-h1b", "PreToolUse", null);
+    fire(relay, preToolUse({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
 
     expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
     expect(relayAgentHook).not.toHaveBeenCalledWith("pane-h1b", "working", "claude");
@@ -561,11 +641,11 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
   it("PROBE-h1-allowed-userpromptsubmit: UserPromptSubmit after Stop SHOULD legitimately re-activate task", () => {
     const { relay } = ctx;
 
-    fire(relay, "pane-h1c", "thinking", "claude", "sess-h1c", "UserPromptSubmit", null);
-    fire(relay, "pane-h1c", "responded", "claude", "sess-h1c", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
+    fire(relay, stop({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
     expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("responded");
 
-    fire(relay, "pane-h1c", "thinking", "claude", "sess-h1c", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
 
     expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("thinking");
   });
@@ -671,7 +751,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
 
     // Create a task via the relay (which also creates session state)
-    fire(relay, "pane-live", "thinking", "claude", "live-session", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-live", sessionId: "live-session" }));
 
     const taskBefore = taskManager.getTaskBySessionId("live-session");
     expect(taskBefore?.lastAgentStatus).toBe("thinking");
@@ -711,7 +791,7 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     const { relay, notifyAgentDetectorGone, sessionStateMap } = ctx;
 
     // Activate session on pane-1
-    fire(relay, "pane-1", "thinking", "claude", "sess-b1", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-b1" }));
 
     notifyAgentDetectorGone("pane-1");
 
@@ -734,8 +814,8 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     const { relay, notifyAgentDetectorGone, broadcastTask } = ctx;
 
     // Activate and then stop normally
-    fire(relay, "pane-1", "thinking", "claude", "sess-b3", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "responded", "claude", "sess-b3", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-b3" }));
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-b3" }));
 
     const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-b3");
     expect(taskAfterStop?.lastAgentStatus).toBe("responded");
@@ -755,9 +835,9 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     const { relay, notifyAgentDetectorGone, sessionStateMap } = ctx;
 
     // SubagentStart then Stop (dropped — pendingStopAt is set)
-    fire(relay, "pane-1", "thinking", "claude", "sess-b4", "UserPromptSubmit", null);
-    fire(relay, "pane-1", "working", "claude", "sess-b4", "SubagentStart", "tool-a");
-    fire(relay, "pane-1", "responded", "claude", "sess-b4", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-b4" }));
+    fire(relay, subagentStart({ paneId: "pane-1", sessionId: "sess-b4", toolUseId: "tool-a" }));
+    fire(relay, stop({ paneId: "pane-1", sessionId: "sess-b4" }));
 
     const state = sessionStateMap.get("sess-b4")!;
     expect(state.pendingStopAt).not.toBeNull();
@@ -783,17 +863,17 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
     const { relay, taskManager, maybeSendNotification, unseenRespondedTasks } = ctx;
 
     // Drive session to working, start a subagent so Stop gets blocked
-    fire(relay, "pane-t3a", "thinking", "claude", "sess-t3a", "UserPromptSubmit", null);
-    fire(relay, "pane-t3a", "working", "claude", "sess-t3a", "SubagentStart", "tool-t3a");
+    fire(relay, userPromptSubmit({ paneId: "pane-t3a", sessionId: "sess-t3a" }));
+    fire(relay, subagentStart({ paneId: "pane-t3a", sessionId: "sess-t3a", toolUseId: "tool-t3a" }));
 
     // Stop arrives while subagent is active → pendingStopAt is set
-    fire(relay, "pane-t3a", "responded", "claude", "sess-t3a", "Stop", null);
+    fire(relay, stop({ paneId: "pane-t3a", sessionId: "sess-t3a" }));
 
     const state = ctx.sessionStateMap.get("sess-t3a")!;
     expect(state.pendingStopAt).not.toBeNull();
 
     // SessionEnd arrives before sweep drains the pending Stop
-    fire(relay, "pane-t3a", "complete", "claude", "sess-t3a", "SessionEnd", null);
+    fire(relay, sessionEnd({ paneId: "pane-t3a", sessionId: "sess-t3a" }));
 
     // maybeSendNotification must have been called with "responded"
     const respondedCall = maybeSendNotification.mock.calls.find(
@@ -818,8 +898,8 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
     const { relay, taskManager, maybeSendNotification, sessionStateMap, paneRootSessionMap } = ctx;
 
     // Activate session normally (no subagent, so Stop applies immediately)
-    fire(relay, "pane-t3c", "thinking", "claude", "sess-t3c", "UserPromptSubmit", null);
-    fire(relay, "pane-t3c", "responded", "claude", "sess-t3c", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-t3c", sessionId: "sess-t3c" }));
+    fire(relay, stop({ paneId: "pane-t3c", sessionId: "sess-t3c" }));
 
     const taskAfterStop = taskManager.getTaskBySessionId("sess-t3c");
     expect(taskAfterStop?.lastAgentStatus).toBe("responded");
@@ -827,7 +907,7 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
     const notifyCallsBefore = maybeSendNotification.mock.calls.length;
 
     // SessionEnd arrives — no pending Stop
-    fire(relay, "pane-t3c", "complete", "claude", "sess-t3c", "SessionEnd", null);
+    fire(relay, sessionEnd({ paneId: "pane-t3c", sessionId: "sess-t3c" }));
 
     // maybeSendNotification NOT called again (no extra "responded" fired)
     expect(maybeSendNotification.mock.calls.length).toBe(notifyCallsBefore);
@@ -900,11 +980,10 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
     const { relay, notifyAgentDetectorGone, taskManager } = ctx;
 
     // Establish a root session mapping by firing a SessionStart
-    fire(relay, "pane-ri2", "thinking", "claude", "sess-ri2", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-ri2", sessionId: "sess-ri2" }));
 
-    // Manually update the task to requires_input (simulate a scenario where the
-    // agent asked for input but its session state is still present)
-    fire(relay, "pane-ri2", "requires_input", "claude", "sess-ri2", "UserPromptSubmit", null);
+    // Drive the task to requires_input via a PermissionRequest event
+    fire(relay, permissionRequest({ paneId: "pane-ri2", sessionId: "sess-ri2" }));
 
     const taskBefore = taskManager.getTaskBySessionId("sess-ri2");
     expect(taskBefore?.lastAgentStatus).toBe("requires_input");
@@ -919,14 +998,14 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
     const { relay, taskManager } = ctx;
 
     // Activate sessionA on pane-ri3, drive it to requires_input
-    fire(relay, "pane-ri3", "thinking", "claude", "sess-ri3a", "UserPromptSubmit", null);
-    fire(relay, "pane-ri3", "requires_input", "claude", "sess-ri3a", "PostToolUse", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-ri3", sessionId: "sess-ri3a" }));
+    fire(relay, permissionRequest({ paneId: "pane-ri3", sessionId: "sess-ri3a" }));
 
     const taskA = taskManager.getTaskBySessionId("sess-ri3a");
     expect(taskA?.lastAgentStatus).toBe("requires_input");
 
     // Deliver SessionStart for a new session on the same pane
-    fire(relay, "pane-ri3", "thinking", "claude", "sess-ri3b", "SessionStart", null);
+    fire(relay, sessionStart({ paneId: "pane-ri3", sessionId: "sess-ri3b" }));
 
     // Old task should be force-closed to responded
     const taskAAfter = taskManager.getTaskBySessionId("sess-ri3a");
@@ -937,8 +1016,8 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
     const { relay, sweepStaleSessions, broadcastTask, taskManager } = ctx;
 
     // Activate then stop normally
-    fire(relay, "pane-ri4", "thinking", "claude", "sess-ri4", "UserPromptSubmit", null);
-    fire(relay, "pane-ri4", "responded", "claude", "sess-ri4", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-ri4", sessionId: "sess-ri4" }));
+    fire(relay, stop({ paneId: "pane-ri4", sessionId: "sess-ri4" }));
 
     const taskAfterStop = taskManager.getTaskBySessionId("sess-ri4");
     expect(taskAfterStop?.lastAgentStatus).toBe("responded");
@@ -978,7 +1057,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
     const { relay, sweepStaleSessions, taskManager } = ctx;
 
     // Activate a session so it's tracked by the sweep.
-    fire(relay, "pane-t4a", "thinking", "claude", "sess-t4a", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-t4a", sessionId: "sess-t4a" }));
 
     const taskBefore = taskManager.getTaskBySessionId("sess-t4a");
     expect(taskBefore?.lastAgentStatus).toBe("thinking");
@@ -1006,7 +1085,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     const { relay, sweepStaleSessions, taskManager } = ctx;
 
-    fire(relay, "pane-t4b", "thinking", "claude", "sess-t4b", "UserPromptSubmit", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-t4b", sessionId: "sess-t4b" }));
 
     // 70 seconds of real monotonic idle (and wall — they advance together).
     mono += 70_000;
@@ -1030,9 +1109,9 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
     const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
 
     // Drive the session into pendingStopAt (subagent active, Stop dropped).
-    fire(relay, "pane-t4c", "thinking", "claude", "sess-t4c", "UserPromptSubmit", null);
-    fire(relay, "pane-t4c", "working", "claude", "sess-t4c", "SubagentStart", "tool-t4c");
-    fire(relay, "pane-t4c", "responded", "claude", "sess-t4c", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-t4c", sessionId: "sess-t4c" }));
+    fire(relay, subagentStart({ paneId: "pane-t4c", sessionId: "sess-t4c", toolUseId: "tool-t4c" }));
+    fire(relay, stop({ paneId: "pane-t4c", sessionId: "sess-t4c" }));
 
     const state = sessionStateMap.get("sess-t4c")!;
     expect(state.pendingStopAt).not.toBeNull();
@@ -1059,9 +1138,9 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
 
-    fire(relay, "pane-t4d", "thinking", "claude", "sess-t4d", "UserPromptSubmit", null);
-    fire(relay, "pane-t4d", "working", "claude", "sess-t4d", "SubagentStart", "tool-t4d");
-    fire(relay, "pane-t4d", "responded", "claude", "sess-t4d", "Stop", null);
+    fire(relay, userPromptSubmit({ paneId: "pane-t4d", sessionId: "sess-t4d" }));
+    fire(relay, subagentStart({ paneId: "pane-t4d", sessionId: "sess-t4d", toolUseId: "tool-t4d" }));
+    fire(relay, stop({ paneId: "pane-t4d", sessionId: "sess-t4d" }));
 
     const state = sessionStateMap.get("sess-t4d")!;
     expect(state.pendingStopAt).not.toBeNull();

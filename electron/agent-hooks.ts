@@ -13,21 +13,12 @@ import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-// Map hook event names to our status
-import type { AgentStatus, AgentKind } from "./terminal-host/types";
-import { getAllConnectors, getAllAgentKinds } from "./agent-connectors";
+import { getAllConnectors } from "./agent-connectors";
 import { hookScriptPath, hookScriptJsPath, hookPortFile } from "./paths";
-
-type PaneStatus = AgentStatus;
-
-type RelayArgs = [
-  paneId: string,
-  status: AgentStatus,
-  kind: AgentKind,
-  sessionId: string | null,
-  eventType: string,
-  toolUseId: string | null,
-];
+import {
+  type AgentHookEvent,
+  parseAgentHookEvent,
+} from "./agent-hook-events";
 
 /**
  * Atomically write the port number to the hook port file.
@@ -41,36 +32,13 @@ function writePortFileAtomic(port: number): void {
   fs.renameSync(tmp, HOOK_PORT_FILE);
 }
 
-export function mapEventToStatus(eventType: string): PaneStatus | null {
-  switch (eventType) {
-    case "SessionStart":
-    case "UserPromptSubmit":
-    case "PostToolUse":
-    case "PostToolUseFailure":
-    case "SubagentStop":
-      return "thinking";
-    case "PreToolUse":
-    case "SubagentStart":
-      return "working";
-    case "PermissionRequest":
-    case "Notification":
-      return "requires_input";
-    case "Stop":
-      return "responded";
-    case "StopFailure":
-      return "error";
-    case "SessionEnd":
-      return "idle";
-    default:
-      return null;
-  }
-}
+export type RelayFn = (event: AgentHookEvent) => void;
 
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
-  private relayFn: ((...args: RelayArgs) => void) | null = null;
-  private pending: RelayArgs[] = [];
+  private relayFn: RelayFn | null = null;
+  private pending: AgentHookEvent[] = [];
   static readonly MAX_PENDING = 1000;
 
   get hookPort(): number {
@@ -78,13 +46,13 @@ export class AgentHookServer {
   }
 
   /** Set the relay function. Any events buffered before this call are replayed in order. */
-  setRelay(relay: (...args: RelayArgs) => void): void {
+  setRelay(relay: RelayFn): void {
     this.relayFn = relay;
     const queued = this.pending;
     this.pending = [];
-    for (const args of queued) {
+    for (const event of queued) {
       try {
-        relay(...args);
+        relay(event);
       } catch (err) {
         console.error("[agent-hooks] error replaying queued event:", err);
       }
@@ -108,68 +76,34 @@ export class AgentHookServer {
         return;
       }
 
-      const paneId = url.searchParams.get("paneId");
-      const eventType = url.searchParams.get("eventType");
-      const sessionId = url.searchParams.get("sessionId");
-      const rawKind = url.searchParams.get("kind");
-      const toolUseId = url.searchParams.get("toolUseId");
-      // notificationKind is only set for Notification events; null means legacy
-      // (Claude Code version that doesn't send the discriminator field).
-      const notificationKind = url.searchParams.get("notificationKind");
+      const result = parseAgentHookEvent(url.searchParams);
 
-      // Validate kind against registered connectors — single source of truth.
-      // Unknown or missing kind returns 400; no silent coerce to "claude".
-      const KNOWN_KINDS = new Set<string>(getAllAgentKinds());
-      if (!rawKind || !KNOWN_KINDS.has(rawKind)) {
-        console.warn(
-          `[agent-hooks] dropping hook with unknown kind=${rawKind} paneId=${paneId} event=${eventType}`,
-        );
-        res.writeHead(400);
-        res.end();
-        return;
-      }
-      const kind = rawKind as AgentKind;
-
-      if (!paneId || !eventType) {
-        res.writeHead(400);
-        res.end();
-        return;
-      }
-
-      // For Notification events: only relay when the kind indicates a
-      // permission-style notification. If notificationKind is absent (null),
-      // treat it as permission-style to preserve backwards-compat with Claude
-      // Code versions that don't send the discriminator. If it is explicitly
-      // present but not "permission_prompt", drop the event silently — it's an
-      // informational notification (e.g. auto_compact) that should not flip
-      // the task to requires_input.
-      if (
-        eventType === "Notification" &&
-        notificationKind !== null &&
-        notificationKind !== "permission_prompt"
-      ) {
-        console.debug(
-          `[agent-hooks] ignoring non-permission Notification: paneId=${paneId} notificationKind=${notificationKind}`,
-        );
-        res.writeHead(200);
-        res.end("ok");
-        return;
-      }
-
-      const status = mapEventToStatus(eventType);
-      console.debug(
-        `[agent-status] hook HTTP: paneId=${paneId} event=${eventType} kind=${kind} sessionId=${sessionId} toolUseId=${toolUseId} notificationKind=${notificationKind ?? "unset"} → status=${status ?? "unmapped"}`,
-      );
-      if (status) {
-        if (this.relayFn) {
-          this.relayFn(paneId, status, kind, sessionId, eventType, toolUseId);
-        } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
-          this.pending.push([paneId, status, kind, sessionId, eventType, toolUseId]);
+      if (!result.ok) {
+        if (result.action === "reject") {
+          console.warn(`[agent-hooks] rejecting hook: ${result.reason}`);
+          res.writeHead(400);
+          res.end();
         } else {
-          console.warn(
-            `[agent-hooks] dropping hook event (queue full): paneId=${paneId} event=${eventType}`,
-          );
+          console.debug(`[agent-hooks] dropping hook: ${result.reason}`);
+          res.writeHead(200);
+          res.end("ok");
         }
+        return;
+      }
+
+      const event = result.event;
+      console.debug(
+        `[agent-status] hook HTTP: paneId=${event.paneId} event=${event.type} kind=${event.agentKind} sessionId=${event.sessionId} → status=${event.status}`,
+      );
+
+      if (this.relayFn) {
+        this.relayFn(event);
+      } else if (this.pending.length < AgentHookServer.MAX_PENDING) {
+        this.pending.push(event);
+      } else {
+        console.warn(
+          `[agent-hooks] dropping hook event (queue full): paneId=${event.paneId} event=${event.type}`,
+        );
       }
 
       res.writeHead(200);

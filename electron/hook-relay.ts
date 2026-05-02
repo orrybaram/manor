@@ -41,6 +41,7 @@
 
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
 import type { TaskInfo } from "./task-persistence";
+import type { AgentHookEvent } from "./agent-hook-events";
 
 // ── Types ──
 
@@ -99,14 +100,7 @@ export interface HookRelayDeps {
   wallClock?: () => number;
 }
 
-export type RelayFn = (
-  paneId: string,
-  status: AgentStatus,
-  kind: AgentKind,
-  sessionId: string | null,
-  eventType: string,
-  toolUseId: string | null,
-) => void;
+export type RelayFn = (event: AgentHookEvent) => void;
 
 // ── Constants (exported for tests) ──
 
@@ -214,14 +208,13 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     }
   }
 
-  function relay(
-    paneId: string,
-    status: AgentStatus,
-    kind: AgentKind,
-    sessionId: string | null,
-    eventType: string,
-    toolUseId: string | null,
-  ): void {
+  function relay(event: AgentHookEvent): void {
+    const { paneId, sessionId, agentKind: kind, status, type: eventType } = event;
+    const toolUseId =
+      eventType === "SubagentStart" || eventType === "SubagentStop"
+        ? event.toolUseId
+        : null;
+
     // Drop late active-status events for an already-responded session.
     // Hook delivery is independent HTTP per event; PostToolUse/PreToolUse
     // can race in after Stop, which would otherwise flip both the task

@@ -4,9 +4,10 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import * as http from "node:http";
-import { AgentHookServer, mapEventToStatus } from "../agent-hooks";
+import { AgentHookServer } from "../agent-hooks";
+import { parseAgentHookEvent } from "../agent-hook-events";
 import { ClaudeConnector } from "../agent-connectors";
-import type { AgentStatus, AgentKind } from "../terminal-host/types";
+import type { AgentHookEvent } from "../agent-hook-events";
 
 function httpGet(
   port: number,
@@ -27,81 +28,82 @@ function httpGet(
 
 // ── Tests ──
 
-describe("mapEventToStatus", () => {
+describe("parseAgentHookEvent — eventType → status mapping", () => {
+  function build(eventType: string, extra: Record<string, string> = {}) {
+    const params = new URLSearchParams({
+      paneId: "p1",
+      eventType,
+      kind: "claude",
+      ...extra,
+    });
+    return parseAgentHookEvent(params);
+  }
+
+  function statusFor(eventType: string) {
+    const r = build(eventType);
+    if (!r.ok) throw new Error(`expected ok for ${eventType}, got ${r.reason}`);
+    return r.event.status;
+  }
+
   it("maps UserPromptSubmit to thinking", () => {
-    expect(mapEventToStatus("UserPromptSubmit")).toBe("thinking");
+    expect(statusFor("UserPromptSubmit")).toBe("thinking");
   });
-
   it("maps PostToolUse to thinking", () => {
-    expect(mapEventToStatus("PostToolUse")).toBe("thinking");
+    expect(statusFor("PostToolUse")).toBe("thinking");
   });
-
   it("maps PostToolUseFailure to thinking", () => {
-    expect(mapEventToStatus("PostToolUseFailure")).toBe("thinking");
+    expect(statusFor("PostToolUseFailure")).toBe("thinking");
   });
-
   it("maps PreToolUse to working", () => {
-    expect(mapEventToStatus("PreToolUse")).toBe("working");
+    expect(statusFor("PreToolUse")).toBe("working");
   });
-
   it("maps Stop to responded", () => {
-    expect(mapEventToStatus("Stop")).toBe("responded");
+    expect(statusFor("Stop")).toBe("responded");
   });
-
   it("maps PermissionRequest to requires_input", () => {
-    expect(mapEventToStatus("PermissionRequest")).toBe("requires_input");
+    expect(statusFor("PermissionRequest")).toBe("requires_input");
   });
-
   it("maps Notification to requires_input", () => {
-    expect(mapEventToStatus("Notification")).toBe("requires_input");
+    expect(statusFor("Notification")).toBe("requires_input");
   });
-
   it("maps StopFailure to error", () => {
-    expect(mapEventToStatus("StopFailure")).toBe("error");
+    expect(statusFor("StopFailure")).toBe("error");
   });
-
   it("maps SubagentStart to working", () => {
-    expect(mapEventToStatus("SubagentStart")).toBe("working");
+    expect(statusFor("SubagentStart")).toBe("working");
   });
-
   it("maps SubagentStop to thinking", () => {
-    expect(mapEventToStatus("SubagentStop")).toBe("thinking");
+    expect(statusFor("SubagentStop")).toBe("thinking");
   });
-
   it("maps SessionEnd to idle", () => {
-    expect(mapEventToStatus("SessionEnd")).toBe("idle");
+    expect(statusFor("SessionEnd")).toBe("idle");
   });
 
-  it("returns null for unknown event", () => {
-    expect(mapEventToStatus("SomeRandomEvent")).toBeNull();
+  it("drops unknown eventType (action=drop)", () => {
+    const r = build("SomeRandomEvent");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.action).toBe("drop");
   });
-
-  it("returns null for empty string", () => {
-    expect(mapEventToStatus("")).toBeNull();
+  it("rejects empty eventType (action=reject)", () => {
+    const r = build("");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.action).toBe("reject");
   });
-
   it("is case sensitive", () => {
-    expect(mapEventToStatus("userpromptsubmit")).toBeNull();
-    expect(mapEventToStatus("stop")).toBeNull();
-    expect(mapEventToStatus("STOP")).toBeNull();
-    expect(mapEventToStatus("permissionrequest")).toBeNull();
+    expect(build("userpromptsubmit").ok).toBe(false);
+    expect(build("stop").ok).toBe(false);
+    expect(build("STOP").ok).toBe(false);
+    expect(build("permissionrequest").ok).toBe(false);
   });
 });
 
 describe("AgentHookServer", () => {
   let server: AgentHookServer;
-  let relayFn: (paneId: string, status: AgentStatus, kind: AgentKind, sessionId: string | null, eventType: string, toolUseId: string | null) => void;
+  let relayFn: (event: AgentHookEvent) => void;
 
   beforeEach(async () => {
     server = new AgentHookServer();
-    relayFn = vi.fn() as unknown as (
-      paneId: string,
-      status: AgentStatus,
-      kind: AgentKind,
-      sessionId: string | null,
-      eventType: string,
-      toolUseId: string | null,
-    ) => void;
+    relayFn = vi.fn() as (event: AgentHookEvent) => void;
     await server.start();
     server.setRelay(relayFn);
   });
@@ -221,14 +223,13 @@ describe("AgentHookServer", () => {
       await httpGet(server.hookPort, "/hook/event?paneId=abc&eventType=Stop&kind=claude");
 
       expect(relayFn).toHaveBeenCalledTimes(1);
-      expect(relayFn).toHaveBeenCalledWith(
-        "abc",
-        "responded",
-        "claude",
-        null,
-        "Stop",
-        null,
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "Stop",
+        status: "responded",
+        paneId: "abc",
+        sessionId: null,
+        agentKind: "claude",
+      });
     });
 
     it("returns 400 and does not invoke relay when kind is missing", async () => {
@@ -251,30 +252,13 @@ describe("AgentHookServer", () => {
         server.hookPort,
         "/hook/event?paneId=abc&eventType=Stop&kind=codex",
       );
-      expect(relayFn).toHaveBeenCalledWith(
-        "abc",
-        "responded",
-        "codex",
-        null,
-        "Stop",
-        null,
-      );
-    });
-
-    it("passes kind parameter from request", async () => {
-      await httpGet(
-        server.hookPort,
-        "/hook/event?paneId=abc&eventType=Stop&kind=codex",
-      );
-
-      expect(relayFn).toHaveBeenCalledWith(
-        "abc",
-        "responded",
-        "codex",
-        null,
-        "Stop",
-        null,
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "Stop",
+        status: "responded",
+        paneId: "abc",
+        sessionId: null,
+        agentKind: "codex",
+      });
     });
 
     it("calls relay with correct paneId for each request", async () => {
@@ -288,24 +272,20 @@ describe("AgentHookServer", () => {
       );
 
       expect(relayFn).toHaveBeenCalledTimes(2);
-      expect(relayFn).toHaveBeenNthCalledWith(
-        1,
-        "pane-1",
-        "responded",
-        "claude",
-        null,
-        "Stop",
-        null,
-      );
-      expect(relayFn).toHaveBeenNthCalledWith(
-        2,
-        "pane-2",
-        "thinking",
-        "claude",
-        null,
-        "UserPromptSubmit",
-        null,
-      );
+      expect(relayFn).toHaveBeenNthCalledWith(1, {
+        type: "Stop",
+        status: "responded",
+        paneId: "pane-1",
+        sessionId: null,
+        agentKind: "claude",
+      });
+      expect(relayFn).toHaveBeenNthCalledWith(2, {
+        type: "UserPromptSubmit",
+        status: "thinking",
+        paneId: "pane-2",
+        sessionId: null,
+        agentKind: "claude",
+      });
     });
 
     it("paneId isolation: event for pane-1 does not relay to pane-2", async () => {
@@ -316,9 +296,8 @@ describe("AgentHookServer", () => {
 
       expect(relayFn).toHaveBeenCalledTimes(1);
       const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
-      const [paneId] = mockRelay.mock.calls[0] as [string, AgentStatus];
-      expect(paneId).toBe("pane-1");
-      expect(paneId).not.toContain("pane-2");
+      const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
+      expect(event.paneId).toBe("pane-1");
     });
 
     it("does not call relay for unknown eventType", async () => {
@@ -332,34 +311,29 @@ describe("AgentHookServer", () => {
   });
 
   describe("toolUseId forwarding", () => {
-    it("passes toolUseId to relay when present in query", async () => {
+    it("passes toolUseId on subagent variants when present in query", async () => {
       await httpGet(
         server.hookPort,
         "/hook/event?paneId=p1&eventType=SubagentStart&toolUseId=abc123&kind=claude",
       );
-      expect(relayFn).toHaveBeenCalledWith(
-        "p1",
-        "working",
-        "claude",
-        null,
-        "SubagentStart",
-        "abc123",
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "SubagentStart",
+        status: "working",
+        paneId: "p1",
+        sessionId: null,
+        agentKind: "claude",
+        toolUseId: "abc123",
+      });
     });
 
-    it("passes null toolUseId when absent", async () => {
+    it("Stop variant has no toolUseId field", async () => {
       await httpGet(
         server.hookPort,
         "/hook/event?paneId=p1&eventType=Stop&kind=claude",
       );
-      expect(relayFn).toHaveBeenCalledWith(
-        "p1",
-        "responded",
-        "claude",
-        null,
-        "Stop",
-        null,
-      );
+      const mockRelay = relayFn as unknown as ReturnType<typeof vi.fn>;
+      const [event] = mockRelay.mock.calls[0] as [AgentHookEvent];
+      expect(event).not.toHaveProperty("toolUseId");
     });
   });
 
@@ -370,14 +344,13 @@ describe("AgentHookServer", () => {
         "/hook/event?paneId=p1&eventType=Notification&kind=claude&notificationKind=permission_prompt",
       );
       expect(res.status).toBe(200);
-      expect(relayFn).toHaveBeenCalledWith(
-        "p1",
-        "requires_input",
-        "claude",
-        null,
-        "Notification",
-        null,
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "Notification",
+        status: "requires_input",
+        paneId: "p1",
+        sessionId: null,
+        agentKind: "claude",
+      });
     });
 
     it("returns 200 but does NOT relay for non-permission notificationKind (e.g. auto_compact)", async () => {
@@ -404,14 +377,13 @@ describe("AgentHookServer", () => {
         "/hook/event?paneId=p1&eventType=Notification&kind=claude",
       );
       expect(res.status).toBe(200);
-      expect(relayFn).toHaveBeenCalledWith(
-        "p1",
-        "requires_input",
-        "claude",
-        null,
-        "Notification",
-        null,
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "Notification",
+        status: "requires_input",
+        paneId: "p1",
+        sessionId: null,
+        agentKind: "claude",
+      });
     });
 
     it("does not affect non-Notification events with notificationKind present (safety)", async () => {
@@ -422,14 +394,13 @@ describe("AgentHookServer", () => {
         "/hook/event?paneId=p1&eventType=Stop&kind=claude&notificationKind=some_value",
       );
       expect(res.status).toBe(200);
-      expect(relayFn).toHaveBeenCalledWith(
-        "p1",
-        "responded",
-        "claude",
-        null,
-        "Stop",
-        null,
-      );
+      expect(relayFn).toHaveBeenCalledWith({
+        type: "Stop",
+        status: "responded",
+        paneId: "p1",
+        sessionId: null,
+        agentKind: "claude",
+      });
     });
   });
 });
@@ -461,9 +432,8 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
 
     // All three events replayed in order
     expect(relay).toHaveBeenCalledTimes(3);
-    expect(relay).toHaveBeenNthCalledWith(1, "p1", "responded", "claude", null, "Stop", null);
-    expect(relay).toHaveBeenNthCalledWith(2, "p2", "thinking", "claude", null, "UserPromptSubmit", null);
-    expect(relay).toHaveBeenNthCalledWith(3, "p3", "working", "claude", null, "PreToolUse", null);
+    const calls = relay.mock.calls.map((c) => (c[0] as AgentHookEvent).type);
+    expect(calls).toEqual(["Stop", "UserPromptSubmit", "PreToolUse"]);
   });
 
   it("delivers post-setRelay events directly without queueing", async () => {
@@ -474,8 +444,8 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     await httpGet(server.hookPort, "/hook/event?paneId=p2&eventType=UserPromptSubmit&kind=claude");
 
     expect(relay).toHaveBeenCalledTimes(2);
-    expect(relay).toHaveBeenNthCalledWith(1, "p1", "responded", "claude", null, "Stop", null);
-    expect(relay).toHaveBeenNthCalledWith(2, "p2", "thinking", "claude", null, "UserPromptSubmit", null);
+    const types = relay.mock.calls.map((c) => (c[0] as AgentHookEvent).type);
+    expect(types).toEqual(["Stop", "UserPromptSubmit"]);
   });
 
   it("replays buffered events then immediately delivers subsequent events", async () => {
@@ -488,12 +458,12 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
 
     // Replayed immediately on setRelay
     expect(relay).toHaveBeenCalledTimes(1);
-    expect(relay).toHaveBeenNthCalledWith(1, "before", "responded", "claude", null, "Stop", null);
+    expect((relay.mock.calls[0][0] as AgentHookEvent).paneId).toBe("before");
 
     // Post-setRelay event goes straight through
     await httpGet(server.hookPort, "/hook/event?paneId=after&eventType=PreToolUse&kind=claude");
     expect(relay).toHaveBeenCalledTimes(2);
-    expect(relay).toHaveBeenNthCalledWith(2, "after", "working", "claude", null, "PreToolUse", null);
+    expect((relay.mock.calls[1][0] as AgentHookEvent).paneId).toBe("after");
   });
 
   it("caps the queue at MAX_PENDING and drops newest overflow events", async () => {
@@ -519,8 +489,7 @@ describe("AgentHookServer — buffering (pre-relay queue)", () => {
     expect(relay).toHaveBeenCalledTimes(max);
 
     // None of the relayed calls should have an overflow paneId
-    const relayMock = relay as ReturnType<typeof vi.fn>;
-    const paneIds = relayMock.mock.calls.map((c) => (c as string[])[0]);
+    const paneIds = relay.mock.calls.map((c) => (c[0] as AgentHookEvent).paneId);
     expect(paneIds).not.toContain("overflow-1");
     expect(paneIds).not.toContain("overflow-2");
   });

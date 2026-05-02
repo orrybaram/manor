@@ -3,6 +3,10 @@
  *
  * `createHookRelay(deps)` returns the relay callback that AgentHookServer.setRelay() expects.
  * The caller (app-lifecycle) wires up the real deps; tests inject fakes.
+ *
+ * Transition logic lives in `hook-relay-transition.ts`; effect application
+ * in `hook-relay-effects.ts`. The factory below wires them to the
+ * persistent state (sessionStateMap, paneRootSessionMap) and the deps.
  */
 
 /**
@@ -36,16 +40,32 @@
  *   `SessionStart` / `SessionEnd`. Hook delivery is independent HTTP, so a
  *   tool's `PostToolUse` can race in after `Stop` — without this guard the
  *   late event re-activates the task and the AgentDetector dot.
- *   Enforced at the top of `relay()`.
+ *   Enforced by the transition function's late-active guard.
  */
 
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
 import type { TaskInfo } from "./task-persistence";
 import type { AgentHookEvent } from "./agent-hook-events";
+import {
+  transitionSession,
+  type SessionState as TransitionSessionState,
+  type SessionPhase,
+} from "./hook-relay-transition";
+import { applyEffects } from "./hook-relay-effects";
 
 // ── Types ──
 
+/**
+ * Persisted session state, stored in `sessionStateMap`.
+ *
+ * Includes both the new ADR-139 transition fields (`phase`,
+ * `activeSubagents`, `lastHookEventAt`) and the legacy bookkeeping fields
+ * (`pendingStopAt`, `hasBeenActive`) that sweeps and the AgentDetector
+ * bridge still consume directly. The legacy fields are kept in sync with
+ * `phase` by the relay() wiring after each transition.
+ */
 export interface SessionState {
+  phase: SessionPhase;
   activeSubagents: Set<string>;
   hasBeenActive: boolean;
   /** Monotonic ms (process.hrtime.bigint() / 1e6) — see ADR-135 ticket-4. */
@@ -179,18 +199,57 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   const sessionStateMap = new Map<string, SessionState>();
   const paneRootSessionMap = new Map<string, string>();
 
-  function getOrCreateSessionState(sessionId: string): SessionState {
-    let state = sessionStateMap.get(sessionId);
-    if (!state) {
-      state = {
-        activeSubagents: new Set(),
-        hasBeenActive: false,
-        pendingStopAt: null,
-        lastHookEventAt: nowMonoMs(),
-      };
-      sessionStateMap.set(sessionId, state);
+  /**
+   * Reconcile the new transition state (phase, activeSubagents,
+   * lastHookEventAt) with the persisted bookkeeping fields (pendingStopAt,
+   * hasBeenActive) that sweeps and the AgentDetector bridge consume.
+   *
+   * Rules:
+   *  - hasBeenActive: any persisted state has been active (the transition
+   *    function only persists state for sessions that have reached step 6
+   *    of transitionSession; terminal events on never-active sessions
+   *    return state: null and do not persist).
+   *  - pendingStopAt:
+   *    - phase === "pendingStop": preserve the existing pendingStopAt if set
+   *      (the moment Stop originally arrived), otherwise stamp with
+   *      lastHookEventAt — this is the moment we entered pendingStop.
+   *    - phase === "responded": cleared (Stop has been applied).
+   *    - phase === "active": preserved unchanged. Mirrors the pre-ADR-139
+   *      behaviour where active hook events did not clear pendingStopAt; a
+   *      held Stop continued to wait until the subagents finished or a
+   *      sweep / SessionEnd drained it.
+   */
+  function reconcilePersistedState(
+    next: TransitionSessionState | null,
+    prev: SessionState | null,
+  ): SessionState | null {
+    if (next === null) return null;
+    let pendingStopAt: number | null;
+    if (next.phase === "pendingStop") {
+      pendingStopAt = prev?.pendingStopAt ?? next.lastHookEventAt;
+    } else if (next.phase === "responded") {
+      pendingStopAt = null;
+    } else {
+      // active — preserve any in-flight pending Stop from a prior turn.
+      pendingStopAt = prev?.pendingStopAt ?? null;
     }
-    return state;
+    // Mutate prev in place when present, so external captures of the state
+    // object (sweeps, tests, the bridge) keep observing the live state.
+    if (prev) {
+      prev.phase = next.phase;
+      prev.activeSubagents = next.activeSubagents;
+      prev.hasBeenActive = true;
+      prev.pendingStopAt = pendingStopAt;
+      prev.lastHookEventAt = next.lastHookEventAt;
+      return prev;
+    }
+    return {
+      phase: next.phase,
+      activeSubagents: next.activeSubagents,
+      hasBeenActive: true,
+      pendingStopAt,
+      lastHookEventAt: next.lastHookEventAt,
+    };
   }
 
   function applyStopForSession(sessionId: string): void {
@@ -209,211 +268,40 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   }
 
   function relay(event: AgentHookEvent): void {
-    const { paneId, sessionId, agentKind: kind, status, type: eventType } = event;
-    const toolUseId =
-      eventType === "SubagentStart" || eventType === "SubagentStop"
-        ? event.toolUseId
-        : null;
+    const sessionId = event.sessionId;
+    const prevState: SessionState | null = sessionId
+      ? sessionStateMap.get(sessionId) ?? null
+      : null;
+    const existingTask = sessionId
+      ? taskManager.getTaskBySessionId(sessionId)
+      : null;
 
-    // Drop late active-status events for an already-responded session.
-    // Hook delivery is independent HTTP per event; PostToolUse/PreToolUse
-    // can race in after Stop, which would otherwise flip both the task
-    // (lastAgentStatus → thinking/working) and the AgentDetector dot
-    // back into an active state. Only UserPromptSubmit legitimately
-    // re-activates a responded session (next turn). SessionStart/SessionEnd
-    // are lifecycle events handled by their own branches below.
-    if (
-      sessionId &&
-      ACTIVE_STATUSES.has(status) &&
-      eventType !== "UserPromptSubmit" &&
-      eventType !== "SessionStart"
-    ) {
-      const existing = taskManager.getTaskBySessionId(sessionId);
-      if (existing?.lastAgentStatus === "responded") {
-        console.debug(
-          `[task-lifecycle] dropping late ${eventType} on responded session ${sessionId}`,
-        );
-        return;
-      }
+    const result = transitionSession(prevState, event, {
+      paneRootSession: paneRootSessionMap.get(event.paneId) ?? null,
+      existingTask,
+      nowMs: nowMonoMs(),
+    });
+
+    // Persist new state for this sessionId, reconciling legacy bookkeeping
+    // fields (pendingStopAt, hasBeenActive) with the transition's phase.
+    if (sessionId) {
+      const reconciled = reconcilePersistedState(result.state, prevState);
+      if (reconciled) sessionStateMap.set(sessionId, reconciled);
+      else sessionStateMap.delete(sessionId);
     }
 
-    // SessionStart fires when the agent CLI launches — before any user
-    // activity. Per ADR-014, the agent should remain idle until a real event
-    // (UserPromptSubmit, PreToolUse, etc.) arrives. Skip the AgentDetector
-    // flip so the spinner doesn't appear on bare process startup. The relay
-    // still processes SessionStart below to maintain paneRootSessionMap.
-    if (eventType !== "SessionStart") {
-      relayAgentHook(paneId, status, kind);
-    }
-
-    if (!sessionId) {
-      console.debug(
-        `[task-lifecycle] No sessionId for ${eventType} on pane ${paneId} — skipping task persistence`,
-      );
-      return;
-    }
-
-    if (eventType === "SessionStart") {
-      const oldRoot = paneRootSessionMap.get(paneId);
-      if (oldRoot && oldRoot !== sessionId) {
-        const oldState = sessionStateMap.get(oldRoot);
-        const oldTask = taskManager.getTaskBySessionId(oldRoot);
-        if (
-          oldTask &&
-          oldState?.hasBeenActive &&
-          isStuckActive(oldTask.lastAgentStatus)
-        ) {
-          console.debug(
-            `[task-lifecycle] SessionStart replacement: forcing responded on old session ${oldRoot}`,
-          );
-          if (oldState) {
-            oldState.activeSubagents.clear();
-            oldState.pendingStopAt = null;
-          }
-          applyStopForSession(oldRoot);
-        }
-        console.debug(
-          `[task-lifecycle] SessionStart: resetting root session on pane ${paneId} (${oldRoot} → ${sessionId})`,
-        );
-        paneRootSessionMap.delete(paneId);
-        sessionStateMap.delete(oldRoot);
-      }
-      paneRootSessionMap.set(paneId, sessionId);
-      return;
-    }
-
-    const rootSession = paneRootSessionMap.get(paneId);
-    if (!rootSession) {
-      paneRootSessionMap.set(paneId, sessionId);
-    } else if (rootSession !== sessionId) {
-      console.debug(
-        `[task-lifecycle] Subagent session ${sessionId} on pane ${paneId} (root=${rootSession}) — skipping task persistence`,
-      );
-      return;
-    }
-
-    const sessionState = getOrCreateSessionState(sessionId);
-    sessionState.lastHookEventAt = nowMonoMs();
-
-    if (eventType === "SubagentStart") {
-      const id = toolUseId ?? `__fallback_${sessionState.activeSubagents.size}`;
-      sessionState.activeSubagents.add(id);
-    } else if (eventType === "SubagentStop") {
-      if (toolUseId) {
-        sessionState.activeSubagents.delete(toolUseId);
-      } else {
-        const first = sessionState.activeSubagents.values().next().value;
-        if (first !== undefined) sessionState.activeSubagents.delete(first);
-      }
-    }
-
-    if (ACTIVE_STATUSES.has(status)) {
-      sessionState.hasBeenActive = true;
-
-      let task = taskManager.getTaskBySessionId(sessionId);
-      const now = new Date().toISOString();
-
-      if (!task) {
-        const prevPaneTask = taskManager.getTaskByPaneId(paneId);
-        if (prevPaneTask) {
-          taskManager.updateTask(prevPaneTask.id, { paneId: null });
-        }
-
-        const paneContext = getPaneContext(paneId);
-        task = taskManager.createTask({
-          agentSessionId: sessionId,
-          name: null,
-          status: "active",
-          completedAt: null,
-          projectId: paneContext?.projectId ?? null,
-          projectName: paneContext?.projectName ?? null,
-          workspacePath: paneContext?.workspacePath ?? null,
-          cwd: paneContext?.workspacePath ?? "",
-          agentKind: kind,
-          agentCommand: paneContext?.agentCommand ?? null,
-          paneId,
-          lastAgentStatus: status,
-          resumedAt: null,
-        });
-        task = taskManager.updateTask(task.id, { activatedAt: now });
-        if (task && status === "requires_input") {
-          unseenInputTasks.add(task.id);
-        }
-      } else {
-        const prevStatus = task.lastAgentStatus;
-        task = taskManager.updateTask(task.id, {
-          lastAgentStatus: status,
-          status: "active",
-          ...(task.activatedAt ? {} : { activatedAt: now }),
-        });
-        if (task) {
-          if (status === "requires_input") {
-            unseenInputTasks.add(task.id);
-          }
-          maybeSendNotification(task, prevStatus, status);
-        }
-      }
-
-      if (task) broadcastTask(task);
-      return;
-    }
-
-    // Terminal / completion statuses
-
-    if (!sessionState.hasBeenActive) {
-      console.debug(
-        `[task-lifecycle] Skipping ${status} for session ${sessionId} — never activated`,
-      );
-      return;
-    }
-
-    let task = taskManager.getTaskBySessionId(sessionId);
-
-    if (eventType === "Stop") {
-      if (sessionState.activeSubagents.size > 0) {
-        sessionState.pendingStopAt = nowMonoMs();
-        return;
-      }
-      sessionState.pendingStopAt = null;
-      applyStopForSession(sessionId);
-    } else if (eventType === "SessionEnd") {
-      if (sessionState.pendingStopAt !== null) {
-        sessionState.activeSubagents.clear();
-        sessionState.pendingStopAt = null;
-        applyStopForSession(sessionId);
-        // applyStopForSession mutated the task; re-fetch so the completed transition
-        // sees the updated lastAgentStatus.
-        task = taskManager.getTaskBySessionId(sessionId);
-      }
-      if (task) {
-        task = taskManager.updateTask(task.id, {
-          lastAgentStatus: "complete",
-          status: "completed",
-          completedAt: new Date().toISOString(),
-        });
-        if (task) {
-          unseenRespondedTasks.delete(task.id);
-          unseenInputTasks.delete(task.id);
-          broadcastTask(task);
-        }
-      }
-      sessionStateMap.delete(sessionId);
-      paneRootSessionMap.delete(paneId);
-    } else if (eventType === "StopFailure") {
-      if (task) {
-        task = taskManager.updateTask(task.id, {
-          lastAgentStatus: status,
-          status: "error",
-          completedAt: new Date().toISOString(),
-        });
-        if (task) {
-          unseenRespondedTasks.delete(task.id);
-          unseenInputTasks.delete(task.id);
-          broadcastTask(task);
-        }
-      }
-      sessionStateMap.delete(sessionId);
-    }
+    applyEffects(result.effects, {
+      taskManager,
+      relayAgentHook,
+      getPaneContext,
+      unseenRespondedTasks,
+      unseenInputTasks,
+      broadcastTask,
+      maybeSendNotification,
+      paneRootSessionMap,
+      sessionStateMap,
+      applyStopForSession,
+    });
   }
 
   function sweepStaleSessions(): void {

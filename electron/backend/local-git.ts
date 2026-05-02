@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { execFileSync, spawn } from "node:child_process";
 import type { GitBackend, WorktreeInfo } from "./types";
 import { execFileAsync } from "./exec";
 
@@ -76,24 +77,94 @@ export class LocalGitBackend implements GitBackend {
     });
   }
 
-  async push(cwd: string, remote?: string, branch?: string): Promise<void> {
-    let resolvedBranch = branch;
-    if (!resolvedBranch) {
-      const { stdout } = await this.execGit(
-        cwd,
-        ["rev-parse", "--abbrev-ref", "HEAD"],
-        { timeout: 10000 },
-      );
-      resolvedBranch = stdout.trim();
+  pushStream(
+    cwd: string,
+    opts: { remote?: string; branch?: string; setUpstream?: boolean },
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void } {
+    // Resolve branch synchronously before spawning if not provided. We use
+    // execFileSync (not the existing async execGit helper) because pushStream
+    // must return its cancel handle synchronously to the caller.
+    let resolvedBranch: string;
+    if (opts.branch) {
+      resolvedBranch = opts.branch;
+    } else {
+      try {
+        const out = execFileSync(
+          "git",
+          ["rev-parse", "--abbrev-ref", "HEAD"],
+          { cwd, encoding: "utf-8", timeout: 10000 },
+        );
+        resolvedBranch = out.toString().trim();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        callbacks.onDone({ exitCode: null, stderr: message });
+        return { cancel: () => {} };
+      }
     }
-    try {
-      await this.execGit(cwd, ["push", remote ?? "origin", resolvedBranch], {
-        timeout: 60000,
+
+    const args: string[] = ["push"];
+    if (opts.setUpstream) args.push("--set-upstream");
+    args.push(opts.remote ?? "origin");
+    args.push(resolvedBranch);
+
+    const child = spawn("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_ASKPASS: "/bin/true",
+      },
+    });
+
+    let pending = "";
+    let stderrFull = "";
+    let exited = false;
+
+    if (child.stderr) {
+      child.stderr.setEncoding("utf-8");
+      child.stderr.on("data", (chunk: string) => {
+        stderrFull += chunk;
+        pending += chunk;
+        const parts = pending.split("\n");
+        // Last element is the trailing partial line (possibly empty).
+        pending = parts.pop() ?? "";
+        for (const line of parts) {
+          callbacks.onLine(line);
+        }
       });
-    } catch (err: unknown) {
-      const stderr = (err as { stderr?: string })?.stderr ?? "";
-      throw new Error(stderr.trim() || "Push failed");
     }
+
+    child.on("error", (err: Error) => {
+      if (exited) return;
+      exited = true;
+      callbacks.onDone({ exitCode: null, stderr: err.message });
+    });
+
+    // Use "close" (not "exit") to ensure stdio streams are flushed.
+    child.on("close", (code: number | null) => {
+      if (exited) return;
+      exited = true;
+      if (pending.length > 0) {
+        callbacks.onLine(pending);
+        pending = "";
+      }
+      callbacks.onDone({ exitCode: code, stderr: stderrFull });
+    });
+
+    return {
+      cancel: () => {
+        if (exited) return;
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* already exited or signal failed — caller does not care */
+        }
+      },
+    };
   }
 
   async getFullDiff(

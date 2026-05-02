@@ -71,8 +71,6 @@ export interface GitBackend {
 
   stash(cwd: string, files: string[]): Promise<void>;
 
-  push(cwd: string, remote?: string, branch?: string): Promise<void>;
-
   pushStream(
     cwd: string,
     opts: { remote?: string; branch?: string; setUpstream?: boolean },

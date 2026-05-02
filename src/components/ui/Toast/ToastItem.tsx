@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useToastStore, type Toast as ToastData } from "../../../store/toast-store";
 import styles from "./Toast.module.css";
@@ -9,13 +10,22 @@ type ToastItemProps = {
   toast: ToastData;
 };
 
+/** Returns true if the detail text is long enough that expanding reveals more. */
+function isExpandable(detail: string | undefined): boolean {
+  if (!detail) return false;
+  return detail.includes("\n") || detail.length > 80;
+}
+
 export function ToastItem(props: ToastItemProps) {
   const { toast } = props;
 
   const removeToast = useToastStore((s) => s.removeToast);
   const [exiting, setExiting] = useState(false);
+  const [expanded, setExpanded] = useState(toast.autoExpand ?? false);
   const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const expandable = isExpandable(toast.detail);
 
   useMountEffect(() => {
     if (toast.status === "loading") return;
@@ -35,6 +45,11 @@ export function ToastItem(props: ToastItemProps) {
     };
   });
 
+  function handleBodyClick() {
+    if (!expandable) return;
+    setExpanded((e) => !e);
+  }
+
   return (
     <div className={`${styles.toast} ${exiting ? styles.exiting : ""}`}>
       {toast.status === "loading" && <div className={styles.spinner} />}
@@ -44,14 +59,33 @@ export function ToastItem(props: ToastItemProps) {
       {toast.status === "error" && (
         <span className={`${styles.icon} ${styles.iconError}`}>&#10007;</span>
       )}
-      <div className={styles.body}>
+      <div
+        className={`${styles.body} ${expandable ? styles.detailExpandable : ""}`}
+        onClick={handleBodyClick}
+      >
         <div className={styles.message}>{toast.message}</div>
-        {toast.detail && <div className={styles.detail}>{toast.detail}</div>}
+        {toast.detail && (
+          <div
+            className={
+              expanded ? styles.detailExpanded : styles.detailCollapsed
+            }
+          >
+            {toast.detail}
+          </div>
+        )}
+        {expandable && (
+          <div className={styles.chevron}>
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </div>
+        )}
       </div>
       {toast.action && (
         <button
           className={styles.actionButton}
-          onClick={toast.action.onClick}
+          onClick={(e) => {
+            e.stopPropagation();
+            toast.action!.onClick();
+          }}
           type="button"
         >
           {toast.action.label}

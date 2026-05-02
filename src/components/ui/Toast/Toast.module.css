@@ -72,6 +72,35 @@
   margin-top: 2px;
 }
 
+.detailCollapsed {
+  color: var(--text-primary);
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detailExpanded {
+  color: var(--text-primary);
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+}
+
+.detailExpandable {
+  cursor: pointer;
+}
+
+.chevron {
+  color: var(--text-dim);
+  margin-top: 2px;
+  line-height: 1;
+}
+
 .actionButton {
   flex-shrink: 0;
   background: transparent;

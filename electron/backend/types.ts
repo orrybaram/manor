@@ -73,6 +73,15 @@ export interface GitBackend {
 
   push(cwd: string, remote?: string, branch?: string): Promise<void>;
 
+  pushStream(
+    cwd: string,
+    opts: { remote?: string; branch?: string; setUpstream?: boolean },
+    callbacks: {
+      onLine: (line: string) => void;
+      onDone: (result: { exitCode: number | null; stderr: string }) => void;
+    },
+  ): { cancel: () => void };
+
   getFullDiff(cwd: string, defaultBranch: string): Promise<string | null>;
 
   getLocalDiff(cwd: string): Promise<string | null>;

@@ -1,6 +1,6 @@
 ---
 title: Integration tests for pushStream against a real bare repo
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

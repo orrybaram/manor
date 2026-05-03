@@ -10,6 +10,18 @@
 
 
 
+
+## [0.5.8] - 2026-05-03
+
+### Features
+- Check for Updates menu item in native app menu
+- AboutModal now shows Check button, last-checked time, and restart row
+- Toasts gain secondary action button and dismiss control
+
+### Improvements
+- Update notifications surface via toasts with live status
+- Faster, more reliable update checks with periodic background polling
+
 ## [0.5.7] - 2026-05-02
 
 Features

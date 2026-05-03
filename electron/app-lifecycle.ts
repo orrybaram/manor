@@ -31,7 +31,7 @@ import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
-import { initAutoUpdater } from "./updater";
+import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
@@ -247,7 +247,29 @@ export function initApp(devTitle: string | null): void {
   app.whenReady().then(async () => {
     // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
     const menu = Menu.buildFromTemplate([
-      { role: "appMenu" },
+      {
+        label: app.name,
+        submenu: [
+          { role: "about" },
+          ...(app.isPackaged
+            ? [
+                { type: "separator" as const },
+                {
+                  label: "Check for Updates…",
+                  click: () => checkForUpdates(),
+                },
+              ]
+            : []),
+          { type: "separator" as const },
+          { role: "services" as const },
+          { type: "separator" as const },
+          { role: "hide" as const },
+          { role: "hideOthers" as const },
+          { role: "unhide" as const },
+          { type: "separator" as const },
+          { role: "quit" as const },
+        ],
+      },
       { role: "editMenu" },
       {
         label: "View",

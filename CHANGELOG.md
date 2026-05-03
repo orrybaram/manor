@@ -9,6 +9,17 @@
 
 
 
+
+## [0.5.7] - 2026-05-02
+
+Features
+- Stream `git push` output live with progress toasts in DiffPane
+- Click toasts to expand and view full push output, with auto-expand on errors
+
+Improvements
+- Cancel in-flight pushes from the UI
+- Clearer push error messages via categorized failure types
+
 ## [0.5.6] - 2026-05-02
 
 ### Fixes

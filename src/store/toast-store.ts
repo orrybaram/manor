@@ -9,6 +9,7 @@ export interface Toast {
   /** Custom auto-dismiss duration in ms (overrides default) */
   duration?: number;
   action?: { label: string; onClick: () => void };
+  secondaryAction?: { label: string; onClick: () => void };
   /** When true, render `detail` expanded on first mount instead of collapsed. */
   autoExpand?: boolean;
 }

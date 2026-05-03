@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useToastStore, type Toast as ToastData } from "../../../store/toast-store";
 import styles from "./Toast.module.css";
@@ -96,6 +96,31 @@ export function ToastItem(props: ToastItemProps) {
           type="button"
         >
           {toast.action.label}
+        </button>
+      )}
+      {toast.secondaryAction && (
+        <button
+          className={styles.secondaryActionButton}
+          onClick={(e) => {
+            e.stopPropagation();
+            toast.secondaryAction!.onClick();
+          }}
+          type="button"
+        >
+          {toast.secondaryAction.label}
+        </button>
+      )}
+      {toast.persistent && (
+        <button
+          className={styles.dismissButton}
+          onClick={(e) => {
+            e.stopPropagation();
+            removeToast(toast.id);
+          }}
+          type="button"
+          aria-label="Dismiss"
+        >
+          <X size={12} />
         </button>
       )}
     </div>

@@ -123,6 +123,47 @@
   color: var(--text-selected);
 }
 
+.secondaryActionButton {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.secondaryActionButton:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.dismissButton {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 4px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.dismissButton:hover {
+  color: var(--text-primary);
+}
+
 @keyframes slideIn {
   from {
     opacity: 0;

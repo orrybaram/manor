@@ -203,6 +203,10 @@ export type PushProgressEvent =
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
 
 export interface ElectronAPI {
+  env: {
+    isPackaged: boolean;
+  };
+
   pty: {
     create: (
       paneId: string,
@@ -468,11 +472,15 @@ export interface ElectronAPI {
   updater: {
     checkForUpdates: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
+    onChecking: (callback: (payload: { manual: boolean }) => void) => () => void;
     onUpdateAvailable: (
       callback: (info: { version: string }) => void,
     ) => () => void;
     onUpdateDownloaded: (
       callback: (info: { version: string }) => void,
+    ) => () => void;
+    onUpdateNotAvailable: (
+      callback: (info: { version: string; manual: boolean }) => void,
     ) => () => void;
     onDownloadProgress: (
       callback: (progress: {
@@ -482,7 +490,7 @@ export interface ElectronAPI {
         total: number;
       }) => void,
     ) => () => void;
-    onError: (callback: (message: string) => void) => () => void;
+    onError: (callback: (payload: { message: string; manual: boolean }) => void) => () => void;
   };
 
   dialog: {

@@ -14,7 +14,14 @@ function onChannel<T>(
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
+// Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
+const isPackaged = process.argv.includes("--manor-packaged=true");
+
 contextBridge.exposeInMainWorld("electronAPI", {
+  env: {
+    isPackaged,
+  },
+
   pty: {
     create: (paneId: string, cwd: string | null, cols: number, rows: number, agentKind?: string | null) =>
       ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
@@ -297,10 +304,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   updater: {
     checkForUpdates: () => ipcRenderer.invoke("updater:checkForUpdates"),
     quitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
+    onChecking: (callback: (payload: { manual: boolean }) => void) =>
+      onChannel("updater:checking-for-update", callback),
     onUpdateAvailable: (callback: (info: { version: string }) => void) =>
       onChannel("updater:update-available", callback),
     onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
       onChannel("updater:update-downloaded", callback),
+    onUpdateNotAvailable: (callback: (info: { version: string; manual: boolean }) => void) =>
+      onChannel("updater:update-not-available", callback),
     onDownloadProgress: (
       callback: (progress: {
         percent: number;
@@ -309,7 +320,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         total: number;
       }) => void,
     ) => onChannel("updater:download-progress", callback),
-    onError: (callback: (message: string) => void) =>
+    onError: (callback: (payload: { message: string; manual: boolean }) => void) =>
       onChannel("updater:error", callback),
   },
 

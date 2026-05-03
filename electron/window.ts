@@ -85,6 +85,8 @@ export function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
+      // Pass isPackaged synchronously so preload can expose it without an IPC round-trip
+      additionalArguments: [`--manor-packaged=${app.isPackaged}`],
     },
   });
 

@@ -28,7 +28,7 @@ import type { BrowserPaneRef } from "./components/workspace-panes/BrowserPane/Br
 import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
-import { useAutoUpdate } from "./hooks/useAutoUpdate";
+import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
@@ -61,7 +61,7 @@ function App() {
     });
   });
 
-  useAutoUpdate();
+  useUpdaterToasts();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();

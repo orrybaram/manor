@@ -5,6 +5,7 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
@@ -426,6 +427,16 @@ export function useCommands({
     const editorName = usePreferencesStore.getState().preferences.defaultEditor || undefined;
 
     const generalItems: CommandItem[] = [
+      {
+        id: "new-project",
+        label: "New Project",
+        icon: <FolderPlus size={14} />,
+        keywords: ["add", "create", "project", "folder", "directory", "repo", "open"],
+        action: () => {
+          onClose();
+          void useProjectStore.getState().addProjectFromDirectory();
+        },
+      },
       {
         id: "settings",
         label: "Settings",

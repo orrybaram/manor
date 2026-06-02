@@ -12,6 +12,16 @@
 
 
 
+
+## [0.5.10] - 2026-06-01
+
+**Features**
+- Right-click the Projects header in the sidebar to open a context menu
+
+**Fixes**
+- Orphaned active tasks no longer linger in the sidebar
+- Fixed pane ownership not transferring correctly when creating a task
+
 ## [0.5.9] - 2026-06-01
 
 Features:

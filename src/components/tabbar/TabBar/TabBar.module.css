@@ -4,7 +4,7 @@
   display: flex;
   align-items: flex-end;
   width: 100%;
-  padding: 12px 8px 4px;
+  padding: 12px 8px 0px;
   background: var(--dim);
   -webkit-app-region: drag;
   user-select: none;

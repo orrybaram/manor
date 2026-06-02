@@ -20,7 +20,8 @@
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 /* Duplicated in TasksList.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */

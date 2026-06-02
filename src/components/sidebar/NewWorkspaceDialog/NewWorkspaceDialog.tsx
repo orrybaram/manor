@@ -153,7 +153,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setSelectedProjectId(defaultProjectId);
       setError(null);
       setIsCreating(false);
-      nameRef.current?.focus();
+      // Defer focus to the next frame: the setState calls above re-render the
+      // dialog (e.g. switching back to "new" mode unmounts the existing-mode
+      // input). Focusing synchronously here lands on the old, about-to-unmount
+      // input and the focus is lost. rAF runs after React commits the new tree.
+      requestAnimationFrame(() => nameRef.current?.focus());
     },
     [
       defaultProjectId,

@@ -15,7 +15,7 @@ import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import { useToastStore } from "../../../../store/toast-store";
 import { openInEditor } from "../../../../lib/editor";
 import styles from "./FileList.module.css";
-import { Row } from "../../../ui/Layout/Layout";
+import { Row, Stack } from "../../../ui/Layout/Layout";
 
 type FileListProps = {
   files: DiffFile[];
@@ -358,28 +358,30 @@ export function FileList(props: FileListProps) {
                     onClick={(e) => handleRowClick(e, file, index)}
                     onContextMenu={() => handleContextMenu(file)}
                   >
-                    <span className={styles.fileListName}>
-                      <Row gap="sm" align="center">
-                        {isLocal && (
-                          <Circle
-                            size={6}
-                            className={
-                              isStaged ? styles.stagedIcon : styles.unstagedIcon
-                            }
-                          />
-                        )}
-
-                        <span
-                          onClick={(e) => handleFileNameClick(e, file)}
-                          className={styles.fileName}
-                        >
-                          {fileName}
-                        </span>
-                      </Row>
-                      {fileDir && (
-                        <span className={styles.fileDir}>{fileDir}</span>
+                    <Row gap="sm">
+                      {isLocal && (
+                        <Circle
+                          size={6}
+                          className={
+                            isStaged ? styles.stagedIcon : styles.unstagedIcon
+                          }
+                        />
                       )}
-                    </span>
+                      <Stack className={styles.fileListName}>
+                        <Row gap="sm" align="center">
+
+                          <span
+                            onClick={(e) => handleFileNameClick(e, file)}
+                            className={styles.fileName}
+                          >
+                            {fileName}
+                          </span>
+                        </Row>
+                        {fileDir && (
+                          <span className={styles.fileDir}>{fileDir}</span>
+                        )}
+                      </Stack>
+                    </Row>
                     {isLocal && workspacePath && (
                       <span className={styles.fileActions}>
                         {isStaged ? (

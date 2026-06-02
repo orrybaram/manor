@@ -4,7 +4,6 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Plus from "lucide-react/dist/esm/icons/plus";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
@@ -233,15 +232,6 @@ export function Sidebar(props: SidebarProps) {
               <Boxes size={12} />
               Projects
             </span>
-            <button
-              className={styles.action}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAddProject();
-              }}
-            >
-              <Plus size={14} />
-            </button>
           </div>
           <>
             {projects.length === 0 && (

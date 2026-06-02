@@ -6,7 +6,6 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import Plus from "lucide-react/dist/esm/icons/plus";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import House from "lucide-react/dist/esm/icons/house";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
@@ -98,11 +97,10 @@ const WorkspaceItem = React.forwardRef<
       data-testid="workspace-item"
       data-workspace-path={ws.path}
       {...rest}
-      className={`${styles.workspace} ${
-        isSelected && idx === selectedWorkspaceIndex
+      className={`${styles.workspace} ${isSelected && idx === selectedWorkspaceIndex
           ? styles.workspaceActive
           : ""
-      } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+        } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...getTransformStyle(idx), ...rest.style }}
       onClick={(e) => {
         if (!justDragged.current) onSelectWorkspace(idx);
@@ -277,8 +275,8 @@ export function ProjectItem(props: ProjectItemProps) {
       style={
         project.color
           ? ({
-              "--project-color": `var(--${project.color})`,
-            } as React.CSSProperties)
+            "--project-color": `var(--${project.color})`,
+          } as React.CSSProperties)
           : undefined
       }
     >
@@ -303,18 +301,6 @@ export function ProjectItem(props: ProjectItemProps) {
             {collapsed && projectStatus && (
               <AgentDot status={projectStatus} size="sidebar" pulse={projectPulse} />
             )}
-            <button
-              className={styles.projectAction}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                setNewWorkspaceOpen(true);
-              }}
-              title="New Workspace"
-              data-testid="sidebar-new-workspace-button"
-            >
-              <Plus size={12} />
-            </button>
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>

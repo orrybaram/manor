@@ -71,7 +71,9 @@ export function TasksList(props: TasksListProps) {
     return ids;
   }, [workspaceLayouts]);
 
-  // Show active tasks always; show completed/error/abandoned only if their pane is still active.
+  // Show active tasks only while they still own a pane; show completed/error/abandoned
+  // only if their pane is still active. Orphaned active records (paneId null) are
+  // hidden because they have no pane to navigate to.
   //
   // Pagination note (ADR-136): the task store loads `tasks:getActive` (all active)
   // plus the first page of `tasks:getAll` (most recent N). A non-active task whose
@@ -83,7 +85,7 @@ export function TasksList(props: TasksListProps) {
     () =>
       tasks.filter(
         (t) =>
-          t.status === "active" ||
+          (t.status === "active" && t.paneId != null) ||
           (t.paneId != null && activePaneIds.has(t.paneId)),
       ),
     [tasks, activePaneIds],

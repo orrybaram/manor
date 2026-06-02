@@ -5,6 +5,7 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
@@ -224,15 +225,29 @@ export function Sidebar(props: SidebarProps) {
       <div className={styles.titlebar} />
       <div className={styles.content}>
         <div>
-          <div
-            className={styles.sectionHeader}
-            style={{ cursor: "pointer" }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <Boxes size={12} />
-              Projects
-            </span>
-          </div>
+          <ContextMenu.Root>
+            <ContextMenu.Trigger asChild>
+              <div
+                className={styles.sectionHeader}
+                style={{ cursor: "pointer" }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <Boxes size={12} />
+                  Projects
+                </span>
+              </div>
+            </ContextMenu.Trigger>
+            <ContextMenu.Portal>
+              <ContextMenu.Content className={styles.contextMenu}>
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={handleAddProject}
+                >
+                  Add Project
+                </ContextMenu.Item>
+              </ContextMenu.Content>
+            </ContextMenu.Portal>
+          </ContextMenu.Root>
           <>
             {projects.length === 0 && (
               <div className={styles.empty}>

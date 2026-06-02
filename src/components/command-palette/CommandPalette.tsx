@@ -430,6 +430,15 @@ export function CommandPalette(props: CommandPaletteProps) {
                           </Command.Group>
                         </Fragment>
                       ))}
+                    <Command.Empty className={styles.emptyState}>
+                      <span className={styles.emptyGhost} aria-hidden>
+                        👻
+                      </span>
+                      <span className={styles.emptyTitle}>Boo!</span>
+                      <span className={styles.emptyHint}>
+                        No commands haunt this search.
+                      </span>
+                    </Command.Empty>
                   </>
                 )}
 

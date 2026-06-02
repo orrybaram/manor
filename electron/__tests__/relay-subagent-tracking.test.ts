@@ -1279,3 +1279,114 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
     expect(taskAfter?.lastAgentStatus).toBe("responded");
   });
 });
+
+describe("createHookRelay — ADR-142: CreateTask retires previous pane owner", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    ctx = buildRelay();
+  });
+
+  it("adr142-1: session handoff retires old task to completed and creates exactly one active task on the pane", () => {
+    const { relay, taskManager } = ctx;
+
+    // Step 1: Drive sessionA active on paneP
+    fire(relay, userPromptSubmit({ paneId: "pane-P", sessionId: "sess-A" }));
+
+    const taskA = taskManager.getTaskBySessionId("sess-A");
+    expect(taskA).not.toBeNull();
+    expect(taskA?.status).toBe("active");
+    expect(taskA?.paneId).toBe("pane-P");
+
+    // Step 2: Simulate session handoff — SessionStart for sessionB on the same pane,
+    // followed by an active event for sessionB (which triggers CreateTask).
+    fire(relay, sessionStart({ paneId: "pane-P", sessionId: "sess-B" }));
+    fire(relay, userPromptSubmit({ paneId: "pane-P", sessionId: "sess-B" }));
+
+    const taskAAfter = taskManager.getTaskBySessionId("sess-A");
+    const taskBAfter = taskManager.getTaskBySessionId("sess-B");
+
+    // The original task (sessionA) must be retired: paneId null, status completed
+    expect(taskAAfter?.status).toBe("completed");
+    expect(taskAAfter?.paneId).toBeNull();
+    expect(taskAAfter?.completedAt).not.toBeNull();
+
+    // The new task (sessionB) is the only active task on paneP
+    expect(taskBAfter?.status).toBe("active");
+    expect(taskBAfter?.paneId).toBe("pane-P");
+
+    // Exactly one task should have status==="active" with paneId===pane-P
+    const activePaneTasks = Array.from(taskManager.tasks.values()).filter(
+      (t) => t.status === "active" && t.paneId === "pane-P",
+    );
+    expect(activePaneTasks).toHaveLength(1);
+    expect(activePaneTasks[0].agentSessionId).toBe("sess-B");
+  });
+
+  it("adr142-2: broadcastTask is called for the retired task (completed) and for the new task", () => {
+    const { relay, taskManager, broadcastTask } = ctx;
+
+    // Drive sessionA active on paneP
+    fire(relay, userPromptSubmit({ paneId: "pane-P2", sessionId: "sess-A2" }));
+
+    const taskA = taskManager.getTaskBySessionId("sess-A2");
+    expect(taskA).not.toBeNull();
+
+    // Record broadcast count before the handoff
+    const broadcastCountBefore = broadcastTask.mock.calls.length;
+
+    // Trigger handoff: SessionStart fires ForceCloseOldSession (broadcasts sess-A2
+    // as lastAgentStatus:"responded", status:"active"), then userPromptSubmit fires
+    // CreateTask which retires sess-A2 to status:"completed" (second broadcast for
+    // sess-A2) before broadcasting the new sess-B2 task.
+    fire(relay, sessionStart({ paneId: "pane-P2", sessionId: "sess-B2" }));
+    fire(relay, userPromptSubmit({ paneId: "pane-P2", sessionId: "sess-B2" }));
+
+    const newCalls = broadcastTask.mock.calls.slice(broadcastCountBefore);
+    expect(newCalls.length).toBeGreaterThanOrEqual(2);
+
+    // There must be a broadcast for sess-A2 with status:"completed" and paneId:null.
+    // This is the retirement broadcast emitted by the CreateTask block.
+    const retiredBroadcast = (newCalls.map((c) => c[0]) as TaskInfo[]).find(
+      (t) => t.agentSessionId === "sess-A2" && t.status === "completed",
+    );
+    expect(retiredBroadcast).toBeDefined();
+    expect(retiredBroadcast!.paneId).toBeNull();
+
+    // The retirement broadcast must come BEFORE the new-task broadcast.
+    const retiredIdx = newCalls.findIndex(
+      (c) => (c[0] as TaskInfo).agentSessionId === "sess-A2" && (c[0] as TaskInfo).status === "completed",
+    );
+    const newTaskIdx = newCalls.findIndex(
+      (c) => (c[0] as TaskInfo).agentSessionId === "sess-B2",
+    );
+    expect(retiredIdx).toBeGreaterThanOrEqual(0);
+    expect(newTaskIdx).toBeGreaterThanOrEqual(0);
+    expect(retiredIdx).toBeLessThan(newTaskIdx);
+
+    // The new task broadcast should be active
+    expect((newCalls[newTaskIdx][0] as TaskInfo).status).toBe("active");
+  });
+
+  it("adr142-3: unseen flags are cleared for the retired task", () => {
+    const { relay, taskManager, unseenRespondedTasks, unseenInputTasks } = ctx;
+
+    // Drive sessionA to requires_input so it gets an unseen flag
+    fire(relay, userPromptSubmit({ paneId: "pane-P3", sessionId: "sess-A3" }));
+    fire(relay, permissionRequest({ paneId: "pane-P3", sessionId: "sess-A3" }));
+
+    const taskA = taskManager.getTaskBySessionId("sess-A3");
+    expect(taskA).not.toBeNull();
+    // Manually seed both unseen sets to simulate worst-case
+    unseenRespondedTasks.add(taskA!.id);
+    unseenInputTasks.add(taskA!.id);
+
+    // Trigger handoff
+    fire(relay, sessionStart({ paneId: "pane-P3", sessionId: "sess-B3" }));
+    fire(relay, userPromptSubmit({ paneId: "pane-P3", sessionId: "sess-B3" }));
+
+    // Both unseen flags for the retired task must be cleared
+    expect(unseenRespondedTasks.has(taskA!.id)).toBe(false);
+    expect(unseenInputTasks.has(taskA!.id)).toBe(false);
+  });
+});

@@ -90,11 +90,21 @@ export function applyEffects(
 
       case "CreateTask": {
         // Mirror the pre-ADR-139 procedural code at hook-relay.ts:316-341.
-        // First, clear any prior task that owned this paneId (stale paneId
-        // pointer from a previous task on the same pane).
+        // First, retire any prior task that owned this paneId. Nulling paneId
+        // alone leaves the old record status:"active" which causes it to linger
+        // as a duplicate in the sidebar (ADR-142). Mark it completed, clear its
+        // unseen flags, and broadcast the retirement so the renderer drops the
+        // stale row live.
         const prevPaneTask = deps.taskManager.getTaskByPaneId(effect.paneId);
         if (prevPaneTask) {
-          deps.taskManager.updateTask(prevPaneTask.id, { paneId: null });
+          const retired = deps.taskManager.updateTask(prevPaneTask.id, {
+            paneId: null,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+          });
+          deps.unseenRespondedTasks.delete(prevPaneTask.id);
+          deps.unseenInputTasks.delete(prevPaneTask.id);
+          if (retired) deps.broadcastTask(retired);
         }
 
         const paneContext = deps.getPaneContext(effect.paneId);

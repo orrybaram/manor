@@ -11,6 +11,20 @@
 
 
 
+
+## [0.5.9] - 2026-06-01
+
+Features:
+- Add a "New Project" command to the command palette
+- Open the new workspace dialog with a playful empty state when a search returns no results
+
+Fixes:
+- Reliably focus the name input when opening the new workspace dialog
+
+Improvements:
+- Always keep the Projects section expanded in the sidebar and remove the collapse toggle
+- Streamline the sidebar by removing add buttons and tidying the diff file list layout
+
 ## [0.5.8] - 2026-05-03
 
 ### Features

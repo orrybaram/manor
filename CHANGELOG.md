@@ -13,6 +13,18 @@
 
 
 
+
+## [0.5.11] - 2026-06-05
+
+Features
+- Search terminal scrollback with cmd+f
+- Hide and unhide workspaces from the sidebar
+- Share a single zsh history file across all panes
+
+Fixes
+- Diff view now sizes to full content instead of being capped by a max height
+- Hidden workspaces submenu now matches the workspace-list layout
+
 ## [0.5.10] - 2026-06-01
 
 **Features**

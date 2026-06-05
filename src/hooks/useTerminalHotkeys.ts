@@ -13,10 +13,14 @@ import type { Terminal } from "@xterm/xterm";
 import { useKeybindingsStore } from "../store/keybindings-store";
 import { comboFromEvent, comboMatches } from "../lib/keybindings";
 
-export function useTerminalHotkeys() {
+export function useTerminalHotkeys(onOpenSearch?: () => void) {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
+
+  // Read the latest onOpenSearch via ref — attachHandler is wired once at mount.
+  const onOpenSearchRef = useRef(onOpenSearch);
+  onOpenSearchRef.current = onOpenSearch;
 
   const attachHandler = useCallback(
     (term: Terminal, ptyWrite: (data: string) => void) => {
@@ -42,6 +46,14 @@ export function useTerminalHotkeys() {
         // Check if this combo matches any app keybinding
         const combo = comboFromEvent(e);
         const bindings = bindingsRef.current;
+
+        // Terminal search (cmd+f) is handled locally: open this pane's search
+        // bar and swallow the key so the terminal doesn't process it.
+        const searchBinding = bindings["terminal-search"];
+        if (searchBinding && comboMatches(combo, searchBinding)) {
+          if (e.type === "keydown") onOpenSearchRef.current?.();
+          return false;
+        }
         for (const [id, bound] of Object.entries(bindings)) {
           if (comboMatches(combo, bound)) {
             // Browser-only bindings should not intercept terminal input —

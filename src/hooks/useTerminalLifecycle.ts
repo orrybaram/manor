@@ -53,16 +53,18 @@ export function useTerminalLifecycle(
   paneId: string,
   cwd: string | undefined,
   theme: ITheme | null,
+  onOpenSearch?: () => void,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
+  const [searchAddon, setSearchAddon] = useState<SearchAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, resize, create, detach } =
     useTerminalConnection(paneId);
-  const { attachHandler } = useTerminalHotkeys();
+  const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events (pass write so the stream handler can
   // respond to kitty keyboard protocol queries on behalf of xterm.js)
@@ -125,7 +127,8 @@ export function useTerminalLifecycle(
 
     const fit = new FitAddon();
     t.loadAddon(fit);
-    t.loadAddon(new SearchAddon());
+    const search = new SearchAddon();
+    t.loadAddon(search);
     t.loadAddon(new SerializeAddon());
 
     const unicode11 = new Unicode11Addon();
@@ -175,6 +178,7 @@ export function useTerminalLifecycle(
     termRef.current = t;
     setTerm(t);
     setFitAddon(fit);
+    setSearchAddon(search);
 
     // Create or attach to daemon session
     const cols = t.cols;
@@ -333,6 +337,7 @@ export function useTerminalLifecycle(
       resizeDisposable.dispose();
       setTerm(null);
       setFitAddon(null);
+      setSearchAddon(null);
       termRef.current = null;
       // Always detach (keep the PTY alive in the daemon).
       // If the user explicitly closed the pane, schedule a delayed kill
@@ -375,5 +380,5 @@ export function useTerminalLifecycle(
     }
   }, [paneId, cwd]);
 
-  return { term, fitAddon, ptyError, write, reset };
+  return { term, fitAddon, searchAddon, ptyError, write, reset };
 }

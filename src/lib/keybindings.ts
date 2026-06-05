@@ -186,6 +186,12 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "browser",
   },
   {
+    id: "terminal-search",
+    label: "Search Terminal",
+    defaultCombo: metaCombo("f"),
+    category: "terminal",
+  },
+  {
     id: "reopen-pane",
     label: "Reopen Closed Pane",
     defaultCombo: metaCombo("t", true),

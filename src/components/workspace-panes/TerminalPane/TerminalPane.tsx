@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import "@xterm/xterm/css/xterm.css";
@@ -16,6 +16,7 @@ import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
+import { TerminalSearchBar } from "./TerminalSearchBar";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -29,7 +30,22 @@ export function TerminalPane(props: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
 
-  const { ptyError, term, write, reset } = useTerminalLifecycle(containerRef, paneId, cwd, theme);
+  // Search bar state. `searchNonce` bumps on each cmd+f so the input refocuses
+  // even when the bar is already open.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchNonce, setSearchNonce] = useState(0);
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    setSearchNonce((n) => n + 1);
+  }, []);
+
+  const { ptyError, term, searchAddon, write, reset } = useTerminalLifecycle(
+    containerRef,
+    paneId,
+    cwd,
+    theme,
+    openSearch,
+  );
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);
@@ -38,6 +54,14 @@ export function TerminalPane(props: TerminalPaneProps) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
+          {searchOpen && term && searchAddon && (
+            <TerminalSearchBar
+              term={term}
+              searchAddon={searchAddon}
+              openNonce={searchNonce}
+              onClose={() => setSearchOpen(false)}
+            />
+          )}
           <Dialog.Root open={!!ptyError && !dismissed} onOpenChange={(open) => { if (!open) setDismissed(true); }}>
             <Dialog.Portal>
               <Dialog.Overlay className={styles.errorOverlay} />

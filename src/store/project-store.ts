@@ -164,6 +164,7 @@ export interface WorkspaceInfo {
   branch: string;
   isMain: boolean;
   name: string | null;
+  hidden?: boolean;
   diffStats?: DiffStats | null;
   pr?: PrInfo | null;
   linkedIssues?: LinkedIssue[];
@@ -265,6 +266,11 @@ interface ProjectState {
     projectId: string,
     workspacePath: string,
     newName: string,
+  ) => Promise<void>;
+  setWorkspaceHidden: (
+    projectId: string,
+    workspacePath: string,
+    hidden: boolean,
   ) => Promise<void>;
   convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
@@ -615,6 +621,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                 ws.path === workspacePath
                   ? { ...ws, name: newName.trim() || null }
                   : ws,
+              ),
+            }
+          : p,
+      ),
+    }));
+  },
+
+  setWorkspaceHidden: async (projectId, workspacePath, hidden) => {
+    await window.electronAPI.projects.setWorkspaceHidden(
+      projectId,
+      workspacePath,
+      hidden,
+    );
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              workspaces: p.workspaces.map((ws) =>
+                ws.path === workspacePath ? { ...ws, hidden } : ws,
               ),
             }
           : p,

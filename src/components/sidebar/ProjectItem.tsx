@@ -187,6 +187,8 @@ type ProjectItemProps = {
   onSelectWorkspace: (index: number) => void;
   onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => void;
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
+  onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
+  onUnhideWorkspace: (ws: WorkspaceInfo) => void;
   onReorderWorkspaces: (orderedPaths: string[]) => void;
   onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
   onOpenSettings?: () => void;
@@ -206,6 +208,8 @@ export function ProjectItem(props: ProjectItemProps) {
     onSelectWorkspace,
     onRemoveWorktree,
     onRenameWorkspace,
+    onHideWorkspace,
+    onUnhideWorkspace,
     onReorderWorkspaces,
     onCreateWorktree,
     onOpenSettings,
@@ -251,6 +255,7 @@ export function ProjectItem(props: ProjectItemProps) {
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
+  const hiddenWorkspaces = project.workspaces.filter((ws) => ws.hidden);
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
@@ -317,6 +322,27 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               Project Settings
             </ContextMenu.Item>
+            {hiddenWorkspaces.length > 0 && (
+              <ContextMenu.Sub>
+                <ContextMenu.SubTrigger className={styles.contextMenuItem}>
+                  Hidden workspaces ({hiddenWorkspaces.length})
+                  <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+                </ContextMenu.SubTrigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.SubContent className={styles.contextMenu}>
+                    {hiddenWorkspaces.map((ws) => (
+                      <ContextMenu.Item
+                        key={ws.path}
+                        className={styles.contextMenuItem}
+                        onSelect={() => onUnhideWorkspace(ws)}
+                      >
+                        {ws.name || ws.branch || ws.path}
+                      </ContextMenu.Item>
+                    ))}
+                  </ContextMenu.SubContent>
+                </ContextMenu.Portal>
+              </ContextMenu.Sub>
+            )}
             <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
@@ -330,6 +356,7 @@ export function ProjectItem(props: ProjectItemProps) {
       {expanded && (
         <div className={styles.workspaces}>
           {project.workspaces.map((ws, idx) => {
+            if (ws.hidden) return null;
             const isEditing = editingPath === ws.path;
             const displayName = ws.isMain
               ? ws.name || "local"
@@ -453,6 +480,12 @@ export function ProjectItem(props: ProjectItemProps) {
                             onSelect={() => startRename(ws)}
                           >
                             Rename Workspace
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => onHideWorkspace(ws, idx)}
+                          >
+                            Hide Workspace
                           </ContextMenu.Item>
                           {ws.pr?.state !== "MERGED" && (
                             <ContextMenu.Item

@@ -37,6 +37,7 @@ export function Sidebar(props: SidebarProps) {
   const selectProject = useProjectStore((s) => s.selectProject);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
+  const setWorkspaceHidden = useProjectStore((s) => s.setWorkspaceHidden);
   const reorderWorkspaces = useProjectStore((s) => s.reorderWorkspaces);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -302,6 +303,21 @@ export function Sidebar(props: SidebarProps) {
                         }}
                         onRenameWorkspace={(ws, newName) =>
                           renameWorkspace(project.id, ws.path, newName)
+                        }
+                        onHideWorkspace={(ws, wsIdx) => {
+                          const wasSelected =
+                            wsIdx === project.selectedWorkspaceIndex;
+                          setWorkspaceHidden(project.id, ws.path, true);
+                          if (wasSelected) {
+                            const mainIndex = project.workspaces.findIndex(
+                              (w) => w.isMain,
+                            );
+                            if (mainIndex >= 0)
+                              selectWorkspace(project.id, mainIndex);
+                          }
+                        }}
+                        onUnhideWorkspace={(ws) =>
+                          setWorkspaceHidden(project.id, ws.path, false)
                         }
                         onReorderWorkspaces={(orderedPaths) =>
                           reorderWorkspaces(project.id, orderedPaths)

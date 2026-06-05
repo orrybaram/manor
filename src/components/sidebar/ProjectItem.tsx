@@ -324,19 +324,32 @@ export function ProjectItem(props: ProjectItemProps) {
             </ContextMenu.Item>
             {hiddenWorkspaces.length > 0 && (
               <ContextMenu.Sub>
-                <ContextMenu.SubTrigger className={styles.contextMenuItem}>
-                  Hidden workspaces ({hiddenWorkspaces.length})
+                <ContextMenu.SubTrigger
+                  className={styles.contextMenuItem}
+                  style={{ display: "flex", alignItems: "center" }}
+                >
+                  Hidden ({hiddenWorkspaces.length})
                   <ChevronRight size={14} style={{ marginLeft: "auto" }} />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>
-                  <ContextMenu.SubContent className={styles.contextMenu}>
+                  <ContextMenu.SubContent
+                    className={styles.contextMenu}
+                    style={{ maxWidth: 220 }}
+                  >
                     {hiddenWorkspaces.map((ws) => (
                       <ContextMenu.Item
                         key={ws.path}
                         className={styles.contextMenuItem}
                         onSelect={() => onUnhideWorkspace(ws)}
                       >
-                        {ws.name || ws.branch || ws.path}
+                        <div className={styles.workspaceLabel}>
+                          <span className={styles.workspaceName}>
+                            {ws.name || ws.branch || "main"}
+                          </span>
+                          <span className={styles.workspaceBranch}>
+                            {ws.branch || "main"}
+                          </span>
+                        </div>
                       </ContextMenu.Item>
                     ))}
                   </ContextMenu.SubContent>

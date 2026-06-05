@@ -2,7 +2,6 @@
 
 .scrollContainer {
   overflow-y: auto;
-  max-height: min(600px, 60vh);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;

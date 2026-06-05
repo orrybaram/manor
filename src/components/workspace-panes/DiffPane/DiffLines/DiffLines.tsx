@@ -47,7 +47,7 @@ export function DiffLines(props: DiffLinesProps) {
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT_ESTIMATE,
+    estimateSize: () => lines.length * ROW_HEIGHT_ESTIMATE,
     overscan: 30,
   });
 

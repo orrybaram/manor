@@ -19,6 +19,12 @@ database:
 
 # ADR-127: Centralize persistence paths and document the `~/.manor` vs data-dir split
 
+> **Partially superseded by [ADR-143](../adr-143-shared-shell-history/index.md).**
+> The per-pane zsh history layout described below (`manorDataDir()/sessions`,
+> one `{paneId}.history` per pane, via `shellSessionsDir()`) was replaced by a
+> single shared history file (`shellHistoryFile()` → `<dataDir>/shell-history`).
+> `shellSessionsDir()` no longer exists. The rest of ADR-127 still stands.
+
 ## Context
 
 Two high-priority issues in `docs/ARCHITECTURE-ISSUES.md` (#4 and #5) track the same underlying mess: Manor's filesystem layout has no single source of truth.

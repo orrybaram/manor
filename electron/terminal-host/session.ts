@@ -217,8 +217,10 @@ export class Session {
         // Subprocess is ready — send spawn command
         const zdotdir = ShellManager.zdotdirPath();
         const shell = process.env.SHELL || "/bin/zsh";
-        const histfile = ShellManager.historyFileFor(this.sessionId);
 
+        // HISTFILE for shared history is set directly in the generated .zshrc
+        // (see ShellManager.setupZdotdir), not injected here — so it can't go
+        // stale when this daemon outlives a code change.
         const spawnPayload: PtySpawnPayload = {
           shell,
           args: this.pendingSpawnArgs,
@@ -230,7 +232,6 @@ export class Session {
             TERM: "xterm-256color",
             ZDOTDIR: zdotdir,
             REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
-            MANOR_HISTFILE: histfile,
             ...this.envOverrides,
           }),
         };

@@ -63,8 +63,10 @@ export function linearTokenFile(): string {
   return path.join(manorDataDir(), "linear-token.enc");
 }
 
-export function shellSessionsDir(): string {
-  return path.join(manorDataDir(), "sessions");
+// Single history file shared by every terminal pane, so ctrl+r recalls
+// commands across sessions, windows, and projects.
+export function shellHistoryFile(): string {
+  return path.join(manorDataDir(), "shell-history");
 }
 
 export function shellZdotdir(): string {

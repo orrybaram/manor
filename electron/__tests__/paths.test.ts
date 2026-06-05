@@ -120,8 +120,10 @@ describe("electron/paths", () => {
       );
     });
 
-    it("shellSessionsDir", () => {
-      expect(paths.shellSessionsDir()).toBe(path.join(dataRoot(), "sessions"));
+    it("shellHistoryFile", () => {
+      expect(paths.shellHistoryFile()).toBe(
+        path.join(dataRoot(), "shell-history"),
+      );
     });
 
     it("shellZdotdir", () => {
@@ -172,8 +174,10 @@ describe("electron/paths", () => {
       );
     });
 
-    it("shellSessionsDir", () => {
-      expect(paths.shellSessionsDir()).toBe(path.join(dataRoot(), "sessions"));
+    it("shellHistoryFile", () => {
+      expect(paths.shellHistoryFile()).toBe(
+        path.join(dataRoot(), "shell-history"),
+      );
     });
 
     it("shellZdotdir", () => {
@@ -273,7 +277,7 @@ describe("electron/paths", () => {
         paths.windowBoundsFile,
         paths.zoomLevelFile,
         paths.linearTokenFile,
-        paths.shellSessionsDir,
+        paths.shellHistoryFile,
         paths.shellZdotdir,
         paths.daemonDir,
         paths.daemonSocketFile,

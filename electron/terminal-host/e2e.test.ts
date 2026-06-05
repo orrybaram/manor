@@ -31,7 +31,7 @@ vi.mock("node:child_process", () => ({
 vi.mock("../shell", () => ({
   ShellManager: {
     zdotdirPath: () => "/tmp/manor-e2e-zdotdir",
-    historyFileFor: (id: string) => `/tmp/manor-e2e-sessions/${id}.history`,
+    sharedHistoryFile: () => `/tmp/manor-e2e-sessions/shell-history`,
     setupZdotdir: () => "/tmp/manor-e2e-zdotdir",
   },
 }));

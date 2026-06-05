@@ -17,17 +17,17 @@ export class PtyManager {
     rows: number,
   ): void {
     const zdotdir = ShellManager.zdotdirPath();
-    const histfile = ShellManager.historyFileFor(paneId);
 
     const shell = process.env.SHELL || "/bin/zsh";
 
+    // HISTFILE for shared history is set directly in the generated .zshrc
+    // (see ShellManager.setupZdotdir), not injected via env.
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       MANOR_PANE_ID: paneId,
       TERM: "xterm-256color",
       ZDOTDIR: zdotdir,
       REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
-      MANOR_HISTFILE: histfile,
     };
 
     const ptyProcess = pty.spawn(shell, [], {

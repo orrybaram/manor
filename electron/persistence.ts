@@ -40,6 +40,7 @@ export interface WorkspaceInfo {
   isMain: boolean;
   name: string | null;
   linkedIssues?: LinkedIssue[];
+  hidden?: boolean;
 }
 
 export type { LinkedIssue };
@@ -96,6 +97,7 @@ interface PersistedProject {
   workspaceNames?: Record<string, string>;
   workspaceOrder?: string[];
   workspaceIssues?: Record<string, LinkedIssue[]>;
+  workspaceHidden?: Record<string, boolean>;
   color?: string | null;
   agentCommand?: string | null;
   commands?: CustomCommand[];
@@ -283,6 +285,22 @@ export class ProjectManager {
     this.saveState();
   }
 
+  setWorkspaceHidden(
+    projectId: string,
+    workspacePath: string,
+    hidden: boolean,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (!project.workspaceHidden) project.workspaceHidden = {};
+    if (hidden) {
+      project.workspaceHidden[workspacePath] = true;
+    } else {
+      delete project.workspaceHidden[workspacePath];
+    }
+    this.saveState();
+  }
+
   async updateProject(
     projectId: string,
     updates: ProjectUpdatableFields,
@@ -313,10 +331,12 @@ export class ProjectManager {
     }
     const names = p.workspaceNames ?? {};
     const issues = p.workspaceIssues ?? {};
+    const hiddenMap = p.workspaceHidden ?? {};
     const workspaces = rawWorkspaces.map((ws) => ({
       ...ws,
       name: names[ws.path] ?? null,
       linkedIssues: issues[ws.path] ?? [],
+      hidden: hiddenMap[ws.path] ?? false,
     }));
     return {
       id: p.id,

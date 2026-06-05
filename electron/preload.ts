@@ -104,6 +104,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspacePath,
         newName,
       ),
+    setWorkspaceHidden: (
+      projectId: string,
+      workspacePath: string,
+      hidden: boolean,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:setWorkspaceHidden",
+        projectId,
+        workspacePath,
+        hidden,
+      ),
     reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
       ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
     reorder: (orderedIds: string[]) =>

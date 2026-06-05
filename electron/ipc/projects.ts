@@ -98,6 +98,13 @@ export function register(deps: IpcDeps): void {
   );
 
   ipcMain.handle(
+    "projects:setWorkspaceHidden",
+    (_event, projectId: string, workspacePath: string, hidden: boolean) => {
+      projectManager.setWorkspaceHidden(projectId, workspacePath, hidden);
+    },
+  );
+
+  ipcMain.handle(
     "projects:reorderWorkspaces",
     (_event, projectId: string, orderedPaths: string[]) => {
       projectManager.reorderWorkspaces(projectId, orderedPaths);

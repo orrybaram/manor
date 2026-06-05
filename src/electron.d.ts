@@ -290,6 +290,11 @@ export interface ElectronAPI {
       workspacePath: string,
       newName: string,
     ) => Promise<void>;
+    setWorkspaceHidden: (
+      projectId: string,
+      workspacePath: string,
+      hidden: boolean,
+    ) => Promise<void>;
     reorderWorkspaces: (
       projectId: string,
       orderedPaths: string[],

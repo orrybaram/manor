@@ -4,15 +4,13 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Redirect the generated dotfiles into a temp dir and pin the shared history
-// path so we can assert on the .zshrc contents.
+// Redirect the generated dotfiles into a temp dir so we can assert on the
+// .zshrc contents without touching the real zdotdir.
 const tmpRoot = path.join(os.tmpdir(), "manor-shell-test");
 const zdotdir = path.join(tmpRoot, "zdotdir");
-const historyFile = path.join(tmpRoot, "Application Support", "shell-history");
 
 vi.mock("../paths", () => ({
   shellZdotdir: () => zdotdir,
-  shellHistoryFile: () => historyFile,
 }));
 
 import { ShellManager } from "../shell";
@@ -31,13 +29,15 @@ describe("ShellManager.setupZdotdir — shared history", () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("sets HISTFILE to the shared history file, quoted to survive the space in the path", () => {
-    expect(generatedZshrc()).toContain(`HISTFILE='${historyFile}'`);
+  it("does NOT set HISTFILE to any Manor-owned path", () => {
+    expect(generatedZshrc()).not.toContain("shell-history");
+  });
+
+  it("provides a :=-fallback for HISTFILE after sourcing the user's .zshrc", () => {
+    expect(generatedZshrc()).toContain(': "${HISTFILE:=');
   });
 
   it("does not depend on the daemon-injected MANOR_HISTFILE env var", () => {
-    // The bug: HISTFILE was gated on $MANOR_HISTFILE, which a stale detached
-    // daemon kept pointing at a per-pane file. The path must be owned by .zshrc.
     expect(generatedZshrc()).not.toContain("MANOR_HISTFILE");
   });
 
@@ -51,8 +51,8 @@ describe("ShellManager.setupZdotdir — shared history", () => {
     expect(zshrc).toContain("(( SAVEHIST < 100000 )) && SAVEHIST=100000");
   });
 
-  it("sets HISTFILE after sourcing the user's real .zshrc so it wins", () => {
+  it("places the HISTFILE fallback after sourcing the user's real .zshrc so their value wins", () => {
     const zshrc = generatedZshrc();
-    expect(zshrc.indexOf("source")).toBeLessThan(zshrc.indexOf("HISTFILE="));
+    expect(zshrc.indexOf("source")).toBeLessThan(zshrc.indexOf("HISTFILE:="));
   });
 });

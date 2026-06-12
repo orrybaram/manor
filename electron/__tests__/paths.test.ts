@@ -120,12 +120,6 @@ describe("electron/paths", () => {
       );
     });
 
-    it("shellHistoryFile", () => {
-      expect(paths.shellHistoryFile()).toBe(
-        path.join(dataRoot(), "shell-history"),
-      );
-    });
-
     it("shellZdotdir", () => {
       expect(paths.shellZdotdir()).toBe(path.join(dataRoot(), "zdotdir"));
     });
@@ -171,12 +165,6 @@ describe("electron/paths", () => {
     it("linearTokenFile", () => {
       expect(paths.linearTokenFile()).toBe(
         path.join(dataRoot(), "linear-token.enc"),
-      );
-    });
-
-    it("shellHistoryFile", () => {
-      expect(paths.shellHistoryFile()).toBe(
-        path.join(dataRoot(), "shell-history"),
       );
     });
 
@@ -277,7 +265,6 @@ describe("electron/paths", () => {
         paths.windowBoundsFile,
         paths.zoomLevelFile,
         paths.linearTokenFile,
-        paths.shellHistoryFile,
         paths.shellZdotdir,
         paths.daemonDir,
         paths.daemonSocketFile,

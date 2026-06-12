@@ -14,6 +14,22 @@
 
 
 
+
+## [0.5.12] - 2026-06-12
+
+**Features**
+- Sessions now automatically resume where they left off when relaunching the app
+- Default branch is detected when a project is created and re-checked at startup to catch drift
+
+**Fixes**
+- Branch name casing is now preserved instead of being normalized
+- Resume commands now preserve custom flags and no longer append duplicate arguments
+- Shell history now respects your global HISTFILE setting instead of overriding it
+
+**Improvements**
+- Branch names are handled consistently across the app
+- Remote branch lists now refresh origin/HEAD for more accurate default-branch detection
+
 ## [0.5.11] - 2026-06-05
 
 Features

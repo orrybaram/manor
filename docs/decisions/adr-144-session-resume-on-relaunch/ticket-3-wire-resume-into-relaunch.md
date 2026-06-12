@@ -1,6 +1,6 @@
 ---
 title: Use buildResumeCommand in the relaunch path with bare-command fallback
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [2]

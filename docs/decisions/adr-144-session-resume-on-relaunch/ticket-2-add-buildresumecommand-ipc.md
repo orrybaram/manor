@@ -1,6 +1,6 @@
 ---
 title: Add tasks:buildResumeCommand IPC bridging connector resume to the renderer
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [1]

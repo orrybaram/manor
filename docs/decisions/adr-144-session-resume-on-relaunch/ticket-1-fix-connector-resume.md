@@ -1,6 +1,6 @@
 ---
 title: Fix getResumeCommand to preserve flags, guard double-append, add OpencodeConnector
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

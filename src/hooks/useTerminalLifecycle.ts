@@ -294,8 +294,10 @@ export function useTerminalLifecycle(
               // Mark resumed immediately to prevent double-launch on re-mount
               void window.electronAPI.tasks.markResumed(resumeTask.id);
 
-              // Wait for shell prompt (CWD event), then relaunch
-              sendOnShellReady(resumeTask.agentCommand!);
+              // Resume the prior agent session if we can; otherwise relaunch the bare command.
+              const resumeCmd = await window.electronAPI.tasks.buildResumeCommand(resumeTask.id);
+              if (disposed) return;
+              sendOnShellReady(resumeCmd ?? resumeTask.agentCommand!);
             })();
           }
         }

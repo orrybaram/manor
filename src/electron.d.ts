@@ -546,6 +546,7 @@ export interface ElectronAPI {
     ) => Promise<void>;
     markSeen: (taskId: string) => Promise<void>;
     markResumed: (taskId: string) => Promise<TaskInfo | null>;
+    buildResumeCommand: (taskId: string) => Promise<string | null>;
     reconcileStale: () => Promise<void>;
     abandonForPane: (paneId: string, title?: string | null) => Promise<void>;
     /**

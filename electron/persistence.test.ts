@@ -359,4 +359,123 @@ describe("ProjectManager", () => {
       );
     });
   });
+
+  describe("default branch detection and resync", () => {
+    function makeGit(
+      symbolicRefResult: string | Error,
+    ): GitBackend {
+      return {
+        exec: vi.fn(async (_cwd: string, args: string[]) => {
+          if (args[0] === "symbolic-ref") {
+            if (symbolicRefResult instanceof Error) throw symbolicRefResult;
+            return symbolicRefResult;
+          }
+          // All other git calls (set-head, worktree list, etc.): reject
+          // so graceful fallbacks kick in. listGitWorkspaces tolerates this.
+          throw new Error(`unstubbed git: ${args.join(" ")}`);
+        }),
+        worktreeAdd: vi.fn(),
+        worktreeList: vi.fn().mockResolvedValue([
+          { path: "/tmp/fake-project", branch: "main", isMain: true },
+        ]),
+        stage: vi.fn(),
+        unstage: vi.fn(),
+        discard: vi.fn(),
+        commit: vi.fn(),
+        stash: vi.fn(),
+        getFullDiff: vi.fn(),
+        getLocalDiff: vi.fn(),
+        getStagedFiles: vi.fn(),
+        worktreeRemove: vi.fn(),
+      } as unknown as GitBackend;
+    }
+
+    it("Detect on creation — non-main default", async () => {
+      const git = makeGit("origin/master\n");
+      const mgr = new ProjectManager(git, tmpDir);
+
+      const project = await mgr.addProject("Test", "/tmp/fake-project");
+
+      expect(project.defaultBranch).toBe("master");
+
+      // Reload and verify it persists
+      const reloaded = new ProjectManager(
+        makeGit("origin/master\n"),
+        tmpDir,
+      );
+      const projects = await reloaded.getProjects();
+      expect(projects).toHaveLength(1);
+      expect(projects[0].defaultBranch).toBe("master");
+    });
+
+    it("Detect on creation — fallback to main", async () => {
+      const git = makeGit(new Error("symbolic-ref failed"));
+      const mgr = new ProjectManager(git, tmpDir);
+
+      const project = await mgr.addProject("Test", "/tmp/fake-project");
+
+      expect(project.defaultBranch).toBe("main");
+    });
+
+    it("Startup resync corrects drift", async () => {
+      // Step 1: Create a project with "main" (symbolic-ref throws)
+      const gitThrows = makeGit(new Error("symbolic-ref failed"));
+      const mgr1 = new ProjectManager(gitThrows, tmpDir);
+      const created = await mgr1.addProject("Test", "/tmp/fake-project");
+      expect(created.defaultBranch).toBe("main");
+
+      // Step 2: Reload with a git that returns "develop"
+      const gitDevelop = makeGit("origin/develop\n");
+      const mgr2 = new ProjectManager(gitDevelop, tmpDir);
+      const projects = await mgr2.getProjects();
+
+      expect(projects).toHaveLength(1);
+      expect(projects[0].defaultBranch).toBe("develop");
+
+      // Step 3: Reload again and verify it persisted
+      const mgr3 = new ProjectManager(gitDevelop, tmpDir);
+      const projectsAgain = await mgr3.getProjects();
+      expect(projectsAgain[0].defaultBranch).toBe("develop");
+    });
+
+    it("Resync does not clobber on detection failure", async () => {
+      // Step 1: Create a project with "trunk"
+      const gitTrunk = makeGit("origin/trunk\n");
+      const mgr1 = new ProjectManager(gitTrunk, tmpDir);
+      const created = await mgr1.addProject("Test", "/tmp/fake-project");
+      expect(created.defaultBranch).toBe("trunk");
+
+      // Step 2: Reload with a git that throws on symbolic-ref
+      const gitThrows = makeGit(new Error("symbolic-ref failed"));
+      const mgr2 = new ProjectManager(gitThrows, tmpDir);
+      const projects = await mgr2.getProjects();
+
+      // Should still be "trunk"
+      expect(projects).toHaveLength(1);
+      expect(projects[0].defaultBranch).toBe("trunk");
+    });
+
+    it("Resync runs once", async () => {
+      const git = makeGit("origin/develop\n");
+      const mgr = new ProjectManager(git, tmpDir);
+      await mgr.addProject("Test", "/tmp/fake-project");
+
+      // Count symbolic-ref calls before first getProjects
+      const execMock = vi.mocked(git.exec);
+
+      // First getProjects should call resync
+      await mgr.getProjects();
+      const callsAfterFirst = execMock.mock.calls.filter(
+        (call) => call[1][0] === "symbolic-ref",
+      ).length;
+      expect(callsAfterFirst).toBeGreaterThan(0);
+
+      // Second getProjects should NOT call symbolic-ref again
+      await mgr.getProjects();
+      const callsAfterSecond = execMock.mock.calls.filter(
+        (call) => call[1][0] === "symbolic-ref",
+      ).length;
+      expect(callsAfterSecond).toBe(callsAfterFirst);
+    });
+  });
 });

@@ -49,6 +49,7 @@ export interface ProjectInfo {
   id: string;
   name: string;
   path: string;
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
   selectedWorkspaceIndex: number;
@@ -88,6 +89,7 @@ interface PersistedProject {
   path: string;
   selectedWorkspaceIndex: number;
   workspaces: unknown[];
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
   defaultBranch: string;
   defaultRunCommand: string | null;
   worktreePath: string | null;
@@ -115,6 +117,7 @@ export class ProjectManager {
   private state: PersistedState;
   private dataDir: string;
   private git: GitBackend;
+  private resyncDone = false;
 
   constructor(git: GitBackend, dataDir?: string) {
     this.git = git;
@@ -155,6 +158,10 @@ export class ProjectManager {
   }
 
   async getProjects(): Promise<ProjectInfo[]> {
+    if (!this.resyncDone) {
+      this.resyncDone = true;
+      await this.resyncDefaultBranches();
+    }
     return Promise.all(
       this.state.projects.map((p) => this.buildProjectInfo(p)),
     );
@@ -169,15 +176,92 @@ export class ProjectManager {
     this.saveState();
   }
 
+  /**
+   * LOCAL-ONLY: reads the symbolic ref for origin/HEAD with no network activity.
+   * Returns the bare branch name (e.g. "main") or null on any failure.
+   */
+  private async detectDefaultBranchLocal(repoPath: string): Promise<string | null> {
+    try {
+      const stdout = await this.git.exec(repoPath, [
+        "symbolic-ref",
+        "--short",
+        "refs/remotes/origin/HEAD",
+      ]);
+      const trimmed = stdout.trim();
+      if (!trimmed) return null;
+      // Strip the leading "origin/" prefix (e.g. "origin/master" → "master").
+      const prefix = "origin/";
+      return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed;
+    } catch {
+      return null;
+    }
+  }
+
+  private async detectDefaultBranch(repoPath: string): Promise<string | null> {
+    try {
+      // Step 1: Read the local symbolic ref for origin/HEAD — no network needed.
+      const local = await this.detectDefaultBranchLocal(repoPath);
+      if (local) return local;
+
+      // Step 1 failed — try to set the remote HEAD pointer (one network round-trip).
+      try {
+        await this.git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
+      } catch (setHeadErr) {
+        console.error(
+          "[ProjectManager] detectDefaultBranch: remote set-head failed:",
+          setHeadErr instanceof Error ? setHeadErr.message : setHeadErr,
+        );
+      }
+
+      // Retry step 1 after set-head.
+      return await this.detectDefaultBranchLocal(repoPath);
+    } catch (err) {
+      console.error(
+        "[ProjectManager] detectDefaultBranch failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Re-detect the default branch for all persisted projects using local-only
+   * detection (no network). Updates any stale values and saves once if anything
+   * changed. Run once per session at first getProjects() call.
+   */
+  async resyncDefaultBranches(): Promise<void> {
+    let changed = false;
+    for (const project of this.state.projects) {
+      try {
+        const detected = await this.detectDefaultBranchLocal(project.path);
+        if (detected && detected !== project.defaultBranch) {
+          project.defaultBranch = detected;
+          changed = true;
+        }
+      } catch (err) {
+        // One bad repo must not abort the sweep.
+        console.error(
+          "[ProjectManager] resyncDefaultBranches: error for",
+          project.path,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    if (changed) {
+      this.saveState();
+    }
+  }
+
   async addProject(name: string, projectPath: string): Promise<ProjectInfo> {
     const id = crypto.randomUUID();
+    const detected = await this.detectDefaultBranch(projectPath);
     const project: PersistedProject = {
       id,
       name,
       path: projectPath,
       selectedWorkspaceIndex: 0,
       workspaces: [],
-      defaultBranch: "main",
+      defaultBranch: detected ?? "main",
       defaultRunCommand: null,
       worktreePath: null,
       worktreeStartScript: null,
@@ -230,7 +314,7 @@ export class ProjectManager {
       id,
       name,
       path: projectPath,
-      defaultBranch: "main",
+      defaultBranch: detected ?? "main",
       workspaces,
       selectedWorkspaceIndex: 0,
       defaultRunCommand: null,
@@ -668,6 +752,29 @@ export class ProjectManager {
     try {
       // Fetch latest remote refs so for-each-ref has up-to-date data
       await this.git.exec(project.path, ["fetch", "origin", "--prune"]);
+
+      // Natural network touchpoint: refresh origin/HEAD (a plain fetch does NOT
+      // update it) so an upstream default-branch rename is picked up here rather
+      // than on every app launch, then resync this project's defaultBranch.
+      // Best-effort — must never block branch listing. See ADR-144.
+      try {
+        await this.git.exec(project.path, [
+          "remote",
+          "set-head",
+          "origin",
+          "--auto",
+        ]);
+        const detected = await this.detectDefaultBranchLocal(project.path);
+        if (detected && detected !== project.defaultBranch) {
+          project.defaultBranch = detected;
+          this.saveState();
+        }
+      } catch (err) {
+        console.error(
+          "[ProjectManager] listRemoteBranches: default-branch refresh failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
 
       const stdout = await this.git.exec(project.path, [
         "for-each-ref",

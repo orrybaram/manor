@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
+import { branchesEqual } from "../utils/branch-name";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
@@ -439,7 +440,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Find the new workspace by name or branch.
     const branchName = branch || name;
     const newWs = updated.workspaces.find(
-      (ws) => !ws.isMain && (ws.name === name || ws.branch === branchName),
+      (ws) => !ws.isMain && (ws.name === name || branchesEqual(ws.branch, branchName)),
     );
     const wsPath = newWs?.path ?? null;
 
@@ -543,7 +544,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
     // Find and select the new worktree workspace
     const newWs = updated.workspaces.find(
-      (ws) => !ws.isMain && ws.branch === branch,
+      (ws) => !ws.isMain && branchesEqual(ws.branch, branch),
     );
     const wsPath = newWs?.path ?? null;
     if (wsPath) {
@@ -685,7 +686,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
         if (wsIdx === -1) return p;
         const ws = p.workspaces[wsIdx];
-        if (ws.branch === branch) return p;
+        if (branchesEqual(ws.branch, branch)) return p;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, branch };
         return { ...p, workspaces };

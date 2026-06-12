@@ -9,6 +9,7 @@ import { BrowserWindow } from "electron";
 import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
+import { sanitizeBranchName, toDirSlug } from "./branch-name";
 
 const execAsync = promisify(exec);
 
@@ -17,15 +18,6 @@ function expandHome(p: string): string {
     return path.join(os.homedir(), p.slice(1));
   }
   return p;
-}
-
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 export interface CustomCommand {
@@ -809,11 +801,11 @@ export class ProjectManager {
     const project = this.findProject(projectId);
     if (!project) return null;
 
-    const branchName = branch || name;
-    const slug = slugify(name);
+    const branchName = sanitizeBranchName(branch || name);
+    const slug = toDirSlug(name);
     const baseDir = project.worktreePath
       ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), slugify(project.name));
+      : path.join(worktreesDir(), toDirSlug(project.name));
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
@@ -953,10 +945,10 @@ export class ProjectManager {
       );
     }
 
-    const slug = slugify(name);
+    const slug = toDirSlug(name);
     const baseDir = project.worktreePath
       ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), slugify(project.name));
+      : path.join(worktreesDir(), toDirSlug(project.name));
     const worktreePath = path.join(baseDir, slug);
 
     // Prune stale worktree entries

@@ -1,6 +1,6 @@
 ---
 title: Honor the global HISTFILE instead of overriding to the Manor file
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

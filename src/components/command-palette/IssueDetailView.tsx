@@ -9,6 +9,7 @@ import { PRIORITY_LABELS, stripMarkdown, extractImages } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { branchesEqual } from "../../utils/branch-name";
 import styles from "./CommandPalette.module.css";
 
 type IssueDetailViewProps = {
@@ -50,8 +51,9 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         .getState()
         .projects.find((p) => p.id === project.id);
       const existingIdx =
-        current?.workspaces.findIndex((ws) => ws.branch === issue.branchName) ??
-        -1;
+        current?.workspaces.findIndex((ws) =>
+          branchesEqual(ws.branch, issue.branchName),
+        ) ?? -1;
       if (existingIdx >= 0) {
         selectWorkspace(project.id, existingIdx);
         const existingWs = current?.workspaces[existingIdx];

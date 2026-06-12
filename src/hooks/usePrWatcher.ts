@@ -1,4 +1,5 @@
 import { useProjectStore } from "../store/project-store";
+import { branchesEqual } from "../utils/branch-name";
 import { useMountEffect } from "./useMountEffect";
 
 const PR_POLL_INTERVAL = 15_000;
@@ -31,7 +32,7 @@ export async function fetchPrs() {
       );
 
       for (const [branch, pr] of results) {
-        const ws = nonMainWorkspaces.find((w) => w.branch === branch);
+        const ws = nonMainWorkspaces.find((w) => branchesEqual(w.branch, branch));
         if (ws) {
           updateWorkspacePr(
             ws.path,

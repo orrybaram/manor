@@ -10,16 +10,8 @@ import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
 import { Button } from "../../ui/Button/Button";
 import { Input, Textarea } from "../../ui/Input";
 import { Row, Stack } from "../../ui/Layout/Layout";
+import { toDirSlug } from "../../../utils/branch-name";
 import styles from "./ProjectSetupWizard.module.css";
-
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 function randomColor(): string | null {
   const colors = PROJECT_COLORS.filter((c) => c.value !== null);
@@ -86,7 +78,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
     setAgentCommand("");
     setStartScript("");
     setCommands(project.commands ?? []);
-    const slug = slugify(project.name);
+    const slug = toDirSlug(project.name);
     setWorktreePath(`~/.manor/worktrees/${slug}`);
     worktreePathMatchesName.current = true;
     nameRef.current?.focus();
@@ -163,7 +155,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
     (newName: string) => {
       setName(newName);
       if (worktreePathMatchesName.current) {
-        const slug = slugify(newName);
+        const slug = toDirSlug(newName);
         setWorktreePath(`~/.manor/worktrees/${slug}`);
       }
       // Debounce store update for sidebar

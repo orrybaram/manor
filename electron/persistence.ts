@@ -753,6 +753,29 @@ export class ProjectManager {
       // Fetch latest remote refs so for-each-ref has up-to-date data
       await this.git.exec(project.path, ["fetch", "origin", "--prune"]);
 
+      // Natural network touchpoint: refresh origin/HEAD (a plain fetch does NOT
+      // update it) so an upstream default-branch rename is picked up here rather
+      // than on every app launch, then resync this project's defaultBranch.
+      // Best-effort — must never block branch listing. See ADR-144.
+      try {
+        await this.git.exec(project.path, [
+          "remote",
+          "set-head",
+          "origin",
+          "--auto",
+        ]);
+        const detected = await this.detectDefaultBranchLocal(project.path);
+        if (detected && detected !== project.defaultBranch) {
+          project.defaultBranch = detected;
+          this.saveState();
+        }
+      } catch (err) {
+        console.error(
+          "[ProjectManager] listRemoteBranches: default-branch refresh failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+
       const stdout = await this.git.exec(project.path, [
         "for-each-ref",
         "--sort=-creatordate",

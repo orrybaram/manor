@@ -49,6 +49,7 @@ export interface ProjectInfo {
   id: string;
   name: string;
   path: string;
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
   selectedWorkspaceIndex: number;
@@ -88,6 +89,7 @@ interface PersistedProject {
   path: string;
   selectedWorkspaceIndex: number;
   workspaces: unknown[];
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
   defaultBranch: string;
   defaultRunCommand: string | null;
   worktreePath: string | null;
@@ -169,15 +171,64 @@ export class ProjectManager {
     this.saveState();
   }
 
+  private async detectDefaultBranch(repoPath: string): Promise<string | null> {
+    try {
+      // Step 1: Read the local symbolic ref for origin/HEAD — no network needed.
+      let stdout = "";
+      try {
+        stdout = await this.git.exec(repoPath, [
+          "symbolic-ref",
+          "--short",
+          "refs/remotes/origin/HEAD",
+        ]);
+      } catch {
+        // Step 1 failed — try to set the remote HEAD pointer (one network round-trip).
+        try {
+          await this.git.exec(repoPath, ["remote", "set-head", "origin", "--auto"]);
+        } catch (setHeadErr) {
+          console.error(
+            "[ProjectManager] detectDefaultBranch: remote set-head failed:",
+            setHeadErr instanceof Error ? setHeadErr.message : setHeadErr,
+          );
+        }
+        // Retry step 1 after set-head.
+        try {
+          stdout = await this.git.exec(repoPath, [
+            "symbolic-ref",
+            "--short",
+            "refs/remotes/origin/HEAD",
+          ]);
+        } catch {
+          // Both attempts failed — return null and fall back to "main" at the call site.
+          return null;
+        }
+      }
+
+      const trimmed = stdout.trim();
+      if (!trimmed) return null;
+
+      // Strip the leading "origin/" prefix (e.g. "origin/master" → "master").
+      const prefix = "origin/";
+      return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed;
+    } catch (err) {
+      console.error(
+        "[ProjectManager] detectDefaultBranch failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
   async addProject(name: string, projectPath: string): Promise<ProjectInfo> {
     const id = crypto.randomUUID();
+    const detected = await this.detectDefaultBranch(projectPath);
     const project: PersistedProject = {
       id,
       name,
       path: projectPath,
       selectedWorkspaceIndex: 0,
       workspaces: [],
-      defaultBranch: "main",
+      defaultBranch: detected ?? "main",
       defaultRunCommand: null,
       worktreePath: null,
       worktreeStartScript: null,
@@ -230,7 +281,7 @@ export class ProjectManager {
       id,
       name,
       path: projectPath,
-      defaultBranch: "main",
+      defaultBranch: detected ?? "main",
       workspaces,
       selectedWorkspaceIndex: 0,
       defaultRunCommand: null,

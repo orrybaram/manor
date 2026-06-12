@@ -1,6 +1,6 @@
 ---
 title: Tests for default-branch detection and resync
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1, 2]

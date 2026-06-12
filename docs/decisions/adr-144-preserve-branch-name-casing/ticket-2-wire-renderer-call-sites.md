@@ -1,6 +1,6 @@
 ---
 title: Wire renderer call sites to the branch-name util
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

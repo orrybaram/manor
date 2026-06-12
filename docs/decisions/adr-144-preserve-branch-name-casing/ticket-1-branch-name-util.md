@@ -1,6 +1,6 @@
 ---
 title: Create canonical branch-name util with tests
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

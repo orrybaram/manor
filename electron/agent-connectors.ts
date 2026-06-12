@@ -44,6 +44,17 @@ export interface AgentConnector {
   registerMcp(mcpServerScriptPath: string): void;
 }
 
+// ── Shared helpers ──
+
+/**
+ * True if the command already specifies session resume, so we must not append again.
+ * Matches on whole space-delimited tokens only, to avoid false positives.
+ */
+function hasResumeToken(command: string, tokens: string[]): boolean {
+  const args = command.split(/\s+/);
+  return tokens.some((tok) => args.includes(tok));
+}
+
 // ── Claude Code Connector ──
 
 const CLAUDE_HOOK_ENTRIES = [
@@ -65,11 +76,12 @@ export class ClaudeConnector implements AgentConnector {
   readonly kind: AgentKind = "claude";
   readonly defaultCommand = "claude --dangerously-skip-permissions";
 
-  getResumeCommand(baseCommand: string, sessionId: string): string {
-    // Extract the binary name (first token) — flags like --dangerously-skip-permissions
-    // aren't needed for resume since the session already has its config.
-    const binary = baseCommand.split(" ")[0] ?? "claude";
-    return `${binary} --resume ${sessionId}`;
+  getResumeCommand(baseCommand: string, sessionId: string): string | null {
+    if (!sessionId) return null;
+    if (hasResumeToken(baseCommand, ["--resume", "-r", "--continue", "-c"])) {
+      return baseCommand;
+    }
+    return `${baseCommand} --resume ${sessionId}`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -186,11 +198,15 @@ export class CodexConnector implements AgentConnector {
   readonly kind: AgentKind = "codex";
   readonly defaultCommand = "codex --yolo";
 
-  getResumeCommand(baseCommand: string, _sessionId: string): string | null {
-    // Extract the binary name (first token) — flags like --yolo aren't needed for resume.
-    // Codex uses `codex resume --last` to resume the most recent session.
+  getResumeCommand(baseCommand: string, sessionId: string): string | null {
+    if (!sessionId) return null;
+    if (hasResumeToken(baseCommand, ["resume"])) {
+      return baseCommand;
+    }
+    // Codex resume is a subcommand; top-level flags like --yolo are intentionally
+    // dropped as they do not compose cleanly after the resume subcommand.
     const binary = baseCommand.split(" ")[0] ?? "codex";
-    return `${binary} resume --last`;
+    return `${binary} resume ${sessionId}`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -338,9 +354,12 @@ export class PiConnector implements AgentConnector {
   readonly kind: AgentKind = "pi";
   readonly defaultCommand = "pi";
 
-  getResumeCommand(baseCommand: string, sessionId: string): string {
-    const binary = baseCommand.split(" ")[0] ?? "pi";
-    return `${binary} --session ${sessionId}`;
+  getResumeCommand(baseCommand: string, sessionId: string): string | null {
+    if (!sessionId) return null;
+    if (hasResumeToken(baseCommand, ["--session"])) {
+      return baseCommand;
+    }
+    return `${baseCommand} --session ${sessionId}`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -501,6 +520,39 @@ export default function (pi: ExtensionAPI) {
   }
 }
 
+// ── Opencode Connector ──
+
+export class OpencodeConnector implements AgentConnector {
+  readonly kind: AgentKind = "opencode";
+  readonly defaultCommand = "opencode";
+
+  getResumeCommand(baseCommand: string, sessionId: string): string | null {
+    if (!sessionId) return null;
+    if (hasResumeToken(baseCommand, ["--session", "-s", "--continue", "-c"])) {
+      return baseCommand;
+    }
+    return `${baseCommand} --session ${sessionId}`;
+  }
+
+  getPromptCommand(baseCommand: string, prompt: string): string {
+    const escaped = prompt
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\$/g, "\\$")
+      .replace(/`/g, "\\`")
+      .replace(/!/g, "\\!");
+    return `${baseCommand} "${escaped}"`;
+  }
+
+  registerHooks(_hookScriptPath: string): void {
+    // opencode hook wiring is out of scope for ADR-144; no-op for now.
+  }
+
+  registerMcp(_mcpServerScriptPath: string): void {
+    // opencode MCP wiring is out of scope for ADR-144; no-op for now.
+  }
+}
+
 // ── Registry ──
 
 const connectors: Map<AgentKind, AgentConnector> = new Map();
@@ -510,9 +562,11 @@ function ensureDefaults(): void {
     const claude = new ClaudeConnector();
     const codex = new CodexConnector();
     const pi = new PiConnector();
+    const opencode = new OpencodeConnector();
     connectors.set(claude.kind, claude);
     connectors.set(codex.kind, codex);
     connectors.set(pi.kind, pi);
+    connectors.set(opencode.kind, opencode);
   }
 }
 

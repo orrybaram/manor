@@ -1,6 +1,6 @@
 ---
 title: Re-detect default branch at startup (drift failsafe)
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

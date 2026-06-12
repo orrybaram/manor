@@ -1,6 +1,6 @@
 ---
 title: Detect default branch on project creation
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Redirect poisoned HISTFILE and source .zlogout in generated scripts
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [1]

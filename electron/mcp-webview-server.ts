@@ -20,39 +20,57 @@ import { webviewServerPortFile } from "./paths";
 
 const PORT_FILE = webviewServerPortFile();
 
-function readPort(): number {
-  const envPort = process.env.MANOR_WEBVIEW_PORT;
-  if (envPort) {
-    const p = parseInt(envPort, 10);
-    if (!isNaN(p) && p > 0) return p;
+// Candidate ports to reach Manor's webview server, in priority order:
+//   1. MANOR_WEBVIEW_PORT env — set by the host Manor instance (correct target
+//      in multi-instance setups), but goes stale if that instance restarts.
+//   2. The ~/.manor/webview-server-port file — always rewritten by the running
+//      instance, so it self-heals after a restart.
+// Resolved per request (not cached at startup) so restarts don't wedge us.
+function candidatePorts(): number[] {
+  const ports: number[] = [];
+  const envPort = parseInt(process.env.MANOR_WEBVIEW_PORT ?? "", 10);
+  if (!isNaN(envPort) && envPort > 0) ports.push(envPort);
+  if (fs.existsSync(PORT_FILE)) {
+    const filePort = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
+    if (!isNaN(filePort) && filePort > 0 && !ports.includes(filePort)) {
+      ports.push(filePort);
+    }
   }
-  if (!fs.existsSync(PORT_FILE)) {
+  if (ports.length === 0) {
     throw new Error(
-      `Port file not found at ${PORT_FILE} — is Manor running?`,
+      `No Manor webview port found (env MANOR_WEBVIEW_PORT or ${PORT_FILE}) — is Manor running?`,
     );
   }
-  const port = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
-  if (isNaN(port)) {
-    throw new Error(`Invalid port in ${PORT_FILE}`);
-  }
-  return port;
+  return ports;
 }
 
-// Resolve the base URL per request rather than once at startup, so the server
-// survives Manor restarts (which rewrite the port file with a new port).
-function baseUrl(): string {
-  return `http://127.0.0.1:${readPort()}`;
+// Try each candidate port until one answers. Connection-level failures fall
+// through to the next candidate; an HTTP error from a live server is surfaced
+// as-is (don't mask a real error by retrying a different instance).
+async function request(urlPath: string, init?: RequestInit): Promise<unknown> {
+  let lastErr: unknown;
+  for (const port of candidatePorts()) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, init);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`HTTP ${res.status}: ${body}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      const isConnError =
+        err instanceof TypeError && (err as NodeJS.ErrnoException).cause;
+      if (!isConnError) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 // ── HTTP helpers ──
 
 async function httpGet(urlPath: string): Promise<unknown> {
-  const res = await fetch(`${baseUrl()}${urlPath}`);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status}: ${body}`);
-  }
-  return res.json();
+  return request(urlPath);
 }
 
 async function httpPost(
@@ -68,12 +86,7 @@ async function httpPost(
   if (timeoutMs !== undefined) {
     init.signal = AbortSignal.timeout(timeoutMs);
   }
-  const res = await fetch(`${baseUrl()}${urlPath}`, init);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  return res.json();
+  return request(urlPath, init);
 }
 
 // ── Pane resolution ──

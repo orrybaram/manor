@@ -87,6 +87,17 @@
             sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation"></iframe>
   </section>
 
+  <!-- ───────────────────────── E: same-page named frames ───────────────────────── -->
+  <h2>E. Same-page frame-to-frame (named frames)</h2>
+  <section>
+    <p class="expect"><span class="tag">E.1</span> frame self-nav → only that frame's content changes (no tab, parent stays).
+       <span class="tag">E.2</span> frame A → frame B <code>postMessage</code> → frame B logs it (relayed here as <code>frameB received: …</code>).
+       <span class="tag">E.3</span> <code>window.open(url,'frameTwo')</code> from frame A → navigates the NAMED SIBLING in place, NOT a Manor tab.
+       <span class="tag">E.4</span> named-tab reuse: click <b>B.4</b> a second time → expect a SECOND tab (no reuse — documented limitation).</p>
+    <iframe id="frameOne" name="frameOne" src="frame-a.html"></iframe>
+    <iframe id="frameTwo" name="frameTwo" src="frame-b.html"></iframe>
+  </section>
+
   <h2>Log</h2>
   <div id="log"></div>
 

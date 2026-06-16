@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>target</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; background: #fff; color: #111; padding: 2rem; }
+    code { background: #eee; padding: 0 .25rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1 id="h">target page</h1>
+  <p id="loc"></p>
+  <p><a href="javascript:history.back()">← back</a></p>
+  <script>
+    var via = new URLSearchParams(location.search).get("via") || "(none)";
+    document.getElementById("h").textContent = "Opened / navigated via: " + via;
+    document.getElementById("loc").textContent = "URL: " + location.href;
+    // If this page was opened with an opener (popup/named), announce it back.
+    if (window.opener) {
+      try { window.opener.postMessage("target-loaded:" + via, "*"); } catch (e) {}
+    }
+  </script>
+</body>
+</html>

@@ -17,73 +17,74 @@
       font: inherit; text-decoration: none;
     }
     button:hover, a.btn:hover { background: #e4e4e4; }
+    .tag { font-family: ui-monospace, monospace; font-weight: 700; color: #0a58ca; }
     .expect { color: #1a7a3c; font-size: .85rem; margin: .1rem 0 .5rem; }
     .warn { color: #b35900; }
     #log {
-      margin-top: 1rem; padding: .6rem; height: 230px; overflow: auto;
+      margin-top: 1rem; padding: .6rem; height: 240px; overflow: auto;
       background: #f6f6f6; color: #111; border: 1px solid #ccc; border-radius: 6px;
       font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
     }
     #status { font-family: ui-monospace, monospace; font-size: 12px; color: #555; }
-    iframe { width: 100%; height: 200px; border: 1px dashed #999; border-radius: 6px; margin-top: .5rem; background: #fff; }
+    iframe { width: 100%; height: 220px; border: 1px dashed #999; border-radius: 6px; margin-top: .5rem; background: #fff; }
     code { background: #eee; color: #111; padding: 0 .25rem; border-radius: 3px; }
   </style>
 </head>
 <body>
   <h1>ADR-145 — Window / Link Targeting Manual Test Harness</h1>
-  <p>Load this file in a Manor browser tab (paste the <code>file://</code> path into the URL bar).
-     Each action logs its result below. Watch whether a <b>new Manor tab</b> appears, whether the
-     <b>current tab navigates in place</b>, or whether a <b>separate popup window</b> opens.</p>
+  <p>Every control is labeled (<span class="tag">A.1</span>, <span class="tag">A.3.1</span>, …) and each
+     log line below is prefixed with that label. Click a control, then read the matching line in the Log.
+     Targets are real <code>http</code> pages (browsers block <code>data:</code> targets).</p>
   <div id="status"></div>
 
-  <!-- ───────────────────────── Case 1 & 2: anchor target attributes ───────────────────────── -->
-  <h2>A. Anchor link targets (cases #1, #2, #3)</h2>
+  <!-- ───────────────────────── A: anchor target attributes ───────────────────────── -->
+  <h2>A. Anchor link targets</h2>
   <section>
-    <p class="expect">#1 <code>_blank</code> → NEW Manor tab (foreground).</p>
-    <a class="btn" href="data:text/html,<h1>Opened via _blank</h1>" target="_blank" data-log="anchor _blank">anchor target=_blank</a>
+    <p class="expect"><span class="tag">A.1</span> <code>_blank</code> → NEW Manor tab (foreground).</p>
+    <a class="btn" href="target.html?via=A.1" target="_blank" data-label="A.1">A.1 — anchor target=_blank</a>
 
-    <p class="expect">#2 cmd/middle-click any link → NEW background tab (focus stays here).</p>
-    <a class="btn" href="data:text/html,<h1>Opened via background tab</h1>" target="_blank" data-log="anchor cmd/middle-click">cmd/middle-click me</a>
+    <p class="expect"><span class="tag">A.2</span> cmd/middle-click → NEW background tab (focus stays here).</p>
+    <a class="btn" href="target.html?via=A.2" target="_blank" data-label="A.2">A.2 — cmd/middle-click me</a>
 
-    <p class="expect warn">#3 <code>_self</code>/<code>_parent</code>/<code>_top</code> → navigate THIS tab in place
-       (replaces the harness — use Back to return). Should NOT open a new tab.</p>
-    <a class="btn" href="data:text/html,<h1>Navigated in place via _self</h1><a href='javascript:history.back()'>back</a>" target="_self" data-log="anchor _self">anchor target=_self</a>
-    <a class="btn" href="data:text/html,<h1>Navigated in place via _top</h1><a href='javascript:history.back()'>back</a>" target="_top" data-log="anchor _top">anchor target=_top</a>
-    <a class="btn" href="data:text/html,<h1>Navigated in place via _parent</h1><a href='javascript:history.back()'>back</a>" target="_parent" data-log="anchor _parent">anchor target=_parent</a>
+    <p class="expect warn"><span class="tag">A.3.1–A.3.3</span> <code>_self</code>/<code>_top</code>/<code>_parent</code> →
+       navigate THIS tab in place (replaces harness — use Back to return). NOT a new tab.</p>
+    <a class="btn" href="target.html?via=A.3.1" target="_self" data-label="A.3.1">A.3.1 — anchor target=_self</a>
+    <a class="btn" href="target.html?via=A.3.2" target="_top" data-label="A.3.2">A.3.2 — anchor target=_top</a>
+    <a class="btn" href="target.html?via=A.3.3" target="_parent" data-label="A.3.3">A.3.3 — anchor target=_parent</a>
   </section>
 
-  <!-- ───────────────────────── window.open variants ───────────────────────── -->
-  <h2>B. window.open() targets (cases #1, #3)</h2>
+  <!-- ───────────────────────── B: window.open variants ───────────────────────── -->
+  <h2>B. window.open() targets</h2>
   <section>
     <p class="expect">Featureless <code>window.open</code> → NEW Manor tab. <code>_self/_parent/_top</code> → in place.</p>
-    <button data-open="blank">window.open(url) — no target</button>
-    <button data-open="_blank">window.open(url, '_blank')</button>
-    <button data-open="_self">window.open(url, '_self')</button>
-    <button data-open="_parent">window.open(url, '_parent')</button>
-    <button data-open="_top">window.open(url, '_top')</button>
-    <button data-open="named">window.open(url, 'namedTab') — twice to test reuse</button>
+    <button data-open="blank" data-label="B.1">B.1 — window.open(url) no target</button>
+    <button data-open="_blank" data-label="B.2">B.2 — window.open(url, '_blank')</button>
+    <button data-open="_self" data-label="B.3.1">B.3.1 — window.open(url, '_self')</button>
+    <button data-open="_parent" data-label="B.3.2">B.3.2 — window.open(url, '_parent')</button>
+    <button data-open="_top" data-label="B.3.3">B.3.3 — window.open(url, '_top')</button>
+    <button data-open="named" data-label="B.4">B.4 — window.open(url, 'namedTab')</button>
   </section>
 
-  <!-- ───────────────────────── Case 5 & 6: communicating popup ───────────────────────── -->
-  <h2>C. Communicating popup — OAuth/SSO style (cases #5, #6)</h2>
+  <!-- ───────────────────────── C: communicating popup ───────────────────────── -->
+  <h2>C. Communicating popup — OAuth/SSO style</h2>
   <section>
-    <p class="expect">#5 <code>window.open(url, name, 'width=…,height=…')</code> → separate managed popup WINDOW
-       (not a tab). The popup posts a message back to <code>window.opener</code>; you should see it logged below.</p>
-    <button id="openPopup">Open popup (with features)</button>
-    <button id="msgPopup" disabled>opener → popup.postMessage('ping')</button>
-    <button id="closePopup" disabled>opener calls popup.close()</button>
-    <p class="expect">#6 Watch <code>popup.closed</code> flip to <code>true</code> after closing the popup or this pane.
-       Closing this Manor tab/pane should also close the popup (parented to the main window).</p>
+    <p class="expect"><span class="tag">C.1</span> <code>window.open(url, name, 'width=…,height=…')</code> →
+       separate managed popup WINDOW (not a tab); logs <code>popup-loaded</code> from <code>window.opener</code>.</p>
+    <button id="openPopup">C.1 — Open popup (with features)</button>
+    <p class="expect"><span class="tag">C.2</span> opener → popup round-trip. <span class="tag">C.3</span> opener closes popup;
+       <code>popup.closed</code> flips <code>true</code>.</p>
+    <button id="msgPopup" disabled>C.2 — opener → popup.postMessage('ping')</button>
+    <button id="closePopup" disabled>C.3 — opener calls popup.close()</button>
   </section>
 
-  <!-- ───────────────────────── Case 4: iframe / frame-to-frame ───────────────────────── -->
-  <h2>D. Inside an &lt;iframe&gt; — frame-to-frame (case #4)</h2>
+  <!-- ───────────────────────── D: iframe / frame-to-frame ───────────────────────── -->
+  <h2>D. Inside an &lt;iframe&gt; — frame-to-frame</h2>
   <section>
-    <p class="expect">#4 <code>window.open</code> from inside the iframe must be HANDLED (new tab / popup per its target),
-       not silently dropped. <code>_parent</code>/<code>_top</code> from the iframe should navigate
-       <b>within this page's frame tree</b> — never spill out into a Manor tab.
-       <code>parent.postMessage</code> should reach the top document (logged below), staying internal.</p>
-    <iframe id="frame" sandbox="allow-scripts allow-popups allow-same-origin allow-top-navigation"></iframe>
+    <p class="expect"><span class="tag">D.1/D.2</span> iframe <code>window.open</code> / <code>_blank</code> → HANDLED (new tab), not dropped.
+       <span class="tag">D.3.1/D.3.2</span> iframe <code>_parent</code>/<code>_top</code> → navigate within this page's frame tree, NEVER a Manor tab.
+       <span class="tag">D.4</span> <code>parent.postMessage</code> → reaches the top document (logged), staying internal.</p>
+    <iframe id="frame" src="iframe-child.html"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation"></iframe>
   </section>
 
   <h2>Log</h2>
@@ -100,89 +101,60 @@
     }
     statusEl.textContent = "location: " + location.href;
 
-    // A self-describing data: URL navigation target (offline-safe, identifiable).
-    function targetUrl(via) {
-      return "data:text/html,<title>" + via + "</title>" +
-        "<h1>window.open via " + via + "</h1>" +
-        "<p>If this is a separate Manor tab/window, " + via + " spawned a new context. " +
-        "If it replaced the harness, it navigated in place.</p>" +
-        "<a href='javascript:history.back()'>back</a>";
-    }
+    function targetUrl(via) { return "target.html?via=" + encodeURIComponent(via); }
 
-    // Section A — anchors: log the click (navigation/new-tab handled by Manor).
-    document.querySelectorAll("a[data-log]").forEach((a) => {
-      a.addEventListener("click", () => log("clicked " + a.dataset.log + " → " + a.getAttribute("target")));
+    // A — anchors: log with label (navigation/new-tab handled by Manor).
+    document.querySelectorAll("a[data-label]").forEach((a) => {
+      a.addEventListener("click", () =>
+        log(`[${a.dataset.label}] clicked anchor target=${a.getAttribute("target")}`));
     });
 
-    // Section B — window.open variants.
+    // B — window.open variants.
     document.querySelectorAll("button[data-open]").forEach((b) => {
       b.addEventListener("click", () => {
         const t = b.dataset.open;
-        const target = t === "blank" ? undefined : t;
-        const via = t === "blank" ? "(no target)" : t;
-        const handle = window.open(targetUrl(via), target);
-        log(`window.open(url, ${JSON.stringify(target)}) → handle is ${handle ? "a WindowProxy" : "null"}`);
+        const target = t === "blank" ? undefined : t === "named" ? "namedTab" : t;
+        const handle = window.open(targetUrl(b.dataset.label), target);
+        log(`[${b.dataset.label}] window.open(url, ${JSON.stringify(target)}) → handle is ${handle ? "WindowProxy" : "null"}`);
       });
     });
 
-    // Section C — communicating popup with features + opener round-trip.
+    // C — communicating popup with features + opener round-trip.
     let popup = null;
     const openBtn = document.getElementById("openPopup");
     const msgBtn = document.getElementById("msgPopup");
     const closeBtn = document.getElementById("closePopup");
 
-    const popupDoc =
-      "data:text/html," + encodeURIComponent(
-        "<title>Manor popup</title><body style='font:14px system-ui;padding:1rem'>" +
-        "<h2>Popup window</h2><p>I am a window.open() popup with features.</p>" +
-        "<button onclick=\"window.opener && window.opener.postMessage('hello-from-popup','*')\">postMessage to opener</button> " +
-        "<button onclick='window.close()'>window.close()</button>" +
-        "<script>" +
-        "window.addEventListener('message', (e)=>{document.body.insertAdjacentHTML('beforeend','<p>received from opener: '+e.data+'</p>')});" +
-        "if(window.opener){window.opener.postMessage('popup-loaded','*')}" +
-        "<\/script></body>");
-
     openBtn.addEventListener("click", () => {
-      popup = window.open(popupDoc, "manorAuthPopup", "width=520,height=620");
+      popup = window.open("popup.html", "manorAuthPopup", "width=520,height=620");
       if (popup) {
-        log("opened popup with features → handle is a WindowProxy (expect a separate popup window)");
+        log("[C.1] opened popup with features → handle is WindowProxy (expect a separate popup window)");
         msgBtn.disabled = false;
         closeBtn.disabled = false;
         const poll = setInterval(() => {
           if (!popup || popup.closed) {
-            log("popup.closed === true (case #6: lifecycle observed)");
+            log("[C.3] popup.closed === true (lifecycle observed)");
             msgBtn.disabled = true;
             closeBtn.disabled = true;
             clearInterval(poll);
           }
         }, 500);
       } else {
-        log("window.open returned null — popup was NOT created (BUG: features-popup should open a window)");
+        log("[C.1] window.open returned null — popup NOT created (BUG: features-popup should open a window)");
       }
     });
     msgBtn.addEventListener("click", () => {
-      if (popup && !popup.closed) { popup.postMessage("ping-from-opener", "*"); log("opener → popup.postMessage('ping-from-opener')"); }
-      else log("no live popup handle");
+      if (popup && !popup.closed) { popup.postMessage("ping-from-opener", "*"); log("[C.2] opener → popup.postMessage('ping-from-opener')"); }
+      else log("[C.2] no live popup handle");
     });
     closeBtn.addEventListener("click", () => {
-      if (popup) { popup.close(); log("called popup.close() from opener"); }
+      if (popup) { popup.close(); log("[C.3] opener called popup.close()"); }
     });
-    window.addEventListener("message", (e) => log("opener received message: " + JSON.stringify(e.data)));
 
-    // Section D — iframe content (self-contained via srcdoc).
-    const frame = document.getElementById("frame");
-    frame.srcdoc =
-      "<body style='font:13px system-ui;padding:.5rem'>" +
-      "<b>iframe (child frame)</b><br>" +
-      "<button onclick=\"window.open('data:text/html,<h1>iframe window.open</h1>')\">iframe window.open()</button> " +
-      "<a href='data:text/html,<h1>iframe _blank</h1>' target='_blank'>iframe a _blank</a><br>" +
-      "<button onclick=\"window.open('data:text/html,<h1>iframe _parent</h1><a href=%5C'javascript:history.back()%5C'>back</a>','_parent')\">window.open(_parent) — navigates the harness, not a tab</button> " +
-      "<button onclick=\"window.open('data:text/html,<h1>iframe _top</h1><a href=%5C'javascript:history.back()%5C'>back</a>','_top')\">window.open(_top)</button><br>" +
-      "<button onclick=\"parent.postMessage('hello-from-iframe','*')\">parent.postMessage (stays internal)</button>" +
-      "<script>document.addEventListener('click',(e)=>{if(e.target.tagName==='BUTTON'||e.target.tagName==='A')parent.postMessage('iframe-action:'+e.target.textContent,'*')})<\/script>" +
-      "</body>";
+    // Messages from popup (C) and iframe (D.4) land here.
+    window.addEventListener("message", (e) => log(`[msg] opener received: ${JSON.stringify(e.data)}`));
 
-    log("harness loaded. open DevTools console to mirror this log.");
+    log("harness loaded (labeled, http targets). open DevTools console to mirror this log.");
   </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 ---
 title: Thread background-tab disposition through new-window IPC
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

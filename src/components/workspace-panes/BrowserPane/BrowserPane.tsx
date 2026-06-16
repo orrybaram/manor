@@ -175,7 +175,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const wv = webviewRef.current;
       if (!wv) return;
       let resolved = target.trim();
-      if (!/^https?:\/\//i.test(resolved)) {
+      // Pass through explicit URL schemes (http(s), file, data, about, …) as
+      // typed; only bare hosts / search terms get normalized below.
+      if (!/^(https?|file|data|about|blob|chrome|view-source):/i.test(resolved)) {
         const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(resolved);
         if (isLocal) {
           resolved = `http://${resolved}`;
@@ -183,7 +185,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           // Has dots — treat as a domain (e.g. "github.com", "foo.bar.com/path")
           resolved = `https://${resolved}`;
         } else {
-          // No dots, no protocol, not localhost — treat as a search query
+          // No dots, no scheme, not localhost — treat as a search query
           resolved = `https://www.google.com/search?q=${encodeURIComponent(resolved)}`;
         }
       }

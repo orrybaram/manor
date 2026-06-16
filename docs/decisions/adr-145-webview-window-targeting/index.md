@@ -176,6 +176,36 @@ makes OAuth work) or be **forced into a manor tab** (simpler, consistent tab UX,
 but knowingly breaks handle-dependent flows). The decision above assumes the
 former; Ticket 3 is scoped to it and can be dropped if we accept the limitation.
 
+## Validation (2026-06-16)
+
+Validated live in a dev build using `tests/manual/window-targeting.html` (driven
+by hand, observed via the webview MCP + on-page log). The full matrix passed:
+
+- **A** anchor targets: `_blank` → foreground tab, cmd/middle-click → background
+  tab (no focus theft), `_self`/`_top`/`_parent` → in-place navigation.
+- **B** `window.open`: no-target/`_blank`/named → tabs; `_self`/`_parent`/`_top`
+  → in place (the original reported bug, fixed).
+- **C** communicating popup: opens a separate managed child window, with a live
+  `window.opener`, bidirectional `postMessage`, and `close()` from both opener
+  and popup (`popup.closed` reflects it) — the OAuth/SSO path works end-to-end.
+- **D** iframe: `window.open`/`target=_blank` → tab (bug #2, fixed), `_parent`/
+  `_top` navigate within the page's frame tree (never a tab), `parent.postMessage`
+  stays internal.
+- **E** same-page named frames: frame self-nav, frame↔frame `postMessage`, and
+  named-sibling targeting all stay in-page (not intercepted). Named-tab reuse
+  across `<webview>` tabs is confirmed **unsupported** (each `window.open(url,
+  name)` from the top frame makes a fresh tab) — the documented limitation.
+
+**Regression found and fixed during validation:** ticket 1 set `allowpopups` as a
+boolean prop (`allowpopups={true}`), which **React 19 silently drops for
+`<webview>`**, leaving the attribute absent — so Electron blocked every guest
+`window.open`/`target=_blank` *before* `setWindowOpenHandler` ran, making the
+whole feature a no-op. typecheck/build/unit tests were all green; only running the
+real app surfaced it. Fixed by emitting `allowpopups` as a string attribute
+(commit `fix(browser): emit webview allowpopups as a string attribute`). This is
+exactly the live-run the ticket-1 spike note called for; the `disposition` routing
+table is now confirmed against the running Electron build.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

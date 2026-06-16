@@ -56,3 +56,33 @@ describe("ShellManager.setupZdotdir — shared history", () => {
     expect(zshrc.indexOf("source")).toBeLessThan(zshrc.indexOf("HISTFILE:="));
   });
 });
+
+describe("ShellManager.realZdotdir — nested-launch sanitization", () => {
+  const savedZdotdir = process.env.ZDOTDIR;
+  const savedHome = process.env.HOME;
+
+  afterEach(() => {
+    if (savedZdotdir === undefined) delete process.env.ZDOTDIR;
+    else process.env.ZDOTDIR = savedZdotdir;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  it("returns HOME when ZDOTDIR is unset", () => {
+    delete process.env.ZDOTDIR;
+    process.env.HOME = "/home/user";
+    expect(ShellManager.realZdotdir()).toBe("/home/user");
+  });
+
+  it("falls back to HOME when ZDOTDIR equals Manor's own zdotdir (nested-launch poison)", () => {
+    process.env.ZDOTDIR = ShellManager.zdotdirPath();
+    process.env.HOME = "/home/user";
+    expect(ShellManager.realZdotdir()).toBe("/home/user");
+  });
+
+  it("returns the inherited ZDOTDIR when it is a real, different dir", () => {
+    process.env.ZDOTDIR = "/home/user/.config/zsh";
+    process.env.HOME = "/home/user";
+    expect(ShellManager.realZdotdir()).toBe("/home/user/.config/zsh");
+  });
+});

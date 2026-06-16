@@ -1,6 +1,6 @@
 ---
 title: Tests for window/link targeting & popup routing
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2, 3]

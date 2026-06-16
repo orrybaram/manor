@@ -12,6 +12,16 @@ import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { IpcDeps } from "./types";
+import {
+  buildPopupWindowOptions,
+  closeAllChildWindows,
+  closeChildWindowsForPane,
+  registerChildWindow,
+} from "./popups";
+
+// Re-exported so callers (e.g. main-window lifecycle) can flush all tracked
+// child popup windows without importing the popups module directly.
+export { closeAllChildWindows };
 
 export const webviewRegistry = new Map<string, number>();
 
@@ -20,6 +30,7 @@ const webviewEscapeCleanup = new Map<string, () => void>();
 const webviewUnloadCleanup = new Map<string, () => void>();
 const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
+const webviewPopupCleanup = new Map<string, () => void>();
 
 export function createWebviewServer(): WebviewServer {
   return new WebviewServer(webviewRegistry);
@@ -227,8 +238,9 @@ export function register(deps: IpcDeps): void {
         //
         // Navigation-style opens (foreground-tab / background-tab) become manor
         // tabs. Communicating popups (new-window disposition and/or non-empty
-        // features) are denied for now — Ticket 3 replaces that branch with a
-        // managed child BrowserWindow that preserves the opener relationship.
+        // features) are allowed through as a real, managed child BrowserWindow
+        // so the Chromium opener relationship (window.opener, postMessage,
+        // closed, close(), named reuse) is preserved end-to-end.
         wc.setWindowOpenHandler(({ url, disposition, features }) => {
           if (disposition === "foreground-tab" || disposition === "background-tab") {
             rendererWebContents.send("webview:new-window", paneId, url, {
@@ -238,12 +250,29 @@ export function register(deps: IpcDeps): void {
           }
 
           // Communicating popup (OAuth/SSO/payment): disposition "new-window"
-          // and/or window features requesting a sized popup. Denied for now.
-          // TODO(ticket-3): replace with a managed child BrowserWindow
-          // (overrideBrowserWindowOptions + did-create-window tracking) so
-          // window.opener, postMessage, closed, close(), and named reuse work.
-          void features;
-          return { action: "deny" };
+          // and/or window features requesting a sized popup. Allow Chromium to
+          // create a child window (parented to the main window, secure
+          // webPreferences, normalized size). The child is captured in
+          // `did-create-window` below and tracked for cleanup.
+          return {
+            action: "allow",
+            overrideBrowserWindowOptions: buildPopupWindowOptions(
+              getMainWindow(),
+              features,
+            ),
+          };
+        });
+
+        // Capture the child window created by the allow branch above so it can
+        // be tracked, given its own external-link policy, and cleaned up when
+        // the pane is unregistered or the main window closes.
+        const didCreateWindowHandler = (childWindow: Electron.BrowserWindow) => {
+          registerChildWindow(paneId, childWindow);
+        };
+        wc.on("did-create-window", didCreateWindowHandler);
+        webviewPopupCleanup.set(paneId, () => {
+          wc.off("did-create-window", didCreateWindowHandler);
+          closeChildWindowsForPane(paneId);
         });
 
         // Handle beforeunload — show a native confirm dialog when the page
@@ -283,6 +312,8 @@ export function register(deps: IpcDeps): void {
     webviewEventCleanup.delete(paneId);
     webviewAudioCleanup.get(paneId)?.();
     webviewAudioCleanup.delete(paneId);
+    webviewPopupCleanup.get(paneId)?.();
+    webviewPopupCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     webviewRegistry.delete(paneId);
   });

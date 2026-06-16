@@ -111,6 +111,14 @@ function formatPickedElement(result: PickedElementResult): string {
   return sections.join("\n\n");
 }
 
+// React 19 silently drops a boolean `allowpopups={true}` on <webview>, leaving
+// the attribute absent — which makes Electron block all guest window.open /
+// target=_blank before they reach setWindowOpenHandler. Emit it as a string
+// attribute instead (Electron only checks for presence). Spread to bypass the
+// boolean prop type in React's WebViewHTMLAttributes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
+
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
     const { paneId, initialUrl, onNavStateChange } = props;
@@ -526,10 +534,11 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
             src={initialUrl}
-            // allowpopups lets guest window.open requests reach the native
-            // setWindowOpenHandler in electron/ipc/webview.ts (the sole open
-            // authority); without it they are blocked before the handler runs.
-            allowpopups={true}
+            // allowpopups (string attr — see WEBVIEW_ALLOW_POPUPS) lets guest
+            // window.open / target=_blank reach the native setWindowOpenHandler
+            // in electron/ipc/webview.ts; without it the open is blocked before
+            // the handler ever runs.
+            {...WEBVIEW_ALLOW_POPUPS}
           />
           {isBlank && (
             <div className={styles.emptyState}>Enter a URL to get started</div>

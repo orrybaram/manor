@@ -4,27 +4,29 @@
   <meta charset="utf-8" />
   <title>ADR-145 — Window/Link Targeting Manual Test Harness</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 980px; }
-    h1 { font-size: 1.2rem; }
-    h2 { font-size: 1rem; margin-top: 1.75rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+    /* Explicit light theme so it stays readable regardless of OS/webview dark mode. */
+    :root { color-scheme: light; }
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 980px; background: #ffffff; color: #1a1a1a; }
+    h1 { font-size: 1.2rem; color: #111; }
+    h2 { font-size: 1rem; margin-top: 1.75rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; color: #111; }
+    p { color: #1a1a1a; }
     section { margin-bottom: .5rem; }
     button, a.btn {
       display: inline-block; margin: .2rem .3rem .2rem 0; padding: .4rem .7rem;
-      border: 1px solid #8886; border-radius: 6px; background: #8881; cursor: pointer;
-      font: inherit; text-decoration: none; color: inherit;
+      border: 1px solid #bbb; border-radius: 6px; background: #f2f2f2; color: #111; cursor: pointer;
+      font: inherit; text-decoration: none;
     }
-    button:hover, a.btn:hover { background: #8883; }
-    .expect { color: #2a7; font-size: .85rem; margin: .1rem 0 .5rem; }
-    .warn { color: #d83; }
+    button:hover, a.btn:hover { background: #e4e4e4; }
+    .expect { color: #1a7a3c; font-size: .85rem; margin: .1rem 0 .5rem; }
+    .warn { color: #b35900; }
     #log {
       margin-top: 1rem; padding: .6rem; height: 230px; overflow: auto;
-      background: #0001; border: 1px solid #8884; border-radius: 6px;
+      background: #f6f6f6; color: #111; border: 1px solid #ccc; border-radius: 6px;
       font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
     }
-    #status { font-family: ui-monospace, monospace; font-size: 12px; color: #888; }
-    iframe { width: 100%; height: 200px; border: 1px dashed #8888; border-radius: 6px; margin-top: .5rem; }
-    code { background: #8882; padding: 0 .25rem; border-radius: 3px; }
+    #status { font-family: ui-monospace, monospace; font-size: 12px; color: #555; }
+    iframe { width: 100%; height: 200px; border: 1px dashed #999; border-radius: 6px; margin-top: .5rem; background: #fff; }
+    code { background: #eee; color: #111; padding: 0 .25rem; border-radius: 3px; }
   </style>
 </head>
 <body>

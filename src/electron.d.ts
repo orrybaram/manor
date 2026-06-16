@@ -605,7 +605,7 @@ export interface ElectronAPI {
     onEscape: (callback: (paneId: string) => void) => () => void;
     onFocusUrl: (callback: (paneId: string) => void) => () => void;
     onNewWindow: (
-      callback: (paneId: string, url: string) => void,
+      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
     ) => () => void;
     stop: (paneId: string) => Promise<void>;
     findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<void>;

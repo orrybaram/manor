@@ -5,8 +5,6 @@ import {
   dialog,
   BrowserWindow,
   clipboard,
-  nativeImage,
-  shell,
 } from "electron";
 import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";

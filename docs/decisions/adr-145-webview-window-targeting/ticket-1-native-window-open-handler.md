@@ -1,6 +1,6 @@
 ---
 title: Replace injected-JS interception with native setWindowOpenHandler
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

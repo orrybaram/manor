@@ -27,25 +27,27 @@ function readPort(): number {
     if (!isNaN(p) && p > 0) return p;
   }
   if (!fs.existsSync(PORT_FILE)) {
-    console.error(
-      `[mcp-webview] Port file not found at ${PORT_FILE} — is Manor running?`,
+    throw new Error(
+      `Port file not found at ${PORT_FILE} — is Manor running?`,
     );
-    process.exit(1);
   }
   const port = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
   if (isNaN(port)) {
-    console.error(`[mcp-webview] Invalid port in ${PORT_FILE}`);
-    process.exit(1);
+    throw new Error(`Invalid port in ${PORT_FILE}`);
   }
   return port;
 }
 
-const BASE_URL = `http://127.0.0.1:${readPort()}`;
+// Resolve the base URL per request rather than once at startup, so the server
+// survives Manor restarts (which rewrite the port file with a new port).
+function baseUrl(): string {
+  return `http://127.0.0.1:${readPort()}`;
+}
 
 // ── HTTP helpers ──
 
 async function httpGet(urlPath: string): Promise<unknown> {
-  const res = await fetch(`${BASE_URL}${urlPath}`);
+  const res = await fetch(`${baseUrl()}${urlPath}`);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`HTTP ${res.status}: ${body}`);
@@ -66,7 +68,7 @@ async function httpPost(
   if (timeoutMs !== undefined) {
     init.signal = AbortSignal.timeout(timeoutMs);
   }
-  const res = await fetch(`${BASE_URL}${urlPath}`, init);
+  const res = await fetch(`${baseUrl()}${urlPath}`, init);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text}`);

@@ -524,6 +524,10 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
             src={initialUrl}
+            // allowpopups lets guest window.open requests reach the native
+            // setWindowOpenHandler in electron/ipc/webview.ts (the sole open
+            // authority); without it they are blocked before the handler runs.
+            allowpopups={true}
           />
           {isBlank && (
             <div className={styles.emptyState}>Enter a URL to get started</div>

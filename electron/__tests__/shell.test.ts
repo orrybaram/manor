@@ -20,6 +20,11 @@ function generatedZshrc(): string {
   return fs.readFileSync(path.join(zdotdir, ".zshrc"), "utf-8");
 }
 
+function generatedZlogout(): string {
+  ShellManager.setupZdotdir();
+  return fs.readFileSync(path.join(zdotdir, ".zlogout"), "utf-8");
+}
+
 describe("ShellManager.setupZdotdir — shared history", () => {
   beforeEach(() => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -33,8 +38,12 @@ describe("ShellManager.setupZdotdir — shared history", () => {
     expect(generatedZshrc()).not.toContain("shell-history");
   });
 
-  it("provides a :=-fallback for HISTFILE after sourcing the user's .zshrc", () => {
-    expect(generatedZshrc()).toContain(': "${HISTFILE:=');
+  it("redirects HISTFILE when it is empty or lives inside Manor's ZDOTDIR", () => {
+    const zshrc = generatedZshrc();
+    expect(zshrc).toContain(
+      'if [[ -z "$HISTFILE" || "$HISTFILE" == "$ZDOTDIR"/* ]]; then',
+    );
+    expect(zshrc).toContain('HISTFILE="${REAL_ZDOTDIR:-$HOME}/.zsh_history"');
   });
 
   it("does not depend on the daemon-injected MANOR_HISTFILE env var", () => {
@@ -51,9 +60,15 @@ describe("ShellManager.setupZdotdir — shared history", () => {
     expect(zshrc).toContain("(( SAVEHIST < 100000 )) && SAVEHIST=100000");
   });
 
-  it("places the HISTFILE fallback after sourcing the user's real .zshrc so their value wins", () => {
+  it("places the HISTFILE redirect after sourcing the user's real .zshrc so their value wins", () => {
     const zshrc = generatedZshrc();
-    expect(zshrc.indexOf("source")).toBeLessThan(zshrc.indexOf("HISTFILE:="));
+    expect(zshrc.indexOf("source")).toBeLessThan(zshrc.indexOf("HISTFILE="));
+  });
+
+  it("generates a .zlogout that sources the user's real .zlogout", () => {
+    expect(generatedZlogout()).toContain(
+      'source "${REAL_ZDOTDIR:-$HOME}/.zlogout"',
+    );
   });
 });
 

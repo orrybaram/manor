@@ -8,6 +8,15 @@ export class ShellManager {
     return shellZdotdir();
   }
 
+  static realZdotdir(): string {
+    const inherited = process.env.ZDOTDIR;
+    // If the app inherited OUR own zdotdir (Manor launched from a Manor pane),
+    // it is not a real user ZDOTDIR — fall back to HOME so the generated scripts
+    // source the user's real dotfiles instead of recursively sourcing themselves.
+    if (inherited && inherited !== this.zdotdirPath()) return inherited;
+    return process.env.HOME ?? "";
+  }
+
   static setupZdotdir(): string {
     const dir = this.zdotdirPath();
     fs.mkdirSync(dir, { recursive: true });

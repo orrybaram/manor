@@ -27,7 +27,7 @@ export class PtyManager {
       MANOR_PANE_ID: paneId,
       TERM: "xterm-256color",
       ZDOTDIR: zdotdir,
-      REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
+      REAL_ZDOTDIR: ShellManager.realZdotdir(),
     };
 
     const ptyProcess = pty.spawn(shell, [], {

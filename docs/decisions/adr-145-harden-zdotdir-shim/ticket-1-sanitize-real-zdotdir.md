@@ -1,6 +1,6 @@
 ---
 title: Sanitize REAL_ZDOTDIR against nested launches
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

@@ -334,6 +334,15 @@ export function initApp(devTitle: string | null): void {
 
     mainWindow = createWindow();
 
+    // Backstop cleanup: child popup windows are parented to the main window so
+    // Chromium closes them with it, but explicitly flush the tracking registry
+    // on close so no entries or listeners leak.
+    if (mainWindow) {
+      mainWindow.on("close", () => {
+        webviewIpc.closeAllChildWindows();
+      });
+    }
+
     if (devTitle && mainWindow) {
       mainWindow.setTitle(devTitle);
       mainWindow.webContents.on("page-title-updated", (e) => {

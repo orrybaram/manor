@@ -26,7 +26,7 @@ import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
   addTab: () => void;
-  addBrowserTab: (url: string) => void;
+  addBrowserTab: (url: string, opts?: { background?: boolean }) => void;
   closePane: () => void;
   closeTab: (tabId: string) => void;
   splitPane: (direction: "horizontal" | "vertical") => void;

@@ -29,6 +29,10 @@ vi.stubGlobal("window", {
     notifications: {
       onNavigateToTask: vi.fn(),
     },
+    projects: {
+      select: vi.fn(),
+      selectWorkspace: vi.fn(),
+    },
   },
 });
 

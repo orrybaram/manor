@@ -451,12 +451,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel('webview:escape', callback),
     onFocusUrl: (callback: (paneId: string) => void) =>
       onChannel('webview:focus-url', callback),
-    onNewWindow: (callback: (paneId: string, url: string) => void) => {
+    onNewWindow: (
+      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
         url: string,
-      ) => callback(paneId, url);
+        opts?: { background?: boolean },
+      ) => callback(paneId, url, opts);
       ipcRenderer.on("webview:new-window", listener);
       return () =>
         ipcRenderer.removeListener("webview:new-window", listener);

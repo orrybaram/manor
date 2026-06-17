@@ -5,42 +5,30 @@ import {
   dialog,
   BrowserWindow,
   clipboard,
-  nativeImage,
-  shell,
 } from "electron";
 import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { IpcDeps } from "./types";
+import {
+  buildPopupWindowOptions,
+  closeAllChildWindows,
+  closeChildWindowsForPane,
+  registerChildWindow,
+} from "./popups";
+
+// Re-exported so callers (e.g. main-window lifecycle) can flush all tracked
+// child popup windows without importing the popups module directly.
+export { closeAllChildWindows };
 
 export const webviewRegistry = new Map<string, number>();
 
 const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
-const newWindowConsoleCleanup = new Map<string, () => void>();
+const webviewUnloadCleanup = new Map<string, () => void>();
 const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
-
-const INTERCEPT_NEW_WINDOW_SCRIPT = `
-(function() {
-  if (window.__manor_intercept_new_window__) return;
-  window.__manor_intercept_new_window__ = true;
-  document.addEventListener('click', function(e) {
-    var el = e.target;
-    while (el && el.tagName !== 'A') el = el.parentElement;
-    if (!el) return;
-    if (el.getAttribute('target') === '_blank' && el.href) {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log('__manor_new_window__:' + el.href);
-    }
-  }, true);
-  window.open = function(url) {
-    if (url) console.log('__manor_new_window__:' + url);
-    return null;
-  };
-})();
-`;
+const webviewPopupCleanup = new Map<string, () => void>();
 
 export function createWebviewServer(): WebviewServer {
   return new WebviewServer(webviewRegistry);
@@ -227,24 +215,63 @@ export function register(deps: IpcDeps): void {
           wc.off("audio-state-changed", audioPlayingHandler as any);
         });
 
-        // Intercept target="_blank" clicks and window.open() inside the guest page.
-        const injectNewWindowIntercept = () => {
-          if (wc.isDestroyed()) return;
-          wc.executeJavaScript(INTERCEPT_NEW_WINDOW_SCRIPT).catch(() => {});
-        };
-        wc.on("did-finish-load", injectNewWindowIntercept);
-
-        const newWindowListener = (
-          _ev: Electron.Event,
-          _level: number,
-          message: string,
-        ) => {
-          if (message.startsWith("__manor_new_window__:")) {
-            const url = message.slice("__manor_new_window__:".length);
-            rendererWebContents.send("webview:new-window", paneId, url);
+        // New-window handling via Electron's native open path. This requires the
+        // <webview> to carry the `allowpopups` attribute (see BrowserPane.tsx);
+        // without it the guest's window.open is blocked before this handler runs.
+        //
+        // Routing is by intent, keyed on `disposition` / `features`:
+        //
+        //   Observed disposition mapping (Electron 35, from docs — NOT yet
+        //   verified empirically in-app; orchestrator/verifier should confirm
+        //   via the Ticket 1 spike):
+        //   - <a target="_blank"> click          -> "foreground-tab"
+        //   - cmd/ctrl+click, middle-click        -> "background-tab"
+        //   - window.open(url)  (no features)     -> "foreground-tab"
+        //   - window.open(url, name, "width=…")   -> "new-window" / features set
+        //   - window.open(url, "_self"|"_parent"|"_top")
+        //         -> does NOT reach this handler; surfaces as will-navigate on
+        //            the guest and navigates in place (bug #1 fix).
+        //   - window.open from inside an <iframe>  -> reaches this handler now
+        //         that allowpopups is set (bug #2 fix).
+        //
+        // Navigation-style opens (foreground-tab / background-tab) become manor
+        // tabs. Communicating popups (new-window disposition and/or non-empty
+        // features) are allowed through as a real, managed child BrowserWindow
+        // so the Chromium opener relationship (window.opener, postMessage,
+        // closed, close(), named reuse) is preserved end-to-end.
+        wc.setWindowOpenHandler(({ url, disposition, features }) => {
+          if (disposition === "foreground-tab" || disposition === "background-tab") {
+            rendererWebContents.send("webview:new-window", paneId, url, {
+              background: disposition === "background-tab",
+            });
+            return { action: "deny" };
           }
+
+          // Communicating popup (OAuth/SSO/payment): disposition "new-window"
+          // and/or window features requesting a sized popup. Allow Chromium to
+          // create a child window (parented to the main window, secure
+          // webPreferences, normalized size). The child is captured in
+          // `did-create-window` below and tracked for cleanup.
+          return {
+            action: "allow",
+            overrideBrowserWindowOptions: buildPopupWindowOptions(
+              getMainWindow(),
+              features,
+            ),
+          };
+        });
+
+        // Capture the child window created by the allow branch above so it can
+        // be tracked, given its own external-link policy, and cleaned up when
+        // the pane is unregistered or the main window closes.
+        const didCreateWindowHandler = (childWindow: Electron.BrowserWindow) => {
+          registerChildWindow(paneId, childWindow);
         };
-        wc.on("console-message", newWindowListener);
+        wc.on("did-create-window", didCreateWindowHandler);
+        webviewPopupCleanup.set(paneId, () => {
+          wc.off("did-create-window", didCreateWindowHandler);
+          closeChildWindowsForPane(paneId);
+        });
 
         // Handle beforeunload — show a native confirm dialog when the page
         // tries to prevent navigation (e.g. unsaved changes warnings).
@@ -264,9 +291,7 @@ export function register(deps: IpcDeps): void {
         };
         wc.on("will-prevent-unload", preventUnloadHandler);
 
-        newWindowConsoleCleanup.set(paneId, () => {
-          wc.off("did-finish-load", injectNewWindowIntercept);
-          wc.off("console-message", newWindowListener);
+        webviewUnloadCleanup.set(paneId, () => {
           wc.off("will-prevent-unload", preventUnloadHandler);
         });
       }
@@ -279,12 +304,14 @@ export function register(deps: IpcDeps): void {
     webviewContextMenuCleanup.delete(paneId);
     webviewEscapeCleanup.get(paneId)?.();
     webviewEscapeCleanup.delete(paneId);
-    newWindowConsoleCleanup.get(paneId)?.();
-    newWindowConsoleCleanup.delete(paneId);
+    webviewUnloadCleanup.get(paneId)?.();
+    webviewUnloadCleanup.delete(paneId);
     webviewEventCleanup.get(paneId)?.();
     webviewEventCleanup.delete(paneId);
     webviewAudioCleanup.get(paneId)?.();
     webviewAudioCleanup.delete(paneId);
+    webviewPopupCleanup.get(paneId)?.();
+    webviewPopupCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     webviewRegistry.delete(paneId);
   });

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>iframe child</title>
+  <style>
+    body { font: 13px system-ui, sans-serif; background: #fbfbf6; color: #111; padding: .5rem; margin: 0; }
+    button, a { font: inherit; margin: .15rem .25rem; display: inline-block; }
+    .tag { font-family: ui-monospace, monospace; font-weight: 700; color: #0a58ca; }
+  </style>
+</head>
+<body>
+  <b>iframe (child frame)</b><br />
+  <button id="open"><span class="tag">D.1</span> — iframe window.open()</button>
+  <a href="target.html?via=D.2" target="_blank"><span class="tag">D.2</span> — iframe a target=_blank</a><br />
+  <button id="parent"><span class="tag">D.3.1</span> — window.open(_parent) — navigates harness, NOT a tab</button>
+  <button id="top"><span class="tag">D.3.2</span> — window.open(_top)</button><br />
+  <button id="msg"><span class="tag">D.4</span> — parent.postMessage (stays internal)</button>
+  <script>
+    function ping(label) { try { parent.postMessage("iframe " + label, "*"); } catch (e) {} }
+    document.getElementById("open").onclick = function () {
+      ping("D.1 window.open()"); window.open("target.html?via=D.1");
+    };
+    document.getElementById("parent").onclick = function () {
+      ping("D.3.1 window.open(_parent)"); window.open("target.html?via=D.3.1", "_parent");
+    };
+    document.getElementById("top").onclick = function () {
+      ping("D.3.2 window.open(_top)"); window.open("target.html?via=D.3.2", "_top");
+    };
+    document.getElementById("msg").onclick = function () { ping("D.4 parent.postMessage"); };
+    document.querySelector("a[target=_blank]").addEventListener("click", function () {
+      ping("D.2 a target=_blank");
+    });
+  </script>
+</body>
+</html>

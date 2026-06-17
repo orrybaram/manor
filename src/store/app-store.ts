@@ -232,7 +232,7 @@ export interface AppState {
   // Tab operations
   addTab: (paneId?: string) => void;
   addTerminalTab: (command: string, paneId?: string) => void;
-  addBrowserTab: (url: string) => void;
+  addBrowserTab: (url: string, opts?: { background?: boolean }) => void;
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
   openOrFocusDiff: () => void;
@@ -644,7 +644,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  addBrowserTab: (url: string) =>
+  addBrowserTab: (url: string, opts?: { background?: boolean }) =>
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
@@ -663,13 +663,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         rootNode: { type: "leaf", paneId, contentType: "browser", url },
         focusedPaneId: paneId,
       };
+      const background = opts?.background ?? false;
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "browser" },
         paneUrl: { ...state.paneUrl, [paneId]: url },
         ...updatePanel(state, path, layout, panel.id, (p) => ({
           ...p,
           tabs: [...p.tabs, tab],
-          selectedTabId: tab.id,
+          ...(background ? {} : { selectedTabId: tab.id }),
         })),
       };
     }),

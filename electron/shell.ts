@@ -8,6 +8,15 @@ export class ShellManager {
     return shellZdotdir();
   }
 
+  static realZdotdir(): string {
+    const inherited = process.env.ZDOTDIR;
+    // If the app inherited OUR own zdotdir (Manor launched from a Manor pane),
+    // it is not a real user ZDOTDIR — fall back to HOME so the generated scripts
+    // source the user's real dotfiles instead of recursively sourcing themselves.
+    if (inherited && inherited !== this.zdotdirPath()) return inherited;
+    return process.env.HOME ?? "";
+  }
+
   static setupZdotdir(): string {
     const dir = this.zdotdirPath();
     fs.mkdirSync(dir, { recursive: true });
@@ -24,10 +33,14 @@ export class ShellManager {
       [
         ".zshrc",
         `[[ -f "\${REAL_ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${REAL_ZDOTDIR:-$HOME}/.zshrc"
-# Global history shared in and out of Manor — honor whatever HISTFILE the user's
-# .zshrc resolved (oh-my-zsh and most configs set ~/.zsh_history); fall back to
-# ~/.zsh_history only if the sourced .zshrc left it unset.
-: "\${HISTFILE:=\${REAL_ZDOTDIR:-$HOME}/.zsh_history}"
+# /etc/zshrc on macOS sets HISTFILE=\${ZDOTDIR:-$HOME}/.zsh_history before this
+# block runs, and our ZDOTDIR override poisons it to Manor's private dir. Reclaim
+# the global file when HISTFILE is empty or lives inside our ZDOTDIR; honor any
+# genuinely custom path the user set in their real .zshrc (it won't be under our
+# dir — they don't know it exists).
+if [[ -z "$HISTFILE" || "$HISTFILE" == "$ZDOTDIR"/* ]]; then
+  HISTFILE="\${REAL_ZDOTDIR:-$HOME}/.zsh_history"
+fi
 # Guarantee the shared history is deep enough to be useful without shrinking a
 # user who already set a larger value in their real .zshrc (sourced above).
 (( HISTSIZE < 100000 )) && HISTSIZE=100000
@@ -48,6 +61,10 @@ precmd_functions+=(__manor_osc7_precmd)
       [
         ".zlogin",
         `[[ -f "\${REAL_ZDOTDIR:-$HOME}/.zlogin" ]] && source "\${REAL_ZDOTDIR:-$HOME}/.zlogin"\n`,
+      ],
+      [
+        ".zlogout",
+        `[[ -f "\${REAL_ZDOTDIR:-$HOME}/.zlogout" ]] && source "\${REAL_ZDOTDIR:-$HOME}/.zlogout"\n`,
       ],
     ];
 

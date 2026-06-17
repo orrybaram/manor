@@ -15,6 +15,22 @@
 
 
 
+
+## [0.5.13] - 2026-06-17
+
+Features:
+- Browser popups that communicate with their opener now open in a managed child window
+- Links set to open in the background now correctly open in a new background tab
+
+Fixes:
+- Popups and new windows now open reliably using native window handling
+- The browser now opens explicit `file:`, `data:`, and `about:` URLs directly instead of running a search
+- Browser popups no longer fail to open due to an incorrectly formatted setting
+- Shell sessions no longer leak history into the wrong file, and now run `.zlogout` cleanly on exit
+- Nested terminal launches no longer break shell environment setup
+- Webview automation now reconnects correctly after Manor restarts
+- The diff watcher no longer errors on directories that aren't git repositories
+
 ## [0.5.12] - 2026-06-12
 
 **Features**

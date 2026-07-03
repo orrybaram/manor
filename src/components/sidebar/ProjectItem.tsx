@@ -230,9 +230,16 @@ export function ProjectItem(props: ProjectItemProps) {
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
 
-  // Clear deletingPaths when workspaces change (deletion finished or path reused by new workspace)
+  // Keep a path dimmed until the workspace is actually gone. Only prune paths
+  // that no longer exist — a workspaces refresh mid-deletion (e.g. git status
+  // poll) must not un-dim an item whose deletion is still in flight.
   useEffect(() => {
-    setDeletingPaths((prev) => (prev.size > 0 ? new Set() : prev));
+    setDeletingPaths((prev) => {
+      if (prev.size === 0) return prev;
+      const existing = new Set(project.workspaces.map((ws) => ws.path));
+      const next = new Set([...prev].filter((path) => existing.has(path)));
+      return next.size === prev.size ? prev : next;
+    });
   }, [project.workspaces]);
 
   const [mergeState, setMergeState] = useState<{

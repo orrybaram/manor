@@ -273,7 +273,31 @@
 }
 
 .commandRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 6px;
+}
+
+.commandDragHandle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px 2px;
+  color: var(--text-dim);
+  cursor: grab;
+  opacity: 0.5;
+  touch-action: none;
+}
+
+.commandDragHandle:hover {
+  opacity: 1;
+}
+
+.commandDragHandle:active {
+  cursor: grabbing;
 }
 
 .commandNameInput {

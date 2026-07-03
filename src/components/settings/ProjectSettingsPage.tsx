@@ -2,11 +2,13 @@ import { useRef, useCallback, useState, useMemo } from "react";
 import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
+import GripVertical from "lucide-react/dist/esm/icons/grip-vertical";
 import {
   useProjectStore,
   type ProjectInfo,
   type CustomCommand,
 } from "../../store/project-store";
+import { useListDrag } from "../../hooks/useListDrag";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
@@ -256,6 +258,26 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
     [project, updateProject],
   );
 
+  const commands = useMemo(() => project.commands ?? [], [project.commands]);
+  const commandIds = useMemo(() => commands.map((c) => c.id), [commands]);
+
+  const handleReorderCommands = useCallback(
+    (orderedIds: string[]) => {
+      const byId = new Map(commands.map((c) => [c.id, c]));
+      const reordered = orderedIds
+        .map((id) => byId.get(id))
+        .filter((c): c is CustomCommand => c !== undefined);
+      updateProject(project.id, { commands: reordered });
+    },
+    [commands, project.id, updateProject],
+  );
+
+  const { handleDragStart, getTransformStyle, itemRefs } = useListDrag({
+    ids: commandIds,
+    onReorder: handleReorderCommands,
+    gap: 6,
+  });
+
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
@@ -308,13 +330,23 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <Stack gap="xs">
         <div className={styles.sectionTitle}>Commands</div>
         <div className={styles.commandList}>
-          {(project.commands ?? []).map((cmd: CustomCommand) => (
-            <Row
+          {commands.map((cmd: CustomCommand, idx: number) => (
+            <div
               key={cmd.id}
-              align="center"
-              gap="sm"
+              ref={(el) => {
+                if (el) itemRefs.current.set(idx, el);
+                else itemRefs.current.delete(idx);
+              }}
               className={styles.commandRow}
+              style={getTransformStyle(idx)}
             >
+              <div
+                className={styles.commandDragHandle}
+                title="Drag to reorder"
+                onPointerDown={(e) => handleDragStart(idx, e)}
+              >
+                <GripVertical size={14} />
+              </div>
               <Input
                 ref={(el) => {
                   if (el && cmd.id === newCommandId) {
@@ -354,7 +386,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               >
                 <Trash2 size={14} />
               </button>
-            </Row>
+            </div>
           ))}
           <button
             className={styles.addCommandBtn}

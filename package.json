@@ -97,6 +97,9 @@
         "NSUserNotificationAlertStyle": "alert"
       }
     },
+    "dmg": {
+      "artifactName": "${productName}-${arch}.dmg"
+    },
     "files": [
       "dist/**/*",
       "!dist/mac-arm64",

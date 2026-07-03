@@ -507,7 +507,7 @@ export function ProjectItem(props: ProjectItemProps) {
                           >
                             Hide Workspace
                           </ContextMenu.Item>
-                          {ws.pr?.state !== "MERGED" && (
+                          {ws.pr?.state?.toLowerCase() !== "merged" && (
                             <ContextMenu.Item
                               className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                               disabled={mergeState === null || !mergeState.canMerge}

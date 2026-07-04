@@ -16,6 +16,19 @@
 
 
 
+
+## [0.6.0] - 2026-07-03
+
+Features
+- Add setup and teardown scripts as re-runnable commands in the command palette
+- Reorder project commands by dragging them in settings
+
+Fixes
+- Dismiss the "checking for updates" toast once an update is found
+- Open the SearchableSelect menu with the ArrowDown key when its trigger is focused
+- Hide Merge & Delete actions for pull requests that are already merged
+- Keep workspaces dimmed while a full deletion is in progress
+
 ## [0.5.13] - 2026-06-17
 
 Features:

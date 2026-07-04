@@ -22,6 +22,11 @@ export function useUpdaterToasts() {
 
       // --- pending becomes non-null: always show, regardless of trigger ---
       if (pending !== null && prev.pending === null) {
+        // An update was found and downloaded. `checking` stays true from the
+        // check until the download completes, so the "checking finished" branch
+        // below never fires (it requires pending === null). Dismiss the stuck
+        // "Checking for updates…" loading toast here before showing this one.
+        useToastStore.getState().removeToast("updater-checking");
         useToastStore.getState().addToast({
           id: "updater-pending",
           status: "success",

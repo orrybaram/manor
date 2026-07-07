@@ -2,6 +2,10 @@ export interface AppPreferences {
   dockBadgeEnabled: boolean;
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
+  notifyOnPrComment: boolean;
+  notifyOnPrApproved: boolean;
+  notifyOnPrChangesRequested: boolean;
+  notifyOnPrChecksFailed: boolean;
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;

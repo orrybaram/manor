@@ -7,6 +7,10 @@ export interface AppPreferences {
   dockBadgeEnabled: boolean;
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
+  notifyOnPrComment: boolean;
+  notifyOnPrApproved: boolean;
+  notifyOnPrChangesRequested: boolean;
+  notifyOnPrChecksFailed: boolean;
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
@@ -27,6 +31,10 @@ const DEFAULTS: AppPreferences = {
   dockBadgeEnabled: true,
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
+  notifyOnPrComment: true,
+  notifyOnPrApproved: true,
+  notifyOnPrChangesRequested: true,
+  notifyOnPrChecksFailed: true,
   notificationSound: "Glass",
   defaultEditor: "",
   editorIsTerminal: false,

@@ -406,6 +406,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) =>
       onChannel("notification:navigate-to-task", callback),
+    show: (payload: { title: string; body: string; url?: string }) =>
+      ipcRenderer.invoke("notifications:show", payload),
   },
 
   clipboard: {

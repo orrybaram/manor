@@ -589,6 +589,11 @@ export interface ElectronAPI {
 
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
+    show: (payload: {
+      title: string;
+      body: string;
+      url?: string;
+    }) => Promise<void>;
   };
 
   clipboard: {

@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString } from "../ipc-validate";
+import { showPrNotification } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import type { IpcDeps } from "./types";
 
@@ -112,6 +113,16 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
     execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
   });
+
+  // ── Notifications ──
+  ipcMain.handle(
+    "notifications:show",
+    (_event, payload: { title: string; body: string; url?: string }) => {
+      assertString(payload.title, "title");
+      assertString(payload.body, "body");
+      showPrNotification(payload, getMainWindow(), preferencesManager);
+    },
+  );
 
   preferencesManager.onChange((prefs) => {
     const mw = getMainWindow();

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification } from "electron";
+import { app, BrowserWindow, Notification, shell } from "electron";
 import { execFile } from "node:child_process";
 import type { PreferencesManager } from "./preferences";
 import type { TaskInfo } from "./task-persistence";
@@ -119,6 +119,39 @@ export function maybeSendNotification(
     mainWindow.show();
     mainWindow.focus();
     mainWindow.webContents.send("notification:navigate-to-task", task.id);
+  });
+  notification.show();
+  const soundName = preferencesManager.get("notificationSound");
+  if (typeof soundName === "string") {
+    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+  }
+}
+
+/**
+ * Show a native notification on demand, triggered by the renderer (e.g. for
+ * PR update alerts — see ADR-147). Mirrors `maybeSendNotification`'s
+ * focus-suppression and silent-notification conventions.
+ */
+export function showPrNotification(
+  payload: { title: string; body: string; url?: string },
+  mainWindow: BrowserWindow | null,
+  preferencesManager: PreferencesManager,
+): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isFocused()) return;
+
+  const notification = new Notification({
+    title: payload.title,
+    body: payload.body,
+    silent: true,
+  });
+  notification.on("click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+    if (payload.url) {
+      shell.openExternal(payload.url);
+    }
   });
   notification.show();
   const soundName = preferencesManager.get("notificationSound");

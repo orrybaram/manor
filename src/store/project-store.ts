@@ -158,6 +158,7 @@ export interface PrInfo {
     pending: number;
   } | null;
   unresolvedThreads?: number;
+  commentCount?: number;
 }
 
 export interface WorkspaceInfo {

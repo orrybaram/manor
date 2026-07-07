@@ -48,6 +48,7 @@ export async function fetchPrs() {
                   reviewDecision: pr.reviewDecision,
                   checks: pr.checks,
                   unresolvedThreads: pr.unresolvedThreads,
+                  commentCount: pr.commentCount,
                 }
               : null,
           );

@@ -24,6 +24,7 @@ interface PrInfo {
   reviewDecision?: string | null;
   checks?: ChecksSummary | null;
   unresolvedThreads?: number;
+  commentCount?: number;
 }
 
 export interface GitHubIssue {
@@ -123,10 +124,8 @@ export class GitHubManager {
         };
       }
 
-      const unresolvedThreads = await this.getUnresolvedThreadCount(
-        pr.url,
-        pr.number,
-      );
+      const { unresolvedThreads, commentCount } =
+        await this.getPrConversationState(pr.url, pr.number);
 
       return {
         number: pr.number,
@@ -139,21 +138,22 @@ export class GitHubManager {
         reviewDecision: pr.reviewDecision ?? null,
         checks,
         unresolvedThreads,
+        commentCount,
       };
     } catch {
       return null;
     }
   }
 
-  private async getUnresolvedThreadCount(
+  private async getPrConversationState(
     prUrl: string,
     prNumber: number,
-  ): Promise<number | undefined> {
+  ): Promise<{ unresolvedThreads?: number; commentCount?: number }> {
     try {
       const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
-      if (!match) return undefined;
+      if (!match) return {};
       const [, owner, repo] = match;
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } } } }`;
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } comments { totalCount } reviews { totalCount } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -163,12 +163,23 @@ export class GitHubManager {
         },
       );
       const data = JSON.parse(stdout);
-      const threads = data?.data?.repository?.pullRequest?.reviewThreads?.nodes;
-      if (!Array.isArray(threads)) return undefined;
-      return threads.filter((t: { isResolved: boolean }) => !t.isResolved)
-        .length;
+      const pullRequest = data?.data?.repository?.pullRequest;
+      const threads = pullRequest?.reviewThreads?.nodes;
+      const unresolvedThreads = Array.isArray(threads)
+        ? threads.filter((t: { isResolved: boolean }) => !t.isResolved)
+            .length
+        : undefined;
+
+      const commentsTotal = pullRequest?.comments?.totalCount;
+      const reviewsTotal = pullRequest?.reviews?.totalCount;
+      const commentCount =
+        typeof commentsTotal === "number" && typeof reviewsTotal === "number"
+          ? commentsTotal + reviewsTotal
+          : undefined;
+
+      return { unresolvedThreads, commentCount };
     } catch {
-      return undefined;
+      return {};
     }
   }
 

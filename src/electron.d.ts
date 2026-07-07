@@ -417,6 +417,7 @@ export interface ElectronAPI {
             pending: number;
           } | null;
           unresolvedThreads?: number;
+          commentCount?: number;
         } | null,
       ][]
     >;

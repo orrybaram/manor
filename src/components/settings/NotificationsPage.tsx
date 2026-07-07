@@ -96,6 +96,46 @@ export function NotificationsPage() {
           </label>
         )}
       </Stack>
+
+      <Stack gap="xs">
+        <div className={styles.sectionTitle}>Pull requests</div>
+
+        <label className={styles.notifRow}>
+          <span>New comment</span>
+          <Switch
+            checked={preferences.notifyOnPrComment}
+            onCheckedChange={(checked) => set("notifyOnPrComment", checked)}
+          />
+        </label>
+
+        <label className={styles.notifRow}>
+          <span>Review approved</span>
+          <Switch
+            checked={preferences.notifyOnPrApproved}
+            onCheckedChange={(checked) => set("notifyOnPrApproved", checked)}
+          />
+        </label>
+
+        <label className={styles.notifRow}>
+          <span>Changes requested</span>
+          <Switch
+            checked={preferences.notifyOnPrChangesRequested}
+            onCheckedChange={(checked) =>
+              set("notifyOnPrChangesRequested", checked)
+            }
+          />
+        </label>
+
+        <label className={styles.notifRow}>
+          <span>CI checks failed</span>
+          <Switch
+            checked={preferences.notifyOnPrChecksFailed}
+            onCheckedChange={(checked) =>
+              set("notifyOnPrChecksFailed", checked)
+            }
+          />
+        </label>
+      </Stack>
     </Stack>
   );
 }

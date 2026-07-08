@@ -19,6 +19,7 @@ import { text } from "./mcp/types";
 import { webviewModule } from "./mcp/tools-webview";
 import { projectsModule } from "./mcp/tools-projects";
 import { agentsModule } from "./mcp/tools-agents";
+import { panesModule } from "./mcp/tools-panes";
 
 // ── Port discovery ──
 
@@ -113,7 +114,7 @@ const http: Http = {
 
 // ── Tool modules ──
 
-const modules = [webviewModule, projectsModule, agentsModule];
+const modules = [webviewModule, projectsModule, agentsModule, panesModule];
 const TOOLS = modules.flatMap((m) => m.tools);
 const handlers = Object.assign({}, ...modules.map((m) => m.handlers));
 

@@ -49,6 +49,13 @@ import { webviewModule } from "../mcp/tools-webview";
 import { projectsModule } from "../mcp/tools-projects";
 import { agentsModule } from "../mcp/tools-agents";
 import { panesModule } from "../mcp/tools-panes";
+import type {
+  PersistedLayout,
+  PersistedWorkspace,
+  PersistedPanel,
+  PersistedTab,
+  PersistedPaneSession,
+} from "../terminal-host/layout-persistence";
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -1417,5 +1424,363 @@ describe("MCP tools composition and parity", () => {
     for (const handlerName of handlerNameSet) {
       expect(toolNameSet).toContain(handlerName);
     }
+  });
+});
+
+// ── GET /context (ADR-150) ──
+//
+// Ticket 1 (pane-context.test.ts) already unit-tests the pure resolver.
+// These tests are about routing, the resolution ladder, dep-guards, and the
+// `sources` computation — driven end to end over HTTP against a real
+// WebviewServer, the same pattern the rest of this file uses.
+
+/** Raw fetch for /context — unlike mcpHttpGet/mcpHttpPost, this doesn't throw
+ * on non-2xx, so tests can assert on the 404 body's `candidates`, etc. */
+async function getContext(
+  baseUrl: string,
+  query: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await fetch(`${baseUrl}/context${query}`);
+  const body = await res.json();
+  return { status: res.status, body };
+}
+
+function paneSession(): PersistedPaneSession {
+  return { daemonSessionId: "daemon-1", lastCwd: null, lastTitle: null };
+}
+
+function contextTab(
+  id: string,
+  paneSessions: Record<string, PersistedPaneSession>,
+): PersistedTab {
+  const firstPaneId = Object.keys(paneSessions)[0] ?? "pane-x";
+  return {
+    id,
+    title: id,
+    rootNode: { type: "leaf", paneId: firstPaneId },
+    focusedPaneId: firstPaneId,
+    paneSessions,
+  };
+}
+
+function contextPanel(id: string, tabs: PersistedTab[]): PersistedPanel {
+  return { id, tabs, selectedTabId: tabs[0]?.id ?? "", pinnedTabIds: [] };
+}
+
+function contextWorkspace(
+  workspacePath: string,
+  panels: Record<string, PersistedPanel>,
+): PersistedWorkspace {
+  const firstPanelId = Object.keys(panels)[0] ?? "panel-1";
+  return {
+    workspacePath,
+    panelTree: { type: "leaf", panelId: firstPanelId },
+    panels,
+    activePanelId: firstPanelId,
+  };
+}
+
+// A pane buried in a non-first workspace, a non-first panel, and a non-first
+// tab — a naive "check the first hit" implementation would resolve the wrong
+// workspace (or nothing) here.
+const CONTEXT_LAYOUT_FIXTURE: PersistedLayout = {
+  version: 2,
+  workspaces: [
+    contextWorkspace("/unrelated/project", {
+      "panel-a": contextPanel("panel-a", [
+        contextTab("tab-a", { "pane-other": paneSession() }),
+      ]),
+    }),
+    contextWorkspace("/repo/.worktrees/feat", {
+      "panel-1": contextPanel("panel-1", [
+        contextTab("tab-1", { "pane-1": paneSession() }),
+      ]),
+      "panel-2": contextPanel("panel-2", [
+        contextTab("tab-2", { "pane-2": paneSession() }),
+        contextTab("tab-3", { "pane-target": paneSession() }),
+      ]),
+    }),
+  ],
+};
+
+const CONTEXT_MAIN_WORKSPACE = {
+  path: "/repo",
+  branch: "main",
+  isMain: true,
+  name: null,
+};
+const CONTEXT_WORKTREE_WORKSPACE = {
+  path: "/repo/.worktrees/feat",
+  branch: "feat",
+  isMain: false,
+  name: "feat",
+};
+
+// Main workspace and a worktree nested beneath it, so longest-prefix
+// matching is actually exercised end to end through the route.
+const CONTEXT_PROJECT = {
+  id: "proj-1",
+  name: "demo",
+  path: "/repo",
+  defaultBranch: "main",
+  workspaces: [CONTEXT_MAIN_WORKSPACE, CONTEXT_WORKTREE_WORKSPACE],
+  linearAssociations: [
+    { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+  ],
+};
+
+describe("GET /context", () => {
+  let server: WebviewServer;
+  let baseUrl: string;
+  let pm: { getProjects: ReturnType<typeof vi.fn> };
+  let github: Record<string, unknown>;
+  let linearManager: { isConnected: ReturnType<typeof vi.fn> };
+  let layoutPersistence: { load: ReturnType<typeof vi.fn> };
+
+  beforeEach(async () => {
+    pm = { getProjects: vi.fn(async () => [CONTEXT_PROJECT]) };
+    github = {};
+    linearManager = { isConnected: vi.fn(() => true) };
+    layoutPersistence = { load: vi.fn(() => CONTEXT_LAYOUT_FIXTURE) };
+
+    server = new WebviewServer(
+      new Map<string, number>(),
+      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+      github as unknown as ConstructorParameters<typeof WebviewServer>[2],
+      linearManager as unknown as ConstructorParameters<typeof WebviewServer>[3],
+      layoutPersistence as unknown as ConstructorParameters<typeof WebviewServer>[4],
+    );
+    await server.start();
+    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+  });
+
+  afterEach(() => {
+    server.stop();
+  });
+
+  it("resolves via the paneId rung", async () => {
+    const { status, body } = await getContext(baseUrl, "?paneId=pane-target");
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      projectId: "proj-1",
+      workspacePath: "/repo/.worktrees/feat",
+      resolvedBy: "paneId",
+    });
+    expect(layoutPersistence.load).toHaveBeenCalled();
+  });
+
+  it("resolves via the cwd rung, matching the worktree over the main workspace", async () => {
+    const { status, body } = await getContext(
+      baseUrl,
+      `?cwd=${encodeURIComponent("/repo/.worktrees/feat/src")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      projectId: "proj-1",
+      workspacePath: "/repo/.worktrees/feat",
+      resolvedBy: "cwd",
+    });
+  });
+
+  it("paneId wins over cwd when both are present and point at different workspaces", async () => {
+    const { status, body } = await getContext(
+      baseUrl,
+      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      workspacePath: "/repo/.worktrees/feat",
+      resolvedBy: "paneId",
+    });
+  });
+
+  it("falls through to cwd when paneId is absent from the layout (debounce lag), not a 404", async () => {
+    const { status, body } = await getContext(
+      baseUrl,
+      `?paneId=pane-not-in-layout&cwd=${encodeURIComponent("/repo")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+  });
+
+  it("falls through to cwd when the layout is corrupt (load throws), not a 500", async () => {
+    layoutPersistence.load.mockImplementation(() => {
+      throw new Error("ENOENT: layout.json missing or unparsable");
+    });
+
+    const { status, body } = await getContext(
+      baseUrl,
+      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+  });
+
+  it("falls through to cwd when the layout is corrupt (load returns null), not a 500", async () => {
+    layoutPersistence.load.mockReturnValue(null);
+
+    const { status, body } = await getContext(
+      baseUrl,
+      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+  });
+
+  it("resolves via cwd when no layoutPersistence is configured at all", async () => {
+    const bare = new WebviewServer(
+      new Map<string, number>(),
+      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+    );
+    await bare.start();
+    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+
+    // paneId is present too, to prove the optional-chained
+    // `deps.layoutPersistence?.load()` doesn't throw when the dep is null.
+    const { status, body } = await getContext(
+      bareUrl,
+      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+    bare.stop();
+  });
+
+  it("404s with non-empty candidates when neither param resolves", async () => {
+    const { status, body } = await getContext(baseUrl, "?cwd=/nowhere");
+
+    expect(status).toBe(404);
+    expect(typeof body.error).toBe("string");
+    expect(Array.isArray(body.candidates)).toBe(true);
+    const candidates = body.candidates as unknown[];
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]).toMatchObject({
+      projectId: "proj-1",
+      name: "demo",
+      path: "/repo",
+    });
+  });
+
+  it("returns 405 for POST /context", async () => {
+    await expect(mcpHttpPost(baseUrl, "/context")).rejects.toThrow(
+      "HTTP 405",
+    );
+  });
+
+  it("returns 503 when there is no projectManager", async () => {
+    const bare = new WebviewServer(new Map<string, number>());
+    await bare.start();
+    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+
+    await expect(
+      mcpHttpGet(bareUrl, "/context?cwd=/repo"),
+    ).rejects.toThrow("HTTP 503");
+    bare.stop();
+  });
+});
+
+describe("GET /context sources computation", () => {
+  /** Spin up a WebviewServer with the given manager combination, resolvable
+   * via `cwd=/repo` against a project with the given linearAssociations. */
+  async function serverWithSources(
+    githubManager: ConstructorParameters<typeof WebviewServer>[2] | undefined,
+    linearManager: ConstructorParameters<typeof WebviewServer>[3] | undefined,
+    linearAssociations: Array<{
+      teamId: string;
+      teamName: string;
+      teamKey: string;
+    }>,
+  ): Promise<{ server: WebviewServer; baseUrl: string }> {
+    const pm = {
+      getProjects: vi.fn(async () => [
+        { ...CONTEXT_PROJECT, linearAssociations },
+      ]),
+    };
+    const server = new WebviewServer(
+      new Map<string, number>(),
+      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+      githubManager,
+      linearManager,
+    );
+    await server.start();
+    return { server, baseUrl: `http://127.0.0.1:${server.serverPort}` };
+  }
+
+  const GITHUB_STUB = {} as unknown as ConstructorParameters<
+    typeof WebviewServer
+  >[2];
+
+  it("github present, linear connected, project has associations -> [github, linear]", async () => {
+    const linear = {
+      isConnected: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, [
+      { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+    ]);
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual(["github", "linear"]);
+
+    server.stop();
+  });
+
+  it("linear connected but linearAssociations is empty -> [github] only", async () => {
+    const linear = {
+      isConnected: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, []);
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual(["github"]);
+
+    server.stop();
+  });
+
+  it("linearManager.isConnected() is false, associations present -> [github] only", async () => {
+    const linear = {
+      isConnected: vi.fn(() => false),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, [
+      { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+    ]);
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual(["github"]);
+
+    server.stop();
+  });
+
+  it("no githubManager, linear fully configured -> [linear] only", async () => {
+    const linear = {
+      isConnected: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    const { server, baseUrl } = await serverWithSources(undefined, linear, [
+      { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+    ]);
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual(["linear"]);
+
+    server.stop();
+  });
+
+  it("neither github nor linear -> []", async () => {
+    const { server, baseUrl } = await serverWithSources(
+      undefined,
+      undefined,
+      [],
+    );
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual([]);
+
+    server.stop();
   });
 });

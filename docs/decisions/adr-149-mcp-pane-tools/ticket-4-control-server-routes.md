@@ -1,6 +1,6 @@
 ---
 title: Control-server /panes and /tabs routes
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 3]

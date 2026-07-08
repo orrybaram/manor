@@ -1,6 +1,6 @@
 ---
 title: Add list_issues, start_agent, batch_create_workspaces MCP tools
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]

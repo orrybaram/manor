@@ -3,10 +3,18 @@
  * tabs, focus and close panes. See ADR-149.
  */
 
+import { resolveContext } from "./context";
 // Type-only: erased at compile time, so the MCP process stays Electron-free.
 import type { LayoutSnapshot } from "../../src/store/layout-snapshot";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
+
+/**
+ * The pane this MCP process's caller is running in, read from the environment
+ * `electron/pty.ts` sets when launching a Manor-managed terminal. Absent for
+ * clients not launched from a Manor PTY.
+ */
+const callerPaneId = (): string | undefined => process.env.MANOR_PANE_ID || undefined;
 
 // ── Formatting ──
 
@@ -50,13 +58,14 @@ const tools: ToolDef[] = [
   {
     name: "split_pane",
     description:
-      "Split an existing pane in two. 'paneId' defaults to the currently focused pane. 'direction' controls the split axis: 'horizontal' places the new pane side-by-side, 'vertical' stacks it above/below. 'position' defaults to 'second' (new pane goes right/below); use 'first' to put it left/above. 'contentType' defaults to 'terminal'; 'url' applies only when contentType is 'browser'; 'command' auto-runs in a new 'terminal' pane. Returns the new pane's paneId.",
+      "Split an existing pane in two. 'paneId' defaults to the pane this agent is running in. 'direction' controls the split axis: 'horizontal' places the new pane side-by-side, 'vertical' stacks it above/below. 'position' defaults to 'second' (new pane goes right/below); use 'first' to put it left/above. 'contentType' defaults to 'terminal'; 'url' applies only when contentType is 'browser'; 'command' auto-runs in a new 'terminal' pane. Returns the new pane's paneId.",
     inputSchema: {
       type: "object" as const,
       properties: {
         paneId: {
           type: "string",
-          description: "Pane to split. Defaults to the focused pane.",
+          description:
+            "Pane to split. Defaults to the pane this agent is running in.",
         },
         direction: {
           type: "string",
@@ -97,7 +106,7 @@ const tools: ToolDef[] = [
         workspacePath: {
           type: "string",
           description:
-            "Filesystem path of the workspace to open the tab in. Defaults to the active workspace.",
+            "Filesystem path of the workspace to open the tab in. Defaults to the workspace this agent is running in.",
         },
         command: {
           type: "string",
@@ -117,7 +126,7 @@ const tools: ToolDef[] = [
         workspacePath: {
           type: "string",
           description:
-            "Filesystem path of the workspace to open the tab in. Defaults to the active workspace.",
+            "Filesystem path of the workspace to open the tab in. Defaults to the workspace this agent is running in.",
         },
         background: {
           type: "boolean",
@@ -160,8 +169,9 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async split_pane(args, http) {
+    const paneId = (args.paneId as string | undefined) ?? callerPaneId();
     const body: Record<string, unknown> = { direction: args.direction };
-    if (args.paneId !== undefined) body.paneId = args.paneId;
+    if (paneId !== undefined) body.paneId = paneId;
     if (args.position !== undefined) body.position = args.position;
     if (args.contentType !== undefined) body.contentType = args.contentType;
     if (args.url !== undefined) body.url = args.url;
@@ -169,15 +179,20 @@ const handlers: ToolModule["handlers"] = {
     const result = (await http.post("/panes/split", body)) as {
       paneId: string;
     };
-    const target = args.paneId ?? "the focused pane";
+    const target = paneId ?? "the focused pane";
     return text(
       `Split ${target} ${args.direction}. New pane: ${result.paneId}`,
     );
   },
 
   async new_terminal(args, http) {
-    const body: Record<string, unknown> = { contentType: "terminal" };
-    if (args.workspacePath !== undefined) body.workspacePath = args.workspacePath;
+    const workspacePath =
+      (args.workspacePath as string | undefined) ??
+      (await resolveContext(http)).workspacePath;
+    const body: Record<string, unknown> = {
+      contentType: "terminal",
+      workspacePath,
+    };
     if (args.command !== undefined) body.command = args.command;
     const result = (await http.post("/tabs", body)) as {
       tabId: string;
@@ -189,11 +204,14 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async new_browser(args, http) {
+    const workspacePath =
+      (args.workspacePath as string | undefined) ??
+      (await resolveContext(http)).workspacePath;
     const body: Record<string, unknown> = {
       contentType: "browser",
       url: args.url,
+      workspacePath,
     };
-    if (args.workspacePath !== undefined) body.workspacePath = args.workspacePath;
     if (args.background !== undefined) body.background = args.background;
     const result = (await http.post("/tabs", body)) as {
       tabId: string;

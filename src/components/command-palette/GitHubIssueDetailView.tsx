@@ -24,6 +24,25 @@ type GitHubIssueDetailViewProps = {
   workspacePath?: string;
 };
 
+/**
+ * Assign the issue without blocking the caller — workspace creation and task
+ * launch have already been kicked off and must not wait on `gh`.
+ *
+ * Deliberately not `.catch(() => {})`: the user asked to be assigned, so a
+ * failure is reported even though it is not awaited. Silently dropping it is the
+ * bug ADR-152 exists to remove, not a lighter version of it.
+ */
+function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
+  window.electronAPI.github.assignIssue(repoPath, issueNumber).catch((err) => {
+    useToastStore.getState().addToast({
+      id: `assign-issue-error-gh-${issueNumber}`,
+      message: "Failed to assign issue",
+      status: "error",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
 
@@ -81,12 +100,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         url: issueDetail.url,
       },
     });
-    // Best-effort — assignment failing must not block workspace creation,
-    // which has already been kicked off above. github.ts now rejects
-    // instead of swallowing, so this must catch explicitly.
-    window.electronAPI.github
-      .assignIssue(repoPath, issueDetail.number)
-      .catch(() => {});
+    assignIssueBestEffort(repoPath, issueDetail.number);
   }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repoPath]);
 
   const handleOpenInBrowser = useCallback(() => {
@@ -99,10 +113,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     if (!issueDetail) return;
     const prompt = issueDetail.title + "\n\n" + (issueDetail.body ?? "");
     onNewTaskWithPrompt?.(prompt);
-    // Best-effort — see handleCreateWorkspace.
-    window.electronAPI.github
-      .assignIssue(repoPath, issueDetail.number)
-      .catch(() => {});
+    assignIssueBestEffort(repoPath, issueDetail.number);
     onClose();
 
     const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;

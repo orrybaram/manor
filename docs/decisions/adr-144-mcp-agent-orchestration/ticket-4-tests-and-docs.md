@@ -1,6 +1,6 @@
 ---
 title: Tests and docs for agent-orchestration tools
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1, 2, 3]

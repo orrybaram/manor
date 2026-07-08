@@ -17,6 +17,7 @@ import { handleControlRequest } from "./control-server";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
+import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -58,6 +59,7 @@ export class WebviewServer {
   private projectManager: ProjectManager | null;
   private githubManager: GitHubManager | null;
   private linearManager: LinearManager | null;
+  private layoutPersistence: LayoutPersistence | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
@@ -66,11 +68,13 @@ export class WebviewServer {
     projectManager?: ProjectManager,
     githubManager?: GitHubManager,
     linearManager?: LinearManager,
+    layoutPersistence?: LayoutPersistence,
   ) {
     this.registry = registry;
     this.projectManager = projectManager ?? null;
     this.githubManager = githubManager ?? null;
     this.linearManager = linearManager ?? null;
+    this.layoutPersistence = layoutPersistence ?? null;
   }
 
   get serverPort(): number {
@@ -238,6 +242,7 @@ export class WebviewServer {
           projectManager: this.projectManager,
           githubManager: this.githubManager,
           linearManager: this.linearManager,
+          layoutPersistence: this.layoutPersistence,
         },
         method,
         url,

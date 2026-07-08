@@ -9,9 +9,20 @@
 
 import crypto from "node:crypto";
 import { BrowserWindow, ipcMain } from "electron";
-import type { ProjectManager, IssueSeed, WorkspaceFromIssue } from "./persistence";
+import type {
+  ProjectManager,
+  ProjectInfo,
+  WorkspaceInfo,
+  IssueSeed,
+  WorkspaceFromIssue,
+} from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager, LinearAssociation } from "./linear";
+import type {
+  LayoutPersistence,
+  PersistedLayout,
+} from "./terminal-host/layout-persistence";
+import { findWorkspaceForPane, matchProjectByPath } from "./pane-context";
 import {
   isIssueSource,
   linearStateTypes,
@@ -27,6 +38,7 @@ export interface ControlDeps {
   projectManager: ProjectManager | null;
   githubManager: GitHubManager | null;
   linearManager: LinearManager | null;
+  layoutPersistence: LayoutPersistence | null;
 }
 
 /**
@@ -289,6 +301,92 @@ export async function handleControlRequest(
     const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
     const result = startAgent(workspacePath, prompt);
     json(result.ok ? 200 : 503, result);
+    return true;
+  }
+
+  // ── GET /context?paneId=…&cwd=… ──
+  // "Which project is calling me?" (ADR-150). Both params optional.
+  if (segments[0] === "context") {
+    if (method !== "GET") {
+      json(405, { error: "Method not allowed" });
+      return true;
+    }
+    const pm = deps.projectManager;
+    if (!pm) {
+      json(503, { error: "Project management is not available" });
+      return true;
+    }
+    const paneId = url.searchParams.get("paneId");
+    const cwd = url.searchParams.get("cwd");
+    const projects = await pm.getProjects();
+
+    let match: { project: ProjectInfo; workspace: WorkspaceInfo } | null = null;
+    let resolvedBy: "paneId" | "cwd" | null = null;
+
+    // Rung 1: the pane id is authoritative — it names the *caller's* pane, not
+    // whatever the user happens to be looking at. But `layout.json` is written
+    // on a 500ms debounce and serializes only the active workspace, so a pane
+    // legitimately missing from it must fall through to cwd, never 404 here.
+    // A corrupt or half-written file is the same fall-through, not a 500.
+    if (paneId) {
+      let layout: PersistedLayout | null;
+      try {
+        layout = deps.layoutPersistence?.load() ?? null;
+      } catch {
+        layout = null;
+      }
+      const workspacePath = layout
+        ? findWorkspaceForPane(layout, paneId)
+        : null;
+      if (workspacePath) {
+        match = matchProjectByPath(projects, workspacePath);
+        if (match) resolvedBy = "paneId";
+      }
+    }
+
+    // Rung 2: PTYs launch with `cwd = workspacePath`, so this holds unless the
+    // agent was started after a `cd`.
+    if (!match && cwd) {
+      match = matchProjectByPath(projects, cwd);
+      if (match) resolvedBy = "cwd";
+    }
+
+    // Rung 3: hand back the candidate list so the model can retry explicitly.
+    if (!match || !resolvedBy) {
+      json(404, {
+        error:
+          "Could not determine the current project. Pass projectId explicitly.",
+        candidates: projects.map((p) => ({
+          projectId: p.id,
+          name: p.name,
+          path: p.path,
+        })),
+      });
+      return true;
+    }
+
+    // `sources` reports what can answer a query *right now*. A connected Linear
+    // account with no team associated on this project cannot, so it is omitted
+    // rather than advertised and then failing at call time.
+    const sources: IssueSource[] = [];
+    if (deps.githubManager) sources.push("github");
+    if (
+      deps.linearManager?.isConnected() &&
+      (match.project.linearAssociations ?? []).length > 0
+    ) {
+      sources.push("linear");
+    }
+
+    json(200, {
+      projectId: match.project.id,
+      projectName: match.project.name,
+      projectPath: match.project.path,
+      workspacePath: match.workspace.path,
+      branch: match.workspace.branch,
+      isMain: match.workspace.isMain,
+      sources,
+      resolvedBy,
+    });
     return true;
   }
 

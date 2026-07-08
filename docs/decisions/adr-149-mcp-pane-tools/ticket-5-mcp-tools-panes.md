@@ -1,6 +1,6 @@
 ---
 title: MCP tools-panes module — split_pane, new_terminal, new_browser
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

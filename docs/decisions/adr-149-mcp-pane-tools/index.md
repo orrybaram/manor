@@ -21,8 +21,8 @@ database:
 
 ## Context
 
-Manor's MCP server exposes 20 tools (ADR-110, ADR-144, ADR-145): 11 webview
-inspection tools, 6 project/workspace tools, 3 agent tools. An agent can create
+Manor's MCP server exposes 21 tools (ADR-110, ADR-144, ADR-145, ADR-148): 11
+webview inspection tools, 6 project/workspace tools, 4 agent tools. An agent can create
 a *workspace* and launch an *agent* into it, and it can drive a browser pane
 that already exists — but it cannot create a pane, split one, or open a browser.
 The app has all three capabilities (ADR-048 split panes, ADR-052 browser tab,

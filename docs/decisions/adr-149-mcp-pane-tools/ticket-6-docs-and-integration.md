@@ -12,7 +12,8 @@ blocked_by: [5]
 
 `electron/__tests__/mcp-webview-server.test.ts` already asserts the total tool
 count in places. Grep for hardcoded counts (the suite header says "28 existing
-MCP tests"; ADR-145 counted 20 tools) and update: **20 → 26**.
+MCP tests"; ADR-145 counted 20 tools) and update: **21 → 27**.
+(ADR-145's count of 20 predates ADR-148's `get_issue_detail`, which made it 21.)
 
 Add one test asserting `TOOLS` contains the six new names and that every entry in
 `TOOLS` has a matching key in `handlers` — a compose-time guard against adding a

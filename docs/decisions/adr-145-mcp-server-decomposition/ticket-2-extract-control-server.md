@@ -1,6 +1,6 @@
 ---
 title: Extract control-server.ts; slim WebviewServer under 1k
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

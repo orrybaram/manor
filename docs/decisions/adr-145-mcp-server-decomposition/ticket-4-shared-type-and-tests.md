@@ -1,6 +1,6 @@
 ---
 title: Share AppCommand type; retarget batch tests
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2, 3]

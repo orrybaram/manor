@@ -9,13 +9,13 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BrowserWindow, webContents } from "electron";
+import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
+import { handleControlRequest } from "./control-server";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
-import type { LinkedIssue } from "./linear";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -49,16 +49,6 @@ async function captureElementRegion(
 }
 
 const PORT_FILE = webviewServerPortFile();
-
-/** Convert an arbitrary string into a filesystem/branch-safe slug. */
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 export class WebviewServer {
   private server: http.Server | null = null;
@@ -201,278 +191,6 @@ export class WebviewServer {
     return { wc };
   }
 
-  /**
-   * Handle /projects… routes for project and workspace management.
-   * Mirrors the ProjectManager IPC surface so external agents can create
-   * projects and workspaces (git worktrees) via MCP.
-   */
-  private async handleProjectRequest(
-    method: string,
-    url: URL,
-    json: (status: number, body: unknown) => void,
-    readBody: () => Promise<Record<string, unknown>>,
-  ): Promise<void> {
-    const pm = this.projectManager;
-    if (!pm) {
-      json(503, { error: "Project management is not available" });
-      return;
-    }
-
-    // /projects/:id, /projects/:id/workspaces, /projects/:id/workspaces/batch,
-    // /projects/:id/issues
-    const match = url.pathname.match(
-      /^\/projects(?:\/([^/]+)(?:\/(workspaces|issues)(?:\/(batch))?)?)?$/,
-    );
-    if (!match) {
-      json(404, { error: "Not found" });
-      return;
-    }
-    const projectId = match[1] ? decodeURIComponent(match[1]) : undefined;
-    const isWorkspaces = match[2] === "workspaces" && !match[3];
-    const isWorkspacesBatch = match[2] === "workspaces" && match[3] === "batch";
-    const isIssues = match[2] === "issues";
-
-    // ── /projects ──
-    if (!projectId) {
-      if (method === "GET") {
-        json(200, await pm.getProjects());
-        return;
-      }
-      if (method === "POST") {
-        const body = await readBody();
-        const name = body.name;
-        const projectPath = body.path;
-        if (typeof name !== "string" || typeof projectPath !== "string") {
-          json(400, { error: "Missing 'name' or 'path' string in request body" });
-          return;
-        }
-        json(200, await pm.addProject(name, projectPath));
-        return;
-      }
-      json(405, { error: "Method not allowed" });
-      return;
-    }
-
-    // Resolve the project once for the remaining routes.
-    const projects = await pm.getProjects();
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) {
-      json(404, { error: "Project not found" });
-      return;
-    }
-
-    // ── /projects/:id/issues ──
-    if (isIssues) {
-      if (method !== "GET") {
-        json(405, { error: "Method not allowed" });
-        return;
-      }
-      const github = this.githubManager;
-      if (!github) {
-        json(503, { error: "GitHub is not available" });
-        return;
-      }
-      const filter =
-        url.searchParams.get("filter") === "all" ? "all" : "assigned";
-      const stateParam = url.searchParams.get("state");
-      const state: "open" | "closed" | "all" =
-        stateParam === "closed" || stateParam === "all" ? stateParam : "open";
-      const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
-      const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
-
-      const issues =
-        filter === "all"
-          ? await github.getAllIssues(project.path, limit, state)
-          : await github.getMyIssues(project.path, limit, state);
-      json(200, issues);
-      return;
-    }
-
-    // ── /projects/:id/workspaces/batch ──
-    if (isWorkspacesBatch) {
-      if (method !== "POST") {
-        json(405, { error: "Method not allowed" });
-        return;
-      }
-      const github = this.githubManager;
-      if (!github || !this.projectManager) {
-        json(503, {
-          error: "GitHub and project management are required for batch creation",
-        });
-        return;
-      }
-
-      const body = await readBody();
-      const issues = body.issues;
-      if (
-        !Array.isArray(issues) ||
-        issues.length === 0 ||
-        !issues.every((n) => typeof n === "number")
-      ) {
-        json(400, {
-          error: "Missing non-empty 'issues' array of numbers in request body",
-        });
-        return;
-      }
-      const baseBranch =
-        typeof body.baseBranch === "string" ? body.baseBranch : undefined;
-      const assign = body.assign === true;
-      const startAgent = body.startAgent !== false;
-      const promptTemplate =
-        typeof body.promptTemplate === "string" ? body.promptTemplate : undefined;
-
-      const results: Array<{
-        number: number;
-        title: string;
-        workspacePath?: string;
-        started: boolean;
-        error?: string;
-      }> = [];
-
-      // Track known worktree paths across iterations so each new worktree
-      // can be identified by diffing against the set before its creation.
-      const knownPaths = new Set(project.workspaces.map((w) => w.path));
-
-      for (const number of issues as number[]) {
-        try {
-          const detail = await github.getIssueDetail(project.path, number);
-          const linkedIssue: LinkedIssue = {
-            id: String(number),
-            identifier: "#" + number,
-            title: detail.title,
-            url: detail.url,
-          };
-          const name = slugify(detail.title) || "issue-" + number;
-
-          // Capture existing worktree paths so we can identify the new one.
-          const before = new Set(knownPaths);
-          const updated = await pm.createWorktree(
-            projectId,
-            name,
-            undefined,
-            linkedIssue,
-            baseBranch,
-          );
-          const worktreePath = updated?.workspaces.find(
-            (w) => !before.has(w.path),
-          )?.path;
-          for (const w of updated?.workspaces ?? []) {
-            knownPaths.add(w.path);
-          }
-
-          if (assign) {
-            await github.assignIssue(project.path, number);
-          }
-
-          let started = false;
-          if (worktreePath && startAgent) {
-            const prompt = promptTemplate
-              ? promptTemplate
-                  .replace(/\{number\}/g, String(number))
-                  .replace(/\{title\}/g, detail.title)
-                  .replace(/\{body\}/g, detail.body ?? "")
-              : `Work on GitHub issue #${number}: ${detail.title}.\n\n${detail.body ?? ""}`;
-            const result = this.startAgent(worktreePath, prompt);
-            started = result.ok;
-          }
-
-          results.push({
-            number,
-            title: detail.title,
-            workspacePath: worktreePath,
-            started,
-          });
-        } catch (err) {
-          results.push({
-            number,
-            title: "",
-            started: false,
-            error: String(err),
-          });
-        }
-      }
-
-      json(200, { results });
-      return;
-    }
-
-    // ── /projects/:id/workspaces ──
-    if (isWorkspaces) {
-      if (method === "GET") {
-        json(200, project.workspaces);
-        return;
-      }
-      if (method === "POST") {
-        const body = await readBody();
-        const name = body.name;
-        if (typeof name !== "string") {
-          json(400, { error: "Missing 'name' string in request body" });
-          return;
-        }
-        const branch = typeof body.branch === "string" ? body.branch : undefined;
-        const baseBranch =
-          typeof body.baseBranch === "string" ? body.baseBranch : undefined;
-        const useExistingBranch =
-          typeof body.useExistingBranch === "boolean"
-            ? body.useExistingBranch
-            : undefined;
-        const updated = await pm.createWorktree(
-          projectId,
-          name,
-          branch,
-          undefined,
-          baseBranch,
-          useExistingBranch,
-        );
-        json(200, updated);
-        return;
-      }
-      if (method === "DELETE") {
-        const body = await readBody();
-        const worktreePath = body.worktreePath;
-        if (typeof worktreePath !== "string") {
-          json(400, { error: "Missing 'worktreePath' string in request body" });
-          return;
-        }
-        const deleteBranch =
-          typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
-        await pm.removeWorktree(projectId, worktreePath, deleteBranch);
-        json(200, { ok: true });
-        return;
-      }
-      json(405, { error: "Method not allowed" });
-      return;
-    }
-
-    // ── /projects/:id ──
-    if (method === "GET") {
-      json(200, project);
-      return;
-    }
-    json(405, { error: "Method not allowed" });
-  }
-
-  /**
-   * Ask the renderer to open a new agent pane in the given workspace.
-   * Agents are launched by the renderer (App.tsx seeds a shell command),
-   * so main round-trips the request over the "app-command" channel.
-   */
-  startAgent(
-    workspacePath: string,
-    prompt?: string,
-  ): { ok: boolean; error?: string } {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (!win) {
-      return { ok: false, error: "No Manor window is open" };
-    }
-    win.webContents.send("app-command", {
-      cmd: "start-agent",
-      workspacePath,
-      prompt,
-    });
-    return { ok: true };
-  }
-
   private async handleRequest(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -509,23 +227,19 @@ export class WebviewServer {
       });
     };
 
-    // ── Project & workspace routes (/projects…) ──
-    if (url.pathname === "/projects" || url.pathname.startsWith("/projects/")) {
-      await this.handleProjectRequest(method, url, json, readBody);
-      return;
-    }
-
-    // ── POST /agents ──
-    if (method === "POST" && url.pathname === "/agents") {
-      const body = await readBody();
-      const workspacePath = body.workspacePath;
-      if (typeof workspacePath !== "string") {
-        json(400, { error: "Missing 'workspacePath' string in request body" });
-        return;
-      }
-      const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      const result = this.startAgent(workspacePath, prompt);
-      json(result.ok ? 200 : 503, result);
+    // ── Manor-control routes (/projects…, /agents) ──
+    if (
+      await handleControlRequest(
+        {
+          projectManager: this.projectManager,
+          githubManager: this.githubManager,
+        },
+        method,
+        url,
+        json,
+        readBody,
+      )
+    ) {
       return;
     }
 

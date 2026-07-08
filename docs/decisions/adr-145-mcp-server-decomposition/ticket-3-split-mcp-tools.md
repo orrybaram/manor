@@ -1,6 +1,6 @@
 ---
 title: Split MCP tool definitions by domain
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

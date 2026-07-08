@@ -433,7 +433,7 @@ describe("WebviewServer agent orchestration routes", () => {
   let pm: {
     getProjects: ReturnType<typeof vi.fn>;
     addProject: ReturnType<typeof vi.fn>;
-    createWorktree: ReturnType<typeof vi.fn>;
+    createWorkspacesFromIssues: ReturnType<typeof vi.fn>;
     removeWorktree: ReturnType<typeof vi.fn>;
   };
   let github: {
@@ -456,26 +456,30 @@ describe("WebviewServer agent orchestration routes", () => {
   }
 
   beforeEach(async () => {
-    let worktreeCounter = 0;
-
     pm = {
       getProjects: vi.fn(async () => [PROJECT]),
       addProject: vi.fn(),
-      createWorktree: vi.fn(async () => {
-        worktreeCounter += 1;
-        return {
-          ...PROJECT,
-          workspaces: [
-            ...PROJECT.workspaces,
-            {
-              path: `/repos/demo-ws-${worktreeCounter}`,
-              branch: `feature-${worktreeCounter}`,
-              isMain: false,
-              name: null,
-            },
-          ],
-        };
-      }),
+      // The batch route delegates the worktree fan-out to this canonical method
+      // (ProjectManager.createWorkspacesFromIssues), which returns the created
+      // worktree path per issue.
+      createWorkspacesFromIssues: vi.fn(
+        async (
+          _projectId: string,
+          seeds: Array<{
+            number: number;
+            title: string;
+            url: string;
+            body?: string | null;
+          }>,
+        ) =>
+          seeds.map((s) => ({
+            number: s.number,
+            title: s.title,
+            body: s.body ?? null,
+            url: s.url,
+            worktreePath: `/repos/demo-ws-${s.number}`,
+          })),
+      ),
       removeWorktree: vi.fn(async () => {}),
     };
 
@@ -595,31 +599,24 @@ describe("WebviewServer agent orchestration routes", () => {
         }>;
       };
 
-      expect(pm.createWorktree).toHaveBeenCalledTimes(2);
-      expect(pm.createWorktree).toHaveBeenNthCalledWith(
-        1,
+      // The route fans out through the canonical method with pre-fetched seeds.
+      expect(pm.createWorkspacesFromIssues).toHaveBeenCalledTimes(1);
+      expect(pm.createWorkspacesFromIssues).toHaveBeenCalledWith(
         "proj-1",
-        "issue-10",
-        undefined,
-        {
-          id: "10",
-          identifier: "#10",
-          title: "Issue 10",
-          url: "https://github.com/acme/demo/issues/10",
-        },
-        undefined,
-      );
-      expect(pm.createWorktree).toHaveBeenNthCalledWith(
-        2,
-        "proj-1",
-        "issue-20",
-        undefined,
-        {
-          id: "20",
-          identifier: "#20",
-          title: "Issue 20",
-          url: "https://github.com/acme/demo/issues/20",
-        },
+        [
+          {
+            number: 10,
+            title: "Issue 10",
+            url: "https://github.com/acme/demo/issues/10",
+            body: "Body for issue 10",
+          },
+          {
+            number: 20,
+            title: "Issue 20",
+            url: "https://github.com/acme/demo/issues/20",
+            body: "Body for issue 20",
+          },
+        ],
         undefined,
       );
 
@@ -630,13 +627,13 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(result.results[0]).toMatchObject({
         number: 10,
         title: "Issue 10",
-        workspacePath: "/repos/demo-ws-1",
+        workspacePath: "/repos/demo-ws-10",
         started: false,
       });
       expect(result.results[1]).toMatchObject({
         number: 20,
         title: "Issue 20",
-        workspacePath: "/repos/demo-ws-2",
+        workspacePath: "/repos/demo-ws-20",
         started: false,
       });
     });
@@ -671,12 +668,26 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(ok).toMatchObject({
         number: 10,
         title: "Issue 10",
-        workspacePath: "/repos/demo-ws-1",
+        workspacePath: "/repos/demo-ws-10",
         started: false,
       });
       expect(ok?.error).toBeUndefined();
       expect(failed?.error).toContain("gh issue view failed");
-      expect(pm.createWorktree).toHaveBeenCalledTimes(1);
+      // Only the successfully-fetched issue was fanned out.
+      expect(pm.createWorkspacesFromIssues).toHaveBeenCalledTimes(1);
+      expect(pm.createWorkspacesFromIssues).toHaveBeenCalledWith(
+        "proj-1",
+        [
+          {
+            number: 10,
+            title: "Issue 10",
+            url: "https://github.com/acme/demo/issues/10",
+            body: "Body for issue 10",
+          },
+        ],
+        undefined,
+      );
+      expect(ok?.workspacePath).toBe("/repos/demo-ws-10");
     });
   });
 });

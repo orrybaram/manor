@@ -1203,27 +1203,6 @@ describe("WebviewServer pane routes", () => {
     });
   });
 
-  it("returns 400 when 'direction' is missing on /panes/split", async () => {
-    await expect(mcpHttpPost(baseUrl, "/panes/split", {})).rejects.toThrow(
-      "HTTP 400",
-    );
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when 'direction' is invalid on /panes/split", async () => {
-    await expect(
-      mcpHttpPost(baseUrl, "/panes/split", { direction: "diagonal" }),
-    ).rejects.toThrow("HTTP 400");
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when contentType 'browser' has no url on /tabs", async () => {
-    await expect(
-      mcpHttpPost(baseUrl, "/tabs", { contentType: "browser" }),
-    ).rejects.toThrow("HTTP 400");
-    expect(send).not.toHaveBeenCalled();
-  });
-
   it("returns 400 when a renderer handler throws", async () => {
     respondWithError("Unknown paneId: pane-404");
 
@@ -1312,7 +1291,7 @@ describe("requestRenderer", () => {
   });
 
   it("resolves with the renderer's data when the ids match", async () => {
-    const pending = requestRenderer<{ paneId: string }>("split-pane", {
+    const pending = requestRenderer("split-pane", {
       direction: "horizontal",
     });
 
@@ -1336,7 +1315,11 @@ describe("requestRenderer", () => {
       ok: false,
       error: "No such pane",
     });
-    await expect(pending).resolves.toEqual({ ok: false, error: "No such pane" });
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      kind: "handler",
+      error: "No such pane",
+    });
   });
 
   it("omits args when none are given", async () => {
@@ -1353,6 +1336,7 @@ describe("requestRenderer", () => {
     );
     await expect(requestRenderer("list-panes")).resolves.toEqual({
       ok: false,
+      kind: "unavailable",
       error: "No Manor window is open",
     });
     expect(send).not.toHaveBeenCalled();
@@ -1364,12 +1348,13 @@ describe("requestRenderer", () => {
     vi.advanceTimersByTime(5000);
     await expect(pending).resolves.toEqual({
       ok: false,
+      kind: "unavailable",
       error: "Renderer did not respond",
     });
   });
 
   it("ignores a reply with an unknown requestId", async () => {
-    const pending = requestRenderer<string>("list-panes");
+    const pending = requestRenderer("list-panes");
     let settled = false;
     void pending.then(() => {
       settled = true;
@@ -1385,8 +1370,8 @@ describe("requestRenderer", () => {
   });
 
   it("resolves concurrent requests independently, in reply order", async () => {
-    const first = requestRenderer<string>("list-panes");
-    const second = requestRenderer<string>("focus-pane", { paneId: "p2" });
+    const first = requestRenderer("list-panes");
+    const second = requestRenderer("focus-pane", { paneId: "p2" });
 
     const firstId = sentCommand(0).requestId!;
     const secondId = sentCommand(1).requestId!;
@@ -1407,6 +1392,7 @@ describe("requestRenderer", () => {
     vi.advanceTimersByTime(1000);
     await expect(timedOut).resolves.toEqual({
       ok: false,
+      kind: "unavailable",
       error: "Renderer did not respond",
     });
 
@@ -1415,7 +1401,7 @@ describe("requestRenderer", () => {
     expect(() => reply({ requestId: staleId, ok: true, data: 1 })).not.toThrow();
 
     // A subsequent request still works — the map is not wedged.
-    const next = requestRenderer<string>("list-panes", undefined, 1000);
+    const next = requestRenderer("list-panes", undefined, 1000);
     reply({ requestId: sentCommand(1).requestId!, ok: true, data: "ok" });
     await expect(next).resolves.toEqual({ ok: true, data: "ok" });
   });

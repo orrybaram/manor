@@ -40,12 +40,17 @@ export interface AppCommandResult {
   error?: string;
 }
 
-/** Settled shape of a `requestRenderer` call. Never rejects — see below. */
-export interface RendererResponse<T> {
-  ok: boolean;
-  data?: T;
-  error?: string;
-}
+/**
+ * Settled shape of a `requestRenderer` call. Never rejects — see below.
+ *
+ * `kind` distinguishes the two ways a request can fail: "unavailable" (no
+ * window to ask, or it never answered) versus "handler" (it answered, and the
+ * answer was `ok: false` — a renderer-side handler threw). The two map to
+ * different HTTP statuses in `proxyToRenderer`.
+ */
+export type RendererResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; kind: "unavailable" | "handler"; error: string };
 
 interface PendingRequest {
   resolve: (response: RendererResponse<unknown>) => void;
@@ -76,11 +81,15 @@ function installResultListener(): void {
       if (!pending) return;
       clearTimeout(pending.timer);
       pendingRequests.delete(result.requestId);
-      pending.resolve({
-        ok: result.ok,
-        data: result.data,
-        error: result.error,
-      });
+      pending.resolve(
+        result.ok
+          ? { ok: true, data: result.data }
+          : {
+              ok: false,
+              kind: "handler",
+              error: result.error ?? "Unknown error",
+            },
+      );
     },
   );
 }
@@ -92,49 +101,45 @@ function installResultListener(): void {
  * handler error) — callers are HTTP route handlers that map `ok: false` onto a
  * status code, and an unhandled rejection there would surface as a 500.
  */
-export function requestRenderer<T>(
+export function requestRenderer(
   cmd: string,
   args?: Record<string, unknown>,
   timeoutMs = 5000,
-): Promise<RendererResponse<T>> {
+): Promise<RendererResponse<unknown>> {
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) {
-    return Promise.resolve({ ok: false, error: "No Manor window is open" });
+    return Promise.resolve({
+      ok: false,
+      kind: "unavailable",
+      error: "No Manor window is open",
+    });
   }
   installResultListener();
 
   const requestId = crypto.randomUUID();
-  return new Promise<RendererResponse<T>>((resolve) => {
+  return new Promise<RendererResponse<unknown>>((resolve) => {
     const timer = setTimeout(() => {
       pendingRequests.delete(requestId);
-      resolve({ ok: false, error: "Renderer did not respond" });
+      resolve({
+        ok: false,
+        kind: "unavailable",
+        error: "Renderer did not respond",
+      });
     }, timeoutMs);
-    pendingRequests.set(requestId, {
-      resolve: resolve as PendingRequest["resolve"],
-      timer,
-    });
+    pendingRequests.set(requestId, { resolve, timer });
     const command: AppCommand = { cmd, requestId, ...(args ? { args } : {}) };
     win.webContents.send("app-command", command);
   });
 }
 
 /**
- * Map a `requestRenderer` failure onto an HTTP status. The two renderer-side
- * failure modes (`requestRenderer` never rejects) get `503`; anything else is
- * a handler throw — bad `paneId`, unknown workspace, invalid enum — and is the
- * caller's fault, `400`.
- */
-export function rendererErrorStatus(error: string | undefined): number {
-  return error === "No Manor window is open" ||
-    error === "Renderer did not respond"
-    ? 503
-    : 400;
-}
-
-/**
  * Round-trip a command to the renderer and write its answer as the response
  * body. The `/panes` and `/tabs` routes are nothing but validation followed by
  * this, five times over.
+ *
+ * The status is known at the point of failure, via `result.kind`: no window,
+ * or the renderer never answered, is `503`; a renderer handler throwing —
+ * bad `paneId`, unknown workspace, invalid enum — is the caller's fault, `400`.
  */
 export async function proxyToRenderer(
   json: Json,
@@ -143,7 +148,7 @@ export async function proxyToRenderer(
 ): Promise<void> {
   const result = await requestRenderer(cmd, args);
   if (!result.ok) {
-    json(rendererErrorStatus(result.error), { error: result.error });
+    json(result.kind === "unavailable" ? 503 : 400, { error: result.error });
     return;
   }
   json(200, result.data);

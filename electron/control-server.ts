@@ -34,7 +34,6 @@ export type {
 export {
   requestRenderer,
   proxyToRenderer,
-  rendererErrorStatus,
   startAgent,
   runSetupScript,
   notifyProjectsChanged,

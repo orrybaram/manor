@@ -1,6 +1,8 @@
 /**
  * `/panes` and `/tabs` (ADR-149) — layout inspection and mutation, every one of
- * them a validation step in front of a renderer round-trip.
+ * them a thin proxy to a renderer round-trip. Argument validation lives in
+ * `src/lib/app-commands.ts`, which the renderer handler calls; a bad argument
+ * surfaces as a handler throw, which `proxyToRenderer` maps to 400.
  *
  * These mutate *layout* state, not project state: no `notifyProjectsChanged()`
  * belongs anywhere in this file.
@@ -25,14 +27,7 @@ export const paneRoutes: Route[] = [
     method: "POST",
     path: "/panes/split",
     async handler({ json, readBody }) {
-      const body = await readBody();
-      if (body.direction !== "horizontal" && body.direction !== "vertical") {
-        json(400, {
-          error: "'direction' must be 'horizontal' or 'vertical'",
-        });
-        return;
-      }
-      await proxyToRenderer(json, "split-pane", body);
+      await proxyToRenderer(json, "split-pane", await readBody());
     },
   },
 
@@ -62,21 +57,7 @@ export const tabRoutes: Route[] = [
     method: "POST",
     path: "/tabs",
     async handler({ json, readBody }) {
-      const body = await readBody();
-      if (body.contentType !== "terminal" && body.contentType !== "browser") {
-        json(400, {
-          error: "'contentType' must be 'terminal' or 'browser'",
-        });
-        return;
-      }
-      if (body.contentType === "browser" && typeof body.url !== "string") {
-        json(400, {
-          error:
-            "contentType 'browser' requires a 'url' string in request body",
-        });
-        return;
-      }
-      await proxyToRenderer(json, "new-tab", body);
+      await proxyToRenderer(json, "new-tab", await readBody());
     },
   },
 ];

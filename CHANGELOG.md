@@ -17,6 +17,18 @@
 
 
 
+
+## [0.6.1] - 2026-07-08
+
+- Manor now includes MCP tools for managing projects and workspaces
+- Orchestrate agents directly through MCP with new `list_issues`, `start_agent`, and batch workspace creation tools
+- Get desktop notifications when your pull requests receive updates and events
+- Added settings toggles to control which PR notifications you receive
+- PR badges and popovers now show comment counts
+
+Fixes
+- PR badges and popovers now update live as pull request fields change
+
 ## [0.6.0] - 2026-07-03
 
 Features

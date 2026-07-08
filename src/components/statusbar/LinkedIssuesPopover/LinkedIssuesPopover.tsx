@@ -12,7 +12,7 @@ import { GitHubIssueDetailView } from "../../command-palette/GitHubIssueDetailVi
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import { useProjectStore } from "../../../store/project-store";
-import { useToastStore } from "../../../store/toast-store";
+import { addErrorToast, useToastStore } from "../../../store/toast-store";
 import styles from "./LinkedIssuesPopover.module.css";
 
 type IssueDetail =
@@ -273,16 +273,6 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
     });
   }, []);
 
-  const toastError = useCallback((id: string, message: string, err: unknown) => {
-    const detail = err instanceof Error ? err.message : String(err);
-    useToastStore.getState().addToast({
-      id,
-      message,
-      status: "error",
-      detail,
-    });
-  }, []);
-
   const handleUnlink = useCallback(
     async (issueId: string) => {
       setRemovedIds((prev) => new Set(prev).add(issueId));
@@ -300,12 +290,12 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the link still exists on disk.
         revertRemoval(issueId);
-        toastError(`unlink-issue-error-${issueId}`, "Failed to unlink issue", err);
+        addErrorToast(`unlink-issue-error-${issueId}`, "Failed to unlink issue", err);
         return;
       }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, visibleIssues, onClose, revertRemoval, toastError],
+    [projectId, workspacePath, visibleIssues, onClose, revertRemoval],
   );
 
   const handleCloseTicket = useCallback(
@@ -325,7 +315,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the issue is still open.
         revertRemoval(issueId);
-        toastError(`close-issue-error-${issueId}`, "Failed to close issue", err);
+        addErrorToast(`close-issue-error-${issueId}`, "Failed to close issue", err);
         return;
       }
       try {
@@ -337,7 +327,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // The issue genuinely is closed now — do not revert the removal,
         // just surface that the workspace link is stale.
-        toastError(
+        addErrorToast(
           `unlink-after-close-error-${issueId}`,
           "Issue closed, but failed to unlink from workspace",
           err,
@@ -346,7 +336,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, repoPath, visibleIssues, onClose, revertRemoval, toastError],
+    [projectId, workspacePath, repoPath, visibleIssues, onClose, revertRemoval],
   );
 
   const handleRowClick = useCallback((issueId: string) => {

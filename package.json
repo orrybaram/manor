@@ -1,7 +1,7 @@
 {
   "name": "manor",
   "private": true,
-  "version": "0.5.11",
+  "version": "0.6.0",
   "packageManager": "pnpm@10.23.0",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -96,6 +96,9 @@
       "extendInfo": {
         "NSUserNotificationAlertStyle": "alert"
       }
+    },
+    "dmg": {
+      "artifactName": "${productName}-${arch}.dmg"
     },
     "files": [
       "dist/**/*",

@@ -8,6 +8,7 @@ import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { sanitizeBranchName, branchesEqual } from "../../utils/branch-name";
 import styles from "./CommandPalette.module.css";
 
 type GitHubIssueDetailViewProps = {
@@ -21,14 +22,6 @@ type GitHubIssueDetailViewProps = {
   projectId?: string;
   workspacePath?: string;
 };
-
-function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 50);
-}
 
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
@@ -52,13 +45,13 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     const project = findProject();
     if (!project) return;
 
-    const branchName = `${issueDetail.number}-${slugify(issueDetail.title)}`;
+    const branchName = `${issueDetail.number}-${sanitizeBranchName(issueDetail.title)}`;
 
     const current = useProjectStore
       .getState()
       .projects.find((p) => p.id === project.id);
     const existingIdx =
-      current?.workspaces.findIndex((ws) => ws.branch === branchName) ?? -1;
+      current?.workspaces.findIndex((ws) => branchesEqual(ws.branch, branchName)) ?? -1;
     if (existingIdx >= 0) {
       selectWorkspace(project.id, existingIdx);
       const existingWs = current?.workspaces[existingIdx];

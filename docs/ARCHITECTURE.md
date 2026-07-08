@@ -308,6 +308,7 @@ Invariants are stated as absences — what the codebase deliberately does *not* 
 - **Renderer cannot write task lifecycle fields.** The `tasks:update` IPC allowlists fields the renderer may write (today: `name`). Lifecycle fields (`status`, `agentSessionId`, `lastAgentStatus`, `activatedAt`, `completedAt`, `resumedAt`, `paneId`) are owned by main; widening the allowlist is a deliberate decision, not a default. See ADR-136.
 - **Main is authoritative for unseen-flag state.** The `unseenRespondedTasks` / `unseenInputTasks` Sets in main drive the dock badge and the renderer's pulse animation. The renderer holds a cache populated from `tasks:getUnseen` (boot) and from the `task-updated` broadcast payload, which carries fresh flags on every update. The renderer never resets unseen state locally. Single send-site: `sendTaskUpdate` in `electron/notifications.ts`.
 - **Projects vs workspaces**: projects are directories, workspaces are git worktrees. A workspace's path can exist independently of the project (a worktree can be anywhere on disk); the project is the logical parent, not the filesystem parent.
+- **Default branch.** `project.defaultBranch` is a **bare local branch name** (e.g. `main`, never `origin/main`). It is detected from `origin/HEAD` at project creation and re-detected at startup (ADR-144). Consumers that need the remote ref prepend `origin/` at the use-site (ADR-081) — e.g. diff comparisons and new-worktree base points.
 
 ## Where to look next
 

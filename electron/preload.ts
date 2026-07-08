@@ -363,6 +363,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
     markSeen: (taskId: string) => ipcRenderer.invoke("tasks:markSeen", taskId),
     markResumed: (taskId: string) => ipcRenderer.invoke("tasks:markResumed", taskId),
+    buildResumeCommand: (taskId: string) =>
+      ipcRenderer.invoke("tasks:buildResumeCommand", taskId),
     reconcileStale: () => ipcRenderer.invoke("tasks:reconcileStale"),
     abandonForPane: (paneId: string, title?: string | null) => ipcRenderer.invoke("tasks:abandonForPane", paneId, title),
     onUpdate: (
@@ -457,12 +459,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel('webview:escape', callback),
     onFocusUrl: (callback: (paneId: string) => void) =>
       onChannel('webview:focus-url', callback),
-    onNewWindow: (callback: (paneId: string, url: string) => void) => {
+    onNewWindow: (
+      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
         url: string,
-      ) => callback(paneId, url);
+        opts?: { background?: boolean },
+      ) => callback(paneId, url, opts);
       ipcRenderer.on("webview:new-window", listener);
       return () =>
         ipcRenderer.removeListener("webview:new-window", listener);

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Manor popup</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; background: #fff; color: #111; padding: 1rem; }
+    button { font: inherit; padding: .4rem .7rem; margin: .2rem .3rem .2rem 0;
+             border: 1px solid #bbb; border-radius: 6px; background: #f2f2f2; color: #111; cursor: pointer; }
+    #rx p { margin: .2rem 0; color: #1a7a3c; }
+  </style>
+</head>
+<body>
+  <h2>Popup window</h2>
+  <p>I am a <code>window.open()</code> popup opened with a features string.</p>
+  <button onclick="window.opener && window.opener.postMessage('hello-from-popup','*')">postMessage to opener</button>
+  <button onclick="window.close()">window.close()</button>
+  <div id="rx"></div>
+  <script>
+    window.addEventListener("message", function (e) {
+      var p = document.createElement("p");
+      p.textContent = "received from opener: " + e.data;
+      document.getElementById("rx").appendChild(p);
+    });
+    // Announce to the opener that we loaded and the opener relationship is live.
+    if (window.opener) window.opener.postMessage("popup-loaded", "*");
+  </script>
+</body>
+</html>

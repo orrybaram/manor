@@ -14,6 +14,51 @@
 
 
 
+
+
+
+## [0.6.0] - 2026-07-03
+
+Features
+- Add setup and teardown scripts as re-runnable commands in the command palette
+- Reorder project commands by dragging them in settings
+
+Fixes
+- Dismiss the "checking for updates" toast once an update is found
+- Open the SearchableSelect menu with the ArrowDown key when its trigger is focused
+- Hide Merge & Delete actions for pull requests that are already merged
+- Keep workspaces dimmed while a full deletion is in progress
+
+## [0.5.13] - 2026-06-17
+
+Features:
+- Browser popups that communicate with their opener now open in a managed child window
+- Links set to open in the background now correctly open in a new background tab
+
+Fixes:
+- Popups and new windows now open reliably using native window handling
+- The browser now opens explicit `file:`, `data:`, and `about:` URLs directly instead of running a search
+- Browser popups no longer fail to open due to an incorrectly formatted setting
+- Shell sessions no longer leak history into the wrong file, and now run `.zlogout` cleanly on exit
+- Nested terminal launches no longer break shell environment setup
+- Webview automation now reconnects correctly after Manor restarts
+- The diff watcher no longer errors on directories that aren't git repositories
+
+## [0.5.12] - 2026-06-12
+
+**Features**
+- Sessions now automatically resume where they left off when relaunching the app
+- Default branch is detected when a project is created and re-checked at startup to catch drift
+
+**Fixes**
+- Branch name casing is now preserved instead of being normalized
+- Resume commands now preserve custom flags and no longer append duplicate arguments
+- Shell history now respects your global HISTFILE setting instead of overriding it
+
+**Improvements**
+- Branch names are handled consistently across the app
+- Remote branch lists now refresh origin/HEAD for more accurate default-branch detection
+
 ## [0.5.11] - 2026-06-05
 
 Features

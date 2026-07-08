@@ -12,6 +12,9 @@ export class DiffWatcher {
   private lastStats: Record<string, DiffStats> = {};
   private scanning = false;
   private git: GitBackend;
+  // Paths discovered to not be git repos — skipped on subsequent ticks so we
+  // don't re-run git (and re-log) every interval. Reset on each start().
+  private nonGitPaths: Set<string> = new Set();
 
   constructor(git: GitBackend) {
     this.git = git;
@@ -21,6 +24,7 @@ export class DiffWatcher {
     this.stop();
     this.scanning = false;
     this.workspaces = new Map(Object.entries(workspaces));
+    this.nonGitPaths.clear();
 
     const tick = async () => {
       if (this.scanning) return;
@@ -81,6 +85,9 @@ export class DiffWatcher {
     wsPath: string,
     defaultBranch: string,
   ): Promise<DiffStats | null> {
+    // Skip paths already known to not be git repos (no rescan, no re-log).
+    if (this.nonGitPaths.has(wsPath)) return null;
+
     // Try origin/<branch> first (more reliable in worktrees), fall back to local ref
     const refs = [`origin/${defaultBranch}`, defaultBranch];
     for (const ref of refs) {
@@ -114,6 +121,12 @@ export class DiffWatcher {
         return { added, removed };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        // Directory isn't a git repo at all — ignore it completely and stop
+        // scanning it on future ticks.
+        if (msg.includes("not a git repository")) {
+          this.nonGitPaths.add(wsPath);
+          return null;
+        }
         // Silently skip refs that don't exist (e.g. local-only repo with no upstream)
         if (msg.includes("Not a valid object name")) {
           continue;

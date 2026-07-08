@@ -7,7 +7,7 @@
 
 <p align="center">
   <span><img src="https://img.shields.io/github/package-json/v/orrybaram/manor" alt="Version" /></span>
-  
+  <a href="https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg"><img src="https://img.shields.io/github/v/release/orrybaram/manor?label=Download%20for%20Mac&logo=apple" alt="Download for Mac" /></a>
 </p>
 
 <br />
@@ -124,6 +124,10 @@ Per-project themes with hundreds of options. Matches your Ghostty config automat
 ---
 
 ## Getting Started
+
+### Download
+
+[**Download the latest `.dmg`**](https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg) (Apple Silicon) — or browse [all releases](https://github.com/orrybaram/manor/releases).
 
 ### Prerequisites
 

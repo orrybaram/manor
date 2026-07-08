@@ -231,7 +231,7 @@ export class Session {
             MANOR_PANE_ID: this.sessionId,
             TERM: "xterm-256color",
             ZDOTDIR: zdotdir,
-            REAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || "",
+            REAL_ZDOTDIR: ShellManager.realZdotdir(),
             ...this.envOverrides,
           }),
         };

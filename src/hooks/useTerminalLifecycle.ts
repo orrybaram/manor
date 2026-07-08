@@ -211,7 +211,11 @@ export function useTerminalLifecycle(
         if (sent || disposed) return;
         sent = true;
         clearTimeout(fallback);
-        write(cmd + "\n");
+        // Submit with a carriage return (\r) — that's what an Enter keypress
+        // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
+        // not reliably bound to accept-line, so the command would sit in the
+        // buffer un-submitted.
+        write(cmd + "\r");
       };
       onShellReady(send);
       const fallback = setTimeout(send, 3000);
@@ -270,11 +274,25 @@ export function useTerminalLifecycle(
               : null;
           const pendingCmd = paneCmd || startupCmd;
           if (pendingCmd) {
-            if (result.prewarmed) {
-              // Shell is already initialized — write command immediately
-              write(pendingCmd + "\n");
+            // `prewarmed` only means the daemon session already existed — NOT
+            // that its shell has reached a prompt. React StrictMode (dev)
+            // double-mounts the pane: the first mount spawns the shell, then
+            // the second mount's create() sees the session already exists and
+            // reports prewarmed=true even though the shell is still sourcing
+            // rc files (~30ms old). Writing then lands the command in a
+            // not-yet-initialized ZLE, so the trailing \r is swallowed and the
+            // command sits in the buffer unsubmitted. Only take the
+            // immediate-write shortcut once we've actually observed the shell
+            // reach a prompt — paneCwd is populated from its OSC 7 event and
+            // persists across the remount. Otherwise wait like a cold start.
+            const shellReady = !!useAppStore.getState().paneCwd[paneId];
+            if (result.prewarmed && shellReady) {
+              // Shell is already at a prompt — write immediately.
+              // Submit with \r (Enter); \n is not reliably accept-line in zsh.
+              write(pendingCmd + "\r");
             } else {
-              // Cold start — wait for the shell prompt (CWD/OSC 7 event from
+              // Cold start (or a freshly-spawned session mislabelled as
+              // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
               // the precmd hook) before sending the command. Sending on first
               // output is too early: the shell may still be sourcing .zshrc,
               // and ZLE discards buffered input when it initializes.
@@ -294,8 +312,10 @@ export function useTerminalLifecycle(
               // Mark resumed immediately to prevent double-launch on re-mount
               void window.electronAPI.tasks.markResumed(resumeTask.id);
 
-              // Wait for shell prompt (CWD event), then relaunch
-              sendOnShellReady(resumeTask.agentCommand!);
+              // Resume the prior agent session if we can; otherwise relaunch the bare command.
+              const resumeCmd = await window.electronAPI.tasks.buildResumeCommand(resumeTask.id);
+              if (disposed) return;
+              sendOnShellReady(resumeCmd ?? resumeTask.agentCommand!);
             })();
           }
         }

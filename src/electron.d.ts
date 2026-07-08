@@ -546,6 +546,7 @@ export interface ElectronAPI {
     ) => Promise<void>;
     markSeen: (taskId: string) => Promise<void>;
     markResumed: (taskId: string) => Promise<TaskInfo | null>;
+    buildResumeCommand: (taskId: string) => Promise<string | null>;
     reconcileStale: () => Promise<void>;
     abandonForPane: (paneId: string, title?: string | null) => Promise<void>;
     /**
@@ -612,7 +613,7 @@ export interface ElectronAPI {
     onEscape: (callback: (paneId: string) => void) => () => void;
     onFocusUrl: (callback: (paneId: string) => void) => () => void;
     onNewWindow: (
-      callback: (paneId: string, url: string) => void,
+      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
     ) => () => void;
     stop: (paneId: string) => Promise<void>;
     findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<void>;

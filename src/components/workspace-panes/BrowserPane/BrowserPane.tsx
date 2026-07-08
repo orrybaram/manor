@@ -111,6 +111,14 @@ function formatPickedElement(result: PickedElementResult): string {
   return sections.join("\n\n");
 }
 
+// React 19 silently drops a boolean `allowpopups={true}` on <webview>, leaving
+// the attribute absent — which makes Electron block all guest window.open /
+// target=_blank before they reach setWindowOpenHandler. Emit it as a string
+// attribute instead (Electron only checks for presence). Spread to bypass the
+// boolean prop type in React's WebViewHTMLAttributes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
+
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
     const { paneId, initialUrl, onNavStateChange } = props;
@@ -175,7 +183,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const wv = webviewRef.current;
       if (!wv) return;
       let resolved = target.trim();
-      if (!/^https?:\/\//i.test(resolved)) {
+      // Pass through explicit URL schemes (http(s), file, data, about, …) as
+      // typed; only bare hosts / search terms get normalized below.
+      if (!/^(https?|file|data|about|blob|chrome|view-source):/i.test(resolved)) {
         const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(resolved);
         if (isLocal) {
           resolved = `http://${resolved}`;
@@ -183,7 +193,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           // Has dots — treat as a domain (e.g. "github.com", "foo.bar.com/path")
           resolved = `https://${resolved}`;
         } else {
-          // No dots, no protocol, not localhost — treat as a search query
+          // No dots, no scheme, not localhost — treat as a search query
           resolved = `https://www.google.com/search?q=${encodeURIComponent(resolved)}`;
         }
       }
@@ -436,9 +446,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       );
 
       const unsubNewWindow = window.electronAPI.webview.onNewWindow(
-        (sourcePaneId: string, openUrl: string) => {
+        (sourcePaneId: string, openUrl: string, opts?: { background?: boolean }) => {
           if (sourcePaneId !== paneId) return;
-          useAppStore.getState().addBrowserTab(openUrl);
+          useAppStore.getState().addBrowserTab(openUrl, { background: opts?.background });
         },
       );
 
@@ -524,6 +534,11 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
             src={initialUrl}
+            // allowpopups (string attr — see WEBVIEW_ALLOW_POPUPS) lets guest
+            // window.open / target=_blank reach the native setWindowOpenHandler
+            // in electron/ipc/webview.ts; without it the open is blocked before
+            // the handler ever runs.
+            {...WEBVIEW_ALLOW_POPUPS}
           />
           {isBlank && (
             <div className={styles.emptyState}>Enter a URL to get started</div>

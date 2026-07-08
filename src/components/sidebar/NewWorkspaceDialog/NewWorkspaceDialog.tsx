@@ -12,15 +12,7 @@ import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
-
-function slugify(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+import { sanitizeBranchName } from "../../../utils/branch-name";
 
 type Mode = "new" | "existing";
 
@@ -141,7 +133,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       e.preventDefault();
       setMode("new");
       setName(initialName);
-      setBranchName(initialBranch || slugify(initialName));
+      setBranchName(initialBranch || sanitizeBranchName(initialName));
       setBranchManuallyEdited(!!initialBranch);
       const proj = projects.find(
         (p) =>
@@ -208,7 +200,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError("Name must be 200 characters or fewer");
         return;
       }
-      const finalBranch = branchName.trim() || slugify(trimmedName);
+      const finalBranch = branchName.trim() || sanitizeBranchName(trimmedName);
       if (!finalBranch) {
         setError("Could not derive a valid branch name");
         return;
@@ -310,7 +302,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         onChange={(e) => {
                           setName(e.target.value);
                           if (!branchManuallyEdited) {
-                            setBranchName(slugify(e.target.value));
+                            setBranchName(sanitizeBranchName(e.target.value));
                           }
                           setError(null);
                         }}

@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { getConnector } from "../agent-connectors";
 import { assertString } from "../ipc-validate";
 import {
   getUnseenSnapshot,
@@ -124,6 +125,16 @@ export function register(deps: IpcDeps): void {
     return taskManager.updateTask(taskId, {
       resumedAt: new Date().toISOString(),
     });
+  });
+
+  ipcMain.handle("tasks:buildResumeCommand", (_event, taskId: string) => {
+    assertString(taskId, "taskId");
+    const task = taskManager.getTaskById(taskId);
+    if (!task || !task.agentCommand) return null;
+    return getConnector(task.agentKind).getResumeCommand(
+      task.agentCommand,
+      task.agentSessionId,
+    );
   });
 
   ipcMain.handle(

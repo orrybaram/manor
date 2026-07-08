@@ -127,6 +127,12 @@ export function SearchableSelect(props: SearchableSelectProps) {
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
           data-testid={dataTestId}
+          onKeyDown={(e) => {
+            if (!open && e.key === "ArrowDown") {
+              e.preventDefault();
+              setOpen(true);
+            }
+          }}
         >
           <div className={styles.triggerContent}>
             {icon}

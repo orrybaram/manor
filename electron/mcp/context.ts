@@ -7,6 +7,7 @@
  */
 
 import type { Http } from "./types";
+import { HttpError } from "./types";
 
 export interface CallerContext {
   projectId: string;
@@ -31,30 +32,6 @@ interface ContextNotFound {
   candidates: ContextCandidate[];
 }
 
-/**
- * `Http.get` collapses a non-2xx into `Error("HTTP <status>: <raw body>")`. The
- * 404 body is the whole point of the route's contract — it carries the candidate
- * projects — so dig it back out rather than surfacing a wall of JSON.
- */
-function candidateListing(err: unknown): string | null {
-  if (!(err instanceof Error)) return null;
-  const match = /^HTTP 404: ([\s\S]*)$/.exec(err.message);
-  if (!match) return null;
-
-  let body: ContextNotFound;
-  try {
-    body = JSON.parse(match[1]) as ContextNotFound;
-  } catch {
-    return null;
-  }
-  if (!body?.error || !Array.isArray(body.candidates)) return null;
-
-  const listing = body.candidates
-    .map((c) => `  - ${c.projectId}: ${c.name} (${c.path})`)
-    .join("\n");
-  return listing ? `${body.error}\n${listing}` : body.error;
-}
-
 export async function resolveContext(http: Http): Promise<CallerContext> {
   const params = new URLSearchParams();
   // Omit `paneId` entirely when unset — an empty value would read as a real
@@ -66,13 +43,21 @@ export async function resolveContext(http: Http): Promise<CallerContext> {
   try {
     return (await http.get(`/context?${params.toString()}`)) as CallerContext;
   } catch (err) {
-    const listing = candidateListing(err);
-    if (!listing) throw err;
-    // `cause` is attached by assignment rather than the ErrorOptions ctor arg:
-    // this file compiles against `target: ES2020`, whose Error type predates both.
-    const friendly: Error & { cause?: unknown } = new Error(listing);
-    friendly.cause = err;
-    throw friendly;
+    if (err instanceof HttpError && err.status === 404) {
+      const body = err.body as ContextNotFound | null;
+      if (body?.error && Array.isArray(body.candidates)) {
+        const listing = body.candidates
+          .map((c) => `  - ${c.projectId}: ${c.name} (${c.path})`)
+          .join("\n");
+        const message = listing ? `${body.error}\n${listing}` : body.error;
+        // `cause` is attached by assignment rather than the ErrorOptions ctor arg:
+        // this file compiles against `target: ES2020`, whose Error type predates both.
+        const friendly: Error & { cause?: unknown } = new Error(message);
+        friendly.cause = err;
+        throw friendly;
+      }
+    }
+    throw err;
   }
 }
 

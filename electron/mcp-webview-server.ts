@@ -15,7 +15,7 @@ import {
 import * as fs from "node:fs";
 import { webviewServerPortFile } from "./paths";
 import type { Http } from "./mcp/types";
-import { text } from "./mcp/types";
+import { HttpError, text } from "./mcp/types";
 import { webviewModule } from "./mcp/tools-webview";
 import { projectsModule } from "./mcp/tools-projects";
 import { agentsModule } from "./mcp/tools-agents";
@@ -58,8 +58,14 @@ async function request(urlPath: string, init?: RequestInit): Promise<unknown> {
     try {
       const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, init);
       if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`HTTP ${res.status}: ${body}`);
+        const rawBody = await res.text();
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(rawBody);
+        } catch {
+          // not JSON; body stays null
+        }
+        throw new HttpError(res.status, parsed, rawBody);
       }
       return await res.json();
     } catch (err) {

@@ -47,6 +47,39 @@ function twoPaneTab(): Tab {
   };
 }
 
+function makeMultiPanelLayout(): WorkspaceLayout {
+  const activeTab = singlePaneTab();
+  const activePanel: Panel = {
+    id: "panel-1",
+    tabs: [activeTab],
+    selectedTabId: activeTab.id,
+    pinnedTabIds: [],
+  };
+  const otherTab: Tab = {
+    id: "tab-2",
+    title: "Terminal",
+    rootNode: { type: "leaf", paneId: "pane-9" },
+    focusedPaneId: "pane-9",
+  };
+  const otherPanel: Panel = {
+    id: "panel-2",
+    tabs: [otherTab],
+    selectedTabId: otherTab.id,
+    pinnedTabIds: [],
+  };
+  return {
+    panelTree: {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", panelId: activePanel.id },
+      second: { type: "leaf", panelId: otherPanel.id },
+    },
+    panels: { [activePanel.id]: activePanel, [otherPanel.id]: otherPanel },
+    activePanelId: activePanel.id,
+  };
+}
+
 function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
   useAppStore.setState({
     activeWorkspacePath: activePath,
@@ -167,18 +200,59 @@ describe("split-pane", () => {
     });
   });
 
-  it("applies contentType, url and command", () => {
+  it("applies contentType and url", () => {
     const { paneId } = run("split-pane", {
       direction: "horizontal",
       contentType: "browser",
       url: "https://example.com",
-      command: "pnpm dev",
     }) as { paneId: string };
 
     const state = useAppStore.getState();
     expect(state.paneContentType[paneId]).toBe("browser");
     expect(state.paneUrl[paneId]).toBe("https://example.com");
+  });
+
+  it("applies contentType and command", () => {
+    const { paneId } = run("split-pane", {
+      direction: "horizontal",
+      contentType: "terminal",
+      command: "pnpm dev",
+    }) as { paneId: string };
+
+    const state = useAppStore.getState();
     expect(state.pendingPaneCommands[paneId]).toBe("pnpm dev");
+  });
+
+  it("throws when a browser split also carries a command", () => {
+    expect(() =>
+      run("split-pane", {
+        direction: "horizontal",
+        contentType: "browser",
+        url: "https://example.com",
+        command: "pnpm dev",
+      }),
+    ).toThrow(/command applies only to a terminal or task pane/);
+  });
+
+  it("throws when a non-browser split carries a url", () => {
+    expect(() =>
+      run("split-pane", {
+        direction: "horizontal",
+        contentType: "terminal",
+        url: "https://example.com",
+      }),
+    ).toThrow(/url applies only to contentType 'browser'/);
+  });
+
+  it("succeeds on a pane in a non-active panel", () => {
+    setupStore(makeMultiPanelLayout());
+
+    const { paneId } = run("split-pane", {
+      paneId: "pane-9",
+      direction: "horizontal",
+    }) as { paneId: string };
+
+    expect(tabHolding(paneId)?.focusedPaneId).toBe(paneId);
   });
 
   it("throws on an unknown paneId", () => {
@@ -266,7 +340,7 @@ describe("new-tab", () => {
     );
   });
 
-  it("switches workspace before creating the tab", () => {
+  function registerOtherWorkspace() {
     useProjectStore.setState({
       projects: [
         {
@@ -278,20 +352,68 @@ describe("new-tab", () => {
       ] as unknown as ProjectInfo[],
       selectedProjectIndex: 0,
     });
+  }
 
-    const { paneId } = run("new-tab", {
+  it("creates the tab in the target workspace, then restores the previous workspace", () => {
+    registerOtherWorkspace();
+
+    const { tabId, paneId } = run("new-tab", {
       contentType: "terminal",
       workspacePath: OTHER_WS_PATH,
-    }) as { paneId: string };
+    }) as { tabId: string; paneId: string };
 
     const state = useAppStore.getState();
-    expect(state.activeWorkspacePath).toBe(OTHER_WS_PATH);
-    // The pane landed in the newly-activated workspace, not the old one.
-    expect(tabHolding(paneId)).toBeDefined();
+    // The user's foreground workspace is never hijacked.
+    expect(state.activeWorkspacePath).toBe(WS_PATH);
+
+    // But the tab really was created in the target workspace.
+    const otherLayout = state.workspaceLayouts[OTHER_WS_PATH];
+    const tab = Object.values(otherLayout.panels)
+      .flatMap((p) => p.tabs)
+      .find((t) => t.id === tabId);
+    expect(tab).toBeDefined();
+    expect(hasPaneId(tab!.rootNode, paneId)).toBe(true);
+
     const oldLayout = state.workspaceLayouts[WS_PATH];
     expect(
       Object.values(oldLayout.panels).flatMap((p) => p.tabs),
     ).toHaveLength(1);
+  });
+
+  it("returns the tabId/paneId of the tab created in the target workspace", () => {
+    registerOtherWorkspace();
+
+    const created = run("new-tab", {
+      contentType: "browser",
+      url: "https://example.com",
+      workspacePath: OTHER_WS_PATH,
+    }) as { tabId: string; paneId: string };
+
+    expect(created.tabId).toEqual(expect.any(String));
+    expect(created.paneId).toEqual(expect.any(String));
+
+    const otherLayout = useAppStore.getState().workspaceLayouts[OTHER_WS_PATH];
+    const tab = Object.values(otherLayout.panels)
+      .flatMap((p) => p.tabs)
+      .find((t) => t.id === created.tabId);
+    expect(tab && hasPaneId(tab.rootNode, created.paneId)).toBe(true);
+  });
+
+  it("leaves activeWorkspacePath unchanged when background is invalid", () => {
+    registerOtherWorkspace();
+
+    expect(() =>
+      run("new-tab", {
+        contentType: "browser",
+        url: "https://example.com",
+        workspacePath: OTHER_WS_PATH,
+        background: "yes",
+      }),
+    ).toThrow(/background must be a boolean/);
+
+    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
+    // No tab should have been created in the target workspace either.
+    expect(useAppStore.getState().workspaceLayouts[OTHER_WS_PATH]).toBeUndefined();
   });
 
   it("throws on an unknown workspacePath", () => {
@@ -345,6 +467,13 @@ describe("close-pane", () => {
     expect(() => run("close-pane", { paneId: "pane-nope" })).toThrow(
       /Unknown paneId/,
     );
+  });
+
+  it("succeeds on a pane in a non-active panel", () => {
+    setupStore(makeMultiPanelLayout());
+
+    expect(run("close-pane", { paneId: "pane-9" })).toEqual({ ok: true });
+    expect(tabHolding("pane-9")).toBeUndefined();
   });
 });
 

@@ -117,15 +117,10 @@ function requireActivePanel(state: AppState): Panel {
   return panel;
 }
 
-/** True when `paneId` lives in one of the active panel's tabs. */
-function panelHasPane(panel: Panel, paneId: string): boolean {
-  return panel.tabs.some((tab) => hasPaneId(tab.rootNode, paneId));
-}
-
 /** True when `paneId` lives anywhere in the workspace, across every panel. */
 function layoutHasPane(layout: WorkspaceLayout, paneId: string): boolean {
   return Object.values(layout.panels).some((panel) =>
-    panelHasPane(panel, paneId),
+    panel.tabs.some((tab) => hasPaneId(tab.rootNode, paneId)),
   );
 }
 
@@ -153,6 +148,10 @@ function listPanes(): unknown {
 
 function splitPane(args: Record<string, unknown>): { paneId: string } {
   const state = useAppStore.getState();
+  const layout = requireActiveLayout(state);
+  // Only used to default `paneId` to the active panel's focused pane; the
+  // pane itself may legitimately live in any panel (ticket 9 replaces this
+  // default with the caller's own pane).
   const panel = requireActivePanel(state);
 
   const requestedPaneId = optionalString(args, "paneId");
@@ -160,7 +159,7 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
     requestedPaneId ??
     panel.tabs.find((t) => t.id === panel.selectedTabId)?.focusedPaneId;
   if (!target) throw new Error("No focused pane to split");
-  if (!panelHasPane(panel, target)) {
+  if (!layoutHasPane(layout, target)) {
     throw new Error(`Unknown paneId: ${target}`);
   }
 
@@ -180,6 +179,13 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
   const url = optionalString(args, "url");
   const paneCommand = optionalString(args, "command");
 
+  if (url && contentType !== "browser") {
+    throw new Error("url applies only to contentType 'browser'");
+  }
+  if (paneCommand && (contentType === "browser" || contentType === "diff")) {
+    throw new Error("command applies only to a terminal or task pane");
+  }
+
   const paneId = state.splitPaneAt(target, direction, position, {
     contentType,
     paneCommand,
@@ -193,16 +199,8 @@ function newTab(args: Record<string, unknown>): {
   tabId: string;
   paneId: string;
 } {
+  // 1. Parse and validate everything — no store writes above this line.
   const workspacePath = optionalString(args, "workspacePath");
-  if (workspacePath) {
-    const state = useAppStore.getState();
-    if (!isKnownWorkspace(state, workspacePath)) {
-      throw new Error(`Unknown workspace: ${workspacePath}`);
-    }
-    // Every store action operates on the active panel context, so switch first.
-    state.setActiveWorkspace(workspacePath);
-  }
-
   const contentType = parseEnum<TabContentType>(
     args.contentType,
     TAB_CONTENT_TYPES,
@@ -212,22 +210,47 @@ function newTab(args: Record<string, unknown>): {
   const command = optionalString(args, "command");
   const background = optionalBoolean(args, "background");
 
-  // `setActiveWorkspace` is a synchronous `set()`; re-read to see it.
-  const state = useAppStore.getState();
-  requireActivePanel(state);
-
-  let created: { tabId: string; paneId: string } | null;
-  if (contentType === "browser") {
-    if (!url) throw new Error('new-tab with contentType "browser" requires a url');
-    created = state.addBrowserTab(url, { background });
-  } else if (command) {
-    created = state.addTerminalTab(command);
-  } else {
-    created = state.addTab();
+  if (contentType === "browser" && !url) {
+    throw new Error('new-tab with contentType "browser" requires a url');
+  }
+  if (contentType !== "browser" && url) {
+    throw new Error("url applies only to contentType 'browser'");
+  }
+  if (contentType !== "browser" && background !== undefined) {
+    throw new Error("background applies only to contentType 'browser'");
   }
 
-  if (!created) throw new Error("Tab was not created");
-  return created;
+  const state = useAppStore.getState();
+  if (workspacePath && !isKnownWorkspace(state, workspacePath)) {
+    throw new Error(`Unknown workspace: ${workspacePath}`);
+  }
+
+  // 2. Act. Switch workspace only if requested, and always switch back —
+  // `new-tab` is MCP-only; an agent that wants the user looking at its tab
+  // calls `focus_pane` instead.
+  const previous = state.activeWorkspacePath;
+  if (workspacePath) state.setActiveWorkspace(workspacePath);
+  try {
+    // `setActiveWorkspace` is a synchronous `set()`; re-read to see it.
+    const fresh = useAppStore.getState();
+    requireActivePanel(fresh);
+
+    let created: { tabId: string; paneId: string } | null;
+    if (contentType === "browser") {
+      created = fresh.addBrowserTab(url!, { background });
+    } else if (command) {
+      created = fresh.addTerminalTab(command);
+    } else {
+      created = fresh.addTab();
+    }
+
+    if (!created) throw new Error("Tab was not created");
+    return created;
+  } finally {
+    if (workspacePath && previous && previous !== workspacePath) {
+      useAppStore.getState().setActiveWorkspace(previous);
+    }
+  }
 }
 
 function focusPane(args: Record<string, unknown>): { ok: true } {
@@ -244,9 +267,8 @@ function focusPane(args: Record<string, unknown>): { ok: true } {
 function closePane(args: Record<string, unknown>): { ok: true } {
   const paneId = requireString(args, "paneId");
   const state = useAppStore.getState();
-  // Narrower than `closePaneById`, which resolves a pane in any panel.
-  const panel = requireActivePanel(state);
-  if (!panelHasPane(panel, paneId)) {
+  const layout = requireActiveLayout(state);
+  if (!layoutHasPane(layout, paneId)) {
     throw new Error(`Unknown paneId: ${paneId}`);
   }
   state.closePaneById(paneId);

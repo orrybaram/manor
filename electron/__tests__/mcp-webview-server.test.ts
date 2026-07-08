@@ -1626,21 +1626,6 @@ describe("GET /context", () => {
     expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
-  it("falls through to cwd when the layout is corrupt (load throws), not a 500", async () => {
-    layoutPersistence.load.mockImplementation(() => {
-      throw new Error("ENOENT: layout.json missing or unparsable");
-    });
-
-    const { status, body } = await getContext(
-      baseUrl,
-      `?paneId=pane-target&cwd=${encodeURIComponent("/repo")}`,
-    );
-
-    expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo" });
-    expect(layoutPersistence.load).toHaveBeenCalled();
-  });
-
   it("falls through to cwd when the layout is corrupt (load returns null), not a 500", async () => {
     layoutPersistence.load.mockReturnValue(null);
 

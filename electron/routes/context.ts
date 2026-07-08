@@ -6,20 +6,10 @@
  */
 
 import type { ProjectInfo, WorkspaceInfo } from "../persistence";
-import type {
-  LayoutPersistence,
-  PersistedLayout,
-} from "../terminal-host/layout-persistence";
+import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "../pane-context";
 import { availableSources } from "../issue-backends";
 import type { Route } from "./types";
-
-/** The project+workspace `/context` resolved to, and which rung found it. */
-interface Resolution {
-  project: ProjectInfo;
-  workspace: WorkspaceInfo;
-  resolvedBy: "paneId" | "cwd";
-}
 
 /**
  * Rung 1: the pane id is authoritative — it names the *caller's* pane, not
@@ -32,33 +22,14 @@ function resolveByPane(
   layoutPersistence: LayoutPersistence | null,
   projects: ProjectInfo[],
   paneId: string | null,
-): Resolution | null {
+): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
-  let layout: PersistedLayout | null;
-  try {
-    layout = layoutPersistence?.load() ?? null;
-  } catch {
-    layout = null;
-  }
+  const layout = layoutPersistence?.load() ?? null;
   const workspacePath = layout ? findWorkspaceForPane(layout, paneId) : null;
   if (!workspacePath) return null;
   const match = matchProjectByPath(projects, workspacePath);
   if (!match) return null;
-  return { ...match, resolvedBy: "paneId" };
-}
-
-/**
- * Rung 2: PTYs launch with `cwd = workspacePath`, so this holds unless the
- * agent was started after a `cd`.
- */
-function resolveByCwd(
-  projects: ProjectInfo[],
-  cwd: string | null,
-): Resolution | null {
-  if (!cwd) return null;
-  const match = matchProjectByPath(projects, cwd);
-  if (!match) return null;
-  return { ...match, resolvedBy: "cwd" };
+  return match;
 }
 
 export const contextRoutes: Route[] = [
@@ -77,7 +48,7 @@ export const contextRoutes: Route[] = [
 
       const resolved =
         resolveByPane(deps.layoutPersistence, projects, paneId) ??
-        resolveByCwd(projects, cwd);
+        (cwd ? matchProjectByPath(projects, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.
       if (!resolved) {

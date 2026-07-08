@@ -13,6 +13,7 @@ import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
+import type { ProjectManager } from "./persistence";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -51,11 +52,13 @@ export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
   private registry: Map<string, number>; // paneId → webContentsId
+  private projectManager: ProjectManager | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
-  constructor(registry: Map<string, number>) {
+  constructor(registry: Map<string, number>, projectManager?: ProjectManager) {
     this.registry = registry;
+    this.projectManager = projectManager ?? null;
   }
 
   get serverPort(): number {
@@ -180,6 +183,117 @@ export class WebviewServer {
     return { wc };
   }
 
+  /**
+   * Handle /projects… routes for project and workspace management.
+   * Mirrors the ProjectManager IPC surface so external agents can create
+   * projects and workspaces (git worktrees) via MCP.
+   */
+  private async handleProjectRequest(
+    method: string,
+    url: URL,
+    json: (status: number, body: unknown) => void,
+    readBody: () => Promise<Record<string, unknown>>,
+  ): Promise<void> {
+    const pm = this.projectManager;
+    if (!pm) {
+      json(503, { error: "Project management is not available" });
+      return;
+    }
+
+    // /projects/:id and /projects/:id/workspaces
+    const match = url.pathname.match(/^\/projects(?:\/([^/]+)(?:\/(workspaces))?)?$/);
+    if (!match) {
+      json(404, { error: "Not found" });
+      return;
+    }
+    const projectId = match[1] ? decodeURIComponent(match[1]) : undefined;
+    const isWorkspaces = match[2] === "workspaces";
+
+    // ── /projects ──
+    if (!projectId) {
+      if (method === "GET") {
+        json(200, await pm.getProjects());
+        return;
+      }
+      if (method === "POST") {
+        const body = await readBody();
+        const name = body.name;
+        const projectPath = body.path;
+        if (typeof name !== "string" || typeof projectPath !== "string") {
+          json(400, { error: "Missing 'name' or 'path' string in request body" });
+          return;
+        }
+        json(200, await pm.addProject(name, projectPath));
+        return;
+      }
+      json(405, { error: "Method not allowed" });
+      return;
+    }
+
+    // Resolve the project once for the remaining routes.
+    const projects = await pm.getProjects();
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) {
+      json(404, { error: "Project not found" });
+      return;
+    }
+
+    // ── /projects/:id/workspaces ──
+    if (isWorkspaces) {
+      if (method === "GET") {
+        json(200, project.workspaces);
+        return;
+      }
+      if (method === "POST") {
+        const body = await readBody();
+        const name = body.name;
+        if (typeof name !== "string") {
+          json(400, { error: "Missing 'name' string in request body" });
+          return;
+        }
+        const branch = typeof body.branch === "string" ? body.branch : undefined;
+        const baseBranch =
+          typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+        const useExistingBranch =
+          typeof body.useExistingBranch === "boolean"
+            ? body.useExistingBranch
+            : undefined;
+        const updated = await pm.createWorktree(
+          projectId,
+          name,
+          branch,
+          undefined,
+          baseBranch,
+          useExistingBranch,
+        );
+        json(200, updated);
+        return;
+      }
+      if (method === "DELETE") {
+        const body = await readBody();
+        const worktreePath = body.worktreePath;
+        if (typeof worktreePath !== "string") {
+          json(400, { error: "Missing 'worktreePath' string in request body" });
+          return;
+        }
+        const deleteBranch =
+          typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
+        await pm.removeWorktree(projectId, worktreePath, deleteBranch);
+        json(200, { ok: true });
+        return;
+      }
+      json(405, { error: "Method not allowed" });
+      return;
+    }
+
+    // ── /projects/:id ──
+    if (method === "GET") {
+      json(200, project);
+      return;
+    }
+    json(405, { error: "Method not allowed" });
+  }
+
   private async handleRequest(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -215,6 +329,12 @@ export class WebviewServer {
         req.on("error", reject);
       });
     };
+
+    // ── Project & workspace routes (/projects…) ──
+    if (url.pathname === "/projects" || url.pathname.startsWith("/projects/")) {
+      await this.handleProjectRequest(method, url, json, readBody);
+      return;
+    }
 
     // ── GET /webviews ──
     if (method === "GET" && url.pathname === "/webviews") {

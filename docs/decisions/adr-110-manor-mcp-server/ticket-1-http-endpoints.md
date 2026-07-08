@@ -1,6 +1,6 @@
 ---
 title: Add project/workspace HTTP endpoints to WebviewServer
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

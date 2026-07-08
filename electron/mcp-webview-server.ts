@@ -28,13 +28,13 @@ function readPort(): number {
   }
   if (!fs.existsSync(PORT_FILE)) {
     console.error(
-      `[mcp-webview] Port file not found at ${PORT_FILE} — is Manor running?`,
+      `[mcp-manor] Port file not found at ${PORT_FILE} — is Manor running?`,
     );
     process.exit(1);
   }
   const port = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
   if (isNaN(port)) {
-    console.error(`[mcp-webview] Invalid port in ${PORT_FILE}`);
+    console.error(`[mcp-manor] Invalid port in ${PORT_FILE}`);
     process.exit(1);
   }
   return port;
@@ -67,6 +67,22 @@ async function httpPost(
     init.signal = AbortSignal.timeout(timeoutMs);
   }
   const res = await fetch(`${BASE_URL}${urlPath}`, init);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+async function httpDelete(
+  urlPath: string,
+  body?: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(`${BASE_URL}${urlPath}`, {
+    method: "DELETE",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text}`);
@@ -265,7 +281,137 @@ const TOOLS = [
       required: ["selector"],
     },
   },
+
+  // ── Project & workspace management ──
+  {
+    name: "list_projects",
+    description:
+      "List all projects in Manor with their IDs, names, paths, and workspace counts.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "get_project",
+    description:
+      "Get full details for a project including all of its workspaces.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: { type: "string", description: "Project ID." },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "add_project",
+    description: "Add a new project to Manor by name and directory path.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Display name for the project." },
+        path: {
+          type: "string",
+          description: "Absolute path to the project directory.",
+        },
+      },
+      required: ["name", "path"],
+    },
+  },
+  {
+    name: "create_workspace",
+    description:
+      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: { type: "string", description: "Project ID." },
+        name: {
+          type: "string",
+          description: "Workspace name (also used as the branch name unless 'branch' is given).",
+        },
+        branch: {
+          type: "string",
+          description: "Branch name, if different from the workspace name.",
+        },
+        baseBranch: {
+          type: "string",
+          description: "Base branch/ref to branch from (e.g. 'origin/main').",
+        },
+        useExistingBranch: {
+          type: "boolean",
+          description: "Check out an existing branch instead of creating a new one.",
+        },
+      },
+      required: ["projectId", "name"],
+    },
+  },
+  {
+    name: "list_workspaces",
+    description: "List all workspaces (git worktrees) for a project.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: { type: "string", description: "Project ID." },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "remove_workspace",
+    description: "Remove a workspace (git worktree) from a project.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: { type: "string", description: "Project ID." },
+        worktreePath: {
+          type: "string",
+          description: "Filesystem path of the workspace to remove.",
+        },
+        deleteBranch: {
+          type: "boolean",
+          description: "Also delete the workspace's git branch.",
+        },
+      },
+      required: ["projectId", "worktreePath"],
+    },
+  },
 ];
+
+// ── Project & workspace types ──
+
+interface WorkspaceInfo {
+  path: string;
+  branch: string;
+  isMain: boolean;
+  name: string | null;
+}
+
+interface ProjectInfo {
+  id: string;
+  name: string;
+  path: string;
+  defaultBranch: string;
+  workspaces: WorkspaceInfo[];
+}
+
+function formatWorkspace(ws: WorkspaceInfo): string {
+  const label = ws.name ? `${ws.name} ` : "";
+  const main = ws.isMain ? " [main]" : "";
+  return `  - ${label}${ws.path} (${ws.branch})${main}`;
+}
+
+function formatProject(p: ProjectInfo): string {
+  const lines = [
+    `${p.id}: ${p.name}`,
+    `  path: ${p.path}`,
+    `  default branch: ${p.defaultBranch}`,
+    `  workspaces (${p.workspaces.length}):`,
+    ...p.workspaces.map(formatWorkspace),
+  ];
+  return lines.join("\n");
+}
 
 // ── Element context types and formatter ──
 
@@ -485,6 +631,76 @@ async function handleTool(
         return { content: ctxContent };
       }
 
+      case "list_projects": {
+        const projects = (await httpGet("/projects")) as ProjectInfo[];
+        if (projects.length === 0) {
+          return text("No projects in Manor yet.");
+        }
+        const listing = projects
+          .map(
+            (p) =>
+              `${p.id}: ${p.name} (${p.path}) — ${p.workspaces.length} workspace(s)`,
+          )
+          .join("\n");
+        return text(listing);
+      }
+
+      case "get_project": {
+        const project = (await httpGet(
+          `/projects/${encodeURIComponent(args.projectId as string)}`,
+        )) as ProjectInfo;
+        return text(formatProject(project));
+      }
+
+      case "add_project": {
+        const project = (await httpPost("/projects", {
+          name: args.name,
+          path: args.path,
+        })) as ProjectInfo;
+        return text(`Added project "${project.name}" (${project.id})`);
+      }
+
+      case "create_workspace": {
+        const projectId = args.projectId as string;
+        const body: Record<string, unknown> = { name: args.name };
+        if (args.branch !== undefined) body.branch = args.branch;
+        if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
+        if (args.useExistingBranch !== undefined)
+          body.useExistingBranch = args.useExistingBranch;
+        const project = (await httpPost(
+          `/projects/${encodeURIComponent(projectId)}/workspaces`,
+          body,
+        )) as ProjectInfo;
+        return text(
+          `Created workspace "${args.name}" in project "${project.name}".\n\nWorkspaces now:\n${project.workspaces
+            .map(formatWorkspace)
+            .join("\n")}`,
+        );
+      }
+
+      case "list_workspaces": {
+        const workspaces = (await httpGet(
+          `/projects/${encodeURIComponent(args.projectId as string)}/workspaces`,
+        )) as WorkspaceInfo[];
+        if (workspaces.length === 0) {
+          return text("No workspaces in this project.");
+        }
+        return text(workspaces.map(formatWorkspace).join("\n"));
+      }
+
+      case "remove_workspace": {
+        await httpDelete(
+          `/projects/${encodeURIComponent(args.projectId as string)}/workspaces`,
+          {
+            worktreePath: args.worktreePath,
+            ...(args.deleteBranch !== undefined
+              ? { deleteBranch: args.deleteBranch }
+              : {}),
+          },
+        );
+        return text(`Removed workspace at ${args.worktreePath}.`);
+      }
+
       default:
         return text(`Unknown tool: ${name}`);
     }
@@ -504,7 +720,7 @@ function text(value: string) {
 // ── Server setup ──
 
 const server = new Server(
-  { name: "manor-webview", version: "0.1.0" },
+  { name: "manor", version: "0.1.0" },
   { capabilities: { tools: {} } },
 );
 
@@ -522,10 +738,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[mcp-webview] Server running on stdio");
+  console.error("[mcp-manor] Server running on stdio");
 }
 
 main().catch((err) => {
-  console.error("[mcp-webview] Fatal:", err);
+  console.error("[mcp-manor] Fatal:", err);
   process.exit(1);
 });

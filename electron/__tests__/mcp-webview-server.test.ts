@@ -252,3 +252,162 @@ describe("MCP webview server logic", () => {
     });
   });
 });
+
+// ── Project & workspace routes ──
+
+async function mcpHttpDelete(
+  baseUrl: string,
+  urlPath: string,
+  body?: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(`${baseUrl}${urlPath}`, {
+    method: "DELETE",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+describe("WebviewServer project/workspace routes", () => {
+  const PROJECT = {
+    id: "proj-1",
+    name: "demo",
+    path: "/repos/demo",
+    defaultBranch: "main",
+    workspaces: [
+      { path: "/repos/demo", branch: "main", isMain: true, name: null },
+    ],
+  };
+
+  let server: WebviewServer;
+  let baseUrl: string;
+  let pm: {
+    getProjects: ReturnType<typeof vi.fn>;
+    addProject: ReturnType<typeof vi.fn>;
+    createWorktree: ReturnType<typeof vi.fn>;
+    removeWorktree: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(async () => {
+    pm = {
+      getProjects: vi.fn(async () => [PROJECT]),
+      addProject: vi.fn(async (name: string, p: string) => ({
+        ...PROJECT,
+        id: "proj-new",
+        name,
+        path: p,
+      })),
+      createWorktree: vi.fn(async () => ({
+        ...PROJECT,
+        workspaces: [
+          ...PROJECT.workspaces,
+          {
+            path: "/repos/demo-ws",
+            branch: "feature",
+            isMain: false,
+            name: null,
+          },
+        ],
+      })),
+      removeWorktree: vi.fn(async () => {}),
+    };
+
+    // The route handler only uses these four methods of ProjectManager.
+    server = new WebviewServer(
+      new Map<string, number>(),
+      pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+    );
+    await server.start();
+    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+  });
+
+  afterEach(() => {
+    server.stop();
+  });
+
+  it("GET /projects lists projects", async () => {
+    const projects = (await mcpHttpGet(baseUrl, "/projects")) as unknown[];
+    expect(projects).toHaveLength(1);
+    expect((projects[0] as { id: string }).id).toBe("proj-1");
+  });
+
+  it("GET /projects/:id returns the project", async () => {
+    const project = (await mcpHttpGet(
+      baseUrl,
+      "/projects/proj-1",
+    )) as { name: string };
+    expect(project.name).toBe("demo");
+  });
+
+  it("GET /projects/:id 404s for unknown project", async () => {
+    await expect(mcpHttpGet(baseUrl, "/projects/nope")).rejects.toThrow(
+      "HTTP 404",
+    );
+  });
+
+  it("POST /projects adds a project", async () => {
+    const project = (await mcpHttpPost(baseUrl, "/projects", {
+      name: "new",
+      path: "/repos/new",
+    })) as { id: string };
+    expect(project.id).toBe("proj-new");
+    expect(pm.addProject).toHaveBeenCalledWith("new", "/repos/new");
+  });
+
+  it("POST /projects 400s when name/path missing", async () => {
+    await expect(
+      mcpHttpPost(baseUrl, "/projects", { name: "only-name" }),
+    ).rejects.toThrow("HTTP 400");
+  });
+
+  it("GET /projects/:id/workspaces lists workspaces", async () => {
+    const workspaces = (await mcpHttpGet(
+      baseUrl,
+      "/projects/proj-1/workspaces",
+    )) as unknown[];
+    expect(workspaces).toHaveLength(1);
+  });
+
+  it("POST /projects/:id/workspaces creates a workspace", async () => {
+    const project = (await mcpHttpPost(
+      baseUrl,
+      "/projects/proj-1/workspaces",
+      { name: "feature", baseBranch: "origin/main" },
+    )) as { workspaces: unknown[] };
+    expect(project.workspaces).toHaveLength(2);
+    expect(pm.createWorktree).toHaveBeenCalledWith(
+      "proj-1",
+      "feature",
+      undefined,
+      undefined,
+      "origin/main",
+      undefined,
+    );
+  });
+
+  it("DELETE /projects/:id/workspaces removes a workspace", async () => {
+    const result = (await mcpHttpDelete(
+      baseUrl,
+      "/projects/proj-1/workspaces",
+      { worktreePath: "/repos/demo-ws", deleteBranch: true },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+    expect(pm.removeWorktree).toHaveBeenCalledWith(
+      "proj-1",
+      "/repos/demo-ws",
+      true,
+    );
+  });
+
+  it("returns 503 when project management is unavailable", async () => {
+    const bare = new WebviewServer(new Map<string, number>());
+    await bare.start();
+    const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+    await expect(mcpHttpGet(bareUrl, "/projects")).rejects.toThrow("HTTP 503");
+    bare.stop();
+  });
+});

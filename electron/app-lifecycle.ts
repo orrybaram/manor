@@ -206,6 +206,7 @@ export function initApp(devTitle: string | null): void {
   const webviewServer = webviewIpc.createWebviewServer(
     projectManager,
     githubManager,
+    linearManager,
   );
 
   // Build shared deps object for extracted IPC modules

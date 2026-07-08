@@ -10,10 +10,22 @@
 import { BrowserWindow } from "electron";
 import type { ProjectManager, IssueSeed, WorkspaceFromIssue } from "./persistence";
 import type { GitHubManager } from "./github";
+import type { LinearManager, LinearAssociation } from "./linear";
+import {
+  isIssueSource,
+  linearStateTypes,
+  normalizeGitHubIssue,
+  normalizeGitHubIssueDetail,
+  normalizeLinearIssue,
+  normalizeLinearIssueDetail,
+  parseIssueState,
+} from "./issue-sources";
+import type { IssueSource } from "./issue-sources";
 
 export interface ControlDeps {
   projectManager: ProjectManager | null;
   githubManager: GitHubManager | null;
+  linearManager: LinearManager | null;
 }
 
 /** Payload of the main→renderer "app-command" channel. */
@@ -78,6 +90,55 @@ function renderPrompt(
       .replace(/\{body\}/g, ws.body ?? "");
   }
   return `Work on GitHub issue #${ws.number}: ${ws.title}.\n\n${ws.body ?? ""}`;
+}
+
+/**
+ * Read `?source=` off an issue route. Absent means GitHub, so existing callers
+ * that predate Linear support keep working untouched.
+ */
+function parseSource(
+  url: URL,
+): { ok: true; source: IssueSource } | { ok: false; error: string } {
+  const raw = url.searchParams.get("source");
+  if (raw === null) return { ok: true, source: "github" };
+  if (isIssueSource(raw)) return { ok: true, source: raw };
+  return {
+    ok: false,
+    error: `Unknown source '${raw}'. Use 'github' or 'linear'.`,
+  };
+}
+
+/**
+ * Resolve the Linear manager and the project's team ids together. A missing
+ * connection (503) and a project with no team associated (400) are different
+ * failures — one is a capability gap, the other a configuration gap.
+ */
+function resolveLinear(
+  linearManager: LinearManager | null,
+  project: { linearAssociations?: LinearAssociation[] },
+):
+  | { ok: true; linear: LinearManager; teamIds: string[] }
+  | { ok: false; status: number; error: string } {
+  if (!linearManager || !linearManager.isConnected()) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Linear is not connected. Connect Linear in Manor settings.",
+    };
+  }
+  const associations = project.linearAssociations ?? [];
+  if (associations.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Project has no Linear team associated.",
+    };
+  }
+  return {
+    ok: true,
+    linear: linearManager,
+    teamIds: associations.map((a) => a.teamId),
+  };
 }
 
 /**
@@ -159,25 +220,95 @@ export async function handleControlRequest(
       json(405, { error: "Method not allowed" });
       return true;
     }
+    const parsed = parseSource(url);
+    if (!parsed.ok) {
+      json(400, { error: parsed.error });
+      return true;
+    }
+    const filter =
+      url.searchParams.get("filter") === "all" ? "all" : "assigned";
+    const state = parseIssueState(url.searchParams.get("state"));
+    const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
+    const limit =
+      Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
+
+    if (parsed.source === "linear") {
+      const target = resolveLinear(deps.linearManager, project);
+      if (!target.ok) {
+        json(target.status, { error: target.error });
+        return true;
+      }
+      // Unlike GitHubManager, LinearManager throws on a bad/expired token.
+      // Catch it here so it surfaces as a 502 rather than an unhandled
+      // rejection in main.
+      try {
+        const opts = { stateTypes: linearStateTypes(state), limit };
+        const issues =
+          filter === "all"
+            ? await target.linear.getAllIssues(target.teamIds, opts)
+            : await target.linear.getMyIssues(target.teamIds, opts);
+        json(200, issues.map(normalizeLinearIssue));
+      } catch (err) {
+        json(502, { error: String(err) });
+      }
+      return true;
+    }
+
     const github = deps.githubManager;
     if (!github) {
       json(503, { error: "GitHub is not available" });
       return true;
     }
-    const filter =
-      url.searchParams.get("filter") === "all" ? "all" : "assigned";
-    const stateParam = url.searchParams.get("state");
-    const state: "open" | "closed" | "all" =
-      stateParam === "closed" || stateParam === "all" ? stateParam : "open";
-    const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
-    const limit =
-      Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
-
     const issues =
       filter === "all"
         ? await github.getAllIssues(project.path, limit, state)
         : await github.getMyIssues(project.path, limit, state);
-    json(200, issues);
+    json(200, issues.map(normalizeGitHubIssue));
+    return true;
+  }
+
+  // ── GET /projects/:id/issues/:issueRef ──
+  if (sub === "issues" && subsub) {
+    if (method !== "GET") {
+      json(405, { error: "Method not allowed" });
+      return true;
+    }
+    const parsed = parseSource(url);
+    if (!parsed.ok) {
+      json(400, { error: parsed.error });
+      return true;
+    }
+    const issueRef = decodeURIComponent(subsub);
+
+    if (parsed.source === "linear") {
+      const target = resolveLinear(deps.linearManager, project);
+      if (!target.ok) {
+        json(target.status, { error: target.error });
+        return true;
+      }
+      // Linear's `issue(id:)` resolves both a UUID and a human identifier
+      // ("ENG-123"), so the ref from the listing round-trips verbatim.
+      try {
+        const detail = await target.linear.getIssueDetail(issueRef);
+        json(200, normalizeLinearIssueDetail(detail));
+      } catch (err) {
+        json(502, { error: String(err) });
+      }
+      return true;
+    }
+
+    const github = deps.githubManager;
+    if (!github) {
+      json(503, { error: "GitHub is not available" });
+      return true;
+    }
+    const number = Number.parseInt(issueRef, 10);
+    if (!Number.isFinite(number) || number <= 0) {
+      json(400, { error: "GitHub issue refs must be numeric." });
+      return true;
+    }
+    const detail = await github.getIssueDetail(project.path, number);
+    json(200, normalizeGitHubIssueDetail(detail));
     return true;
   }
 
@@ -185,6 +316,18 @@ export async function handleControlRequest(
   if (sub === "workspaces" && subsub === "batch") {
     if (method !== "POST") {
       json(405, { error: "Method not allowed" });
+      return true;
+    }
+    // Batch creation is GitHub-only: the `issues: number[]` schema and the
+    // "Work on GitHub issue #…" prompt template both assume numeric refs.
+    // Reject a Linear caller loudly rather than silently treating it as GitHub.
+    const parsed = parseSource(url);
+    if (!parsed.ok) {
+      json(400, { error: parsed.error });
+      return true;
+    }
+    if (parsed.source === "linear") {
+      json(400, { error: "batch_create_workspaces supports GitHub issues only." });
       return true;
     }
     const github = deps.githubManager;

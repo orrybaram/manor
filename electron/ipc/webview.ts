@@ -11,6 +11,7 @@ import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
+import type { LinearManager } from "../linear";
 import type { IpcDeps } from "./types";
 import {
   buildPopupWindowOptions,
@@ -35,8 +36,14 @@ const webviewPopupCleanup = new Map<string, () => void>();
 export function createWebviewServer(
   projectManager?: ProjectManager,
   githubManager?: GitHubManager,
+  linearManager?: LinearManager,
 ): WebviewServer {
-  return new WebviewServer(webviewRegistry, projectManager, githubManager);
+  return new WebviewServer(
+    webviewRegistry,
+    projectManager,
+    githubManager,
+    linearManager,
+  );
 }
 
 export function register(deps: IpcDeps): void {

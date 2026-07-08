@@ -16,6 +16,7 @@ import { webviewServerPortFile } from "./paths";
 import { handleControlRequest } from "./control-server";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
+import type { LinearManager } from "./linear";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -56,6 +57,7 @@ export class WebviewServer {
   private registry: Map<string, number>; // paneId → webContentsId
   private projectManager: ProjectManager | null;
   private githubManager: GitHubManager | null;
+  private linearManager: LinearManager | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
@@ -63,10 +65,12 @@ export class WebviewServer {
     registry: Map<string, number>,
     projectManager?: ProjectManager,
     githubManager?: GitHubManager,
+    linearManager?: LinearManager,
   ) {
     this.registry = registry;
     this.projectManager = projectManager ?? null;
     this.githubManager = githubManager ?? null;
+    this.linearManager = linearManager ?? null;
   }
 
   get serverPort(): number {
@@ -233,6 +237,7 @@ export class WebviewServer {
         {
           projectManager: this.projectManager,
           githubManager: this.githubManager,
+          linearManager: this.linearManager,
         },
         method,
         url,

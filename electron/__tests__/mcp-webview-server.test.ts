@@ -1565,7 +1565,6 @@ describe("GET /context", () => {
     expect(body).toMatchObject({
       projectId: "proj-1",
       workspacePath: "/repo/.worktrees/feat",
-      resolvedBy: "paneId",
     });
     expect(layoutPersistence.load).toHaveBeenCalled();
   });
@@ -1580,8 +1579,9 @@ describe("GET /context", () => {
     expect(body).toMatchObject({
       projectId: "proj-1",
       workspacePath: "/repo/.worktrees/feat",
-      resolvedBy: "cwd",
     });
+    // No `paneId` param, so the paneId rung never runs.
+    expect(layoutPersistence.load).not.toHaveBeenCalled();
   });
 
   it("paneId wins over cwd when both are present and point at different workspaces", async () => {
@@ -1591,10 +1591,10 @@ describe("GET /context", () => {
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({
-      workspacePath: "/repo/.worktrees/feat",
-      resolvedBy: "paneId",
-    });
+    // Had `cwd` won, `workspacePath` would be "/repo" — the fixture's cwd
+    // target — not the worktree the paneId points at.
+    expect(body).toMatchObject({ workspacePath: "/repo/.worktrees/feat" });
+    expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
   it("falls through to cwd when paneId is absent from the layout (debounce lag), not a 404", async () => {
@@ -1604,7 +1604,10 @@ describe("GET /context", () => {
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+    // The paneId rung ran (it consulted the layout) but missed, so cwd's
+    // "/repo" — not the fixture's worktree — is what came back.
+    expect(body).toMatchObject({ workspacePath: "/repo" });
+    expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
   it("falls through to cwd when the layout is corrupt (load throws), not a 500", async () => {
@@ -1618,7 +1621,8 @@ describe("GET /context", () => {
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+    expect(body).toMatchObject({ workspacePath: "/repo" });
+    expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
   it("falls through to cwd when the layout is corrupt (load returns null), not a 500", async () => {
@@ -1630,7 +1634,8 @@ describe("GET /context", () => {
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+    expect(body).toMatchObject({ workspacePath: "/repo" });
+    expect(layoutPersistence.load).toHaveBeenCalled();
   });
 
   it("resolves via cwd when no layoutPersistence is configured at all", async () => {
@@ -1649,7 +1654,7 @@ describe("GET /context", () => {
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ workspacePath: "/repo", resolvedBy: "cwd" });
+    expect(body).toMatchObject({ workspacePath: "/repo" });
     bare.stop();
   });
 

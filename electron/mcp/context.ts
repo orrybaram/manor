@@ -17,8 +17,6 @@ export interface CallerContext {
   branch: string;
   isMain: boolean;
   sources: string[];
-  /** Diagnostic — how the server matched us. Not for the model to condition on. */
-  resolvedBy: "paneId" | "cwd";
 }
 
 interface ContextCandidate {

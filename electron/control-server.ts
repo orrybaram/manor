@@ -220,6 +220,53 @@ function renderPrompt(
   return `Work on GitHub issue #${ws.number}: ${ws.title}.\n\n${ws.body ?? ""}`;
 }
 
+/** The project+workspace `/context` resolved to, and which rung found it. */
+interface Resolution {
+  project: ProjectInfo;
+  workspace: WorkspaceInfo;
+  resolvedBy: "paneId" | "cwd";
+}
+
+/**
+ * Rung 1: the pane id is authoritative — it names the *caller's* pane, not
+ * whatever the user happens to be looking at. But `layout.json` is written
+ * on a 500ms debounce and serializes only the active workspace, so a pane
+ * legitimately missing from it must fall through to cwd, never 404 here.
+ * A corrupt or half-written file is the same fall-through, not a 500.
+ */
+function resolveByPane(
+  layoutPersistence: LayoutPersistence | null,
+  projects: ProjectInfo[],
+  paneId: string | null,
+): Resolution | null {
+  if (!paneId) return null;
+  let layout: PersistedLayout | null;
+  try {
+    layout = layoutPersistence?.load() ?? null;
+  } catch {
+    layout = null;
+  }
+  const workspacePath = layout ? findWorkspaceForPane(layout, paneId) : null;
+  if (!workspacePath) return null;
+  const match = matchProjectByPath(projects, workspacePath);
+  if (!match) return null;
+  return { ...match, resolvedBy: "paneId" };
+}
+
+/**
+ * Rung 2: PTYs launch with `cwd = workspacePath`, so this holds unless the
+ * agent was started after a `cd`.
+ */
+function resolveByCwd(
+  projects: ProjectInfo[],
+  cwd: string | null,
+): Resolution | null {
+  if (!cwd) return null;
+  const match = matchProjectByPath(projects, cwd);
+  if (!match) return null;
+  return { ...match, resolvedBy: "cwd" };
+}
+
 /**
  * Read `?source=` off an issue route. Absent means GitHub, so existing callers
  * that predate Linear support keep working untouched.
@@ -284,39 +331,12 @@ export async function handleControlRequest(
     const cwd = url.searchParams.get("cwd");
     const projects = await pm.getProjects();
 
-    let match: { project: ProjectInfo; workspace: WorkspaceInfo } | null = null;
-    let resolvedBy: "paneId" | "cwd" | null = null;
-
-    // Rung 1: the pane id is authoritative — it names the *caller's* pane, not
-    // whatever the user happens to be looking at. But `layout.json` is written
-    // on a 500ms debounce and serializes only the active workspace, so a pane
-    // legitimately missing from it must fall through to cwd, never 404 here.
-    // A corrupt or half-written file is the same fall-through, not a 500.
-    if (paneId) {
-      let layout: PersistedLayout | null;
-      try {
-        layout = deps.layoutPersistence?.load() ?? null;
-      } catch {
-        layout = null;
-      }
-      const workspacePath = layout
-        ? findWorkspaceForPane(layout, paneId)
-        : null;
-      if (workspacePath) {
-        match = matchProjectByPath(projects, workspacePath);
-        if (match) resolvedBy = "paneId";
-      }
-    }
-
-    // Rung 2: PTYs launch with `cwd = workspacePath`, so this holds unless the
-    // agent was started after a `cd`.
-    if (!match && cwd) {
-      match = matchProjectByPath(projects, cwd);
-      if (match) resolvedBy = "cwd";
-    }
+    const resolved =
+      resolveByPane(deps.layoutPersistence, projects, paneId) ??
+      resolveByCwd(projects, cwd);
 
     // Rung 3: hand back the candidate list so the model can retry explicitly.
-    if (!match || !resolvedBy) {
+    if (!resolved) {
       json(404, {
         error:
           "Could not determine the current project. Pass projectId explicitly.",
@@ -329,17 +349,16 @@ export async function handleControlRequest(
       return true;
     }
 
-    const sources = availableSources(deps, match.project);
+    const sources = availableSources(deps, resolved.project);
 
     json(200, {
-      projectId: match.project.id,
-      projectName: match.project.name,
-      projectPath: match.project.path,
-      workspacePath: match.workspace.path,
-      branch: match.workspace.branch,
-      isMain: match.workspace.isMain,
+      projectId: resolved.project.id,
+      projectName: resolved.project.name,
+      projectPath: resolved.project.path,
+      workspacePath: resolved.workspace.path,
+      branch: resolved.workspace.branch,
+      isMain: resolved.workspace.isMain,
       sources,
-      resolvedBy,
     });
     return true;
   }

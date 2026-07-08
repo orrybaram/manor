@@ -106,6 +106,30 @@ function linearReadiness(
   };
 }
 
+/**
+ * Can GitHub answer a query for this project *right now*? Mirrors
+ * `linearReadiness`: `availableSources` and `issueBackend("github")` both read
+ * this, so the advertised source list and the one that actually serves can
+ * never disagree. `deps.githubManager` being non-null only means a manager was
+ * constructed, not that `gh` is installed and authenticated — `isReady()` is
+ * the only thing that knows that.
+ */
+async function githubReadiness(
+  deps: IssueDeps,
+): Promise<
+  | { ready: true; github: GitHubManager }
+  | { ready: false; reason: "not-available" | "not-authenticated" }
+> {
+  const github = deps.githubManager;
+  if (!github) {
+    return { ready: false, reason: "not-available" };
+  }
+  if (!(await github.isReady())) {
+    return { ready: false, reason: "not-authenticated" };
+  }
+  return { ready: true, github };
+}
+
 function githubBackend(
   github: GitHubManager,
   project: IssueProject,
@@ -162,17 +186,24 @@ function linearBackend(linear: LinearManager, teamIds: string[]): IssueBackend {
 }
 
 /** Resolve the backend for `source`, or the reason it cannot serve. */
-export function issueBackend(
+export async function issueBackend(
   deps: IssueDeps,
   project: IssueProject,
   source: IssueSource,
-): IssueBackendResult {
+): Promise<IssueBackendResult> {
   if (source === "github") {
-    const github = deps.githubManager;
-    if (!github) {
-      return { ok: false, status: 503, error: "GitHub is not available" };
+    const readiness = await githubReadiness(deps);
+    if (!readiness.ready) {
+      return readiness.reason === "not-available"
+        ? { ok: false, status: 503, error: "GitHub is not available" }
+        : {
+            ok: false,
+            status: 503,
+            error:
+              "GitHub CLI is not installed or not authenticated. Run `gh auth login`.",
+          };
     }
-    return { ok: true, backend: githubBackend(github, project) };
+    return { ok: true, backend: githubBackend(readiness.github, project) };
   }
 
   const readiness = linearReadiness(deps, project);
@@ -198,14 +229,16 @@ export function issueBackend(
 /**
  * The sources that can answer a query for this project right now. A connected
  * Linear account with no team associated on this project cannot, so it is
- * omitted rather than advertised and then failing at call time.
+ * omitted rather than advertised and then failing at call time. Same for
+ * GitHub: a manager that was constructed but whose `gh` is missing or
+ * unauthenticated cannot either.
  */
-export function availableSources(
+export async function availableSources(
   deps: IssueDeps,
   project: IssueProject,
-): IssueSource[] {
+): Promise<IssueSource[]> {
   const sources: IssueSource[] = [];
-  if (deps.githubManager) sources.push("github");
+  if ((await githubReadiness(deps)).ready) sources.push("github");
   if (linearReadiness(deps, project).ready) sources.push("linear");
   return sources;
 }

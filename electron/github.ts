@@ -23,6 +23,23 @@ export interface GitHubIssueDetail extends GitHubIssue {
 }
 
 export class GitHubManager {
+  private readyPromise: Promise<boolean> | null = null;
+
+  /**
+   * Memoized: is `gh` installed and authenticated? `checkStatus()` shells out,
+   * so this is cached for the process lifetime rather than re-checked per
+   * request — the tradeoff being that installing/authenticating `gh` mid-session
+   * requires a restart for `list_issues` to notice. Still strictly better than
+   * not checking at all.
+   */
+  async isReady(): Promise<boolean> {
+    this.readyPromise ??= this.checkStatus().then(
+      (s) => s.installed && s.authenticated,
+      () => false,
+    );
+    return this.readyPromise;
+  }
+
   async getPrForBranch(
     repoPath: string,
     branch: string,

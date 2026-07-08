@@ -64,7 +64,7 @@ export const contextRoutes: Route[] = [
         return;
       }
 
-      const sources = availableSources(deps, resolved.project);
+      const sources = await availableSources(deps, resolved.project);
 
       json(200, {
         projectId: resolved.project.id,

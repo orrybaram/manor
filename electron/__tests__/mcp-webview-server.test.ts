@@ -548,6 +548,7 @@ describe("WebviewServer agent orchestration routes", () => {
     removeWorktree: ReturnType<typeof vi.fn>;
   };
   let github: {
+    isReady: ReturnType<typeof vi.fn>;
     getMyIssues: ReturnType<typeof vi.fn>;
     getAllIssues: ReturnType<typeof vi.fn>;
     getIssueDetail: ReturnType<typeof vi.fn>;
@@ -627,6 +628,7 @@ describe("WebviewServer agent orchestration routes", () => {
     };
 
     github = {
+      isReady: vi.fn(async () => true),
       getMyIssues: vi.fn(async () => [makeIssueDetail(1)]),
       getAllIssues: vi.fn(async () => [makeIssueDetail(2)]),
       getIssueDetail: vi.fn(async (_repoPath: string, number: number) =>
@@ -826,6 +828,17 @@ describe("WebviewServer agent orchestration routes", () => {
       await expect(
         mcpHttpGet(baseUrl, "/projects/proj-1/issues"),
       ).rejects.toThrow("HTTP 502");
+    });
+
+    // A configured but not-ready `gh` (missing or unauthenticated) is a
+    // capability gap, not an upstream failure — 503, not 502, and caught
+    // before ever shelling out.
+    it("returns 503 (not 502) when isReady() resolves false", async () => {
+      github.isReady.mockResolvedValueOnce(false);
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues"),
+      ).rejects.toThrow("HTTP 503");
+      expect(github.getMyIssues).not.toHaveBeenCalled();
     });
   });
 
@@ -1575,7 +1588,7 @@ describe("GET /context", () => {
 
   beforeEach(async () => {
     pm = { getProjects: vi.fn(async () => [CONTEXT_PROJECT]) };
-    github = {};
+    github = { isReady: vi.fn(async () => true) };
     linearManager = { isConnected: vi.fn(() => true) };
     layoutPersistence = { load: vi.fn(() => CONTEXT_LAYOUT_FIXTURE) };
 
@@ -1739,9 +1752,9 @@ describe("GET /context sources computation", () => {
     return { server, baseUrl: `http://127.0.0.1:${server.serverPort}` };
   }
 
-  const GITHUB_STUB = {} as unknown as ConstructorParameters<
-    typeof WebviewServer
-  >[2];
+  const GITHUB_STUB = {
+    isReady: vi.fn(async () => true),
+  } as unknown as ConstructorParameters<typeof WebviewServer>[2];
 
   it("github present, linear connected, project has associations -> [github, linear]", async () => {
     const linear = {
@@ -1806,6 +1819,26 @@ describe("GET /context sources computation", () => {
 
     const { body } = await getContext(baseUrl, "?cwd=/repo");
     expect(body.sources).toEqual([]);
+
+    server.stop();
+  });
+
+  // `githubManager` being constructed unconditionally in production must not
+  // mean it is always advertised — `isReady()` (installed + authenticated) is
+  // consulted too.
+  it("githubManager present but isReady() resolves false -> [linear] only", async () => {
+    const github = {
+      isReady: vi.fn(async () => false),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[2];
+    const linear = {
+      isConnected: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof WebviewServer>[3];
+    const { server, baseUrl } = await serverWithSources(github, linear, [
+      { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+    ]);
+
+    const { body } = await getContext(baseUrl, "?cwd=/repo");
+    expect(body.sources).toEqual(["linear"]);
 
     server.stop();
   });

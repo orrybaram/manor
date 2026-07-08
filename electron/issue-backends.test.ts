@@ -57,6 +57,7 @@ const NO_TEAM: IssueProject = { ...PROJECT, linearAssociations: [] };
 /** `deps` shaped like ControlDeps' relevant slice, with vi.fn() managers. */
 function makeDeps() {
   const githubManager = {
+    isReady: vi.fn(async () => true),
     getMyIssues: vi.fn(async () => [makeGitHubIssue(1)]),
     getAllIssues: vi.fn(async () => [makeGitHubIssue(2)]),
     getIssueDetail: vi.fn(async () => makeGitHubIssueDetail(42)),
@@ -75,8 +76,8 @@ function makeDeps() {
 }
 
 /** Unwrap a backend, failing loudly if resolution did not succeed. */
-function backendOf(...args: Parameters<typeof issueBackend>) {
-  const result = issueBackend(...args);
+async function backendOf(...args: Parameters<typeof issueBackend>) {
+  const result = await issueBackend(...args);
   if (!result.ok) throw new Error(`expected ok, got ${result.error}`);
   return result.backend;
 }
@@ -89,8 +90,8 @@ describe("issueBackend('github')", () => {
     ctx = makeDeps();
   });
 
-  it("503s with the exact message when no GitHub manager is configured", () => {
-    const result = issueBackend(
+  it("503s with the exact message when no GitHub manager is configured", async () => {
+    const result = await issueBackend(
       { ...ctx.deps, githubManager: null },
       PROJECT,
       "github",
@@ -102,12 +103,20 @@ describe("issueBackend('github')", () => {
     });
   });
 
+  it("503s with the auth message when isReady() resolves false", async () => {
+    ctx.githubManager.isReady.mockResolvedValue(false);
+    const result = await issueBackend(ctx.deps, PROJECT, "github");
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      error:
+        "GitHub CLI is not installed or not authenticated. Run `gh auth login`.",
+    });
+  });
+
   it("list(assigned) calls getMyIssues with path, limit, state", async () => {
-    const issues = await backendOf(ctx.deps, PROJECT, "github").list(
-      "assigned",
-      "open",
-      50,
-    );
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
+    const issues = await backend.list("assigned", "open", 50);
     expect(ctx.githubManager.getMyIssues).toHaveBeenCalledWith(
       "/repos/demo",
       50,
@@ -127,7 +136,8 @@ describe("issueBackend('github')", () => {
   });
 
   it("list(all) calls getAllIssues, not getMyIssues", async () => {
-    await backendOf(ctx.deps, PROJECT, "github").list("all", "closed", 10);
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
+    await backend.list("all", "closed", 10);
     expect(ctx.githubManager.getAllIssues).toHaveBeenCalledWith(
       "/repos/demo",
       10,
@@ -140,7 +150,8 @@ describe("issueBackend('github')", () => {
   it.each(["42", "#42"])(
     "detail(%o) resolves issue 42 — the listing's ref round-trips",
     async (ref) => {
-      const detail = await backendOf(ctx.deps, PROJECT, "github").detail(ref);
+      const backend = await backendOf(ctx.deps, PROJECT, "github");
+      const detail = await backend.detail(ref);
       expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
         "/repos/demo",
         42,
@@ -157,7 +168,7 @@ describe("issueBackend('github')", () => {
   it.each(["ENG-1", "", "abc", "0", "-3", "#", "42abc", "#42abc", " 42", "4 2"])(
     "detail(%o) throws InvalidIssueRef and never calls getIssueDetail",
     async (ref) => {
-      const backend = backendOf(ctx.deps, PROJECT, "github");
+      const backend = await backendOf(ctx.deps, PROJECT, "github");
       await expect(backend.detail(ref)).rejects.toThrow(InvalidIssueRef);
       await expect(backend.detail(ref)).rejects.toThrow(
         "GitHub issue refs must be numeric.",
@@ -169,14 +180,13 @@ describe("issueBackend('github')", () => {
   // `Number.parseInt("42abc", 10)` is 42, so the old predicate silently fetched
   // issue 42 for a ref the caller never meant.
   it("detail('42abc') does not silently fetch issue 42", async () => {
-    await expect(
-      backendOf(ctx.deps, PROJECT, "github").detail("42abc"),
-    ).rejects.toThrow(InvalidIssueRef);
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
+    await expect(backend.detail("42abc")).rejects.toThrow(InvalidIssueRef);
     expect(ctx.githubManager.getIssueDetail).not.toHaveBeenCalled();
   });
 
   it("InvalidIssueRef carries the bare sentence as its message", async () => {
-    const backend = backendOf(ctx.deps, PROJECT, "github");
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
     const err = await backend.detail("nope").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InvalidIssueRef);
     expect((err as Error).message).toBe("GitHub issue refs must be numeric.");
@@ -186,13 +196,14 @@ describe("issueBackend('github')", () => {
     ctx.githubManager.getAllIssues.mockRejectedValueOnce(
       new Error("gh exploded"),
     );
-    await expect(
-      backendOf(ctx.deps, PROJECT, "github").list("all", "open", 50),
-    ).rejects.toThrow("gh exploded");
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
+    await expect(backend.list("all", "open", 50)).rejects.toThrow(
+      "gh exploded",
+    );
   });
 
-  it("does not consult Linear readiness", () => {
-    issueBackend(ctx.deps, NO_TEAM, "github");
+  it("does not consult Linear readiness", async () => {
+    await issueBackend(ctx.deps, NO_TEAM, "github");
     expect(ctx.linearManager.isConnected).not.toHaveBeenCalled();
   });
 });
@@ -205,8 +216,8 @@ describe("issueBackend('linear')", () => {
     ctx = makeDeps();
   });
 
-  it("503s with the exact message when no Linear manager is configured", () => {
-    const result = issueBackend(
+  it("503s with the exact message when no Linear manager is configured", async () => {
+    const result = await issueBackend(
       { ...ctx.deps, linearManager: null },
       PROJECT,
       "linear",
@@ -218,35 +229,32 @@ describe("issueBackend('linear')", () => {
     });
   });
 
-  it("503s when isConnected() is false", () => {
+  it("503s when isConnected() is false", async () => {
     ctx.linearManager.isConnected.mockReturnValue(false);
-    expect(issueBackend(ctx.deps, PROJECT, "linear")).toEqual({
+    expect(await issueBackend(ctx.deps, PROJECT, "linear")).toEqual({
       ok: false,
       status: 503,
       error: "Linear is not connected. Connect Linear in Manor settings.",
     });
   });
 
-  it("400s (not 503) when the project has no Linear team associated", () => {
-    expect(issueBackend(ctx.deps, NO_TEAM, "linear")).toEqual({
+  it("400s (not 503) when the project has no Linear team associated", async () => {
+    expect(await issueBackend(ctx.deps, NO_TEAM, "linear")).toEqual({
       ok: false,
       status: 400,
       error: "Project has no Linear team associated.",
     });
   });
 
-  it("a disconnected manager outranks a missing association", () => {
+  it("a disconnected manager outranks a missing association", async () => {
     ctx.linearManager.isConnected.mockReturnValue(false);
-    const result = issueBackend(ctx.deps, NO_TEAM, "linear");
+    const result = await issueBackend(ctx.deps, NO_TEAM, "linear");
     expect(result).toMatchObject({ ok: false, status: 503 });
   });
 
   it("list(assigned) calls getMyIssues with team ids and open state types", async () => {
-    const issues = await backendOf(ctx.deps, PROJECT, "linear").list(
-      "assigned",
-      "open",
-      50,
-    );
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    const issues = await backend.list("assigned", "open", 50);
     expect(ctx.linearManager.getMyIssues).toHaveBeenCalledWith(["team-1"], {
       stateTypes: ["triage", "backlog", "unstarted", "started"],
       limit: 50,
@@ -265,7 +273,8 @@ describe("issueBackend('linear')", () => {
   });
 
   it("list(all) calls getAllIssues with the closed state types", async () => {
-    await backendOf(ctx.deps, PROJECT, "linear").list("all", "closed", 10);
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    await backend.list("all", "closed", 10);
     expect(ctx.linearManager.getAllIssues).toHaveBeenCalledWith(["team-1"], {
       stateTypes: ["completed", "canceled"],
       limit: 10,
@@ -281,7 +290,8 @@ describe("issueBackend('linear')", () => {
         { teamId: "team-2", teamName: "Ops", teamKey: "OPS" },
       ],
     };
-    await backendOf(ctx.deps, project, "linear").list("assigned", "all", 5);
+    const backend = await backendOf(ctx.deps, project, "linear");
+    await backend.list("assigned", "all", 5);
     expect(ctx.linearManager.getMyIssues).toHaveBeenCalledWith(
       ["team-1", "team-2"],
       {
@@ -299,7 +309,8 @@ describe("issueBackend('linear')", () => {
   });
 
   it("detail() forwards the ref verbatim — no numeric coercion", async () => {
-    const detail = await backendOf(ctx.deps, PROJECT, "linear").detail("ENG-1");
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    const detail = await backend.detail("ENG-1");
     expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith("ENG-1");
     expect(detail).toMatchObject({
       source: "linear",
@@ -318,7 +329,8 @@ describe("issueBackend('linear')", () => {
     "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "3FA85F64-5717-4562-B3FC-2C963F66AFA6",
   ])("detail(%o) passes validation and reaches the SDK", async (ref) => {
-    await backendOf(ctx.deps, PROJECT, "linear").detail(ref);
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    await backend.detail(ref);
     expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith(ref);
   });
 
@@ -327,7 +339,7 @@ describe("issueBackend('linear')", () => {
   it.each(["nonsense", "", "42", "#42", "ENG-", "-1", "not-a-uuid"])(
     "detail(%o) throws InvalidIssueRef (→400) rather than an SDK error (→502)",
     async (ref) => {
-      const backend = backendOf(ctx.deps, PROJECT, "linear");
+      const backend = await backendOf(ctx.deps, PROJECT, "linear");
       await expect(backend.detail(ref)).rejects.toThrow(InvalidIssueRef);
       await expect(backend.detail(ref)).rejects.toThrow(
         "Linear issue refs must be an identifier like 'ENG-123' or a UUID.",
@@ -343,7 +355,8 @@ describe("issueBackend('linear')", () => {
     ["eng-1", "ENG-1"],
     ["Eng-123", "ENG-123"],
   ])("detail(%o) is accepted and forwarded as %o", async (ref, forwarded) => {
-    await backendOf(ctx.deps, PROJECT, "linear").detail(ref);
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    await backend.detail(ref);
     expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith(forwarded);
   });
 
@@ -351,9 +364,8 @@ describe("issueBackend('linear')", () => {
     ctx.linearManager.getIssueDetail.mockRejectedValue(
       new Error("Linear API error: Entity not found"),
     );
-    const err = await backendOf(ctx.deps, PROJECT, "linear")
-      .detail("nonsense")
-      .catch((e: unknown) => e);
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    const err = await backend.detail("nonsense").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InvalidIssueRef);
   });
 
@@ -361,9 +373,10 @@ describe("issueBackend('linear')", () => {
     ctx.linearManager.getMyIssues.mockRejectedValueOnce(
       new Error("Linear API error: 401 Unauthorized"),
     );
-    await expect(
-      backendOf(ctx.deps, PROJECT, "linear").list("assigned", "open", 50),
-    ).rejects.toThrow("401 Unauthorized");
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
+    await expect(backend.list("assigned", "open", 50)).rejects.toThrow(
+      "401 Unauthorized",
+    );
   });
 });
 
@@ -380,7 +393,7 @@ describe("ref round-trip: list() → detail()", () => {
   });
 
   it("github: detail() accepts the '#42'-style ref list() emitted", async () => {
-    const backend = backendOf(ctx.deps, PROJECT, "github");
+    const backend = await backendOf(ctx.deps, PROJECT, "github");
     const [issue] = await backend.list("assigned", "open", 50);
     expect(issue.ref).toBe("#1");
 
@@ -396,7 +409,7 @@ describe("ref round-trip: list() → detail()", () => {
   });
 
   it("linear: detail() accepts the identifier list() emitted", async () => {
-    const backend = backendOf(ctx.deps, PROJECT, "linear");
+    const backend = await backendOf(ctx.deps, PROJECT, "linear");
     const [issue] = await backend.list("assigned", "open", 50);
     expect(issue.ref).toBe("ENG-1");
 
@@ -414,48 +427,72 @@ describe("availableSources", () => {
     ctx = makeDeps();
   });
 
-  it("reports both when GitHub is present and Linear is connected + associated", () => {
-    expect(availableSources(ctx.deps, PROJECT)).toEqual(["github", "linear"]);
+  it("reports both when GitHub is present and Linear is connected + associated", async () => {
+    expect(await availableSources(ctx.deps, PROJECT)).toEqual([
+      "github",
+      "linear",
+    ]);
   });
 
-  it("omits linear when connected but the project has no association", () => {
-    expect(availableSources(ctx.deps, NO_TEAM)).toEqual(["github"]);
+  it("omits linear when connected but the project has no association", async () => {
+    expect(await availableSources(ctx.deps, NO_TEAM)).toEqual(["github"]);
   });
 
-  it("omits linear when isConnected() is false", () => {
+  it("omits linear when isConnected() is false", async () => {
     ctx.linearManager.isConnected.mockReturnValue(false);
-    expect(availableSources(ctx.deps, PROJECT)).toEqual(["github"]);
+    expect(await availableSources(ctx.deps, PROJECT)).toEqual(["github"]);
   });
 
-  it("omits linear when there is no Linear manager at all", () => {
+  it("omits linear when there is no Linear manager at all", async () => {
     expect(
-      availableSources({ ...ctx.deps, linearManager: null }, PROJECT),
+      await availableSources({ ...ctx.deps, linearManager: null }, PROJECT),
     ).toEqual(["github"]);
   });
 
-  it("omits github when there is no GitHub manager", () => {
+  it("omits github when there is no GitHub manager", async () => {
     expect(
-      availableSources({ ...ctx.deps, githubManager: null }, PROJECT),
+      await availableSources({ ...ctx.deps, githubManager: null }, PROJECT),
     ).toEqual(["linear"]);
   });
 
-  it("reports nothing when neither source can serve", () => {
+  it("omits github when isReady() resolves false", async () => {
+    ctx.githubManager.isReady.mockResolvedValue(false);
+    expect(await availableSources(ctx.deps, PROJECT)).toEqual(["linear"]);
+  });
+
+  it("reports nothing when neither source can serve", async () => {
     expect(
-      availableSources(
+      await availableSources(
         { githubManager: null, linearManager: null },
         PROJECT,
       ),
     ).toEqual([]);
   });
 
-  it("agrees with issueBackend: an advertised source always resolves", () => {
-    for (const source of availableSources(ctx.deps, PROJECT)) {
-      expect(issueBackend(ctx.deps, PROJECT, source).ok).toBe(true);
+  // The real property: not the tautology "an advertised source resolves"
+  // (true even when the advertised list is wrong), but the bidirectional
+  // agreement — in the list iff it resolves ok.
+  it("agrees with issueBackend bidirectionally: github ready", async () => {
+    const sources = await availableSources(ctx.deps, PROJECT);
+    for (const source of ["github", "linear"] as const) {
+      const result = await issueBackend(ctx.deps, PROJECT, source);
+      expect(sources.includes(source)).toBe(result.ok);
     }
   });
 
-  it("agrees with issueBackend: an omitted linear never resolves", () => {
-    expect(availableSources(ctx.deps, NO_TEAM)).not.toContain("linear");
-    expect(issueBackend(ctx.deps, NO_TEAM, "linear").ok).toBe(false);
+  it("agrees with issueBackend bidirectionally: github not ready", async () => {
+    ctx.githubManager.isReady.mockResolvedValue(false);
+    const sources = await availableSources(ctx.deps, PROJECT);
+    expect(sources).not.toContain("github");
+    const result = await issueBackend(ctx.deps, PROJECT, "github");
+    expect(result).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it("agrees with issueBackend bidirectionally: no team association", async () => {
+    const sources = await availableSources(ctx.deps, NO_TEAM);
+    for (const source of ["github", "linear"] as const) {
+      const result = await issueBackend(ctx.deps, NO_TEAM, source);
+      expect(sources.includes(source)).toBe(result.ok);
+    }
   });
 });

@@ -43,7 +43,7 @@ export const issueRoutes: Route[] = [
       const limit =
         Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
 
-      const chosen = issueBackend(deps, project, parsed.source);
+      const chosen = await issueBackend(deps, project, parsed.source);
       if (!chosen.ok) {
         json(chosen.status, { error: chosen.error });
         return;
@@ -68,7 +68,7 @@ export const issueRoutes: Route[] = [
         return;
       }
 
-      const chosen = issueBackend(deps, project, parsed.source);
+      const chosen = await issueBackend(deps, project, parsed.source);
       if (!chosen.ok) {
         json(chosen.status, { error: chosen.error });
         return;

@@ -1,6 +1,6 @@
 ---
 title: Add source param to list_issues and new get_issue_detail tool
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

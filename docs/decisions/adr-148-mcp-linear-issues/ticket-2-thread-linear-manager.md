@@ -1,6 +1,6 @@
 ---
 title: Thread LinearManager into the control server and add issue routes
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

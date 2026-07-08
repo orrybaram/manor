@@ -1,6 +1,6 @@
 ---
 title: Add issue-sources normalization module
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

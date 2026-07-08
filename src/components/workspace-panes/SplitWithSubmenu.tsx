@@ -38,14 +38,18 @@ export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, getDir(), "second", "browser")}
+            onSelect={() =>
+              splitPaneAt(paneId, getDir(), "second", { contentType: "browser" })
+            }
           >
             <Globe size={14} />
             Browser
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, getDir(), "second", "diff")}
+            onSelect={() =>
+              splitPaneAt(paneId, getDir(), "second", { contentType: "diff" })
+            }
           >
             <GitCompareArrows size={14} />
             Diff
@@ -54,7 +58,10 @@ export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps
             className={styles.contextMenuItem}
             onSelect={() => {
               const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
-              splitPaneAt(paneId, getDir(), "second", "task", command);
+              splitPaneAt(paneId, getDir(), "second", {
+                contentType: "task",
+                paneCommand: command,
+              });
             }}
           >
             <Bot size={14} />

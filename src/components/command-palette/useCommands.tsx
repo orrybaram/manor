@@ -85,7 +85,7 @@ export function useCommands({
       if (!focusedPaneId) return;
       const el = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
       const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
-      splitPaneAt(focusedPaneId, direction, "second", contentType, paneCommand);
+      splitPaneAt(focusedPaneId, direction, "second", { contentType, paneCommand });
     },
     [focusedPaneId, splitPaneAt],
   );

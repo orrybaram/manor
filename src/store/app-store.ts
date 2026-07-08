@@ -2,8 +2,10 @@ import { create } from "zustand";
 import {
   type PaneNode,
   type SplitDirection,
+  type TabSnapshot,
   allPaneIds,
   clonePaneTree,
+  flattenPaneTree,
   hasPaneId,
   insertSplit,
   insertSplitAt,
@@ -184,6 +186,11 @@ function restoreWorkspaceState(
   };
 }
 
+export interface LayoutSnapshot {
+  workspacePath: string;
+  tabs: TabSnapshot[];
+}
+
 export interface AppState {
   workspaceLayouts: Record<string, WorkspaceLayout>;
   activeWorkspacePath: string | null;
@@ -232,7 +239,10 @@ export interface AppState {
   // Tab operations
   addTab: (paneId?: string) => void;
   addTerminalTab: (command: string, paneId?: string) => void;
-  addBrowserTab: (url: string, opts?: { background?: boolean }) => void;
+  addBrowserTab: (
+    url: string,
+    opts?: { background?: boolean; paneId?: string },
+  ) => void;
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
   openOrFocusDiff: () => void;
@@ -254,8 +264,13 @@ export interface AppState {
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-    contentType?: "terminal" | "browser" | "diff" | "task",
-    paneCommand?: string,
+    opts?: {
+      contentType?: "terminal" | "browser" | "diff" | "task";
+      paneCommand?: string;
+      url?: string;
+      /** Caller-supplied pane ID; defaults to newPaneId(). */
+      paneId?: string;
+    },
   ) => void;
   movePaneToTarget: (
     sourcePaneId: string,
@@ -359,6 +374,9 @@ export interface AppState {
   // Picked element
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
+
+  // Layout introspection
+  getLayoutSnapshot: () => LayoutSnapshot | null;
 }
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
@@ -644,12 +662,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  addBrowserTab: (url: string, opts?: { background?: boolean }) =>
+  addBrowserTab: (
+    url: string,
+    opts?: { background?: boolean; paneId?: string },
+  ) =>
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const paneId = newPaneId();
+      const paneId = opts?.paneId ?? newPaneId();
       let title: string;
       try {
         const parsed = new URL(url);
@@ -1155,8 +1176,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-    contentType?: "terminal" | "browser" | "diff" | "task",
-    paneCommand?: string,
+    opts?: {
+      contentType?: "terminal" | "browser" | "diff" | "task";
+      paneCommand?: string;
+      url?: string;
+      paneId?: string;
+    },
   ) =>
     set((state) => {
       const ctx = getActivePanelContext(state);
@@ -1166,7 +1191,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         hasPaneId(s.rootNode, targetPaneId),
       );
       if (!tab) return state;
-      const newPane = newPaneId();
+      const newPane = opts?.paneId ?? newPaneId();
+      const contentType = opts?.contentType;
+      const paneCommand = opts?.paneCommand;
+      const url = opts?.url;
       // "task" panes are terminals that auto-run a command -- don't persist as a content type
       const treeContentType = contentType === "task" ? undefined : contentType;
       const newRoot = insertSplitAt(
@@ -1176,6 +1204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         newPane,
         position,
         treeContentType,
+        url,
       );
       return {
         ...updatePanel(state, path, layout, panel.id, (p) => ({
@@ -1190,6 +1219,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneContentType: {
             ...state.paneContentType,
             [newPane]: treeContentType,
+          },
+        }),
+        ...(url && {
+          paneUrl: {
+            ...state.paneUrl,
+            [newPane]: url,
           },
         }),
         ...(paneCommand && {
@@ -2510,6 +2545,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { [paneId]: _, ...rest } = state.panePickedElement;
       return { panePickedElement: rest };
     }),
+
+  getLayoutSnapshot: () => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return null;
+    const { path, layout } = ctx;
+    const panelIds = allPanelIds(layout.panelTree);
+    const tabs: TabSnapshot[] = [];
+    for (const pid of panelIds) {
+      const panel = layout.panels[pid];
+      if (!panel) continue;
+      for (const tab of panel.tabs) {
+        tabs.push({
+          tabId: tab.id,
+          title: tab.title,
+          active: tab.id === panel.selectedTabId,
+          focusedPaneId: tab.focusedPaneId,
+          panes: flattenPaneTree(
+            tab.rootNode,
+            tab.focusedPaneId,
+            state.paneContentType,
+            state.paneUrl,
+          ),
+        });
+      }
+    }
+    return { workspacePath: path, tabs };
+  },
 
   initWorktreeSetup: (
     wsPathHint: string,

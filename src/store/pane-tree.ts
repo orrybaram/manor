@@ -100,11 +100,17 @@ export function insertSplitAt(
   newPaneId: string,
   position: "first" | "second",
   contentType?: "terminal" | "browser" | "diff",
+  url?: string,
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === targetPaneId) {
       const existing = node;
-      const newLeaf: PaneNode = { type: "leaf", paneId: newPaneId, ...(contentType && { contentType }) };
+      const newLeaf: PaneNode = {
+        type: "leaf",
+        paneId: newPaneId,
+        ...(contentType && { contentType }),
+        ...(url && { url }),
+      };
       return {
         type: "split",
         direction,
@@ -124,6 +130,7 @@ export function insertSplitAt(
       newPaneId,
       position,
       contentType,
+      url,
     ),
     second: insertSplitAt(
       node.second,
@@ -132,6 +139,7 @@ export function insertSplitAt(
       newPaneId,
       position,
       contentType,
+      url,
     ),
   };
 }
@@ -325,4 +333,55 @@ export function prevPaneId(
   const idx = ids.indexOf(currentPaneId);
   if (idx === -1) return ids[0] ?? null;
   return ids[(idx - 1 + ids.length) % ids.length];
+}
+
+/** Serializable snapshot of a single pane, for layout introspection. */
+export interface PaneSnapshot {
+  paneId: string;
+  contentType: "terminal" | "browser" | "diff";
+  url?: string;
+  focused: boolean;
+}
+
+/** Serializable snapshot of a tab, for layout introspection. */
+export interface TabSnapshot {
+  tabId: string;
+  title: string;
+  active: boolean;
+  focusedPaneId: string;
+  panes: PaneSnapshot[];
+}
+
+/**
+ * Flatten a pane tree into a depth-first, left-to-right list of pane
+ * snapshots. `contentType` and `url` are resolved from the store's
+ * `paneContentType` / `paneUrl` maps (the source of truth) — not from the
+ * tree leaf's inline fields, which `swapSiblings` and `updateLeafContentType`
+ * discard.
+ */
+export function flattenPaneTree(
+  node: PaneNode,
+  focusedPaneId: string,
+  paneContentType: Record<string, string>,
+  paneUrl: Record<string, string>,
+): PaneSnapshot[] {
+  if (node.type === "leaf") {
+    const contentType = (paneContentType[node.paneId] ?? "terminal") as
+      | "terminal"
+      | "browser"
+      | "diff";
+    const url = paneUrl[node.paneId];
+    return [
+      {
+        paneId: node.paneId,
+        contentType,
+        ...(contentType === "browser" && url !== undefined && { url }),
+        focused: node.paneId === focusedPaneId,
+      },
+    ];
+  }
+  return [
+    ...flattenPaneTree(node.first, focusedPaneId, paneContentType, paneUrl),
+    ...flattenPaneTree(node.second, focusedPaneId, paneContentType, paneUrl),
+  ];
 }

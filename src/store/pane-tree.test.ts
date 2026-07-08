@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   allPaneIds,
   clonePaneTree,
+  flattenPaneTree,
   insertSplit,
   removePane,
   movePane,
@@ -340,5 +341,98 @@ describe("clonePaneTree", () => {
     const snapshot = JSON.stringify(tree);
     clonePaneTree(tree, () => "mint");
     expect(JSON.stringify(tree)).toBe(snapshot);
+  });
+});
+
+describe("flattenPaneTree", () => {
+  it("returns a single pane snapshot for a leaf", () => {
+    const leaf: PaneNode = { type: "leaf", paneId: "a" };
+    const result = flattenPaneTree(leaf, "a", { a: "terminal" }, {});
+    expect(result).toEqual([
+      { paneId: "a", contentType: "terminal", focused: true },
+    ]);
+  });
+
+  it("flattens nested splits in depth-first, left-to-right order", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", paneId: "a" },
+        second: { type: "leaf", paneId: "b" },
+      },
+      second: { type: "leaf", paneId: "c" },
+    };
+    const result = flattenPaneTree(
+      tree,
+      "c",
+      { a: "terminal", b: "terminal", c: "terminal" },
+      {},
+    );
+    expect(result.map((p) => p.paneId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("defaults contentType to 'terminal' when missing from paneContentType", () => {
+    const leaf: PaneNode = { type: "leaf", paneId: "a" };
+    const result = flattenPaneTree(leaf, "a", {}, {});
+    expect(result[0].contentType).toBe("terminal");
+  });
+
+  it("resolves contentType and url from the store maps, not the tree leaf", () => {
+    // Leaf's inline fields say "terminal" with no url; the store maps say "browser".
+    const leaf: PaneNode = { type: "leaf", paneId: "a", contentType: "terminal" };
+    const result = flattenPaneTree(
+      leaf,
+      "a",
+      { a: "browser" },
+      { a: "https://example.com" },
+    );
+    expect(result[0]).toEqual({
+      paneId: "a",
+      contentType: "browser",
+      url: "https://example.com",
+      focused: true,
+    });
+  });
+
+  it("only includes url for browser panes", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    const result = flattenPaneTree(
+      tree,
+      "a",
+      { a: "terminal", b: "browser" },
+      { a: "stale-should-be-ignored", b: "https://example.com" },
+    );
+    const [a, b] = result;
+    expect(a.url).toBeUndefined();
+    expect(b.url).toBe("https://example.com");
+  });
+
+  it("marks focused on exactly one pane", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "a" },
+      second: { type: "leaf", paneId: "b" },
+    };
+    const result = flattenPaneTree(
+      tree,
+      "b",
+      { a: "terminal", b: "terminal" },
+      {},
+    );
+    expect(result.filter((p) => p.focused)).toHaveLength(1);
+    expect(result.find((p) => p.focused)?.paneId).toBe("b");
   });
 });

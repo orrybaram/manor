@@ -156,6 +156,28 @@ describe("addBrowserTab", () => {
     expect(newTab.title).toBe(invalidUrl);
   });
 
+  it("uses a caller-supplied paneId verbatim", () => {
+    useAppStore.getState().addBrowserTab("https://example.com", { paneId: "custom-pane-id" });
+
+    const panel = getActivePanel();
+    const newTab = panel.tabs[1];
+    if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
+    expect(newTab.rootNode.paneId).toBe("custom-pane-id");
+    expect(newTab.focusedPaneId).toBe("custom-pane-id");
+    expect(useAppStore.getState().paneContentType["custom-pane-id"]).toBe("browser");
+    expect(useAppStore.getState().paneUrl["custom-pane-id"]).toBe("https://example.com");
+  });
+
+  it("generates a paneId when none is supplied", () => {
+    useAppStore.getState().addBrowserTab("https://example.com");
+
+    const panel = getActivePanel();
+    const newTab = panel.tabs[1];
+    if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
+    expect(newTab.rootNode.paneId).toBeTruthy();
+    expect(newTab.rootNode.paneId).not.toBe("custom-pane-id");
+  });
+
   it("background: true does not change selection even when multiple tabs exist", () => {
     // Add a foreground tab first so we start with 2 tabs
     useAppStore.getState().addBrowserTab("https://first.com");

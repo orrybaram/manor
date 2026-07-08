@@ -96,19 +96,19 @@ describe("list-panes", () => {
 
     expect(run("list-panes")).toEqual({
       workspacePath: WS_PATH,
+      activeTabId: "tab-1",
+      focusedPaneId: "pane-2",
       tabs: [
         {
           tabId: "tab-1",
           title: "Terminal",
-          active: true,
           focusedPaneId: "pane-2",
           panes: [
-            { paneId: "pane-1", contentType: "terminal", focused: false },
+            { paneId: "pane-1", contentType: "terminal" },
             {
               paneId: "pane-2",
               contentType: "browser",
               url: "https://example.com",
-              focused: true,
             },
           ],
         },

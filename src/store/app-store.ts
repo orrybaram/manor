@@ -2,10 +2,8 @@ import { create } from "zustand";
 import {
   type PaneNode,
   type SplitDirection,
-  type TabSnapshot,
   allPaneIds,
   clonePaneTree,
-  flattenPaneTree,
   hasPaneId,
   insertSplit,
   insertSplitAt,
@@ -186,11 +184,6 @@ function restoreWorkspaceState(
     panels,
     activePanelId: persisted.activePanelId,
   };
-}
-
-export interface LayoutSnapshot {
-  workspacePath: string;
-  tabs: TabSnapshot[];
 }
 
 export interface AppState {
@@ -376,9 +369,6 @@ export interface AppState {
   // Picked element
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
-
-  // Layout introspection
-  getLayoutSnapshot: () => LayoutSnapshot | null;
 }
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
@@ -2547,34 +2537,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { [paneId]: _, ...rest } = state.panePickedElement;
       return { panePickedElement: rest };
     }),
-
-  getLayoutSnapshot: () => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return null;
-    const { path, layout } = ctx;
-    const panelIds = allPanelIds(layout.panelTree);
-    const tabs: TabSnapshot[] = [];
-    for (const pid of panelIds) {
-      const panel = layout.panels[pid];
-      if (!panel) continue;
-      for (const tab of panel.tabs) {
-        tabs.push({
-          tabId: tab.id,
-          title: tab.title,
-          active: tab.id === panel.selectedTabId,
-          focusedPaneId: tab.focusedPaneId,
-          panes: flattenPaneTree(
-            tab.rootNode,
-            tab.focusedPaneId,
-            state.paneContentType,
-            state.paneUrl,
-          ),
-        });
-      }
-    }
-    return { workspacePath: path, tabs };
-  },
 
   initWorktreeSetup: (
     wsPathHint: string,

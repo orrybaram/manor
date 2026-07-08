@@ -3,43 +3,29 @@
  * tabs, focus and close panes. See ADR-149.
  */
 
+// Type-only: erased at compile time, so the MCP process stays Electron-free.
+import type { LayoutSnapshot } from "../../src/store/layout-snapshot";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
-// ── Layout snapshot types (mirrors src/store/pane-tree.ts) ──
-
-export interface PaneSnapshot {
-  paneId: string;
-  contentType: "terminal" | "browser" | "diff";
-  url?: string;
-  focused: boolean;
-}
-
-export interface TabSnapshot {
-  tabId: string;
-  title: string;
-  active: boolean;
-  focusedPaneId: string;
-  panes: PaneSnapshot[];
-}
-
-export interface LayoutSnapshot {
-  workspacePath: string;
-  tabs: TabSnapshot[];
-}
-
 // ── Formatting ──
 
+/**
+ * Render the snapshot as an indented tree. Exactly one tab can print `[active]`
+ * and exactly one pane `[focused]` — both are compared against the snapshot's
+ * single top-level truth, not against per-panel or per-tab state.
+ */
 export function formatLayoutSnapshot(snapshot: LayoutSnapshot): string {
   if (snapshot.tabs.length === 0) {
     return `${snapshot.workspacePath}\n  (no tabs)`;
   }
   const lines = [snapshot.workspacePath];
   for (const tab of snapshot.tabs) {
-    const activeMark = tab.active ? " [active]" : "";
+    const activeMark = tab.tabId === snapshot.activeTabId ? " [active]" : "";
     lines.push(`  ${tab.title} (tabId: ${tab.tabId})${activeMark}`);
     for (const pane of tab.panes) {
-      const focusedMark = pane.focused ? " [focused]" : "";
+      const focusedMark =
+        pane.paneId === snapshot.focusedPaneId ? " [focused]" : "";
       const urlPart = pane.url ? ` ${pane.url}` : "";
       lines.push(
         `    - ${pane.contentType} (paneId: ${pane.paneId})${urlPart}${focusedMark}`,

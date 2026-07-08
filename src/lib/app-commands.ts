@@ -25,6 +25,7 @@ import {
   type WorkspaceLayout,
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -156,7 +157,7 @@ function isKnownWorkspace(state: AppState, path: string): boolean {
 // ---------------------------------------------------------------------------
 
 function listPanes(): unknown {
-  const snapshot = useAppStore.getState().getLayoutSnapshot();
+  const snapshot = layoutSnapshot(useAppStore.getState());
   if (!snapshot) throw new Error("No active workspace");
   return snapshot;
 }

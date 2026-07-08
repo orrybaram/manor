@@ -711,7 +711,6 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(issues).toEqual([
         {
           source: "github",
-          id: "42",
           ref: "#42",
           title: "Issue 42",
           url: "https://github.com/acme/demo/issues/42",
@@ -741,7 +740,6 @@ describe("WebviewServer agent orchestration routes", () => {
         expect(issues).toEqual([
           {
             source: "linear",
-            id: "ENG-1",
             ref: "ENG-1",
             title: "Linear issue ENG-1",
             url: "https://linear.app/acme/issue/ENG-1",
@@ -836,13 +834,20 @@ describe("WebviewServer agent orchestration routes", () => {
       const detail = (await mcpHttpGet(
         baseUrl,
         "/projects/proj-1/issues/42?source=github",
-      )) as { source: string; id: string; ref: string };
+      )) as { source: string; ref: string };
       expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
-      expect(detail).toMatchObject({
-        source: "github",
-        id: "42",
-        ref: "#42",
-      });
+      expect(detail).toMatchObject({ source: "github", ref: "#42" });
+    });
+
+    // The ref `list_issues` prints is "#42"; percent-encoded it must round-trip
+    // to the same issue rather than 400ing on a `parseInt` NaN.
+    it("source=github accepts the '#42' ref the listing emitted", async () => {
+      const detail = (await mcpHttpGet(
+        baseUrl,
+        "/projects/proj-1/issues/%2342?source=github",
+      )) as { source: string; ref: string };
+      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(detail).toMatchObject({ source: "github", ref: "#42" });
     });
 
     it("source=github with a non-numeric ref returns 400 and never calls getIssueDetail", async () => {
@@ -852,18 +857,33 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(github.getIssueDetail).not.toHaveBeenCalled();
     });
 
+    it("source=github with a '42abc' ref returns 400, not issue 42", async () => {
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues/42abc?source=github"),
+      ).rejects.toThrow("HTTP 400");
+      expect(github.getIssueDetail).not.toHaveBeenCalled();
+    });
+
     it("source=linear calls linearManager.getIssueDetail and normalizes body from description", async () => {
       const detail = (await mcpHttpGet(
         baseUrl,
         "/projects/proj-1/issues/ENG-1?source=linear",
-      )) as { source: string; id: string; ref: string; body: string | null };
+      )) as { source: string; ref: string; body: string | null };
       expect(linearManager.getIssueDetail).toHaveBeenCalledWith("ENG-1");
       expect(detail).toMatchObject({
         source: "linear",
-        id: "ENG-1",
         ref: "ENG-1",
         body: "Description for ENG-1",
       });
+    });
+
+    // A caller's bad ref is a 400 whichever source it named — previously Linear
+    // let the SDK throw and the route reported the caller's typo as a 502.
+    it("source=linear with a malformed ref returns 400, not 502", async () => {
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues/nonsense?source=linear"),
+      ).rejects.toThrow("HTTP 400");
+      expect(linearManager.getIssueDetail).not.toHaveBeenCalled();
     });
   });
 

@@ -1,16 +1,17 @@
 /**
  * The issue-source seam: one uniform `IssueBackend` per source, so the control
- * server's issue routes never branch on `source === "linear"`.
+ * server's issue routes never branch on `source === "linear"`. Uniform down to
+ * failure modes: every `detail()` validates its own ref shape and throws
+ * `InvalidIssueRef`, so a caller's bad ref is a 400 whichever source served it.
  *
  * Main-side and dep-aware — it holds the real GitHubManager/LinearManager. Its
  * counterpart `issue-sources.ts` stays pure (normalization + state vocabulary);
  * this module is where those pure functions meet live managers.
  *
  * Deps are typed against a local `IssueDeps` rather than importing `ControlDeps`
- * from control-server.ts: control-server imports *this* module as a value, so a
- * back-import would be a module cycle (harmless under `import type`, but the
- * structural interface costs nothing and keeps the dependency edge one-way).
- * `ControlDeps` satisfies `IssueDeps` structurally.
+ * from routes/types.ts: the routes import *this* module as a value, so the
+ * structural interface keeps the dependency edge one-way. `ControlDeps`
+ * satisfies `IssueDeps` structurally.
  */
 
 import type { GitHubManager } from "./github";
@@ -45,6 +46,13 @@ export interface IssueBackend {
     state: IssueState,
     limit: number,
   ): Promise<McpIssue[]>;
+  /**
+   * Read one issue by the `ref` a prior `list()` emitted — refs round-trip.
+   *
+   * @throws {InvalidIssueRef} if `ref` is malformed for this source. Every
+   * backend validates before reaching out, so a caller's bad ref is a 400 no
+   * matter which source it named; only the source itself can produce a 502.
+   */
   detail(ref: string): Promise<McpIssueDetail>;
 }
 
@@ -53,6 +61,10 @@ export interface IssueBackend {
  * The routes map this to 400 and everything else to 502.
  */
 export class InvalidIssueRef extends Error {}
+
+/** Linear resolves an issue by UUID or by human identifier ("ENG-123"). */
+const LINEAR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LINEAR_IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/;
 
 export type IssueBackendResult =
   | { ok: true; backend: IssueBackend }
@@ -99,12 +111,14 @@ function githubBackend(
       return issues.map(normalizeGitHubIssue);
     },
     async detail(ref) {
-      const number = Number.parseInt(ref, 10);
-      if (!Number.isFinite(number) || number <= 0) {
+      // `list()` emits "#42", so accept it back verbatim. `/^\d+$/` rather than
+      // `Number.parseInt`, which reads "42abc" as 42 and fetches issue 42.
+      const bare = ref.startsWith("#") ? ref.slice(1) : ref;
+      if (!/^\d+$/.test(bare) || Number(bare) <= 0) {
         throw new InvalidIssueRef("GitHub issue refs must be numeric.");
       }
       return normalizeGitHubIssueDetail(
-        await github.getIssueDetail(project.path, number),
+        await github.getIssueDetail(project.path, Number(bare)),
       );
     },
   };
@@ -122,7 +136,14 @@ function linearBackend(linear: LinearManager, teamIds: string[]): IssueBackend {
     },
     async detail(ref) {
       // Linear's `issue(id:)` resolves both a UUID and a human identifier
-      // ("ENG-123"), so the ref from the listing round-trips verbatim.
+      // ("ENG-123"), so the ref from the listing round-trips verbatim. Reject
+      // anything that is neither *here*: left to the SDK, a caller's typo comes
+      // back as a transport error and the route calls it a 502.
+      if (!LINEAR_UUID.test(ref) && !LINEAR_IDENTIFIER.test(ref)) {
+        throw new InvalidIssueRef(
+          "Linear issue refs must be an identifier like 'ENG-123' or a UUID.",
+        );
+      }
       return normalizeLinearIssueDetail(await linear.getIssueDetail(ref));
     },
   };

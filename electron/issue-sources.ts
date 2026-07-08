@@ -4,9 +4,11 @@
  * translation.
  *
  * Pure, Electron-free: no I/O, only `import type` from ./github and ./linear.
- * This module is consumed by control-server.ts (which owns the real
- * GitHubManager/LinearManager instances) and, transitively, by the
- * Electron-free MCP server, which only ever sees the normalized shape.
+ * This module is consumed by issue-backends.ts (which owns the real
+ * GitHubManager/LinearManager instances) and by the Electron-free MCP server,
+ * which `import type`s McpIssue/McpIssueDetail from here rather than
+ * re-declaring them — one shape on the wire, and the compiler sees any drift.
+ * The type-only edge erases at runtime, so the MCP process stays Electron-free.
  */
 
 import type { GitHubIssue, GitHubIssueDetail } from "./github";
@@ -17,9 +19,11 @@ export type IssueState = "open" | "closed" | "all";
 
 export interface McpIssue {
   source: IssueSource;
-  /** Lookup key for get_issue_detail: "42" | "ENG-123". */
-  id: string;
-  /** Display ref: "#42" | "ENG-123". */
+  /**
+   * The one lookup key: "#42" | "ENG-123". Displayed by `list_issues` and fed
+   * straight back into `get_issue_detail`, so every backend's `detail()` must
+   * accept the `ref` its own `list()` emitted.
+   */
   ref: string;
   title: string;
   url: string;
@@ -59,7 +63,6 @@ export function linearStateTypes(state: IssueState): string[] {
 export function normalizeGitHubIssue(i: GitHubIssue): McpIssue {
   return {
     source: "github",
-    id: String(i.number),
     ref: `#${i.number}`,
     title: i.title,
     url: i.url,
@@ -71,7 +74,6 @@ export function normalizeGitHubIssue(i: GitHubIssue): McpIssue {
 export function normalizeLinearIssue(i: LinearIssue): McpIssue {
   return {
     source: "linear",
-    id: i.identifier,
     ref: i.identifier,
     title: i.title,
     url: i.url,

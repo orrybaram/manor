@@ -117,7 +117,6 @@ describe("issueBackend('github')", () => {
     expect(issues).toEqual([
       {
         source: "github",
-        id: "1",
         ref: "#1",
         title: "Issue 1",
         url: "https://github.com/acme/demo/issues/1",
@@ -137,22 +136,25 @@ describe("issueBackend('github')", () => {
     expect(ctx.githubManager.getMyIssues).not.toHaveBeenCalled();
   });
 
-  it("detail() parses a numeric ref and normalizes the result", async () => {
-    const detail = await backendOf(ctx.deps, PROJECT, "github").detail("42");
-    expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
-      "/repos/demo",
-      42,
-    );
-    expect(detail).toMatchObject({
-      source: "github",
-      id: "42",
-      ref: "#42",
-      body: "Body for #42",
-      assignees: ["octocat"],
-    });
-  });
+  // `list()` emits "#42"; ADR-148 promised that ref feeds straight back in.
+  it.each(["42", "#42"])(
+    "detail(%o) resolves issue 42 — the listing's ref round-trips",
+    async (ref) => {
+      const detail = await backendOf(ctx.deps, PROJECT, "github").detail(ref);
+      expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
+        "/repos/demo",
+        42,
+      );
+      expect(detail).toMatchObject({
+        source: "github",
+        ref: "#42",
+        body: "Body for #42",
+        assignees: ["octocat"],
+      });
+    },
+  );
 
-  it.each(["ENG-1", "", "abc", "0", "-3"])(
+  it.each(["ENG-1", "", "abc", "0", "-3", "#", "42abc", "#42abc", " 42", "4 2"])(
     "detail(%o) throws InvalidIssueRef and never calls getIssueDetail",
     async (ref) => {
       const backend = backendOf(ctx.deps, PROJECT, "github");
@@ -163,6 +165,15 @@ describe("issueBackend('github')", () => {
       expect(ctx.githubManager.getIssueDetail).not.toHaveBeenCalled();
     },
   );
+
+  // `Number.parseInt("42abc", 10)` is 42, so the old predicate silently fetched
+  // issue 42 for a ref the caller never meant.
+  it("detail('42abc') does not silently fetch issue 42", async () => {
+    await expect(
+      backendOf(ctx.deps, PROJECT, "github").detail("42abc"),
+    ).rejects.toThrow(InvalidIssueRef);
+    expect(ctx.githubManager.getIssueDetail).not.toHaveBeenCalled();
+  });
 
   it("InvalidIssueRef carries the bare sentence as its message", async () => {
     const backend = backendOf(ctx.deps, PROJECT, "github");
@@ -244,7 +255,6 @@ describe("issueBackend('linear')", () => {
     expect(issues).toEqual([
       {
         source: "linear",
-        id: "ENG-1",
         ref: "ENG-1",
         title: "Linear issue ENG-1",
         url: "https://linear.app/acme/issue/ENG-1",
@@ -293,11 +303,47 @@ describe("issueBackend('linear')", () => {
     expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith("ENG-1");
     expect(detail).toMatchObject({
       source: "linear",
-      id: "ENG-1",
       ref: "ENG-1",
       body: "Description for ENG-1",
       assignees: ["Ada"],
     });
+  });
+
+  // Linear's `issue(id:)` resolves both, so validation must accept both.
+  it.each([
+    "ENG-1",
+    "ENG-123",
+    "A-1",
+    "ENG2-9",
+    "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "3FA85F64-5717-4562-B3FC-2C963F66AFA6",
+  ])("detail(%o) passes validation and reaches the SDK", async (ref) => {
+    await backendOf(ctx.deps, PROJECT, "linear").detail(ref);
+    expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith(ref);
+  });
+
+  // Previously the SDK threw on these and the route called it a 502 — the same
+  // caller mistake GitHub answers with a 400.
+  it.each(["nonsense", "", "42", "#42", "eng-1", "ENG-", "-1", "not-a-uuid"])(
+    "detail(%o) throws InvalidIssueRef (→400) rather than an SDK error (→502)",
+    async (ref) => {
+      const backend = backendOf(ctx.deps, PROJECT, "linear");
+      await expect(backend.detail(ref)).rejects.toThrow(InvalidIssueRef);
+      await expect(backend.detail(ref)).rejects.toThrow(
+        "Linear issue refs must be an identifier like 'ENG-123' or a UUID.",
+      );
+      expect(ctx.linearManager.getIssueDetail).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a malformed ref never becomes an SDK throw", async () => {
+    ctx.linearManager.getIssueDetail.mockRejectedValue(
+      new Error("Linear API error: Entity not found"),
+    );
+    const err = await backendOf(ctx.deps, PROJECT, "linear")
+      .detail("nonsense")
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidIssueRef);
   });
 
   it("propagates a manager throw so the route can map it to 502", async () => {
@@ -307,6 +353,45 @@ describe("issueBackend('linear')", () => {
     await expect(
       backendOf(ctx.deps, PROJECT, "linear").list("assigned", "open", 50),
     ).rejects.toThrow("401 Unauthorized");
+  });
+});
+
+// ─── ref round-trip ─────────────────────────────────────────────────────────
+
+/**
+ * The property ADR-148 claimed and never had: whatever `ref` a listing prints
+ * is a ref `detail()` accepts. `list_issues` shows the model nothing else.
+ */
+describe("ref round-trip: list() → detail()", () => {
+  let ctx: ReturnType<typeof makeDeps>;
+  beforeEach(() => {
+    ctx = makeDeps();
+  });
+
+  it("github: detail() accepts the '#42'-style ref list() emitted", async () => {
+    const backend = backendOf(ctx.deps, PROJECT, "github");
+    const [issue] = await backend.list("assigned", "open", 50);
+    expect(issue.ref).toBe("#1");
+
+    ctx.githubManager.getIssueDetail.mockResolvedValueOnce(
+      makeGitHubIssueDetail(1),
+    );
+    const detail = await backend.detail(issue.ref);
+    expect(ctx.githubManager.getIssueDetail).toHaveBeenCalledWith(
+      "/repos/demo",
+      1,
+    );
+    expect(detail.ref).toBe(issue.ref);
+  });
+
+  it("linear: detail() accepts the identifier list() emitted", async () => {
+    const backend = backendOf(ctx.deps, PROJECT, "linear");
+    const [issue] = await backend.list("assigned", "open", 50);
+    expect(issue.ref).toBe("ENG-1");
+
+    const detail = await backend.detail(issue.ref);
+    expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith("ENG-1");
+    expect(detail.ref).toBe(issue.ref);
   });
 });
 

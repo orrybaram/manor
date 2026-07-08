@@ -1,6 +1,6 @@
 ---
 title: Issue refs round-trip; one issue shape on the wire
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [6]

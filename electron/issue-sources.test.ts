@@ -92,7 +92,6 @@ describe("issue-sources", () => {
 
       expect(normalizeGitHubIssue(issue)).toEqual({
         source: "github",
-        id: "42",
         ref: "#42",
         title: "Fix the thing",
         url: "https://github.com/o/r/issues/42",
@@ -111,6 +110,23 @@ describe("issue-sources", () => {
       } as unknown as GitHubIssue;
 
       expect(normalizeGitHubIssue(issue).labels).toEqual([]);
+    });
+
+    // `id` was a second lookup key nobody read; `ref` is the only one. Linear's
+    // input carries its own `id` (a UUID) — the normalizer must not forward it.
+    it("emits no `id` field, for either source", () => {
+      const gh = { number: 42, labels: [] } as unknown as GitHubIssue;
+      const lin = {
+        id: "uuid-1",
+        identifier: "ENG-1",
+        state: { name: "Backlog", type: "backlog" },
+        labels: [],
+      } as unknown as LinearIssue;
+      expect("id" in normalizeGitHubIssue(gh)).toBe(false);
+      expect("id" in normalizeLinearIssue(lin)).toBe(false);
+      expect("id" in normalizeLinearIssueDetail(lin as LinearIssueDetail)).toBe(
+        false,
+      );
     });
   });
 
@@ -131,7 +147,6 @@ describe("issue-sources", () => {
 
       expect(normalizeLinearIssue(issue)).toEqual({
         source: "linear",
-        id: "ENG-123",
         ref: "ENG-123",
         title: "Ship feature",
         url: "https://linear.app/o/issue/ENG-123",
@@ -172,7 +187,6 @@ describe("issue-sources", () => {
 
       expect(normalizeGitHubIssueDetail(detail)).toEqual({
         source: "github",
-        id: "42",
         ref: "#42",
         title: "Fix the thing",
         url: "https://github.com/o/r/issues/42",
@@ -223,7 +237,6 @@ describe("issue-sources", () => {
 
       expect(normalizeLinearIssueDetail(detail)).toEqual({
         source: "linear",
-        id: "ENG-123",
         ref: "ENG-123",
         title: "Ship feature",
         url: "https://linear.app/o/issue/ENG-123",

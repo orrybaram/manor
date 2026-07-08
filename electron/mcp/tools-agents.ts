@@ -3,6 +3,9 @@
  */
 
 import { resolveProjectId } from "./context";
+// Type-only: `issue-sources.ts` is pure, and the edge erases at runtime, so the
+// MCP process stays Electron-free while sharing the one wire shape.
+import type { McpIssue, McpIssueDetail } from "../issue-sources";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
@@ -10,6 +13,13 @@ import { text } from "./types";
 const PROJECT_ID_PROP = {
   type: "string",
   description: "Project ID. Defaults to the project this agent is running in.",
+} as const;
+
+/** Shared by every tool that reads issues. The routes 400 on anything else. */
+const ISSUE_SOURCE_PROP = {
+  type: "string",
+  enum: ["github", "linear"],
+  description: "Issue source: 'github' (default) or 'linear'.",
 } as const;
 
 // ── Tool definitions ──
@@ -34,10 +44,7 @@ const tools: ToolDef[] = [
           type: "number",
           description: "Maximum number of issues to return.",
         },
-        source: {
-          type: "string",
-          description: "Issue source: 'github' (default) or 'linear'.",
-        },
+        source: ISSUE_SOURCE_PROP,
       },
     },
   },
@@ -52,12 +59,9 @@ const tools: ToolDef[] = [
         issue: {
           type: "string",
           description:
-            "Issue ref as returned by list_issues: '42' for GitHub, 'ENG-123' for Linear.",
+            "Issue ref exactly as returned by list_issues: '#42' for GitHub, 'ENG-123' for Linear.",
         },
-        source: {
-          type: "string",
-          description: "Issue source: 'github' (default) or 'linear'.",
-        },
+        source: ISSUE_SOURCE_PROP,
       },
       required: ["issue"],
     },
@@ -140,22 +144,14 @@ const handlers: ToolModule["handlers"] = {
     const qs = params.toString();
     const issues = (await http.get(
       `/projects/${encodeURIComponent(projectId)}/issues?${qs}`,
-    )) as Array<{
-      ref: string;
-      title: string;
-      url: string;
-      state: string;
-      labels: string[];
-    }>;
+    )) as McpIssue[];
     if (issues.length === 0) {
       return text("No issues found.");
     }
     const listing = issues
       .map((issue) => {
         const labels =
-          issue.labels && issue.labels.length > 0
-            ? ` [${issue.labels.join(", ")}]`
-            : "";
+          issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : "";
         return `${issue.ref} ${issue.title}${labels}`;
       })
       .join("\n");
@@ -173,20 +169,12 @@ const handlers: ToolModule["handlers"] = {
     const qs = params.toString();
     const detail = (await http.get(
       `/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(issue)}?${qs}`,
-    )) as {
-      ref: string;
-      title: string;
-      state: string;
-      labels: string[];
-      assignees: string[];
-      url: string;
-      body: string | null;
-    };
+    )) as McpIssueDetail;
     const lines = [`${detail.ref} ${detail.title}`, `State: ${detail.state}`];
-    if (detail.labels && detail.labels.length > 0) {
+    if (detail.labels.length > 0) {
       lines.push(`Labels: ${detail.labels.join(", ")}`);
     }
-    if (detail.assignees && detail.assignees.length > 0) {
+    if (detail.assignees.length > 0) {
       lines.push(`Assignees: ${detail.assignees.join(", ")}`);
     }
     lines.push(`URL: ${detail.url}`);

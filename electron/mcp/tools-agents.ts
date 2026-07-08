@@ -95,6 +95,12 @@ const tools: ToolDef[] = [
           items: { type: "number" },
           description: "GitHub issue numbers to create workspaces for.",
         },
+        source: {
+          type: "string",
+          enum: ["github"],
+          description:
+            "Issue source. Only 'github' is supported; Linear issues are rejected.",
+        },
         baseBranch: {
           type: "string",
           description: "Base branch/ref to branch each workspace from.",
@@ -209,6 +215,7 @@ const handlers: ToolModule["handlers"] = {
       args.projectId as string | undefined,
     );
     const body: Record<string, unknown> = { issues: args.issues };
+    if (args.source !== undefined) body.source = args.source;
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.assign !== undefined) body.assign = args.assign;
     if (args.startAgent !== undefined) body.startAgent = args.startAgent;

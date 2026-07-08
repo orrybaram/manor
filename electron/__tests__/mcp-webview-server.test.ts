@@ -993,17 +993,35 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(ok?.workspacePath).toBe("/repos/demo-ws-10");
     });
 
-    it("returns 400 when source=linear is passed to the batch route", async () => {
+    it("returns 400 when source: 'linear' is passed in the batch body", async () => {
       await expect(
-        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch?source=linear", {
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch", {
+          source: "linear",
           issues: [10],
         }),
       ).rejects.toThrow("HTTP 400");
       await expect(
-        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch?source=linear", {
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch", {
+          source: "linear",
           issues: [10],
         }),
       ).rejects.toThrow("GitHub issues only");
+      expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for an unknown source in the batch body", async () => {
+      await expect(
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch", {
+          source: "bogus",
+          issues: [1],
+        }),
+      ).rejects.toThrow("HTTP 400");
+      await expect(
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch", {
+          source: "bogus",
+          issues: [1],
+        }),
+      ).rejects.toThrow("Unknown source 'bogus'. Use 'github' or 'linear'.");
       expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
     });
   });

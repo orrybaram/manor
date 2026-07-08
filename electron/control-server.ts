@@ -594,12 +594,20 @@ export async function handleControlRequest(
     // Batch creation is GitHub-only: the `issues: number[]` schema and the
     // "Work on GitHub issue #…" prompt template both assume numeric refs.
     // Reject a Linear caller loudly rather than silently treating it as GitHub.
-    const parsed = parseSource(url);
-    if (!parsed.ok) {
-      json(400, { error: parsed.error });
+    // `source` travels in the JSON body, like every other param on this route
+    // (unlike the issue routes, which read it off the query string) — read the
+    // body first so we can validate it before the 503 githubManager check, so
+    // a Linear caller gets the accurate 400 rather than a misleading 503 on a
+    // machine where `gh` happens to be unavailable.
+    const body = await readBody();
+    const source = body.source ?? "github";
+    if (!isIssueSource(source)) {
+      json(400, {
+        error: `Unknown source '${String(source)}'. Use 'github' or 'linear'.`,
+      });
       return true;
     }
-    if (parsed.source === "linear") {
+    if (source === "linear") {
       json(400, { error: "batch_create_workspaces supports GitHub issues only." });
       return true;
     }
@@ -611,7 +619,6 @@ export async function handleControlRequest(
       return true;
     }
 
-    const body = await readBody();
     const rawIssues = body.issues;
     if (
       !Array.isArray(rawIssues) ||

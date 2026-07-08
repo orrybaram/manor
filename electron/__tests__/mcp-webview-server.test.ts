@@ -998,6 +998,229 @@ describe("WebviewServer agent orchestration routes", () => {
   });
 });
 
+// ── Pane & tab routes (ADR-149 §4) ──
+
+describe("WebviewServer pane routes", () => {
+  let server: WebviewServer;
+  let baseUrl: string;
+  let send: ReturnType<typeof vi.fn>;
+
+  /**
+   * The single "app-command-result" listener `requestRenderer` installs, once,
+   * lazily, for the lifetime of the module. Reading it off the `ipcMain` spy
+   * (rather than re-exporting it) also proves there is exactly one, no matter
+   * how many requests have been made across the whole test file.
+   */
+  function rendererListener(): (
+    event: unknown,
+    result: AppCommandResult,
+  ) => void {
+    const calls = (ipcMain.on as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0] === "app-command-result",
+    );
+    if (calls.length === 0) {
+      throw new Error("app-command-result listener was never installed");
+    }
+    return calls[0][1] as (event: unknown, result: AppCommandResult) => void;
+  }
+
+  /**
+   * Play the renderer: whenever main sends an "app-command", reply
+   * synchronously on "app-command-result" with `{ ok: true, data }`, echoing
+   * back the `requestId` main generated. This lets `requestRenderer` resolve
+   * within the same HTTP request/response cycle instead of timing out.
+   */
+  function respondWith(data: unknown): void {
+    send.mockImplementation((_channel: string, command: AppCommand) => {
+      rendererListener()(null, {
+        requestId: command.requestId!,
+        ok: true,
+        data,
+      });
+    });
+  }
+
+  /** Play a renderer handler that throws. */
+  function respondWithError(error: string): void {
+    send.mockImplementation((_channel: string, command: AppCommand) => {
+      rendererListener()(null, {
+        requestId: command.requestId!,
+        ok: false,
+        error,
+      });
+    });
+  }
+
+  function openWindow(): void {
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
+  }
+
+  beforeEach(async () => {
+    send = vi.fn();
+    openWindow();
+    server = new WebviewServer(new Map<string, number>());
+    await server.start();
+    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+  });
+
+  afterEach(() => {
+    server.stop();
+    vi.useRealTimers();
+  });
+
+  it("GET /panes returns the layout snapshot", async () => {
+    respondWith({ workspacePath: "/repos/demo", tabs: [] });
+
+    const result = await mcpHttpGet(baseUrl, "/panes");
+
+    expect(result).toEqual({ workspacePath: "/repos/demo", tabs: [] });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "list-panes",
+      requestId: expect.any(String),
+    });
+  });
+
+  it("POST /panes/split returns the new paneId", async () => {
+    respondWith({ paneId: "pane-2" });
+
+    const result = await mcpHttpPost(baseUrl, "/panes/split", {
+      paneId: "pane-1",
+      direction: "horizontal",
+      contentType: "browser",
+      url: "https://example.com",
+    });
+
+    expect(result).toEqual({ paneId: "pane-2" });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "split-pane",
+      requestId: expect.any(String),
+      args: {
+        paneId: "pane-1",
+        direction: "horizontal",
+        contentType: "browser",
+        url: "https://example.com",
+      },
+    });
+  });
+
+  it("POST /panes/:paneId/focus focuses the pane", async () => {
+    respondWith({ ok: true });
+
+    const result = await mcpHttpPost(baseUrl, "/panes/pane-1/focus");
+
+    expect(result).toEqual({ ok: true });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "focus-pane",
+      requestId: expect.any(String),
+      args: { paneId: "pane-1" },
+    });
+  });
+
+  it("DELETE /panes/:paneId closes the pane", async () => {
+    respondWith({ ok: true });
+
+    const result = await mcpHttpDelete(baseUrl, "/panes/pane-1");
+
+    expect(result).toEqual({ ok: true });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "close-pane",
+      requestId: expect.any(String),
+      args: { paneId: "pane-1" },
+    });
+  });
+
+  it("POST /tabs creates a new terminal tab", async () => {
+    respondWith({ tabId: "tab-1", paneId: "pane-1" });
+
+    const result = await mcpHttpPost(baseUrl, "/tabs", {
+      contentType: "terminal",
+    });
+
+    expect(result).toEqual({ tabId: "tab-1", paneId: "pane-1" });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "new-tab",
+      requestId: expect.any(String),
+      args: { contentType: "terminal" },
+    });
+  });
+
+  it("POST /tabs creates a new browser tab given a url", async () => {
+    respondWith({ tabId: "tab-2", paneId: "pane-2" });
+
+    const result = await mcpHttpPost(baseUrl, "/tabs", {
+      contentType: "browser",
+      url: "https://example.com",
+    });
+
+    expect(result).toEqual({ tabId: "tab-2", paneId: "pane-2" });
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "new-tab",
+      requestId: expect.any(String),
+      args: { contentType: "browser", url: "https://example.com" },
+    });
+  });
+
+  it("returns 400 when 'direction' is missing on /panes/split", async () => {
+    await expect(mcpHttpPost(baseUrl, "/panes/split", {})).rejects.toThrow(
+      "HTTP 400",
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when 'direction' is invalid on /panes/split", async () => {
+    await expect(
+      mcpHttpPost(baseUrl, "/panes/split", { direction: "diagonal" }),
+    ).rejects.toThrow("HTTP 400");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when contentType 'browser' has no url on /tabs", async () => {
+    await expect(
+      mcpHttpPost(baseUrl, "/tabs", { contentType: "browser" }),
+    ).rejects.toThrow("HTTP 400");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when a renderer handler throws", async () => {
+    respondWithError("Unknown paneId: pane-404");
+
+    await expect(
+      mcpHttpDelete(baseUrl, "/panes/pane-404"),
+    ).rejects.toThrow("HTTP 400");
+  });
+
+  it("returns 405 for GET /tabs", async () => {
+    await expect(mcpHttpGet(baseUrl, "/tabs")).rejects.toThrow("HTTP 405");
+  });
+
+  it("returns 405 for an unsupported method on /panes", async () => {
+    await expect(mcpHttpPost(baseUrl, "/panes")).rejects.toThrow("HTTP 405");
+  });
+
+  it("returns 503 when no Manor window is open", async () => {
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+      [],
+    );
+
+    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+  });
+
+  it(
+    "returns 503 on renderer timeout",
+    async () => {
+      // `send` never replies — the renderer is unresponsive. This exercises
+      // the real (5s) `requestRenderer` timeout end-to-end over HTTP; faking
+      // timers here would also have to fake the real socket I/O `fetch`
+      // depends on, which the `requestRenderer` describe block below already
+      // covers directly and more precisely.
+      await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+    },
+    7000,
+  );
+});
+
 // ── Correlated main→renderer request/response (ADR-149 §1) ──
 
 describe("requestRenderer", () => {

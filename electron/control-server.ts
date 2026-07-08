@@ -133,6 +133,19 @@ export function requestRenderer<T>(
   });
 }
 
+/**
+ * Map a `requestRenderer` failure onto an HTTP status. The two renderer-side
+ * failure modes (`requestRenderer` never rejects) get `503`; anything else is
+ * a handler throw — bad `paneId`, unknown workspace, invalid enum — and is the
+ * caller's fault, `400`.
+ */
+function rendererErrorStatus(error: string | undefined): number {
+  return error === "No Manor window is open" ||
+    error === "Renderer did not respond"
+    ? 503
+    : 400;
+}
+
 interface BatchResultEntry {
   number: number;
   title: string;
@@ -276,6 +289,122 @@ export async function handleControlRequest(
     const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
     const result = startAgent(workspacePath, prompt);
     json(result.ok ? 200 : 503, result);
+    return true;
+  }
+
+  // ── /panes, /tabs (ADR-149) ──
+  // These mutate layout state, not project state — no `notifyProjectsChanged()`.
+  if (segments[0] === "panes") {
+    // ── GET /panes ──
+    if (segments.length === 1) {
+      if (method !== "GET") {
+        json(405, { error: "Method not allowed" });
+        return true;
+      }
+      const result = await requestRenderer("list-panes");
+      if (!result.ok) {
+        json(rendererErrorStatus(result.error), { error: result.error });
+        return true;
+      }
+      json(200, result.data);
+      return true;
+    }
+
+    // ── POST /panes/split ──
+    if (segments.length === 2 && segments[1] === "split") {
+      if (method !== "POST") {
+        json(405, { error: "Method not allowed" });
+        return true;
+      }
+      const body = await readBody();
+      if (body.direction !== "horizontal" && body.direction !== "vertical") {
+        json(400, {
+          error: "'direction' must be 'horizontal' or 'vertical'",
+        });
+        return true;
+      }
+      const result = await requestRenderer<{ paneId: string }>(
+        "split-pane",
+        body,
+      );
+      if (!result.ok) {
+        json(rendererErrorStatus(result.error), { error: result.error });
+        return true;
+      }
+      json(200, result.data);
+      return true;
+    }
+
+    // ── POST /panes/:paneId/focus ──
+    if (segments.length === 3 && segments[2] === "focus") {
+      if (method !== "POST") {
+        json(405, { error: "Method not allowed" });
+        return true;
+      }
+      await readBody();
+      const paneId = decodeURIComponent(segments[1]);
+      const result = await requestRenderer<{ ok: true }>("focus-pane", {
+        paneId,
+      });
+      if (!result.ok) {
+        json(rendererErrorStatus(result.error), { error: result.error });
+        return true;
+      }
+      json(200, result.data);
+      return true;
+    }
+
+    // ── DELETE /panes/:paneId ──
+    if (segments.length === 2) {
+      if (method !== "DELETE") {
+        json(405, { error: "Method not allowed" });
+        return true;
+      }
+      await readBody();
+      const paneId = decodeURIComponent(segments[1]);
+      const result = await requestRenderer<{ ok: true }>("close-pane", {
+        paneId,
+      });
+      if (!result.ok) {
+        json(rendererErrorStatus(result.error), { error: result.error });
+        return true;
+      }
+      json(200, result.data);
+      return true;
+    }
+
+    json(404, { error: "Not found" });
+    return true;
+  }
+
+  // ── POST /tabs ──
+  if (segments[0] === "tabs") {
+    if (segments.length !== 1 || method !== "POST") {
+      json(405, { error: "Method not allowed" });
+      return true;
+    }
+    const body = await readBody();
+    if (body.contentType !== "terminal" && body.contentType !== "browser") {
+      json(400, {
+        error: "'contentType' must be 'terminal' or 'browser'",
+      });
+      return true;
+    }
+    if (body.contentType === "browser" && typeof body.url !== "string") {
+      json(400, {
+        error: "contentType 'browser' requires a 'url' string in request body",
+      });
+      return true;
+    }
+    const result = await requestRenderer<{ tabId: string; paneId: string }>(
+      "new-tab",
+      body,
+    );
+    if (!result.ok) {
+      json(rendererErrorStatus(result.error), { error: result.error });
+      return true;
+    }
+    json(200, result.data);
     return true;
   }
 

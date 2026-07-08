@@ -6,6 +6,10 @@ import { resolveProjectId } from "./context";
 // Type-only: `issue-sources.ts` is pure, and the edge erases at runtime, so the
 // MCP process stays Electron-free while sharing the one wire shape.
 import type { McpIssue, McpIssueDetail } from "../issue-sources";
+// Also type-only: `import type` erases entirely, so this doesn't pull
+// `routes/projects.ts` (and its `electron`/`renderer-bridge` imports) into
+// the MCP process at runtime — only the shape is shared.
+import type { BatchResultEntry } from "../routes/projects";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
@@ -212,16 +216,7 @@ const handlers: ToolModule["handlers"] = {
     const result = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces/batch`,
       body,
-    )) as {
-      results: Array<{
-        number: number;
-        title: string;
-        workspacePath: string;
-        started: boolean;
-        error?: string;
-        assignError?: string;
-      }>;
-    };
+    )) as { results: BatchResultEntry[] };
     const listing = result.results
       .map((r) => {
         const status = r.error
@@ -229,12 +224,17 @@ const handlers: ToolModule["handlers"] = {
           : r.started
             ? "(agent started)"
             : "(workspace created)";
-        // `assignError` means the workspace exists but the assignment write
-        // failed — distinct from `error`, which means no workspace exists.
+        // `assignError`/`launchError` mean the workspace exists but a later
+        // step failed — distinct from `error`, which means no workspace
+        // exists at all, so `workspacePath` is omitted (never `undefined`).
         const assignSuffix = r.assignError
           ? ` (assign failed: ${r.assignError})`
           : "";
-        return `#${r.number} → ${r.workspacePath} ${status}${assignSuffix}`;
+        const launchSuffix = r.launchError
+          ? ` (launch failed: ${r.launchError})`
+          : "";
+        const target = r.workspacePath ?? r.title;
+        return `#${r.number} → ${target} ${status}${assignSuffix}${launchSuffix}`;
       })
       .join("\n");
     return text(listing);

@@ -1076,6 +1076,59 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedAssign?.workspacePath).toBe("/repos/demo-ws-20");
     });
 
+    // A launch failure (no Manor window open, here) happens after the
+    // workspace already exists on disk — it must land on `launchError`, not
+    // `error`, which is reserved for "no workspace was created at all".
+    it("reports launchError (not error) on a created workspace whose agent failed to start", async () => {
+      (
+        BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+      ).mockReturnValue([]);
+
+      const result = (await mcpHttpPost(
+        baseUrl,
+        "/projects/proj-1/workspaces/batch",
+        { issues: [10] },
+      )) as {
+        results: Array<{
+          number: number;
+          title: string;
+          workspacePath?: string;
+          started: boolean;
+          error?: string;
+          launchError?: string;
+        }>;
+      };
+
+      const failedLaunch = result.results.find((r) => r.number === 10);
+      expect(failedLaunch).toBeDefined();
+      expect(failedLaunch?.workspacePath).toBe("/repos/demo-ws-10");
+      expect(failedLaunch?.started).toBe(false);
+      expect(failedLaunch?.error).toBeUndefined();
+      expect(failedLaunch?.launchError).toContain("No Manor window is open");
+    });
+
+    // Order is preserved in `details` order even when a middle issue's fetch
+    // fails and the surrounding issues fan through create/assign/launch.
+    it("preserves result order [1,2,3] when issue 2's fetch fails", async () => {
+      github.getIssueDetail = vi.fn(
+        async (_repoPath: string, number: number) => {
+          if (number === 2) {
+            throw new Error("gh issue view failed");
+          }
+          return makeIssueDetail(number);
+        },
+      );
+
+      const result = (await mcpHttpPost(
+        baseUrl,
+        "/projects/proj-1/workspaces/batch",
+        { issues: [1, 2, 3], startAgent: false },
+      )) as { results: Array<{ number: number; error?: string }> };
+
+      expect(result.results.map((r) => r.number)).toEqual([1, 2, 3]);
+      expect(result.results[1].error).toContain("gh issue view failed");
+    });
+
     // Assign calls are independent network writes — they must not be
     // serialized one-by-one behind each other's 10s timeout.
     it("issues assign calls concurrently rather than one at a time", async () => {

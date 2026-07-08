@@ -61,19 +61,25 @@ export function withProject(
   });
 }
 
-interface BatchResultEntry {
+export interface BatchResultEntry {
   number: number;
   title: string;
   workspacePath?: string;
   started: boolean;
+  /** No workspace was created at all — the issue fetch or worktree create failed. */
   error?: string;
   /**
-   * Set when the workspace was created but the assignment write failed.
-   * Distinct from `error`, which means no workspace was created at all —
-   * a workspace with `assignError` still gets `started: true` if launch
-   * succeeded; it just isn't assigned.
+   * The workspace was created but the assignment write failed. Distinct from
+   * `error`: a workspace with `assignError` still gets `started: true` if
+   * launch succeeded; it just isn't assigned.
    */
   assignError?: string;
+  /**
+   * The workspace was created but the agent failed to launch in it. Distinct
+   * from `error`: a workspace with `launchError` exists on disk (has
+   * `workspacePath`); `started` stays `false`.
+   */
+  launchError?: string;
 }
 
 /** Render the launch prompt for an issue-backed workspace. */
@@ -88,6 +94,140 @@ function renderPrompt(
       .replace(/\{body\}/g, ws.body ?? "");
   }
   return `Work on GitHub issue #${ws.number}: ${ws.title}.\n\n${ws.body ?? ""}`;
+}
+
+/**
+ * `POST /projects/:projectId/workspaces/batch` — fan a batch of GitHub issue
+ * numbers out into one worktree each, optionally assigning and launching an
+ * agent in every one.
+ */
+async function batchCreateWorkspaces(
+  { deps, params, json, readBody }: RouteContext,
+  pm: ProjectManager,
+  project: ProjectInfo,
+): Promise<void> {
+  // Batch creation is GitHub-only: the `issues: number[]` schema and the
+  // "Work on GitHub issue #…" prompt template both assume numeric refs.
+  // Reject a Linear caller loudly rather than silently treating it as GitHub.
+  // `source` travels in the JSON body, like every other param on this route
+  // (unlike the issue routes, which read it off the query string) — read the
+  // body first so we can validate it before the 503 githubManager check, so
+  // a Linear caller gets the accurate 400 rather than a misleading 503 on a
+  // machine where `gh` happens to be unavailable.
+  const body = await readBody();
+  const source = body.source ?? "github";
+  if (!isIssueSource(source)) {
+    json(400, {
+      error: `Unknown source '${String(source)}'. Use 'github' or 'linear'.`,
+    });
+    return;
+  }
+  if (source === "linear") {
+    json(400, {
+      error: "batch_create_workspaces supports GitHub issues only.",
+    });
+    return;
+  }
+  const github = deps.githubManager;
+  if (!github) {
+    json(503, {
+      error: "GitHub and project management are required for batch creation",
+    });
+    return;
+  }
+
+  const rawIssues = body.issues;
+  if (
+    !Array.isArray(rawIssues) ||
+    rawIssues.length === 0 ||
+    !rawIssues.every((n) => typeof n === "number")
+  ) {
+    json(400, {
+      error: "Missing non-empty 'issues' array of numbers in request body",
+    });
+    return;
+  }
+  const numbers = rawIssues as number[];
+  const baseBranch =
+    typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+  const assign = body.assign === true;
+  const launch = body.startAgent !== false;
+  const promptTemplate =
+    typeof body.promptTemplate === "string" ? body.promptTemplate : undefined;
+
+  // 1. Fetch issue details in parallel — independent gh reads.
+  const details = await Promise.all(
+    numbers.map(async (number) => {
+      try {
+        const detail = await github.getIssueDetail(project.path, number);
+        return { number, detail };
+      } catch (err) {
+        return { number, error: String(err) };
+      }
+    }),
+  );
+
+  // 2. Create worktrees sequentially in the canonical layer.
+  const seeds: IssueSeed[] = details.flatMap((d) =>
+    "detail" in d
+      ? [
+          {
+            number: d.number,
+            title: d.detail.title,
+            url: d.detail.url,
+            body: d.detail.body,
+          },
+        ]
+      : [],
+  );
+  const created = await pm.createWorkspacesFromIssues(
+    params.projectId,
+    seeds,
+    baseBranch,
+  );
+  const createdByNumber = new Map(created.map((c) => [c.number, c]));
+  notifyProjectsChanged();
+
+  // 3. Resolve each issue to a result entry, assigning and launching as it
+  // goes. `details.map` preserves order in `results` regardless of which
+  // issues need assignment or launch, and each callback's own `await`s run
+  // concurrently across issues — `startAgent` itself is a synchronous
+  // dispatch, so calling it inline costs nothing.
+  const results: BatchResultEntry[] = await Promise.all(
+    details.map(async (d) => {
+      if ("error" in d) {
+        return { number: d.number, title: "", started: false, error: d.error };
+      }
+      const ws = createdByNumber.get(d.number);
+      const entry: BatchResultEntry = {
+        number: d.number,
+        title: ws?.title ?? d.detail.title,
+        workspacePath: ws?.worktreePath,
+        started: false,
+      };
+      if (!ws || ws.error) {
+        entry.error = ws?.error ?? "Workspace was not created";
+        return entry;
+      }
+      if (assign) {
+        try {
+          await github.assignIssue(project.path, d.number);
+        } catch (err) {
+          entry.assignError = String(err);
+        }
+      }
+      if (ws.worktreePath && launch) {
+        const result = startAgent(
+          ws.worktreePath,
+          renderPrompt(promptTemplate, ws),
+        );
+        entry.started = result.ok;
+        if (!result.ok) entry.launchError = result.error;
+      }
+      return entry;
+    }),
+  );
+  json(200, { results });
 }
 
 export const projectRoutes: Route[] = [
@@ -127,162 +267,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/batch",
-    handler: withProject(
-      async ({ deps, params, json, readBody }, pm, project) => {
-        // Batch creation is GitHub-only: the `issues: number[]` schema and the
-        // "Work on GitHub issue #…" prompt template both assume numeric refs.
-        // Reject a Linear caller loudly rather than silently treating it as GitHub.
-        // `source` travels in the JSON body, like every other param on this route
-        // (unlike the issue routes, which read it off the query string) — read the
-        // body first so we can validate it before the 503 githubManager check, so
-        // a Linear caller gets the accurate 400 rather than a misleading 503 on a
-        // machine where `gh` happens to be unavailable.
-        const body = await readBody();
-        const source = body.source ?? "github";
-        if (!isIssueSource(source)) {
-          json(400, {
-            error: `Unknown source '${String(source)}'. Use 'github' or 'linear'.`,
-          });
-          return;
-        }
-        if (source === "linear") {
-          json(400, {
-            error: "batch_create_workspaces supports GitHub issues only.",
-          });
-          return;
-        }
-        const github = deps.githubManager;
-        if (!github) {
-          json(503, {
-            error:
-              "GitHub and project management are required for batch creation",
-          });
-          return;
-        }
-
-        const rawIssues = body.issues;
-        if (
-          !Array.isArray(rawIssues) ||
-          rawIssues.length === 0 ||
-          !rawIssues.every((n) => typeof n === "number")
-        ) {
-          json(400, {
-            error:
-              "Missing non-empty 'issues' array of numbers in request body",
-          });
-          return;
-        }
-        const numbers = rawIssues as number[];
-        const baseBranch =
-          typeof body.baseBranch === "string" ? body.baseBranch : undefined;
-        const assign = body.assign === true;
-        const launch = body.startAgent !== false;
-        const promptTemplate =
-          typeof body.promptTemplate === "string"
-            ? body.promptTemplate
-            : undefined;
-
-        // 1. Fetch issue details in parallel — independent gh reads.
-        const details = await Promise.all(
-          numbers.map(async (number) => {
-            try {
-              const detail = await github.getIssueDetail(project.path, number);
-              return { number, detail };
-            } catch (err) {
-              return { number, error: String(err) };
-            }
-          }),
-        );
-
-        // 2. Create worktrees sequentially in the canonical layer.
-        const seeds: IssueSeed[] = details.flatMap((d) =>
-          "detail" in d
-            ? [
-                {
-                  number: d.number,
-                  title: d.detail.title,
-                  url: d.detail.url,
-                  body: d.detail.body,
-                },
-              ]
-            : [],
-        );
-        const created = await pm.createWorkspacesFromIssues(
-          params.projectId,
-          seeds,
-          baseBranch,
-        );
-        const createdByNumber = new Map(created.map((c) => [c.number, c]));
-        notifyProjectsChanged();
-
-        // 3. Build a per-issue entry: either resolved immediately (issue fetch
-        // or workspace creation failed) or pending assign/launch. Keeping both
-        // in one array in `details` order means the final `results` array
-        // preserves that order regardless of which issues need assignment.
-        type PendingItem = {
-          kind: "pending";
-          entry: BatchResultEntry;
-          ws: WorkspaceFromIssue;
-        };
-        type Item = { kind: "immediate"; entry: BatchResultEntry } | PendingItem;
-
-        const items: Item[] = details.map((d) => {
-          if ("error" in d) {
-            return {
-              kind: "immediate",
-              entry: { number: d.number, title: "", started: false, error: d.error },
-            };
-          }
-          const ws = createdByNumber.get(d.number);
-          const entry: BatchResultEntry = {
-            number: d.number,
-            title: ws?.title ?? d.detail.title,
-            workspacePath: ws?.worktreePath,
-            started: false,
-          };
-          if (!ws || ws.error) {
-            entry.error = ws?.error ?? "Workspace was not created";
-            return { kind: "immediate", entry };
-          }
-          return { kind: "pending", entry, ws };
-        });
-
-        // 4. Assign in parallel — independent network writes; each is now
-        // hoisted out of the fan-out loop so 10 issues aren't 10 sequential
-        // gh round trips. A failed assignment is recorded on the entry and
-        // must not fail the workspace it was requested for.
-        if (assign) {
-          const pending = items.filter(
-            (item): item is PendingItem => item.kind === "pending",
-          );
-          await Promise.all(
-            pending.map(async (item) => {
-              try {
-                await github.assignIssue(project.path, item.entry.number);
-              } catch (err) {
-                item.entry.assignError = String(err);
-              }
-            }),
-          );
-        }
-
-        // 5. Launch (a local, synchronous dispatch — no need to parallelize)
-        // and finalize the results in the original order.
-        const results: BatchResultEntry[] = items.map((item) => {
-          const { entry } = item;
-          if (item.kind === "pending" && item.ws.worktreePath && launch) {
-            const result = startAgent(
-              item.ws.worktreePath,
-              renderPrompt(promptTemplate, item.ws),
-            );
-            entry.started = result.ok;
-            if (!result.ok) entry.error = result.error;
-          }
-          return entry;
-        });
-        json(200, { results });
-      },
-    ),
+    handler: withProject(batchCreateWorkspaces),
   },
 
   {

@@ -7,7 +7,8 @@
  * listener and delegates any `/projects…` or `/agents` request here.
  */
 
-import { BrowserWindow } from "electron";
+import crypto from "node:crypto";
+import { BrowserWindow, ipcMain } from "electron";
 import type { ProjectManager, IssueSeed, WorkspaceFromIssue } from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager, LinearAssociation } from "./linear";
@@ -28,16 +29,109 @@ export interface ControlDeps {
   linearManager: LinearManager | null;
 }
 
-/** Payload of the main→renderer "app-command" channel. */
+/**
+ * Payload of the main→renderer "app-command" channel.
+ *
+ * Two semantics share this channel. Without a `requestId` the send is
+ * fire-and-forget (`start-agent`, `run-setup-script` — the renderer has nothing
+ * meaningful to report back). With one, the renderer *must* reply on
+ * "app-command-result" and main awaits it; see `requestRenderer`.
+ */
 export interface AppCommand {
   cmd: string;
+  /** Present iff main expects a reply on "app-command-result". */
+  requestId?: string;
   workspacePath?: string;
   prompt?: string;
   script?: string;
+  /** Free-form args for correlated pane/tab commands. */
+  args?: Record<string, unknown>;
+}
+
+/** Payload of the renderer→main "app-command-result" channel. */
+export interface AppCommandResult {
+  requestId: string;
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+/** Settled shape of a `requestRenderer` call. Never rejects — see below. */
+export interface RendererResponse<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
 }
 
 type Json = (status: number, body: unknown) => void;
 type ReadBody = () => Promise<Record<string, unknown>>;
+
+interface PendingRequest {
+  resolve: (response: RendererResponse<unknown>) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** In-flight `requestRenderer` calls, keyed by `requestId`. */
+const pendingRequests = new Map<string, PendingRequest>();
+let resultListenerInstalled = false;
+
+/**
+ * Install the single "app-command-result" listener, lazily, on first use.
+ *
+ * Deliberately `ipcMain.on` and not `ipcMain.once`: a `once` per request leaks
+ * a listener for every request that times out before the renderer answers.
+ * One listener routes every reply through `pendingRequests` instead.
+ */
+function installResultListener(): void {
+  if (resultListenerInstalled) return;
+  resultListenerInstalled = true;
+  ipcMain.on(
+    "app-command-result",
+    (_event: unknown, result: AppCommandResult) => {
+      if (!result || typeof result.requestId !== "string") return;
+      const pending = pendingRequests.get(result.requestId);
+      // Unknown id: a reply that arrived after its request timed out, or a
+      // renderer replying to a command that never asked for one. Drop it.
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pendingRequests.delete(result.requestId);
+      pending.resolve({ ok: result.ok, data: result.data, error: result.error });
+    },
+  );
+}
+
+/**
+ * Send an "app-command" the renderer must answer, and await the answer.
+ *
+ * Resolves rather than rejects on every failure path (no window, timeout,
+ * handler error) — callers are HTTP route handlers that map `ok: false` onto a
+ * status code, and an unhandled rejection there would surface as a 500.
+ */
+export function requestRenderer<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  timeoutMs = 5000,
+): Promise<RendererResponse<T>> {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) {
+    return Promise.resolve({ ok: false, error: "No Manor window is open" });
+  }
+  installResultListener();
+
+  const requestId = crypto.randomUUID();
+  return new Promise<RendererResponse<T>>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingRequests.delete(requestId);
+      resolve({ ok: false, error: "Renderer did not respond" });
+    }, timeoutMs);
+    pendingRequests.set(requestId, {
+      resolve: resolve as PendingRequest["resolve"],
+      timer,
+    });
+    const command: AppCommand = { cmd, requestId, ...(args ? { args } : {}) };
+    win.webContents.send("app-command", command);
+  });
+}
 
 interface BatchResultEntry {
   number: number;

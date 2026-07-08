@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppCommand } from "./control-server";
+import type { AppCommand, AppCommandResult } from "./control-server";
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
@@ -424,6 +424,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("app-command", listener);
     return () => ipcRenderer.removeListener("app-command", listener);
   },
+
+  /**
+   * Answer an "app-command" that carried a `requestId`. Commands without one
+   * are fire-and-forget and must not be answered — main has no pending entry
+   * for them and will drop the reply.
+   */
+  sendAppCommandResult: (result: AppCommandResult) =>
+    ipcRenderer.send("app-command-result", result),
 
   webview: {
     register: (paneId: string, webContentsId: number) =>

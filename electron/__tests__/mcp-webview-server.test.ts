@@ -34,10 +34,17 @@ vi.mock("electron", () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(),
   },
+  // requestRenderer installs one "app-command-result" listener lazily; the spy
+  // lets tests capture it and play the renderer's side of the correlation.
+  ipcMain: {
+    on: vi.fn(),
+  },
 }));
 
 import { WebviewServer } from "../webview-server";
-import { webContents, BrowserWindow } from "electron";
+import { requestRenderer } from "../control-server";
+import type { AppCommand, AppCommandResult } from "../control-server";
+import { webContents, BrowserWindow, ipcMain } from "electron";
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -988,5 +995,164 @@ describe("WebviewServer agent orchestration routes", () => {
       ).rejects.toThrow("GitHub issues only");
       expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ── Correlated main→renderer request/response (ADR-149 §1) ──
+
+describe("requestRenderer", () => {
+  let send: ReturnType<typeof vi.fn>;
+
+  /**
+   * The single "app-command-result" listener control-server installs lazily.
+   * Read off the ipcMain spy rather than re-exported, so the test also proves
+   * exactly one listener exists no matter how many requests are in flight.
+   */
+  function rendererListener(): (
+    event: unknown,
+    result: AppCommandResult,
+  ) => void {
+    const calls = (ipcMain.on as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0] === "app-command-result",
+    );
+    if (calls.length === 0) {
+      throw new Error("app-command-result listener was never installed");
+    }
+    expect(calls).toHaveLength(1);
+    return calls[0][1] as (event: unknown, result: AppCommandResult) => void;
+  }
+
+  /** Play the renderer: reply on the captured listener. */
+  function reply(result: AppCommandResult): void {
+    rendererListener()(null, result);
+  }
+
+  /** The nth AppCommand handed to `webContents.send`. */
+  function sentCommand(index = 0): AppCommand {
+    return send.mock.calls[index][1] as AppCommand;
+  }
+
+  function openWindow(): void {
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
+  }
+
+  beforeEach(() => {
+    send = vi.fn();
+    openWindow();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves with the renderer's data when the ids match", async () => {
+    const pending = requestRenderer<{ paneId: string }>("split-pane", {
+      direction: "horizontal",
+    });
+
+    const command = sentCommand();
+    expect(command.cmd).toBe("split-pane");
+    expect(command.args).toEqual({ direction: "horizontal" });
+    expect(typeof command.requestId).toBe("string");
+
+    reply({ requestId: command.requestId!, ok: true, data: { paneId: "pane-1" } });
+
+    await expect(pending).resolves.toEqual({
+      ok: true,
+      data: { paneId: "pane-1" },
+    });
+  });
+
+  it("propagates a handler error as ok:false", async () => {
+    const pending = requestRenderer("close-pane", { paneId: "nope" });
+    reply({
+      requestId: sentCommand().requestId!,
+      ok: false,
+      error: "No such pane",
+    });
+    await expect(pending).resolves.toEqual({ ok: false, error: "No such pane" });
+  });
+
+  it("omits args when none are given", async () => {
+    const pending = requestRenderer("list-panes");
+    const command = sentCommand();
+    expect(command).not.toHaveProperty("args");
+    reply({ requestId: command.requestId!, ok: true, data: { tabs: [] } });
+    await pending;
+  });
+
+  it("resolves ok:false when no Manor window is open", async () => {
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+      [],
+    );
+    await expect(requestRenderer("list-panes")).resolves.toEqual({
+      ok: false,
+      error: "No Manor window is open",
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("resolves ok:false when the renderer never replies", async () => {
+    vi.useFakeTimers();
+    const pending = requestRenderer("list-panes", undefined, 5000);
+    vi.advanceTimersByTime(5000);
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      error: "Renderer did not respond",
+    });
+  });
+
+  it("ignores a reply with an unknown requestId", async () => {
+    const pending = requestRenderer<string>("list-panes");
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    expect(() => reply({ requestId: "not-a-real-id", ok: true })).not.toThrow();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    // The real reply still lands.
+    reply({ requestId: sentCommand().requestId!, ok: true, data: "late" });
+    await expect(pending).resolves.toEqual({ ok: true, data: "late" });
+  });
+
+  it("resolves concurrent requests independently, in reply order", async () => {
+    const first = requestRenderer<string>("list-panes");
+    const second = requestRenderer<string>("focus-pane", { paneId: "p2" });
+
+    const firstId = sentCommand(0).requestId!;
+    const secondId = sentCommand(1).requestId!;
+    expect(firstId).not.toBe(secondId);
+
+    // Reply out of order — each promise must pick up its own payload.
+    reply({ requestId: secondId, ok: true, data: "second" });
+    reply({ requestId: firstId, ok: true, data: "first" });
+
+    await expect(first).resolves.toEqual({ ok: true, data: "first" });
+    await expect(second).resolves.toEqual({ ok: true, data: "second" });
+  });
+
+  it("leaves no entry behind after a timeout", async () => {
+    vi.useFakeTimers();
+
+    const timedOut = requestRenderer("list-panes", undefined, 1000);
+    vi.advanceTimersByTime(1000);
+    await expect(timedOut).resolves.toEqual({
+      ok: false,
+      error: "Renderer did not respond",
+    });
+
+    // A late reply for the abandoned request must not throw or double-resolve.
+    const staleId = sentCommand(0).requestId!;
+    expect(() => reply({ requestId: staleId, ok: true, data: 1 })).not.toThrow();
+
+    // A subsequent request still works — the map is not wedged.
+    const next = requestRenderer<string>("list-panes", undefined, 1000);
+    reply({ requestId: sentCommand(1).requestId!, ok: true, data: "ok" });
+    await expect(next).resolves.toEqual({ ok: true, data: "ok" });
   });
 });

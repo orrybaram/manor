@@ -582,14 +582,28 @@ export interface ElectronAPI {
 
   onProjectsChanged: (callback: () => void) => () => void;
 
+  /**
+   * Structurally identical to main's `AppCommand` (electron/control-server.ts).
+   * A payload carrying `requestId` expects a `sendAppCommandResult` reply.
+   */
   onAppCommand: (
     callback: (payload: {
       cmd: string;
+      requestId?: string;
       workspacePath?: string;
       prompt?: string;
       script?: string;
+      args?: Record<string, unknown>;
     }) => void,
   ) => () => void;
+
+  /** Reply to an `onAppCommand` payload that carried a `requestId`. */
+  sendAppCommandResult: (result: {
+    requestId: string;
+    ok: boolean;
+    data?: unknown;
+    error?: string;
+  }) => void;
 
   webview: {
     register: (paneId: string, webContentsId: number) => Promise<void>;

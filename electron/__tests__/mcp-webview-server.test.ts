@@ -516,6 +516,9 @@ describe("WebviewServer agent orchestration routes", () => {
     workspaces: [
       { path: "/repos/demo", branch: "main", isMain: true, name: null },
     ],
+    linearAssociations: [
+      { teamId: "team-1", teamName: "Engineering", teamKey: "ENG" },
+    ],
   };
 
   let server: WebviewServer;
@@ -532,6 +535,12 @@ describe("WebviewServer agent orchestration routes", () => {
     getIssueDetail: ReturnType<typeof vi.fn>;
     assignIssue: ReturnType<typeof vi.fn>;
   };
+  let linearManager: {
+    isConnected: ReturnType<typeof vi.fn>;
+    getMyIssues: ReturnType<typeof vi.fn>;
+    getAllIssues: ReturnType<typeof vi.fn>;
+    getIssueDetail: ReturnType<typeof vi.fn>;
+  };
 
   function makeIssueDetail(number: number) {
     return {
@@ -540,8 +549,34 @@ describe("WebviewServer agent orchestration routes", () => {
       url: `https://github.com/acme/demo/issues/${number}`,
       body: `Body for issue ${number}`,
       state: "open",
-      labels: [],
+      labels: [{ name: "bug", color: "d73a4a" }],
       assignees: [],
+    };
+  }
+
+  function makeLinearIssue(identifier: string) {
+    return {
+      id: `uuid-${identifier}`,
+      identifier,
+      title: `Linear issue ${identifier}`,
+      url: `https://linear.app/acme/issue/${identifier}`,
+      branchName: identifier.toLowerCase(),
+      priority: 2,
+      state: { name: "In Progress", type: "started" },
+      labels: [{ name: "bug", color: "#f00" }],
+    };
+  }
+
+  function makeLinearIssueDetail(identifier: string) {
+    return {
+      ...makeLinearIssue(identifier),
+      description: `Description for ${identifier}`,
+      assignee: {
+        id: "user-1",
+        name: "Ada Lovelace",
+        displayName: "Ada Lovelace",
+        avatarUrl: null,
+      },
     };
   }
 
@@ -582,6 +617,13 @@ describe("WebviewServer agent orchestration routes", () => {
       assignIssue: vi.fn(async () => {}),
     };
 
+    linearManager = {
+      isConnected: vi.fn(() => true),
+      getMyIssues: vi.fn(async () => [makeLinearIssue("ENG-1")]),
+      getAllIssues: vi.fn(async () => [makeLinearIssue("ENG-2")]),
+      getIssueDetail: vi.fn(async () => makeLinearIssueDetail("ENG-1")),
+    };
+
     (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
       [],
     );
@@ -590,6 +632,7 @@ describe("WebviewServer agent orchestration routes", () => {
       new Map<string, number>(),
       pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
       github as unknown as ConstructorParameters<typeof WebviewServer>[2],
+      linearManager as unknown as ConstructorParameters<typeof WebviewServer>[3],
     );
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
@@ -639,6 +682,158 @@ describe("WebviewServer agent orchestration routes", () => {
         mcpHttpGet(bareUrl, "/projects/proj-1/issues"),
       ).rejects.toThrow("HTTP 503");
       bare.stop();
+    });
+
+    it("source=github returns the normalized issue shape (existing behavior unchanged)", async () => {
+      github.getMyIssues.mockResolvedValueOnce([makeIssueDetail(42)]);
+      const issues = (await mcpHttpGet(
+        baseUrl,
+        "/projects/proj-1/issues?source=github",
+      )) as unknown[];
+      expect(issues).toEqual([
+        {
+          source: "github",
+          id: "42",
+          ref: "#42",
+          title: "Issue 42",
+          url: "https://github.com/acme/demo/issues/42",
+          state: "open",
+          labels: ["bug"],
+        },
+      ]);
+    });
+
+    it("returns 400 for an unknown source", async () => {
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues?source=bogus"),
+      ).rejects.toThrow("HTTP 400");
+    });
+
+    describe("source=linear", () => {
+      it("calls getMyIssues with the project's team ids and open-state types", async () => {
+        const issues = (await mcpHttpGet(
+          baseUrl,
+          "/projects/proj-1/issues?source=linear",
+        )) as unknown[];
+        expect(linearManager.getMyIssues).toHaveBeenCalledWith(["team-1"], {
+          stateTypes: ["triage", "backlog", "unstarted", "started"],
+          limit: 50,
+        });
+        expect(linearManager.getAllIssues).not.toHaveBeenCalled();
+        expect(issues).toEqual([
+          {
+            source: "linear",
+            id: "ENG-1",
+            ref: "ENG-1",
+            title: "Linear issue ENG-1",
+            url: "https://linear.app/acme/issue/ENG-1",
+            state: "In Progress",
+            labels: ["bug"],
+          },
+        ]);
+      });
+
+      it("filter=all calls getAllIssues, not getMyIssues", async () => {
+        await mcpHttpGet(
+          baseUrl,
+          "/projects/proj-1/issues?source=linear&filter=all",
+        );
+        expect(linearManager.getAllIssues).toHaveBeenCalledWith(["team-1"], {
+          stateTypes: ["triage", "backlog", "unstarted", "started"],
+          limit: 50,
+        });
+        expect(linearManager.getMyIssues).not.toHaveBeenCalled();
+      });
+
+      it("state=closed uses the completed/canceled state types", async () => {
+        await mcpHttpGet(
+          baseUrl,
+          "/projects/proj-1/issues?source=linear&state=closed",
+        );
+        expect(linearManager.getMyIssues).toHaveBeenCalledWith(["team-1"], {
+          stateTypes: ["completed", "canceled"],
+          limit: 50,
+        });
+      });
+
+      it("returns 503 when no linearManager is configured", async () => {
+        const bare = new WebviewServer(
+          new Map<string, number>(),
+          pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
+          github as unknown as ConstructorParameters<typeof WebviewServer>[2],
+        );
+        await bare.start();
+        const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+        await expect(
+          mcpHttpGet(bareUrl, "/projects/proj-1/issues?source=linear"),
+        ).rejects.toThrow("Linear is not connected");
+        bare.stop();
+      });
+
+      it("returns 503 when linearManager.isConnected() is false", async () => {
+        linearManager.isConnected.mockReturnValue(false);
+        await expect(
+          mcpHttpGet(baseUrl, "/projects/proj-1/issues?source=linear"),
+        ).rejects.toThrow("Linear is not connected");
+      });
+
+      it("returns 400 (not 503) when the project has no Linear team associated", async () => {
+        pm.getProjects.mockResolvedValue([
+          { ...PROJECT, linearAssociations: [] },
+        ]);
+        await expect(
+          mcpHttpGet(baseUrl, "/projects/proj-1/issues?source=linear"),
+        ).rejects.toThrow("HTTP 400");
+        await expect(
+          mcpHttpGet(baseUrl, "/projects/proj-1/issues?source=linear"),
+        ).rejects.toThrow("no Linear team");
+        expect(linearManager.getMyIssues).not.toHaveBeenCalled();
+      });
+
+      it("returns 502 when getMyIssues rejects (e.g. expired token)", async () => {
+        linearManager.getMyIssues.mockRejectedValueOnce(
+          new Error("Linear API error: 401 Unauthorized"),
+        );
+        await expect(
+          mcpHttpGet(baseUrl, "/projects/proj-1/issues?source=linear"),
+        ).rejects.toThrow("HTTP 502");
+      });
+    });
+  });
+
+  describe("GET /projects/:id/issues/:issueRef", () => {
+    it("source=github with a numeric ref calls getIssueDetail with a number", async () => {
+      const detail = (await mcpHttpGet(
+        baseUrl,
+        "/projects/proj-1/issues/42?source=github",
+      )) as { source: string; id: string; ref: string };
+      expect(github.getIssueDetail).toHaveBeenCalledWith("/repos/demo", 42);
+      expect(detail).toMatchObject({
+        source: "github",
+        id: "42",
+        ref: "#42",
+      });
+    });
+
+    it("source=github with a non-numeric ref returns 400 and never calls getIssueDetail", async () => {
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues/ENG-1?source=github"),
+      ).rejects.toThrow("HTTP 400");
+      expect(github.getIssueDetail).not.toHaveBeenCalled();
+    });
+
+    it("source=linear calls linearManager.getIssueDetail and normalizes body from description", async () => {
+      const detail = (await mcpHttpGet(
+        baseUrl,
+        "/projects/proj-1/issues/ENG-1?source=linear",
+      )) as { source: string; id: string; ref: string; body: string | null };
+      expect(linearManager.getIssueDetail).toHaveBeenCalledWith("ENG-1");
+      expect(detail).toMatchObject({
+        source: "linear",
+        id: "ENG-1",
+        ref: "ENG-1",
+        body: "Description for ENG-1",
+      });
     });
   });
 
@@ -778,6 +973,20 @@ describe("WebviewServer agent orchestration routes", () => {
         undefined,
       );
       expect(ok?.workspacePath).toBe("/repos/demo-ws-10");
+    });
+
+    it("returns 400 when source=linear is passed to the batch route", async () => {
+      await expect(
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch?source=linear", {
+          issues: [10],
+        }),
+      ).rejects.toThrow("HTTP 400");
+      await expect(
+        mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch?source=linear", {
+          issues: [10],
+        }),
+      ).rejects.toThrow("GitHub issues only");
+      expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
     });
   });
 });

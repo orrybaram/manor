@@ -21,6 +21,21 @@ interface ToastState {
   removeToast: (id: string) => void;
 }
 
+/**
+ * Surface an error to the user as a toast. Normalizes `unknown` to a string
+ * detail (`Error.message`, else `String(err)`) — the shape every catch block was
+ * hand-rolling. Pass a stable `id` so a repeated failure replaces its toast
+ * rather than stacking (see `addToast`'s dedupe).
+ */
+export function addErrorToast(id: string, message: string, err: unknown): void {
+  useToastStore.getState().addToast({
+    id,
+    message,
+    status: "error",
+    detail: err instanceof Error ? err.message : String(err),
+  });
+}
+
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
 

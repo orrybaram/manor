@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
-import { useToastStore } from "../../store/toast-store";
+import { addErrorToast } from "../../store/toast-store";
 import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
@@ -34,12 +34,11 @@ type GitHubIssueDetailViewProps = {
  */
 function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
   window.electronAPI.github.assignIssue(repoPath, issueNumber).catch((err) => {
-    useToastStore.getState().addToast({
-      id: `assign-issue-error-gh-${issueNumber}`,
-      message: "Failed to assign issue",
-      status: "error",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    addErrorToast(
+      `assign-issue-error-gh-${issueNumber}`,
+      "Failed to assign issue",
+      err,
+    );
   });
 }
 
@@ -144,13 +143,11 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         `gh-${issueNumber}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      useToastStore.getState().addToast({
-        id: `unlink-issue-error-gh-${issueNumber}`,
-        message: "Failed to unlink issue",
-        status: "error",
-        detail: message,
-      });
+      addErrorToast(
+        `unlink-issue-error-gh-${issueNumber}`,
+        "Failed to unlink issue",
+        err,
+      );
       return;
     }
     onClose();
@@ -162,13 +159,11 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     try {
       await window.electronAPI.github.closeIssue(repoPath, issueNumber);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      useToastStore.getState().addToast({
-        id: `close-issue-error-gh-${issueNumber}`,
-        message: "Failed to close issue",
-        status: "error",
-        detail: message,
-      });
+      addErrorToast(
+        `close-issue-error-gh-${issueNumber}`,
+        "Failed to close issue",
+        err,
+      );
       return;
     }
     onClose();
@@ -181,13 +176,11 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     } catch (err) {
       // The issue genuinely is closed now — surface the stale link without
       // undoing the close.
-      const message = err instanceof Error ? err.message : String(err);
-      useToastStore.getState().addToast({
-        id: `unlink-after-close-error-gh-${issueNumber}`,
-        message: "Issue closed, but failed to unlink from workspace",
-        status: "error",
-        detail: message,
-      });
+      addErrorToast(
+        `unlink-after-close-error-gh-${issueNumber}`,
+        "Issue closed, but failed to unlink from workspace",
+        err,
+      );
       return;
     }
     useProjectStore.getState().loadProjects();

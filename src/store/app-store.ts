@@ -72,9 +72,7 @@ type ClosedSnapshot = ClosedPaneSnapshot | ClosedTabSnapshot;
 
 const MAX_CLOSED_PANE_STACK = 10;
 
-/** Mint a pane ID. Exported so `app-commands.ts` can pre-allocate one and
- *  return it to main before the pane mounts. */
-export function newPaneId(): string {
+function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
 }
 
@@ -232,12 +230,17 @@ export interface AppState {
   loadPersistedLayout: () => Promise<void>;
 
   // Tab operations
-  addTab: (paneId?: string) => void;
-  addTerminalTab: (command: string, paneId?: string) => void;
+  /**
+   * Returns the IDs of the tab it created, or null when there is no active
+   * panel. `adoptPaneId` lets the new pane reuse a PTY session main already
+   * prewarmed under that ID; everything else lets the store mint one.
+   */
+  addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
+  addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
-    opts?: { background?: boolean; paneId?: string },
-  ) => void;
+    opts?: { background?: boolean },
+  ) => { tabId: string; paneId: string } | null;
   addDiffTab: () => void;
   duplicateTab: (tabId: string) => void;
   openOrFocusDiff: () => void;
@@ -255,6 +258,7 @@ export interface AppState {
 
   // Pane operations
   splitPane: (direction: SplitDirection) => void;
+  /** Returns the minted paneId, or null when the target pane does not exist. */
   splitPaneAt: (
     targetPaneId: string,
     direction: SplitDirection,
@@ -263,10 +267,8 @@ export interface AppState {
       contentType?: "terminal" | "browser" | "diff" | "task";
       paneCommand?: string;
       url?: string;
-      /** Caller-supplied pane ID; defaults to newPaneId(). */
-      paneId?: string;
     },
-  ) => void;
+  ) => string | null;
   movePaneToTarget: (
     sourcePaneId: string,
     targetPaneId: string,
@@ -621,26 +623,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  addTab: (paneId?: string) =>
+  addTab: (adoptPaneId?: string) => {
+    const tab = createTab(undefined, adoptPaneId);
+    let created = false;
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const tab = createTab(undefined, paneId);
+      created = true;
       return updatePanel(state, path, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
       }));
-    }),
+    });
+    return created ? { tabId: tab.id, paneId: tab.focusedPaneId } : null;
+  },
 
-  addTerminalTab: (command: string, paneId?: string) =>
+  addTerminalTab: (command: string) => {
+    const tab = createTab();
+    const tabPaneId = tab.focusedPaneId;
+    let created = false;
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const tab = createTab(undefined, paneId);
-      const tabPaneId = tab.focusedPaneId;
+      created = true;
       return {
         ...updatePanel(state, path, layout, panel.id, (p) => ({
           ...p,
@@ -652,31 +660,32 @@ export const useAppStore = create<AppState>((set, get) => ({
           [tabPaneId]: command,
         },
       };
-    }),
+    });
+    return created ? { tabId: tab.id, paneId: tabPaneId } : null;
+  },
 
-  addBrowserTab: (
-    url: string,
-    opts?: { background?: boolean; paneId?: string },
-  ) =>
+  addBrowserTab: (url: string, opts?: { background?: boolean }) => {
+    const paneId = newPaneId();
+    let title: string;
+    try {
+      const parsed = new URL(url);
+      title = parsed.host || url;
+    } catch {
+      title = url;
+    }
+    const tab: Tab = {
+      id: newTabId(),
+      title,
+      rootNode: { type: "leaf", paneId, contentType: "browser", url },
+      focusedPaneId: paneId,
+    };
+    let created = false;
     set((state) => {
       const ctx = getActivePanelContext(state);
       if (!ctx) return state;
       const { path, layout, panel } = ctx;
-      const paneId = opts?.paneId ?? newPaneId();
-      let title: string;
-      try {
-        const parsed = new URL(url);
-        title = parsed.host || url;
-      } catch {
-        title = url;
-      }
-      const tab: Tab = {
-        id: newTabId(),
-        title,
-        rootNode: { type: "leaf", paneId, contentType: "browser", url },
-        focusedPaneId: paneId,
-      };
       const background = opts?.background ?? false;
+      created = true;
       return {
         paneContentType: { ...state.paneContentType, [paneId]: "browser" },
         paneUrl: { ...state.paneUrl, [paneId]: url },
@@ -686,7 +695,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...(background ? {} : { selectedTabId: tab.id }),
         })),
       };
-    }),
+    });
+    return created ? { tabId: tab.id, paneId } : null;
+  },
 
   addDiffTab: () =>
     set((state) => {
@@ -882,19 +893,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeTab: (tabId: string) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+      const { path, layout } = ctx;
+      // The tab may live in any panel — `closePaneById` delegates here for the
+      // last pane in a tab, and it resolves panes across every panel.
+      const found = findPanelWithTab(layout, tabId);
+      if (!found) return state;
+      const { panel, tab: closingTab } = found;
 
       // Mark all panes in the closing tab as explicitly closed
-      const closingTab = panel.tabs.find((s) => s.id === tabId);
       const deadPaneIds: string[] = [];
       const newClosedPaneIds = new Set(state.closedPaneIds);
-      if (closingTab) {
-        for (const pid of allPaneIds(closingTab.rootNode)) {
-          newClosedPaneIds.add(pid);
-          deadPaneIds.push(pid);
-        }
+      for (const pid of allPaneIds(closingTab.rootNode)) {
+        newClosedPaneIds.add(pid);
+        deadPaneIds.push(pid);
       }
 
       const idx = panel.tabs.findIndex((s) => s.id === tabId);
@@ -907,32 +920,29 @@ export const useAppStore = create<AppState>((set, get) => ({
             : panel.selectedTabId;
 
       // Snapshot the full tab so it can be restored with all its panes
-      let newStack = state.closedPaneStack;
-      if (closingTab) {
-        const paneMetadata: ClosedTabSnapshot["paneMetadata"] = {};
-        for (const pid of deadPaneIds) {
-          paneMetadata[pid] = {
-            contentType: state.paneContentType[pid],
-            url: state.paneUrl[pid],
-            cwd: state.paneCwd[pid],
-            title: state.paneTitle[pid],
-          };
-        }
-        // If this was the last tab and the panel will be auto-closed, capture split context
-        const panelIds = Object.keys(layout.panels);
-        const willRemovePanel = newTabs.length === 0 && panelIds.length > 1;
-        const tabSnapshot: ClosedTabSnapshot = {
-          kind: "tab",
-          tab: closingTab,
-          panelId: panel.id,
-          workspacePath: path,
-          paneMetadata,
-          ...(willRemovePanel && {
-            panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
-          }),
+      const paneMetadata: ClosedTabSnapshot["paneMetadata"] = {};
+      for (const pid of deadPaneIds) {
+        paneMetadata[pid] = {
+          contentType: state.paneContentType[pid],
+          url: state.paneUrl[pid],
+          cwd: state.paneCwd[pid],
+          title: state.paneTitle[pid],
         };
-        newStack = [tabSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
       }
+      // If this was the last tab and the panel will be auto-closed, capture split context
+      const willRemovePanel =
+        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
+      const tabSnapshot: ClosedTabSnapshot = {
+        kind: "tab",
+        tab: closingTab,
+        panelId: panel.id,
+        workspacePath: path,
+        paneMetadata,
+        ...(willRemovePanel && {
+          panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
+        }),
+      };
+      const newStack = [tabSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
 
       // Clean up metadata for dead panes
       const newCwd = { ...state.paneCwd };
@@ -940,17 +950,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAgentStatus = { ...state.paneAgentStatus };
       const newContentType = { ...state.paneContentType };
       const newPaneUrl = { ...state.paneUrl };
+      const newPendingCommands = { ...state.pendingPaneCommands };
       for (const pid of deadPaneIds) {
         delete newCwd[pid];
         delete newTitle[pid];
         delete newAgentStatus[pid];
         delete newContentType[pid];
         delete newPaneUrl[pid];
+        delete newPendingCommands[pid];
       }
 
       // If this panel has no tabs left and there are other panels, auto-close it
-      const panelIds = Object.keys(layout.panels);
-      if (newTabs.length === 0 && panelIds.length > 1) {
+      if (willRemovePanel) {
         const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
         const { [panel.id]: _, ...remainingPanels } = layout.panels;
         const remainingIds = Object.keys(remainingPanels);
@@ -965,6 +976,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           paneAgentStatus: newAgentStatus,
           paneContentType: newContentType,
           paneUrl: newPaneUrl,
+          pendingPaneCommands: newPendingCommands,
           workspaceLayouts: {
             ...state.workspaceLayouts,
             [path]: {
@@ -985,6 +997,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus: newAgentStatus,
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
+        pendingPaneCommands: newPendingCommands,
         ...updatePanel(state, path, layout, panel.id, (p) => ({
           ...p,
           tabs: newTabs,
@@ -1172,18 +1185,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       contentType?: "terminal" | "browser" | "diff" | "task";
       paneCommand?: string;
       url?: string;
-      paneId?: string;
     },
-  ) =>
+  ) => {
+    const newPane = newPaneId();
+    let split = false;
     set((state) => {
-      const ctx = getActivePanelContext(state);
+      const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) =>
-        hasPaneId(s.rootNode, targetPaneId),
-      );
-      if (!tab) return state;
-      const newPane = opts?.paneId ?? newPaneId();
+      const { path, layout } = ctx;
+      // The pane may live in any panel, not just the active one.
+      const found = findPanelWithPane(layout, targetPaneId);
+      if (!found) return state;
+      const { panel, tab } = found;
+      split = true;
       const contentType = opts?.contentType;
       const paneCommand = opts?.paneCommand;
       const url = opts?.url;
@@ -1226,7 +1240,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
         }),
       };
-    }),
+    });
+    return split ? newPane : null;
+  },
 
   movePaneToTarget: (
     sourcePaneId: string,
@@ -1556,12 +1572,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const currentTitle = get().paneTitle[paneId] ?? null;
     window.electronAPI.tasks.abandonForPane(paneId, currentTitle).catch(console.error);
     const state = get();
-    const ctx = getActivePanelContext(state);
+    const ctx = getActiveLayoutContext(state);
     if (!ctx) return;
-    const { path, panel } = ctx;
+    const { path, layout } = ctx;
 
-    const tab = panel.tabs.find((s) => hasPaneId(s.rootNode, paneId));
-    if (!tab) return;
+    // The pane may live in any panel, not just the active one.
+    const found = findPanelWithPane(layout, paneId);
+    if (!found) return;
+    const { panel, tab } = found;
 
     const remaining = removePane(tab.rootNode, paneId);
     if (remaining === null) {
@@ -1587,7 +1605,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
 
     set((s) => {
-      const currentCtx = getActivePanelContext(s);
+      const currentCtx = getActiveLayoutContext(s);
       if (!currentCtx) return s;
       const newClosedPaneIds = new Set(s.closedPaneIds);
       newClosedPaneIds.add(paneId);
@@ -1597,11 +1615,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAgentStatus = { ...s.paneAgentStatus };
       const newContentType = { ...s.paneContentType };
       const newPaneUrl = { ...s.paneUrl };
+      const newPendingCommands = { ...s.pendingPaneCommands };
       delete newCwd[paneId];
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
       delete newContentType[paneId];
       delete newPaneUrl[paneId];
+      delete newPendingCommands[paneId];
       return {
         closedPaneIds: newClosedPaneIds,
         closedPaneStack: newStack,
@@ -1610,7 +1630,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus: newAgentStatus,
         paneContentType: newContentType,
         paneUrl: newPaneUrl,
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, currentCtx.panel.id, (p) => ({
+        pendingPaneCommands: newPendingCommands,
+        ...updatePanel(s, currentCtx.path, currentCtx.layout, panel.id, (p) => ({
           ...p,
           tabs: p.tabs.map((t) =>
             t.id === tab.id

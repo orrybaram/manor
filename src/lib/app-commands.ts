@@ -19,7 +19,6 @@
 
 import {
   useAppStore,
-  newPaneId,
   type AppState,
   type Panel,
   type WorkspaceLayout,
@@ -130,16 +129,6 @@ function layoutHasPane(layout: WorkspaceLayout, paneId: string): boolean {
   );
 }
 
-/** The tab a freshly created pane landed in. Read back after the store `set()`. */
-function findTabIdForPane(state: AppState, paneId: string): string | null {
-  const layout = requireActiveLayout(state);
-  for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
-    if (tab) return tab.id;
-  }
-  return null;
-}
-
 /**
  * A workspace is addressable if the store already holds a layout for it, or a
  * loaded project claims it. `setActiveWorkspace` happily invents an empty
@@ -191,13 +180,12 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
   const url = optionalString(args, "url");
   const paneCommand = optionalString(args, "command");
 
-  const paneId = newPaneId();
-  state.splitPaneAt(target, direction, position, {
+  const paneId = state.splitPaneAt(target, direction, position, {
     contentType,
     paneCommand,
     url,
-    paneId,
   });
+  if (!paneId) throw new Error(`Unknown paneId: ${target}`);
   return { paneId };
 }
 
@@ -228,19 +216,18 @@ function newTab(args: Record<string, unknown>): {
   const state = useAppStore.getState();
   requireActivePanel(state);
 
-  const paneId = newPaneId();
+  let created: { tabId: string; paneId: string } | null;
   if (contentType === "browser") {
     if (!url) throw new Error('new-tab with contentType "browser" requires a url');
-    state.addBrowserTab(url, { background, paneId });
+    created = state.addBrowserTab(url, { background });
   } else if (command) {
-    state.addTerminalTab(command, paneId);
+    created = state.addTerminalTab(command);
   } else {
-    state.addTab(paneId);
+    created = state.addTab();
   }
 
-  const tabId = findTabIdForPane(useAppStore.getState(), paneId);
-  if (!tabId) throw new Error("Tab was not created");
-  return { tabId, paneId };
+  if (!created) throw new Error("Tab was not created");
+  return created;
 }
 
 function focusPane(args: Record<string, unknown>): { ok: true } {
@@ -257,7 +244,7 @@ function focusPane(args: Record<string, unknown>): { ok: true } {
 function closePane(args: Record<string, unknown>): { ok: true } {
   const paneId = requireString(args, "paneId");
   const state = useAppStore.getState();
-  // `closePaneById` only searches the active panel — mirror that constraint.
+  // Narrower than `closePaneById`, which resolves a pane in any panel.
   const panel = requireActivePanel(state);
   if (!panelHasPane(panel, paneId)) {
     throw new Error(`Unknown paneId: ${paneId}`);

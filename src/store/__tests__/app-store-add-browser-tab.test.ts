@@ -156,26 +156,28 @@ describe("addBrowserTab", () => {
     expect(newTab.title).toBe(invalidUrl);
   });
 
-  it("uses a caller-supplied paneId verbatim", () => {
-    useAppStore.getState().addBrowserTab("https://example.com", { paneId: "custom-pane-id" });
+  it("returns the tabId and paneId it minted", () => {
+    const created = useAppStore.getState().addBrowserTab("https://example.com");
+
+    expect(created).not.toBeNull();
+    const { tabId, paneId } = created!;
 
     const panel = getActivePanel();
     const newTab = panel.tabs[1];
     if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
-    expect(newTab.rootNode.paneId).toBe("custom-pane-id");
-    expect(newTab.focusedPaneId).toBe("custom-pane-id");
-    expect(useAppStore.getState().paneContentType["custom-pane-id"]).toBe("browser");
-    expect(useAppStore.getState().paneUrl["custom-pane-id"]).toBe("https://example.com");
+    expect(newTab.id).toBe(tabId);
+    expect(newTab.rootNode.paneId).toBe(paneId);
+    expect(newTab.focusedPaneId).toBe(paneId);
+    expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
+    expect(useAppStore.getState().paneUrl[paneId]).toBe("https://example.com");
   });
 
-  it("generates a paneId when none is supplied", () => {
-    useAppStore.getState().addBrowserTab("https://example.com");
+  it("returns null and creates nothing when there is no active panel", () => {
+    useAppStore.setState({ activeWorkspacePath: null });
 
-    const panel = getActivePanel();
-    const newTab = panel.tabs[1];
-    if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
-    expect(newTab.rootNode.paneId).toBeTruthy();
-    expect(newTab.rootNode.paneId).not.toBe("custom-pane-id");
+    expect(useAppStore.getState().addBrowserTab("https://example.com")).toBeNull();
+    expect(useAppStore.getState().paneUrl).toEqual({});
+    expect(useAppStore.getState().paneContentType).toEqual({});
   });
 
   it("background: true does not change selection even when multiple tabs exist", () => {

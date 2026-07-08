@@ -67,42 +67,55 @@ function getActiveTab() {
 describe("splitPaneAt", () => {
   beforeEach(() => setupStore());
 
-  it("uses a caller-supplied paneId verbatim", () => {
-    useAppStore
+  it("returns the paneId it mints and grafts it into the tree", () => {
+    const newPane = useAppStore
       .getState()
-      .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
-        paneId: "custom-pane-id",
-      });
+      .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second");
+
+    expect(newPane).toBeTruthy();
+    expect(newPane).not.toBe(ORIGINAL_PANE_ID);
 
     const tab = getActiveTab();
-    expect(tab.focusedPaneId).toBe("custom-pane-id");
+    expect(tab.focusedPaneId).toBe(newPane);
     expect(tab.rootNode).toEqual({
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
       first: { type: "leaf", paneId: ORIGINAL_PANE_ID },
-      second: { type: "leaf", paneId: "custom-pane-id" },
+      second: { type: "leaf", paneId: newPane },
     });
   });
 
-  it("generates a paneId when none is supplied", () => {
-    useAppStore.getState().splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second");
+  it("returns null and changes nothing for an unknown target pane", () => {
+    const before = useAppStore.getState().workspaceLayouts[WS_PATH];
 
-    const tab = getActiveTab();
-    expect(tab.focusedPaneId).toBeTruthy();
-    expect(tab.focusedPaneId).not.toBe(ORIGINAL_PANE_ID);
+    const result = useAppStore
+      .getState()
+      .splitPaneAt("pane-nope", "horizontal", "second");
+
+    expect(result).toBeNull();
+    expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(before);
+  });
+
+  it("returns null when there is no active workspace", () => {
+    useAppStore.setState({ activeWorkspacePath: null });
+
+    expect(
+      useAppStore.getState().splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second"),
+    ).toBeNull();
   });
 
   it("lands the url in paneUrl when given", () => {
-    useAppStore.getState().splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
-      contentType: "browser",
-      url: "https://example.com",
-      paneId: "browser-pane",
-    });
+    const newPane = useAppStore
+      .getState()
+      .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
+        contentType: "browser",
+        url: "https://example.com",
+      })!;
 
     const state = useAppStore.getState();
-    expect(state.paneUrl["browser-pane"]).toBe("https://example.com");
-    expect(state.paneContentType["browser-pane"]).toBe("browser");
+    expect(state.paneUrl[newPane]).toBe("https://example.com");
+    expect(state.paneContentType[newPane]).toBe("browser");
 
     const tab = getActiveTab();
     expect(tab.rootNode).toEqual({
@@ -112,7 +125,7 @@ describe("splitPaneAt", () => {
       first: { type: "leaf", paneId: ORIGINAL_PANE_ID },
       second: {
         type: "leaf",
-        paneId: "browser-pane",
+        paneId: newPane,
         contentType: "browser",
         url: "https://example.com",
       },
@@ -120,27 +133,27 @@ describe("splitPaneAt", () => {
   });
 
   it("does not set paneUrl when no url is given", () => {
-    useAppStore.getState().splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
-      contentType: "browser",
-      paneId: "browser-pane",
-    });
+    const newPane = useAppStore
+      .getState()
+      .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
+        contentType: "browser",
+      })!;
 
-    expect(useAppStore.getState().paneUrl["browser-pane"]).toBeUndefined();
+    expect(useAppStore.getState().paneUrl[newPane]).toBeUndefined();
   });
 
   it("does not persist contentType: 'task' to the tree or paneContentType map", () => {
-    useAppStore.getState().splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
-      contentType: "task",
-      paneCommand: "npm test",
-      paneId: "task-pane",
-    });
+    const newPane = useAppStore
+      .getState()
+      .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
+        contentType: "task",
+        paneCommand: "npm test",
+      })!;
 
     const tab = getActiveTab();
     if (tab.rootNode.type !== "split") throw new Error("Expected split");
-    expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: "task-pane" });
-    expect(useAppStore.getState().paneContentType["task-pane"]).toBeUndefined();
-    expect(useAppStore.getState().pendingPaneCommands["task-pane"]).toBe(
-      "npm test",
-    );
+    expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: newPane });
+    expect(useAppStore.getState().paneContentType[newPane]).toBeUndefined();
+    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("npm test");
   });
 });

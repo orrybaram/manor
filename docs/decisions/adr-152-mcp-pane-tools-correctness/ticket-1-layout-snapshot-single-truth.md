@@ -1,6 +1,6 @@
 ---
 title: Layout snapshot — one home, one truth, no flattenPaneTree
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

@@ -62,9 +62,17 @@ export interface IssueBackend {
  */
 export class InvalidIssueRef extends Error {}
 
-/** Linear resolves an issue by UUID or by human identifier ("ENG-123"). */
+/**
+ * Linear resolves an issue by UUID or by human identifier ("ENG-123").
+ *
+ * The identifier match is case-insensitive on purpose: Linear's resolver accepts
+ * `eng-1`, so rejecting it here would 400 a ref the upstream would have served —
+ * validation must not be stricter than the thing it guards. `list()` only ever
+ * emits the canonical uppercase form, and `detail()` uppercases before
+ * forwarding, so the round-trip is unaffected either way.
+ */
 const LINEAR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LINEAR_IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/;
+const LINEAR_IDENTIFIER = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 
 export type IssueBackendResult =
   | { ok: true; backend: IssueBackend }
@@ -139,12 +147,16 @@ function linearBackend(linear: LinearManager, teamIds: string[]): IssueBackend {
       // ("ENG-123"), so the ref from the listing round-trips verbatim. Reject
       // anything that is neither *here*: left to the SDK, a caller's typo comes
       // back as a transport error and the route calls it a 502.
-      if (!LINEAR_UUID.test(ref) && !LINEAR_IDENTIFIER.test(ref)) {
+      const isUuid = LINEAR_UUID.test(ref);
+      if (!isUuid && !LINEAR_IDENTIFIER.test(ref)) {
         throw new InvalidIssueRef(
           "Linear issue refs must be an identifier like 'ENG-123' or a UUID.",
         );
       }
-      return normalizeLinearIssueDetail(await linear.getIssueDetail(ref));
+      // Identifiers are canonically uppercase; UUIDs are not.
+      return normalizeLinearIssueDetail(
+        await linear.getIssueDetail(isUuid ? ref : ref.toUpperCase()),
+      );
     },
   };
 }

@@ -324,7 +324,7 @@ describe("issueBackend('linear')", () => {
 
   // Previously the SDK threw on these and the route called it a 502 — the same
   // caller mistake GitHub answers with a 400.
-  it.each(["nonsense", "", "42", "#42", "eng-1", "ENG-", "-1", "not-a-uuid"])(
+  it.each(["nonsense", "", "42", "#42", "ENG-", "-1", "not-a-uuid"])(
     "detail(%o) throws InvalidIssueRef (→400) rather than an SDK error (→502)",
     async (ref) => {
       const backend = backendOf(ctx.deps, PROJECT, "linear");
@@ -335,6 +335,17 @@ describe("issueBackend('linear')", () => {
       expect(ctx.linearManager.getIssueDetail).not.toHaveBeenCalled();
     },
   );
+
+  // Linear's resolver accepts `eng-1`; validation here must not be stricter than
+  // the upstream it guards, or a model that lowercases a ref gets told its input
+  // is malformed about something Linear would have served.
+  it.each([
+    ["eng-1", "ENG-1"],
+    ["Eng-123", "ENG-123"],
+  ])("detail(%o) is accepted and forwarded as %o", async (ref, forwarded) => {
+    await backendOf(ctx.deps, PROJECT, "linear").detail(ref);
+    expect(ctx.linearManager.getIssueDetail).toHaveBeenCalledWith(forwarded);
+  });
 
   it("a malformed ref never becomes an SDK throw", async () => {
     ctx.linearManager.getIssueDetail.mockRejectedValue(

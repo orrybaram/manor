@@ -1,6 +1,6 @@
 ---
 title: Renderer app-command handlers for pane/tab commands
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

@@ -624,47 +624,45 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   addTab: (adoptPaneId?: string) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return null;
+    const { path, layout, panel } = ctx;
     const tab = createTab(undefined, adoptPaneId);
-    let created = false;
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      created = true;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
+    set(
+      updatePanel(get(), path, layout, panel.id, (p) => ({
         ...p,
         tabs: [...p.tabs, tab],
         selectedTabId: tab.id,
-      }));
-    });
-    return created ? { tabId: tab.id, paneId: tab.focusedPaneId } : null;
+      })),
+    );
+    return { tabId: tab.id, paneId: tab.focusedPaneId };
   },
 
   addTerminalTab: (command: string) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return null;
+    const { path, layout, panel } = ctx;
     const tab = createTab();
     const tabPaneId = tab.focusedPaneId;
-    let created = false;
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      created = true;
-      return {
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: [...p.tabs, tab],
-          selectedTabId: tab.id,
-        })),
-        pendingPaneCommands: {
-          ...state.pendingPaneCommands,
-          [tabPaneId]: command,
-        },
-      };
+    const state = get();
+    set({
+      ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: [...p.tabs, tab],
+        selectedTabId: tab.id,
+      })),
+      pendingPaneCommands: {
+        ...state.pendingPaneCommands,
+        [tabPaneId]: command,
+      },
     });
-    return created ? { tabId: tab.id, paneId: tabPaneId } : null;
+    return { tabId: tab.id, paneId: tabPaneId };
   },
 
   addBrowserTab: (url: string, opts?: { background?: boolean }) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return null;
+    const { path, layout, panel } = ctx;
     const paneId = newPaneId();
     let title: string;
     try {
@@ -679,24 +677,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       rootNode: { type: "leaf", paneId, contentType: "browser", url },
       focusedPaneId: paneId,
     };
-    let created = false;
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const background = opts?.background ?? false;
-      created = true;
-      return {
-        paneContentType: { ...state.paneContentType, [paneId]: "browser" },
-        paneUrl: { ...state.paneUrl, [paneId]: url },
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: [...p.tabs, tab],
-          ...(background ? {} : { selectedTabId: tab.id }),
-        })),
-      };
+    const background = opts?.background ?? false;
+    const state = get();
+    set({
+      paneContentType: { ...state.paneContentType, [paneId]: "browser" },
+      paneUrl: { ...state.paneUrl, [paneId]: url },
+      ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: [...p.tabs, tab],
+        ...(background ? {} : { selectedTabId: tab.id }),
+      })),
     });
-    return created ? { tabId: tab.id, paneId } : null;
+    return { tabId: tab.id, paneId };
   },
 
   addDiffTab: () =>
@@ -1187,61 +1179,58 @@ export const useAppStore = create<AppState>((set, get) => ({
       url?: string;
     },
   ) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return null;
+    const { path, layout } = ctx;
+    // The pane may live in any panel, not just the active one.
+    const found = findPanelWithPane(layout, targetPaneId);
+    if (!found) return null;
+    const { panel, tab } = found;
     const newPane = newPaneId();
-    let split = false;
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      // The pane may live in any panel, not just the active one.
-      const found = findPanelWithPane(layout, targetPaneId);
-      if (!found) return state;
-      const { panel, tab } = found;
-      split = true;
-      const contentType = opts?.contentType;
-      const paneCommand = opts?.paneCommand;
-      const url = opts?.url;
-      // "task" panes are terminals that auto-run a command -- don't persist as a content type
-      const treeContentType = contentType === "task" ? undefined : contentType;
-      const newRoot = insertSplitAt(
-        tab.rootNode,
-        targetPaneId,
-        direction,
-        newPane,
-        position,
-        treeContentType,
-        url,
-      );
-      return {
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((s) =>
-            s.id === tab.id
-              ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
-              : s,
-          ),
-        })),
-        ...(treeContentType && {
-          paneContentType: {
-            ...state.paneContentType,
-            [newPane]: treeContentType,
-          },
-        }),
-        ...(url && {
-          paneUrl: {
-            ...state.paneUrl,
-            [newPane]: url,
-          },
-        }),
-        ...(paneCommand && {
-          pendingPaneCommands: {
-            ...state.pendingPaneCommands,
-            [newPane]: paneCommand,
-          },
-        }),
-      };
+    const contentType = opts?.contentType;
+    const paneCommand = opts?.paneCommand;
+    const url = opts?.url;
+    // "task" panes are terminals that auto-run a command -- don't persist as a content type
+    const treeContentType = contentType === "task" ? undefined : contentType;
+    const newRoot = insertSplitAt(
+      tab.rootNode,
+      targetPaneId,
+      direction,
+      newPane,
+      position,
+      treeContentType,
+      url,
+    );
+    set({
+      ...updatePanel(state, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: p.tabs.map((s) =>
+          s.id === tab.id
+            ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
+            : s,
+        ),
+      })),
+      ...(treeContentType && {
+        paneContentType: {
+          ...state.paneContentType,
+          [newPane]: treeContentType,
+        },
+      }),
+      ...(url && {
+        paneUrl: {
+          ...state.paneUrl,
+          [newPane]: url,
+        },
+      }),
+      ...(paneCommand && {
+        pendingPaneCommands: {
+          ...state.pendingPaneCommands,
+          [newPane]: paneCommand,
+        },
+      }),
     });
-    return split ? newPane : null;
+    return newPane;
   },
 
   movePaneToTarget: (

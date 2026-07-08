@@ -161,6 +161,33 @@ export interface PrInfo {
   commentCount?: number;
 }
 
+/**
+ * Structural equality for PR info. Used by `updateWorkspacePr` to skip no-op
+ * updates. Must compare EVERY rendered field — comparing only number/state
+ * froze review/checks/comment updates while a PR stayed "open" (the badge never
+ * reflected approvals or CI results).
+ */
+function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.number === b.number &&
+    a.state === b.state &&
+    a.title === b.title &&
+    a.url === b.url &&
+    a.isDraft === b.isDraft &&
+    a.additions === b.additions &&
+    a.deletions === b.deletions &&
+    a.reviewDecision === b.reviewDecision &&
+    a.unresolvedThreads === b.unresolvedThreads &&
+    a.commentCount === b.commentCount &&
+    (a.checks?.total ?? -1) === (b.checks?.total ?? -1) &&
+    (a.checks?.passing ?? -1) === (b.checks?.passing ?? -1) &&
+    (a.checks?.failing ?? -1) === (b.checks?.failing ?? -1) &&
+    (a.checks?.pending ?? -1) === (b.checks?.pending ?? -1)
+  );
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -717,8 +744,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
         if (wsIdx === -1) return p;
         const ws = p.workspaces[wsIdx];
-        if (ws.pr?.number === pr?.number && ws.pr?.state === pr?.state)
-          return p;
+        if (prEqual(ws.pr, pr)) return p;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, pr };
         return { ...p, workspaces };

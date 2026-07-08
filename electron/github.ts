@@ -135,7 +135,7 @@ export class GitHubManager {
         isDraft: pr.isDraft,
         additions: pr.additions,
         deletions: pr.deletions,
-        reviewDecision: pr.reviewDecision ?? null,
+        reviewDecision: pr.reviewDecision || null,
         checks,
         unresolvedThreads,
         commentCount,

@@ -17,22 +17,19 @@ import type {
   WorkspaceFromIssue,
 } from "./persistence";
 import type { GitHubManager } from "./github";
-import type { LinearManager, LinearAssociation } from "./linear";
+import type { LinearManager } from "./linear";
 import type {
   LayoutPersistence,
   PersistedLayout,
 } from "./terminal-host/layout-persistence";
 import { findWorkspaceForPane, matchProjectByPath } from "./pane-context";
-import {
-  isIssueSource,
-  linearStateTypes,
-  normalizeGitHubIssue,
-  normalizeGitHubIssueDetail,
-  normalizeLinearIssue,
-  normalizeLinearIssueDetail,
-  parseIssueState,
-} from "./issue-sources";
+import { isIssueSource, parseIssueState } from "./issue-sources";
 import type { IssueSource } from "./issue-sources";
+import {
+  availableSources,
+  InvalidIssueRef,
+  issueBackend,
+} from "./issue-backends";
 
 export interface ControlDeps {
   projectManager: ProjectManager | null;
@@ -240,39 +237,6 @@ function parseSource(
 }
 
 /**
- * Resolve the Linear manager and the project's team ids together. A missing
- * connection (503) and a project with no team associated (400) are different
- * failures — one is a capability gap, the other a configuration gap.
- */
-function resolveLinear(
-  linearManager: LinearManager | null,
-  project: { linearAssociations?: LinearAssociation[] },
-):
-  | { ok: true; linear: LinearManager; teamIds: string[] }
-  | { ok: false; status: number; error: string } {
-  if (!linearManager || !linearManager.isConnected()) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Linear is not connected. Connect Linear in Manor settings.",
-    };
-  }
-  const associations = project.linearAssociations ?? [];
-  if (associations.length === 0) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Project has no Linear team associated.",
-    };
-  }
-  return {
-    ok: true,
-    linear: linearManager,
-    teamIds: associations.map((a) => a.teamId),
-  };
-}
-
-/**
  * Handle a Manor-control route. Returns true if the route matched (`/projects…`
  * or `/agents`) and a response was written, false if the caller should try
  * other routes.
@@ -365,17 +329,7 @@ export async function handleControlRequest(
       return true;
     }
 
-    // `sources` reports what can answer a query *right now*. A connected Linear
-    // account with no team associated on this project cannot, so it is omitted
-    // rather than advertised and then failing at call time.
-    const sources: IssueSource[] = [];
-    if (deps.githubManager) sources.push("github");
-    if (
-      deps.linearManager?.isConnected() &&
-      (match.project.linearAssociations ?? []).length > 0
-    ) {
-      sources.push("linear");
-    }
+    const sources = availableSources(deps, match.project);
 
     json(200, {
       projectId: match.project.id,
@@ -567,38 +521,18 @@ export async function handleControlRequest(
     const limit =
       Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
 
-    if (parsed.source === "linear") {
-      const target = resolveLinear(deps.linearManager, project);
-      if (!target.ok) {
-        json(target.status, { error: target.error });
-        return true;
-      }
-      // Unlike GitHubManager, LinearManager throws on a bad/expired token.
-      // Catch it here so it surfaces as a 502 rather than an unhandled
-      // rejection in main.
-      try {
-        const opts = { stateTypes: linearStateTypes(state), limit };
-        const issues =
-          filter === "all"
-            ? await target.linear.getAllIssues(target.teamIds, opts)
-            : await target.linear.getMyIssues(target.teamIds, opts);
-        json(200, issues.map(normalizeLinearIssue));
-      } catch (err) {
-        json(502, { error: String(err) });
-      }
+    const chosen = issueBackend(deps, project, parsed.source);
+    if (!chosen.ok) {
+      json(chosen.status, { error: chosen.error });
       return true;
     }
-
-    const github = deps.githubManager;
-    if (!github) {
-      json(503, { error: "GitHub is not available" });
-      return true;
+    // An issue source is an upstream service: a throw here (expired Linear
+    // token, `gh` blowing up) is a bad gateway, not a Manor bug.
+    try {
+      json(200, await chosen.backend.list(filter, state, limit));
+    } catch (err) {
+      json(502, { error: String(err) });
     }
-    const issues =
-      filter === "all"
-        ? await github.getAllIssues(project.path, limit, state)
-        : await github.getMyIssues(project.path, limit, state);
-    json(200, issues.map(normalizeGitHubIssue));
     return true;
   }
 
@@ -615,35 +549,20 @@ export async function handleControlRequest(
     }
     const issueRef = decodeURIComponent(subsub);
 
-    if (parsed.source === "linear") {
-      const target = resolveLinear(deps.linearManager, project);
-      if (!target.ok) {
-        json(target.status, { error: target.error });
-        return true;
-      }
-      // Linear's `issue(id:)` resolves both a UUID and a human identifier
-      // ("ENG-123"), so the ref from the listing round-trips verbatim.
-      try {
-        const detail = await target.linear.getIssueDetail(issueRef);
-        json(200, normalizeLinearIssueDetail(detail));
-      } catch (err) {
-        json(502, { error: String(err) });
-      }
+    const chosen = issueBackend(deps, project, parsed.source);
+    if (!chosen.ok) {
+      json(chosen.status, { error: chosen.error });
       return true;
     }
-
-    const github = deps.githubManager;
-    if (!github) {
-      json(503, { error: "GitHub is not available" });
-      return true;
+    try {
+      json(200, await chosen.backend.detail(issueRef));
+    } catch (err) {
+      // A ref the source could never accept is the caller's fault (400); a
+      // throw from the source itself is the source's (502). `err.message`, not
+      // `String(err)`, so the 400 body stays the bare sentence it always was.
+      if (err instanceof InvalidIssueRef) json(400, { error: err.message });
+      else json(502, { error: String(err) });
     }
-    const number = Number.parseInt(issueRef, 10);
-    if (!Number.isFinite(number) || number <= 0) {
-      json(400, { error: "GitHub issue refs must be numeric." });
-      return true;
-    }
-    const detail = await github.getIssueDetail(project.path, number);
-    json(200, normalizeGitHubIssueDetail(detail));
     return true;
   }
 

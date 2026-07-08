@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { matchPath, dispatch } from "./router";
+import { routes } from "./index";
 import type { ControlDeps, Route, RouteContext } from "./types";
 
 const deps = {} as ControlDeps;
@@ -70,7 +71,7 @@ describe("dispatch", () => {
 
     const matched = await dispatch(
       [route("GET", "/panes", miss), route("POST", "/panes", hit)],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "POST",
       new URL("http://x/panes"),
@@ -93,7 +94,7 @@ describe("dispatch", () => {
           seen = ctx;
         }),
       ],
-      ["projects"],
+      new Set(["projects"]),
       deps,
       "GET",
       new URL("http://x/projects/a%20b?source=linear"),
@@ -118,7 +119,7 @@ describe("dispatch", () => {
         route("POST", "/panes/split", split),
         route("POST", "/panes/:paneId", byId),
       ],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "POST",
       new URL("http://x/panes/split"),
@@ -142,7 +143,7 @@ describe("dispatch", () => {
         route("POST", "/panes/split", split),
         route("DELETE", "/panes/:paneId", byId),
       ],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "DELETE",
       new URL("http://x/panes/split"),
@@ -160,7 +161,7 @@ describe("dispatch", () => {
 
     const matched = await dispatch(
       [route("GET", "/panes"), route("DELETE", "/panes")],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "POST",
       new URL("http://x/panes"),
@@ -179,7 +180,7 @@ describe("dispatch", () => {
 
     const matched = await dispatch(
       [route("GET", "/panes")],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "GET",
       new URL("http://x/panes/a/b/c"),
@@ -196,7 +197,7 @@ describe("dispatch", () => {
 
     const matched = await dispatch(
       [route("GET", "/panes")],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "GET",
       new URL("http://x/webview/pane-1/screenshot"),
@@ -213,7 +214,7 @@ describe("dispatch", () => {
 
     const matched = await dispatch(
       [route("GET", "/panes")],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "GET",
       new URL("http://x/"),
@@ -236,7 +237,7 @@ describe("dispatch", () => {
           done = true;
         }),
       ],
-      ["panes"],
+      new Set(["panes"]),
       deps,
       "GET",
       new URL("http://x/panes"),
@@ -246,5 +247,42 @@ describe("dispatch", () => {
 
     expect(matched).toBe(true);
     expect(done).toBe(true);
+  });
+});
+
+describe("the real route table", () => {
+  /** `pattern`'s segments, with each `:param` replaced by a static placeholder. */
+  function synthesizePath(pattern: string): string[] {
+    return pattern
+      .split("/")
+      .filter(Boolean)
+      .map((seg, i) => (seg.startsWith(":") ? `synthetic-${i}` : seg));
+  }
+
+  it("has no two rows that can both path+method-match the same request", () => {
+    for (let i = 0; i < routes.length; i++) {
+      for (let j = 0; j < routes.length; j++) {
+        if (i === j) continue;
+        const a = routes[i];
+        const b = routes[j];
+        if (a.method !== b.method) continue;
+
+        const aSegments = a.path.split("/").filter(Boolean);
+        const bSegments = b.path.split("/").filter(Boolean);
+        if (aSegments.length !== bSegments.length) continue;
+
+        // A request path synthesized from `a`'s pattern must not also match
+        // `b` — if it did, whichever row comes first in `routes` would
+        // silently shadow the other, and their relative order would matter.
+        const synthetic = synthesizePath(a.path);
+        const bAlsoMatches = matchPath(b.path, synthetic) !== null;
+
+        expect(
+          bAlsoMatches,
+          `"${a.method} ${a.path}" and "${b.method} ${b.path}" can both ` +
+            `match the same request; their order in the table is load-bearing`,
+        ).toBe(false);
+      }
+    }
   });
 });

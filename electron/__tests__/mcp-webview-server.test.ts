@@ -42,8 +42,8 @@ vi.mock("electron", () => ({
 }));
 
 import { WebviewServer } from "../webview-server";
-import { requestRenderer } from "../control-server";
-import type { AppCommand, AppCommandResult } from "../control-server";
+import { requestRenderer } from "../renderer-bridge";
+import type { AppCommand, AppCommandResult } from "../renderer-bridge";
 import { webContents, BrowserWindow, ipcMain } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
 import { projectsModule } from "../mcp/tools-projects";
@@ -1247,7 +1247,7 @@ describe("requestRenderer", () => {
   let send: ReturnType<typeof vi.fn>;
 
   /**
-   * The single "app-command-result" listener control-server installs lazily.
+   * The single "app-command-result" listener renderer-bridge installs lazily.
    * Read off the ipcMain spy rather than re-exported, so the test also proves
    * exactly one listener exists no matter how many requests are in flight.
    */

@@ -17,7 +17,7 @@ import {
   notifyProjectsChanged,
   runSetupScript,
   startAgent,
-} from "./renderer-bridge";
+} from "../renderer-bridge";
 import type { Route, RouteContext } from "./types";
 
 /**
@@ -117,8 +117,6 @@ export const projectRoutes: Route[] = [
     }),
   },
 
-  // Ahead of `/projects/:projectId/workspaces` — both are POST, and the static
-  // "batch" segment must win.
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/batch",

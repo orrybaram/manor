@@ -1,6 +1,6 @@
 /** `POST /agents` — launch an agent pane in a workspace. */
 
-import { startAgent } from "./renderer-bridge";
+import { startAgent } from "../renderer-bridge";
 import type { Route } from "./types";
 
 export const agentRoutes: Route[] = [

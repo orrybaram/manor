@@ -13,7 +13,7 @@ import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
-import { handleControlRequest } from "./control-server";
+import { handleControlRequest } from "./routes";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";

@@ -2,16 +2,15 @@
  * The main→renderer "app-command" channel, and the HTTP-shaped helpers built on
  * it.
  *
- * Lives under `routes/` rather than in `control-server.ts` purely to break a
- * cycle: `control-server.ts` imports the route modules to assemble its table,
- * and the route modules need `requestRenderer` / `startAgent` / `runSetupScript`.
- * `control-server.ts` re-exports everything public here, so outside importers
- * (`webview-server.ts`, `preload.ts`, the tests) are unaffected.
+ * Not a route: the `/panes`, `/agents`, and `/projects` route modules call
+ * into this for the renderer round-trip, but it has no `Route` entries of its
+ * own. Lives at the top level, alongside `webview-server.ts` and
+ * `preload.ts`, which import it directly.
  */
 
 import crypto from "node:crypto";
 import { BrowserWindow, ipcMain } from "electron";
-import type { Json } from "./types";
+import type { Json } from "./routes/types";
 
 /**
  * Payload of the main→renderer "app-command" channel.

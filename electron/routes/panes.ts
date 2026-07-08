@@ -8,7 +8,7 @@
  * belongs anywhere in this file.
  */
 
-import { proxyToRenderer } from "./renderer-bridge";
+import { proxyToRenderer } from "../renderer-bridge";
 import type { Route } from "./types";
 
 export const paneRoutes: Route[] = [
@@ -20,9 +20,6 @@ export const paneRoutes: Route[] = [
     },
   },
 
-  // Ahead of `/panes/:paneId` on purpose. They happen not to collide today
-  // (POST vs DELETE), but a static segment must always outrank the param that
-  // would otherwise capture it.
   {
     method: "POST",
     path: "/panes/split",

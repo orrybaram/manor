@@ -11,6 +11,13 @@
  *   3. nothing matches → `404` if the first segment is a prefix this module
  *      owns, otherwise `false` so the HTTP listener can try its own routes
  *      (`/webviews`, `/webview/:id/*`). The `false` is load-bearing.
+ *
+ * Route order matters only between two rows that share both a method and a
+ * segment count, where one row's static segment is the other's `:param` —
+ * in every other case (different method, different segment count, or no
+ * overlapping segment) the two can never both match the same request, so
+ * their relative order is inert. `router.test.ts` asserts this holds over
+ * the real route table.
  */
 
 import type { ControlDeps, Json, ReadBody, Route } from "./types";
@@ -55,7 +62,7 @@ export function matchPath(
  */
 export async function dispatch(
   routes: readonly Route[],
-  ownedPrefixes: readonly string[],
+  ownedPrefixes: ReadonlySet<string>,
   deps: ControlDeps,
   method: string,
   url: URL,
@@ -79,7 +86,7 @@ export async function dispatch(
     return true;
   }
 
-  if (segments.length > 0 && ownedPrefixes.includes(segments[0])) {
+  if (segments.length > 0 && ownedPrefixes.has(segments[0])) {
     json(404, { error: "Not found" });
     return true;
   }

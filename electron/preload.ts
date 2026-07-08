@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppCommand, AppCommandResult } from "./control-server";
+import type { AppCommand, AppCommandResult } from "./renderer-bridge";
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }

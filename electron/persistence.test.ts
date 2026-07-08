@@ -359,4 +359,86 @@ describe("ProjectManager", () => {
       );
     });
   });
+
+  describe("createWorkspacesFromIssues", () => {
+    let gitMock: GitBackend;
+
+    beforeEach(() => {
+      gitMock = {
+        exec: vi.fn().mockResolvedValue(""),
+        worktreeAdd: vi.fn().mockResolvedValue(undefined),
+        worktreeList: vi.fn().mockResolvedValue([
+          { path: "/tmp/proj", branch: "main", isMain: true },
+        ]),
+        stage: vi.fn(),
+        unstage: vi.fn(),
+        discard: vi.fn(),
+        commit: vi.fn(),
+        stash: vi.fn(),
+        getFullDiff: vi.fn(),
+        getLocalDiff: vi.fn(),
+        getStagedFiles: vi.fn(),
+        worktreeRemove: vi.fn(),
+      } as unknown as GitBackend;
+      manager = new ProjectManager(gitMock, tmpDir);
+    });
+
+    it("creates one worktree per issue, each linked, and returns its path", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      const results = await manager.createWorkspacesFromIssues(project.id, [
+        { number: 10, title: "Fix login", url: "https://x/10", body: "b10" },
+        { number: 20, title: "Add search", url: "https://x/20", body: null },
+      ]);
+
+      expect(vi.mocked(gitMock.worktreeAdd)).toHaveBeenCalledTimes(2);
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ number: 10, worktreePath: expect.stringContaining("fix-login") });
+      expect(results[1]).toMatchObject({ number: 20, worktreePath: expect.stringContaining("add-search") });
+      expect(results[0].error).toBeUndefined();
+
+      // The issue is linked to the created worktree.
+      const linked = manager.getWorkspaceIssues(project.id, results[0].worktreePath!);
+      expect(linked).toEqual([
+        { id: "10", identifier: "#10", title: "Fix login", url: "https://x/10" },
+      ]);
+    });
+
+    it("falls back to issue-<number> when the title has no slug", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+
+      const results = await manager.createWorkspacesFromIssues(project.id, [
+        { number: 7, title: "!!!", url: "https://x/7" },
+      ]);
+
+      expect(results[0].worktreePath).toContain("issue-7");
+    });
+
+    it("isolates per-issue failures without aborting the batch", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      // Stub the dependency directly: first issue's worktree creation fails,
+      // the second succeeds. Tests the orchestration's error isolation without
+      // coupling to createWorktree's internal git retry logic.
+      vi.spyOn(manager, "createWorktree")
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockResolvedValueOnce(null);
+
+      const results = await manager.createWorkspacesFromIssues(project.id, [
+        { number: 10, title: "First", url: "https://x/10" },
+        { number: 20, title: "Second", url: "https://x/20" },
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ number: 10, error: expect.any(String) });
+      expect(results[0].worktreePath).toBeUndefined();
+      expect(results[1]).toMatchObject({ number: 20, worktreePath: expect.any(String) });
+    });
+
+    it("returns a per-issue error when the project is missing", async () => {
+      const results = await manager.createWorkspacesFromIssues("nope", [
+        { number: 1, title: "X", url: "https://x/1" },
+      ]);
+      expect(results[0].error).toBe("Project not found");
+    });
+  });
 });

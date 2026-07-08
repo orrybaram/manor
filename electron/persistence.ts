@@ -43,6 +43,24 @@ export interface WorkspaceInfo {
   hidden?: boolean;
 }
 
+/** Pre-fetched issue data needed to create a workspace for it. */
+export interface IssueSeed {
+  number: number;
+  title: string;
+  url: string;
+  body?: string | null;
+}
+
+/** Result of creating one workspace from an issue (partial-success friendly). */
+export interface WorkspaceFromIssue {
+  number: number;
+  title: string;
+  body: string | null;
+  url: string;
+  worktreePath?: string;
+  error?: string;
+}
+
 export type { LinkedIssue };
 
 export interface ProjectInfo {
@@ -691,6 +709,66 @@ export class ProjectManager {
     }
   }
 
+  /**
+   * The deterministic filesystem path a worktree named `name` would occupy in
+   * this project. Single source of truth for both `createWorktree` and callers
+   * that need to know the path a worktree will be created at.
+   */
+  private worktreePathFor(project: PersistedProject, name: string): string {
+    const baseDir = project.worktreePath
+      ? expandHome(project.worktreePath)
+      : path.join(worktreesDir(), slugify(project.name));
+    return path.join(baseDir, slugify(name));
+  }
+
+  /**
+   * Create one workspace (git worktree) per GitHub issue, each linked to its
+   * issue. Runs sequentially — concurrent `git worktree add` on one repo races
+   * the index. Per-issue errors are isolated so one failure never aborts the
+   * batch. Takes pre-fetched issue seeds so this layer stays GitHub-agnostic.
+   */
+  async createWorkspacesFromIssues(
+    projectId: string,
+    issues: IssueSeed[],
+    baseBranch?: string,
+  ): Promise<WorkspaceFromIssue[]> {
+    const project = this.findProject(projectId);
+    const results: WorkspaceFromIssue[] = [];
+    for (const seed of issues) {
+      const base = {
+        number: seed.number,
+        title: seed.title,
+        body: seed.body ?? null,
+        url: seed.url,
+      };
+      if (!project) {
+        results.push({ ...base, error: "Project not found" });
+        continue;
+      }
+      try {
+        const linkedIssue: LinkedIssue = {
+          id: String(seed.number),
+          identifier: "#" + seed.number,
+          title: seed.title,
+          url: seed.url,
+        };
+        const name = slugify(seed.title) || "issue-" + seed.number;
+        const worktreePath = this.worktreePathFor(project, name);
+        await this.createWorktree(
+          projectId,
+          name,
+          undefined,
+          linkedIssue,
+          baseBranch,
+        );
+        results.push({ ...base, worktreePath });
+      } catch (err) {
+        results.push({ ...base, error: String(err) });
+      }
+    }
+    return results;
+  }
+
   async createWorktree(
     projectId: string,
     name: string,
@@ -703,11 +781,7 @@ export class ProjectManager {
     if (!project) return null;
 
     const branchName = branch || name;
-    const slug = slugify(name);
-    const baseDir = project.worktreePath
-      ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), slugify(project.name));
-    const worktreePath = path.join(baseDir, slug);
+    const worktreePath = this.worktreePathFor(project, name);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
     this.emitSetupProgress("prune", "in-progress");
@@ -846,11 +920,7 @@ export class ProjectManager {
       );
     }
 
-    const slug = slugify(name);
-    const baseDir = project.worktreePath
-      ? expandHome(project.worktreePath)
-      : path.join(worktreesDir(), slugify(project.name));
-    const worktreePath = path.join(baseDir, slug);
+    const worktreePath = this.worktreePathFor(project, name);
 
     // Prune stale worktree entries
     try {

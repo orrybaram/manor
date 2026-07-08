@@ -1,6 +1,6 @@
 ---
 title: Canonical worktree fan-out in ProjectManager
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Store — one paneId scope, and actions return what they mint
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

@@ -130,9 +130,24 @@ handlers are deleted; `layoutHasPane` becomes the single scope.
 
 `addTab`, `addTerminalTab`, `addBrowserTab`, and `splitPaneAt` return the IDs
 they create (`{ tabId, paneId }` / `paneId`). This deletes the `newPaneId`
-export, four optional `paneId` params, and `findTabIdForPane` — and is a
+export, three of four optional `paneId` params, and `findTabIdForPane` — and is a
 prerequisite for `new_tab` restoring the prior workspace, since the tabId can no
 longer be read back out of a layout the user is no longer looking at.
+
+**Correction (found during ticket 2).** This ADR originally claimed the optional
+`paneId` param existed *purely* so `app-commands.ts` could pre-mint. That is true
+of the `newPaneId` **export**, but not of `addTab`'s param: `App.tsx:532` calls
+`addTab(prewarmed?.paneId)`, and `prewarm-manager.ts:32` has already spawned a PTY
+under that id and injected the agent command (`:65`). The new pane must adopt it or
+the warm session is orphaned and the terminal cold-starts. `addTab` therefore keeps
+the param, renamed `adoptPaneId` and documented for its one real consumer. Deleting
+it would have been a silent performance regression, not a behavior-preserving
+deletion.
+
+Ticket 2 also had to widen `closeTab` alongside `closePaneById`: the latter
+delegates to the former when the pane is the last in its tab, so a non-active
+panel's single-pane tab would otherwise still no-op — the most common
+`close_pane` case.
 
 ### `new_tab` never moves the user
 

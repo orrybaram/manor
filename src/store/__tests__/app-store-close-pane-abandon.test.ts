@@ -94,12 +94,14 @@ describe("closePaneById calls abandonForPane", () => {
     });
   });
 
-  it("calls abandonForPane with the closed paneId", () => {
+  it("calls abandonForPane with the closed paneId and its title", () => {
     setupStore(makeTwoPaneLayout());
 
     useAppStore.getState().closePaneById("pane-1");
 
     expect(abandonForPane).toHaveBeenCalledTimes(1);
-    expect(abandonForPane).toHaveBeenCalledWith("pane-1");
+    // `closePaneById` passes the pane's current title (null when untitled) so
+    // the abandoned task keeps a human-readable name.
+    expect(abandonForPane).toHaveBeenCalledWith("pane-1", null);
   });
 });

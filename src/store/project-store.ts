@@ -134,6 +134,27 @@ function startSetupScript(wsPath: string, script: string): void {
   void window.electronAPI.pty.create(sessionId, wsPath, DEFAULT_COLS, DEFAULT_ROWS);
 }
 
+/**
+ * Run a project's setup script in a workspace created outside `createWorktree`
+ * — i.e. by the main process on behalf of MCP. The git steps already succeeded
+ * by the time main hands off, so seed them as done and show only the script.
+ */
+export function runWorkspaceSetupScript(wsPath: string, script: string): void {
+  const app = useAppStore.getState();
+  app.initWorktreeSetup(wsPath, true, script);
+  const doneSteps: SetupStep[] = [
+    "prune",
+    "fetch",
+    "create-worktree",
+    "persist",
+    "switch",
+  ];
+  for (const step of doneSteps) {
+    app.updateWorktreeSetupStep(wsPath, step, "done");
+  }
+  startSetupScript(wsPath, script);
+}
+
 export interface CustomCommand {
   id: string;
   name: string;

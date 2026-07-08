@@ -21,6 +21,7 @@ export interface AppCommand {
   cmd: string;
   workspacePath?: string;
   prompt?: string;
+  script?: string;
 }
 
 type Json = (status: number, body: unknown) => void;
@@ -50,6 +51,19 @@ export function startAgent(
   const command: AppCommand = { cmd: "start-agent", workspacePath, prompt };
   win.webContents.send("app-command", command);
   return { ok: true };
+}
+
+/**
+ * Ask the renderer to run the project's worktree start script in a new
+ * workspace. Like agents, the script needs a PTY the renderer owns, so main
+ * hands it off over the "app-command" channel. Best-effort: with no window
+ * open there is nowhere to run it.
+ */
+export function runSetupScript(workspacePath: string, script: string): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  const command: AppCommand = { cmd: "run-setup-script", workspacePath, script };
+  win.webContents.send("app-command", command);
 }
 
 /** Render the launch prompt for an issue-backed workspace. */
@@ -278,18 +292,21 @@ export async function handleControlRequest(
     }
     if (method === "POST") {
       const body = await readBody();
-      const name = body.name;
-      if (typeof name !== "string") {
-        json(400, { error: "Missing 'name' string in request body" });
+      const branch = typeof body.branch === "string" ? body.branch : undefined;
+      // Either field alone is enough — each falls back to the other, matching
+      // the new-workspace dialog where the branch tracks the name.
+      const name = typeof body.name === "string" ? body.name : branch;
+      if (typeof name !== "string" || !name.trim()) {
+        json(400, { error: "Missing 'name' or 'branch' string in request body" });
         return true;
       }
-      const branch = typeof body.branch === "string" ? body.branch : undefined;
       const baseBranch =
         typeof body.baseBranch === "string" ? body.baseBranch : undefined;
       const useExistingBranch =
         typeof body.useExistingBranch === "boolean"
           ? body.useExistingBranch
           : undefined;
+      const before = new Set(project.workspaces.map((ws) => ws.path));
       const updated = await pm.createWorktree(
         projectId,
         name,
@@ -298,6 +315,12 @@ export async function handleControlRequest(
         baseBranch,
         useExistingBranch,
       );
+      // The UI path runs `worktreeStartScript` from the renderer (it needs a
+      // PTY), so main round-trips the request the same way start-agent does.
+      const created = updated?.workspaces.find((ws) => !before.has(ws.path));
+      if (created && updated?.worktreeStartScript) {
+        runSetupScript(created.path, updated.worktreeStartScript);
+      }
       json(200, updated);
       return true;
     }

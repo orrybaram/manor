@@ -392,6 +392,67 @@ describe("WebviewServer project/workspace routes", () => {
     );
   });
 
+  it("POST /projects/:id/workspaces falls back to 'branch' when name is omitted", async () => {
+    await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+      branch: "feature",
+    });
+    expect(pm.createWorktree).toHaveBeenCalledWith(
+      "proj-1",
+      "feature",
+      "feature",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("POST /projects/:id/workspaces 400s when name and branch are both missing", async () => {
+    await expect(
+      mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+        baseBranch: "origin/main",
+      }),
+    ).rejects.toThrow("HTTP 400");
+    expect(pm.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("POST /projects/:id/workspaces runs the project's setup script in the new workspace", async () => {
+    const send = vi.fn();
+    (
+      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+    ).mockReturnValue([{ webContents: { send } }]);
+    pm.createWorktree.mockResolvedValueOnce({
+      ...PROJECT,
+      worktreeStartScript: "npm install",
+      workspaces: [
+        ...PROJECT.workspaces,
+        { path: "/repos/demo-ws", branch: "feature", isMain: false, name: null },
+      ],
+    });
+
+    await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+      name: "feature",
+    });
+
+    expect(send).toHaveBeenCalledWith("app-command", {
+      cmd: "run-setup-script",
+      workspacePath: "/repos/demo-ws",
+      script: "npm install",
+    });
+  });
+
+  it("POST /projects/:id/workspaces skips the setup script when the project has none", async () => {
+    const send = vi.fn();
+    (
+      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+    ).mockReturnValue([{ webContents: { send } }]);
+
+    await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+      name: "feature",
+    });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("DELETE /projects/:id/workspaces removes a workspace", async () => {
     const result = (await mcpHttpDelete(
       baseUrl,

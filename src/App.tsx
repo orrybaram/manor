@@ -19,7 +19,7 @@ const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupW
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import { useAppStore, selectActiveWorkspace } from "./store/app-store";
-import { useProjectStore } from "./store/project-store";
+import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
 import { useToastStore } from "./store/toast-store";
 import { comboFromEvent, comboMatches } from "./lib/keybindings";
@@ -278,12 +278,16 @@ function App() {
   // create panes directly, so it round-trips over the "app-command" channel.
   useEffect(() => {
     const cleanup = window.electronAPI.onAppCommand(
-      async ({ cmd, workspacePath, prompt }) => {
+      async ({ cmd, workspacePath, prompt, script }) => {
         if (cmd === "start-agent" && workspacePath) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
           if (prompt) handleNewTaskWithPromptRef.current(prompt);
           else handleNewTaskRef.current();
+        } else if (cmd === "run-setup-script" && workspacePath && script) {
+          await loadProjects(); // ensure a freshly-created workspace is visible
+          setActiveWorkspace(workspacePath);
+          runWorkspaceSetupScript(workspacePath, script);
         }
       },
     );

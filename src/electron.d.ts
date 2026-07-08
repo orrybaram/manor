@@ -585,6 +585,7 @@ export interface ElectronAPI {
       cmd: string;
       workspacePath?: string;
       prompt?: string;
+      script?: string;
     }) => void,
   ) => () => void;
 

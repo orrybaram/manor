@@ -20,6 +20,8 @@ export interface ProjectInfo {
   path: string;
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
+  /** Shell script run in a freshly created workspace, if the project sets one. */
+  worktreeStartScript?: string | null;
 }
 
 export function formatWorkspace(ws: WorkspaceInfo): string {
@@ -81,18 +83,20 @@ const tools: ToolDef[] = [
   {
     name: "create_workspace",
     description:
-      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one.",
+      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one. Runs the project's setup script afterwards, if one is configured. Provide 'name', 'branch', or both.",
     inputSchema: {
       type: "object" as const,
       properties: {
         projectId: { type: "string", description: "Project ID." },
         name: {
           type: "string",
-          description: "Workspace name (also used as the branch name unless 'branch' is given).",
+          description:
+            "Workspace name (also used as the branch name unless 'branch' is given). Defaults to 'branch' when omitted.",
         },
         branch: {
           type: "string",
-          description: "Branch name, if different from the workspace name.",
+          description:
+            "Branch name, if different from the workspace name. Defaults to 'name' when omitted.",
         },
         baseBranch: {
           type: "string",
@@ -103,7 +107,7 @@ const tools: ToolDef[] = [
           description: "Check out an existing branch instead of creating a new one.",
         },
       },
-      required: ["projectId", "name"],
+      required: ["projectId"],
     },
   },
   {
@@ -172,7 +176,11 @@ const handlers: ToolModule["handlers"] = {
 
   async create_workspace(args, http) {
     const projectId = args.projectId as string;
-    const body: Record<string, unknown> = { name: args.name };
+    // `name` and `branch` each default to the other; the control server rejects
+    // the request when neither is supplied.
+    const label = (args.name ?? args.branch) as string | undefined;
+    const body: Record<string, unknown> = {};
+    if (args.name !== undefined) body.name = args.name;
     if (args.branch !== undefined) body.branch = args.branch;
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.useExistingBranch !== undefined)
@@ -181,8 +189,11 @@ const handlers: ToolModule["handlers"] = {
       `/projects/${encodeURIComponent(projectId)}/workspaces`,
       body,
     )) as ProjectInfo;
+    const setupNote = project.worktreeStartScript
+      ? "\n\nThe project's setup script is running in the new workspace."
+      : "";
     return text(
-      `Created workspace "${args.name}" in project "${project.name}".\n\nWorkspaces now:\n${project.workspaces
+      `Created workspace "${label}" in project "${project.name}".${setupNote}\n\nWorkspaces now:\n${project.workspaces
         .map(formatWorkspace)
         .join("\n")}`,
     );

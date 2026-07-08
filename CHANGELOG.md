@@ -18,6 +18,27 @@
 
 
 
+
+## [0.6.2] - 2026-07-08
+
+**Features**
+- Browse and read Linear issues directly in Manor, alongside GitHub issues
+- View full issue details without leaving the app
+- New MCP tools for pane control: split a pane, open a terminal, open a browser
+- New MCP tool to report the current workspace and project context
+- Creating a workspace now runs the project's setup script, and the workspace name is optional
+
+**Fixes**
+- Issue lists no longer silently come up empty when the `gh` CLI fails — errors now surface
+- The sidebar refreshes when projects change from an MCP action
+- Linear issue identifiers are accepted in lowercase
+- Failures when assigning or closing an issue are now reported instead of silently ignored
+- Failures when unlinking an issue now surface in the popover and detail view
+
+**Improvements**
+- Pane tools act on the pane that invoked them rather than stealing your focus
+- Consistent error messages across issue views
+
 ## [0.6.1] - 2026-07-08
 
 - Manor now includes MCP tools for managing projects and workspaces

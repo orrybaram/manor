@@ -1038,6 +1038,85 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(ok?.workspacePath).toBe("/repos/demo-ws-10");
     });
 
+    // The batch route's try/catch around assignIssue used to wrap a method
+    // that could never throw — a dead handler over a swallow. Now assignIssue
+    // rejects for real, and a failed assignment must be recorded distinctly
+    // from `error` (which means no workspace was created) without failing the
+    // workspace itself.
+    it("reports assignError on a created workspace whose assignment failed, without setting error", async () => {
+      github.assignIssue = vi.fn(async (_repoPath: string, number: number) => {
+        if (number === 20) {
+          throw new Error("gh: not authenticated");
+        }
+      });
+
+      const result = (await mcpHttpPost(
+        baseUrl,
+        "/projects/proj-1/workspaces/batch",
+        { issues: [10, 20], assign: true, startAgent: false },
+      )) as {
+        results: Array<{
+          number: number;
+          title: string;
+          workspacePath?: string;
+          started: boolean;
+          error?: string;
+          assignError?: string;
+        }>;
+      };
+
+      const ok = result.results.find((r) => r.number === 10);
+      const failedAssign = result.results.find((r) => r.number === 20);
+
+      expect(ok?.assignError).toBeUndefined();
+
+      expect(failedAssign).toBeDefined();
+      expect(failedAssign?.error).toBeUndefined();
+      expect(failedAssign?.assignError).toContain("gh: not authenticated");
+      expect(failedAssign?.workspacePath).toBe("/repos/demo-ws-20");
+    });
+
+    // Assign calls are independent network writes — they must not be
+    // serialized one-by-one behind each other's 10s timeout.
+    it("issues assign calls concurrently rather than one at a time", async () => {
+      const callOrder: string[] = [];
+      const resolvers: Record<number, () => void> = {};
+
+      github.assignIssue = vi.fn((_repoPath: string, number: number) => {
+        callOrder.push(`start-${number}`);
+        return new Promise<void>((resolve) => {
+          resolvers[number] = () => {
+            callOrder.push(`end-${number}`);
+            resolve();
+          };
+        });
+      });
+
+      const resultPromise = mcpHttpPost(
+        baseUrl,
+        "/projects/proj-1/workspaces/batch",
+        { issues: [10, 20], assign: true, startAgent: false },
+      );
+
+      // Both calls should have started before either has been resolved —
+      // proof they were issued in parallel, not awaited sequentially.
+      await vi.waitFor(() => {
+        expect(callOrder).toContain("start-10");
+        expect(callOrder).toContain("start-20");
+      });
+      expect(resolvers[10]).toBeDefined();
+      expect(resolvers[20]).toBeDefined();
+
+      // Resolve out of order — the later-numbered call finishes first.
+      resolvers[20]();
+      resolvers[10]();
+
+      await resultPromise;
+      expect(callOrder.indexOf("start-20")).toBeLessThan(
+        callOrder.indexOf("end-10"),
+      );
+    });
+
     it("returns 400 when source: 'linear' is passed in the batch body", async () => {
       await expect(
         mcpHttpPost(baseUrl, "/projects/proj-1/workspaces/batch", {

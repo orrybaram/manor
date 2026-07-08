@@ -326,7 +326,10 @@ export class LinearManager {
         { id: issueId, input: { stateId: doneState.id } },
       );
     } catch {
-      // fire-and-forget
+      // TODO(ADR-152): this swallows symmetrically with the pre-fix
+      // github.ts#closeIssue — fixing GitHubManager without fixing this
+      // leaves the same "UI says closed, issue is not" bug for Linear.
+      // Left as-is; see ticket 9 of ADR-152 for the GitHub-side fix.
     }
   }
 

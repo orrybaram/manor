@@ -538,13 +538,16 @@ describe("GitHubManager", () => {
   });
 
   // -------------------------------------------------------------------------
-  // assignIssue — fire-and-forget, must not throw
+  // assignIssue
   // -------------------------------------------------------------------------
+  // Previously swallowed failures and reported unqualified success — a caller
+  // that requested `assign: true` had no way to learn the assignment never
+  // happened. Now rejects, matching getMyIssues/getIssueDetail.
   describe("assignIssue", () => {
-    it("does not throw on failure", async () => {
+    it("throws on failure rather than silently no-op'ing", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      await expect(manager.assignIssue("/repo", 5)).resolves.toBeUndefined();
+      await expect(manager.assignIssue("/repo", 5)).rejects.toThrow();
     });
 
     it("completes without error on success", async () => {
@@ -555,13 +558,16 @@ describe("GitHubManager", () => {
   });
 
   // -------------------------------------------------------------------------
-  // closeIssue — fire-and-forget, must not throw
+  // closeIssue
   // -------------------------------------------------------------------------
+  // Despite the old "fire-and-forget" comment, this was awaited by UI callers
+  // that told the user the issue was closed regardless of outcome. Now
+  // rejects so callers can revert an optimistic update / keep a dialog open.
   describe("closeIssue", () => {
-    it("does not throw on failure", async () => {
+    it("throws on failure rather than reporting a closed issue that isn't", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      await expect(manager.closeIssue("/repo", 5)).resolves.toBeUndefined();
+      await expect(manager.closeIssue("/repo", 5)).rejects.toThrow();
     });
 
     it("completes without error on success", async () => {

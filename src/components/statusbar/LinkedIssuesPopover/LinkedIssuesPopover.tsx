@@ -288,11 +288,28 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       if (remaining.length === 0) {
         onClose();
       }
-      if (issueId.startsWith("gh-")) {
-        const number = parseInt(issueId.replace("gh-", ""), 10);
-        await window.electronAPI.github.closeIssue(repoPath, number);
-      } else {
-        await window.electronAPI.linear.closeIssue(issueId);
+      try {
+        if (issueId.startsWith("gh-")) {
+          const number = parseInt(issueId.replace("gh-", ""), 10);
+          await window.electronAPI.github.closeIssue(repoPath, number);
+        } else {
+          await window.electronAPI.linear.closeIssue(issueId);
+        }
+      } catch (err) {
+        // Revert the optimistic removal — the issue is still open.
+        setRemovedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(issueId);
+          return next;
+        });
+        const message = err instanceof Error ? err.message : String(err);
+        useToastStore.getState().addToast({
+          id: `close-issue-error-${issueId}`,
+          message: "Failed to close issue",
+          status: "error",
+          detail: message,
+        });
+        return;
       }
       await window.electronAPI.linear.unlinkIssueFromWorkspace(
         projectId,

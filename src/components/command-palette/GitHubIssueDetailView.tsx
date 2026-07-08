@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
+import { useToastStore } from "../../store/toast-store";
 import { stripMarkdown } from "./utils";
 import { IssueDetailSkeleton } from "./IssueDetailSkeleton";
 import type { CommandPaletteProps } from "./types";
@@ -80,7 +81,12 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         url: issueDetail.url,
       },
     });
-    window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
+    // Best-effort — assignment failing must not block workspace creation,
+    // which has already been kicked off above. github.ts now rejects
+    // instead of swallowing, so this must catch explicitly.
+    window.electronAPI.github
+      .assignIssue(repoPath, issueDetail.number)
+      .catch(() => {});
   }, [issueDetail, findProject, selectWorkspace, onClose, onNewWorkspace, repoPath]);
 
   const handleOpenInBrowser = useCallback(() => {
@@ -93,7 +99,10 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     if (!issueDetail) return;
     const prompt = issueDetail.title + "\n\n" + (issueDetail.body ?? "");
     onNewTaskWithPrompt?.(prompt);
-    window.electronAPI.github.assignIssue(repoPath, issueDetail.number);
+    // Best-effort — see handleCreateWorkspace.
+    window.electronAPI.github
+      .assignIssue(repoPath, issueDetail.number)
+      .catch(() => {});
     onClose();
 
     const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
@@ -128,8 +137,19 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
 
   const handleCloseTicket = useCallback(async () => {
     if (!projectId || !workspacePath) return;
+    try {
+      await window.electronAPI.github.closeIssue(repoPath, issueNumber);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      useToastStore.getState().addToast({
+        id: `close-issue-error-gh-${issueNumber}`,
+        message: "Failed to close issue",
+        status: "error",
+        detail: message,
+      });
+      return;
+    }
     onClose();
-    await window.electronAPI.github.closeIssue(repoPath, issueNumber);
     await window.electronAPI.linear.unlinkIssueFromWorkspace(
       projectId,
       workspacePath,

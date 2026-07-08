@@ -255,36 +255,26 @@ export class GitHubManager {
     return JSON.parse(stdout);
   }
 
+  /** Throws when `gh` fails — see `getMyIssues`; a caller that requested an assignment is entitled to know it didn't happen. */
   async assignIssue(repoPath: string, issueNumber: number): Promise<void> {
-    try {
-      await execFileAsync(
-        "gh",
-        ["issue", "edit", String(issueNumber), "--add-assignee", "@me"],
-        {
-          cwd: repoPath,
-          encoding: "utf-8",
-          timeout: 10000,
-        },
-      );
-    } catch {
-      // fire-and-forget; failures should not block workspace creation
-    }
+    await execFileAsync(
+      "gh",
+      ["issue", "edit", String(issueNumber), "--add-assignee", "@me"],
+      {
+        cwd: repoPath,
+        encoding: "utf-8",
+        timeout: 10000,
+      },
+    );
   }
 
+  /** Throws when `gh` fails — see `getMyIssues`; a caller that told the user the issue is closed must be right. */
   async closeIssue(repoPath: string, issueNumber: number): Promise<void> {
-    try {
-      await execFileAsync(
-        "gh",
-        ["issue", "close", String(issueNumber)],
-        {
-          cwd: repoPath,
-          encoding: "utf-8",
-          timeout: 10000,
-        },
-      );
-    } catch {
-      // fire-and-forget
-    }
+    await execFileAsync("gh", ["issue", "close", String(issueNumber)], {
+      cwd: repoPath,
+      encoding: "utf-8",
+      timeout: 10000,
+    });
   }
 
   async createIssue(

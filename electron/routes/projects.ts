@@ -67,6 +67,13 @@ interface BatchResultEntry {
   workspacePath?: string;
   started: boolean;
   error?: string;
+  /**
+   * Set when the workspace was created but the assignment write failed.
+   * Distinct from `error`, which means no workspace was created at all —
+   * a workspace with `assignError` still gets `started: true` if launch
+   * succeeded; it just isn't assigned.
+   */
+  assignError?: string;
 }
 
 /** Render the launch prompt for an issue-backed workspace. */
@@ -208,17 +215,23 @@ export const projectRoutes: Route[] = [
         const createdByNumber = new Map(created.map((c) => [c.number, c]));
         notifyProjectsChanged();
 
-        // 3. Assign + launch per successful workspace.
-        const results: BatchResultEntry[] = [];
-        for (const d of details) {
+        // 3. Build a per-issue entry: either resolved immediately (issue fetch
+        // or workspace creation failed) or pending assign/launch. Keeping both
+        // in one array in `details` order means the final `results` array
+        // preserves that order regardless of which issues need assignment.
+        type PendingItem = {
+          kind: "pending";
+          entry: BatchResultEntry;
+          ws: WorkspaceFromIssue;
+        };
+        type Item = { kind: "immediate"; entry: BatchResultEntry } | PendingItem;
+
+        const items: Item[] = details.map((d) => {
           if ("error" in d) {
-            results.push({
-              number: d.number,
-              title: "",
-              started: false,
-              error: d.error,
-            });
-            continue;
+            return {
+              kind: "immediate",
+              entry: { number: d.number, title: "", started: false, error: d.error },
+            };
           }
           const ws = createdByNumber.get(d.number);
           const entry: BatchResultEntry = {
@@ -229,26 +242,44 @@ export const projectRoutes: Route[] = [
           };
           if (!ws || ws.error) {
             entry.error = ws?.error ?? "Workspace was not created";
-            results.push(entry);
-            continue;
+            return { kind: "immediate", entry };
           }
-          if (assign) {
-            try {
-              await github.assignIssue(project.path, d.number);
-            } catch {
-              // Assignment is best-effort; the workspace already exists.
-            }
-          }
-          if (ws.worktreePath && launch) {
+          return { kind: "pending", entry, ws };
+        });
+
+        // 4. Assign in parallel — independent network writes; each is now
+        // hoisted out of the fan-out loop so 10 issues aren't 10 sequential
+        // gh round trips. A failed assignment is recorded on the entry and
+        // must not fail the workspace it was requested for.
+        if (assign) {
+          const pending = items.filter(
+            (item): item is PendingItem => item.kind === "pending",
+          );
+          await Promise.all(
+            pending.map(async (item) => {
+              try {
+                await github.assignIssue(project.path, item.entry.number);
+              } catch (err) {
+                item.entry.assignError = String(err);
+              }
+            }),
+          );
+        }
+
+        // 5. Launch (a local, synchronous dispatch — no need to parallelize)
+        // and finalize the results in the original order.
+        const results: BatchResultEntry[] = items.map((item) => {
+          const { entry } = item;
+          if (item.kind === "pending" && item.ws.worktreePath && launch) {
             const result = startAgent(
-              ws.worktreePath,
-              renderPrompt(promptTemplate, ws),
+              item.ws.worktreePath,
+              renderPrompt(promptTemplate, item.ws),
             );
             entry.started = result.ok;
             if (!result.ok) entry.error = result.error;
           }
-          results.push(entry);
-        }
+          return entry;
+        });
         json(200, { results });
       },
     ),

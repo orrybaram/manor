@@ -219,6 +219,7 @@ const handlers: ToolModule["handlers"] = {
         workspacePath: string;
         started: boolean;
         error?: string;
+        assignError?: string;
       }>;
     };
     const listing = result.results
@@ -228,7 +229,12 @@ const handlers: ToolModule["handlers"] = {
           : r.started
             ? "(agent started)"
             : "(workspace created)";
-        return `#${r.number} → ${r.workspacePath} ${status}`;
+        // `assignError` means the workspace exists but the assignment write
+        // failed — distinct from `error`, which means no workspace exists.
+        const assignSuffix = r.assignError
+          ? ` (assign failed: ${r.assignError})`
+          : "";
+        return `#${r.number} → ${r.workspacePath} ${status}${assignSuffix}`;
       })
       .join("\n");
     return text(listing);

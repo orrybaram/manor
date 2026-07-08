@@ -2,8 +2,9 @@
  * Pure lookups for "which workspace/project is this MCP call running in".
  *
  * Everything is handed in as data — no Electron, no filesystem — so the
- * `GET /context` route (control-server.ts) can resolve a paneId → workspace
- * → project without this module ever touching disk or `electron` itself.
+ * `GET /context` route (electron/routes/context.ts) can resolve a paneId →
+ * workspace → project without this module ever touching disk or `electron`
+ * itself.
  * Keeping it pure means it unit-tests without mocking anything.
  */
 

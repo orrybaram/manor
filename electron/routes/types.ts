@@ -1,7 +1,7 @@
 /**
- * The vocabulary every control-server route speaks: the dependency bag, the two
- * HTTP callbacks the listener hands down, and the `Route` shape the matcher
- * consumes.
+ * The vocabulary every route in `electron/routes/` speaks: the dependency bag,
+ * the two HTTP callbacks the listener hands down, and the `Route` shape the
+ * matcher consumes.
  *
  * This module is the acyclic root of `electron/routes/`. `./index.ts` imports
  * the route modules to build its table, so nothing under `routes/` may import

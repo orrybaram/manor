@@ -583,7 +583,7 @@ export interface ElectronAPI {
   onProjectsChanged: (callback: () => void) => () => void;
 
   /**
-   * Structurally identical to main's `AppCommand` (electron/control-server.ts).
+   * Structurally identical to main's `AppCommand` (electron/renderer-bridge.ts).
    * A payload carrying `requestId` expects a `sendAppCommandResult` reply.
    */
   onAppCommand: (

@@ -2,7 +2,7 @@
  * Renderer-side handlers for the correlated "app-command" channel.
  *
  * Main cannot mutate the pane/layout store, so it sends a command and awaits a
- * reply (see `requestRenderer` in electron/control-server.ts). This module is
+ * reply (see `requestRenderer` in electron/renderer-bridge.ts). This module is
  * the dispatch table for those commands: a pure map over
  * `useAppStore.getState()`, deliberately free of React so it stays
  * unit-testable and so `App.tsx` does not grow a branch per MCP tool.
@@ -148,10 +148,10 @@ function listPanes(): unknown {
 
 function splitPane(args: Record<string, unknown>): { paneId: string } {
   const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
   // Only used to default `paneId` to the active panel's focused pane; the
-  // pane itself may legitimately live in any panel (ticket 9 replaces this
-  // default with the caller's own pane).
+  // pane itself may legitimately live in any panel. This is the fallback
+  // default for non-MCP callers — the MCP layer supplies the caller's own
+  // pane (electron/mcp/tools-panes.ts) before reaching here.
   const panel = requireActivePanel(state);
 
   const requestedPaneId = optionalString(args, "paneId");
@@ -159,9 +159,6 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
     requestedPaneId ??
     panel.tabs.find((t) => t.id === panel.selectedTabId)?.focusedPaneId;
   if (!target) throw new Error("No focused pane to split");
-  if (!layoutHasPane(layout, target)) {
-    throw new Error(`Unknown paneId: ${target}`);
-  }
 
   const direction = parseEnum<SplitDirection>(
     args.direction,

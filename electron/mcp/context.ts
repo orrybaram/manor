@@ -67,3 +67,12 @@ export async function resolveProjectId(
   if (projectId) return projectId;
   return (await resolveContext(http)).projectId;
 }
+
+/** Explicit `workspacePath` always wins; otherwise infer it from the caller's context. */
+export async function resolveWorkspacePath(
+  http: Http,
+  workspacePath?: string,
+): Promise<string> {
+  if (workspacePath) return workspacePath;
+  return (await resolveContext(http)).workspacePath;
+}

@@ -3,7 +3,7 @@
  * tabs, focus and close panes. See ADR-149.
  */
 
-import { resolveContext } from "./context";
+import { resolveWorkspacePath } from "./context";
 // Type-only: erased at compile time, so the MCP process stays Electron-free.
 import type { LayoutSnapshot } from "../../src/store/layout-snapshot";
 import type { ToolDef, ToolModule } from "./types";
@@ -186,9 +186,10 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async new_terminal(args, http) {
-    const workspacePath =
-      (args.workspacePath as string | undefined) ??
-      (await resolveContext(http)).workspacePath;
+    const workspacePath = await resolveWorkspacePath(
+      http,
+      args.workspacePath as string | undefined,
+    );
     const body: Record<string, unknown> = {
       contentType: "terminal",
       workspacePath,
@@ -204,9 +205,10 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async new_browser(args, http) {
-    const workspacePath =
-      (args.workspacePath as string | undefined) ??
-      (await resolveContext(http)).workspacePath;
+    const workspacePath = await resolveWorkspacePath(
+      http,
+      args.workspacePath as string | undefined,
+    );
     const body: Record<string, unknown> = {
       contentType: "browser",
       url: args.url,

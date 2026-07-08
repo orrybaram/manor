@@ -4,28 +4,9 @@ import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import type { ChecksSummary, PrInfo } from "../src/lib/pr-info";
+
 const execFileAsync = promisify(execFile);
-
-interface ChecksSummary {
-  total: number;
-  passing: number;
-  failing: number;
-  pending: number;
-}
-
-interface PrInfo {
-  number: number;
-  state: string;
-  title: string;
-  url: string;
-  isDraft?: boolean;
-  additions?: number;
-  deletions?: number;
-  reviewDecision?: string | null;
-  checks?: ChecksSummary | null;
-  unresolvedThreads?: number;
-  commentCount?: number;
-}
 
 export interface GitHubIssue {
   number: number;

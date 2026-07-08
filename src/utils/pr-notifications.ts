@@ -1,4 +1,6 @@
 import type { PrInfo } from "../store/project-store";
+import type { AppPreferences } from "../electron.d";
+import { useToastStore } from "../store/toast-store";
 
 export type PrNotifyEventKind =
   | "comment"
@@ -62,4 +64,52 @@ export function diffPrEvents(
   }
 
   return events;
+}
+
+/** Which preference gates each event kind. */
+const PREF_FOR: Record<PrNotifyEventKind, keyof AppPreferences> = {
+  comment: "notifyOnPrComment",
+  approved: "notifyOnPrApproved",
+  "changes-requested": "notifyOnPrChangesRequested",
+  "checks-failed": "notifyOnPrChecksFailed",
+};
+
+/** Deliver a single event: in-app toast when focused, native notification otherwise. */
+function notifyPrEvent(event: PrNotifyEvent, url: string): void {
+  if (document.hasFocus()) {
+    useToastStore.getState().addToast({
+      id: `pr-${event.kind}-${url}`,
+      message: event.title,
+      detail: event.body,
+      status:
+        event.kind === "checks-failed" || event.kind === "changes-requested"
+          ? "error"
+          : "success",
+      action: {
+        label: "View PR",
+        onClick: () => void window.electronAPI.shell.openExternal(url),
+      },
+    });
+  } else {
+    void window.electronAPI.notifications.show({
+      title: event.title,
+      body: event.body,
+      url,
+    });
+  }
+}
+
+/**
+ * Diff `prev`→`next`, then deliver a notification for each changed event whose
+ * preference is enabled. No-op when `next` is null or nothing notable changed.
+ */
+export function deliverPrNotifications(
+  prev: PrInfo | null | undefined,
+  next: PrInfo | null | undefined,
+  prefs: AppPreferences,
+): void {
+  if (!next) return;
+  for (const event of diffPrEvents(prev, next)) {
+    if (prefs[PREF_FOR[event.kind]]) notifyPrEvent(event, next.url);
+  }
 }

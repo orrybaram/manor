@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
+import type { ChecksSummary, PrInfo } from "../lib/pr-info";
+
+export type { ChecksSummary, PrInfo } from "../lib/pr-info";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
@@ -142,23 +145,14 @@ export interface DiffStats {
   removed: number;
 }
 
-export interface PrInfo {
-  number: number;
-  state: string;
-  title: string;
-  url: string;
-  isDraft?: boolean;
-  additions?: number;
-  deletions?: number;
-  reviewDecision?: string | null;
-  checks?: {
-    total: number;
-    passing: number;
-    failing: number;
-    pending: number;
-  } | null;
-  unresolvedThreads?: number;
-  commentCount?: number;
+function checksEqual(a?: ChecksSummary | null, b?: ChecksSummary | null): boolean {
+  if (a == null || b == null) return a == b;
+  return (
+    a.total === b.total &&
+    a.passing === b.passing &&
+    a.failing === b.failing &&
+    a.pending === b.pending
+  );
 }
 
 /**
@@ -181,10 +175,7 @@ function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
     a.reviewDecision === b.reviewDecision &&
     a.unresolvedThreads === b.unresolvedThreads &&
     a.commentCount === b.commentCount &&
-    (a.checks?.total ?? -1) === (b.checks?.total ?? -1) &&
-    (a.checks?.passing ?? -1) === (b.checks?.passing ?? -1) &&
-    (a.checks?.failing ?? -1) === (b.checks?.failing ?? -1) &&
-    (a.checks?.pending ?? -1) === (b.checks?.pending ?? -1)
+    checksEqual(a.checks, b.checks)
   );
 }
 

@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString } from "../ipc-validate";
-import { showPrNotification } from "../notifications";
+import { playNotificationSound, showPrNotification } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import type { IpcDeps } from "./types";
 
@@ -111,7 +111,7 @@ export function register(deps: IpcDeps): void {
   });
 
   ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
-    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+    playNotificationSound(soundName);
   });
 
   // ── Notifications ──

@@ -82,6 +82,39 @@ export function updateDockBadge(preferencesManager: PreferencesManager): void {
   }
 }
 
+export function playNotificationSound(soundName: string | false): void {
+  if (typeof soundName === "string") {
+    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
+  }
+}
+
+/**
+ * Present a silent native notification, suppressed while the window is focused.
+ * Clicking it surfaces the window, then runs `onClick`. Single source of truth
+ * for how the app shows native notifications and plays the configured sound.
+ */
+function presentNotification(
+  mainWindow: BrowserWindow | null,
+  preferencesManager: PreferencesManager,
+  opts: { title: string; body: string; onClick?: () => void },
+): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
+
+  const notification = new Notification({
+    title: opts.title,
+    body: opts.body,
+    silent: true,
+  });
+  notification.on("click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+    opts.onClick?.();
+  });
+  notification.show();
+  playNotificationSound(preferencesManager.get("notificationSound"));
+}
+
 export function maybeSendNotification(
   task: TaskInfo,
   prevStatus: string | null | undefined,
@@ -89,9 +122,6 @@ export function maybeSendNotification(
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
 ): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isFocused()) return;
-
   let title: string;
   if (
     newStatus === "responded" &&
@@ -109,53 +139,26 @@ export function maybeSendNotification(
     return;
   }
 
-  const notification = new Notification({
+  presentNotification(mainWindow, preferencesManager, {
     title,
     body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
-    silent: true,
+    onClick: () =>
+      mainWindow?.webContents.send("notification:navigate-to-task", task.id),
   });
-  notification.on("click", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send("notification:navigate-to-task", task.id);
-  });
-  notification.show();
-  const soundName = preferencesManager.get("notificationSound");
-  if (typeof soundName === "string") {
-    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
-  }
 }
 
 /**
  * Show a native notification on demand, triggered by the renderer (e.g. for
- * PR update alerts — see ADR-147). Mirrors `maybeSendNotification`'s
- * focus-suppression and silent-notification conventions.
+ * PR update alerts — see ADR-147).
  */
 export function showPrNotification(
   payload: { title: string; body: string; url?: string },
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
 ): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isFocused()) return;
-
-  const notification = new Notification({
+  presentNotification(mainWindow, preferencesManager, {
     title: payload.title,
     body: payload.body,
-    silent: true,
+    onClick: payload.url ? () => shell.openExternal(payload.url!) : undefined,
   });
-  notification.on("click", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
-    mainWindow.focus();
-    if (payload.url) {
-      shell.openExternal(payload.url);
-    }
-  });
-  notification.show();
-  const soundName = preferencesManager.get("notificationSound");
-  if (typeof soundName === "string") {
-    execFile("afplay", [`/System/Library/Sounds/${soundName}.aiff`]);
-  }
 }

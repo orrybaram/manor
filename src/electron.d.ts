@@ -1,3 +1,5 @@
+import type { PrInfo } from "./lib/pr-info";
+
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
   notifyOnResponse: boolean;
@@ -402,29 +404,7 @@ export interface ElectronAPI {
     getPrsForBranches: (
       repoPath: string,
       branches: string[],
-    ) => Promise<
-      [
-        string,
-        {
-          number: number;
-          state: string;
-          title: string;
-          url: string;
-          isDraft?: boolean;
-          additions?: number;
-          deletions?: number;
-          reviewDecision?: string | null;
-          checks?: {
-            total: number;
-            passing: number;
-            failing: number;
-            pending: number;
-          } | null;
-          unresolvedThreads?: number;
-          commentCount?: number;
-        } | null,
-      ][]
-    >;
+    ) => Promise<[string, PrInfo | null][]>;
     checkStatus: () => Promise<{
       installed: boolean;
       authenticated: boolean;

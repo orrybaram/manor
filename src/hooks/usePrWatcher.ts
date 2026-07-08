@@ -1,37 +1,10 @@
 import { useProjectStore } from "../store/project-store";
 import { branchesEqual } from "../utils/branch-name";
-import { diffPrEvents, type PrNotifyEvent } from "../utils/pr-notifications";
-import { useToastStore } from "../store/toast-store";
+import { deliverPrNotifications } from "../utils/pr-notifications";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useMountEffect } from "./useMountEffect";
 
 const PR_POLL_INTERVAL = 15_000;
-
-function notifyPrEvent(event: PrNotifyEvent, url: string) {
-  if (document.hasFocus()) {
-    useToastStore.getState().addToast({
-      id: `pr-${event.kind}-${url}`,
-      message: event.title,
-      detail: event.body,
-      status:
-        event.kind === "checks-failed" || event.kind === "changes-requested"
-          ? "error"
-          : "success",
-      action: {
-        label: "View PR",
-        onClick: () => {
-          void window.electronAPI.shell.openExternal(url);
-        },
-      },
-    });
-  } else {
-    void window.electronAPI.notifications.show({
-      title: event.title,
-      body: event.body,
-      url,
-    });
-  }
-}
 
 function computeFingerprint() {
   const projects = useProjectStore.getState().projects;
@@ -63,40 +36,12 @@ export async function fetchPrs() {
       for (const [branch, pr] of results) {
         const ws = nonMainWorkspaces.find((w) => branchesEqual(w.branch, branch));
         if (ws) {
-          const prev = ws.pr;
-          const events = diffPrEvents(prev, pr);
-          if (pr && events.length > 0) {
-            const prefs = usePreferencesStore.getState().preferences;
-            const prefFor: Record<PrNotifyEvent["kind"], boolean> = {
-              comment: prefs.notifyOnPrComment,
-              approved: prefs.notifyOnPrApproved,
-              "changes-requested": prefs.notifyOnPrChangesRequested,
-              "checks-failed": prefs.notifyOnPrChecksFailed,
-            };
-            for (const event of events) {
-              if (!prefFor[event.kind]) continue;
-              notifyPrEvent(event, pr.url);
-            }
-          }
-
-          updateWorkspacePr(
-            ws.path,
-            pr
-              ? {
-                  number: pr.number,
-                  state: pr.state,
-                  title: pr.title,
-                  url: pr.url,
-                  isDraft: pr.isDraft,
-                  additions: pr.additions,
-                  deletions: pr.deletions,
-                  reviewDecision: pr.reviewDecision,
-                  checks: pr.checks,
-                  unresolvedThreads: pr.unresolvedThreads,
-                  commentCount: pr.commentCount,
-                }
-              : null,
+          deliverPrNotifications(
+            ws.pr,
+            pr,
+            usePreferencesStore.getState().preferences,
           );
+          updateWorkspacePr(ws.path, pr);
         }
       }
     } catch {

@@ -1,6 +1,6 @@
 ---
 title: Delete the control-server barrel; derive OWNED_PREFIXES
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

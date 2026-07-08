@@ -1,6 +1,6 @@
 ---
 title: Pane tools target the caller's pane, not the user's focus
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [9]

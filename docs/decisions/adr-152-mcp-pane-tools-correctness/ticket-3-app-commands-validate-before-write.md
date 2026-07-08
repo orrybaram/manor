@@ -1,6 +1,6 @@
 ---
 title: app-commands — validate before write, never move the user, one scope
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [2]

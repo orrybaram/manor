@@ -1,6 +1,6 @@
 ---
 title: Delete resolvedBy, Resolution, and resolveByCwd
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [5]

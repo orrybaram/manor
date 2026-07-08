@@ -1,6 +1,6 @@
 ---
 title: Stop swallowing assignIssue and closeIssue failures
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [8]

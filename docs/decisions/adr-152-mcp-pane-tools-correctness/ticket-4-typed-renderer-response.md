@@ -1,6 +1,6 @@
 ---
 title: Typed RendererResponse; delete rendererErrorStatus and the duplicated route validation
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

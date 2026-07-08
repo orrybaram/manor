@@ -45,6 +45,10 @@ import { WebviewServer } from "../webview-server";
 import { requestRenderer } from "../control-server";
 import type { AppCommand, AppCommandResult } from "../control-server";
 import { webContents, BrowserWindow, ipcMain } from "electron";
+import { webviewModule } from "../mcp/tools-webview";
+import { projectsModule } from "../mcp/tools-projects";
+import { agentsModule } from "../mcp/tools-agents";
+import { panesModule } from "../mcp/tools-panes";
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -1377,5 +1381,40 @@ describe("requestRenderer", () => {
     const next = requestRenderer<string>("list-panes", undefined, 1000);
     reply({ requestId: sentCommand(1).requestId!, ok: true, data: "ok" });
     await expect(next).resolves.toEqual({ ok: true, data: "ok" });
+  });
+});
+
+// ── TOOLS/handlers parity test (ADR-149) ──
+
+describe("MCP tools composition and parity", () => {
+  it("composes exactly 26 tools with matching handlers", () => {
+    // Compose the modules the same way mcp-webview-server.ts does
+    // (we import directly rather than from mcp-webview-server.ts because
+    // that module calls main() at load time).
+    const modules = [webviewModule, projectsModule, agentsModule, panesModule];
+    const tools = modules.flatMap((m) => m.tools);
+    const handlers = Object.assign({}, ...modules.map((m) => m.handlers));
+
+    // Assert the total tool count: 11 webview + 6 projects + 4 agents + 6 pane tools = 27
+    const toolNames = tools.map((t) => t.name);
+    expect(tools).toHaveLength(27);
+
+    // Assert the six new pane tools are present
+    const newPaneTools = ["list_panes", "split_pane", "new_terminal", "new_browser", "focus_pane", "close_pane"];
+    for (const toolName of newPaneTools) {
+      expect(toolNames).toContain(toolName);
+    }
+
+    // Assert TOOLS/handlers parity: every tool has a handler, and vice versa
+    const toolNameSet = new Set(toolNames);
+    const handlerNameSet = new Set(Object.keys(handlers));
+
+    expect(toolNameSet.size).toBe(handlerNameSet.size);
+    for (const toolName of toolNameSet) {
+      expect(handlerNameSet).toContain(toolName);
+    }
+    for (const handlerName of handlerNameSet) {
+      expect(toolNameSet).toContain(handlerName);
+    }
   });
 });

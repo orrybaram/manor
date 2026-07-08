@@ -263,6 +263,26 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
 
   const visibleIssues = issues.filter((i) => !removedIds.has(i.id));
 
+  // Undo an optimistic removal — used when the mutation it was standing in
+  // for turns out to have failed.
+  const revertRemoval = useCallback((issueId: string) => {
+    setRemovedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(issueId);
+      return next;
+    });
+  }, []);
+
+  const toastError = useCallback((id: string, message: string, err: unknown) => {
+    const detail = err instanceof Error ? err.message : String(err);
+    useToastStore.getState().addToast({
+      id,
+      message,
+      status: "error",
+      detail,
+    });
+  }, []);
+
   const handleUnlink = useCallback(
     async (issueId: string) => {
       setRemovedIds((prev) => new Set(prev).add(issueId));
@@ -271,14 +291,21 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       if (remaining.length === 0) {
         onClose();
       }
-      await window.electronAPI.linear.unlinkIssueFromWorkspace(
-        projectId,
-        workspacePath,
-        issueId,
-      );
+      try {
+        await window.electronAPI.linear.unlinkIssueFromWorkspace(
+          projectId,
+          workspacePath,
+          issueId,
+        );
+      } catch (err) {
+        // Revert the optimistic removal — the link still exists on disk.
+        revertRemoval(issueId);
+        toastError(`unlink-issue-error-${issueId}`, "Failed to unlink issue", err);
+        return;
+      }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, visibleIssues, onClose],
+    [projectId, workspacePath, visibleIssues, onClose, revertRemoval, toastError],
   );
 
   const handleCloseTicket = useCallback(
@@ -297,28 +324,29 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
         }
       } catch (err) {
         // Revert the optimistic removal — the issue is still open.
-        setRemovedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(issueId);
-          return next;
-        });
-        const message = err instanceof Error ? err.message : String(err);
-        useToastStore.getState().addToast({
-          id: `close-issue-error-${issueId}`,
-          message: "Failed to close issue",
-          status: "error",
-          detail: message,
-        });
+        revertRemoval(issueId);
+        toastError(`close-issue-error-${issueId}`, "Failed to close issue", err);
         return;
       }
-      await window.electronAPI.linear.unlinkIssueFromWorkspace(
-        projectId,
-        workspacePath,
-        issueId,
-      );
+      try {
+        await window.electronAPI.linear.unlinkIssueFromWorkspace(
+          projectId,
+          workspacePath,
+          issueId,
+        );
+      } catch (err) {
+        // The issue genuinely is closed now — do not revert the removal,
+        // just surface that the workspace link is stale.
+        toastError(
+          `unlink-after-close-error-${issueId}`,
+          "Issue closed, but failed to unlink from workspace",
+          err,
+        );
+        return;
+      }
       useProjectStore.getState().loadProjects();
     },
-    [projectId, workspacePath, repoPath, visibleIssues, onClose],
+    [projectId, workspacePath, repoPath, visibleIssues, onClose, revertRemoval, toastError],
   );
 
   const handleRowClick = useCallback((issueId: string) => {

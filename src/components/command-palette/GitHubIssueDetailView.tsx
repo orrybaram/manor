@@ -137,12 +137,23 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
 
   const handleUnlink = useCallback(async () => {
     if (!projectId || !workspacePath) return;
+    try {
+      await window.electronAPI.linear.unlinkIssueFromWorkspace(
+        projectId,
+        workspacePath,
+        `gh-${issueNumber}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      useToastStore.getState().addToast({
+        id: `unlink-issue-error-gh-${issueNumber}`,
+        message: "Failed to unlink issue",
+        status: "error",
+        detail: message,
+      });
+      return;
+    }
     onClose();
-    await window.electronAPI.linear.unlinkIssueFromWorkspace(
-      projectId,
-      workspacePath,
-      `gh-${issueNumber}`,
-    );
     useProjectStore.getState().loadProjects();
   }, [projectId, workspacePath, issueNumber, onClose]);
 
@@ -161,11 +172,24 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
       return;
     }
     onClose();
-    await window.electronAPI.linear.unlinkIssueFromWorkspace(
-      projectId,
-      workspacePath,
-      `gh-${issueNumber}`,
-    );
+    try {
+      await window.electronAPI.linear.unlinkIssueFromWorkspace(
+        projectId,
+        workspacePath,
+        `gh-${issueNumber}`,
+      );
+    } catch (err) {
+      // The issue genuinely is closed now — surface the stale link without
+      // undoing the close.
+      const message = err instanceof Error ? err.message : String(err);
+      useToastStore.getState().addToast({
+        id: `unlink-after-close-error-gh-${issueNumber}`,
+        message: "Issue closed, but failed to unlink from workspace",
+        status: "error",
+        detail: message,
+      });
+      return;
+    }
     useProjectStore.getState().loadProjects();
   }, [projectId, workspacePath, repoPath, issueNumber, onClose]);
 

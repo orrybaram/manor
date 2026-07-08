@@ -1,6 +1,6 @@
 ---
 title: Store — caller-supplied pane IDs, split URL, layout snapshot
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

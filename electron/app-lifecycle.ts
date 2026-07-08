@@ -203,7 +203,10 @@ export function initApp(devTitle: string | null): void {
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
 
-  const webviewServer = webviewIpc.createWebviewServer();
+  const webviewServer = webviewIpc.createWebviewServer(
+    projectManager,
+    githubManager,
+  );
 
   // Build shared deps object for extracted IPC modules
   const ipcDeps = {

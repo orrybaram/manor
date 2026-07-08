@@ -1,6 +1,6 @@
 ---
 title: Add project/workspace MCP tools to existing MCP server
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

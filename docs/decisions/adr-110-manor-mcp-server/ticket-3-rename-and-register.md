@@ -1,6 +1,6 @@
 ---
 title: Rename MCP server registration from manor-webview to manor
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1, 2]

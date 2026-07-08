@@ -591,11 +591,19 @@ run simultaneously.
 - `BranchWatcher` and `DiffWatcher` exist (`app-lifecycle.ts:67-68`) but
   are not joined to tasks.
 
-### 10.4 MCP webview
+### 10.4 MCP server
 
-- `manor-webview` MCP server is registered with each connector
-  (`agent-connectors.ts:135-172` for Claude). Allows agents to control a
-  webview pane via MCP tools (`mcp__manor-webview__*`).
+- The `manor` MCP server is registered with each connector
+  (`agent-connectors.ts` `registerMcp` for Claude/Codex). Allows agents to
+  control a webview pane and manage Manor itself (projects & workspaces) via
+  MCP tools (`mcp__manor__*`). Renamed from `manor-webview` in ADR-110.
+- ADR-144 added agent-orchestration tools: `list_issues` (list a project's
+  GitHub issues via `GitHubManager`), `start_agent` (launch an agent in a
+  workspace, round-tripping through the renderer via the `app-command`
+  channel), and `batch_create_workspaces` (fan a set of GitHub issues out
+  into one workspace + agent each). Backed by new `WebviewServer` routes
+  (`GET /projects/:id/issues`, `POST /agents`,
+  `POST /projects/:id/workspaces/batch`).
 - Lives outside the task lifecycle; no task field references it.
 
 ---

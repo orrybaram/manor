@@ -164,15 +164,20 @@ export class ClaudeConnector implements AgentConnector {
       }
     >;
 
-    const existing = mcpServers["manor-webview"];
+    // Clean up the pre-rename entry from earlier versions.
+    const hadLegacy = "manor-webview" in mcpServers;
+    if (hadLegacy) delete mcpServers["manor-webview"];
+
+    const existing = mcpServers["manor"];
     const needsUpdate =
+      hadLegacy ||
       !existing ||
       existing.command !== "node" ||
       !existing.args ||
       existing.args[0] !== mcpServerScriptPath;
 
     if (needsUpdate) {
-      mcpServers["manor-webview"] = {
+      mcpServers["manor"] = {
         type: "stdio",
         command: "node",
         args: [mcpServerScriptPath],
@@ -317,8 +322,19 @@ export class CodexConnector implements AgentConnector {
       // File doesn't exist — will create it
     }
 
-    // Check if manor-webview MCP server is already registered
-    if (content.includes("[mcp_servers.manor-webview]")) {
+    // Strip the pre-rename section from earlier versions (up to the next
+    // top-level table header or end of file).
+    const hadLegacy = content.includes("[mcp_servers.manor-webview]");
+    if (hadLegacy) {
+      content = content.replace(
+        /\n?\[mcp_servers\.manor-webview\][\s\S]*?(?=\n\[|$)/,
+        "",
+      );
+    }
+
+    // Already registered under the new name — persist any legacy strip and stop.
+    if (content.includes("[mcp_servers.manor]")) {
+      if (hadLegacy) fs.writeFileSync(configPath, content);
       return;
     }
 
@@ -326,7 +342,7 @@ export class CodexConnector implements AgentConnector {
 
     const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
     const section = [
-      `\n[mcp_servers.manor-webview]`,
+      `\n[mcp_servers.manor]`,
       `type = "stdio"`,
       `command = "node"`,
       `args = [${JSON.stringify(mcpServerScriptPath)}]`,

@@ -274,12 +274,29 @@ function App() {
     }
   }, [activeWorkspacePath, prewarmAgentCommand]);
 
+  // App-commands from the main process (e.g. MCP start_agent). Main cannot
+  // create panes directly, so it round-trips over the "app-command" channel.
+  useEffect(() => {
+    const cleanup = window.electronAPI.onAppCommand(
+      async ({ cmd, workspacePath, prompt }) => {
+        if (cmd === "start-agent" && workspacePath) {
+          await loadProjects(); // ensure a freshly-created workspace is visible
+          setActiveWorkspace(workspacePath);
+          if (prompt) handleNewTaskWithPromptRef.current(prompt);
+          else handleNewTaskRef.current();
+        }
+      },
+    );
+    return cleanup;
+  }, [loadProjects, setActiveWorkspace]);
+
   // Keybindings
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const wsRef = useRef(ws);
   wsRef.current = ws;
   const handleNewTaskRef = useRef<() => void>(() => {});
+  const handleNewTaskWithPromptRef = useRef<(prompt: string) => void>(() => {});
 
   // Helper to get the focused browser pane's ref (if focused pane is a browser)
   function getFocusedBrowserRef(): BrowserPaneRef | undefined {
@@ -509,6 +526,7 @@ function App() {
     },
     [addTab, projects, activeWorkspacePath],
   );
+  handleNewTaskWithPromptRef.current = handleNewTaskWithPrompt;
 
   if (!appReady) {
     return (

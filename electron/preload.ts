@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { AppCommand } from "./control-server";
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
@@ -412,6 +413,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
+  },
+
+  onAppCommand: (callback: (payload: AppCommand) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: AppCommand) =>
+      callback(payload);
+    ipcRenderer.on("app-command", listener);
+    return () => ipcRenderer.removeListener("app-command", listener);
   },
 
   webview: {

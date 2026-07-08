@@ -580,6 +580,14 @@ export interface ElectronAPI {
     writeText: (text: string) => Promise<void>;
   };
 
+  onAppCommand: (
+    callback: (payload: {
+      cmd: string;
+      workspacePath?: string;
+      prompt?: string;
+    }) => void,
+  ) => () => void;
+
   webview: {
     register: (paneId: string, webContentsId: number) => Promise<void>;
     unregister: (paneId: string) => Promise<void>;

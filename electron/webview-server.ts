@@ -13,6 +13,9 @@ import { webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
+import { handleControlRequest } from "./control-server";
+import type { ProjectManager } from "./persistence";
+import type { GitHubManager } from "./github";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -51,11 +54,19 @@ export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
   private registry: Map<string, number>; // paneId → webContentsId
+  private projectManager: ProjectManager | null;
+  private githubManager: GitHubManager | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
-  constructor(registry: Map<string, number>) {
+  constructor(
+    registry: Map<string, number>,
+    projectManager?: ProjectManager,
+    githubManager?: GitHubManager,
+  ) {
     this.registry = registry;
+    this.projectManager = projectManager ?? null;
+    this.githubManager = githubManager ?? null;
   }
 
   get serverPort(): number {
@@ -215,6 +226,22 @@ export class WebviewServer {
         req.on("error", reject);
       });
     };
+
+    // ── Manor-control routes (/projects…, /agents) ──
+    if (
+      await handleControlRequest(
+        {
+          projectManager: this.projectManager,
+          githubManager: this.githubManager,
+        },
+        method,
+        url,
+        json,
+        readBody,
+      )
+    ) {
+      return;
+    }
 
     // ── GET /webviews ──
     if (method === "GET" && url.pathname === "/webviews") {

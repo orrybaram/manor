@@ -9,6 +9,8 @@ import {
 import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
+import type { ProjectManager } from "../persistence";
+import type { GitHubManager } from "../github";
 import type { IpcDeps } from "./types";
 import {
   buildPopupWindowOptions,
@@ -30,8 +32,11 @@ const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
 
-export function createWebviewServer(): WebviewServer {
-  return new WebviewServer(webviewRegistry);
+export function createWebviewServer(
+  projectManager?: ProjectManager,
+  githubManager?: GitHubManager,
+): WebviewServer {
+  return new WebviewServer(webviewRegistry, projectManager, githubManager);
 }
 
 export function register(deps: IpcDeps): void {

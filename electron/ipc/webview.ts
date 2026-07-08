@@ -12,6 +12,7 @@ import { assertString } from "../ipc-validate";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { ProjectManager } from "../persistence";
+import type { GitHubManager } from "../github";
 import type { IpcDeps } from "./types";
 
 export const webviewRegistry = new Map<string, number>();
@@ -45,8 +46,9 @@ const INTERCEPT_NEW_WINDOW_SCRIPT = `
 
 export function createWebviewServer(
   projectManager?: ProjectManager,
+  githubManager?: GitHubManager,
 ): WebviewServer {
-  return new WebviewServer(webviewRegistry, projectManager);
+  return new WebviewServer(webviewRegistry, projectManager, githubManager);
 }
 
 export function register(deps: IpcDeps): void {

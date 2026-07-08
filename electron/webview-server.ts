@@ -14,6 +14,8 @@ import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
 import type { ProjectManager } from "./persistence";
+import type { GitHubManager } from "./github";
+import type { LinkedIssue } from "./linear";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -48,17 +50,33 @@ async function captureElementRegion(
 
 const PORT_FILE = webviewServerPortFile();
 
+/** Convert an arbitrary string into a filesystem/branch-safe slug. */
+function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
   private registry: Map<string, number>; // paneId → webContentsId
   private projectManager: ProjectManager | null;
+  private githubManager: GitHubManager | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
-  constructor(registry: Map<string, number>, projectManager?: ProjectManager) {
+  constructor(
+    registry: Map<string, number>,
+    projectManager?: ProjectManager,
+    githubManager?: GitHubManager,
+  ) {
     this.registry = registry;
     this.projectManager = projectManager ?? null;
+    this.githubManager = githubManager ?? null;
   }
 
   get serverPort(): number {
@@ -200,14 +218,19 @@ export class WebviewServer {
       return;
     }
 
-    // /projects/:id and /projects/:id/workspaces
-    const match = url.pathname.match(/^\/projects(?:\/([^/]+)(?:\/(workspaces))?)?$/);
+    // /projects/:id, /projects/:id/workspaces, /projects/:id/workspaces/batch,
+    // /projects/:id/issues
+    const match = url.pathname.match(
+      /^\/projects(?:\/([^/]+)(?:\/(workspaces|issues)(?:\/(batch))?)?)?$/,
+    );
     if (!match) {
       json(404, { error: "Not found" });
       return;
     }
     const projectId = match[1] ? decodeURIComponent(match[1]) : undefined;
-    const isWorkspaces = match[2] === "workspaces";
+    const isWorkspaces = match[2] === "workspaces" && !match[3];
+    const isWorkspacesBatch = match[2] === "workspaces" && match[3] === "batch";
+    const isIssues = match[2] === "issues";
 
     // ── /projects ──
     if (!projectId) {
@@ -235,6 +258,141 @@ export class WebviewServer {
     const project = projects.find((p) => p.id === projectId);
     if (!project) {
       json(404, { error: "Project not found" });
+      return;
+    }
+
+    // ── /projects/:id/issues ──
+    if (isIssues) {
+      if (method !== "GET") {
+        json(405, { error: "Method not allowed" });
+        return;
+      }
+      const github = this.githubManager;
+      if (!github) {
+        json(503, { error: "GitHub is not available" });
+        return;
+      }
+      const filter =
+        url.searchParams.get("filter") === "all" ? "all" : "assigned";
+      const stateParam = url.searchParams.get("state");
+      const state: "open" | "closed" | "all" =
+        stateParam === "closed" || stateParam === "all" ? stateParam : "open";
+      const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
+
+      const issues =
+        filter === "all"
+          ? await github.getAllIssues(project.path, limit, state)
+          : await github.getMyIssues(project.path, limit, state);
+      json(200, issues);
+      return;
+    }
+
+    // ── /projects/:id/workspaces/batch ──
+    if (isWorkspacesBatch) {
+      if (method !== "POST") {
+        json(405, { error: "Method not allowed" });
+        return;
+      }
+      const github = this.githubManager;
+      if (!github || !this.projectManager) {
+        json(503, {
+          error: "GitHub and project management are required for batch creation",
+        });
+        return;
+      }
+
+      const body = await readBody();
+      const issues = body.issues;
+      if (
+        !Array.isArray(issues) ||
+        issues.length === 0 ||
+        !issues.every((n) => typeof n === "number")
+      ) {
+        json(400, {
+          error: "Missing non-empty 'issues' array of numbers in request body",
+        });
+        return;
+      }
+      const baseBranch =
+        typeof body.baseBranch === "string" ? body.baseBranch : undefined;
+      const assign = body.assign === true;
+      const startAgent = body.startAgent !== false;
+      const promptTemplate =
+        typeof body.promptTemplate === "string" ? body.promptTemplate : undefined;
+
+      const results: Array<{
+        number: number;
+        title: string;
+        workspacePath?: string;
+        started: boolean;
+        error?: string;
+      }> = [];
+
+      // Track known worktree paths across iterations so each new worktree
+      // can be identified by diffing against the set before its creation.
+      const knownPaths = new Set(project.workspaces.map((w) => w.path));
+
+      for (const number of issues as number[]) {
+        try {
+          const detail = await github.getIssueDetail(project.path, number);
+          const linkedIssue: LinkedIssue = {
+            id: String(number),
+            identifier: "#" + number,
+            title: detail.title,
+            url: detail.url,
+          };
+          const name = slugify(detail.title) || "issue-" + number;
+
+          // Capture existing worktree paths so we can identify the new one.
+          const before = new Set(knownPaths);
+          const updated = await pm.createWorktree(
+            projectId,
+            name,
+            undefined,
+            linkedIssue,
+            baseBranch,
+          );
+          const worktreePath = updated?.workspaces.find(
+            (w) => !before.has(w.path),
+          )?.path;
+          for (const w of updated?.workspaces ?? []) {
+            knownPaths.add(w.path);
+          }
+
+          if (assign) {
+            await github.assignIssue(project.path, number);
+          }
+
+          let started = false;
+          if (worktreePath && startAgent) {
+            const prompt = promptTemplate
+              ? promptTemplate
+                  .replace(/\{number\}/g, String(number))
+                  .replace(/\{title\}/g, detail.title)
+                  .replace(/\{body\}/g, detail.body ?? "")
+              : `Work on GitHub issue #${number}: ${detail.title}.\n\n${detail.body ?? ""}`;
+            const result = this.startAgent(worktreePath, prompt);
+            started = result.ok;
+          }
+
+          results.push({
+            number,
+            title: detail.title,
+            workspacePath: worktreePath,
+            started,
+          });
+        } catch (err) {
+          results.push({
+            number,
+            title: "",
+            started: false,
+            error: String(err),
+          });
+        }
+      }
+
+      json(200, { results });
       return;
     }
 

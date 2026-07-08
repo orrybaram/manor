@@ -1,6 +1,6 @@
 ---
 title: GitHub issue + batch-workspace HTTP routes
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1]

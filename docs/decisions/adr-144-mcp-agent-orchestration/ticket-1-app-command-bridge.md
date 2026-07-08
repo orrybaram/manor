@@ -1,6 +1,6 @@
 ---
 title: Main→renderer app-command bridge + start_agent HTTP route
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

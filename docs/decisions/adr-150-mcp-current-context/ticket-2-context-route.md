@@ -1,6 +1,6 @@
 ---
 title: Add GET /context route and thread layoutPersistence
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

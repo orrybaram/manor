@@ -1,6 +1,6 @@
 ---
 title: Add pure pane-context resolver module
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

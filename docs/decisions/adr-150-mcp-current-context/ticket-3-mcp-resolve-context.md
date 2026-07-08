@@ -1,6 +1,6 @@
 ---
 title: resolveContext helper, optional projectId, current_workspace tool
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

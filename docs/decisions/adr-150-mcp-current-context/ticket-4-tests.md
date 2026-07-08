@@ -1,6 +1,6 @@
 ---
 title: Cover the /context route with integration tests
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2, 3]

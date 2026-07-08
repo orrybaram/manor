@@ -22,6 +22,7 @@ import { useAppStore, selectActiveWorkspace } from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
 import { useToastStore } from "./store/toast-store";
+import { appCommandHandlers } from "./lib/app-commands";
 import { comboFromEvent, comboMatches } from "./lib/keybindings";
 import { getBrowserPaneRef } from "./lib/browser-pane-registry";
 import type { BrowserPaneRef } from "./components/workspace-panes/BrowserPane/BrowserPane";
@@ -283,18 +284,39 @@ function App() {
 
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
+  // Payloads carrying a `requestId` expect a reply; the rest are legacy
+  // fire-and-forget commands that close over this component's callback refs.
   useEffect(() => {
     const cleanup = window.electronAPI.onAppCommand(
-      async ({ cmd, workspacePath, prompt, script }) => {
+      async ({ cmd, requestId, workspacePath, prompt, script, args }) => {
         if (cmd === "start-agent" && workspacePath) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
           if (prompt) handleNewTaskWithPromptRef.current(prompt);
           else handleNewTaskRef.current();
-        } else if (cmd === "run-setup-script" && workspacePath && script) {
+          return;
+        }
+        if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
           runWorkspaceSetupScript(workspacePath, script);
+          return;
+        }
+
+        if (!requestId) return;
+        try {
+          const handler = appCommandHandlers[cmd];
+          // Must reject before an optional-chained call yields `undefined`:
+          // replying `ok: true` to an unknown cmd hangs main until its timeout.
+          if (!handler) throw new Error(`Unknown command: ${cmd}`);
+          const data = await handler(args ?? {});
+          window.electronAPI.sendAppCommandResult({ requestId, ok: true, data });
+        } catch (err) {
+          window.electronAPI.sendAppCommandResult({
+            requestId,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       },
     );

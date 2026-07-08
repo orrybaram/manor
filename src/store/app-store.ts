@@ -74,7 +74,9 @@ type ClosedSnapshot = ClosedPaneSnapshot | ClosedTabSnapshot;
 
 const MAX_CLOSED_PANE_STACK = 10;
 
-function newPaneId(): string {
+/** Mint a pane ID. Exported so `app-commands.ts` can pre-allocate one and
+ *  return it to main before the pane mounts. */
+export function newPaneId(): string {
   return `pane-${crypto.randomUUID()}`;
 }
 

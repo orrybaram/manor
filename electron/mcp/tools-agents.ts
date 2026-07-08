@@ -2,8 +2,15 @@
  * MCP tools for GitHub issues and agent launching.
  */
 
+import { resolveProjectId } from "./context";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
+
+/** Shared by every tool that takes an optional, inferrable project. */
+const PROJECT_ID_PROP = {
+  type: "string",
+  description: "Project ID. Defaults to the project this agent is running in.",
+} as const;
 
 // ── Tool definitions ──
 
@@ -14,7 +21,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         filter: {
           type: "string",
           description: "Which issues to list: 'assigned' (default) or 'all'.",
@@ -32,7 +39,6 @@ const tools: ToolDef[] = [
           description: "Issue source: 'github' (default) or 'linear'.",
         },
       },
-      required: ["projectId"],
     },
   },
   {
@@ -42,7 +48,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         issue: {
           type: "string",
           description:
@@ -53,7 +59,7 @@ const tools: ToolDef[] = [
           description: "Issue source: 'github' (default) or 'linear'.",
         },
       },
-      required: ["projectId", "issue"],
+      required: ["issue"],
     },
   },
   {
@@ -63,7 +69,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         workspacePath: {
           type: "string",
           description: "Filesystem path of the workspace to launch the agent in.",
@@ -73,7 +79,7 @@ const tools: ToolDef[] = [
           description: "Optional initial prompt for the agent.",
         },
       },
-      required: ["projectId", "workspacePath"],
+      required: ["workspacePath"],
     },
   },
   {
@@ -83,7 +89,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         issues: {
           type: "array",
           items: { type: "number" },
@@ -107,7 +113,7 @@ const tools: ToolDef[] = [
             "Prompt template for the launched agents. Supports {number}, {title}, {body}.",
         },
       },
-      required: ["projectId", "issues"],
+      required: ["issues"],
     },
   },
 ];
@@ -116,7 +122,10 @@ const tools: ToolDef[] = [
 
 const handlers: ToolModule["handlers"] = {
   async list_issues(args, http) {
-    const projectId = args.projectId as string;
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const params = new URLSearchParams();
     if (args.filter !== undefined) params.set("filter", String(args.filter));
     if (args.state !== undefined) params.set("state", String(args.state));
@@ -148,7 +157,10 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async get_issue_detail(args, http) {
-    const projectId = args.projectId as string;
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const issue = args.issue as string;
     const params = new URLSearchParams();
     if (args.source !== undefined) params.set("source", String(args.source));
@@ -178,8 +190,12 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async start_agent(args, http) {
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const body: Record<string, unknown> = {
-      projectId: args.projectId,
+      projectId,
       workspacePath: args.workspacePath,
     };
     if (args.prompt !== undefined) body.prompt = args.prompt;
@@ -188,7 +204,10 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async batch_create_workspaces(args, http) {
-    const projectId = args.projectId as string;
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const body: Record<string, unknown> = { issues: args.issues };
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.assign !== undefined) body.assign = args.assign;

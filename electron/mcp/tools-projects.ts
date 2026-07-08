@@ -2,8 +2,15 @@
  * MCP tools for project and workspace management.
  */
 
+import { resolveContext, resolveProjectId } from "./context";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
+
+/** Shared by every tool that takes an optional, inferrable project. */
+const PROJECT_ID_PROP = {
+  type: "string",
+  description: "Project ID. Defaults to the project this agent is running in.",
+} as const;
 
 // ── Project & workspace types ──
 
@@ -60,9 +67,8 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
       },
-      required: ["projectId"],
     },
   },
   {
@@ -87,7 +93,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         name: {
           type: "string",
           description:
@@ -107,7 +113,6 @@ const tools: ToolDef[] = [
           description: "Check out an existing branch instead of creating a new one.",
         },
       },
-      required: ["projectId"],
     },
   },
   {
@@ -116,9 +121,8 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
       },
-      required: ["projectId"],
     },
   },
   {
@@ -127,7 +131,7 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        projectId: { type: "string", description: "Project ID." },
+        projectId: PROJECT_ID_PROP,
         worktreePath: {
           type: "string",
           description: "Filesystem path of the workspace to remove.",
@@ -137,7 +141,16 @@ const tools: ToolDef[] = [
           description: "Also delete the workspace's git branch.",
         },
       },
-      required: ["projectId", "worktreePath"],
+      required: ["worktreePath"],
+    },
+  },
+  {
+    name: "current_workspace",
+    description:
+      "Identify the Manor project and workspace this agent is running in, and which issue sources are available.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
     },
   },
 ];
@@ -160,8 +173,12 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async get_project(args, http) {
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const project = (await http.get(
-      `/projects/${encodeURIComponent(args.projectId as string)}`,
+      `/projects/${encodeURIComponent(projectId)}`,
     )) as ProjectInfo;
     return text(formatProject(project));
   },
@@ -175,7 +192,10 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async create_workspace(args, http) {
-    const projectId = args.projectId as string;
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     // `name` and `branch` each default to the other; the control server rejects
     // the request when neither is supplied.
     const label = (args.name ?? args.branch) as string | undefined;
@@ -200,8 +220,12 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async list_workspaces(args, http) {
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
     const workspaces = (await http.get(
-      `/projects/${encodeURIComponent(args.projectId as string)}/workspaces`,
+      `/projects/${encodeURIComponent(projectId)}/workspaces`,
     )) as WorkspaceInfo[];
     if (workspaces.length === 0) {
       return text("No workspaces in this project.");
@@ -210,16 +234,32 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async remove_workspace(args, http) {
-    await http.del(
-      `/projects/${encodeURIComponent(args.projectId as string)}/workspaces`,
-      {
-        worktreePath: args.worktreePath,
-        ...(args.deleteBranch !== undefined
-          ? { deleteBranch: args.deleteBranch }
-          : {}),
-      },
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
     );
+    await http.del(`/projects/${encodeURIComponent(projectId)}/workspaces`, {
+      worktreePath: args.worktreePath,
+      ...(args.deleteBranch !== undefined
+        ? { deleteBranch: args.deleteBranch }
+        : {}),
+    });
     return text(`Removed workspace at ${args.worktreePath}.`);
+  },
+
+  async current_workspace(_args, http) {
+    const ctx = await resolveContext(http);
+    // An empty `sources` is information, not an omission — say so out loud.
+    const sources =
+      ctx.sources.length > 0 ? ctx.sources.join(", ") : "none configured";
+    const lines = [
+      `${ctx.projectName} (project ${ctx.projectId})`,
+      `  path: ${ctx.projectPath}`,
+      `  workspace: ${ctx.workspacePath}`,
+      `  branch: ${ctx.branch}${ctx.isMain ? " (main workspace)" : ""}`,
+      `  issue sources: ${sources}`,
+    ];
+    return text(lines.join("\n"));
   },
 };
 

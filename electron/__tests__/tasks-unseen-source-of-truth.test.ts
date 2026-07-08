@@ -51,6 +51,9 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       getActiveTasks: vi.fn().mockReturnValue([]),
       getLastPruneCount: vi.fn().mockReturnValue(0),
       updateTask: vi.fn(),
+      // `tasks:markSeen` looks the task up by id (ADR-138 swapped the old
+      // `getAllTasks().find(…)` scan for the id index). Default to "gone".
+      getTaskById: vi.fn().mockReturnValue(null),
       getTaskByPaneId: vi.fn().mockReturnValue(null),
       deleteTask: vi.fn(),
     },
@@ -105,7 +108,7 @@ describe("tasks:markSeen re-broadcast (ADR-136)", () => {
 
   it("clears both Sets and re-broadcasts the task with fresh flags", async () => {
     const task = { id: "t1", lastAgentStatus: "responded" };
-    deps.taskManager.getAllTasks.mockReturnValue([task]);
+    deps.taskManager.getTaskById.mockReturnValue(task);
 
     const handler = handlers.get("tasks:markSeen")!;
     await handler({} as never, "t1");
@@ -121,7 +124,7 @@ describe("tasks:markSeen re-broadcast (ADR-136)", () => {
   });
 
   it("falls back to dock-badge refresh when the task no longer exists", async () => {
-    deps.taskManager.getAllTasks.mockReturnValue([]);
+    deps.taskManager.getTaskById.mockReturnValue(null);
 
     const handler = handlers.get("tasks:markSeen")!;
     await handler({} as never, "t1");

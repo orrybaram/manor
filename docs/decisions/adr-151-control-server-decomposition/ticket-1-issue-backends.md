@@ -1,6 +1,6 @@
 ---
 title: Extract issue-backends seam; collapse the two issue routes
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

@@ -1,6 +1,6 @@
 ---
 title: Route table and electron/routes decomposition
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1, 2, 3, 4]

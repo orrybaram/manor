@@ -1,6 +1,6 @@
 ---
 title: Resolution type in /context; drop resolvedBy from the wire
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

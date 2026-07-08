@@ -199,6 +199,12 @@ learns nothing about Linear.
 - `ControlDeps` grows a third manager. A fourth source would justify an `IssueProvider`
   interface; two does not.
 
+  **Superseded by ADR-151.** This was wrong — it counted sources when it should have counted
+  branches. Two sources × two routes = four `if (source === "linear")` branches, plus a
+  divergent error policy (Linear → 502, GitHub → unhandled 500) and a third copy of the
+  Linear-readiness predicate. ADR-151 extracts `electron/issue-backends.ts` and the routes
+  carry zero source branches.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

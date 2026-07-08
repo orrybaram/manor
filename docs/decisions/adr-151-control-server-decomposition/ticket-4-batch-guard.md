@@ -1,6 +1,6 @@
 ---
 title: Make the batch route's Linear guard reachable
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

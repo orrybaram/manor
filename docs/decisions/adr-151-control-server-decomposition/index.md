@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -180,6 +180,31 @@ copies of the renderer-proxy block become one `proxyToRenderer(json, cmd, args)`
   hours ago, so the blast radius is zero — but it is a breaking change on paper.
 - `ControlDeps` still carries four managers. Ticket 5 makes a container object cheap to
   introduce later; this ADR does not do it.
+
+**Behavior changes we accepted** (none covered by a test, each a direct consequence of a rule
+this ADR made load-bearing)
+
+- `github` list/detail call throws → **502** instead of an unhandled throw surfacing as 500
+  (ticket 1). This was the point: one error policy per route.
+- Centralising the `405` moves the method check *ahead of* the `projectManager` 503 and the
+  `project not found` 404, which used to run first (ticket 5):
+  - `PUT /projects` with `projectManager === null`: was `503`, now `405`
+  - `PATCH /projects/unknown-id/workspaces`: was `404 Project not found`, now `405`
+  - `POST /agents/foo`, `GET /context/foo`, `/projects/:id/bogus`: now `404 Not found` via the
+    owned-prefix rule
+  Answering "wrong method" before "wrong state" is the more defensible order. Preserving the old
+  order would require per-route method lists, which is precisely the 13 branches we deleted.
+- `resolvedBy` removed from the `GET /context` response and from `CallerContext` (ticket 3).
+  Nothing consumed it. Shipped hours earlier, so the blast radius is zero.
+
+**Discovered, not fixed**
+
+`GitHubManager.getMyIssues` / `getAllIssues` swallow errors and `return []` (`github.ts:190`,
+`:216`). So ticket 1's `list → 502` is unreachable for GitHub: a failing `gh` still surfaces as
+an empty list. `getIssueDetail` does throw, so `detail → 502` is live. **This is the root cause
+of the silent-empty-backlog bug ADR-148 introduced** — the asymmetry we fixed at the route layer
+still exists one layer down, inside the manager. Fixing it changes what the UI's issue list does
+on a `gh` failure, so it needs its own ADR.
 
 **Not done**
 

@@ -410,6 +410,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
   },
 
+  onAppCommand: (
+    callback: (payload: {
+      cmd: string;
+      workspacePath?: string;
+      prompt?: string;
+    }) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { cmd: string; workspacePath?: string; prompt?: string },
+    ) => callback(payload);
+    ipcRenderer.on("app-command", listener);
+    return () => ipcRenderer.removeListener("app-command", listener);
+  },
+
   webview: {
     register: (paneId: string, webContentsId: number) =>
       ipcRenderer.invoke("webview:register", paneId, webContentsId),

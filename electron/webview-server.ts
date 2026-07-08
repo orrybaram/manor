@@ -9,7 +9,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { webContents } from "electron";
+import { BrowserWindow, webContents } from "electron";
 import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
@@ -294,6 +294,27 @@ export class WebviewServer {
     json(405, { error: "Method not allowed" });
   }
 
+  /**
+   * Ask the renderer to open a new agent pane in the given workspace.
+   * Agents are launched by the renderer (App.tsx seeds a shell command),
+   * so main round-trips the request over the "app-command" channel.
+   */
+  startAgent(
+    workspacePath: string,
+    prompt?: string,
+  ): { ok: boolean; error?: string } {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) {
+      return { ok: false, error: "No Manor window is open" };
+    }
+    win.webContents.send("app-command", {
+      cmd: "start-agent",
+      workspacePath,
+      prompt,
+    });
+    return { ok: true };
+  }
+
   private async handleRequest(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -333,6 +354,20 @@ export class WebviewServer {
     // ── Project & workspace routes (/projects…) ──
     if (url.pathname === "/projects" || url.pathname.startsWith("/projects/")) {
       await this.handleProjectRequest(method, url, json, readBody);
+      return;
+    }
+
+    // ── POST /agents ──
+    if (method === "POST" && url.pathname === "/agents") {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      if (typeof workspacePath !== "string") {
+        json(400, { error: "Missing 'workspacePath' string in request body" });
+        return;
+      }
+      const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+      const result = this.startAgent(workspacePath, prompt);
+      json(result.ok ? 200 : 503, result);
       return;
     }
 

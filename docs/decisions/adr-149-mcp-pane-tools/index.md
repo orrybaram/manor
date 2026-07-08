@@ -67,7 +67,8 @@ renderer must reply on a new `app-command-result` channel with
 ```ts
 // electron/control-server.ts
 export function requestRenderer<T>(
-  command: Omit<AppCommand, "requestId">,
+  cmd: string,
+  args?: Record<string, unknown>,
   timeoutMs = 5000,
 ): Promise<{ ok: boolean; data?: T; error?: string }>
 ```

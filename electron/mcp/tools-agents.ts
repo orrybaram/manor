@@ -10,7 +10,7 @@ import { text } from "./types";
 const tools: ToolDef[] = [
   {
     name: "list_issues",
-    description: "List a project's GitHub issues (assigned to you by default).",
+    description: "List a project's issues from GitHub (default) or Linear.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -27,8 +27,33 @@ const tools: ToolDef[] = [
           type: "number",
           description: "Maximum number of issues to return.",
         },
+        source: {
+          type: "string",
+          description: "Issue source: 'github' (default) or 'linear'.",
+        },
       },
       required: ["projectId"],
+    },
+  },
+  {
+    name: "get_issue_detail",
+    description:
+      "Read a single issue's full detail, including its description body. Works for GitHub and Linear.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: { type: "string", description: "Project ID." },
+        issue: {
+          type: "string",
+          description:
+            "Issue ref as returned by list_issues: '42' for GitHub, 'ENG-123' for Linear.",
+        },
+        source: {
+          type: "string",
+          description: "Issue source: 'github' (default) or 'linear'.",
+        },
+      },
+      required: ["projectId", "issue"],
     },
   },
   {
@@ -96,16 +121,16 @@ const handlers: ToolModule["handlers"] = {
     if (args.filter !== undefined) params.set("filter", String(args.filter));
     if (args.state !== undefined) params.set("state", String(args.state));
     if (args.limit !== undefined) params.set("limit", String(args.limit));
+    if (args.source !== undefined) params.set("source", String(args.source));
     const qs = params.toString();
     const issues = (await http.get(
       `/projects/${encodeURIComponent(projectId)}/issues?${qs}`,
     )) as Array<{
-      number: number;
+      ref: string;
       title: string;
       url: string;
       state: string;
-      labels: Array<{ name: string }>;
-      assignees: unknown;
+      labels: string[];
     }>;
     if (issues.length === 0) {
       return text("No issues found.");
@@ -114,12 +139,42 @@ const handlers: ToolModule["handlers"] = {
       .map((issue) => {
         const labels =
           issue.labels && issue.labels.length > 0
-            ? ` [${issue.labels.map((l) => l.name).join(", ")}]`
+            ? ` [${issue.labels.join(", ")}]`
             : "";
-        return `#${issue.number} ${issue.title}${labels}`;
+        return `${issue.ref} ${issue.title}${labels}`;
       })
       .join("\n");
     return text(listing);
+  },
+
+  async get_issue_detail(args, http) {
+    const projectId = args.projectId as string;
+    const issue = args.issue as string;
+    const params = new URLSearchParams();
+    if (args.source !== undefined) params.set("source", String(args.source));
+    const qs = params.toString();
+    const detail = (await http.get(
+      `/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(issue)}?${qs}`,
+    )) as {
+      ref: string;
+      title: string;
+      state: string;
+      labels: string[];
+      assignees: string[];
+      url: string;
+      body: string | null;
+    };
+    const lines = [`${detail.ref} ${detail.title}`, `State: ${detail.state}`];
+    if (detail.labels && detail.labels.length > 0) {
+      lines.push(`Labels: ${detail.labels.join(", ")}`);
+    }
+    if (detail.assignees && detail.assignees.length > 0) {
+      lines.push(`Assignees: ${detail.assignees.join(", ")}`);
+    }
+    lines.push(`URL: ${detail.url}`);
+    lines.push("");
+    lines.push(detail.body && detail.body.length > 0 ? detail.body : "(no description)");
+    return text(lines.join("\n"));
   },
 
   async start_agent(args, http) {

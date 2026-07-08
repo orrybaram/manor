@@ -817,6 +817,18 @@ describe("WebviewServer agent orchestration routes", () => {
         ).rejects.toThrow("HTTP 502");
       });
     });
+
+    // GitHubManager used to swallow `gh` failures and return [], so a broken
+    // gh looked exactly like an empty backlog. It now rejects, and the route
+    // maps that to a 502 the same way it does for Linear.
+    it("returns 502 when the GitHub list call rejects (broken gh)", async () => {
+      github.getMyIssues.mockRejectedValueOnce(
+        new Error("gh: command not found"),
+      );
+      await expect(
+        mcpHttpGet(baseUrl, "/projects/proj-1/issues"),
+      ).rejects.toThrow("HTTP 502");
+    });
   });
 
   describe("GET /projects/:id/issues/:issueRef", () => {

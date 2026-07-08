@@ -392,11 +392,13 @@ describe("GitHubManager", () => {
       expect(result).toEqual(issues);
     });
 
-    it("returns empty array on failure", async () => {
+    // A swallowed error made a broken `gh` indistinguishable from an empty
+    // backlog. Rejecting lets the MCP route answer 502 and the UI show a
+    // failure instead of "no issues".
+    it("throws on failure rather than reporting an empty backlog", async () => {
       setupExecFileCalls([failure("gh failed")]);
 
-      const result = await manager.getMyIssues("/repo");
-      expect(result).toEqual([]);
+      await expect(manager.getMyIssues("/repo")).rejects.toThrow();
     });
   });
 
@@ -421,11 +423,10 @@ describe("GitHubManager", () => {
       expect(result).toEqual(issues);
     });
 
-    it("returns empty array on failure", async () => {
+    it("throws on failure rather than reporting an empty backlog", async () => {
       setupExecFileCalls([failure("gh error")]);
 
-      const result = await manager.getAllIssues("/repo");
-      expect(result).toEqual([]);
+      await expect(manager.getAllIssues("/repo")).rejects.toThrow();
     });
   });
 

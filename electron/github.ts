@@ -164,58 +164,60 @@ export class GitHubManager {
     }
   }
 
+  /**
+   * Throws when `gh` fails. Deliberately: swallowing the error and returning
+   * `[]` makes a broken `gh`, an unauthenticated user, and a genuinely empty
+   * backlog indistinguishable — an agent asking for issues reads "no issues
+   * found" and concludes there is no work. Callers already expect a rejection
+   * (`WorkspaceEmptyState` catches, react-query surfaces `isError`), and the
+   * MCP issue route maps it to a 502. Matches `getIssueDetail`, which has
+   * always thrown.
+   */
   async getMyIssues(
     repoPath: string,
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
-    try {
-      const { stdout } = await execFileAsync(
-        "gh",
-        [
-          "issue",
-          "list",
-          "--assignee",
-          "@me",
-          "--state",
-          state,
-          "--json",
-          "number,title,url,state,labels,assignees",
-          "--limit",
-          String(limit),
-        ],
-        { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
-      );
-      return JSON.parse(stdout);
-    } catch {
-      return [];
-    }
+    const { stdout } = await execFileAsync(
+      "gh",
+      [
+        "issue",
+        "list",
+        "--assignee",
+        "@me",
+        "--state",
+        state,
+        "--json",
+        "number,title,url,state,labels,assignees",
+        "--limit",
+        String(limit),
+      ],
+      { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
+    );
+    return JSON.parse(stdout);
   }
 
+  /** Throws when `gh` fails — see `getMyIssues`. */
   async getAllIssues(
     repoPath: string,
     limit = 50,
     state: "open" | "closed" | "all" = "open",
   ): Promise<GitHubIssue[]> {
-    try {
-      const { stdout } = await execFileAsync(
-        "gh",
-        [
-          "issue",
-          "list",
-          "--state",
-          state,
-          "--json",
-          "number,title,url,state,labels,assignees",
-          "--limit",
-          String(limit),
-        ],
-        { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
-      );
-      return JSON.parse(stdout);
-    } catch {
-      return [];
-    }
+    const { stdout } = await execFileAsync(
+      "gh",
+      [
+        "issue",
+        "list",
+        "--state",
+        state,
+        "--json",
+        "number,title,url,state,labels,assignees",
+        "--limit",
+        String(limit),
+      ],
+      { cwd: repoPath, encoding: "utf-8", timeout: 10000 },
+    );
+    return JSON.parse(stdout);
   }
 
   async getIssueDetail(

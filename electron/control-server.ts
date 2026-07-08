@@ -78,6 +78,18 @@ export function runSetupScript(workspacePath: string, script: string): void {
   win.webContents.send("app-command", command);
 }
 
+/**
+ * Tell the renderer its project list is stale. Mutations that originate in the
+ * renderer fold the result straight into the store, but ones that arrive over
+ * the control server (MCP, `manor` CLI) have no such return path — without this
+ * the sidebar keeps showing the pre-mutation list until something else refetches.
+ */
+export function notifyProjectsChanged(): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  win.webContents.send("projects-changed");
+}
+
 /** Render the launch prompt for an issue-backed workspace. */
 function renderPrompt(
   template: string | undefined,
@@ -199,7 +211,9 @@ export async function handleControlRequest(
         json(400, { error: "Missing 'name' or 'path' string in request body" });
         return true;
       }
-      json(200, await pm.addProject(name, projectPath));
+      const project = await pm.addProject(name, projectPath);
+      notifyProjectsChanged();
+      json(200, project);
       return true;
     }
     json(405, { error: "Method not allowed" });
@@ -389,6 +403,7 @@ export async function handleControlRequest(
       baseBranch,
     );
     const createdByNumber = new Map(created.map((c) => [c.number, c]));
+    notifyProjectsChanged();
 
     // 3. Assign + launch per successful workspace.
     const results: BatchResultEntry[] = [];
@@ -458,6 +473,7 @@ export async function handleControlRequest(
         baseBranch,
         useExistingBranch,
       );
+      notifyProjectsChanged();
       // The UI path runs `worktreeStartScript` from the renderer (it needs a
       // PTY), so main round-trips the request the same way start-agent does.
       const created = updated?.workspaces.find((ws) => !before.has(ws.path));
@@ -477,6 +493,7 @@ export async function handleControlRequest(
       const deleteBranch =
         typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
       await pm.removeWorktree(projectId, worktreePath, deleteBranch);
+      notifyProjectsChanged();
       json(200, { ok: true });
       return true;
     }

@@ -415,6 +415,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
   },
 
+  /** Main mutated the project list out-of-band (MCP, CLI) — refetch it. */
+  onProjectsChanged: (callback: () => void) => onChannel("projects-changed", callback),
+
   onAppCommand: (callback: (payload: AppCommand) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AppCommand) =>
       callback(payload);

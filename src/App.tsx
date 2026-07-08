@@ -274,6 +274,13 @@ function App() {
     }
   }, [activeWorkspacePath, prewarmAgentCommand]);
 
+  // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
+  // result, so refetch it. Creating a workspace this way must show up in the
+  // sidebar without a manual refresh.
+  useEffect(() => window.electronAPI.onProjectsChanged(() => {
+    void loadProjects();
+  }), [loadProjects]);
+
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
   useEffect(() => {

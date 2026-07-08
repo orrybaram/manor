@@ -318,6 +318,9 @@ describe("WebviewServer project/workspace routes", () => {
       })),
       removeWorktree: vi.fn(async () => {}),
     };
+    // Every mutating route broadcasts to the renderer; tests that care about the
+    // broadcast swap in a window with a spied `send`.
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([]);
 
     // The route handler only uses these four methods of ProjectManager.
     server = new WebviewServer(
@@ -450,7 +453,33 @@ describe("WebviewServer project/workspace routes", () => {
       name: "feature",
     });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalledWith("app-command", expect.anything());
+  });
+
+  it("POST /projects/:id/workspaces tells the renderer its project list is stale", async () => {
+    const send = vi.fn();
+    (
+      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+    ).mockReturnValue([{ webContents: { send } }]);
+
+    await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+      name: "feature",
+    });
+
+    expect(send).toHaveBeenCalledWith("projects-changed");
+  });
+
+  it("DELETE /projects/:id/workspaces tells the renderer its project list is stale", async () => {
+    const send = vi.fn();
+    (
+      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+    ).mockReturnValue([{ webContents: { send } }]);
+
+    await mcpHttpDelete(baseUrl, "/projects/proj-1/workspaces", {
+      worktreePath: "/repos/demo-ws",
+    });
+
+    expect(send).toHaveBeenCalledWith("projects-changed");
   });
 
   it("DELETE /projects/:id/workspaces removes a workspace", async () => {

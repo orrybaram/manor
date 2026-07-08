@@ -580,6 +580,8 @@ export interface ElectronAPI {
     writeText: (text: string) => Promise<void>;
   };
 
+  onProjectsChanged: (callback: () => void) => () => void;
+
   onAppCommand: (
     callback: (payload: {
       cmd: string;

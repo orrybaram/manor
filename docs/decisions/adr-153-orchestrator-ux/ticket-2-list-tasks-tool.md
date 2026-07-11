@@ -1,6 +1,6 @@
 ---
 title: list_tasks MCP tool + /tasks route + taskManager dep threading
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

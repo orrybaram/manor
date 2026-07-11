@@ -36,11 +36,13 @@ import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
   ORCHESTRATOR_PATH,
+  escapeShellDoubleQuoted,
   isOrchestratorPath,
   orchestratorLaunchCommand,
   orchestratorStartupCommand,
   wrapOrchestratorCwd,
 } from "./lib/orchestrator";
+import { orchestratorPrimer } from "./lib/orchestrator-primer";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
@@ -532,13 +534,26 @@ function App() {
     // is no prewarmed session for the sentinel path.
     if (isOrchestratorPath(activeWorkspacePath)) {
       const prefs = usePreferencesStore.getState().preferences;
-      // ADR-153 ticket 5: inject orchestrator primer here (seed the first
-      // prompt after the bare harness boots).
+      // ADR-153 ticket 5: seed the orchestrator primer as the harness's first
+      // prompt, but only on a genuine first launch — i.e. the orchestrator
+      // surface has no tabs yet. This is the same condition the auto-launch
+      // effect below checks before calling this handler, so it covers that
+      // path; it also means re-launching an *additional* orchestrator tab
+      // (when one already exists) boots the bare harness without re-priming.
+      const orchestratorLayout = workspaceLayouts[ORCHESTRATOR_PATH];
+      const isFirstLaunch = orchestratorLayout
+        ? !Object.values(orchestratorLayout.panels).some(
+            (p) => p.tabs.length > 0,
+          )
+        : true;
       useAppStore
         .getState()
         .setPendingStartupCommand(
           ORCHESTRATOR_PATH,
-          orchestratorStartupCommand(prefs),
+          orchestratorStartupCommand(
+            prefs,
+            isFirstLaunch ? orchestratorPrimer() : undefined,
+          ),
         );
       addTab();
       return;
@@ -555,7 +570,7 @@ function App() {
         .setPendingStartupCommand(activeWorkspacePath, command);
     }
     addTab(prewarmed?.paneId);
-  }, [addTab, projects, activeWorkspacePath]);
+  }, [addTab, projects, activeWorkspacePath, workspaceLayouts]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
@@ -569,12 +584,7 @@ function App() {
           : projects.find((p) =>
               p.workspaces.some((w) => w.path === activeWorkspacePath),
             )?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-        const escaped = prompt
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"')
-          .replace(/\$/g, "\\$")
-          .replace(/`/g, "\\`")
-          .replace(/!/g, "\\!");
+        const escaped = escapeShellDoubleQuoted(prompt);
         const withPrompt = `${baseCommand} "${escaped}"`;
         const command = orchestrator
           ? wrapOrchestratorCwd(withPrompt)

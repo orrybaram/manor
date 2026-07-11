@@ -41,12 +41,38 @@ export function wrapOrchestratorCwd(command: string): string {
 }
 
 /**
+ * Escape a prompt for interpolation inside a double-quoted shell argument.
+ * Shared by the orchestrator's startup command (primer injection) and
+ * `handleNewTaskWithPrompt` in `App.tsx` (seed-prompt injection) — both build
+ * a launch command as `<harness> "<escaped prompt>"`, so they share one
+ * escaping mechanism rather than each maintaining their own.
+ */
+export function escapeShellDoubleQuoted(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`")
+    .replace(/!/g, "\\!");
+}
+
+/**
  * Full startup command that boots the configured harness inside the
  * orchestrator's cwd. Seeded into `pendingStartupCommand[ORCHESTRATOR_PATH]`
  * on auto-launch.
+ *
+ * `primerPrompt`, when given, is appended as the harness's first prompt —
+ * `<harness> "<escaped primer>"` — the same harness-agnostic mechanism
+ * `handleNewTaskWithPrompt` uses to seed a prompt. Omit it (e.g. on resume of
+ * an existing session) to boot the bare harness with no seed prompt.
  */
 export function orchestratorStartupCommand(
   prefs: OrchestratorHarnessPreferences,
+  primerPrompt?: string,
 ): string {
-  return wrapOrchestratorCwd(orchestratorLaunchCommand(prefs));
+  const launch = orchestratorLaunchCommand(prefs);
+  const command = primerPrompt
+    ? `${launch} "${escapeShellDoubleQuoted(primerPrompt)}"`
+    : launch;
+  return wrapOrchestratorCwd(command);
 }

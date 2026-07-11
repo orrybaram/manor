@@ -17,7 +17,10 @@ import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
+import { isOrchestratorPath } from "../lib/orchestrator";
+import { resolveOrchestratorAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -225,6 +228,12 @@ export function useTerminalLifecycle(
     // is set in the PTY env for connector-aware spawns.
     const agentKindForCreate: string | null = (() => {
       if (!cwd) return null;
+      if (isOrchestratorPath(cwd)) {
+        const prefs = usePreferencesStore.getState().preferences;
+        return getAgentKindForCommand(
+          resolveOrchestratorAdapter(prefs).launchCommand(),
+        );
+      }
       const projects = useProjectStore.getState().projects;
       const project = projects.find((p) =>
         p.workspaces.some((ws) => ws.path === cwd),
@@ -233,7 +242,11 @@ export function useTerminalLifecycle(
       return command ? getAgentKindForCommand(command) : "claude";
     })();
 
-    create(cwd ?? null, cols, rows, agentKindForCreate).then(
+    // The orchestrator sentinel path is not a real directory — spawn its shell
+    // in $HOME (null cwd), and let its startup command cd into the real cwd.
+    const spawnCwd = isOrchestratorPath(cwd) ? null : (cwd ?? null);
+
+    create(spawnCwd, cols, rows, agentKindForCreate).then(
       (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
         if (!disposed && !result.ok) {
           setPtyError(
@@ -248,18 +261,30 @@ export function useTerminalLifecycle(
 
           // Set pane context for task association
           if (cwd) {
-            const projects = useProjectStore.getState().projects;
-            const project = projects.find((p) =>
-              p.workspaces.some((ws) => ws.path === cwd),
-            );
+            if (isOrchestratorPath(cwd)) {
+              // The orchestrator has no owning project — associate the pane with
+              // the sentinel workspace and the resolved harness command.
+              const prefs = usePreferencesStore.getState().preferences;
+              window.electronAPI.tasks.setPaneContext(paneId, {
+                projectId: "",
+                projectName: "Orchestrator",
+                workspacePath: cwd,
+                agentCommand: resolveOrchestratorAdapter(prefs).launchCommand(),
+              });
+            } else {
+              const projects = useProjectStore.getState().projects;
+              const project = projects.find((p) =>
+                p.workspaces.some((ws) => ws.path === cwd),
+              );
 
-            // Fire-and-forget call to set pane context
-            window.electronAPI.tasks.setPaneContext(paneId, {
-              projectId: project?.id ?? "",
-              projectName: project?.name ?? "",
-              workspacePath: cwd,
-              agentCommand: project?.agentCommand ?? null,
-            });
+              // Fire-and-forget call to set pane context
+              window.electronAPI.tasks.setPaneContext(paneId, {
+                projectId: project?.id ?? "",
+                projectName: project?.name ?? "",
+                workspacePath: cwd,
+                agentCommand: project?.agentCommand ?? null,
+              });
+            }
           }
 
           // Check for pending startup command (e.g. worktree start script)

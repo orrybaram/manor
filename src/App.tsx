@@ -34,6 +34,13 @@ import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
+import {
+  ORCHESTRATOR_PATH,
+  isOrchestratorPath,
+  orchestratorLaunchCommand,
+  orchestratorStartupCommand,
+  wrapOrchestratorCwd,
+} from "./lib/orchestrator";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
@@ -269,7 +276,10 @@ function App() {
   );
   const prewarmAgentCommand = activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    if (activeWorkspacePath) {
+    // The orchestrator sentinel is not a real directory, so there is nothing to
+    // prewarm — its shell spawns in $HOME and the launch command cd's into
+    // ~/.manor/orchestrator itself (see orchestratorStartupCommand).
+    if (activeWorkspacePath && !isOrchestratorPath(activeWorkspacePath)) {
       const prewarmKind = getAgentKindForCommand(prewarmAgentCommand);
       window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand, prewarmKind);
     }
@@ -518,6 +528,21 @@ function App() {
   );
 
   const handleNewTask = useCallback(async () => {
+    // Orchestrator surface: boot the configured harness in its own cwd. There
+    // is no prewarmed session for the sentinel path.
+    if (isOrchestratorPath(activeWorkspacePath)) {
+      const prefs = usePreferencesStore.getState().preferences;
+      // ADR-153 ticket 5: inject orchestrator primer here (seed the first
+      // prompt after the bare harness boots).
+      useAppStore
+        .getState()
+        .setPendingStartupCommand(
+          ORCHESTRATOR_PATH,
+          orchestratorStartupCommand(prefs),
+        );
+      addTab();
+      return;
+    }
     const prewarmed = await window.electronAPI.pty.consumePrewarmed();
     if (activeWorkspacePath && !prewarmed?.commandInjected) {
       const currentProject = projects.find((p) =>
@@ -536,19 +561,24 @@ function App() {
   const handleNewTaskWithPrompt = useCallback(
     (prompt: string) => {
       if (activeWorkspacePath) {
-        const currentProject = projects.find((p) =>
-          p.workspaces.some((w) => w.path === activeWorkspacePath),
-        );
-        const baseCommand =
-          currentProject?.agentCommand ??
-          DEFAULT_AGENT_COMMAND;
+        const orchestrator = isOrchestratorPath(activeWorkspacePath);
+        const baseCommand = orchestrator
+          ? orchestratorLaunchCommand(
+              usePreferencesStore.getState().preferences,
+            )
+          : projects.find((p) =>
+              p.workspaces.some((w) => w.path === activeWorkspacePath),
+            )?.agentCommand ?? DEFAULT_AGENT_COMMAND;
         const escaped = prompt
           .replace(/\\/g, "\\\\")
           .replace(/"/g, '\\"')
           .replace(/\$/g, "\\$")
           .replace(/`/g, "\\`")
           .replace(/!/g, "\\!");
-        const command = `${baseCommand} "${escaped}"`;
+        const withPrompt = `${baseCommand} "${escaped}"`;
+        const command = orchestrator
+          ? wrapOrchestratorCwd(withPrompt)
+          : withPrompt;
         useAppStore
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
@@ -560,6 +590,21 @@ function App() {
     [addTab, projects, activeWorkspacePath],
   );
   handleNewTaskWithPromptRef.current = handleNewTaskWithPrompt;
+
+  // Auto-launch the orchestrator harness the first time its surface is opened
+  // with no tabs. Restored sessions (resume-on-relaunch) already carry tabs, so
+  // this only fires for a genuinely empty orchestrator surface; the existing
+  // auto-resume machinery in useTerminalLifecycle rehydrates persisted panes.
+  useEffect(() => {
+    if (activeWorkspacePath !== ORCHESTRATOR_PATH) return;
+    const layout = workspaceLayouts[ORCHESTRATOR_PATH];
+    const hasOrchestratorTabs = layout
+      ? Object.values(layout.panels).some((p) => p.tabs.length > 0)
+      : false;
+    if (!hasOrchestratorTabs) {
+      handleNewTaskRef.current();
+    }
+  }, [activeWorkspacePath, workspaceLayouts]);
 
   if (!appReady) {
     return (

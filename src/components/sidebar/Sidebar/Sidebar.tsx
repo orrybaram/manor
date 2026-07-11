@@ -5,10 +5,15 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
+import BrainCircuit from "lucide-react/dist/esm/icons/brain-circuit";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
+import {
+  ORCHESTRATOR_PATH,
+  isOrchestratorPath,
+} from "../../../lib/orchestrator";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
@@ -49,6 +54,9 @@ export function Sidebar(props: SidebarProps) {
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+  const orchestratorActive = isOrchestratorPath(activeWorkspacePath);
 
   useBranchWatcher();
   useDiffWatcher();
@@ -225,6 +233,16 @@ export function Sidebar(props: SidebarProps) {
     >
       <div className={styles.titlebar} />
       <div className={styles.content}>
+        <div
+          className={`${styles.orchestratorRow} ${orchestratorActive ? styles.orchestratorRowActive : ""}`}
+          data-testid="orchestrator-row"
+          onClick={() => setActiveWorkspace(ORCHESTRATOR_PATH)}
+        >
+          <span className={styles.orchestratorIcon}>
+            <BrainCircuit size={12} />
+          </span>
+          <span className={styles.orchestratorLabel}>Orchestrator</span>
+        </div>
         <div>
           <ContextMenu.Root>
             <ContextMenu.Trigger asChild>

@@ -8,12 +8,14 @@ import Settings from "lucide-react/dist/esm/icons/settings";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import { useProjectStore } from "../../../store/project-store";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
+import { OrchestratorSettingsPage } from "../OrchestratorSettingsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
@@ -30,6 +32,7 @@ type SettingsPage =
   | { type: "keybindings" }
   | { type: "notifications" }
   | { type: "integrations" }
+  | { type: "orchestrator" }
   | { type: "project"; projectId: string };
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -128,6 +131,14 @@ export function SettingsModal(props: SettingsModalProps) {
               </button>
 
               <button
+                className={`${styles.navItem} ${page.type === "orchestrator" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "orchestrator" })}
+              >
+                <Bot size={14} />
+                <span>Orchestrator</span>
+              </button>
+
+              <button
                 className={styles.navGroupHeader}
                 onClick={() => setProjectsExpanded((v) => !v)}
               >
@@ -166,6 +177,7 @@ export function SettingsModal(props: SettingsModalProps) {
               {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
+              {page.type === "orchestrator" && <OrchestratorSettingsPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage
                   key={currentProject.id}

@@ -1,6 +1,6 @@
 ---
 title: Harness abstraction + global orchestrator preferences + settings UI
-status: todo
+status: in-progress
 priority: critical
 assignee: sonnet
 blocked_by: []

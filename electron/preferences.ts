@@ -25,6 +25,12 @@ export interface AppPreferences {
    * Used to surface a one-time notice; never reset automatically.
    */
   taskPruneNoticeShown: boolean;
+  /** Agent-agnostic harness the orchestrator auto-launches. */
+  orchestratorHarness: "claude" | "codex" | "custom";
+  /** Launch command used when `orchestratorHarness === "custom"`. */
+  orchestratorCustomCommand: string;
+  /** Interrupt sequence used when `orchestratorHarness === "custom"`. */
+  orchestratorCustomInterrupt: string;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -40,6 +46,9 @@ const DEFAULTS: AppPreferences = {
   editorIsTerminal: false,
   taskRetentionDays: 90,
   taskPruneNoticeShown: false,
+  orchestratorHarness: "claude",
+  orchestratorCustomCommand: "",
+  orchestratorCustomInterrupt: "",
 };
 
 export class PreferencesManager {

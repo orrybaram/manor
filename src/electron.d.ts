@@ -1,4 +1,5 @@
 import type { PrInfo } from "./lib/pr-info";
+import type { HarnessKind } from "./lib/harness";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -16,6 +17,12 @@ export interface AppPreferences {
   taskRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
   taskPruneNoticeShown: boolean;
+  /** Agent-agnostic harness the orchestrator auto-launches. */
+  orchestratorHarness: HarnessKind;
+  /** Launch command used when `orchestratorHarness === "custom"`. */
+  orchestratorCustomCommand: string;
+  /** Interrupt sequence used when `orchestratorHarness === "custom"`. */
+  orchestratorCustomInterrupt: string;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";

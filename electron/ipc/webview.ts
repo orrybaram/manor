@@ -13,6 +13,8 @@ import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
+import type { TaskManager } from "../task-persistence";
+import type { LocalBackend } from "../backend/local-backend";
 import type { IpcDeps } from "./types";
 import {
   buildPopupWindowOptions,
@@ -39,6 +41,8 @@ export function createWebviewServer(
   githubManager?: GitHubManager,
   linearManager?: LinearManager,
   layoutPersistence?: LayoutPersistence,
+  taskManager?: TaskManager,
+  backend?: LocalBackend,
 ): WebviewServer {
   return new WebviewServer(
     webviewRegistry,
@@ -46,6 +50,8 @@ export function createWebviewServer(
     githubManager,
     linearManager,
     layoutPersistence,
+    taskManager,
+    backend,
   );
 }
 

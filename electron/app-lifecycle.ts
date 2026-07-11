@@ -208,6 +208,8 @@ export function initApp(devTitle: string | null): void {
     githubManager,
     linearManager,
     layoutPersistence,
+    taskManager,
+    backend,
   );
 
   // Build shared deps object for extracted IPC modules

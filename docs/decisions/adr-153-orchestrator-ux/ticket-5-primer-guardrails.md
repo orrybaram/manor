@@ -1,6 +1,6 @@
 ---
 title: Orchestrator primer prompt + soft guardrails, wired into launch
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2, 3, 4]

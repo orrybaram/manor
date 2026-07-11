@@ -1,6 +1,6 @@
 ---
 title: send_to_session MCP tool (interrupt + inject)
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

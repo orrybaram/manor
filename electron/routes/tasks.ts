@@ -10,6 +10,8 @@
 
 import type { TaskInfo, TaskManager } from "../task-persistence";
 import { interruptSequenceFor } from "../harness-interrupt";
+import { stripAnsi } from "../terminal-host/output-pattern-matcher";
+import { ScrollbackWriter } from "../terminal-host/scrollback";
 import type { Route } from "./types";
 
 /** The wire shape `GET /tasks` returns — a curated slice of `TaskInfo`. */
@@ -185,6 +187,105 @@ export const tasksRoutes: Route[] = [
       json(200, {
         ok: true,
         target: { id: task.id, paneId: task.paneId, lastAgentStatus },
+      });
+    },
+  },
+
+  {
+    // Read-only twin of `/sessions/send`: return another session's rendered
+    // output. Snapshot first (live, rendered, already-collapsed redraws),
+    // falling back to on-disk scrollback for sessions whose live emulator
+    // has already gone away.
+    method: "POST",
+    path: "/sessions/read",
+    async handler({ deps, json, readBody }) {
+      const body = await readBody();
+
+      if (!deps.taskManager) {
+        json(503, { error: "Task management is not available" });
+        return;
+      }
+      if (!deps.backend) {
+        json(503, { error: "Session backend is not available" });
+        return;
+      }
+
+      const target = body.target;
+      if (typeof target !== "string" || target.length === 0) {
+        json(400, { error: "Missing 'target' string in request body" });
+        return;
+      }
+
+      const task = resolveTarget(deps.taskManager, target);
+      if (!task) {
+        json(404, { error: `No session matches target '${target}'` });
+        return;
+      }
+      if (!task.paneId) {
+        json(409, {
+          error: `Session '${task.id}' has no live pane to read from`,
+        });
+        return;
+      }
+
+      const snap = await deps.backend.pty.getSnapshot(task.paneId);
+      let ansi: string;
+      let source: "live" | "scrollback";
+      if (snap) {
+        ansi = snap.screenAnsi;
+        source = "live";
+      } else {
+        ansi = ScrollbackWriter.readScrollback(task.paneId);
+        source = "scrollback";
+      }
+
+      const raw = body.raw === true;
+      let output = raw ? ansi : stripAnsi(ansi);
+
+      const tailLinesParam = body.tailLines;
+      const tailLines =
+        typeof tailLinesParam === "number" &&
+        Number.isFinite(tailLinesParam) &&
+        tailLinesParam > 0
+          ? Math.floor(tailLinesParam)
+          : 200;
+
+      const lines = output.split(/\r?\n/);
+      let truncated = false;
+      if (lines.length > tailLines) {
+        output = lines.slice(lines.length - tailLines).join("\n");
+        truncated = true;
+      }
+
+      const maxBytesParam = body.maxBytes;
+      const maxBytes =
+        typeof maxBytesParam === "number" &&
+        Number.isFinite(maxBytesParam) &&
+        maxBytesParam > 0
+          ? Math.floor(maxBytesParam)
+          : undefined;
+      if (maxBytes !== undefined) {
+        const buf = Buffer.from(output, "utf-8");
+        if (buf.length > maxBytes) {
+          const keepFrom = buf.length - maxBytes;
+          let start = keepFrom;
+          while (start < buf.length && (buf[start] & 0xc0) === 0x80) {
+            start++;
+          }
+          output = buf.subarray(start).toString("utf-8");
+          truncated = true;
+        }
+      }
+
+      const lineCount = output.length === 0 ? 0 : output.split(/\r?\n/).length;
+
+      json(200, {
+        ok: true,
+        target: { id: task.id, paneId: task.paneId, lastAgentStatus: task.lastAgentStatus },
+        source,
+        text: output,
+        lineCount,
+        truncated,
       });
     },
   },

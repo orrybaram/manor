@@ -17,6 +17,16 @@ interface SendResult {
   target: { id: string; paneId: string; lastAgentStatus: string | null };
 }
 
+/** The wire shape `POST /sessions/read` returns. */
+interface ReadResult {
+  ok: boolean;
+  target: { id: string; paneId: string; lastAgentStatus: string | null };
+  source: "live" | "scrollback";
+  text: string;
+  lineCount: number;
+  truncated: boolean;
+}
+
 // ── Tool definitions ──
 
 const tools: ToolDef[] = [
@@ -70,6 +80,34 @@ const tools: ToolDef[] = [
       required: ["target", "text"],
     },
   },
+  {
+    name: "read_session",
+    description:
+      "Read another session's rendered output (its conversation/transcript) by the handle list_tasks returns. Plain text by default; pass raw:true for the ANSI stream. Read-only — does not touch the session. Works for running sessions (live rendered buffer) and ended ones (persisted scrollback).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          description:
+            "Which session to read. Accepts a task id (from list_tasks), a raw pane id, '#<issue>', or a workspace branch.",
+        },
+        tailLines: {
+          type: "number",
+          description: "How many trailing lines to return. Defaults to 200.",
+        },
+        maxBytes: {
+          type: "number",
+          description: "Additionally cap the returned text to this many bytes, from the end.",
+        },
+        raw: {
+          type: "boolean",
+          description: "Return the raw ANSI stream instead of plain (stripped) text.",
+        },
+      },
+      required: ["target"],
+    },
+  },
 ];
 
 // ── Formatting ──
@@ -113,6 +151,18 @@ const handlers: ToolModule["handlers"] = {
     return text(
       `Interrupted session ${res.target.id} (was ${status}) and sent the new prompt.`,
     );
+  },
+
+  async read_session(args, http) {
+    const res = (await http.post("/sessions/read", {
+      target: args.target,
+      tailLines: args.tailLines,
+      maxBytes: args.maxBytes,
+      raw: args.raw,
+    })) as ReadResult;
+
+    const header = `source=${res.source} lines=${res.lineCount}${res.truncated ? " (truncated)" : ""}`;
+    return text(`${header}\n\n${res.text}`);
   },
 };
 

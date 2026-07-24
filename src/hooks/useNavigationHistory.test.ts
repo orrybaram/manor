@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   useAppStore,
   selectCurrentLocation,
@@ -7,6 +7,7 @@ import {
   type Tab,
   type Panel,
 } from "../store/app-store";
+import { useProjectStore } from "../store/project-store";
 import {
   useNavigationHistoryStore,
   locationsEqual,
@@ -220,5 +221,105 @@ describe("navigator bridge — prune", () => {
     // Only stale entries behind us — prune them, stay put, do not navigate.
     expect(useAppStore.getState().activeWorkspacePath).toBe(WS_B);
     expect(useNavigationHistoryStore.getState().isNavigating).toBe(false);
+  });
+
+  it("does NOT prune an empty-workspace view (tabId '') going back", async () => {
+    // An empty workspace has a panel with no tabs; its recorded tabId is "".
+    // This must remain navigable — regression for empty workspaces being
+    // silently skipped on back/forward.
+    const WS_EMPTY = "/test/ws-empty";
+    const emptyLayout: WorkspaceLayout = {
+      panelTree: { type: "leaf", panelId: "panel-empty" },
+      panels: {
+        "panel-empty": {
+          id: "panel-empty",
+          tabs: [],
+          selectedTabId: "",
+          pinnedTabIds: [],
+        },
+      },
+      activePanelId: "panel-empty",
+    };
+    const emptyLoc: Location = {
+      kind: "workspace",
+      workspacePath: WS_EMPTY,
+      panelId: "panel-empty",
+      tabId: "",
+    };
+
+    seedStore({
+      activeWorkspacePath: WS_B,
+      workspaceLayouts: {
+        [WS_A]: makeLayout("panel-a", "tab-a"),
+        [WS_B]: makeLayout("panel-b", "tab-b"),
+        [WS_EMPTY]: emptyLayout,
+      },
+    });
+    useNavigationHistoryStore.setState({
+      entries: [locA, emptyLoc, locB],
+      index: 2,
+      isNavigating: false,
+    });
+
+    navigateBack();
+    await flushMicrotasks();
+
+    // Back lands on the empty workspace — it is a real view, not stale.
+    expect(useNavigationHistoryStore.getState().entries).toEqual([
+      locA,
+      emptyLoc,
+      locB,
+    ]);
+    expect(useNavigationHistoryStore.getState().index).toBe(1);
+    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_EMPTY);
+  });
+});
+
+describe("navigator bridge — project-store sync", () => {
+  it("moves the project-store selection so the sidebar follows the replay", () => {
+    // Sidebar highlighting is driven by project-store selection, not
+    // `activeWorkspacePath`. Replay must update it or the sidebar stays put
+    // and (between look-alike workspaces) the app appears not to navigate.
+    const selectWorkspaceSpy = vi.fn();
+    vi.stubGlobal("window", {
+      ...(globalThis as unknown as { window: Record<string, unknown> }).window,
+      electronAPI: {
+        ...((globalThis as unknown as { window: { electronAPI?: object } })
+          .window?.electronAPI ?? {}),
+        projects: { selectWorkspace: selectWorkspaceSpy, select: vi.fn() },
+      },
+    });
+
+    seedStore({ activeWorkspacePath: WS_B });
+    useProjectStore.setState({
+      selectedProjectIndex: 0,
+      projects: [
+        {
+          id: "proj-1",
+          name: "proj",
+          path: "/test",
+          defaultBranch: "main",
+          selectedWorkspaceIndex: 1, // currently on WS_B
+          workspaces: [
+            { path: WS_A, branch: "a", isMain: true, name: null },
+            { path: WS_B, branch: "b", isMain: false, name: null },
+          ],
+        },
+      ],
+    } as never);
+    useNavigationHistoryStore.setState({
+      entries: [locA, locB],
+      index: 1,
+      isNavigating: false,
+    });
+
+    navigateBack();
+
+    // Selection followed to WS_A (index 0), via the same path the sidebar uses.
+    expect(selectWorkspaceSpy).toHaveBeenCalledWith("proj-1", 0);
+    expect(useProjectStore.getState().projects[0].selectedWorkspaceIndex).toBe(
+      0,
+    );
+    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_A);
   });
 });

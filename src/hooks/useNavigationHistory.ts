@@ -6,6 +6,7 @@ import {
   type Location,
 } from "../store/navigation-history-store";
 import { HOME_PATH } from "../lib/home-path";
+import { useProjectStore } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
 /**
@@ -33,6 +34,11 @@ function isLocationValid(state: AppState, loc: Location): boolean {
   if (!layout) return false;
   const panel = layout.panels[loc.panelId];
   if (!panel) return false;
+  // An empty workspace has no tab, so its recorded `tabId` is "". That is a
+  // legitimate view (the empty-workspace surface), not a stale coordinate:
+  // treat it as valid while the panel is still empty. Without this, every
+  // empty workspace gets pruned on back/forward and silently skipped.
+  if (loc.tabId === "") return panel.tabs.length === 0;
   return panel.tabs.some((t) => t.id === loc.tabId);
 }
 
@@ -40,15 +46,32 @@ function isLocationValid(state: AppState, loc: Location): boolean {
 function applyLocation(loc: Location): void {
   const store = useAppStore.getState();
   if (loc.kind === "surface") {
-    // Switch to Home exactly the way the sidebar does.
+    // Switch to Home exactly the way the sidebar does. Home highlighting is
+    // driven by `activeWorkspacePath`, so this alone updates the sidebar.
     store.setActiveWorkspace(HOME_PATH);
     return;
   }
-  // Order matters: activate the workspace first so `focusPanel` / `selectTab`
-  // resolve against the right layout, then focus the panel, then the tab.
-  store.setActiveWorkspace(loc.workspacePath);
-  store.focusPanel(loc.panelId);
-  store.selectTab(loc.tabId);
+  // Activate the workspace the SAME way the sidebar does: through
+  // `project-store.selectWorkspace`, which updates the project-store selection
+  // (what the sidebar highlights) AND calls `setActiveWorkspace`. Going through
+  // `setActiveWorkspace` alone leaves the sidebar pointed at the old workspace,
+  // so replaying between two empty workspaces looks like nothing happened.
+  const projects = useProjectStore.getState().projects;
+  const project = projects.find((p) =>
+    p.workspaces.some((w) => w.path === loc.workspacePath),
+  );
+  if (project) {
+    const wsIndex = project.workspaces.findIndex(
+      (w) => w.path === loc.workspacePath,
+    );
+    useProjectStore.getState().selectWorkspace(project.id, wsIndex);
+  } else {
+    // Fallback: path not owned by any project (shouldn't happen post-prune).
+    store.setActiveWorkspace(loc.workspacePath);
+  }
+  // Then focus the recorded panel and tab within that workspace.
+  useAppStore.getState().focusPanel(loc.panelId);
+  useAppStore.getState().selectTab(loc.tabId);
 }
 
 /**

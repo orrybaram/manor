@@ -56,6 +56,7 @@ import * as webviewIpc from "./ipc/webview";
 import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
+import * as windowIpc from "./ipc/window";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -290,6 +291,7 @@ export function initApp(devTitle: string | null): void {
   tasksIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
+  windowIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {

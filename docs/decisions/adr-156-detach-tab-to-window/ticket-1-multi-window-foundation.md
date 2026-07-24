@@ -1,6 +1,6 @@
 ---
 title: Main-process multi-window foundation
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

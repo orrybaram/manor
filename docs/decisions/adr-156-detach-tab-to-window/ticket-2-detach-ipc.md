@@ -1,6 +1,6 @@
 ---
 title: Detach IPC + handoff channel
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [1]

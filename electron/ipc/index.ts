@@ -10,6 +10,7 @@ import * as webviewIpc from "./webview";
 import * as tasksIpc from "./tasks";
 import * as miscIpc from "./misc";
 import * as processesIpc from "./processes";
+import * as windowIpc from "./window";
 
 export { createWebviewServer } from "./webview";
 
@@ -25,4 +26,5 @@ export function registerAllIpc(deps: IpcDeps): void {
   tasksIpc.register(deps);
   miscIpc.register(deps);
   processesIpc.register(deps);
+  windowIpc.register(deps);
 }

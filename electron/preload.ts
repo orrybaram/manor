@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
+import type { DetachedTabPayload } from "../src/store/detach-types";
+
+interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
@@ -534,5 +542,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("webview:audio-state-changed", listener);
       return () => ipcRenderer.removeListener("webview:audio-state-changed", listener);
     },
+  },
+
+  // Multi-window (ADR-156). Named `window` on electronAPI — this does NOT shadow
+  // the global `window`, which is untouched here.
+  window: {
+    detachTab: (payload: DetachedTabPayload, spawnBounds: WindowBounds) =>
+      ipcRenderer.invoke("window:detachTab", payload, spawnBounds) as Promise<string>,
+    getDetachPayload: () =>
+      ipcRenderer.invoke("window:getDetachPayload") as Promise<DetachedTabPayload | null>,
+    getBounds: () =>
+      ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
   },
 });

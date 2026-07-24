@@ -1,5 +1,6 @@
 import type { PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
+import type { DetachedTabPayload } from "./store/detach-types";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -646,6 +647,24 @@ export interface ElectronAPI {
     onGoForward: (callback: (paneId: string) => void) => () => void;
     setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
     onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => () => void;
+  };
+
+  /** Multi-window detach/reattach handoff (ADR-156). */
+  window: {
+    /** Create a detached popup window for `payload`; resolves its windowId. */
+    detachTab: (
+      payload: DetachedTabPayload,
+      spawnBounds: { x: number; y: number; width: number; height: number },
+    ) => Promise<string>;
+    /** Detached renderer pulls its one-shot handoff payload on boot. */
+    getDetachPayload: () => Promise<DetachedTabPayload | null>;
+    /** Outer bounds of the calling window (used by the drag-out trigger). */
+    getBounds: () => Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>;
   };
 }
 

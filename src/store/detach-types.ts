@@ -1,5 +1,5 @@
 import type { PaneNode } from "./pane-tree";
-import type { AgentState } from "../electron.d";
+import type { AgentState, PickedElementResult } from "../electron.d";
 
 /**
  * Serialized form of a single tab handed across the process boundary when a tab
@@ -27,6 +27,7 @@ export interface DetachedTabPayload {
     agentStatus: Record<string, AgentState | null>;
     audioPlaying: Record<string, boolean>;
     audioMuted: Record<string, boolean>;
+    pickedElement: Record<string, PickedElementResult | null>;
   };
   /** Workspace the tab was detached from (informational; ephemeral windows). */
   sourceWorkspacePath: string;

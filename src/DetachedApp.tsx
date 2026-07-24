@@ -5,6 +5,7 @@ import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { useAppStore } from "./store/app-store";
+import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { allPaneIds } from "./store/pane-tree";
@@ -36,6 +37,11 @@ export default function DetachedApp() {
 
   useMountEffect(() => {
     loadTheme();
+    // A detached window has no sidebar. Marking it hidden makes the tab bar
+    // apply its `.noSidebar` inset (padding-left: 78px) so the tabs clear the
+    // macOS traffic lights instead of hiding beneath them. This store is
+    // per-renderer and not persisted, so it never affects the primary window.
+    useProjectStore.setState({ sidebarVisible: false });
     let cancelled = false;
     window.electronAPI.window
       .getDetachPayload()
@@ -88,27 +94,26 @@ export default function DetachedApp() {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  if (bootState === "loading") {
-    return (
-      <div className="app splash-screen">
-        <div className="splash-logo">
-          <ManorLogo />
-        </div>
-      </div>
-    );
-  }
-
   const hasLayout =
     bootState === "ready" &&
     activeWorkspacePath !== null &&
     workspaceLayouts[activeWorkspacePath] !== undefined;
 
-  if (!hasLayout) {
+  // Loading (payload in flight) and empty (no payload) both render a splash.
+  // A full-width `.drag-region` strip at the top keeps the window movable even
+  // before any tab bar exists — otherwise a centering flex collapses the strip
+  // to zero width and the window can't be dragged.
+  if (bootState === "loading" || !hasLayout) {
     return (
-      <div className="app splash-screen">
+      <div className="app">
         <div className="drag-region" />
-        <div className="splash-logo" style={{ opacity: 0.5 }}>
-          <ManorLogo />
+        <div className="splash-screen" style={{ flex: 1 }}>
+          <div
+            className="splash-logo"
+            style={{ opacity: bootState === "loading" ? 1 : 0.5 }}
+          >
+            <ManorLogo />
+          </div>
         </div>
       </div>
     );

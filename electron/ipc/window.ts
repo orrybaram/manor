@@ -48,10 +48,13 @@ export function register(deps: IpcDeps): void {
     (event): DetachedTabPayload | null => {
       const windowId = windowIdByWebContentsId.get(event.sender.id);
       if (!windowId) return null;
-      const payload = payloadByWindowId.get(windowId) ?? null;
-      // One-shot: consume it so a reload can't re-hydrate a stale tab.
-      payloadByWindowId.delete(windowId);
-      return payload;
+      // Idempotent read — do NOT delete on get. React StrictMode (dev) mounts
+      // the renderer effect twice; a delete-on-get would let the first, later
+      // cancelled, effect run consume the payload so the second run receives
+      // null and boots into the empty state. The payload is instead retained
+      // for this window's lifetime and dropped in the `closed` handler below,
+      // which also makes a manual reload re-hydrate the same tab.
+      return payloadByWindowId.get(windowId) ?? null;
     },
   );
 

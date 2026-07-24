@@ -337,7 +337,7 @@ export function register(deps: IpcDeps): void {
     webviewRegistry.delete(paneId);
   });
 
-  ipcMain.handle("webview:start-picker", async (_event, paneId: string) => {
+  ipcMain.handle("webview:start-picker", async (event, paneId: string) => {
     assertString(paneId, "paneId");
     const webContentsId = webviewRegistry.get(paneId);
     if (!webContentsId) return;
@@ -346,31 +346,32 @@ export function register(deps: IpcDeps): void {
 
     await wc.executeJavaScript(PICKER_SCRIPT);
 
+    // Route the pane-scoped picker result back to the window that started the
+    // picker (which owns the pane), not just the primary window — otherwise a
+    // detached window's browser pane would never receive its result.
+    const rendererWebContents = event.sender;
     const listener = (
       _ev: Electron.Event,
       _level: number,
       message: string,
     ) => {
-      const mw = getMainWindow();
-      if (
-        mw &&
-        !mw.isDestroyed() &&
-        !mw.webContents.isDestroyed()
-      ) {
-        if (message.startsWith("__MANOR_PICK__:")) {
-          wc.off("console-message", listener);
-          try {
-            const result = JSON.parse(
-              message.slice("__MANOR_PICK__:".length),
-            );
-            mw.webContents.send("webview:picker-result", paneId, result);
-          } catch {
-            // ignore parse errors
-          }
-        } else if (message === "__MANOR_PICK_CANCEL__") {
-          wc.off("console-message", listener);
-          mw.webContents.send("webview:picker-cancel", paneId);
+      if (rendererWebContents.isDestroyed()) {
+        wc.off("console-message", listener);
+        return;
+      }
+      if (message.startsWith("__MANOR_PICK__:")) {
+        wc.off("console-message", listener);
+        try {
+          const result = JSON.parse(
+            message.slice("__MANOR_PICK__:".length),
+          );
+          rendererWebContents.send("webview:picker-result", paneId, result);
+        } catch {
+          // ignore parse errors
         }
+      } else if (message === "__MANOR_PICK_CANCEL__") {
+        wc.off("console-message", listener);
+        rendererWebContents.send("webview:picker-cancel", paneId);
       }
     };
 

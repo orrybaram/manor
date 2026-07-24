@@ -23,7 +23,15 @@ export interface WorkspaceMeta {
 }
 
 export interface IpcDeps {
+  /** The PRIMARY renderer window. */
   mainWindow: BrowserWindow | null;
+  /** All live, non-destroyed renderer windows (primary + detached popups). */
+  getRendererWindows: () => BrowserWindow[];
+  /**
+   * Register a detached popup window (created via `createDetachedWindow`) so it
+   * is tracked for broadcast and reachable by its windowId.
+   */
+  registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
   backend: LocalBackend;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;

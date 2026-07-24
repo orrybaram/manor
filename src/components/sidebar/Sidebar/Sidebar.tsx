@@ -6,10 +6,20 @@ import React, {
 } from "react";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
 import House from "lucide-react/dist/esm/icons/house";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
+import { useKeybindingsStore } from "../../../store/keybindings-store";
+import { useNavigationHistoryStore } from "../../../store/navigation-history-store";
+import {
+  navigateBack,
+  navigateForward,
+} from "../../../hooks/useNavigationHistory";
+import { formatCombo } from "../../../lib/keybindings";
 import {
   HOME_PATH,
   isHomePath,
@@ -37,6 +47,15 @@ export function Sidebar(props: SidebarProps) {
   const { onShowTasks, onOpenProjectSettings, onAddProject } = props;
 
   const projects = useProjectStore((s) => s.projects);
+  const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
+  const canGoForward = useNavigationHistoryStore((s) => s.canGoForward());
+  const bindings = useKeybindingsStore((s) => s.bindings);
+  const backLabel = bindings["history-back"]
+    ? `Back (${formatCombo(bindings["history-back"])})`
+    : "Back";
+  const forwardLabel = bindings["history-forward"]
+    ? `Forward (${formatCombo(bindings["history-forward"])})`
+    : "Forward";
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
@@ -231,7 +250,34 @@ export function Sidebar(props: SidebarProps) {
       className={styles.sidebar}
       style={{ width: sidebarWidth }}
     >
-      <div className={styles.titlebar} />
+      <div className={styles.titlebar}>
+        <div className={styles.navControls}>
+          <Tooltip label={backLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateBack()}
+              disabled={!canGoBack}
+              aria-label="Navigate back"
+            >
+              <ArrowLeft size={12} />
+            </Button>
+          </Tooltip>
+          <Tooltip label={forwardLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateForward()}
+              disabled={!canGoForward}
+              aria-label="Navigate forward"
+            >
+              <ArrowRight size={12} />
+            </Button>
+          </Tooltip>
+        </div>
+      </div>
       <div className={styles.content}>
         <div
           className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}

@@ -43,6 +43,10 @@
   height: 32px;
   flex-shrink: 0;
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px;
 }
 
 .content {
@@ -63,6 +67,20 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
+}
+
+.navControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.navButton {
+  width: 18px;
+  height: 18px;
+  padding: 0;
 }
 
 /* Duplicated in TasksList.module.css — candidate for a shared <SectionHeader> UI component */

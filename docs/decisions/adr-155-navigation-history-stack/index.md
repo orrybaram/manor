@@ -105,9 +105,11 @@ No `paneId`. Coordinates carry enough to re-select the workspace, panel, and tab
 5. **Keybindings** — add `history-back` / `history-forward` commands in
    `src/lib/keybindings.ts` and register handlers in `App.tsx`'s keydown handler
    map (`src/App.tsx:382`, dispatched at `:467-493`). `Cmd+[`/`]` (pane) and
-   `Cmd+Shift+[`/`]` (tab) are already taken — use `Cmd+Ctrl+Left`/`Cmd+Ctrl+Right`
-   as defaults, and also wire the mouse back/forward buttons. Optional: back/forward
-   arrow `<Button>`s in the chrome.
+   `Cmd+Shift+[`/`]` (tab) are already taken — use `Cmd+Ctrl+[`/`Cmd+Ctrl+]` as
+   defaults (mirrors the bracket family; `Cmd+Ctrl+Left/Right` was rejected because
+   it collides with macOS Mission Control "Move space left/right"), and also wire
+   the mouse back/forward buttons. Optional: back/forward arrow `<Button>`s in the
+   chrome.
 
 ## Consequences
 

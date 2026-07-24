@@ -97,13 +97,13 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   {
     id: "history-back",
     label: "Navigate Back",
-    defaultCombo: metaCombo("ArrowLeft", false, false, true), // Cmd+Ctrl+Left
+    defaultCombo: metaCombo("[", false, false, true), // Cmd+Ctrl+[
     category: "app",
   },
   {
     id: "history-forward",
     label: "Navigate Forward",
-    defaultCombo: metaCombo("ArrowRight", false, false, true), // Cmd+Ctrl+Right
+    defaultCombo: metaCombo("]", false, false, true), // Cmd+Ctrl+]
     category: "app",
   },
   {

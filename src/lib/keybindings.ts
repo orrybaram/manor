@@ -95,6 +95,18 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "terminal",
   },
   {
+    id: "history-back",
+    label: "Navigate Back",
+    defaultCombo: metaCombo("ArrowLeft", false, false, true), // Cmd+Ctrl+Left
+    category: "app",
+  },
+  {
+    id: "history-forward",
+    label: "Navigate Forward",
+    defaultCombo: metaCombo("ArrowRight", false, false, true), // Cmd+Ctrl+Right
+    category: "app",
+  },
+  {
     id: "toggle-sidebar",
     label: "Toggle Sidebar",
     defaultCombo: metaCombo("\\"),
@@ -283,6 +295,14 @@ export function comboFromEvent(e: KeyboardEvent): KeyCombo {
   };
 }
 
+/** Maps DOM `KeyboardEvent.key` arrow names to display glyphs, e.g. "ArrowLeft" -> "←". */
+const ARROW_GLYPHS: Record<string, string> = {
+  ArrowLeft: "←",
+  ArrowRight: "→",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+};
+
 /**
  * Renders a human-readable display string for a KeyCombo.
  * On mac: ⌘⇧D
@@ -292,13 +312,14 @@ export function formatCombo(
   combo: KeyCombo,
   platform: "mac" | "other",
 ): string {
+  const glyph = ARROW_GLYPHS[combo.key];
   if (platform === "mac") {
     const parts: string[] = [];
     if (combo.ctrl) parts.push("⌃");
     if (combo.alt) parts.push("⌥");
     if (combo.shift) parts.push("⇧");
     if (combo.meta) parts.push("⌘");
-    parts.push(combo.key.toUpperCase());
+    parts.push(glyph ?? combo.key.toUpperCase());
     return parts.join("");
   } else {
     const parts: string[] = [];
@@ -306,7 +327,9 @@ export function formatCombo(
     if (combo.alt) parts.push("Alt");
     if (combo.shift) parts.push("Shift");
     if (combo.meta) parts.push("Meta");
-    parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
+    parts.push(
+      glyph ?? (combo.key.length === 1 ? combo.key.toUpperCase() : combo.key),
+    );
     return parts.join("+");
   }
 }

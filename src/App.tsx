@@ -31,7 +31,11 @@ import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
-import { useNavigationHistory } from "./hooks/useNavigationHistory";
+import {
+  useNavigationHistory,
+  navigateBack,
+  navigateForward,
+} from "./hooks/useNavigationHistory";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
@@ -386,6 +390,8 @@ function App() {
     "next-pane": () => focusNextPane(),
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
+    "history-back": () => navigateBack(),
+    "history-forward": () => navigateForward(),
     "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
     "new-browser": () => addBrowserTab("about:blank"),
@@ -493,6 +499,26 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  // Mouse back/forward buttons (button 3/4). Skipped while a webview pane has
+  // DOM focus — the guest page (and Chromium itself) already handles its own
+  // back/forward navigation for that content, consistent with how
+  // `useTerminalHotkeys` scopes app shortcuts away from focused input.
+  useMountEffect(() => {
+    function handleMouseUp(e: MouseEvent) {
+      if (e.button !== 3 && e.button !== 4) return;
+      if (useAppStore.getState().webviewFocusedPaneId) return;
+      e.preventDefault();
+      if (e.button === 3) {
+        navigateBack();
+      } else {
+        navigateForward();
+      }
+    }
+
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
   });
 
   const handleResumeTask = useCallback(

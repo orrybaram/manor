@@ -1,6 +1,6 @@
 ---
 title: Keybindings + UI affordances for back/forward
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

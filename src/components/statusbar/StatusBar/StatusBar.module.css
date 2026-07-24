@@ -30,6 +30,19 @@
   flex-shrink: 0;
 }
 
+.navControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.navButton {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
 .segment {
   white-space: nowrap;
   overflow: hidden;

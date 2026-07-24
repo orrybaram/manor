@@ -1,8 +1,19 @@
 import { useState, useCallback } from "react";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
+import { useKeybindingsStore } from "../../../store/keybindings-store";
+import { useNavigationHistoryStore } from "../../../store/navigation-history-store";
+import {
+  navigateBack,
+  navigateForward,
+} from "../../../hooks/useNavigationHistory";
+import { formatCombo } from "../../../lib/keybindings";
 
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
+import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
@@ -12,6 +23,12 @@ import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue } from "../../../store/project-store";
 import type { CommandPaletteProps } from "../../command-palette/types";
 import styles from "./StatusBar.module.css";
+
+const PLATFORM: "mac" | "other" = navigator.platform
+  .toLowerCase()
+  .includes("mac")
+  ? "mac"
+  : "other";
 
 function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
@@ -56,6 +73,15 @@ export function StatusBar(props: StatusBarProps) {
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const webviewFocusedPaneId = useAppStore((s) => s.webviewFocusedPaneId);
   const projects = useProjectStore((s) => s.projects);
+  const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
+  const canGoForward = useNavigationHistoryStore((s) => s.canGoForward());
+  const bindings = useKeybindingsStore((s) => s.bindings);
+  const backLabel = bindings["history-back"]
+    ? `Back (${formatCombo(bindings["history-back"], PLATFORM)})`
+    : "Back";
+  const forwardLabel = bindings["history-forward"]
+    ? `Forward (${formatCombo(bindings["history-forward"], PLATFORM)})`
+    : "Forward";
 
   const project = projects.find((p) =>
     p.workspaces.some((w) => w.path === activeWorkspacePath),
@@ -76,6 +102,32 @@ export function StatusBar(props: StatusBarProps) {
   return (
     <div className={styles.statusBar}>
       <div className={styles.left}>
+        <div className={styles.navControls}>
+          <Tooltip label={backLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateBack()}
+              disabled={!canGoBack}
+              aria-label="Navigate back"
+            >
+              <ArrowLeft size={12} />
+            </Button>
+          </Tooltip>
+          <Tooltip label={forwardLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateForward()}
+              disabled={!canGoForward}
+              aria-label="Navigate forward"
+            >
+              <ArrowRight size={12} />
+            </Button>
+          </Tooltip>
+        </div>
         {project && (
           <>
             <span className={styles.segment}>{project.name}</span>

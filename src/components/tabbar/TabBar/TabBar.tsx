@@ -21,6 +21,10 @@ import styles from "./TabBar.module.css";
 
 const EMPTY_STYLE: React.CSSProperties = {};
 const TAB_GAP = 2; // matches .tabs CSS gap
+// Screen-space band inside the window edge that arms tear-off (ADR-156). The
+// pointer must cross it to leave the window, which is our last chance to
+// reclaim pointer capture while events are still being delivered.
+const EDGE_MARGIN = 40;
 
 type TabBarProps = {
   onNewTask: () => void;
@@ -106,8 +110,44 @@ export function TabBar(props: TabBarProps) {
       draggedPointerId.current = e.pointerId;
       handedOffToPaneDrop.current = false;
       const tabId = tabs[idx].id;
+      const tabTitle = tabs[idx].title;
       lastScreenPos.current = { x: e.screenX, y: e.screenY };
       windowBounds.current = null;
+
+      // Per-drag state. Local to this closure rather than refs: it is only ever
+      // meaningful for the drag this handler opened.
+      //
+      // `inDetachMode` means the pointer is outside this window (or within
+      // EDGE_MARGIN of leaving it) — the tab is being torn off. Entering it
+      // reclaims pointer capture, which is what keeps pointermove and the final
+      // pointerup flowing once the cursor is beyond the window; without that the
+      // renderer goes silent outside its own bounds and the drop is unknowable.
+      let inDetachMode = false;
+      let previewVisible = false;
+
+      // Fetch bounds eagerly on pointerdown, not on first move: the user can
+      // reach the window edge before an async round trip started later resolves.
+      void window.electronAPI.window
+        .getBounds()
+        .then((b) => {
+          windowBounds.current = b;
+        })
+        .catch(() => {
+          /* leave bounds null → outside-window checks fall back to false */
+        });
+
+      // Snapshot theme colors so the native preview matches the app's tab.
+      const cs = getComputedStyle(document.documentElement);
+      const readVar = (name: string): string | undefined => {
+        const v = cs.getPropertyValue(name).trim();
+        return v.length > 0 ? v : undefined;
+      };
+      const previewTheme = {
+        bg: readVar("--dim"),
+        fg: readVar("--fg"),
+        border: readVar("--border"),
+        accent: readVar("--accent"),
+      };
 
       // Snapshot item widths
       const widths: number[] = [];
@@ -137,18 +177,13 @@ export function TabBar(props: TabBarProps) {
         if (!dragActive.current) {
           dragActive.current = true;
           useDragOverlayStore.getState().incrementDragCount();
-          // Fetch this window's outer bounds once, now that a real drag started.
-          void window.electronAPI.window
-            .getBounds()
-            .then((b) => {
-              windowBounds.current = b;
-            })
-            .catch(() => {
-              /* leave bounds null → outside-window check falls back to false */
-            });
           setDragIndex(idx);
           setDropIndex(idx);
         }
+
+        // While tearing off, the native preview is the only visual: skip the
+        // in-bar reorder animation and never hand off to pane drop zones.
+        if (inDetachMode) return;
 
         setDragOffset(dx);
         setDragPos({
@@ -199,7 +234,9 @@ export function TabBar(props: TabBarProps) {
             // Global listener to end drag if user drops outside any pane
             const globalCleanup = () => {
               requestAnimationFrame(() => {
-                endDrag();
+                // A tear-off reclaims capture and clears the handoff flag; in
+                // that case onUp owns the drag and must not be undone here.
+                if (!inDetachMode) endDrag();
               });
               document.removeEventListener("pointerup", globalCleanup);
             };
@@ -208,7 +245,84 @@ export function TabBar(props: TabBarProps) {
         }
       };
 
+      // Runs for the whole drag, in both phases. Pointer-captured moves still
+      // bubble to document, so this sees every move whether capture is held by
+      // the tab (in-bar drag / tear-off) or released (pane-drop handoff).
+      const onDocMove = (ev: globalThis.PointerEvent) => {
+        lastScreenPos.current = { x: ev.screenX, y: ev.screenY };
+        if (!dragActive.current) return;
+        const b = windowBounds.current;
+        if (!b) return;
+
+        const sx = ev.screenX;
+        const sy = ev.screenY;
+        const outside =
+          sx < b.x || sx > b.x + b.width || sy < b.y || sy > b.y + b.height;
+        // The margin is the whole trick: once capture has been released for a
+        // pane-drop handoff, leaving the window would cut off all events. We
+        // reclaim capture while the cursor is still inside but close to the
+        // edge — it must cross this band to get out.
+        const nearEdge =
+          !outside &&
+          (sx - b.x < EDGE_MARGIN ||
+            b.x + b.width - sx < EDGE_MARGIN ||
+            sy - b.y < EDGE_MARGIN ||
+            b.y + b.height - sy < EDGE_MARGIN);
+
+        const shouldDetach = outside || nearEdge;
+
+        if (shouldDetach && !inDetachMode) {
+          inDetachMode = true;
+          try {
+            tabEl.setPointerCapture(draggedPointerId.current);
+          } catch {
+            /* pointer may have ended */
+          }
+          if (handedOffToPaneDrop.current) {
+            handedOffToPaneDrop.current = false;
+            endDrag();
+          }
+          setDragIndex(null);
+          setDropIndex(null);
+          setDragOffset(0);
+          setDragPos(null);
+        } else if (!shouldDetach && inDetachMode) {
+          // Pulled back into the window — drop the preview and let the normal
+          // in-window drag logic take over again on the next move.
+          inDetachMode = false;
+          if (previewVisible) {
+            window.electronAPI.window.hideDragPreview();
+            previewVisible = false;
+          }
+        }
+
+        if (inDetachMode) {
+          const px = Math.round(sx - dragGrabOffset.current.x);
+          const py = Math.round(sy - dragGrabOffset.current.y);
+          if (!previewVisible) {
+            window.electronAPI.window.showDragPreview(
+              tabTitle,
+              px,
+              py,
+              previewTheme,
+            );
+            previewVisible = true;
+          } else {
+            window.electronAPI.window.moveDragPreview(px, py);
+          }
+        }
+      };
+
+      const teardownDragListeners = () => {
+        document.removeEventListener("pointermove", onDocMove);
+        if (previewVisible) {
+          window.electronAPI.window.hideDragPreview();
+          previewVisible = false;
+        }
+      };
+
       const onUp = () => {
+        teardownDragListeners();
         if (handedOffToPaneDrop.current) {
           handedOffToPaneDrop.current = false;
           tabEl.removeEventListener("pointermove", onMove);
@@ -305,6 +419,15 @@ export function TabBar(props: TabBarProps) {
       tabEl.addEventListener("pointermove", onMove);
       tabEl.addEventListener("pointerup", onUp);
       tabEl.addEventListener("lostpointercapture", onUp);
+      document.addEventListener("pointermove", onDocMove);
+      // Safety net: in the pane-drop phase capture is released, so tabEl's
+      // pointerup never fires and onUp's teardown would be skipped. This
+      // guarantees the doc listener and native preview are always disposed.
+      const onDocUp = () => {
+        teardownDragListeners();
+        document.removeEventListener("pointerup", onDocUp);
+      };
+      document.addEventListener("pointerup", onDocUp);
     },
     [tabs, reorderTabs, pinnedTabIds, startDrag, endDrag],
   );

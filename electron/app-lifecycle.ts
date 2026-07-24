@@ -37,6 +37,7 @@ import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { createWindow, saveZoomLevel } from "./window";
+import { hideDragPreview } from "./drag-preview";
 import {
   unseenRespondedTasks,
   unseenInputTasks,
@@ -481,6 +482,9 @@ export function initApp(devTitle: string | null): void {
   });
 
   app.on("before-quit", () => {
+    // Dispose any in-flight tear-off preview: it is a real BrowserWindow, so a
+    // stray one would keep `window-all-closed` from firing.
+    hideDragPreview();
     agentHookServer.stop();
     webviewServer.stop();
     portlessManager.stop();

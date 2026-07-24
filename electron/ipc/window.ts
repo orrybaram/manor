@@ -1,6 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import { createDetachedWindow } from "../window";
+import {
+  showDragPreview,
+  moveDragPreview,
+  hideDragPreview,
+  type DragPreviewTheme,
+} from "../drag-preview";
 import type { IpcDeps } from "./types";
 import type { DetachedTabPayload } from "../../src/store/detach-types";
 
@@ -62,6 +68,30 @@ export function register(deps: IpcDeps): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return { x: 0, y: 0, width: 0, height: 0 };
     return win.getBounds();
+  });
+
+  // ── Native drag preview (ADR-156) ──
+  // Fire-and-forget `send`/`on` rather than `invoke`: the move channel fires at
+  // pointermove frequency and must never make the renderer await a round trip.
+  ipcMain.on(
+    "window:showDragPreview",
+    (
+      _event,
+      title: string,
+      x: number,
+      y: number,
+      theme?: Partial<DragPreviewTheme>,
+    ) => {
+      showDragPreview(title, x, y, theme);
+    },
+  );
+
+  ipcMain.on("window:moveDragPreview", (_event, x: number, y: number) => {
+    moveDragPreview(x, y);
+  });
+
+  ipcMain.on("window:hideDragPreview", () => {
+    hideDragPreview();
   });
 
   // Reverse of detachTab: a detached window sends its tab back to the primary

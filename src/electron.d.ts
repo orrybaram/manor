@@ -687,6 +687,21 @@ export interface ElectronAPI {
     onTabReattached: (
       callback: (payload: DetachedTabPayload) => void,
     ) => () => void;
+    /**
+     * Show the native floating drag preview at a screen-space top-left point.
+     * Used once a dragged tab leaves this window's bounds, where a DOM ghost
+     * cannot paint. Fire-and-forget.
+     */
+    showDragPreview: (
+      title: string,
+      x: number,
+      y: number,
+      theme?: { bg?: string; fg?: string; border?: string; accent?: string },
+    ) => void;
+    /** Move the native drag preview. Safe to call on every pointermove. */
+    moveDragPreview: (x: number, y: number) => void;
+    /** Hide and dispose the native drag preview. */
+    hideDragPreview: () => void;
   };
 }
 

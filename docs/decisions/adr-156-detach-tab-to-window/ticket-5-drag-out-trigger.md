@@ -1,6 +1,6 @@
 ---
 title: Drag-out trigger in TabBar
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

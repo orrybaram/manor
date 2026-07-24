@@ -1,6 +1,6 @@
 ---
 title: "Move tab to new window" menu item
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

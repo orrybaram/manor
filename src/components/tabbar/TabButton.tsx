@@ -197,6 +197,31 @@ export function TabButton(props: TabButtonProps) {
               Move Tab to Next Panel
             </ContextMenu.Item>
           )}
+          {!window.electronAPI?.isDetached && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                void (async () => {
+                  try {
+                    const payload = useAppStore.getState().serializeTabForDetach(tabId);
+                    const bounds = await window.electronAPI.window.getBounds();
+                    const spawnBounds = {
+                      x: bounds.x + 40,
+                      y: bounds.y + 40,
+                      width: 900,
+                      height: 600,
+                    };
+                    await window.electronAPI.window.detachTab(payload, spawnBounds);
+                    useAppStore.getState().removeDetachedTabLocally(tabId);
+                  } catch (err) {
+                    console.error("Failed to detach tab to new window", err);
+                  }
+                })();
+              }}
+            >
+              Move to New Window
+            </ContextMenu.Item>
+          )}
           {canClose && (
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />

@@ -227,6 +227,15 @@ export interface ElectronAPI {
     isPackaged: boolean;
   };
 
+  /**
+   * Multi-window detach (ADR-156). `isDetached` is true when this renderer was
+   * launched as a detached popup window; `detachedWindowId` carries that
+   * window's id (null in the primary window). Both are surfaced synchronously
+   * from the `--manor-detached=<id>` launch argument.
+   */
+  isDetached: boolean;
+  detachedWindowId: string | null;
+
   pty: {
     create: (
       paneId: string,

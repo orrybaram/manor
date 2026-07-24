@@ -2979,8 +2979,13 @@ function saveActiveWorkspaceLayout(): void {
   }, 500);
 }
 
-// Subscribe to store changes and auto-save layout
+// Subscribe to store changes and auto-save layout.
+//
+// Detached windows (ADR-156) are ephemeral and MUST NOT persist their layout —
+// they share a `workspacePath` with the primary window, so saving would clobber
+// the primary's persisted state. Gate the whole subscription on detached mode.
 useAppStore.subscribe((state, prevState) => {
+  if (window.electronAPI?.isDetached) return;
   if (
     state.workspaceLayouts !== prevState.workspaceLayouts ||
     state.activeWorkspacePath !== prevState.activeWorkspacePath ||
@@ -2991,8 +2996,10 @@ useAppStore.subscribe((state, prevState) => {
 });
 
 // Flush any pending layout save before the window unloads (app quit / reload)
-// so that recently-created panes (e.g. diff, browser) are never lost.
+// so that recently-created panes (e.g. diff, browser) are never lost. Detached
+// windows never save, so this flush is a no-op for them.
 window.addEventListener("beforeunload", () => {
+  if (window.electronAPI?.isDetached) return;
   if (saveLayoutTimer) {
     clearTimeout(saveLayoutTimer);
     saveLayoutTimer = null;

@@ -26,10 +26,25 @@ function onChannel<T>(
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
+// Detached-window flag (ADR-156). Mirrors the `--manor-packaged` pattern: main
+// injects `--manor-detached=<windowId>` via additionalArguments so the renderer
+// can boot in detached mode synchronously, without an IPC round-trip.
+const detachedArg = process.argv.find((arg) =>
+  arg.startsWith("--manor-detached="),
+);
+const detachedWindowId = detachedArg
+  ? detachedArg.slice("--manor-detached=".length)
+  : null;
+const isDetached = detachedWindowId !== null;
+
 contextBridge.exposeInMainWorld("electronAPI", {
   env: {
     isPackaged,
   },
+
+  // True when this renderer was launched as a detached popup window (ADR-156).
+  isDetached,
+  detachedWindowId,
 
   pty: {
     create: (paneId: string, cwd: string | null, cols: number, rows: number, agentKind?: string | null) =>

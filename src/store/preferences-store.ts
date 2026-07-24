@@ -24,9 +24,9 @@ const defaultPreferences: AppPreferences = {
   diffOpensInNewPanel: true,
   taskRetentionDays: 90,
   taskPruneNoticeShown: false,
-  orchestratorHarness: "claude",
-  orchestratorCustomCommand: "",
-  orchestratorCustomInterrupt: "",
+  homeHarness: "claude",
+  homeCustomCommand: "",
+  homeCustomInterrupt: "",
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

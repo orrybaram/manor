@@ -4,11 +4,11 @@ import { Input, Select } from "../ui/Input";
 import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-export function OrchestratorSettingsPage() {
+export function HomeSettingsPage() {
   const { preferences, set } = usePreferencesStore();
 
   const handleHarnessChange = (value: string) => {
-    set("orchestratorHarness", value as HarnessKind);
+    set("homeHarness", value as HarnessKind);
   };
 
   return (
@@ -17,7 +17,7 @@ export function OrchestratorSettingsPage() {
         <div className={styles.sectionTitle}>Harness</div>
         <div className={styles.fieldLabel}>Agent harness</div>
         <Select
-          value={preferences.orchestratorHarness}
+          value={preferences.homeHarness}
           onChange={(e) => handleHarnessChange(e.target.value)}
         >
           <option value="claude">Claude</option>
@@ -25,17 +25,17 @@ export function OrchestratorSettingsPage() {
           <option value="custom">Custom</option>
         </Select>
         <div className={styles.fieldHint}>
-          The CLI the orchestrator auto-launches for its always-on session.
+          The CLI Home auto-launches for its always-on session.
         </div>
 
-        {preferences.orchestratorHarness === "custom" && (
+        {preferences.homeHarness === "custom" && (
           <>
             <div className={styles.fieldLabel}>Launch command</div>
             <Input
               type="text"
               placeholder="e.g. my-agent --flag"
-              value={preferences.orchestratorCustomCommand}
-              onChange={(e) => set("orchestratorCustomCommand", e.target.value)}
+              value={preferences.homeCustomCommand}
+              onChange={(e) => set("homeCustomCommand", e.target.value)}
             />
             <div className={styles.fieldHint}>
               Full boot command for your custom harness.
@@ -45,9 +45,9 @@ export function OrchestratorSettingsPage() {
             <Input
               type="text"
               placeholder={"e.g. \\x03 for Ctrl-C"}
-              value={preferences.orchestratorCustomInterrupt}
+              value={preferences.homeCustomInterrupt}
               onChange={(e) =>
-                set("orchestratorCustomInterrupt", e.target.value)
+                set("homeCustomInterrupt", e.target.value)
               }
             />
             <div className={styles.fieldHint}>

@@ -15,7 +15,7 @@ import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
-import { OrchestratorSettingsPage } from "../OrchestratorSettingsPage";
+import { HomeSettingsPage } from "../HomeSettingsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
@@ -32,7 +32,7 @@ type SettingsPage =
   | { type: "keybindings" }
   | { type: "notifications" }
   | { type: "integrations" }
-  | { type: "orchestrator" }
+  | { type: "home" }
   | { type: "project"; projectId: string };
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -131,11 +131,11 @@ export function SettingsModal(props: SettingsModalProps) {
               </button>
 
               <button
-                className={`${styles.navItem} ${page.type === "orchestrator" ? styles.navItemActive : ""}`}
-                onClick={() => setPage({ type: "orchestrator" })}
+                className={`${styles.navItem} ${page.type === "home" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "home" })}
               >
                 <Bot size={14} />
-                <span>Orchestrator</span>
+                <span>Home</span>
               </button>
 
               <button
@@ -177,7 +177,7 @@ export function SettingsModal(props: SettingsModalProps) {
               {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
-              {page.type === "orchestrator" && <OrchestratorSettingsPage />}
+              {page.type === "home" && <HomeSettingsPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage
                   key={currentProject.id}

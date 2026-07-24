@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import House from "lucide-react/dist/esm/icons/house";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import {
   useProjectStore,
@@ -126,7 +126,7 @@ const WorkspaceItem = React.forwardRef<
             {workspaceStatus ? (
               <AgentDot status={workspaceStatus} size="sidebar" pulse={workspacePulse} />
             ) : ws.isMain ? (
-              <House size={12} />
+              <GitBranch size={12} />
             ) : (
               <FolderGit2 size={12} />
             )}

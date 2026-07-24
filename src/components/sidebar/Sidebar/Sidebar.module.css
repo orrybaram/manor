@@ -89,14 +89,14 @@
   line-height: 1.6;
 }
 
-/* Pinned top-level "Orchestrator" row — mirrors the home/"local" workspace
+/* Pinned top-level "Home" row — mirrors the home/"local" workspace
    visual from ProjectItem.module.css, sits above the Projects list and is
    exempt from drag/reorder. */
-.orchestratorRow {
+.homeRow {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 6px 6px;
+  margin-bottom: 6px;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
@@ -104,17 +104,17 @@
   color: var(--text-primary);
 }
 
-.orchestratorRow:hover {
+.homeRow:hover {
   background: var(--surface);
 }
 
-.orchestratorRowActive {
+.homeRowActive {
   background: var(--surface);
   color: var(--text-selected);
   font-weight: 500;
 }
 
-.orchestratorIcon {
+.homeIcon {
   color: var(--text-dim);
   flex-shrink: 0;
   display: flex;
@@ -122,11 +122,11 @@
   height: 16px;
 }
 
-.orchestratorRowActive .orchestratorIcon {
+.homeRowActive .homeIcon {
   color: var(--accent);
 }
 
-.orchestratorLabel {
+.homeLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

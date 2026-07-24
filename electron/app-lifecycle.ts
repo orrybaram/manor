@@ -16,6 +16,7 @@ import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { ShellManager } from "./shell";
+import { homeWorkspaceDir } from "./paths";
 import {
   AgentHookServer,
   ensureHookScript,
@@ -173,6 +174,9 @@ export function initApp(devTitle: string | null): void {
   ensureHookScript();
   ensureWebviewCli();
   registerAllAgents();
+  // The Home surface's harness runs in ~/.manor/home. Create it once here
+  // instead of on every new session's launch command.
+  fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
   // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
   let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;

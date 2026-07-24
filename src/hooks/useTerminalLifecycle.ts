@@ -19,8 +19,8 @@ import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
-import { isOrchestratorPath } from "../lib/orchestrator";
-import { resolveOrchestratorAdapter } from "../lib/harness";
+import { isHomePath } from "../lib/home";
+import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -228,10 +228,10 @@ export function useTerminalLifecycle(
     // is set in the PTY env for connector-aware spawns.
     const agentKindForCreate: string | null = (() => {
       if (!cwd) return null;
-      if (isOrchestratorPath(cwd)) {
+      if (isHomePath(cwd)) {
         const prefs = usePreferencesStore.getState().preferences;
         return getAgentKindForCommand(
-          resolveOrchestratorAdapter(prefs).launchCommand(),
+          resolveHomeAdapter(prefs).launchCommand(),
         );
       }
       const projects = useProjectStore.getState().projects;
@@ -242,9 +242,10 @@ export function useTerminalLifecycle(
       return command ? getAgentKindForCommand(command) : "claude";
     })();
 
-    // The orchestrator sentinel path is not a real directory — spawn its shell
-    // in $HOME (null cwd), and let its startup command cd into the real cwd.
-    const spawnCwd = isOrchestratorPath(cwd) ? null : (cwd ?? null);
+    // The home sentinel path resolves to ~/.manor/home at the pty boundary
+    // (see resolveSpawnCwd in electron/ipc/pty.ts), so it needs no special
+    // casing here — pass it through like any workspace path.
+    const spawnCwd = cwd ?? null;
 
     create(spawnCwd, cols, rows, agentKindForCreate).then(
       (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
@@ -261,15 +262,15 @@ export function useTerminalLifecycle(
 
           // Set pane context for task association
           if (cwd) {
-            if (isOrchestratorPath(cwd)) {
-              // The orchestrator has no owning project — associate the pane with
+            if (isHomePath(cwd)) {
+              // The home has no owning project — associate the pane with
               // the sentinel workspace and the resolved harness command.
               const prefs = usePreferencesStore.getState().preferences;
               window.electronAPI.tasks.setPaneContext(paneId, {
                 projectId: "",
-                projectName: "Orchestrator",
+                projectName: "Home",
                 workspacePath: cwd,
-                agentCommand: resolveOrchestratorAdapter(prefs).launchCommand(),
+                agentCommand: resolveHomeAdapter(prefs).launchCommand(),
               });
             } else {
               const projects = useProjectStore.getState().projects;

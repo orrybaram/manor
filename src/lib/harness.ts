@@ -1,7 +1,7 @@
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 
 /**
- * Agent-agnostic harness kinds the orchestrator (and, later, `send_to_session`)
+ * Agent-agnostic harness kinds the Home surface (and, later, `send_to_session`)
  * can drive. Mirrors `AgentKind` in `electron/terminal-host/types.ts` at the
  * points that matter for launch/interrupt behavior.
  */
@@ -59,23 +59,23 @@ export function createCustomHarness(
   };
 }
 
-export interface OrchestratorHarnessPreferences {
-  orchestratorHarness: HarnessKind;
-  orchestratorCustomCommand: string;
-  orchestratorCustomInterrupt: string;
+export interface HomeHarnessPreferences {
+  homeHarness: HarnessKind;
+  homeCustomCommand: string;
+  homeCustomInterrupt: string;
 }
 
-/** Resolve the configured orchestrator harness adapter from preferences. */
-export function resolveOrchestratorAdapter(
-  prefs: OrchestratorHarnessPreferences,
+/** Resolve the configured home harness adapter from preferences. */
+export function resolveHomeAdapter(
+  prefs: HomeHarnessPreferences,
 ): HarnessAdapter {
-  switch (prefs.orchestratorHarness) {
+  switch (prefs.homeHarness) {
     case "codex":
       return codexHarness;
     case "custom":
       return createCustomHarness(
-        prefs.orchestratorCustomCommand,
-        prefs.orchestratorCustomInterrupt,
+        prefs.homeCustomCommand,
+        prefs.homeCustomInterrupt,
       );
     case "claude":
     default:

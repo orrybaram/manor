@@ -7,6 +7,7 @@ import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
+import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
@@ -35,14 +36,10 @@ import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
-  ORCHESTRATOR_PATH,
   escapeShellDoubleQuoted,
-  isOrchestratorPath,
-  orchestratorLaunchCommand,
-  orchestratorStartupCommand,
-  wrapOrchestratorCwd,
-} from "./lib/orchestrator";
-import { orchestratorPrimer } from "./lib/orchestrator-primer";
+  isHomePath,
+  homeLaunchCommand,
+} from "./lib/home";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
@@ -90,12 +87,14 @@ function App() {
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
-    // Revert to the active project's theme in case settings was previewing
-    // a different project's theme
-    const activeTheme =
-      useProjectStore.getState().projects[
-        useProjectStore.getState().selectedProjectIndex
-      ]?.themeName ?? null;
+    // Revert to the active surface's theme in case settings was previewing a
+    // different theme. Home has no project override — it inherits the global
+    // theme (null).
+    const activeTheme = isHomePath(useAppStore.getState().activeWorkspacePath)
+      ? null
+      : useProjectStore.getState().projects[
+          useProjectStore.getState().selectedProjectIndex
+        ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -255,13 +254,16 @@ function App() {
   // Clean up wizard state if the project is removed while wizard is open
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
-  // Reactively apply project theme whenever the selected project changes
-  const currentProjectThemeName =
-    projects[selectedProjectIndex]?.themeName ?? null;
-  const prevThemeRef = useRef(currentProjectThemeName);
-  if (currentProjectThemeName !== prevThemeRef.current) {
-    prevThemeRef.current = currentProjectThemeName;
-    applyProjectTheme(currentProjectThemeName);
+  // Reactively apply the active surface's theme. Projects carry an optional
+  // theme override; the home surface has no owning project, so it inherits the
+  // global theme (null override) — switching to/from home re-applies here.
+  const effectiveThemeName = isHomePath(activeWorkspacePath)
+    ? null
+    : projects[selectedProjectIndex]?.themeName ?? null;
+  const prevThemeRef = useRef(effectiveThemeName);
+  if (effectiveThemeName !== prevThemeRef.current) {
+    prevThemeRef.current = effectiveThemeName;
+    applyProjectTheme(effectiveThemeName);
   }
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
@@ -271,21 +273,26 @@ function App() {
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
   // Keep the prewarmed session in sync with the active workspace.
-  // Derive agentCommand outside the effect so it only re-fires when the
+  // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
   const activeProject = projects.find((p) =>
     p.workspaces.some((w) => w.path === activeWorkspacePath),
   );
-  const prewarmAgentCommand = activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The launch command for the active surface. Home has no owning project and
+  // boots the configured home harness in ~/.manor/home (the pty boundary maps
+  // its sentinel path to the real dir); a project workspace uses its
+  // agentCommand. Shared by prewarming and both new-task handlers below.
+  const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
+  const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
+  const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
+  const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
+    ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
+    : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    // The orchestrator sentinel is not a real directory, so there is nothing to
-    // prewarm — its shell spawns in $HOME and the launch command cd's into
-    // ~/.manor/orchestrator itself (see orchestratorStartupCommand).
-    if (activeWorkspacePath && !isOrchestratorPath(activeWorkspacePath)) {
-      const prewarmKind = getAgentKindForCommand(prewarmAgentCommand);
-      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand, prewarmKind);
-    }
-  }, [activeWorkspacePath, prewarmAgentCommand]);
+    if (!activeWorkspacePath) return;
+    const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
+    window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, activeWorkspaceCommand, prewarmKind);
+  }, [activeWorkspacePath, activeWorkspaceCommand]);
 
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
@@ -530,65 +537,25 @@ function App() {
   );
 
   const handleNewTask = useCallback(async () => {
-    // Orchestrator surface: boot the configured harness in its own cwd. There
-    // is no prewarmed session for the sentinel path.
-    if (isOrchestratorPath(activeWorkspacePath)) {
-      const prefs = usePreferencesStore.getState().preferences;
-      // ADR-153 ticket 5: seed the orchestrator primer as the harness's first
-      // prompt, but only on a genuine first launch — i.e. the orchestrator
-      // surface has no tabs yet. This is the same condition the auto-launch
-      // effect below checks before calling this handler, so it covers that
-      // path; it also means re-launching an *additional* orchestrator tab
-      // (when one already exists) boots the bare harness without re-priming.
-      const orchestratorLayout = workspaceLayouts[ORCHESTRATOR_PATH];
-      const isFirstLaunch = orchestratorLayout
-        ? !Object.values(orchestratorLayout.panels).some(
-            (p) => p.tabs.length > 0,
-          )
-        : true;
-      useAppStore
-        .getState()
-        .setPendingStartupCommand(
-          ORCHESTRATOR_PATH,
-          orchestratorStartupCommand(
-            prefs,
-            isFirstLaunch ? orchestratorPrimer() : undefined,
-          ),
-        );
-      addTab();
-      return;
-    }
+    // Every surface — Home and project workspaces alike — consumes a prewarmed
+    // session when one is ready. On a cold start (no prewarm, or the command
+    // hadn't been injected yet) seed the surface's launch command; the pty
+    // boundary resolves the cwd, so Home needs no special casing here.
     const prewarmed = await window.electronAPI.pty.consumePrewarmed();
     if (activeWorkspacePath && !prewarmed?.commandInjected) {
-      const currentProject = projects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
-      const command =
-        currentProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
       useAppStore
         .getState()
-        .setPendingStartupCommand(activeWorkspacePath, command);
+        .setPendingStartupCommand(activeWorkspacePath, activeWorkspaceCommand);
     }
     addTab(prewarmed?.paneId);
-  }, [addTab, projects, activeWorkspacePath, workspaceLayouts]);
+  }, [addTab, activeWorkspacePath, activeWorkspaceCommand]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
     (prompt: string) => {
       if (activeWorkspacePath) {
-        const orchestrator = isOrchestratorPath(activeWorkspacePath);
-        const baseCommand = orchestrator
-          ? orchestratorLaunchCommand(
-              usePreferencesStore.getState().preferences,
-            )
-          : projects.find((p) =>
-              p.workspaces.some((w) => w.path === activeWorkspacePath),
-            )?.agentCommand ?? DEFAULT_AGENT_COMMAND;
         const escaped = escapeShellDoubleQuoted(prompt);
-        const withPrompt = `${baseCommand} "${escaped}"`;
-        const command = orchestrator
-          ? wrapOrchestratorCwd(withPrompt)
-          : withPrompt;
+        const command = `${activeWorkspaceCommand} "${escaped}"`;
         useAppStore
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
@@ -597,24 +564,9 @@ function App() {
       // but we need a different command with the prompt argument.
       addTab();
     },
-    [addTab, projects, activeWorkspacePath],
+    [addTab, activeWorkspacePath, activeWorkspaceCommand],
   );
   handleNewTaskWithPromptRef.current = handleNewTaskWithPrompt;
-
-  // Auto-launch the orchestrator harness the first time its surface is opened
-  // with no tabs. Restored sessions (resume-on-relaunch) already carry tabs, so
-  // this only fires for a genuinely empty orchestrator surface; the existing
-  // auto-resume machinery in useTerminalLifecycle rehydrates persisted panes.
-  useEffect(() => {
-    if (activeWorkspacePath !== ORCHESTRATOR_PATH) return;
-    const layout = workspaceLayouts[ORCHESTRATOR_PATH];
-    const hasOrchestratorTabs = layout
-      ? Object.values(layout.panels).some((p) => p.tabs.length > 0)
-      : false;
-    if (!hasOrchestratorTabs) {
-      handleNewTaskRef.current();
-    }
-  }, [activeWorkspacePath, workspaceLayouts]);
 
   if (!appReady) {
     return (
@@ -653,9 +605,11 @@ function App() {
                   {wizardStillValid && wizardProjectId
                     ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                     : !hasTabs &&
-                      (hasProjects
-                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
-                        : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                      (isHomePath(activeWorkspacePath)
+                        ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} />
+                        : hasProjects
+                          ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
+                          : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
                 </div>
               </>
             )}

@@ -101,6 +101,12 @@ export interface PersistedWorkspace {
 export interface PersistedLayout {
   version: 2;
   workspaces: PersistedWorkspace[];
+  /**
+   * Path of the workspace/surface that was active when the layout was last
+   * saved (includes the Home surface's `HOME_PATH`). Used to restore the last
+   * surface on relaunch. Absent in layouts saved before this field existed.
+   */
+  lastActiveWorkspacePath?: string | null;
 }
 
 /** Migrate a v1 layout to v2 by wrapping each workspace's tabs in a single panel. */
@@ -173,6 +179,10 @@ export class LayoutPersistence {
     } else {
       layout.workspaces.push(workspace);
     }
+
+    // The renderer only ever saves the currently-active workspace, so recording
+    // its path here captures the last-active surface for relaunch restore.
+    layout.lastActiveWorkspacePath = workspace.workspacePath;
 
     this.save(layout);
   }

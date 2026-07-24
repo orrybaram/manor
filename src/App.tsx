@@ -19,7 +19,11 @@ const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceD
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
-import { useAppStore, selectActiveWorkspace } from "./store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  getPersistedActiveWorkspacePath,
+} from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
 import { useToastStore } from "./store/toast-store";
@@ -44,6 +48,7 @@ import {
   escapeShellDoubleQuoted,
   isHomePath,
   homeLaunchCommand,
+  HOME_PATH,
 } from "./lib/home";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
@@ -59,14 +64,21 @@ function App() {
   useMountEffect(() => {
     loadTheme();
     Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
-      const { projects: ps, selectedProjectIndex: idx } =
-        useProjectStore.getState();
-      const project = ps[idx];
-      if (project) {
-        const ws =
-          project.workspaces[project.selectedWorkspaceIndex] ??
-          project.workspaces[0];
-        if (ws) setActiveWorkspace(ws.path);
+      // If the Home surface was the last-active surface, restore it directly —
+      // it isn't a project workspace, so the project-based restore below can't
+      // reach it. Other workspaces are restored via project selection.
+      if (isHomePath(getPersistedActiveWorkspacePath())) {
+        setActiveWorkspace(HOME_PATH);
+      } else {
+        const { projects: ps, selectedProjectIndex: idx } =
+          useProjectStore.getState();
+        const project = ps[idx];
+        if (project) {
+          const ws =
+            project.workspaces[project.selectedWorkspaceIndex] ??
+            project.workspaces[0];
+          if (ws) setActiveWorkspace(ws.path);
+        }
       }
       setAppReady(true);
       window.electronAPI.tasks.reconcileStale().catch(console.error);

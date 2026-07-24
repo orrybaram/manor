@@ -483,6 +483,16 @@ function updatePanel(
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
 
+/**
+ * The workspace/surface path that was active when the layout was last persisted
+ * (includes the Home surface's `HOME_PATH`). Populated by `loadPersistedLayout`;
+ * used by the boot sequence to restore the last-active surface on relaunch.
+ * Returns `null` when there is no persisted layout or the field is absent.
+ */
+export function getPersistedActiveWorkspacePath(): string | null {
+  return _cachedLayout?.lastActiveWorkspacePath ?? null;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
   activeWorkspacePath: null,

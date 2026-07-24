@@ -198,6 +198,12 @@ export interface PersistedWorkspace {
 export interface PersistedLayout {
   version: 2;
   workspaces: PersistedWorkspace[];
+  /**
+   * Path of the workspace/surface active when the layout was last saved
+   * (includes the Home surface's `HOME_PATH`). Used to restore the last-active
+   * surface on relaunch. Absent in layouts saved before this field existed.
+   */
+  lastActiveWorkspacePath?: string | null;
 }
 
 export interface RestoredSessionsInfo {

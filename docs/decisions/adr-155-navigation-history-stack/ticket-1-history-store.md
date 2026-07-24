@@ -1,6 +1,6 @@
 ---
 title: Navigation history store + Location types
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

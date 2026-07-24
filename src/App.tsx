@@ -31,6 +31,7 @@ import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
+import { useNavigationHistory } from "./hooks/useNavigationHistory";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
@@ -69,6 +70,7 @@ function App() {
   });
 
   useUpdaterToasts();
+  useNavigationHistory();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();

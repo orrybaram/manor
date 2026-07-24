@@ -34,6 +34,8 @@ import type {
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
+import type { Location } from "./navigation-history-store";
+import { isHomePath } from "../lib/home-path";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -381,6 +383,32 @@ export function selectActiveWorkspace(
   const layout = state.workspaceLayouts[state.activeWorkspacePath];
   if (!layout) return null;
   return layout.panels[layout.activePanelId] ?? null;
+}
+
+/**
+ * Derive the current navigable `Location` from layout state. This is the read
+ * side of the navigation-history bridge: `app-store` remains the source of
+ * truth for "where am I", and the history store only records what this returns.
+ *
+ * Home (or no active workspace) collapses to the `home` surface — panel/tab
+ * coordinates inside Home are intentionally not tracked. Any project workspace
+ * maps to its active panel's selected tab.
+ */
+export function selectCurrentLocation(state: AppState): Location {
+  const path = state.activeWorkspacePath;
+  if (!path || isHomePath(path)) {
+    return { kind: "surface", surface: "home" };
+  }
+  const ctx = getActivePanelContext(state);
+  if (!ctx) {
+    return { kind: "surface", surface: "home" };
+  }
+  return {
+    kind: "workspace",
+    workspacePath: ctx.path,
+    panelId: ctx.panel.id,
+    tabId: ctx.panel.selectedTabId,
+  };
 }
 
 // Internal helpers for active panel context

@@ -76,6 +76,16 @@ export function TabBar(props: TabBarProps) {
   const justDragged = useRef(false);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const itemWidths = useRef<number[]>([]);
+  // Drag-out-to-detach (ADR-156): outer bounds of this window, fetched once when
+  // a drag becomes active, plus the latest screen-space pointer position. On
+  // release we compare the two to decide "dropped outside the window" → detach.
+  const windowBounds = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const lastScreenPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const handleDragStart = useCallback(
     (idx: number, e: ReactPointerEvent) => {
@@ -95,6 +105,9 @@ export function TabBar(props: TabBarProps) {
       dragCleanedUp.current = false;
       draggedPointerId.current = e.pointerId;
       handedOffToPaneDrop.current = false;
+      const tabId = tabs[idx].id;
+      lastScreenPos.current = { x: e.screenX, y: e.screenY };
+      windowBounds.current = null;
 
       // Snapshot item widths
       const widths: number[] = [];
@@ -113,12 +126,26 @@ export function TabBar(props: TabBarProps) {
       const maxIdx = isDraggedPinned ? pinnedCount - 1 : tabs.length - 1;
 
       const onMove = (ev: globalThis.PointerEvent) => {
+        // Track the latest screen-space position on every move (pointer capture
+        // keeps these flowing even outside the OS window) so the release handler
+        // can tell where the drop landed.
+        lastScreenPos.current = { x: ev.screenX, y: ev.screenY };
+
         const dx = ev.clientX - dragStartX.current;
         if (!dragActive.current && Math.abs(dx) < 4) return;
 
         if (!dragActive.current) {
           dragActive.current = true;
           useDragOverlayStore.getState().incrementDragCount();
+          // Fetch this window's outer bounds once, now that a real drag started.
+          void window.electronAPI.window
+            .getBounds()
+            .then((b) => {
+              windowBounds.current = b;
+            })
+            .catch(() => {
+              /* leave bounds null → outside-window check falls back to false */
+            });
           setDragIndex(idx);
           setDropIndex(idx);
         }
@@ -206,6 +233,56 @@ export function TabBar(props: TabBarProps) {
         if (dragActive.current) {
           useDragOverlayStore.getState().decrementDragCount();
           justDragged.current = true;
+
+          // Detach-to-window (ADR-156): if the pointer was released outside this
+          // window's outer bounds, pop the tab into its own popup window instead
+          // of reordering. Pane drop zones live inside the window, so an
+          // outside-bounds release cannot have been consumed by one — geometry
+          // alone distinguishes detach from reorder/cancel. This branch is
+          // terminal: it returns before the reorder path runs.
+          const bounds = windowBounds.current;
+          const { x: sx, y: sy } = lastScreenPos.current;
+          const releasedOutside =
+            bounds !== null &&
+            (sx < bounds.x ||
+              sx > bounds.x + bounds.width ||
+              sy < bounds.y ||
+              sy > bounds.y + bounds.height);
+
+          if (releasedOutside) {
+            dragActive.current = false;
+            dropIndexRef.current = null;
+            setDragIndex(null);
+            setDropIndex(null);
+            setDragOffset(0);
+            setDragPos(null);
+
+            const grab = dragGrabOffset.current;
+            void (async () => {
+              try {
+                const payload = useAppStore
+                  .getState()
+                  .serializeTabForDetach(tabId);
+                // Place the new window so the tab lands under the cursor.
+                const spawnBounds = {
+                  x: Math.round(sx - grab.x),
+                  y: Math.round(sy - grab.y),
+                  width: 900,
+                  height: 600,
+                };
+                await window.electronAPI.window.detachTab(payload, spawnBounds);
+                useAppStore.getState().removeDetachedTabLocally(tabId);
+              } catch (err) {
+                console.error("Failed to detach tab to new window", err);
+              } finally {
+                requestAnimationFrame(() => {
+                  justDragged.current = false;
+                });
+              }
+            })();
+            return;
+          }
+
           const finalDrop = dropIndexRef.current ?? idx;
           if (finalDrop !== idx) {
             const ids = tabs.map((s) => s.id);

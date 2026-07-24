@@ -1,6 +1,6 @@
 ---
 title: Detached-window renderer bootstrap
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3]

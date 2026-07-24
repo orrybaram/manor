@@ -1,6 +1,6 @@
 ---
 title: read_session MCP tool + /sessions/read route (snapshot-first, scrollback fallback)
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

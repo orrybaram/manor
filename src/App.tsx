@@ -319,6 +319,16 @@ function App() {
     void loadProjects();
   }), [loadProjects]);
 
+  // A detached window sent its tab back to this primary window (ADR-156). Insert
+  // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
+  useEffect(
+    () =>
+      window.electronAPI.window.onTabReattached((payload) => {
+        useAppStore.getState().receiveReattachedTab(payload);
+      }),
+    [],
+  );
+
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
   // Payloads carrying a `requestId` expect a reply; the rest are legacy

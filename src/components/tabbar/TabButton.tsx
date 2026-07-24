@@ -222,6 +222,29 @@ export function TabButton(props: TabButtonProps) {
               Move to New Window
             </ContextMenu.Item>
           )}
+          {window.electronAPI?.isDetached && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                void (async () => {
+                  try {
+                    const store = useAppStore.getState();
+                    const payload = store.serializeTabForDetach(tabId);
+                    // Release panes and drop the tab from THIS store BEFORE the
+                    // window closes, so DetachedApp's beforeunload finds an empty
+                    // store and kills nothing (preserving the reattached panes).
+                    store.removeDetachedTabLocally(tabId);
+                    await window.electronAPI.window.reattachTab(payload);
+                    // Main closes this window after forwarding the payload.
+                  } catch (err) {
+                    console.error("Failed to reattach tab to main window", err);
+                  }
+                })();
+              }}
+            >
+              Move Back to Main Window
+            </ContextMenu.Item>
+          )}
           {canClose && (
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />

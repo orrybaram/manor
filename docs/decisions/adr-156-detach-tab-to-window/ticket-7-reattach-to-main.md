@@ -1,6 +1,6 @@
 ---
 title: Reattach a tab back into the main window
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [4]

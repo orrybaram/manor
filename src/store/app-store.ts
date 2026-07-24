@@ -397,6 +397,15 @@ export interface AppState {
    * the payload's original paneIds — never mints new ones.
    */
   hydrateDetachedTab: (payload: DetachedTabPayload) => void;
+  /**
+   * Receive a tab reattached from a detached window into THIS (primary) window.
+   * Inserts the tab into the active panel of the active workspace layout
+   * (appends to its tabs, selects it) and repopulates every per-pane side-map
+   * from the payload — so PTYs re-attach and webviews re-mount by paneId,
+   * exactly like `hydrateDetachedTab` but into the existing layout. The normal
+   * layout-save subscription then persists it, making the tab durable again.
+   */
+  receiveReattachedTab: (payload: DetachedTabPayload) => void;
 }
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
@@ -2898,6 +2907,66 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
         activeWorkspacePath: key,
         layoutLoaded: true,
+        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
+        paneTitle: mergeDefined(state.paneTitle, ps.title),
+        paneContentType: { ...state.paneContentType, ...ps.contentType },
+        paneUrl: mergeDefined(state.paneUrl, ps.url),
+        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
+        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
+        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
+        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
+        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
+      };
+    }),
+
+  receiveReattachedTab: (payload: DetachedTabPayload) =>
+    set((state) => {
+      const ctx = getActiveLayoutContext(state);
+      if (!ctx) return state;
+      const { path, layout } = ctx;
+
+      const targetPanel = layout.panels[layout.activePanelId];
+      if (!targetPanel) return state;
+
+      const tab: Tab = {
+        id: payload.tab.id,
+        title: payload.tab.title,
+        rootNode: payload.tab.rootNode,
+        focusedPaneId: payload.tab.focusedPaneId,
+      };
+
+      // Insert into the active panel the same way moveTabToPanel does: append to
+      // the panel's tabs and select the reattached tab.
+      const targetTabs = [...targetPanel.tabs, tab];
+      const ps = payload.paneState;
+
+      // Side-map value types are non-null; skip any null entries when merging.
+      const mergeDefined = <T>(
+        base: Record<string, T>,
+        src: Record<string, T | null>,
+      ): Record<string, T> => {
+        const out = { ...base };
+        for (const [pid, value] of Object.entries(src)) {
+          if (value !== null && value !== undefined) out[pid] = value;
+        }
+        return out;
+      };
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            panels: {
+              ...layout.panels,
+              [layout.activePanelId]: {
+                ...targetPanel,
+                tabs: targetTabs,
+                selectedTabId: tab.id,
+              },
+            },
+          },
+        },
         paneCwd: mergeDefined(state.paneCwd, ps.cwd),
         paneTitle: mergeDefined(state.paneTitle, ps.title),
         paneContentType: { ...state.paneContentType, ...ps.contentType },

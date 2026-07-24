@@ -568,5 +568,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("window:getDetachPayload") as Promise<DetachedTabPayload | null>,
     getBounds: () =>
       ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
+    reattachTab: (payload: DetachedTabPayload) =>
+      ipcRenderer.invoke("window:reattachTab", payload) as Promise<void>,
+    onTabReattached: (callback: (payload: DetachedTabPayload) => void) =>
+      onChannel<DetachedTabPayload>("window:tab-reattached", callback),
   },
 });

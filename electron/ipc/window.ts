@@ -60,4 +60,27 @@ export function register(deps: IpcDeps): void {
     if (!win) return { x: 0, y: 0, width: 0, height: 0 };
     return win.getBounds();
   });
+
+  // Reverse of detachTab: a detached window sends its tab back to the primary
+  // window, then this closes the detached window. The detached renderer has
+  // already released its panes (removeDetachedTabLocally) before invoking, so
+  // by the time the window closes its store is empty and its beforeunload
+  // handler kills nothing.
+  ipcMain.handle(
+    "window:reattachTab",
+    (event, payload: DetachedTabPayload): void => {
+      // deps.mainWindow is the PRIMARY window (ticket 1 registry). Forward the
+      // payload so the primary renderer inserts the tab into its active panel.
+      const primary = deps.mainWindow;
+      if (
+        primary &&
+        !primary.isDestroyed() &&
+        !primary.webContents.isDestroyed()
+      ) {
+        primary.webContents.send("window:tab-reattached", payload);
+      }
+      // Close the calling (detached) window.
+      BrowserWindow.fromWebContents(event.sender)?.close();
+    },
+  );
 }

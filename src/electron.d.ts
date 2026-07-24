@@ -674,6 +674,19 @@ export interface ElectronAPI {
       width: number;
       height: number;
     }>;
+    /**
+     * Send a detached window's tab back to the primary window and close this
+     * detached window. Called from the detached renderer after it has released
+     * its panes via `removeDetachedTabLocally`.
+     */
+    reattachTab: (payload: DetachedTabPayload) => Promise<void>;
+    /**
+     * Primary-window listener: fires when a detached window reattaches its tab.
+     * Returns an unsubscribe. Only the primary renderer subscribes.
+     */
+    onTabReattached: (
+      callback: (payload: DetachedTabPayload) => void,
+    ) => () => void;
   };
 }
 

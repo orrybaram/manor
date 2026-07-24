@@ -77,12 +77,12 @@ describe("navigation-history-store", () => {
   });
 
   it("truncates forward entries when recording after going back", () => {
-    const { record, goBack } = useNavigationHistoryStore.getState();
+    const { record } = useNavigationHistoryStore.getState();
     record(home);
     record(workspace("/repo-a"));
     record(workspace("/repo-b"));
 
-    goBack(); // now at workspace("/repo-a")
+    useNavigationHistoryStore.getState().navigate(-1, () => true); // now at workspace("/repo-a")
     useNavigationHistoryStore.getState().record(workspace("/repo-c"));
 
     const state = useNavigationHistoryStore.getState();
@@ -94,44 +94,61 @@ describe("navigation-history-store", () => {
     expect(state.index).toBe(2);
   });
 
-  it("goBack returns null at the start of history", () => {
+  // Predicate that accepts every entry — isolates walk/index behavior from pruning.
+  const anyLocation = () => true;
+
+  it("navigate returns null at the start of history", () => {
     useNavigationHistoryStore.getState().record(home);
-    expect(useNavigationHistoryStore.getState().goBack()).toBeNull();
+    expect(useNavigationHistoryStore.getState().navigate(-1, anyLocation)).toBeNull();
     expect(useNavigationHistoryStore.getState().index).toBe(0);
   });
 
-  it("goBack and goForward move the index and return the current entry", () => {
+  it("navigate moves the index and returns the new current entry", () => {
     const { record } = useNavigationHistoryStore.getState();
     record(home);
     record(workspace("/repo-a"));
     record(workspace("/repo-b"));
 
-    expect(useNavigationHistoryStore.getState().goBack()).toEqual(
-      workspace("/repo-a"),
-    );
-    expect(useNavigationHistoryStore.getState().goBack()).toEqual(home);
-    expect(useNavigationHistoryStore.getState().goBack()).toBeNull();
+    const back = () => useNavigationHistoryStore.getState().navigate(-1, anyLocation);
+    const forward = () => useNavigationHistoryStore.getState().navigate(1, anyLocation);
 
-    expect(useNavigationHistoryStore.getState().goForward()).toEqual(
-      workspace("/repo-a"),
-    );
-    expect(useNavigationHistoryStore.getState().goForward()).toEqual(
-      workspace("/repo-b"),
-    );
-    expect(useNavigationHistoryStore.getState().goForward()).toBeNull();
+    expect(back()).toEqual(workspace("/repo-a"));
+    expect(back()).toEqual(home);
+    expect(back()).toBeNull();
+
+    expect(forward()).toEqual(workspace("/repo-a"));
+    expect(forward()).toEqual(workspace("/repo-b"));
+    expect(forward()).toBeNull();
+  });
+
+  it("navigate prunes stale entries it walks past and lands on the first valid one", () => {
+    const { record } = useNavigationHistoryStore.getState();
+    record(home);
+    record(workspace("/stale-1"));
+    record(workspace("/stale-2"));
+    record(workspace("/repo-b")); // index 3, current
+
+    // Walking back, only home is valid — the two stale entries get pruned.
+    const isValid = (loc: Location) =>
+      loc.kind === "surface" || loc.workspacePath === "/repo-b";
+    const target = useNavigationHistoryStore.getState().navigate(-1, isValid);
+
+    expect(target).toEqual(home);
+    const state = useNavigationHistoryStore.getState();
+    expect(state.entries).toEqual([home, workspace("/repo-b")]);
+    expect(state.index).toBe(0);
   });
 
   it("canGoBack / canGoForward reflect the current position", () => {
-    const { record, goBack } = useNavigationHistoryStore.getState();
     expect(useNavigationHistoryStore.getState().canGoBack()).toBe(false);
     expect(useNavigationHistoryStore.getState().canGoForward()).toBe(false);
 
-    record(home);
-    record(workspace("/repo-a"));
+    useNavigationHistoryStore.getState().record(home);
+    useNavigationHistoryStore.getState().record(workspace("/repo-a"));
     expect(useNavigationHistoryStore.getState().canGoBack()).toBe(true);
     expect(useNavigationHistoryStore.getState().canGoForward()).toBe(false);
 
-    goBack();
+    useNavigationHistoryStore.getState().navigate(-1, anyLocation);
     expect(useNavigationHistoryStore.getState().canGoBack()).toBe(false);
     expect(useNavigationHistoryStore.getState().canGoForward()).toBe(true);
   });

@@ -91,11 +91,8 @@ export function useCommands({
   );
 
   return useMemo(() => {
-    const platform = navigator.platform.toLowerCase().includes("mac")
-      ? ("mac" as const)
-      : ("other" as const);
     const fmt = (id: string) =>
-      bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+      bindings[id] ? formatCombo(bindings[id]) : undefined;
 
     const tabItems: CommandItem[] = [
       {

@@ -52,9 +52,9 @@ function applyLocation(loc: Location): void {
 }
 
 /**
- * Walk history by `dir` (-1 = back, +1 = forward). Stale entries encountered
- * along the way are pruned in place; the first valid entry is applied. Stops
- * (without navigating) when a direction's end is reached with nothing valid.
+ * Move through history in `dir` (-1 = back, +1 = forward) and reconstruct the
+ * resulting location. The store owns the walk-and-prune; this only supplies the
+ * layout-validity predicate and applies the survivor.
  *
  * `isNavigating` is held for the whole operation — including the app-store
  * changes `applyLocation` triggers — so the recorder never re-appends the
@@ -65,26 +65,10 @@ function replay(dir: -1 | 1): void {
   const history = useNavigationHistoryStore;
   history.getState().setNavigating(true);
   try {
-    for (;;) {
-      const { entries, index } = history.getState();
-      const nextIndex = index + dir;
-      if (nextIndex < 0 || nextIndex >= entries.length) {
-        // Hit an end of history with nothing valid to move to.
-        return;
-      }
-      const candidate = entries[nextIndex];
-      if (isLocationValid(useAppStore.getState(), candidate)) {
-        history.setState({ index: nextIndex });
-        applyLocation(candidate);
-        return;
-      }
-      // Stale entry: drop it and retry in the same direction. Removing the
-      // entry at `nextIndex` shifts every later index down by one, so the
-      // current `index` only moves when it sat after the removed entry.
-      const pruned = entries.filter((_, i) => i !== nextIndex);
-      const adjustedIndex = index > nextIndex ? index - 1 : index;
-      history.setState({ entries: pruned, index: adjustedIndex });
-    }
+    const target = history
+      .getState()
+      .navigate(dir, (loc) => isLocationValid(useAppStore.getState(), loc));
+    if (target) applyLocation(target);
   } finally {
     queueMicrotask(() => history.getState().setNavigating(false));
   }

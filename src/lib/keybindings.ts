@@ -273,6 +273,12 @@ export function platformDefaults(platform?: string): KeybindingDef[] {
   }));
 }
 
+/** The canonical platform check used for keybinding display and defaults. */
+export function getPlatform(): "mac" | "other" {
+  const p = typeof navigator !== "undefined" ? navigator.platform : "";
+  return p.toLowerCase().includes("mac") ? "mac" : "other";
+}
+
 /** Returns true if two KeyCombos are an exact match. */
 export function comboMatches(a: KeyCombo, b: KeyCombo): boolean {
   return (
@@ -310,7 +316,7 @@ const ARROW_GLYPHS: Record<string, string> = {
  */
 export function formatCombo(
   combo: KeyCombo,
-  platform: "mac" | "other",
+  platform: "mac" | "other" = getPlatform(),
 ): string {
   const glyph = ARROW_GLYPHS[combo.key];
   if (platform === "mac") {

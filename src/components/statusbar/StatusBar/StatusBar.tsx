@@ -24,12 +24,6 @@ import type { LinkedIssue } from "../../../store/project-store";
 import type { CommandPaletteProps } from "../../command-palette/types";
 import styles from "./StatusBar.module.css";
 
-const PLATFORM: "mac" | "other" = navigator.platform
-  .toLowerCase()
-  .includes("mac")
-  ? "mac"
-  : "other";
-
 function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
 }
@@ -77,10 +71,10 @@ export function StatusBar(props: StatusBarProps) {
   const canGoForward = useNavigationHistoryStore((s) => s.canGoForward());
   const bindings = useKeybindingsStore((s) => s.bindings);
   const backLabel = bindings["history-back"]
-    ? `Back (${formatCombo(bindings["history-back"], PLATFORM)})`
+    ? `Back (${formatCombo(bindings["history-back"])})`
     : "Back";
   const forwardLabel = bindings["history-forward"]
-    ? `Forward (${formatCombo(bindings["history-forward"], PLATFORM)})`
+    ? `Forward (${formatCombo(bindings["history-forward"])})`
     : "Forward";
 
   const project = projects.find((p) =>

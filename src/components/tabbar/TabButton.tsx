@@ -8,9 +8,18 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
+import { useKeybinding } from "../../store/keybindings-store";
+import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
+
+/** Right-aligned keyboard-shortcut hint for a context-menu item. */
+function MenuShortcut({ commandId }: { commandId: string }) {
+  const combo = useKeybinding(commandId);
+  if (!combo) return null;
+  return <span className={styles.contextMenuShortcut}>{formatCombo(combo)}</span>;
+}
 
 /**
  * Shorten a title to fit in a pinned tab (~40px).
@@ -59,6 +68,26 @@ export function TabButton(props: TabButtonProps) {
       };
     }
     return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
+  }));
+  const { hasOtherClosableTabs, hasClosableTabsToRight } = useAppStore(useShallow((s) => {
+    const wsPath = s.activeWorkspacePath;
+    const empty = { hasOtherClosableTabs: false, hasClosableTabsToRight: false };
+    if (!wsPath) return empty;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return empty;
+    for (const panel of Object.values(layout.panels)) {
+      const idx = panel.tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) continue;
+      const pinned = new Set(panel.pinnedTabIds ?? []);
+      const hasOther = panel.tabs.some(
+        (t) => t.id !== tabId && !pinned.has(t.id),
+      );
+      const hasRight = panel.tabs
+        .slice(idx + 1)
+        .some((t) => !pinned.has(t.id));
+      return { hasOtherClosableTabs: hasOther, hasClosableTabsToRight: hasRight };
+    }
+    return empty;
   }));
   const panelCount = useAppStore((s) => {
     const wsPath = s.activeWorkspacePath;
@@ -247,11 +276,32 @@ export function TabButton(props: TabButtonProps) {
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />
               <ContextMenu.Item
-                className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                className={styles.contextMenuItem}
                 onSelect={onClose}
               >
                 Close Tab
+                <MenuShortcut commandId="close-tab" />
               </ContextMenu.Item>
+              {hasOtherClosableTabs && (
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => {
+                    useAppStore.getState().closeOtherTabs(tabId);
+                  }}
+                >
+                  Close Other Tabs
+                </ContextMenu.Item>
+              )}
+              {hasClosableTabsToRight && (
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => {
+                    useAppStore.getState().closeTabsToRight(tabId);
+                  }}
+                >
+                  Close Tabs to the Right
+                </ContextMenu.Item>
+              )}
             </>
           )}
         </ContextMenu.Content>

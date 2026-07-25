@@ -250,6 +250,10 @@ export interface AppState {
   openOrFocusDiff: () => void;
   openDiffInNewPanel: () => void;
   closeTab: (tabId: string) => void;
+  /** Close every other (unpinned) tab in the same panel as `tabId`. */
+  closeOtherTabs: (tabId: string) => void;
+  /** Close every (unpinned) tab positioned after `tabId` in its panel. */
+  closeTabsToRight: (tabId: string) => void;
   requestCloseTab: (tabId: string) => void;
   setPendingCloseConfirmTabId: (tabId: string | null) => void;
   selectTab: (tabId: string) => void;
@@ -1088,6 +1092,37 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
       };
     }),
+
+  closeOtherTabs: (tabId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithTab(ctx.layout, tabId);
+    if (!found) return;
+    const { panel } = found;
+    const pinned = new Set(panel.pinnedTabIds ?? []);
+    const toClose = panel.tabs
+      .map((t) => t.id)
+      .filter((id) => id !== tabId && !pinned.has(id));
+    for (const id of toClose) get().closeTab(id);
+  },
+
+  closeTabsToRight: (tabId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithTab(ctx.layout, tabId);
+    if (!found) return;
+    const { panel } = found;
+    const idx = panel.tabs.findIndex((t) => t.id === tabId);
+    if (idx === -1) return;
+    const pinned = new Set(panel.pinnedTabIds ?? []);
+    const toClose = panel.tabs
+      .slice(idx + 1)
+      .map((t) => t.id)
+      .filter((id) => !pinned.has(id));
+    for (const id of toClose) get().closeTab(id);
+  },
 
   selectTab: (tabId: string) =>
     set((state) => {

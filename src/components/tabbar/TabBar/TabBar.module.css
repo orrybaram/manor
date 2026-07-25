@@ -262,6 +262,18 @@
   color: #fff;
 }
 
+.contextMenuShortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.contextMenuItem:hover .contextMenuShortcut,
+.contextMenuItem[data-highlighted] .contextMenuShortcut {
+  color: inherit;
+}
+
 .contextMenuSeparator {
   height: 1px;
   margin: 4px 0;

@@ -331,6 +331,16 @@ export function TabBar(props: TabBarProps) {
   // ── dragover: this panel's bar is a drop target for a tab drag ──────────────
   const handleBarDragOver = useCallback(
     (e: React.DragEvent) => {
+      // A dragged PANE dropped here extracts into a new tab. No insertion bar —
+      // just mark the bar a valid drop target so the pane's dragend sees "move".
+      if (e.dataTransfer.types.includes("application/x-manor-pane")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDropIndex(null);
+        setMergeTargetTabId(null);
+        setSplitDropHint(false);
+        return;
+      }
       if (!draggedId) return;
       // preventDefault marks this a valid drop target → dropEffect becomes
       // "move", which is how the source's dragend knows the drop was handled
@@ -372,6 +382,16 @@ export function TabBar(props: TabBarProps) {
   // ── drop: resolve the tab into this panel ───────────────────────────────────
   const handleBarDrop = useCallback(
     (e: React.DragEvent) => {
+      // A dragged PANE dropped on the bar is extracted into a new tab here.
+      const draggedPaneId = e.dataTransfer.getData("application/x-manor-pane");
+      if (draggedPaneId) {
+        e.preventDefault();
+        e.stopPropagation();
+        extractPaneToTab(draggedPaneId, panelId);
+        clearDragIndicators();
+        endDrag();
+        return;
+      }
       if (!draggedId) return;
       e.preventDefault();
       e.stopPropagation();
@@ -422,6 +442,7 @@ export function TabBar(props: TabBarProps) {
       computeIndicator,
       clearDragIndicators,
       endDrag,
+      extractPaneToTab,
     ],
   );
 
@@ -548,26 +569,12 @@ export function TabBar(props: TabBarProps) {
   const isDragActive = drag !== null;
   const splitPanel = useAppStore((s) => s.splitPanel);
 
-  // Pane drags stay pointer-based (they never leave the window). Dropping a
-  // dragged PANE on the tab bar extracts it into a new tab here. Tab drags are
-  // native DnD and handled by the onDrag* handlers, not this.
-  const handlePanePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!drag || drag.type !== "pane") return;
-      e.stopPropagation();
-      extractPaneToTab(drag.paneId, panelId);
-      endDrag();
-    },
-    [drag, extractPaneToTab, endDrag, panelId],
-  );
-
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
           ref={barRef}
           className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
-          onPointerUp={isDragActive ? handlePanePointerUp : undefined}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}

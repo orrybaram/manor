@@ -1,6 +1,6 @@
 ---
 title: Drop targets accept native pane drops + retire pointer path
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3]

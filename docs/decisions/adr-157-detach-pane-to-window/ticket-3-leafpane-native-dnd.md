@@ -1,6 +1,6 @@
 ---
 title: LeafPane — native DnD pane drag with tear-off
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1, 2]

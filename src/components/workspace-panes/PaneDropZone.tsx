@@ -62,63 +62,23 @@ export function PaneDropZone(props: PaneDropZoneProps) {
   const { paneId } = props;
 
   const overlayRef = useRef<HTMLDivElement>(null);
-  const { drag, endDrag } = usePaneDrag();
+  const { endDrag } = usePaneDrag();
   const movePaneToTarget = useAppStore((s) => s.movePaneToTarget);
   const moveTabToPane = useAppStore((s) => s.moveTabToPane);
   const [zone, setZone] = useState<DropZone | null>(null);
   const zoneRef = useRef<DropZone | null>(null);
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    const el = overlayRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const newZone = zoneFromPointer(rect, e.clientX, e.clientY);
-    zoneRef.current = newZone;
-    setZone(newZone);
-  }, []);
-
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      let currentZone = zoneRef.current;
-      // If pointerMove never fired (fast drag), compute zone from the up event
-      if (!currentZone) {
-        const el = overlayRef.current;
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          currentZone = zoneFromPointer(rect, e.clientX, e.clientY);
-        }
-      }
-      if (currentZone && drag) {
-        if (drag.type === "pane") {
-          movePaneToTarget(
-            drag.paneId,
-            paneId,
-            currentZone.direction,
-            currentZone.position,
-          );
-        } else if (drag.type === "tab") {
-          moveTabToPane(
-            drag.tabId,
-            paneId,
-            currentZone.direction,
-            currentZone.position,
-          );
-        }
-      }
-      endDrag();
-    },
-    [drag, paneId, movePaneToTarget, moveTabToPane, endDrag],
-  );
-
-  const handlePointerLeave = useCallback(() => {
-    setZone(null);
-  }, []);
-
-  // Native drag-and-drop path for TAB drags (pane drags stay pointer-based
-  // above). preventDefault in both dragover and drop marks this a valid target,
-  // so the tab's dragend sees dropEffect "move" and does not tear off a window.
+  // Native drag-and-drop path for TAB and PANE drags. preventDefault in both
+  // dragover and drop marks this a valid target, so the source's dragend sees
+  // dropEffect "move" and does not tear off a window.
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes("application/x-manor-tab")) return;
+    const types = e.dataTransfer.types;
+    if (
+      !types.includes("application/x-manor-tab") &&
+      !types.includes("application/x-manor-pane")
+    ) {
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const el = overlayRef.current;
@@ -131,8 +91,9 @@ export function PaneDropZone(props: PaneDropZoneProps) {
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
+      const draggedPaneId = e.dataTransfer.getData("application/x-manor-pane");
       const tabId = e.dataTransfer.getData("application/x-manor-tab");
-      if (!tabId) return;
+      if (!draggedPaneId && !tabId) return;
       e.preventDefault();
       e.stopPropagation();
       const el = overlayRef.current;
@@ -142,20 +103,29 @@ export function PaneDropZone(props: PaneDropZoneProps) {
           ? zoneFromPointer(el.getBoundingClientRect(), e.clientX, e.clientY)
           : null);
       if (currentZone) {
-        moveTabToPane(
-          tabId,
-          paneId,
-          currentZone.direction,
-          currentZone.position,
-        );
+        if (draggedPaneId) {
+          movePaneToTarget(
+            draggedPaneId,
+            paneId,
+            currentZone.direction,
+            currentZone.position,
+          );
+        } else {
+          moveTabToPane(
+            tabId,
+            paneId,
+            currentZone.direction,
+            currentZone.position,
+          );
+        }
       }
       setZone(null);
-      // Clear the shared drag state here: the split unmounts the source tab, so
+      // Clear the shared drag state here: the split unmounts the source, so
       // Chromium may never fire its dragend — without this the drop overlays
       // stay live and keep highlighting on hover after the drop.
       endDrag();
     },
-    [paneId, moveTabToPane, endDrag],
+    [paneId, movePaneToTarget, moveTabToPane, endDrag],
   );
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -167,9 +137,6 @@ export function PaneDropZone(props: PaneDropZoneProps) {
     <div
       ref={overlayRef}
       className={styles.dropOverlay}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onDragLeave={handleDragLeave}

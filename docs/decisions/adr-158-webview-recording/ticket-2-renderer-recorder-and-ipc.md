@@ -54,6 +54,13 @@ In `electron/ipc/webview.ts`:
   `recordingId` with `assertString`, then `manager.appendChunk(recordingId, Buffer.from(chunk))`.
   Use `ipcMain.on`, not `handle`: chunks are fire-and-forget and a round-trip per second per
   recording is pointless overhead.
+- **Backpressure.** `appendChunk` currently discards `stream.write()`'s `false` return, so a
+  high-bitrate capture to a slow disk buffers inside the stream in main's memory — which
+  contradicts the ADR's "never held in memory" claim. Change `appendChunk` in
+  `electron/recording-manager.ts` to return the `write()` boolean, and have this IPC handler
+  respect it: when it returns `false`, stop forwarding until the stream's `drain` event fires.
+  Dropping chunks is not acceptable (the webm would be corrupt) — queue them, and if the queue
+  exceeds a bounded size, stop the recording with an error rather than growing without limit.
 - `ipcMain.handle("webview:recording-stopped", …)` — the renderer confirming its recorder flushed;
   resolves the main-side stop.
 - Wire `manager.onAutoStop` to send the renderer a stop instruction, so a `maxDurationSec` trip

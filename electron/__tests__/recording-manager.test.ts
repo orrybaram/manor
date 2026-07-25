@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { Mock } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { RecordingManager } from "../recording-manager";
+
+/**
+ * Shape of the injected keyframe capture. A bare `vi.fn()` infers as
+ * `Mock<Procedure | Constructable>`, which does not satisfy this signature, so
+ * every capture mock is instantiated with this type explicitly.
+ */
+type CaptureFn = () => Promise<string>;
 
 /** Poll until `predicate` holds, or fail the test on timeout. */
 async function waitFor(
@@ -22,12 +30,12 @@ async function waitFor(
 describe("RecordingManager", () => {
   let tmpDir: string;
   let manager: RecordingManager;
-  let capture: ReturnType<typeof vi.fn>;
+  let capture: Mock<CaptureFn>;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-recording-test-"));
     manager = new RecordingManager();
-    capture = vi.fn(async () => "AAAA");
+    capture = vi.fn<CaptureFn>(async () => "AAAA");
   });
 
   afterEach(async () => {
@@ -200,7 +208,7 @@ describe("RecordingManager", () => {
 
     it("returns the keyframes collected while recording", async () => {
       let frame = 0;
-      const capturing = vi.fn(async () => `frame-${frame++}`);
+      const capturing = vi.fn<CaptureFn>(async () => `frame-${frame++}`);
       const { recordingId } = manager.start({
         paneId: "pane-1",
         path: out("clip.webm"),
@@ -280,7 +288,7 @@ describe("RecordingManager", () => {
 
   describe("keyframe failures", () => {
     it("swallows a rejecting capture and keeps recording", async () => {
-      const failing = vi.fn(async () => {
+      const failing = vi.fn<CaptureFn>(async () => {
         throw new Error("webview destroyed");
       });
       const { recordingId, path: outPath } = manager.start({
@@ -304,7 +312,7 @@ describe("RecordingManager", () => {
 
     it("keeps frames captured before a failure starts", async () => {
       let calls = 0;
-      const flaky = vi.fn(async () => {
+      const flaky = vi.fn<CaptureFn>(async () => {
         calls += 1;
         if (calls > 1) throw new Error("nope");
         return "frame-0";

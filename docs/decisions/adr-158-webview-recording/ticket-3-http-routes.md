@@ -41,6 +41,25 @@ to stop first and await it, so the trailing chunk lands before the stream is end
 Top-level, next to `GET /webviews` (line 267) — it is not scoped to one pane. Respond
 `200 [{ recordingId, paneId, path, elapsedMs }]`.
 
+## Also: make auto-stopped recordings retrievable
+
+Ticket 1 surfaced a hole in the design. When the `maxDurationSec` timer trips, the manager
+finalizes the recording and drops it from its map. A later `stop_recording(recordingId)` then
+returns `null` — so an agent that starts a recording, waits, and comes back past the timeout never
+learns the output path and never receives the keyframes. That is the exact case the auto-stop cap
+exists to handle, and it currently loses the result.
+
+Fix it in `electron/recording-manager.ts`: keep a bounded `Map<recordingId, StopRecordingResult>`
+of recently-finished recordings (cap ~16, evict oldest). `stop()` consults it before returning
+`null`, so stopping an already-auto-stopped recording returns its real result instead of a miss.
+
+The stop route should distinguish the two cases in its response: a live recording it just stopped
+versus a finished one it is replaying. Return `{ ..., alreadyStopped: true }` for the latter so
+ticket 4's tool text can say so plainly rather than implying the agent's stop call ended it.
+
+Add tests for both: auto-stop then `stop()` returns the result; an id evicted from the cache still
+returns `null`.
+
 ## Notes
 
 - `GET /recordings` must be registered **before** the `/webview/:id/*` regex match at line 284,
@@ -52,6 +71,8 @@ Top-level, next to `GET /webviews` (line 267) — it is not scoped to one pane. 
 
 - `electron/webview-server.ts` — three routes; import the manager exported by
   `electron/ipc/webview.ts`.
+- `electron/recording-manager.ts` — the bounded finished-recordings cache described above.
+- `electron/__tests__/recording-manager.test.ts` — extend for the cache behaviour.
 - `electron/__tests__/webview-server.test.ts` — extend. The screenshot tests at line 200 show the
   established mocking approach. Cover: start returns a `recordingId`; start on an unknown pane
   `404`s; a renderer failure on start rolls back and leaves no recording in `list()`; stop returns

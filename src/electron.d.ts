@@ -675,6 +675,37 @@ export interface ElectronAPI {
       height: number;
     }>;
     /**
+     * Move the calling window's top-left to a screen-space point.
+     * Fire-and-forget — driven at pointermove frequency while a window whose
+     * only tab is being dragged follows the cursor instead of tearing off.
+     */
+    setPosition: (x: number, y: number) => void;
+    /**
+     * Every OTHER manor window that a dragged tab could be dropped into,
+     * topmost-first (focus recency). Fetched once per drag; the renderer
+     * hit-tests the release point against these bounds itself.
+     */
+    listWindows: () => Promise<
+      { id: number; bounds: { x: number; y: number; width: number; height: number } }[]
+    >;
+    /**
+     * Hand a tab to an existing window (id from `listWindows`). Resolves false
+     * if that window is gone, so the caller can fall back to detaching.
+     */
+    transferTab: (
+      targetWindowId: number,
+      payload: DetachedTabPayload,
+    ) => Promise<boolean>;
+    /**
+     * Listener for a tab dropped into THIS window from another window.
+     * Returns an unsubscribe. Every renderer subscribes.
+     */
+    onTabReceived: (
+      callback: (payload: DetachedTabPayload) => void,
+    ) => () => void;
+    /** Close the calling window (a detached window that gave away its last tab). */
+    closeSelf: () => void;
+    /**
      * Send a detached window's tab back to the primary window and close this
      * detached window. Called from the detached renderer after it has released
      * its panes via `removeDetachedTabLocally`.
@@ -687,21 +718,6 @@ export interface ElectronAPI {
     onTabReattached: (
       callback: (payload: DetachedTabPayload) => void,
     ) => () => void;
-    /**
-     * Show the native floating drag preview at a screen-space top-left point.
-     * Used once a dragged tab leaves this window's bounds, where a DOM ghost
-     * cannot paint. Fire-and-forget.
-     */
-    showDragPreview: (
-      title: string,
-      x: number,
-      y: number,
-      theme?: { bg?: string; fg?: string; border?: string; accent?: string },
-    ) => void;
-    /** Move the native drag preview. Safe to call on every pointermove. */
-    moveDragPreview: (x: number, y: number) => void;
-    /** Hide and dispose the native drag preview. */
-    hideDragPreview: () => void;
   };
 }
 

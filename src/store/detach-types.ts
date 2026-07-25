@@ -31,4 +31,10 @@ export interface DetachedTabPayload {
   };
   /** Workspace the tab was detached from (informational; ephemeral windows). */
   sourceWorkspacePath: string;
+  /**
+   * The source workspace's effective theme override (its project's `themeName`,
+   * or null for the global theme). Lets a detached window paint in the same
+   * theme as the workspace the tab came from instead of the global default.
+   */
+  themeName: string | null;
 }

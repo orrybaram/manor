@@ -114,6 +114,55 @@ export function PaneDropZone(props: PaneDropZoneProps) {
     setZone(null);
   }, []);
 
+  // Native drag-and-drop path for TAB drags (pane drags stay pointer-based
+  // above). preventDefault in both dragover and drop marks this a valid target,
+  // so the tab's dragend sees dropEffect "move" and does not tear off a window.
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("application/x-manor-tab")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const el = overlayRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const newZone = zoneFromPointer(rect, e.clientX, e.clientY);
+    zoneRef.current = newZone;
+    setZone(newZone);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      const tabId = e.dataTransfer.getData("application/x-manor-tab");
+      if (!tabId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const el = overlayRef.current;
+      const currentZone =
+        zoneRef.current ??
+        (el
+          ? zoneFromPointer(el.getBoundingClientRect(), e.clientX, e.clientY)
+          : null);
+      if (currentZone) {
+        moveTabToPane(
+          tabId,
+          paneId,
+          currentZone.direction,
+          currentZone.position,
+        );
+      }
+      setZone(null);
+      // Clear the shared drag state here: the split unmounts the source tab, so
+      // Chromium may never fire its dragend — without this the drop overlays
+      // stay live and keep highlighting on hover after the drop.
+      endDrag();
+    },
+    [paneId, moveTabToPane, endDrag],
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setZone(null);
+  }, []);
+
   return (
     <div
       ref={overlayRef}
@@ -121,6 +170,9 @@ export function PaneDropZone(props: PaneDropZoneProps) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragLeave={handleDragLeave}
     >
       {zone && (
         <>

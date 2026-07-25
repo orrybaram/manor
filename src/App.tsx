@@ -329,6 +329,16 @@ function App() {
     [],
   );
 
+  // A tab was dragged out of another window and dropped onto this one. Same
+  // insertion path as a reattach — only the gesture that triggered it differs.
+  useEffect(
+    () =>
+      window.electronAPI.window.onTabReceived((payload) => {
+        useAppStore.getState().receiveReattachedTab(payload);
+      }),
+    [],
+  );
+
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
   // Payloads carrying a `requestId` expect a reply; the rest are legacy

@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
-import { TabDragGhost } from "../tabbar/TabDragGhost";
 import { PaneDragGhost } from "./PaneDragGhost";
 
 export type DragPayload =
@@ -60,9 +59,10 @@ export function PaneDragProvider(props: PaneDragProviderProps) {
   return (
     <PaneDragContext.Provider value={{ drag, startDrag, endDrag }}>
       {children}
-      {drag?.type === "tab" && (
-        <TabDragGhost tabId={drag.tabId} x={ghostX} y={ghostY} />
-      )}
+      {/* Tab drags use native HTML5 DnD — the OS renders the drag image, so no
+          DOM ghost here. `drag.type === "tab"` is still set (so pane drop zones
+          render), it just has no floating visual of its own. Pane drags keep
+          their DOM ghost; they never leave the window. */}
       {drag?.type === "pane" && (
         <PaneDragGhost paneId={drag.paneId} x={ghostX} y={ghostY} />
       )}

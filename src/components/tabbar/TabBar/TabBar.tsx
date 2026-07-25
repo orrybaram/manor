@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
@@ -13,18 +7,84 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
-import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { TabButton } from "../TabButton";
-import { TabDragGhost } from "../TabDragGhost";
 import styles from "./TabBar.module.css";
 
-const EMPTY_STYLE: React.CSSProperties = {};
 const TAB_GAP = 2; // matches .tabs CSS gap
-// Screen-space band inside the window edge that arms tear-off (ADR-156). The
-// pointer must cross it to leave the window, which is our last chance to
-// reclaim pointer capture while events are still being delivered.
-const EDGE_MARGIN = 40;
+/** Total tabs across every panel of the workspace this window is showing. */
+function countTabsInWindow(): number {
+  const state = useAppStore.getState();
+  const path = state.activeWorkspacePath;
+  if (!path) return 0;
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return 0;
+  return Object.values(layout.panels).reduce((n, p) => n + p.tabs.length, 0);
+}
+
+/**
+ * The tab's displayed title, computed the same way `useTabTitle` does. The drag
+ * chip must show this — not the raw `tab.title`, which is a stale placeholder
+ * for terminal tabs (the live title lives in the pane side-maps).
+ */
+function deriveTabTitle(focusedPaneId: string): string {
+  const s = useAppStore.getState();
+  const title = s.paneTitle[focusedPaneId] ?? null;
+  const cwd = s.paneCwd[focusedPaneId] ?? null;
+  const contentType = s.paneContentType[focusedPaneId] ?? null;
+  const paneUrl = s.paneUrl[focusedPaneId] ?? null;
+
+  if (contentType === "diff") return "Diff";
+  if (contentType === "browser") {
+    if (title) return title;
+    if (paneUrl) return paneUrl.replace(/^https?:\/\//, "");
+  }
+  if (title) {
+    const cwdMatch = title.match(/^.+@.+:(.+)$/);
+    if (cwdMatch) {
+      const parts = cwdMatch[1].replace(/\/+$/, "").split("/");
+      return parts[parts.length - 1] || title;
+    }
+    return title;
+  }
+  if (cwd) {
+    const parts = cwd.split("/");
+    return parts[parts.length - 1] || parts[parts.length - 2] || cwd;
+  }
+  return "Terminal";
+}
+
+// Lucide `globe` / `git-compare-arrows`, inlined for the drag image (a raw DOM
+// element, so it can't use the React icon components the tab renders).
+const GLOBE_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`;
+const DIFF_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><path d="M12 6h5a2 2 0 0 1 2 2v7"/><path d="m15 9-3-3 3-3"/><circle cx="19" cy="18" r="3"/><path d="M12 18H7a2 2 0 0 1-2-2V9"/><path d="m9 15 3 3-3 3"/></svg>`;
+
+/**
+ * Build the OS drag image element (styled as an app tab) handed to
+ * `DataTransfer.setDragImage`. The caller appends it to the DOM briefly so the
+ * OS can snapshot it, then removes it.
+ */
+function buildTabDragImage(
+  title: string,
+  contentType: string | undefined,
+  favicon: string | undefined,
+): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = styles.tabDragImage;
+  let iconHtml = "";
+  if (contentType === "browser") {
+    iconHtml = favicon
+      ? `<img src="${favicon.replace(/"/g, "&quot;")}" width="12" height="12" />`
+      : GLOBE_SVG;
+  } else if (contentType === "diff") {
+    iconHtml = DIFF_SVG;
+  }
+  const label = document.createElement("span");
+  label.textContent = title;
+  el.innerHTML = iconHtml;
+  el.appendChild(label);
+  return el;
+}
 
 type TabBarProps = {
   onNewTask: () => void;
@@ -47,7 +107,6 @@ export function TabBar(props: TabBarProps) {
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const requestCloseTab = useAppStore((s) => s.requestCloseTab);
-  const reorderTabs = useAppStore((s) => s.reorderTabs);
   const togglePinTab = useAppStore((s) => s.togglePinTab);
   const pinnedTabIds = useMemo(
     () => panel?.pinnedTabIds ?? [],
@@ -64,453 +123,443 @@ export function TabBar(props: TabBarProps) {
   const extractPaneToTab = useAppStore((s) => s.extractPaneToTab);
 
   const tabsRef = useRef<HTMLDivElement>(null);
-  const handedOffToPaneDrop = useRef(false);
-  const draggedPointerId = useRef(0);
 
+  // Native HTML5 drag-and-drop (VS Code-style). The OS renders a single drag
+  // image via `setDragImage`, so there is exactly one visual that follows the
+  // cursor everywhere — in the tab bar, over panes, and out onto the desktop —
+  // with no DOM ghost and no separate preview window to seam.
+  const barRef = useRef<HTMLDivElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [mergeTargetTabId, setMergeTargetTabId] = useState<string | null>(null);
+  const [splitDropHint, setSplitDropHint] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const dragStartX = useRef(0);
-  const dragGrabOffset = useRef({ x: 0, y: 0 });
-  const dragActive = useRef(false);
-  const dragCleanedUp = useRef(false);
-  const dropIndexRef = useRef<number | null>(null);
-  const justDragged = useRef(false);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const itemWidths = useRef<number[]>([]);
-  // Drag-out-to-detach (ADR-156): outer bounds of this window, fetched once when
-  // a drag becomes active, plus the latest screen-space pointer position. On
-  // release we compare the two to decide "dropped outside the window" → detach.
+  // The id of the tab this window is currently dragging (null when idle), and
+  // the panel it came from — the source of truth for same-window drops, since
+  // DataTransfer can only carry strings across the boundary.
+  const draggedTabId = useRef<string | null>(null);
+  const draggedFromPanelId = useRef<string | undefined>(undefined);
+  // Set once we've torn a tab into a new window mid-drag (spawn-on-exit), so the
+  // eventual dragend does not tear off a SECOND window.
+  const tearOffCommitted = useRef(false);
+  // Where inside the tab the pointer grabbed it, so a torn-off window / new
+  // window lands with the tab under the cursor.
+  const dragGrabOffset = useRef({ x: 0, y: 0 });
+  // The dragged tab's position within the window at drag start, so an
+  // orphan-window move can keep the tab under the cursor.
+  const dragTabLeftInWindow = useRef(0);
+  const dragTabTopInWindow = useRef(0);
+  // Drag-out-to-detach (ADR-156): this window's outer bounds and the other
+  // manor windows a tab can be dropped into, snapshotted at drag start so the
+  // `dragend` hit-test needs no async IPC.
   const windowBounds = useRef<{
     x: number;
     y: number;
     width: number;
     height: number;
   } | null>(null);
-  const lastScreenPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const otherWindows = useRef<
+    { id: number; bounds: { x: number; y: number; width: number; height: number } }[]
+  >([]);
 
-  const handleDragStart = useCallback(
-    (idx: number, e: ReactPointerEvent) => {
-      if (e.button !== 0) return;
-      // Don't start drag when clicking the close button
-      const target = e.target as HTMLElement;
-      if (target.closest(`.${styles.tabClose}`)) return;
+  // The tab this window is dragging, as seen by every panel in the window
+  // (shared via PaneDragContext, since per-instance refs can't cross panels).
+  const draggedId = drag?.type === "tab" ? drag.tabId : null;
 
+  // Insertion index / merge target for a drop landing in THIS panel's bar.
+  const computeIndicator = useCallback(
+    (clientX: number): { insertion: number | null; merge: string | null } => {
+      const pinnedCount = pinnedTabIds.length;
+      let insertion = tabs.length;
+      for (let i = 0; i < tabs.length; i++) {
+        const el = itemRefs.current.get(i);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (clientX < r.left) {
+          insertion = i;
+          break;
+        }
+        if (clientX <= r.right) {
+          const rel = (clientX - r.left) / r.width;
+          // Central band of a (non-dragged) tab → merge into it; edges → reorder.
+          if (rel > 0.3 && rel < 0.7 && tabs[i].id !== draggedId) {
+            return { insertion: null, merge: tabs[i].id };
+          }
+          insertion = rel < 0.5 ? i : i + 1;
+          break;
+        }
+      }
+      // Unpinned tabs can't land in the pinned zone.
+      insertion = Math.max(pinnedCount, insertion);
+      return { insertion, merge: null };
+    },
+    [tabs, pinnedTabIds, draggedId],
+  );
+
+  const clearDragIndicators = useCallback(() => {
+    setDropIndex(null);
+    setMergeTargetTabId(null);
+    setSplitDropHint(false);
+  }, []);
+
+  // ── dragstart: begin a native HTML5 drag for a tab ──────────────────────────
+  const handleTabDragStart = useCallback(
+    (idx: number, e: React.DragEvent) => {
+      const tab = tabs[idx];
       const tabEl = e.currentTarget as HTMLElement;
-      const tabRect = tabEl.getBoundingClientRect();
-      dragStartX.current = e.clientX;
-      dragGrabOffset.current = {
-        x: e.clientX - tabRect.left,
-        y: e.clientY - tabRect.top,
-      };
-      dragActive.current = false;
-      dragCleanedUp.current = false;
-      draggedPointerId.current = e.pointerId;
-      handedOffToPaneDrop.current = false;
-      const tabId = tabs[idx].id;
-      const tabTitle = tabs[idx].title;
-      lastScreenPos.current = { x: e.screenX, y: e.screenY };
+      const rect = tabEl.getBoundingClientRect();
+      const grabX = e.clientX - rect.left;
+      const grabY = e.clientY - rect.top;
+      dragGrabOffset.current = { x: grabX, y: grabY };
+      dragTabLeftInWindow.current = rect.left;
+      dragTabTopInWindow.current = rect.top;
+      draggedTabId.current = tab.id;
+      draggedFromPanelId.current = panelId;
+
+      e.dataTransfer.effectAllowed = "move";
+      // A string marker so drop targets can recognise our drag in dragover
+      // (getData is unreadable there); the real payload is resolved from state.
+      e.dataTransfer.setData("application/x-manor-tab", tab.id);
+
+      // The single OS-rendered drag visual (VS Code-style). Rendered off-screen
+      // just long enough for the OS to snapshot it.
+      const st = useAppStore.getState();
+      const img = buildTabDragImage(
+        deriveTabTitle(tab.focusedPaneId),
+        st.paneContentType[tab.focusedPaneId],
+        st.paneFavicon[tab.focusedPaneId] ?? undefined,
+      );
+      document.body.appendChild(img);
+      e.dataTransfer.setDragImage(img, grabX, grabY);
+      setTimeout(() => img.remove(), 0);
+
+      // Signal an active tab drag so pane drop zones render and highlight.
+      startDrag({ type: "tab", tabId: tab.id, grabOffset: dragGrabOffset.current });
+      setDragIndex(idx);
+      tearOffCommitted.current = false;
+
+      // Snapshot geometry for the dragend tear-off hit-test (no async there).
       windowBounds.current = null;
-
-      // Per-drag state. Local to this closure rather than refs: it is only ever
-      // meaningful for the drag this handler opened.
-      //
-      // `inDetachMode` means the pointer is outside this window (or within
-      // EDGE_MARGIN of leaving it) — the tab is being torn off. Entering it
-      // reclaims pointer capture, which is what keeps pointermove and the final
-      // pointerup flowing once the cursor is beyond the window; without that the
-      // renderer goes silent outside its own bounds and the drop is unknowable.
-      let inDetachMode = false;
-      let previewVisible = false;
-
-      // Fetch bounds eagerly on pointerdown, not on first move: the user can
-      // reach the window edge before an async round trip started later resolves.
+      otherWindows.current = [];
       void window.electronAPI.window
         .getBounds()
         .then((b) => {
           windowBounds.current = b;
         })
-        .catch(() => {
-          /* leave bounds null → outside-window checks fall back to false */
-        });
-
-      // Snapshot theme colors so the native preview matches the app's tab.
-      const cs = getComputedStyle(document.documentElement);
-      const readVar = (name: string): string | undefined => {
-        const v = cs.getPropertyValue(name).trim();
-        return v.length > 0 ? v : undefined;
-      };
-      const previewTheme = {
-        bg: readVar("--dim"),
-        fg: readVar("--fg"),
-        border: readVar("--border"),
-        accent: readVar("--accent"),
-      };
-
-      // Snapshot item widths
-      const widths: number[] = [];
-      for (let i = 0; i < tabs.length; i++) {
-        const el = itemRefs.current.get(i);
-        widths[i] = el ? el.getBoundingClientRect().width + TAB_GAP : 80;
-      }
-      itemWidths.current = widths;
-
-      tabEl.setPointerCapture(e.pointerId);
-
-      // Compute drag boundaries: pinned tabs stay in pinned zone, unpinned in unpinned zone
-      const pinnedCount = pinnedTabIds.length;
-      const isDraggedPinned = pinnedTabIds.includes(tabs[idx].id);
-      const minIdx = isDraggedPinned ? 0 : pinnedCount;
-      const maxIdx = isDraggedPinned ? pinnedCount - 1 : tabs.length - 1;
-
-      const onMove = (ev: globalThis.PointerEvent) => {
-        // Track the latest screen-space position on every move (pointer capture
-        // keeps these flowing even outside the OS window) so the release handler
-        // can tell where the drop landed.
-        lastScreenPos.current = { x: ev.screenX, y: ev.screenY };
-
-        const dx = ev.clientX - dragStartX.current;
-        if (!dragActive.current && Math.abs(dx) < 4) return;
-
-        if (!dragActive.current) {
-          dragActive.current = true;
-          useDragOverlayStore.getState().incrementDragCount();
-          setDragIndex(idx);
-          setDropIndex(idx);
-        }
-
-        // While tearing off, the native preview is the only visual: skip the
-        // in-bar reorder animation and never hand off to pane drop zones.
-        if (inDetachMode) return;
-
-        setDragOffset(dx);
-        setDragPos({
-          x: ev.clientX - dragGrabOffset.current.x,
-          y: ev.clientY - dragGrabOffset.current.y,
-        });
-
-        let offset = 0;
-        let targetIdx = idx;
-        if (dx < 0) {
-          for (let i = idx - 1; i >= minIdx; i--) {
-            offset -= itemWidths.current[i];
-            if (dx < offset + itemWidths.current[i] / 2) {
-              targetIdx = i;
-            } else break;
-          }
-        } else {
-          for (let i = idx + 1; i <= maxIdx; i++) {
-            offset += itemWidths.current[i];
-            if (dx > offset - itemWidths.current[i] / 2) {
-              targetIdx = i;
-            } else break;
-          }
-        }
-        targetIdx = Math.max(minIdx, Math.min(maxIdx, targetIdx));
-        dropIndexRef.current = targetIdx;
-        setDropIndex(targetIdx);
-
-        // Check if pointer has left the tab bar area (dragged down into pane area)
-        const tabsEl = tabsRef.current;
-        if (tabsEl && dragActive.current) {
-          const barRect = tabsEl.getBoundingClientRect();
-          if (ev.clientY > barRect.bottom + 20) {
-            // Release pointer capture so pane drop zones can receive events
-            try {
-              tabEl.releasePointerCapture(draggedPointerId.current);
-            } catch {
-              /* pointer may already be released */
-            }
-            startDrag({ type: "tab", tabId: tabs[idx].id, grabOffset: dragGrabOffset.current });
-            handedOffToPaneDrop.current = true;
-            // Clean up tab bar drag visuals
-            setDragIndex(null);
-            setDropIndex(null);
-            setDragOffset(0);
-            setDragPos(null);
-
-            // Global listener to end drag if user drops outside any pane
-            const globalCleanup = () => {
-              requestAnimationFrame(() => {
-                // A tear-off reclaims capture and clears the handoff flag; in
-                // that case onUp owns the drag and must not be undone here.
-                if (!inDetachMode) endDrag();
-              });
-              document.removeEventListener("pointerup", globalCleanup);
-            };
-            document.addEventListener("pointerup", globalCleanup);
-          }
-        }
-      };
-
-      // Runs for the whole drag, in both phases. Pointer-captured moves still
-      // bubble to document, so this sees every move whether capture is held by
-      // the tab (in-bar drag / tear-off) or released (pane-drop handoff).
-      const onDocMove = (ev: globalThis.PointerEvent) => {
-        lastScreenPos.current = { x: ev.screenX, y: ev.screenY };
-        if (!dragActive.current) return;
-        const b = windowBounds.current;
-        if (!b) return;
-
-        const sx = ev.screenX;
-        const sy = ev.screenY;
-        const outside =
-          sx < b.x || sx > b.x + b.width || sy < b.y || sy > b.y + b.height;
-        // The margin is the whole trick: once capture has been released for a
-        // pane-drop handoff, leaving the window would cut off all events. We
-        // reclaim capture while the cursor is still inside but close to the
-        // edge — it must cross this band to get out.
-        const nearEdge =
-          !outside &&
-          (sx - b.x < EDGE_MARGIN ||
-            b.x + b.width - sx < EDGE_MARGIN ||
-            sy - b.y < EDGE_MARGIN ||
-            b.y + b.height - sy < EDGE_MARGIN);
-
-        const shouldDetach = outside || nearEdge;
-
-        if (shouldDetach && !inDetachMode) {
-          inDetachMode = true;
-          try {
-            tabEl.setPointerCapture(draggedPointerId.current);
-          } catch {
-            /* pointer may have ended */
-          }
-          if (handedOffToPaneDrop.current) {
-            handedOffToPaneDrop.current = false;
-            endDrag();
-          }
-          setDragIndex(null);
-          setDropIndex(null);
-          setDragOffset(0);
-          setDragPos(null);
-        } else if (!shouldDetach && inDetachMode) {
-          // Pulled back into the window — drop the preview and let the normal
-          // in-window drag logic take over again on the next move.
-          inDetachMode = false;
-          if (previewVisible) {
-            window.electronAPI.window.hideDragPreview();
-            previewVisible = false;
-          }
-        }
-
-        if (inDetachMode) {
-          const px = Math.round(sx - dragGrabOffset.current.x);
-          const py = Math.round(sy - dragGrabOffset.current.y);
-          if (!previewVisible) {
-            window.electronAPI.window.showDragPreview(
-              tabTitle,
-              px,
-              py,
-              previewTheme,
-            );
-            previewVisible = true;
-          } else {
-            window.electronAPI.window.moveDragPreview(px, py);
-          }
-        }
-      };
-
-      const teardownDragListeners = () => {
-        document.removeEventListener("pointermove", onDocMove);
-        if (previewVisible) {
-          window.electronAPI.window.hideDragPreview();
-          previewVisible = false;
-        }
-      };
-
-      const onUp = () => {
-        teardownDragListeners();
-        if (handedOffToPaneDrop.current) {
-          handedOffToPaneDrop.current = false;
-          tabEl.removeEventListener("pointermove", onMove);
-          tabEl.removeEventListener("pointerup", onUp);
-          tabEl.removeEventListener("lostpointercapture", onUp);
-          dragActive.current = false;
-          dropIndexRef.current = null;
-          setDragIndex(null);
-          setDropIndex(null);
-          setDragOffset(0);
-          setDragPos(null);
-          return;
-        }
-
-        if (dragCleanedUp.current) return;
-        dragCleanedUp.current = true;
-
-        tabEl.removeEventListener("pointermove", onMove);
-        tabEl.removeEventListener("pointerup", onUp);
-        tabEl.removeEventListener("lostpointercapture", onUp);
-
-        if (dragActive.current) {
-          useDragOverlayStore.getState().decrementDragCount();
-          justDragged.current = true;
-
-          // Detach-to-window (ADR-156): if the pointer was released outside this
-          // window's outer bounds, pop the tab into its own popup window instead
-          // of reordering. Pane drop zones live inside the window, so an
-          // outside-bounds release cannot have been consumed by one — geometry
-          // alone distinguishes detach from reorder/cancel. This branch is
-          // terminal: it returns before the reorder path runs.
-          const bounds = windowBounds.current;
-          const { x: sx, y: sy } = lastScreenPos.current;
-          const releasedOutside =
-            bounds !== null &&
-            (sx < bounds.x ||
-              sx > bounds.x + bounds.width ||
-              sy < bounds.y ||
-              sy > bounds.y + bounds.height);
-
-          if (releasedOutside) {
-            dragActive.current = false;
-            dropIndexRef.current = null;
-            setDragIndex(null);
-            setDropIndex(null);
-            setDragOffset(0);
-            setDragPos(null);
-
-            const grab = dragGrabOffset.current;
-            void (async () => {
-              try {
-                const payload = useAppStore
-                  .getState()
-                  .serializeTabForDetach(tabId);
-                // Place the new window so the tab lands under the cursor.
-                const spawnBounds = {
-                  x: Math.round(sx - grab.x),
-                  y: Math.round(sy - grab.y),
-                  width: 900,
-                  height: 600,
-                };
-                await window.electronAPI.window.detachTab(payload, spawnBounds);
-                useAppStore.getState().removeDetachedTabLocally(tabId);
-              } catch (err) {
-                console.error("Failed to detach tab to new window", err);
-              } finally {
-                requestAnimationFrame(() => {
-                  justDragged.current = false;
-                });
-              }
-            })();
-            return;
-          }
-
-          const finalDrop = dropIndexRef.current ?? idx;
-          if (finalDrop !== idx) {
-            const ids = tabs.map((s) => s.id);
-            const [moved] = ids.splice(idx, 1);
-            ids.splice(finalDrop, 0, moved);
-            reorderTabs(ids);
-          }
-          requestAnimationFrame(() => {
-            justDragged.current = false;
-          });
-        }
-        dragActive.current = false;
-        dropIndexRef.current = null;
-        setDragIndex(null);
-        setDropIndex(null);
-        setDragOffset(0);
-        setDragPos(null);
-      };
-
-      tabEl.addEventListener("pointermove", onMove);
-      tabEl.addEventListener("pointerup", onUp);
-      tabEl.addEventListener("lostpointercapture", onUp);
-      document.addEventListener("pointermove", onDocMove);
-      // Safety net: in the pane-drop phase capture is released, so tabEl's
-      // pointerup never fires and onUp's teardown would be skipped. This
-      // guarantees the doc listener and native preview are always disposed.
-      const onDocUp = () => {
-        teardownDragListeners();
-        document.removeEventListener("pointerup", onDocUp);
-      };
-      document.addEventListener("pointerup", onDocUp);
+        .catch(() => {});
+      void window.electronAPI.window
+        .listWindows()
+        .then((w) => {
+          otherWindows.current = w;
+        })
+        .catch(() => {});
     },
-    [tabs, reorderTabs, pinnedTabIds, startDrag, endDrag],
+    [tabs, panelId, startDrag],
   );
 
-  const getTransformStyle = (idx: number): React.CSSProperties => {
-    if (dragIndex === null || dropIndex === null) return EMPTY_STYLE;
-    const w = itemWidths.current[dragIndex] || 80;
-    if (idx === dragIndex) {
-      return {
-        transform: `translateX(${dragOffset}px)`,
-        zIndex: 10,
-      };
-    }
-    if (dragIndex === dropIndex) return { transition: "transform 150ms ease" };
-    if (
-      (dropIndex > dragIndex && idx > dragIndex && idx <= dropIndex) ||
-      (dropIndex < dragIndex && idx < dragIndex && idx >= dropIndex)
-    ) {
-      const direction = dropIndex > dragIndex ? -1 : 1;
-      return {
-        transform: `translateX(${direction * w}px)`,
-        transition: "transform 150ms ease",
-      };
-    }
-    return { transition: "transform 150ms ease" };
-  };
+  // ── drag: fires continuously on the source, even outside the window ─────────
+  // VS Code makes tear-off instant with a private Chromium patch that suppresses
+  // the "drag failed" fly-back on a release outside the window. Stock Electron
+  // has no such API, so we take Chrome's approach instead: the instant the tab
+  // is dragged clearly OUTSIDE this window (and not over another manor window,
+  // which would be a move-into-that-window on release), we detach it into a new
+  // window right away — before release — so the window appears with no wait and
+  // no fly-back. If the platform doesn't deliver screen coords out here, nothing
+  // fires and we fall back to the on-release path in handleTabDragEnd.
+  const handleTabDrag = useCallback(
+    (e: React.DragEvent) => {
+      if (tearOffCommitted.current) return;
+      const tabId = draggedTabId.current;
+      const b = windowBounds.current;
+      if (!tabId || !b) return;
+      const sx = e.screenX;
+      const sy = e.screenY;
+      // The final drag event (and some mid-drag ones) report 0,0 — ignore those.
+      if (sx === 0 && sy === 0) return;
 
-  const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
-  const splitPanelWithTab = useAppStore((s) => s.splitPanelWithTab);
-  const mergeTabIntoTab = useAppStore((s) => s.mergeTabIntoTab);
-  const isDragActive = drag !== null;
-  const barRef = useRef<HTMLDivElement>(null);
-  const [splitDropHint, setSplitDropHint] = useState(false);
-  const [dropTargetTabId, setDropTargetTabId] = useState<string | null>(null);
+      const MARGIN = 8;
+      const outside =
+        sx < b.x - MARGIN ||
+        sx > b.x + b.width + MARGIN ||
+        sy < b.y - MARGIN ||
+        sy > b.y + b.height + MARGIN;
+      if (!outside) return;
 
-  const handleTabBarDrop = useCallback(
-    (e: React.PointerEvent) => {
-      if (!drag) return;
-      e.stopPropagation();
-      setSplitDropHint(false);
-      if (drag.type === "pane") {
-        extractPaneToTab(drag.paneId, panelId);
-      } else if (drag.type === "tab" && panelId) {
-        // Drop on right half → split horizontally; left half → move to panel
-        const bar = barRef.current;
-        if (bar) {
-          const rect = bar.getBoundingClientRect();
-          const isRightHalf = e.clientX > rect.left + rect.width / 2;
-          if (isRightHalf) {
-            splitPanelWithTab(drag.tabId, panelId, "horizontal");
-          } else {
-            moveTabToPanel(drag.tabId, panelId);
-          }
-        } else {
-          moveTabToPanel(drag.tabId, panelId);
-        }
-      }
+      // Over another manor window → this is a move-into-that-window; let the
+      // release (dragend) hand it off rather than spawning a new window here.
+      const overOtherWindow = otherWindows.current.some(
+        (w) =>
+          sx >= w.bounds.x &&
+          sx <= w.bounds.x + w.bounds.width &&
+          sy >= w.bounds.y &&
+          sy <= w.bounds.y + w.bounds.height,
+      );
+      if (overOtherWindow) return;
+
+      // Sole tab of a detached window: tearing it off would orphan this window.
+      // Leave that to the release path, which moves this window to the drop.
+      if (window.electronAPI?.isDetached && countTabsInWindow() === 1) return;
+
+      // Commit the new-window tear-off NOW.
+      tearOffCommitted.current = true;
+      const grab = dragGrabOffset.current;
+      const store = useAppStore.getState();
+      const payload = store.serializeTabForDetach(tabId);
+      store.removeDetachedTabLocally(tabId);
+      void window.electronAPI.window
+        .detachTab(payload, {
+          x: Math.round(sx - grab.x),
+          y: Math.round(sy - grab.y),
+          width: 900,
+          height: 600,
+        })
+        .catch((err) => console.error("Failed to tear tab into new window", err));
+
+      clearDragIndicators();
+      setDragIndex(null);
+      draggedTabId.current = null;
+      draggedFromPanelId.current = undefined;
       endDrag();
+      if (window.electronAPI?.isDetached && countTabsInWindow() === 0) {
+        window.electronAPI.window.closeSelf();
+      }
     },
-    [drag, extractPaneToTab, moveTabToPanel, splitPanelWithTab, endDrag, panelId],
+    [endDrag, clearDragIndicators],
   );
 
-  const handleTabBarPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!drag || drag.type !== "tab" || !panelId) {
+  // ── dragover: this panel's bar is a drop target for a tab drag ──────────────
+  const handleBarDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!draggedId) return;
+      // preventDefault marks this a valid drop target → dropEffect becomes
+      // "move", which is how the source's dragend knows the drop was handled
+      // here (and must NOT tear off a new window).
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+
+      const isOwnTab = tabs.some((t) => t.id === draggedId);
+      if (isOwnTab) {
+        const { insertion, merge } = computeIndicator(e.clientX);
+        setDropIndex(merge === null ? insertion : null);
+        setMergeTargetTabId(merge);
         setSplitDropHint(false);
-        return;
-      }
-      const bar = barRef.current;
-      if (bar) {
-        const rect = bar.getBoundingClientRect();
-        setSplitDropHint(e.clientX > rect.left + rect.width / 2);
+      } else {
+        // From another panel: right half → split, left half → move into panel.
+        const bar = barRef.current;
+        setSplitDropHint(
+          bar
+            ? e.clientX >
+                bar.getBoundingClientRect().left +
+                  bar.getBoundingClientRect().width / 2
+            : false,
+        );
+        setDropIndex(null);
+        setMergeTargetTabId(null);
       }
     },
-    [drag, panelId],
+    [draggedId, tabs, computeIndicator],
   );
 
-  const handleTabBarPointerLeave = useCallback(() => {
+  const handleBarDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when the pointer actually leaves the bar (not on child enter).
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropIndex(null);
+    setMergeTargetTabId(null);
     setSplitDropHint(false);
-    setDropTargetTabId(null);
   }, []);
 
+  // ── drop: resolve the tab into this panel ───────────────────────────────────
+  const handleBarDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!draggedId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const st = useAppStore.getState();
+      const isOwnTab = tabs.some((t) => t.id === draggedId);
+
+      if (mergeTargetTabId && mergeTargetTabId !== draggedId) {
+        st.mergeTabIntoTab(draggedId, mergeTargetTabId);
+      } else if (isOwnTab) {
+        // Reorder within this panel to the insertion index.
+        const { insertion } = computeIndicator(e.clientX);
+        if (insertion !== null) {
+          const ids = tabs.map((t) => t.id);
+          const from = ids.indexOf(draggedId);
+          if (from !== -1) {
+            ids.splice(from, 1);
+            let to = insertion > from ? insertion - 1 : insertion;
+            to = Math.max(pinnedTabIds.length, Math.min(to, ids.length));
+            ids.splice(to, 0, draggedId);
+            st.reorderTabs(ids);
+          }
+        }
+      } else if (panelId) {
+        // From another panel: right half splits, left half moves.
+        const bar = barRef.current;
+        const rightHalf = bar
+          ? e.clientX >
+            bar.getBoundingClientRect().left +
+              bar.getBoundingClientRect().width / 2
+          : false;
+        if (rightHalf) st.splitPanelWithTab(draggedId, panelId, "horizontal");
+        else st.moveTabToPanel(draggedId, panelId);
+      }
+      clearDragIndicators();
+      // Clear the shared drag state here, not only in dragend: a move/merge/split
+      // unmounts the source tab, and Chromium may then never fire dragend — which
+      // would leave the drag "active" and drop overlays showing on hover.
+      draggedTabId.current = null;
+      draggedFromPanelId.current = undefined;
+      endDrag();
+    },
+    [
+      draggedId,
+      tabs,
+      mergeTargetTabId,
+      panelId,
+      pinnedTabIds,
+      computeIndicator,
+      clearDragIndicators,
+      endDrag,
+    ],
+  );
+
+  // ── dragend: fires on the source tab; the whole drag is over here ───────────
+  const handleTabDragEnd = useCallback(
+    (e: React.DragEvent) => {
+      // Already detached mid-drag by spawn-on-exit — nothing left to do.
+      if (tearOffCommitted.current) {
+        tearOffCommitted.current = false;
+        return;
+      }
+      const handledInApp = e.dataTransfer.dropEffect !== "none";
+      const tabId = draggedTabId.current;
+      const grab = dragGrabOffset.current;
+      const tabLeft = dragTabLeftInWindow.current;
+      const tabTop = dragTabTopInWindow.current;
+      const sx = e.screenX;
+      const sy = e.screenY;
+
+      // Reset visuals + shared drag state.
+      clearDragIndicators();
+      setDragIndex(null);
+      draggedTabId.current = null;
+      draggedFromPanelId.current = undefined;
+      endDrag();
+
+      if (handledInApp || !tabId) return;
+
+      // Not consumed by any in-app drop target. Where it landed decides:
+      const bounds = windowBounds.current;
+      const releasedOutside =
+        bounds !== null &&
+        (sx < bounds.x ||
+          sx > bounds.x + bounds.width ||
+          sy < bounds.y ||
+          sy > bounds.y + bounds.height);
+      // Dropped in dead space inside the window → cancel (no-op).
+      if (!releasedOutside) return;
+
+      // Topmost other window under the release point, if any.
+      const target =
+        otherWindows.current.find(
+          (w) =>
+            sx >= w.bounds.x &&
+            sx <= w.bounds.x + w.bounds.width &&
+            sy >= w.bounds.y &&
+            sy <= w.bounds.y + w.bounds.height,
+        ) ?? null;
+      // Sole tab of a detached window: tearing it off would orphan this empty
+      // window. Move this window to the drop point instead. (The primary window
+      // is never an orphan: it falls back to Home.)
+      const wouldOrphanWindow =
+        target === null &&
+        window.electronAPI?.isDetached === true &&
+        countTabsInWindow() === 1;
+
+      if (wouldOrphanWindow) {
+        window.electronAPI.window.setPosition(
+          Math.round(sx - grab.x - tabLeft),
+          Math.round(sy - grab.y - tabTop),
+        );
+        return;
+      }
+
+      const store = useAppStore.getState();
+      const payload = store.serializeTabForDetach(tabId);
+      const spawnBounds = {
+        x: Math.round(sx - grab.x),
+        y: Math.round(sy - grab.y),
+        width: 900,
+        height: 600,
+      };
+      // Remove the tab from THIS window synchronously so the origin updates in
+      // the same frame — no snap-back of a tab that is on its way out. Then fire
+      // the destination-window IPC without awaiting, so the new window appears
+      // immediately rather than after the drag's return animation. (Serialize
+      // first: removeDetachedTabLocally releases the panes it references.)
+      store.removeDetachedTabLocally(tabId);
+      if (target) {
+        void window.electronAPI.window
+          .transferTab(target.id, payload)
+          .then((accepted) => {
+            if (!accepted) {
+              void window.electronAPI.window.detachTab(payload, spawnBounds);
+            }
+          })
+          .catch((err) =>
+            console.error("Failed to move tab out of this window", err),
+          );
+      } else {
+        void window.electronAPI.window
+          .detachTab(payload, spawnBounds)
+          .catch((err) =>
+            console.error("Failed to move tab out of this window", err),
+          );
+      }
+      // A detached window that just gave away its last tab has nothing left to
+      // show — close it rather than orphan it.
+      if (window.electronAPI?.isDetached && countTabsInWindow() === 0) {
+        window.electronAPI.window.closeSelf();
+      }
+    },
+    [endDrag, clearDragIndicators],
+  );
+
+  // Pixel position of the reorder insertion bar within the tabs container.
+  const insertionBarLeft = useMemo(() => {
+    if (dropIndex === null || mergeTargetTabId !== null) return null;
+    const container = tabsRef.current;
+    if (!container) return null;
+    const containerLeft = container.getBoundingClientRect().left;
+    if (dropIndex <= 0) {
+      const first = itemRefs.current.get(0);
+      return first ? first.getBoundingClientRect().left - containerLeft : 0;
+    }
+    const prev = itemRefs.current.get(dropIndex - 1);
+    if (prev) {
+      return prev.getBoundingClientRect().right - containerLeft + TAB_GAP / 2;
+    }
+    return null;
+  }, [dropIndex, mergeTargetTabId]);
+
+
+  const isDragActive = drag !== null;
   const splitPanel = useAppStore((s) => s.splitPanel);
+
+  // Pane drags stay pointer-based (they never leave the window). Dropping a
+  // dragged PANE on the tab bar extracts it into a new tab here. Tab drags are
+  // native DnD and handled by the onDrag* handlers, not this.
+  const handlePanePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag || drag.type !== "pane") return;
+      e.stopPropagation();
+      extractPaneToTab(drag.paneId, panelId);
+      endDrag();
+    },
+    [drag, extractPaneToTab, endDrag, panelId],
+  );
 
   return (
     <ContextMenu.Root>
@@ -518,14 +567,15 @@ export function TabBar(props: TabBarProps) {
         <div
           ref={barRef}
           className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
-          onPointerUp={isDragActive ? handleTabBarDrop : undefined}
-          onPointerMove={isDragActive ? handleTabBarPointerMove : undefined}
-          onPointerLeave={isDragActive ? handleTabBarPointerLeave : undefined}
+          onPointerUp={isDragActive ? handlePanePointerUp : undefined}
+          onDragOver={handleBarDragOver}
+          onDragLeave={handleBarDragLeave}
+          onDrop={handleBarDrop}
         >
           <div ref={tabsRef} className={styles.tabs}>
             {tabs.map((tab, idx) => {
               const isPinned = pinnedTabIds.includes(tab.id);
-              const isDropTarget = dropTargetTabId === tab.id;
+              const isDropTarget = mergeTargetTabId === tab.id;
               return (
                 <TabButton
                   key={tab.id}
@@ -535,11 +585,10 @@ export function TabBar(props: TabBarProps) {
                   canClose={true}
                   isDragging={dragIndex === idx}
                   isDropTarget={isDropTarget}
+                  draggable={!isPinned}
                   onSelect={() => {
-                    if (!justDragged.current) {
-                      ensureFocused();
-                      selectTab(tab.id);
-                    }
+                    ensureFocused();
+                    selectTab(tab.id);
                   }}
                   onClose={() => {
                     ensureFocused();
@@ -549,30 +598,11 @@ export function TabBar(props: TabBarProps) {
                     ensureFocused();
                     togglePinTab(tab.id);
                   }}
-                  onPointerDown={
-                    isPinned ? undefined : (e) => handleDragStart(idx, e)
+                  onDragStart={
+                    isPinned ? undefined : (e) => handleTabDragStart(idx, e)
                   }
-                  onPointerEnter={
-                    isDragActive && drag?.type === "tab" && drag.tabId !== tab.id
-                      ? () => setDropTargetTabId(tab.id)
-                      : undefined
-                  }
-                  onPointerLeave={
-                    isDragActive && drag?.type === "tab"
-                      ? () => setDropTargetTabId((prev) => prev === tab.id ? null : prev)
-                      : undefined
-                  }
-                  onPointerUp={
-                    isDragActive && drag?.type === "tab" && drag.tabId !== tab.id
-                      ? (e) => {
-                          e.stopPropagation();
-                          mergeTabIntoTab(drag.tabId, tab.id);
-                          endDrag();
-                          setDropTargetTabId(null);
-                        }
-                      : undefined
-                  }
-                  style={getTransformStyle(idx)}
+                  onDrag={isPinned ? undefined : handleTabDrag}
+                  onDragEnd={isPinned ? undefined : handleTabDragEnd}
                   buttonRef={(el) => {
                     if (el) itemRefs.current.set(idx, el);
                     else itemRefs.current.delete(idx);
@@ -580,6 +610,12 @@ export function TabBar(props: TabBarProps) {
                 />
               );
             })}
+            {insertionBarLeft !== null && (
+              <div
+                className={styles.tabInsertionBar}
+                style={{ left: insertionBarLeft }}
+              />
+            )}
             <Popover.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
               <Tooltip label={addMenuOpen ? "" : "New Tab"}>
                 <Popover.Anchor asChild>
@@ -629,13 +665,6 @@ export function TabBar(props: TabBarProps) {
             </Popover.Root>
           </div>
           <div className={styles.spacer} />
-          {dragIndex !== null && dragPos && (
-            <TabDragGhost
-              tabId={tabs[dragIndex].id}
-              x={dragPos.x}
-              y={dragPos.y}
-            />
-          )}
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

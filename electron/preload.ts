@@ -568,20 +568,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("window:getDetachPayload") as Promise<DetachedTabPayload | null>,
     getBounds: () =>
       ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
+    setPosition: (x: number, y: number) =>
+      ipcRenderer.send("window:setPosition", x, y),
+    listWindows: () =>
+      ipcRenderer.invoke("window:listWindows") as Promise<
+        { id: number; bounds: WindowBounds }[]
+      >,
+    transferTab: (targetWindowId: number, payload: DetachedTabPayload) =>
+      ipcRenderer.invoke(
+        "window:transferTab",
+        targetWindowId,
+        payload,
+      ) as Promise<boolean>,
+    onTabReceived: (callback: (payload: DetachedTabPayload) => void) =>
+      onChannel<DetachedTabPayload>("window:tab-received", callback),
+    closeSelf: () => ipcRenderer.send("window:closeSelf"),
     reattachTab: (payload: DetachedTabPayload) =>
       ipcRenderer.invoke("window:reattachTab", payload) as Promise<void>,
     onTabReattached: (callback: (payload: DetachedTabPayload) => void) =>
       onChannel<DetachedTabPayload>("window:tab-reattached", callback),
-    // Native drag preview — the floating tab shown once the pointer leaves this
-    // window. Fire-and-forget so pointermove never awaits an IPC round trip.
-    showDragPreview: (
-      title: string,
-      x: number,
-      y: number,
-      theme?: { bg?: string; fg?: string; border?: string; accent?: string },
-    ) => ipcRenderer.send("window:showDragPreview", title, x, y, theme),
-    moveDragPreview: (x: number, y: number) =>
-      ipcRenderer.send("window:moveDragPreview", x, y),
-    hideDragPreview: () => ipcRenderer.send("window:hideDragPreview"),
   },
 });

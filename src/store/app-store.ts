@@ -37,6 +37,7 @@ import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
+import { useProjectStore } from "./project-store";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -2751,6 +2752,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (state.panePickedElement[pid] !== undefined) paneState.pickedElement[pid] = state.panePickedElement[pid];
     }
 
+    // Resolve the theme the tab is currently painted with — its owning
+    // project's override (or null = global). The detached window applies this so
+    // it matches the workspace instead of falling back to the global theme.
+    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
+    const themeName = isHomePath(sourceWorkspacePath)
+      ? null
+      : useProjectStore
+          .getState()
+          .projects.find((p) =>
+            p.workspaces.some((w) => w.path === sourceWorkspacePath),
+          )?.themeName ?? null;
+
     const payload: DetachedTabPayload = {
       tab: {
         id: foundTab.id,
@@ -2759,7 +2772,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusedPaneId: foundTab.focusedPaneId,
       },
       paneState,
-      sourceWorkspacePath: state.activeWorkspacePath ?? "",
+      sourceWorkspacePath,
+      themeName,
     };
 
     // Deep-copy so no live store references (rootNode, side-map objects) leak

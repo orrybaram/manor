@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useState } from "react";
+import { useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -29,19 +29,18 @@ type TabButtonProps = {
   canClose: boolean;
   isDragging: boolean;
   isDropTarget?: boolean;
+  draggable?: boolean;
   onSelect: () => void;
   onClose: () => void;
   onTogglePin: () => void;
-  onPointerDown?: (e: ReactPointerEvent) => void;
-  onPointerEnter?: () => void;
-  onPointerLeave?: () => void;
-  onPointerUp?: (e: ReactPointerEvent) => void;
-  style: React.CSSProperties;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDrag?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   buttonRef: (el: HTMLDivElement | null) => void;
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, onSelect, onClose, onTogglePin, onPointerDown, onPointerEnter, onPointerLeave, onPointerUp, style, buttonRef } = props;
+  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
   const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
@@ -79,11 +78,10 @@ export function TabButton(props: TabButtonProps) {
           ref={buttonRef}
           className={`${styles.tab} ${contentTypeClass} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
-          onPointerDown={onPointerDown}
-          onPointerEnter={onPointerEnter}
-          onPointerLeave={onPointerLeave}
-          onPointerUp={onPointerUp}
-          style={style}
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDrag={onDrag}
+          onDragEnd={onDragEnd}
           data-testid="tab"
           data-tab-id={tabId}
           aria-selected={isActive}

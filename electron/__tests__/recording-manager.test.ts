@@ -182,6 +182,63 @@ describe("RecordingManager", () => {
       manager.appendChunk(recordingId, Buffer.from("late"));
       expect(fs.readFileSync(outPath, "utf8")).toBe("abc");
     });
+
+    it("returns true while the stream is keeping up", async () => {
+      const { recordingId } = manager.start({
+        paneId: "pane-1",
+        path: out("clip.webm"),
+        capture,
+      });
+
+      expect(manager.appendChunk(recordingId, Buffer.from("abc"))).toBe(true);
+    });
+
+    it("returns true for ids it drops, so a caller never waits on them", async () => {
+      const { recordingId } = manager.start({
+        paneId: "pane-1",
+        path: out("clip.webm"),
+        capture,
+      });
+      await manager.stop(recordingId);
+
+      expect(manager.appendChunk(recordingId, Buffer.from("late"))).toBe(true);
+      expect(manager.appendChunk("nope", Buffer.from("late"))).toBe(true);
+    });
+
+    it("signals backpressure past the high-water mark and clears it on drain", async () => {
+      const { recordingId, path: outPath } = manager.start({
+        paneId: "pane-1",
+        path: out("clip.webm"),
+        capture,
+      });
+
+      // Well past the 64 KiB high-water mark of an fs write stream, so the
+      // stream buffers rather than accepting it outright.
+      const big = Buffer.alloc(1024 * 1024, 0x61);
+      expect(manager.appendChunk(recordingId, big)).toBe(false);
+
+      await manager.waitForDrain(recordingId);
+
+      // Drained: the stream takes writes without buffering again.
+      expect(manager.appendChunk(recordingId, Buffer.from("tail"))).toBe(true);
+
+      const result = await manager.stop(recordingId);
+      expect(result?.bytes).toBe(big.length + 4);
+      expect(fs.statSync(outPath).size).toBe(big.length + 4);
+    });
+
+    it("waitForDrain resolves immediately for unknown and stopped ids", async () => {
+      const { recordingId } = manager.start({
+        paneId: "pane-1",
+        path: out("clip.webm"),
+        capture,
+      });
+      await manager.stop(recordingId);
+
+      // Would hang forever if it waited on a stream that will never drain.
+      await manager.waitForDrain(recordingId);
+      await manager.waitForDrain("nope");
+    });
   });
 
   describe("stop()", () => {

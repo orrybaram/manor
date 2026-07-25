@@ -27,6 +27,7 @@ import {
 } from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { appCommandHandlers } from "./lib/app-commands";
+import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
@@ -311,6 +312,16 @@ function App() {
     () =>
       window.electronAPI.window.onTabReceived((payload) => {
         useAppStore.getState().receiveReattachedTab(payload);
+      }),
+    [],
+  );
+
+  // Webview recording (ADR-158). Main owns the file and the lifecycle, but only
+  // a renderer can call `getUserMedia`, so it drives the `MediaRecorder` here.
+  useEffect(
+    () =>
+      window.electronAPI.webview.onRecordingCommand((command) => {
+        void handleRecordingCommand(command);
       }),
     [],
   );

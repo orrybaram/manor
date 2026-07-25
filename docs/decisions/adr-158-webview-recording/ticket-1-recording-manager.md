@@ -1,6 +1,6 @@
 ---
 title: Recording manager (main-process state, file streams, keyframes)
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

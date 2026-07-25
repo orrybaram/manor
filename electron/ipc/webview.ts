@@ -1,4 +1,5 @@
 import {
+  app,
   ipcMain,
   Menu,
   webContents,
@@ -7,6 +8,7 @@ import {
   clipboard,
 } from "electron";
 import { assertString } from "../ipc-validate";
+import { recordingManager } from "../recording-manager";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { ProjectManager } from "../persistence";
@@ -28,6 +30,18 @@ import {
 export { closeAllChildWindows };
 
 export const webviewRegistry = new Map<string, number>();
+
+// Re-exported so ticket 3's HTTP routes can start/stop recordings without
+// reaching past this module for the shared instance.
+export { recordingManager };
+
+/**
+ * paneId → webContents id of the *renderer* that hosts the pane (not the
+ * webview's own webContents, which is what `webviewRegistry` holds). Recording
+ * commands must go to the window that owns the pane: a pane popped out into a
+ * detached window is not driven by the main window's renderer.
+ */
+const paneRenderers = new Map<string, number>();
 
 const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
@@ -55,6 +69,178 @@ export function createWebviewServer(
   );
 }
 
+// ── Recording (ADR-158) ──
+
+/** Payload of the main→renderer "webview:recording-command" channel. */
+interface RecordingCommand {
+  cmd: "start" | "stop";
+  recordingId: string;
+  /** Chromium media source id of the pane's webview. Required for "start". */
+  mediaSourceId?: string;
+}
+
+/**
+ * Cap on chunks held here while the disk catches up. Past this, the disk is
+ * losing to the encoder and the gap will only widen; stopping the recording
+ * beats growing main's heap without limit. ~30s of a high-bitrate capture.
+ */
+const MAX_QUEUED_CHUNK_BYTES = 32 * 1024 * 1024;
+
+/** How long to wait for the renderer to confirm its recorder flushed. */
+const RENDERER_STOP_TIMEOUT_MS = 5000;
+
+interface ChunkQueue {
+  /** Chunks held back while the write stream is over its high-water mark. */
+  pending: Buffer[];
+  bytes: number;
+  draining: boolean;
+}
+
+const chunkQueues = new Map<string, ChunkQueue>();
+
+/** Resolvers for `webview:recording-stopped`, keyed by recordingId. */
+const pendingStopConfirmations = new Map<string, () => void>();
+
+function queueFor(recordingId: string): ChunkQueue {
+  let queue = chunkQueues.get(recordingId);
+  if (!queue) {
+    queue = { pending: [], bytes: 0, draining: false };
+    chunkQueues.set(recordingId, queue);
+  }
+  return queue;
+}
+
+/**
+ * Write everything queued for a recording, ignoring backpressure, and forget
+ * the queue. Called on the stop path: the stream's `end()` flushes whatever is
+ * buffered, so a last unthrottled write is safe — and dropping these chunks
+ * would truncate the webm.
+ */
+function flushChunkQueue(recordingId: string): void {
+  const queue = chunkQueues.get(recordingId);
+  chunkQueues.delete(recordingId);
+  if (!queue) return;
+  for (const chunk of queue.pending) {
+    recordingManager.appendChunk(recordingId, chunk);
+  }
+}
+
+/**
+ * Feed the queue back into the stream as it drains. Runs until the queue is
+ * empty and a write succeeds without backpressure.
+ */
+async function drainChunkQueue(recordingId: string): Promise<void> {
+  for (;;) {
+    await recordingManager.waitForDrain(recordingId);
+    const queue = chunkQueues.get(recordingId);
+    if (!queue) return; // recording stopped while we waited
+    let ok = true;
+    while (ok && queue.pending.length > 0) {
+      const chunk = queue.pending.shift()!;
+      queue.bytes -= chunk.length;
+      ok = recordingManager.appendChunk(recordingId, chunk);
+    }
+    if (ok) {
+      // Caught up. Drop the queue entirely so the map does not accumulate an
+      // empty entry per recording for the life of the process.
+      queue.draining = false;
+      if (queue.pending.length === 0) chunkQueues.delete(recordingId);
+      return;
+    }
+  }
+}
+
+/**
+ * Take one chunk from the renderer, respecting the write stream's
+ * backpressure. Chunks are never dropped — a hole in a webm corrupts the file —
+ * so an over-budget queue stops the recording instead.
+ */
+function acceptChunk(recordingId: string, chunk: Buffer): void {
+  const queue = chunkQueues.get(recordingId);
+
+  if (queue?.draining) {
+    queue.pending.push(chunk);
+    queue.bytes += chunk.length;
+    if (queue.bytes > MAX_QUEUED_CHUNK_BYTES) {
+      console.error(
+        `[recording] ${recordingId}: disk cannot keep up (${queue.bytes} bytes queued); stopping.`,
+      );
+      chunkQueues.delete(recordingId);
+      void stopRecording(recordingId);
+    }
+    return;
+  }
+
+  // Only allocate a queue once the stream actually asks us to back off.
+  if (!recordingManager.appendChunk(recordingId, chunk)) {
+    queueFor(recordingId).draining = true;
+    void drainChunkQueue(recordingId);
+  }
+}
+
+/** Send a recording command to the renderer that hosts `paneId`. */
+function sendRecordingCommand(paneId: string, command: RecordingCommand): void {
+  const rendererId = paneRenderers.get(paneId);
+  const target = rendererId !== undefined ? webContents.fromId(rendererId) : null;
+  if (target && !target.isDestroyed()) {
+    target.send("webview:recording-command", command);
+    return;
+  }
+  // The pane's renderer is gone (window closed mid-recording); fall back to the
+  // first window so a stop still has a chance of reaching the recorder.
+  const fallback = BrowserWindow.getAllWindows()[0];
+  fallback?.webContents.send("webview:recording-command", command);
+}
+
+/**
+ * Tell the renderer to start capturing `paneId` into `recordingId`. Fire-and-
+ * forget: a failed capture comes back as an immediate stop notification.
+ */
+export function startRendererRecording(
+  recordingId: string,
+  paneId: string,
+  mediaSourceId: string,
+): void {
+  sendRecordingCommand(paneId, { cmd: "start", recordingId, mediaSourceId });
+}
+
+/**
+ * Tell the renderer to stop its `MediaRecorder` and wait for it to confirm the
+ * flush, so the trailing chunk lands before the file is finalized. Resolves on
+ * timeout too — a wedged renderer must not block finalization forever.
+ */
+export function stopRendererRecording(
+  recordingId: string,
+  paneId: string,
+): Promise<void> {
+  const confirmed = new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingStopConfirmations.delete(recordingId);
+      resolve();
+    }, RENDERER_STOP_TIMEOUT_MS);
+    pendingStopConfirmations.set(recordingId, () => {
+      clearTimeout(timer);
+      pendingStopConfirmations.delete(recordingId);
+      resolve();
+    });
+  });
+  sendRecordingCommand(paneId, { cmd: "stop", recordingId });
+  return confirmed;
+}
+
+/**
+ * Full stop: drain the renderer first, then finalize the file. This is what
+ * ticket 3's HTTP routes and the teardown paths should call.
+ */
+export async function stopRecording(recordingId: string) {
+  const paneId = recordingManager
+    .list()
+    .find((r) => r.recordingId === recordingId)?.paneId;
+  if (paneId) await stopRendererRecording(recordingId, paneId);
+  flushChunkQueue(recordingId);
+  return recordingManager.stop(recordingId);
+}
+
 export function register(deps: IpcDeps): void {
   function getMainWindow() {
     return deps.mainWindow;
@@ -68,6 +254,7 @@ export function register(deps: IpcDeps): void {
       deps.webviewServer.attachConsoleListener(paneId);
 
       const rendererWebContents = _event.sender;
+      paneRenderers.set(paneId, rendererWebContents.id);
 
       const wc = webContents.fromId(webContentsId);
       if (wc) {
@@ -335,6 +522,17 @@ export function register(deps: IpcDeps): void {
     webviewPopupCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     webviewRegistry.delete(paneId);
+    // The pane is going away, so nothing will ever produce another chunk for
+    // it: flush what is queued and finalize, rather than orphan the file. No
+    // renderer round-trip — its recorder died with the pane.
+    const recording = recordingManager
+      .list()
+      .find((r) => r.paneId === paneId);
+    if (recording) {
+      flushChunkQueue(recording.recordingId);
+      void recordingManager.stopForPane(paneId);
+    }
+    paneRenderers.delete(paneId);
   });
 
   ipcMain.handle("webview:start-picker", async (event, paneId: string) => {
@@ -450,5 +648,50 @@ export function register(deps: IpcDeps): void {
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) return;
     wc.setAudioMuted(muted);
+  });
+
+  // ── Recording (ADR-158) ──
+
+  // `on`, not `handle`: chunks are fire-and-forget. A round-trip per second per
+  // recording would buy nothing — backpressure is handled by `acceptChunk`.
+  ipcMain.on(
+    "webview:recording-chunk",
+    (_event, recordingId: string, chunk: ArrayBuffer) => {
+      assertString(recordingId, "recordingId");
+      if (!chunk) return;
+      acceptChunk(recordingId, Buffer.from(chunk));
+    },
+  );
+
+  // The renderer's recorder has flushed. Either main is already finalizing and
+  // is waiting on this, or the recorder stopped on its own (failed capture,
+  // destroyed webview) and main has to finalize now.
+  ipcMain.handle(
+    "webview:recording-stopped",
+    (_event, recordingId: string, error?: string) => {
+      assertString(recordingId, "recordingId");
+      if (error) {
+        console.error(`[recording] renderer stopped ${recordingId}: ${error}`);
+      }
+      flushChunkQueue(recordingId);
+      const confirm = pendingStopConfirmations.get(recordingId);
+      if (confirm) {
+        confirm();
+        return;
+      }
+      void recordingManager.stop(recordingId);
+    },
+  );
+
+  // A `maxDurationSec` trip only closes the file; without this the renderer's
+  // `MediaRecorder` would keep capturing into nothing. Listeners are awaited
+  // before the stream is finalized, so the trailing chunk still lands.
+  recordingManager.onAutoStop(async ({ recordingId, paneId }) => {
+    await stopRendererRecording(recordingId, paneId);
+    flushChunkQueue(recordingId);
+  });
+
+  app.on("before-quit", () => {
+    void recordingManager.stopAll();
   });
 }

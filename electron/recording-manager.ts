@@ -203,12 +203,39 @@ export class RecordingManager {
   /**
    * Append a webm chunk. Unknown ids are ignored silently: the renderer's
    * `MediaRecorder` can emit a final chunk after main has already stopped.
+   *
+   * Returns `stream.write()`'s backpressure signal: `false` means the chunk was
+   * accepted but buffered in memory and the caller should stop forwarding until
+   * `waitForDrain` resolves. Ignoring it turns a slow disk into unbounded heap
+   * growth. Unknown/stopping ids return `true` — there is nothing to wait for.
    */
-  appendChunk(recordingId: string, chunk: Buffer): void {
+  appendChunk(recordingId: string, chunk: Buffer): boolean {
     const recording = this.recordings.get(recordingId);
-    if (!recording || recording.stopping) return;
+    if (!recording || recording.stopping) return true;
     recording.bytes += chunk.length;
-    recording.stream.write(chunk);
+    return recording.stream.write(chunk);
+  }
+
+  /**
+   * Resolve once the recording's stream has drained, so a caller that got
+   * `false` from `appendChunk` knows when to resume. Resolves immediately for
+   * unknown or stopping ids, so a teardown race cannot leave a caller waiting
+   * on a `drain` that will never fire.
+   */
+  waitForDrain(recordingId: string): Promise<void> {
+    const recording = this.recordings.get(recordingId);
+    if (!recording || recording.stopping) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        recording.stream.off("drain", done);
+        recording.stream.off("close", done);
+        recording.stream.off("error", done);
+        resolve();
+      };
+      recording.stream.once("drain", done);
+      recording.stream.once("close", done);
+      recording.stream.once("error", done);
+    });
   }
 
   /**

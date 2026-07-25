@@ -1,6 +1,7 @@
 import type { PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { DetachedTabPayload } from "./store/detach-types";
+import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -662,6 +663,17 @@ export interface ElectronAPI {
     onGoForward: (callback: (paneId: string) => void) => () => void;
     setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
     onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => () => void;
+    /** One webm chunk from a pane's `MediaRecorder` (ADR-158). */
+    sendRecordingChunk: (recordingId: string, chunk: ArrayBuffer) => void;
+    /** Renderer's recorder has flushed; main may finalize the file. */
+    notifyRecordingStopped: (
+      recordingId: string,
+      error?: string,
+    ) => Promise<void>;
+    /** Main-initiated start/stop of a pane recording. Returns an unsubscribe. */
+    onRecordingCommand: (
+      callback: (command: WebviewRecordingCommand) => void,
+    ) => () => void;
   };
 
   /** Multi-window detach/reattach handoff (ADR-156). */

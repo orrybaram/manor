@@ -9,6 +9,17 @@ interface WindowBounds {
   height: number;
 }
 
+/**
+ * Payload of the main→renderer "webview:recording-command" channel (ADR-158).
+ * Mirrors `RecordingCommand` in `src/lib/webview-recorder.ts`; declared here
+ * rather than imported so the preload's type surface stays self-contained.
+ */
+interface WebviewRecordingCommand {
+  cmd: "start" | "stop";
+  recordingId: string;
+  mediaSourceId?: string;
+}
+
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
@@ -549,6 +560,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel('webview:go-forward', callback),
     setAudioMuted: (paneId: string, muted: boolean) =>
       ipcRenderer.invoke("webview:set-audio-muted", paneId, muted),
+    /**
+     * One webm chunk from a pane's `MediaRecorder` (ADR-158). `send`, not
+     * `invoke`: chunks arrive once a second per recording and main has nothing
+     * useful to answer.
+     */
+    sendRecordingChunk: (recordingId: string, chunk: ArrayBuffer) =>
+      ipcRenderer.send("webview:recording-chunk", recordingId, chunk),
+    /** Renderer's recorder has flushed; main may finalize the file. */
+    notifyRecordingStopped: (recordingId: string, error?: string) =>
+      ipcRenderer.invoke("webview:recording-stopped", recordingId, error),
+    /** Main-initiated start/stop of a pane recording. */
+    onRecordingCommand: (callback: (command: WebviewRecordingCommand) => void) =>
+      onChannel("webview:recording-command", callback),
     onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

@@ -73,6 +73,8 @@ export interface ProjectInfo {
   commands: CustomCommand[];
   themeName: string | null;
   setupComplete: boolean;
+  /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
+  portlessEnabled: boolean;
   backendType?: "local" | "remote";
 }
 
@@ -90,6 +92,7 @@ export type ProjectUpdatableFields = Partial<
     | "commands"
     | "themeName"
     | "setupComplete"
+    | "portlessEnabled"
   >
 >;
 
@@ -115,6 +118,7 @@ interface PersistedProject {
   commands?: CustomCommand[];
   themeName?: string | null;
   setupComplete?: boolean;
+  portlessEnabled?: boolean;
   backendType?: "local" | "remote";
 }
 
@@ -281,6 +285,7 @@ export class ProjectManager {
       commands: [],
       themeName: null,
       setupComplete: false,
+      portlessEnabled: true,
     };
 
     // Seed commands from package.json if present
@@ -337,6 +342,7 @@ export class ProjectManager {
       commands: project.commands ?? [],
       themeName: null,
       setupComplete: false,
+      portlessEnabled: true,
     };
   }
 
@@ -449,6 +455,7 @@ export class ProjectManager {
       commands: p.commands ?? [],
       themeName: p.themeName ?? null,
       setupComplete: p.setupComplete ?? true,
+      portlessEnabled: p.portlessEnabled ?? true,
       backendType: p.backendType ?? "local",
     };
   }

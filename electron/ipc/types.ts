@@ -20,6 +20,8 @@ export interface WorkspaceMeta {
   projectName: string | null;
   branch: string | null;
   isMain: boolean;
+  /** When false, this workspace's ports get no `.localhost` preview hostname. */
+  portlessEnabled: boolean;
 }
 
 export interface IpcDeps {

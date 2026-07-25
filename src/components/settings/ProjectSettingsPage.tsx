@@ -15,6 +15,7 @@ import { LinearProjectSection } from "./LinearProjectSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
+import { Switch } from "../ui/Switch/Switch";
 import { Stack, Row } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
@@ -191,6 +192,16 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   );
 }
 
+/** Mirrors PortlessManager.hostnameForPort's slug rules — display only. */
+function previewHostname(projectName: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+  return `${slug}.localhost`;
+}
+
 function defaultWorktreePath(projectName: string): string {
   const slug = projectName
     .toLowerCase()
@@ -325,6 +336,25 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
           onBlur={() => handleBlur("agentCommand")}
           placeholder={DEFAULT_AGENT_COMMAND}
         />
+      </Stack>
+
+      <Stack gap="xs">
+        <div className={styles.sectionTitle}>Ports</div>
+        <label className={styles.notifRow}>
+          <span>Named preview URLs</span>
+          <Switch
+            checked={project.portlessEnabled !== false}
+            onCheckedChange={(checked) =>
+              updateProject(project.id, { portlessEnabled: checked })
+            }
+          />
+        </label>
+        <div className={styles.fieldHint}>
+          Route this project's dev servers through the portless proxy so each
+          workspace gets a stable hostname like{" "}
+          <code>{previewHostname(project.name)}</code>. When off, ports open as{" "}
+          <code>localhost:&lt;port&gt;</code>.
+        </div>
       </Stack>
 
       <Stack gap="xs">

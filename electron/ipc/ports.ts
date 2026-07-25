@@ -19,7 +19,9 @@ export function register(deps: IpcDeps): void {
     const routes: { hostname: string; port: number }[] = [];
     for (const port of ports) {
       const meta = workspaceMeta.find((m) => m.path === port.workspacePath);
-      if (meta && proxyPort) {
+      // portlessEnabled === false opts the project out — its ports keep the
+      // plain `localhost:<port>` URL and contribute no proxy route.
+      if (meta && proxyPort && meta.portlessEnabled !== false) {
         const hostname = portlessManager.hostnameForPort(
           meta.path,
           meta.projectName,

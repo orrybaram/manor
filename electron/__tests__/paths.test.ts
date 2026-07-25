@@ -124,6 +124,10 @@ describe("electron/paths", () => {
     it("shellZdotdir", () => {
       expect(paths.shellZdotdir()).toBe(path.join(dataRoot(), "zdotdir"));
     });
+
+    it("recordingsDir", () => {
+      expect(paths.recordingsDir()).toBe(path.join(dataRoot(), "recordings"));
+    });
   });
 
   describe("data-dir getters (linux)", () => {
@@ -171,6 +175,10 @@ describe("electron/paths", () => {
 
     it("shellZdotdir", () => {
       expect(paths.shellZdotdir()).toBe(path.join(dataRoot(), "zdotdir"));
+    });
+
+    it("recordingsDir", () => {
+      expect(paths.recordingsDir()).toBe(path.join(dataRoot(), "recordings"));
     });
   });
 
@@ -291,6 +299,7 @@ describe("electron/paths", () => {
         paths.zoomLevelFile,
         paths.linearTokenFile,
         paths.shellZdotdir,
+        paths.recordingsDir,
         paths.daemonDir,
         paths.daemonSocketFile,
         paths.daemonPidFile,

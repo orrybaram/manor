@@ -68,6 +68,10 @@ export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }
 
+export function recordingsDir(): string {
+  return path.join(manorDataDir(), "recordings");
+}
+
 // ── Home-dir (~/.manor) getters — each has an external reader, do not move ──
 
 export function daemonDir(): string {

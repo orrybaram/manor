@@ -13,18 +13,10 @@ import {
   dispatchKeybinding,
   startNewTask,
 } from "./lib/keybinding-commands";
+import { countTabsInWindow } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { allPaneIds } from "./store/pane-tree";
 import "./App.css";
-
-/** Total tabs across every panel of this detached window. */
-function totalTabsInWindow(): number {
-  const st = useAppStore.getState();
-  const path = st.activeWorkspacePath;
-  const layout = path ? st.workspaceLayouts[path] : undefined;
-  if (!layout) return 0;
-  return Object.values(layout.panels).reduce((n, p) => n + p.tabs.length, 0);
-}
 
 /**
  * Renderer entry point for a detached popup window (ADR-156).
@@ -71,7 +63,7 @@ export default function DetachedApp() {
     let sawTabs = false;
     let closing = false;
     const maybeClose = () => {
-      const total = totalTabsInWindow();
+      const total = countTabsInWindow();
       if (total > 0) {
         sawTabs = true;
       } else if (sawTabs && !closing) {

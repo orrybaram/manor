@@ -13,7 +13,7 @@ import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
-import { hasPaneId, allPaneIds } from "../../store/pane-tree";
+import { hasPaneId } from "../../store/pane-tree";
 import {
   isOutsideWindow,
   findWindowAtPoint,
@@ -29,6 +29,8 @@ import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
+import { PaneWindowMenuItems } from "./PaneWindowMenuItems";
+import { countPanesInWindow } from "../../lib/window-handoff";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
@@ -39,19 +41,6 @@ import browserStyles from "./BrowserPane/BrowserPane.module.css";
 
 function stripUrlForDisplay(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
-}
-
-/** Total panes across every tab of every panel of this window's workspace. */
-function countPanesInWindow(): number {
-  const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) return 0;
-  const layout = state.workspaceLayouts[path];
-  if (!layout) return 0;
-  return Object.values(layout.panels).reduce(
-    (n, p) => n + p.tabs.reduce((m, t) => m + allPaneIds(t.rootNode).length, 0),
-    0,
-  );
 }
 
 type LeafPaneProps = {
@@ -350,6 +339,8 @@ export function LeafPane(props: LeafPaneProps) {
       className={`${styles.leaf} ${isFocused ? styles.leafFocused : ""} ${isThisPaneDragging ? styles.leafDragging : ""}`}
       onMouseDown={() => focusPane(paneId)}
     >
+      <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
         draggable
@@ -427,6 +418,9 @@ export function LeafPane(props: LeafPaneProps) {
                   setUrlFocused(true);
                   browserRef.current?.urlInputHandlers.onFocus(e);
                 }}
+                // Keep the native input menu (copy/paste/lookup) on the URL bar
+                // instead of the pane's window menu.
+                onContextMenu={(e) => e.stopPropagation()}
                 placeholder="Enter URL"
                 spellCheck={false}
                 autoFocus={!paneUrl || paneUrl === "about:blank"}
@@ -527,6 +521,24 @@ export function LeafPane(props: LeafPaneProps) {
           </button>
         </Row>
       </div>
+      </ContextMenu.Trigger>
+      {/* The status bar is the one strip of a pane that is always ours to
+          right-click: a browser pane's webview swallows the context menu, and a
+          terminal's belongs to the terminal. */}
+      <ContextMenu.Portal>
+        <ContextMenu.Content className={styles.contextMenu}>
+          <PaneWindowMenuItems paneId={paneId} />
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+            onSelect={() => requestClosePaneById(paneId)}
+          >
+            <X size={14} />
+            Close Pane
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+      </ContextMenu.Root>
       {contentType === "browser" && navState?.findBarOpen && (
         <div className={browserStyles.findBar}>
           <Search size={12} className={browserStyles.findBarIcon} />
@@ -634,6 +646,8 @@ function PaneContextMenu({ paneId, containerRef, onClose, children }: {
         <ContextMenu.Content className={styles.contextMenu}>
           <SplitWithSubmenu paneId={paneId} containerRef={containerRef} />
           <ConvertToSubmenu paneId={paneId} />
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+          <PaneWindowMenuItems paneId={paneId} />
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}

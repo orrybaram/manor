@@ -16,6 +16,7 @@ import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
+import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearchBar } from "./TerminalSearchBar";
 import styles from "./TerminalPane.module.css";
 
@@ -162,6 +163,10 @@ export function TerminalPane(props: TerminalPaneProps) {
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 
           <ConvertToSubmenu paneId={paneId} />
+
+          <ContextMenu.Separator className={styles.contextMenuSeparator} />
+
+          <PaneWindowMenuItems paneId={paneId} />
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 

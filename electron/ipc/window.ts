@@ -169,4 +169,24 @@ export function register(deps: IpcDeps): void {
       BrowserWindow.fromWebContents(event.sender)?.close();
     },
   );
+
+  // Send a single pane back to the primary window WITHOUT closing the caller.
+  // A popout can hold several panes, so unlike `reattachTab` this must leave the
+  // window standing; when the pane it gave away was its last one, the detached
+  // renderer closes itself through its own empty-store subscription.
+  ipcMain.handle(
+    "window:reattachPane",
+    (_event, payload: DetachedTabPayload): void => {
+      const primary = deps.mainWindow;
+      if (
+        primary &&
+        !primary.isDestroyed() &&
+        !primary.webContents.isDestroyed()
+      ) {
+        primary.webContents.send("window:tab-reattached", payload);
+        if (primary.isMinimized()) primary.restore();
+        primary.focus();
+      }
+    },
+  );
 }

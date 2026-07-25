@@ -8,6 +8,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
+import { countTabsInWindow } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
@@ -224,7 +225,10 @@ export function TabButton(props: TabButtonProps) {
               Move Tab to Next Panel
             </ContextMenu.Item>
           )}
-          {!window.electronAPI?.isDetached && (
+          {/* A popout's sole tab offers no "new window": tearing it out empties
+              this window, which then closes itself — a no-op with extra steps.
+              A popout holding several tabs can still spawn another window. */}
+          {!(window.electronAPI?.isDetached && countTabsInWindow() === 1) && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => {

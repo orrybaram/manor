@@ -718,6 +718,13 @@ export interface ElectronAPI {
      */
     reattachTab: (payload: DetachedTabPayload) => Promise<void>;
     /**
+     * Send ONE pane back to the primary window without closing this one — a
+     * popout may still hold other panes. Delivered to the same primary listener
+     * as `reattachTab`. When it was the last pane, the detached renderer closes
+     * itself via its empty-store subscription.
+     */
+    reattachPane: (payload: DetachedTabPayload) => Promise<void>;
+    /**
      * Primary-window listener: fires when a detached window reattaches its tab.
      * Returns an unsubscribe. Only the primary renderer subscribes.
      */

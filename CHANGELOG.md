@@ -1,6 +1,15 @@
 # Changelog
 
 
+
+## [0.6.4] - 2026-07-25
+
+## Features
+- Pop a pane out into its own window from the context menu
+
+## Fixes
+- Keyboard shortcuts now work in popped-out windows
+
 ## [0.6.3] - 2026-07-25
 
 **Features**

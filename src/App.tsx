@@ -7,6 +7,7 @@ import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
+import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { ToastContainer } from "./components/ui/Toast/Toast";
@@ -14,11 +15,16 @@ import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
 const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
+type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
-import { useAppStore, selectActiveWorkspace } from "./store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  getPersistedActiveWorkspacePath,
+} from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { useKeybindingsStore } from "./store/keybindings-store";
 import { useToastStore } from "./store/toast-store";
@@ -30,10 +36,21 @@ import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
+import {
+  useNavigationHistory,
+  navigateBack,
+  navigateForward,
+} from "./hooks/useNavigationHistory";
 import type { TaskInfo } from "./electron.d";
 import { navigateToTask } from "./utils/task-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
+import {
+  escapeShellDoubleQuoted,
+  isHomePath,
+  homeLaunchCommand,
+  HOME_PATH,
+} from "./lib/home";
 import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
@@ -48,14 +65,21 @@ function App() {
   useMountEffect(() => {
     loadTheme();
     Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
-      const { projects: ps, selectedProjectIndex: idx } =
-        useProjectStore.getState();
-      const project = ps[idx];
-      if (project) {
-        const ws =
-          project.workspaces[project.selectedWorkspaceIndex] ??
-          project.workspaces[0];
-        if (ws) setActiveWorkspace(ws.path);
+      // If the Home surface was the last-active surface, restore it directly —
+      // it isn't a project workspace, so the project-based restore below can't
+      // reach it. Other workspaces are restored via project selection.
+      if (isHomePath(getPersistedActiveWorkspacePath())) {
+        setActiveWorkspace(HOME_PATH);
+      } else {
+        const { projects: ps, selectedProjectIndex: idx } =
+          useProjectStore.getState();
+        const project = ps[idx];
+        if (project) {
+          const ws =
+            project.workspaces[project.selectedWorkspaceIndex] ??
+            project.workspaces[0];
+          if (ws) setActiveWorkspace(ws.path);
+        }
       }
       setAppReady(true);
       window.electronAPI.tasks.reconcileStale().catch(console.error);
@@ -63,6 +87,7 @@ function App() {
   });
 
   useUpdaterToasts();
+  useNavigationHistory();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
@@ -78,15 +103,19 @@ function App() {
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
   );
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
-    // Revert to the active project's theme in case settings was previewing
-    // a different project's theme
-    const activeTheme =
-      useProjectStore.getState().projects[
-        useProjectStore.getState().selectedProjectIndex
-      ]?.themeName ?? null;
+    setSettingsPage(null);
+    // Revert to the active surface's theme in case settings was previewing a
+    // different theme. Home has no project override — it inherits the global
+    // theme (null).
+    const activeTheme = isHomePath(useAppStore.getState().activeWorkspacePath)
+      ? null
+      : useProjectStore.getState().projects[
+          useProjectStore.getState().selectedProjectIndex
+        ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -157,7 +186,10 @@ function App() {
     openWizardForLatestProject();
   }, [addProject, openWizardForLatestProject]);
 
-  const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleOpenSettings = useCallback((page?: SettingsPageId) => {
+    setSettingsPage(page ?? null);
+    setSettingsOpen(true);
+  }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const handleOpenFeedback = useCallback(() => setFeedbackOpen(true), []);
   const handleOpenProjectSettings = useCallback((projectId: string) => {
@@ -191,20 +223,6 @@ function App() {
   const handleOpenPaletteView = useCallback(
     (view: PaletteView) => {
       setPaletteInitialView(view);
-      setPaletteOpen(true);
-    },
-    [],
-  );
-
-  const handleOpenIssueDetail = useCallback(
-    (opts: { type: "linear"; issueId: string } | { type: "github"; issueNumber: number }) => {
-      if (opts.type === "linear") {
-        setPaletteInitialView("issue-detail");
-        setPaletteInitialIssueId(opts.issueId);
-      } else {
-        setPaletteInitialView("github-issue-detail");
-        setPaletteInitialGitHubIssueNumber(opts.issueNumber);
-      }
       setPaletteOpen(true);
     },
     [],
@@ -246,13 +264,16 @@ function App() {
   // Clean up wizard state if the project is removed while wizard is open
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
-  // Reactively apply project theme whenever the selected project changes
-  const currentProjectThemeName =
-    projects[selectedProjectIndex]?.themeName ?? null;
-  const prevThemeRef = useRef(currentProjectThemeName);
-  if (currentProjectThemeName !== prevThemeRef.current) {
-    prevThemeRef.current = currentProjectThemeName;
-    applyProjectTheme(currentProjectThemeName);
+  // Reactively apply the active surface's theme. Projects carry an optional
+  // theme override; the home surface has no owning project, so it inherits the
+  // global theme (null override) — switching to/from home re-applies here.
+  const effectiveThemeName = isHomePath(activeWorkspacePath)
+    ? null
+    : projects[selectedProjectIndex]?.themeName ?? null;
+  const prevThemeRef = useRef(effectiveThemeName);
+  if (effectiveThemeName !== prevThemeRef.current) {
+    prevThemeRef.current = effectiveThemeName;
+    applyProjectTheme(effectiveThemeName);
   }
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
@@ -262,18 +283,26 @@ function App() {
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
   // Keep the prewarmed session in sync with the active workspace.
-  // Derive agentCommand outside the effect so it only re-fires when the
+  // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
   const activeProject = projects.find((p) =>
     p.workspaces.some((w) => w.path === activeWorkspacePath),
   );
-  const prewarmAgentCommand = activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+  // The launch command for the active surface. Home has no owning project and
+  // boots the configured home harness in ~/.manor/home (the pty boundary maps
+  // its sentinel path to the real dir); a project workspace uses its
+  // agentCommand. Shared by prewarming and both new-task handlers below.
+  const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
+  const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
+  const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
+  const activeWorkspaceCommand = isHomePath(activeWorkspacePath)
+    ? homeLaunchCommand({ homeHarness, homeCustomCommand, homeCustomInterrupt })
+    : activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    if (activeWorkspacePath) {
-      const prewarmKind = getAgentKindForCommand(prewarmAgentCommand);
-      window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, prewarmAgentCommand, prewarmKind);
-    }
-  }, [activeWorkspacePath, prewarmAgentCommand]);
+    if (!activeWorkspacePath) return;
+    const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
+    window.electronAPI.pty.updatePrewarmCwd(activeWorkspacePath, activeWorkspaceCommand, prewarmKind);
+  }, [activeWorkspacePath, activeWorkspaceCommand]);
 
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
@@ -281,6 +310,26 @@ function App() {
   useEffect(() => window.electronAPI.onProjectsChanged(() => {
     void loadProjects();
   }), [loadProjects]);
+
+  // A detached window sent its tab back to this primary window (ADR-156). Insert
+  // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
+  useEffect(
+    () =>
+      window.electronAPI.window.onTabReattached((payload) => {
+        useAppStore.getState().receiveReattachedTab(payload);
+      }),
+    [],
+  );
+
+  // A tab was dragged out of another window and dropped onto this one. Same
+  // insertion path as a reattach — only the gesture that triggered it differs.
+  useEffect(
+    () =>
+      window.electronAPI.window.onTabReceived((payload) => {
+        useAppStore.getState().receiveReattachedTab(payload);
+      }),
+    [],
+  );
 
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
@@ -365,6 +414,8 @@ function App() {
     "next-pane": () => focusNextPane(),
     "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
+    "history-back": () => navigateBack(),
+    "history-forward": () => navigateForward(),
     "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
     "new-browser": () => addBrowserTab("about:blank"),
@@ -474,6 +525,26 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
+  // Mouse back/forward buttons (button 3/4). Skipped while a webview pane has
+  // DOM focus — the guest page (and Chromium itself) already handles its own
+  // back/forward navigation for that content, consistent with how
+  // `useTerminalHotkeys` scopes app shortcuts away from focused input.
+  useMountEffect(() => {
+    function handleMouseUp(e: MouseEvent) {
+      if (e.button !== 3 && e.button !== 4) return;
+      if (useAppStore.getState().webviewFocusedPaneId) return;
+      e.preventDefault();
+      if (e.button === 3) {
+        navigateBack();
+      } else {
+        navigateForward();
+      }
+    }
+
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  });
+
   const handleResumeTask = useCallback(
     async (task: TaskInfo) => {
       // If the task is active and has a pane, switch to it instead of opening a new tab
@@ -518,37 +589,25 @@ function App() {
   );
 
   const handleNewTask = useCallback(async () => {
+    // Every surface — Home and project workspaces alike — consumes a prewarmed
+    // session when one is ready. On a cold start (no prewarm, or the command
+    // hadn't been injected yet) seed the surface's launch command; the pty
+    // boundary resolves the cwd, so Home needs no special casing here.
     const prewarmed = await window.electronAPI.pty.consumePrewarmed();
     if (activeWorkspacePath && !prewarmed?.commandInjected) {
-      const currentProject = projects.find((p) =>
-        p.workspaces.some((w) => w.path === activeWorkspacePath),
-      );
-      const command =
-        currentProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
       useAppStore
         .getState()
-        .setPendingStartupCommand(activeWorkspacePath, command);
+        .setPendingStartupCommand(activeWorkspacePath, activeWorkspaceCommand);
     }
     addTab(prewarmed?.paneId);
-  }, [addTab, projects, activeWorkspacePath]);
+  }, [addTab, activeWorkspacePath, activeWorkspaceCommand]);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(
     (prompt: string) => {
       if (activeWorkspacePath) {
-        const currentProject = projects.find((p) =>
-          p.workspaces.some((w) => w.path === activeWorkspacePath),
-        );
-        const baseCommand =
-          currentProject?.agentCommand ??
-          DEFAULT_AGENT_COMMAND;
-        const escaped = prompt
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"')
-          .replace(/\$/g, "\\$")
-          .replace(/`/g, "\\`")
-          .replace(/!/g, "\\!");
-        const command = `${baseCommand} "${escaped}"`;
+        const escaped = escapeShellDoubleQuoted(prompt);
+        const command = `${activeWorkspaceCommand} "${escaped}"`;
         useAppStore
           .getState()
           .setPendingStartupCommand(activeWorkspacePath, command);
@@ -557,7 +616,7 @@ function App() {
       // but we need a different command with the prompt argument.
       addTab();
     },
-    [addTab, projects, activeWorkspacePath],
+    [addTab, activeWorkspacePath, activeWorkspaceCommand],
   );
   handleNewTaskWithPromptRef.current = handleNewTaskWithPrompt;
 
@@ -598,9 +657,11 @@ function App() {
                   {wizardStillValid && wizardProjectId
                     ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                     : !hasTabs &&
-                      (hasProjects
-                        ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
-                        : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                      (isHomePath(activeWorkspacePath)
+                        ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
+                        : hasProjects
+                          ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
+                          : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
                 </div>
               </>
             )}
@@ -642,6 +703,7 @@ function App() {
           open={settingsOpen}
           onClose={closeSettings}
           initialProjectId={settingsProjectId}
+          initialPage={settingsPage}
         />
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <TasksModal

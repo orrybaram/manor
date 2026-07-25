@@ -43,6 +43,10 @@
   height: 32px;
   flex-shrink: 0;
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px;
 }
 
 .content {
@@ -63,6 +67,20 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
+}
+
+.navControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.navButton {
+  width: 18px;
+  height: 18px;
+  padding: 0;
 }
 
 /* Duplicated in TasksList.module.css — candidate for a shared <SectionHeader> UI component */
@@ -87,6 +105,49 @@
   font-size: 12px;
   color: var(--text-dim);
   line-height: 1.6;
+}
+
+/* Pinned top-level "Home" row — mirrors the home/"local" workspace
+   visual from ProjectItem.module.css, sits above the Projects list and is
+   exempt from drag/reorder. */
+.homeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.homeRow:hover {
+  background: var(--surface);
+}
+
+.homeRowActive {
+  background: var(--surface);
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.homeIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 16px;
+}
+
+.homeRowActive .homeIcon {
+  color: var(--accent);
+}
+
+.homeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .projectsScroll {

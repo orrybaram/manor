@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 
 export interface CommandItem {
   id: string;
@@ -22,7 +23,7 @@ export interface CategoryConfig {
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (page?: SettingsPageId) => void;
   onOpenFeedback?: () => void;
   onNewWorkspace?: (opts?: {
     projectId?: string;

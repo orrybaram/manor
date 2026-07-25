@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useState } from "react";
+import { useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -8,9 +8,18 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
+import { useKeybinding } from "../../store/keybindings-store";
+import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
+
+/** Right-aligned keyboard-shortcut hint for a context-menu item. */
+function MenuShortcut({ commandId }: { commandId: string }) {
+  const combo = useKeybinding(commandId);
+  if (!combo) return null;
+  return <span className={styles.contextMenuShortcut}>{formatCombo(combo)}</span>;
+}
 
 /**
  * Shorten a title to fit in a pinned tab (~40px).
@@ -29,19 +38,18 @@ type TabButtonProps = {
   canClose: boolean;
   isDragging: boolean;
   isDropTarget?: boolean;
+  draggable?: boolean;
   onSelect: () => void;
   onClose: () => void;
   onTogglePin: () => void;
-  onPointerDown?: (e: ReactPointerEvent) => void;
-  onPointerEnter?: () => void;
-  onPointerLeave?: () => void;
-  onPointerUp?: (e: ReactPointerEvent) => void;
-  style: React.CSSProperties;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDrag?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   buttonRef: (el: HTMLDivElement | null) => void;
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, onSelect, onClose, onTogglePin, onPointerDown, onPointerEnter, onPointerLeave, onPointerUp, style, buttonRef } = props;
+  const { tabId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
   const title = useTabTitle(tabId);
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
@@ -61,6 +69,26 @@ export function TabButton(props: TabButtonProps) {
     }
     return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
   }));
+  const { hasOtherClosableTabs, hasClosableTabsToRight } = useAppStore(useShallow((s) => {
+    const wsPath = s.activeWorkspacePath;
+    const empty = { hasOtherClosableTabs: false, hasClosableTabsToRight: false };
+    if (!wsPath) return empty;
+    const layout = s.workspaceLayouts[wsPath];
+    if (!layout) return empty;
+    for (const panel of Object.values(layout.panels)) {
+      const idx = panel.tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) continue;
+      const pinned = new Set(panel.pinnedTabIds ?? []);
+      const hasOther = panel.tabs.some(
+        (t) => t.id !== tabId && !pinned.has(t.id),
+      );
+      const hasRight = panel.tabs
+        .slice(idx + 1)
+        .some((t) => !pinned.has(t.id));
+      return { hasOtherClosableTabs: hasOther, hasClosableTabsToRight: hasRight };
+    }
+    return empty;
+  }));
   const panelCount = useAppStore((s) => {
     const wsPath = s.activeWorkspacePath;
     if (!wsPath) return 1;
@@ -79,11 +107,10 @@ export function TabButton(props: TabButtonProps) {
           ref={buttonRef}
           className={`${styles.tab} ${contentTypeClass} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
-          onPointerDown={onPointerDown}
-          onPointerEnter={onPointerEnter}
-          onPointerLeave={onPointerLeave}
-          onPointerUp={onPointerUp}
-          style={style}
+          draggable={draggable}
+          onDragStart={onDragStart}
+          onDrag={onDrag}
+          onDragEnd={onDragEnd}
           data-testid="tab"
           data-tab-id={tabId}
           aria-selected={isActive}
@@ -197,15 +224,84 @@ export function TabButton(props: TabButtonProps) {
               Move Tab to Next Panel
             </ContextMenu.Item>
           )}
+          {!window.electronAPI?.isDetached && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                void (async () => {
+                  try {
+                    const payload = useAppStore.getState().serializeTabForDetach(tabId);
+                    const bounds = await window.electronAPI.window.getBounds();
+                    const spawnBounds = {
+                      x: bounds.x + 40,
+                      y: bounds.y + 40,
+                      width: 900,
+                      height: 600,
+                    };
+                    await window.electronAPI.window.detachTab(payload, spawnBounds);
+                    useAppStore.getState().removeDetachedTabLocally(tabId);
+                  } catch (err) {
+                    console.error("Failed to detach tab to new window", err);
+                  }
+                })();
+              }}
+            >
+              Move to New Window
+            </ContextMenu.Item>
+          )}
+          {window.electronAPI?.isDetached && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                void (async () => {
+                  try {
+                    const store = useAppStore.getState();
+                    const payload = store.serializeTabForDetach(tabId);
+                    // Release panes and drop the tab from THIS store BEFORE the
+                    // window closes, so DetachedApp's beforeunload finds an empty
+                    // store and kills nothing (preserving the reattached panes).
+                    store.removeDetachedTabLocally(tabId);
+                    await window.electronAPI.window.reattachTab(payload);
+                    // Main closes this window after forwarding the payload.
+                  } catch (err) {
+                    console.error("Failed to reattach tab to main window", err);
+                  }
+                })();
+              }}
+            >
+              Move Back to Main Window
+            </ContextMenu.Item>
+          )}
           {canClose && (
             <>
               <ContextMenu.Separator className={styles.contextMenuSeparator} />
               <ContextMenu.Item
-                className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                className={styles.contextMenuItem}
                 onSelect={onClose}
               >
                 Close Tab
+                <MenuShortcut commandId="close-tab" />
               </ContextMenu.Item>
+              {hasOtherClosableTabs && (
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => {
+                    useAppStore.getState().closeOtherTabs(tabId);
+                  }}
+                >
+                  Close Other Tabs
+                </ContextMenu.Item>
+              )}
+              {hasClosableTabsToRight && (
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => {
+                    useAppStore.getState().closeTabsToRight(tabId);
+                  }}
+                >
+                  Close Tabs to the Right
+                </ContextMenu.Item>
+              )}
             </>
           )}
         </ContextMenu.Content>

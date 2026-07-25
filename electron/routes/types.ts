@@ -12,12 +12,16 @@ import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
+import type { TaskManager } from "../task-persistence";
+import type { LocalBackend } from "../backend/local-backend";
 
 export interface ControlDeps {
   projectManager: ProjectManager | null;
   githubManager: GitHubManager | null;
   linearManager: LinearManager | null;
   layoutPersistence: LayoutPersistence | null;
+  taskManager: TaskManager | null;
+  backend: LocalBackend | null;
 }
 
 export type Json = (status: number, body: unknown) => void;

@@ -19,6 +19,7 @@
 
 import os from "node:os";
 import path from "node:path";
+import { isHomePath } from "../src/lib/home-path";
 
 // ── Root resolvers ──
 
@@ -119,4 +120,23 @@ export function layoutFile(): string {
 
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
+}
+
+// The cwd the Home surface's harness runs in. The Home sentinel workspace
+// path resolves here via resolveSpawnCwd. Created once at app startup (see
+// initApp).
+export function homeWorkspaceDir(): string {
+  return path.join(manorHomeDir(), "home");
+}
+
+/**
+ * Resolve a renderer-supplied workspace path to a real filesystem cwd — the
+ * single boundary where opaque workspace paths become spawn directories. The
+ * Home surface's sentinel path is not a real directory; it maps to
+ * `homeWorkspaceDir()` (created once at startup). null/empty falls back to
+ * `$HOME`.
+ */
+export function resolveSpawnCwd(cwd: string | null): string {
+  if (isHomePath(cwd)) return homeWorkspaceDir();
+  return cwd || os.homedir() || "/";
 }

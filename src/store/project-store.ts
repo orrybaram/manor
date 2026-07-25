@@ -241,6 +241,8 @@ export interface ProjectInfo {
   commands: CustomCommand[];
   themeName: string | null;
   setupComplete: boolean;
+  /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
+  portlessEnabled: boolean;
 }
 
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
@@ -261,6 +263,7 @@ export type ProjectUpdatableFields = Partial<
     | "commands"
     | "themeName"
     | "setupComplete"
+    | "portlessEnabled"
   >
 >;
 

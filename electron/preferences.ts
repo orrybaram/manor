@@ -25,6 +25,12 @@ export interface AppPreferences {
    * Used to surface a one-time notice; never reset automatically.
    */
   taskPruneNoticeShown: boolean;
+  /** Agent-agnostic harness Home auto-launches. */
+  homeHarness: "claude" | "codex" | "custom";
+  /** Launch command used when `homeHarness === "custom"`. */
+  homeCustomCommand: string;
+  /** Interrupt sequence used when `homeHarness === "custom"`. */
+  homeCustomInterrupt: string;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -40,6 +46,9 @@ const DEFAULTS: AppPreferences = {
   editorIsTerminal: false,
   taskRetentionDays: 90,
   taskPruneNoticeShown: false,
+  homeHarness: "claude",
+  homeCustomCommand: "",
+  homeCustomInterrupt: "",
 };
 
 export class PreferencesManager {

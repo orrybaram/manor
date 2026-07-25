@@ -31,10 +31,12 @@ export function usePortsData() {
           projectName: p.name,
           branch: ws.branch ?? null,
           isMain: ws.isMain,
+          portlessEnabled: p.portlessEnabled !== false,
         })),
       );
 
     let currentPathsKey = "";
+    let currentMetaKey = "";
 
     const setup = (paths: string[]) => {
       if (paths.length > 0) {
@@ -48,15 +50,26 @@ export function usePortsData() {
     // Initial setup
     const initialPaths = getPaths();
     currentPathsKey = initialPaths.join("\0");
+    currentMetaKey = JSON.stringify(getMeta());
     setup(initialPaths);
 
-    // Re-setup when paths change
+    // Re-setup when paths change; re-push metadata (and rescan, so hostnames
+    // are recomputed) when only the metadata changed — e.g. the portless
+    // toggle or a project rename.
     const unsub = useProjectStore.subscribe(() => {
       const newPaths = getPaths();
       const newKey = newPaths.join("\0");
       if (newKey !== currentPathsKey) {
         currentPathsKey = newKey;
+        currentMetaKey = JSON.stringify(getMeta());
         setup(newPaths);
+        return;
+      }
+      const newMetaKey = JSON.stringify(getMeta());
+      if (newMetaKey !== currentMetaKey) {
+        currentMetaKey = newMetaKey;
+        window.electronAPI.ports.updateWorkspaceMetadata(getMeta());
+        window.electronAPI.ports.scanNow().then(setPorts);
       }
     });
 

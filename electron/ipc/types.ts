@@ -20,10 +20,20 @@ export interface WorkspaceMeta {
   projectName: string | null;
   branch: string | null;
   isMain: boolean;
+  /** When false, this workspace's ports get no `.localhost` preview hostname. */
+  portlessEnabled: boolean;
 }
 
 export interface IpcDeps {
+  /** The PRIMARY renderer window. */
   mainWindow: BrowserWindow | null;
+  /** All live, non-destroyed renderer windows (primary + detached popups). */
+  getRendererWindows: () => BrowserWindow[];
+  /**
+   * Register a detached popup window (created via `createDetachedWindow`) so it
+   * is tracked for broadcast and reachable by its windowId.
+   */
+  registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
   backend: LocalBackend;
   layoutPersistence: LayoutPersistence;
   projectManager: ProjectManager;

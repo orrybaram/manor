@@ -34,6 +34,10 @@ import type {
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
+import type { Location } from "./navigation-history-store";
+import type { DetachedTabPayload } from "./detach-types";
+import { isHomePath } from "../lib/home-path";
+import { useProjectStore } from "./project-store";
 
 export interface ClosedPaneSnapshot {
   kind: "pane";
@@ -246,6 +250,10 @@ export interface AppState {
   openOrFocusDiff: () => void;
   openDiffInNewPanel: () => void;
   closeTab: (tabId: string) => void;
+  /** Close every other (unpinned) tab in the same panel as `tabId`. */
+  closeOtherTabs: (tabId: string) => void;
+  /** Close every (unpinned) tab positioned after `tabId` in its panel. */
+  closeTabsToRight: (tabId: string) => void;
   requestCloseTab: (tabId: string) => void;
   setPendingCloseConfirmTabId: (tabId: string | null) => void;
   selectTab: (tabId: string) => void;
@@ -366,11 +374,59 @@ export interface AppState {
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
 
   // Webview focus
-  setWebviewFocused: (paneId: string | null) => void;
+  setWebviewFocused: (paneId: string, focused: boolean) => void;
 
   // Picked element
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
+
+  // Multi-window detach / reattach (ADR-156)
+  /**
+   * Serialize a tab (by id) into a structured-clone-safe payload for handoff to
+   * a detached popup window. Copies the tab shape plus every per-pane side-map
+   * entry. Searches all workspace layouts; throws if the tab is not found.
+   */
+  serializeTabForDetach: (tabId: string) => DetachedTabPayload;
+  /**
+   * Remove a tab from its panel WITHOUT killing its panes: terminals are
+   * `pty.detach`ed (session survives in the daemon), browsers are
+   * `webview.unregister`ed, diffs need no teardown. Collapses an emptied panel
+   * the same way `closeTab` does, and drops the tab's per-pane side-map entries.
+   * Distinct from `closeTab`, which terminates the sessions.
+   */
+  removeDetachedTabLocally: (tabId: string) => void;
+  /**
+   * Serialize a single pane (by id) into a `DetachedTabPayload` for handoff to a
+   * detached popup window — a detached pane is just a tab whose rootNode is a
+   * single leaf. Mints a fresh tab id, copies only this pane's side-map entries,
+   * and resolves theme/workspace like `serializeTabForDetach`. Throws if the
+   * pane is not found in any workspace layout.
+   */
+  serializePaneForDetach: (paneId: string) => DetachedTabPayload;
+  /**
+   * Remove a single pane from its source tab WITHOUT killing it: terminals are
+   * `pty.detach`ed, browsers are `webview.unregister`ed, diffs need no teardown.
+   * Collapses the split via `removePane`; if the pane was the tab's sole leaf,
+   * removes the whole tab exactly as `removeDetachedTabLocally` does. Keeps the
+   * backend alive so the pane re-attaches in the destination window.
+   */
+  removeDetachedPaneLocally: (paneId: string) => void;
+  /**
+   * Rebuild a minimal one-panel/one-tab layout from a detach payload in a fresh
+   * (detached-window) store and repopulate every per-pane side-map, so the
+   * normal render path re-attaches PTYs / re-mounts webviews by paneId. Reuses
+   * the payload's original paneIds — never mints new ones.
+   */
+  hydrateDetachedTab: (payload: DetachedTabPayload) => void;
+  /**
+   * Receive a tab reattached from a detached window into THIS (primary) window.
+   * Inserts the tab into the active panel of the active workspace layout
+   * (appends to its tabs, selects it) and repopulates every per-pane side-map
+   * from the payload — so PTYs re-attach and webviews re-mount by paneId,
+   * exactly like `hydrateDetachedTab` but into the existing layout. The normal
+   * layout-save subscription then persists it, making the tab durable again.
+   */
+  receiveReattachedTab: (payload: DetachedTabPayload) => void;
 }
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
@@ -381,6 +437,49 @@ export function selectActiveWorkspace(
   const layout = state.workspaceLayouts[state.activeWorkspacePath];
   if (!layout) return null;
   return layout.panels[layout.activePanelId] ?? null;
+}
+
+/**
+ * True when the browser pane holding webview focus is actually on screen: in
+ * the active workspace, inside a panel's *selected* tab. Hidden tabs stay
+ * mounted and webviews don't always blur when their tab is hidden, so the
+ * status-bar badge must be gated on visibility, not on the raw pane id.
+ */
+export function selectWebviewFocusVisible(state: AppState): boolean {
+  const paneId = state.webviewFocusedPaneId;
+  if (!paneId) return false;
+  const ctx = getActiveLayoutContext(state);
+  if (!ctx) return false;
+  return Object.values(ctx.layout.panels).some((panel) => {
+    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    return tab ? hasPaneId(tab.rootNode, paneId) : false;
+  });
+}
+
+/**
+ * Derive the current navigable `Location` from layout state. This is the read
+ * side of the navigation-history bridge: `app-store` remains the source of
+ * truth for "where am I", and the history store only records what this returns.
+ *
+ * Home (or no active workspace) collapses to the `home` surface — panel/tab
+ * coordinates inside Home are intentionally not tracked. Any project workspace
+ * maps to its active panel's selected tab.
+ */
+export function selectCurrentLocation(state: AppState): Location {
+  const path = state.activeWorkspacePath;
+  if (!path || isHomePath(path)) {
+    return { kind: "surface", surface: "home" };
+  }
+  const ctx = getActivePanelContext(state);
+  if (!ctx) {
+    return { kind: "surface", surface: "home" };
+  }
+  return {
+    kind: "workspace",
+    workspacePath: ctx.path,
+    panelId: ctx.panel.id,
+    tabId: ctx.panel.selectedTabId,
+  };
 }
 
 // Internal helpers for active panel context
@@ -454,6 +553,16 @@ function updatePanel(
 
 // Cache the loaded layout so setActiveWorkspace can check it synchronously
 let _cachedLayout: PersistedLayout | null = null;
+
+/**
+ * The workspace/surface path that was active when the layout was last persisted
+ * (includes the Home surface's `HOME_PATH`). Populated by `loadPersistedLayout`;
+ * used by the boot sequence to restore the last-active surface on relaunch.
+ * Returns `null` when there is no persisted layout or the field is absent.
+ */
+export function getPersistedActiveWorkspacePath(): string | null {
+  return _cachedLayout?.lastActiveWorkspacePath ?? null;
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
@@ -1000,6 +1109,37 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
       };
     }),
+
+  closeOtherTabs: (tabId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithTab(ctx.layout, tabId);
+    if (!found) return;
+    const { panel } = found;
+    const pinned = new Set(panel.pinnedTabIds ?? []);
+    const toClose = panel.tabs
+      .map((t) => t.id)
+      .filter((id) => id !== tabId && !pinned.has(id));
+    for (const id of toClose) get().closeTab(id);
+  },
+
+  closeTabsToRight: (tabId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithTab(ctx.layout, tabId);
+    if (!found) return;
+    const { panel } = found;
+    const idx = panel.tabs.findIndex((t) => t.id === tabId);
+    if (idx === -1) return;
+    const pinned = new Set(panel.pinnedTabIds ?? []);
+    const toClose = panel.tabs
+      .slice(idx + 1)
+      .map((t) => t.id)
+      .filter((id) => !pinned.has(id));
+    for (const id of toClose) get().closeTab(id);
+  },
 
   selectTab: (tabId: string) =>
     set((state) => {
@@ -2027,8 +2167,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       return newState;
     }),
 
-  setWebviewFocused: (paneId: string | null) =>
-    set({ webviewFocusedPaneId: paneId }),
+  setWebviewFocused: (paneId: string, focused: boolean) =>
+    set((state) => {
+      if (focused) return { webviewFocusedPaneId: paneId };
+      // Only the pane that owns the focus may clear it — a blur from some other
+      // browser pane must not wipe the active one's badge.
+      return state.webviewFocusedPaneId === paneId
+        ? { webviewFocusedPaneId: null }
+        : {};
+    }),
 
   setPaneAgentStatus: (paneId: string, agent: AgentState) =>
     set((state) => {
@@ -2637,6 +2784,479 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       };
     }),
+
+  // ── Multi-window detach / reattach (ADR-156) ──
+
+  serializeTabForDetach: (tabId: string): DetachedTabPayload => {
+    const state = get();
+
+    // The tab may live in any workspace layout, not just the active one.
+    let foundTab: Tab | null = null;
+    for (const layout of Object.values(state.workspaceLayouts)) {
+      const res = findPanelWithTab(layout, tabId);
+      if (res) {
+        foundTab = res.tab;
+        break;
+      }
+    }
+    if (!foundTab) {
+      throw new Error(`serializeTabForDetach: tab ${tabId} not found`);
+    }
+
+    const paneIds = allPaneIds(foundTab.rootNode);
+    const paneState: DetachedTabPayload["paneState"] = {
+      cwd: {},
+      title: {},
+      contentType: {},
+      url: {},
+      favicon: {},
+      agentStatus: {},
+      audioPlaying: {},
+      audioMuted: {},
+      pickedElement: {},
+    };
+    for (const pid of paneIds) {
+      if (state.paneCwd[pid] !== undefined) paneState.cwd[pid] = state.paneCwd[pid];
+      if (state.paneTitle[pid] !== undefined) paneState.title[pid] = state.paneTitle[pid];
+      if (state.paneContentType[pid] !== undefined) paneState.contentType[pid] = state.paneContentType[pid];
+      if (state.paneUrl[pid] !== undefined) paneState.url[pid] = state.paneUrl[pid];
+      if (state.paneFavicon[pid] !== undefined) paneState.favicon[pid] = state.paneFavicon[pid];
+      if (state.paneAgentStatus[pid] !== undefined) paneState.agentStatus[pid] = state.paneAgentStatus[pid];
+      if (state.paneAudioPlaying[pid] !== undefined) paneState.audioPlaying[pid] = state.paneAudioPlaying[pid];
+      if (state.paneAudioMuted[pid] !== undefined) paneState.audioMuted[pid] = state.paneAudioMuted[pid];
+      if (state.panePickedElement[pid] !== undefined) paneState.pickedElement[pid] = state.panePickedElement[pid];
+    }
+
+    // Resolve the theme the tab is currently painted with — its owning
+    // project's override (or null = global). The detached window applies this so
+    // it matches the workspace instead of falling back to the global theme.
+    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
+    const themeName = isHomePath(sourceWorkspacePath)
+      ? null
+      : useProjectStore
+          .getState()
+          .projects.find((p) =>
+            p.workspaces.some((w) => w.path === sourceWorkspacePath),
+          )?.themeName ?? null;
+
+    const payload: DetachedTabPayload = {
+      tab: {
+        id: foundTab.id,
+        title: foundTab.title,
+        rootNode: foundTab.rootNode,
+        focusedPaneId: foundTab.focusedPaneId,
+      },
+      paneState,
+      sourceWorkspacePath,
+      themeName,
+    };
+
+    // Deep-copy so no live store references (rootNode, side-map objects) leak
+    // across the IPC boundary; guarantees a plain, structured-clone-safe value.
+    return structuredClone(payload);
+  },
+
+  removeDetachedTabLocally: (tabId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithTab(ctx.layout, tabId);
+    if (!found) return;
+    const paneIds = allPaneIds(found.tab.rootNode);
+
+    // Release each pane's backend WITHOUT terminating it, so it can re-attach in
+    // the destination window. (closeTab, by contrast, kills these sessions.)
+    for (const pid of paneIds) {
+      const contentType = state.paneContentType[pid];
+      if (contentType === "browser") {
+        window.electronAPI.webview.unregister(pid);
+      } else if (contentType === "diff") {
+        // Diff panes have no backend session to release.
+      } else {
+        // Terminal (default): detach releases the daemon session, keeping it alive.
+        window.electronAPI.pty.detach(pid);
+      }
+    }
+
+    set((s) => {
+      const currentCtx = getActiveLayoutContext(s);
+      if (!currentCtx) return s;
+      const { path, layout } = currentCtx;
+      const currentFound = findPanelWithTab(layout, tabId);
+      if (!currentFound) return s;
+      const { panel } = currentFound;
+
+      const idx = panel.tabs.findIndex((t) => t.id === tabId);
+      const newTabs = panel.tabs.filter((t) => t.id !== tabId);
+      const newSelected =
+        newTabs.length === 0
+          ? ""
+          : tabId === panel.selectedTabId
+            ? newTabs[Math.min(idx, newTabs.length - 1)].id
+            : panel.selectedTabId;
+
+      // Drop the tab's entries from every per-pane side-map.
+      const newCwd = { ...s.paneCwd };
+      const newTitle = { ...s.paneTitle };
+      const newAgentStatus = { ...s.paneAgentStatus };
+      const newContentType = { ...s.paneContentType };
+      const newFavicon = { ...s.paneFavicon };
+      const newAudioPlaying = { ...s.paneAudioPlaying };
+      const newAudioMuted = { ...s.paneAudioMuted };
+      const newPaneUrl = { ...s.paneUrl };
+      const newPickedElement = { ...s.panePickedElement };
+      const newPendingCommands = { ...s.pendingPaneCommands };
+      for (const pid of paneIds) {
+        delete newCwd[pid];
+        delete newTitle[pid];
+        delete newAgentStatus[pid];
+        delete newContentType[pid];
+        delete newFavicon[pid];
+        delete newAudioPlaying[pid];
+        delete newAudioMuted[pid];
+        delete newPaneUrl[pid];
+        delete newPickedElement[pid];
+        delete newPendingCommands[pid];
+      }
+
+      const sideMaps = {
+        paneCwd: newCwd,
+        paneTitle: newTitle,
+        paneAgentStatus: newAgentStatus,
+        paneContentType: newContentType,
+        paneFavicon: newFavicon,
+        paneAudioPlaying: newAudioPlaying,
+        paneAudioMuted: newAudioMuted,
+        paneUrl: newPaneUrl,
+        panePickedElement: newPickedElement,
+        pendingPaneCommands: newPendingCommands,
+      };
+
+      // Collapse an emptied panel exactly the way closeTab does.
+      const willRemovePanel =
+        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
+      if (willRemovePanel) {
+        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
+        const { [panel.id]: _, ...remainingPanels } = layout.panels;
+        const remainingIds = Object.keys(remainingPanels);
+        const newActivePanelId = remainingIds.includes(layout.activePanelId)
+          ? layout.activePanelId
+          : remainingIds[0];
+        return {
+          ...sideMaps,
+          workspaceLayouts: {
+            ...s.workspaceLayouts,
+            [path]: {
+              ...layout,
+              panelTree: newPanelTree ?? layout.panelTree,
+              panels: remainingPanels,
+              activePanelId: newActivePanelId,
+            },
+          },
+        };
+      }
+
+      return {
+        ...sideMaps,
+        ...updatePanel(s, path, layout, panel.id, (p) => ({
+          ...p,
+          tabs: newTabs,
+          selectedTabId: newSelected,
+          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
+        })),
+      };
+    });
+  },
+
+  serializePaneForDetach: (paneId: string): DetachedTabPayload => {
+    const state = get();
+
+    // The pane may live in any workspace layout, not just the active one.
+    let foundTab: Tab | null = null;
+    for (const layout of Object.values(state.workspaceLayouts)) {
+      const res = findPanelWithPane(layout, paneId);
+      if (res) {
+        foundTab = res.tab;
+        break;
+      }
+    }
+    if (!foundTab) {
+      throw new Error(`serializePaneForDetach: pane ${paneId} not found`);
+    }
+
+    // A detached pane is a single-leaf tab; copy only this pane's side-map
+    // entries into the payload.
+    const paneState: DetachedTabPayload["paneState"] = {
+      cwd: {},
+      title: {},
+      contentType: {},
+      url: {},
+      favicon: {},
+      agentStatus: {},
+      audioPlaying: {},
+      audioMuted: {},
+      pickedElement: {},
+    };
+    if (state.paneCwd[paneId] !== undefined) paneState.cwd[paneId] = state.paneCwd[paneId];
+    if (state.paneTitle[paneId] !== undefined) paneState.title[paneId] = state.paneTitle[paneId];
+    if (state.paneContentType[paneId] !== undefined) paneState.contentType[paneId] = state.paneContentType[paneId];
+    if (state.paneUrl[paneId] !== undefined) paneState.url[paneId] = state.paneUrl[paneId];
+    if (state.paneFavicon[paneId] !== undefined) paneState.favicon[paneId] = state.paneFavicon[paneId];
+    if (state.paneAgentStatus[paneId] !== undefined) paneState.agentStatus[paneId] = state.paneAgentStatus[paneId];
+    if (state.paneAudioPlaying[paneId] !== undefined) paneState.audioPlaying[paneId] = state.paneAudioPlaying[paneId];
+    if (state.paneAudioMuted[paneId] !== undefined) paneState.audioMuted[paneId] = state.paneAudioMuted[paneId];
+    if (state.panePickedElement[paneId] !== undefined) paneState.pickedElement[paneId] = state.panePickedElement[paneId];
+
+    // Resolve the theme/workspace exactly as serializeTabForDetach does.
+    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
+    const themeName = isHomePath(sourceWorkspacePath)
+      ? null
+      : useProjectStore
+          .getState()
+          .projects.find((p) =>
+            p.workspaces.some((w) => w.path === sourceWorkspacePath),
+          )?.themeName ?? null;
+
+    const payload: DetachedTabPayload = {
+      tab: {
+        id: newTabId(),
+        title: "Terminal",
+        rootNode: { type: "leaf", paneId },
+        focusedPaneId: paneId,
+      },
+      paneState,
+      sourceWorkspacePath,
+      themeName,
+    };
+
+    // Deep-copy so no live store references leak across the IPC boundary.
+    return structuredClone(payload);
+  },
+
+  removeDetachedPaneLocally: (paneId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return;
+    const found = findPanelWithPane(ctx.layout, paneId);
+    if (!found) return;
+
+    // Release this pane's backend WITHOUT terminating it, so it can re-attach in
+    // the destination window.
+    const contentType = state.paneContentType[paneId];
+    if (contentType === "browser") {
+      window.electronAPI.webview.unregister(paneId);
+    } else if (contentType === "diff") {
+      // Diff panes have no backend session to release.
+    } else {
+      // Terminal (default): detach releases the daemon session, keeping it alive.
+      window.electronAPI.pty.detach(paneId);
+    }
+
+    set((s) => {
+      const currentCtx = getActiveLayoutContext(s);
+      if (!currentCtx) return s;
+      const { path, layout } = currentCtx;
+      const currentFound = findPanelWithPane(layout, paneId);
+      if (!currentFound) return s;
+      const { panel, tab } = currentFound;
+
+      const remaining = removePane(tab.rootNode, paneId);
+
+      // Pane was one of several — collapse the split and keep the tab.
+      if (remaining) {
+        const ids = allPaneIds(remaining);
+        const newFocused =
+          tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
+        return updatePanel(s, path, layout, panel.id, (p) => ({
+          ...p,
+          tabs: p.tabs.map((t) =>
+            t.id === tab.id
+              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
+              : t,
+          ),
+        }));
+      }
+
+      // Pane was the tab's sole leaf — remove the whole tab exactly as
+      // removeDetachedTabLocally does, and drop this pane's side-map entries.
+      const idx = panel.tabs.findIndex((t) => t.id === tab.id);
+      const newTabs = panel.tabs.filter((t) => t.id !== tab.id);
+      const newSelected =
+        newTabs.length === 0
+          ? ""
+          : tab.id === panel.selectedTabId
+            ? newTabs[Math.min(idx, newTabs.length - 1)].id
+            : panel.selectedTabId;
+
+      const newCwd = { ...s.paneCwd };
+      const newTitle = { ...s.paneTitle };
+      const newAgentStatus = { ...s.paneAgentStatus };
+      const newContentType = { ...s.paneContentType };
+      const newFavicon = { ...s.paneFavicon };
+      const newAudioPlaying = { ...s.paneAudioPlaying };
+      const newAudioMuted = { ...s.paneAudioMuted };
+      const newPaneUrl = { ...s.paneUrl };
+      const newPickedElement = { ...s.panePickedElement };
+      const newPendingCommands = { ...s.pendingPaneCommands };
+      delete newCwd[paneId];
+      delete newTitle[paneId];
+      delete newAgentStatus[paneId];
+      delete newContentType[paneId];
+      delete newFavicon[paneId];
+      delete newAudioPlaying[paneId];
+      delete newAudioMuted[paneId];
+      delete newPaneUrl[paneId];
+      delete newPickedElement[paneId];
+      delete newPendingCommands[paneId];
+
+      const sideMaps = {
+        paneCwd: newCwd,
+        paneTitle: newTitle,
+        paneAgentStatus: newAgentStatus,
+        paneContentType: newContentType,
+        paneFavicon: newFavicon,
+        paneAudioPlaying: newAudioPlaying,
+        paneAudioMuted: newAudioMuted,
+        paneUrl: newPaneUrl,
+        panePickedElement: newPickedElement,
+        pendingPaneCommands: newPendingCommands,
+      };
+
+      // Collapse an emptied panel exactly the way removeDetachedTabLocally does.
+      const willRemovePanel =
+        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
+      if (willRemovePanel) {
+        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
+        const { [panel.id]: _, ...remainingPanels } = layout.panels;
+        const remainingIds = Object.keys(remainingPanels);
+        const newActivePanelId = remainingIds.includes(layout.activePanelId)
+          ? layout.activePanelId
+          : remainingIds[0];
+        return {
+          ...sideMaps,
+          workspaceLayouts: {
+            ...s.workspaceLayouts,
+            [path]: {
+              ...layout,
+              panelTree: newPanelTree ?? layout.panelTree,
+              panels: remainingPanels,
+              activePanelId: newActivePanelId,
+            },
+          },
+        };
+      }
+
+      return {
+        ...sideMaps,
+        ...updatePanel(s, path, layout, panel.id, (p) => ({
+          ...p,
+          tabs: newTabs,
+          selectedTabId: newSelected,
+          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tab.id),
+        })),
+      };
+    });
+  },
+
+  hydrateDetachedTab: (payload: DetachedTabPayload) =>
+    set((state) => {
+      const tab: Tab = {
+        id: payload.tab.id,
+        title: payload.tab.title,
+        rootNode: payload.tab.rootNode,
+        focusedPaneId: payload.tab.focusedPaneId,
+      };
+      const layout = createSinglePanelLayout([tab], tab.id, []);
+      const key = payload.sourceWorkspacePath;
+      const ps = payload.paneState;
+
+      // Side-map value types are non-null; skip any null entries when merging.
+      const mergeDefined = <T>(
+        base: Record<string, T>,
+        src: Record<string, T | null>,
+      ): Record<string, T> => {
+        const out = { ...base };
+        for (const [pid, value] of Object.entries(src)) {
+          if (value !== null && value !== undefined) out[pid] = value;
+        }
+        return out;
+      };
+
+      return {
+        workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
+        activeWorkspacePath: key,
+        layoutLoaded: true,
+        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
+        paneTitle: mergeDefined(state.paneTitle, ps.title),
+        paneContentType: { ...state.paneContentType, ...ps.contentType },
+        paneUrl: mergeDefined(state.paneUrl, ps.url),
+        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
+        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
+        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
+        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
+        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
+      };
+    }),
+
+  receiveReattachedTab: (payload: DetachedTabPayload) =>
+    set((state) => {
+      const ctx = getActiveLayoutContext(state);
+      if (!ctx) return state;
+      const { path, layout } = ctx;
+
+      const targetPanel = layout.panels[layout.activePanelId];
+      if (!targetPanel) return state;
+
+      const tab: Tab = {
+        id: payload.tab.id,
+        title: payload.tab.title,
+        rootNode: payload.tab.rootNode,
+        focusedPaneId: payload.tab.focusedPaneId,
+      };
+
+      // Insert into the active panel the same way moveTabToPanel does: append to
+      // the panel's tabs and select the reattached tab.
+      const targetTabs = [...targetPanel.tabs, tab];
+      const ps = payload.paneState;
+
+      // Side-map value types are non-null; skip any null entries when merging.
+      const mergeDefined = <T>(
+        base: Record<string, T>,
+        src: Record<string, T | null>,
+      ): Record<string, T> => {
+        const out = { ...base };
+        for (const [pid, value] of Object.entries(src)) {
+          if (value !== null && value !== undefined) out[pid] = value;
+        }
+        return out;
+      };
+
+      return {
+        workspaceLayouts: {
+          ...state.workspaceLayouts,
+          [path]: {
+            ...layout,
+            panels: {
+              ...layout.panels,
+              [layout.activePanelId]: {
+                ...targetPanel,
+                tabs: targetTabs,
+                selectedTabId: tab.id,
+              },
+            },
+          },
+        },
+        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
+        paneTitle: mergeDefined(state.paneTitle, ps.title),
+        paneContentType: { ...state.paneContentType, ...ps.contentType },
+        paneUrl: mergeDefined(state.paneUrl, ps.url),
+        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
+        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
+        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
+        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
+        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
+      };
+    }),
 }));
 
 // ── Layout Persistence ──
@@ -2707,8 +3327,13 @@ function saveActiveWorkspaceLayout(): void {
   }, 500);
 }
 
-// Subscribe to store changes and auto-save layout
+// Subscribe to store changes and auto-save layout.
+//
+// Detached windows (ADR-156) are ephemeral and MUST NOT persist their layout —
+// they share a `workspacePath` with the primary window, so saving would clobber
+// the primary's persisted state. Gate the whole subscription on detached mode.
 useAppStore.subscribe((state, prevState) => {
+  if (window.electronAPI?.isDetached) return;
   if (
     state.workspaceLayouts !== prevState.workspaceLayouts ||
     state.activeWorkspacePath !== prevState.activeWorkspacePath ||
@@ -2719,8 +3344,10 @@ useAppStore.subscribe((state, prevState) => {
 });
 
 // Flush any pending layout save before the window unloads (app quit / reload)
-// so that recently-created panes (e.g. diff, browser) are never lost.
+// so that recently-created panes (e.g. diff, browser) are never lost. Detached
+// windows never save, so this flush is a no-op for them.
 window.addEventListener("beforeunload", () => {
+  if (window.electronAPI?.isDetached) return;
   if (saveLayoutTimer) {
     clearTimeout(saveLayoutTimer);
     saveLayoutTimer = null;

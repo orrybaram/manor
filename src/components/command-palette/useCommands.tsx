@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
+import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
@@ -8,12 +9,16 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
+import Keyboard from "lucide-react/dist/esm/icons/keyboard";
+import Link from "lucide-react/dist/esm/icons/link";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import Palette from "lucide-react/dist/esm/icons/palette";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import Settings from "lucide-react/dist/esm/icons/settings";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import type { CommandItem, CategoryConfig } from "./types";
+import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
@@ -36,7 +41,7 @@ interface UseCommandsParams {
   focusPrevPane: () => void;
   toggleSidebar: () => void;
   onClose: () => void;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (page?: SettingsPageId) => void;
   onOpenFeedback?: () => void;
   tabs: { id: string }[];
   selectedTabId: string | null;
@@ -91,11 +96,8 @@ export function useCommands({
   );
 
   return useMemo(() => {
-    const platform = navigator.platform.toLowerCase().includes("mac")
-      ? ("mac" as const)
-      : ("other" as const);
     const fmt = (id: string) =>
-      bindings[id] ? formatCombo(bindings[id], platform) : undefined;
+      bindings[id] ? formatCombo(bindings[id]) : undefined;
 
     const tabItems: CommandItem[] = [
       {
@@ -502,6 +504,56 @@ export function useCommands({
       },
     ];
 
+    const openSettingsPage = (page: SettingsPageId) => () => {
+      onOpenSettings?.(page);
+      onClose();
+    };
+
+    const settingsItems: CommandItem[] = [
+      {
+        id: "settings-general",
+        label: "Settings: General",
+        icon: <Settings size={14} />,
+        keywords: ["settings", "general", "editor", "code editor", "default editor", "diff"],
+        action: openSettingsPage("general"),
+      },
+      {
+        id: "settings-appearance",
+        label: "Settings: Appearance",
+        icon: <Palette size={14} />,
+        keywords: ["settings", "appearance", "theme", "dark", "light", "color", "font", "font size", "font family"],
+        action: openSettingsPage("app"),
+      },
+      {
+        id: "settings-keybindings",
+        label: "Settings: Keybindings",
+        icon: <Keyboard size={14} />,
+        keywords: ["settings", "keybindings", "shortcuts", "keyboard", "hotkeys", "keys", "bindings"],
+        action: openSettingsPage("keybindings"),
+      },
+      {
+        id: "settings-notifications",
+        label: "Settings: Notifications",
+        icon: <Bell size={14} />,
+        keywords: ["settings", "notifications", "notify", "alerts", "sound", "dock badge", "pull requests", "pr", "review", "ci", "comment"],
+        action: openSettingsPage("notifications"),
+      },
+      {
+        id: "settings-integrations",
+        label: "Settings: Integrations",
+        icon: <Link size={14} />,
+        keywords: ["settings", "integrations", "github", "linear", "connect", "auth", "token"],
+        action: openSettingsPage("integrations"),
+      },
+      {
+        id: "settings-home",
+        label: "Settings: Home",
+        icon: <Bot size={14} />,
+        keywords: ["settings", "home", "harness", "agent", "claude", "codex", "custom", "launch command", "interrupt"],
+        action: openSettingsPage("home"),
+      },
+    ];
+
     return [
       { id: "tabs", heading: "Tabs", visible: true, items: tabItems },
       { id: "panes", heading: "Panes", visible: true, items: paneItems },
@@ -509,6 +561,7 @@ export function useCommands({
       { id: "git", heading: "Git", visible: true, items: gitItems },
       { id: "ports", heading: "Ports", visible: portItems.length > 0, items: portItems },
       { id: "general", heading: "General", visible: true, items: generalItems },
+      { id: "settings", heading: "Settings", visible: true, items: settingsItems },
     ];
   }, [
     addTab,

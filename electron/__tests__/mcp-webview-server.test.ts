@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 
 /**
  * Tests for the MCP webview server logic.
@@ -46,6 +47,7 @@ import { requestRenderer } from "../renderer-bridge";
 import type { AppCommand, AppCommandResult } from "../renderer-bridge";
 import { webContents, BrowserWindow, ipcMain } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
+import type { Http } from "../mcp/types";
 import { projectsModule } from "../mcp/tools-projects";
 import { agentsModule } from "../mcp/tools-agents";
 import { panesModule } from "../mcp/tools-panes";
@@ -1973,5 +1975,71 @@ describe("GET /context sources computation", () => {
     expect(body.sources).toEqual(["linear"]);
 
     server.stop();
+  });
+});
+
+// ── screenshot_webview save-to-disk ──
+
+describe("screenshot_webview handler", () => {
+  // A one-pixel PNG, base64-encoded — stands in for the server's capture.
+  const PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  function screenshotHttp(): Http {
+    return {
+      get: async () => [{ paneId: "only-pane", url: "u", title: "t" }],
+      post: async () => ({ image: PNG_B64 }),
+      del: async () => ({}),
+    };
+  }
+
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-shot-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns the image inline when no path is given", async () => {
+    const result = await webviewModule.handlers.screenshot_webview(
+      { paneId: "only-pane" },
+      screenshotHttp(),
+    );
+    expect(result.content[0].type).toBe("image");
+    expect(result.content[0].data).toBe(PNG_B64);
+    expect(result.content[0].mimeType).toBe("image/png");
+  });
+
+  it("writes the decoded PNG to disk when path is given", async () => {
+    const target = path.join(tmpDir, "shot.png");
+    const result = await webviewModule.handlers.screenshot_webview(
+      { paneId: "only-pane", path: target },
+      screenshotHttp(),
+    );
+    expect(result.content[0].type).toBe("text");
+    expect(result.content[0].text).toContain(target);
+    expect(fs.readFileSync(target)).toEqual(Buffer.from(PNG_B64, "base64"));
+  });
+
+  it("appends a .png extension when the path lacks one", async () => {
+    const target = path.join(tmpDir, "shot");
+    const result = await webviewModule.handlers.screenshot_webview(
+      { paneId: "only-pane", path: target },
+      screenshotHttp(),
+    );
+    expect(result.content[0].text).toContain(`${target}.png`);
+    expect(fs.existsSync(`${target}.png`)).toBe(true);
+  });
+
+  it("creates missing parent directories", async () => {
+    const target = path.join(tmpDir, "nested", "deep", "shot.png");
+    await webviewModule.handlers.screenshot_webview(
+      { paneId: "only-pane", path: target },
+      screenshotHttp(),
+    );
+    expect(fs.existsSync(target)).toBe(true);
   });
 });

@@ -179,6 +179,39 @@ describe("ProjectManager", () => {
     });
   });
 
+  describe("portlessEnabled", () => {
+    it("defaults to true for a new project", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      expect(project.portlessEnabled).toBe(true);
+    });
+
+    it("round-trips false across a reload", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      await manager.updateProject(project.id, { portlessEnabled: false });
+
+      const reloaded = new ProjectManager(stubGit, tmpDir);
+      expect((await reloaded.getProjects())[0].portlessEnabled).toBe(false);
+    });
+
+    /**
+     * Projects persisted before the flag existed must keep their named preview
+     * URLs — absence means "on", not "off".
+     */
+    it("migrates a project persisted without the field to true", async () => {
+      const project = await manager.addProject("Proj", "/tmp/proj");
+      const file = path.join(tmpDir, "projects.json");
+      const state = JSON.parse(fs.readFileSync(file, "utf-8"));
+      const persisted = Array.isArray(state) ? state : state.projects;
+      const entry = persisted.find((p: { id: string }) => p.id === project.id);
+      expect(entry).toHaveProperty("portlessEnabled"); // guard: shape assumption
+      delete entry.portlessEnabled;
+      fs.writeFileSync(file, JSON.stringify(state));
+
+      const reloaded = new ProjectManager(stubGit, tmpDir);
+      expect((await reloaded.getProjects())[0].portlessEnabled).toBe(true);
+    });
+  });
+
   describe("selectWorkspace", () => {
     it("updates the selected workspace index", async () => {
       const project = await manager.addProject("Proj", "/tmp/proj");

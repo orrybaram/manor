@@ -191,6 +191,7 @@ describe("pane-context", () => {
       commands: [],
       themeName: null,
       setupComplete: true,
+      portlessEnabled: true,
       ...overrides,
     };
   }

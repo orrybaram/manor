@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useAppStore, selectActiveWorkspace } from "../app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  selectWebviewFocusVisible,
+} from "../app-store";
 import type { AppState, Tab, Panel, WorkspaceLayout } from "../app-store";
 import type { PaneNode } from "../pane-tree";
 import { allPaneIds } from "../pane-tree";
@@ -615,5 +619,70 @@ describe("selectActiveWorkspace selector", () => {
     });
     const panel = selectActiveWorkspace(useAppStore.getState());
     expect(panel).toBeNull();
+  });
+});
+
+describe("webview focus", () => {
+  beforeEach(() => setupStore());
+
+  it("setWebviewFocused records the focused pane", () => {
+    useAppStore.getState().setWebviewFocused("pane-1", true);
+    expect(useAppStore.getState().webviewFocusedPaneId).toBe("pane-1");
+  });
+
+  it("blur from a pane that does not own the focus is ignored", () => {
+    useAppStore.getState().setWebviewFocused("pane-1", true);
+    useAppStore.getState().setWebviewFocused("pane-2", false);
+    expect(useAppStore.getState().webviewFocusedPaneId).toBe("pane-1");
+
+    useAppStore.getState().setWebviewFocused("pane-1", false);
+    expect(useAppStore.getState().webviewFocusedPaneId).toBeNull();
+  });
+
+  it("selectWebviewFocusVisible is false when nothing is focused", () => {
+    expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
+  });
+
+  it("selectWebviewFocusVisible is true for a pane in a selected tab", () => {
+    useAppStore.getState().setWebviewFocused("pane-1", true);
+    expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(true);
+  });
+
+  it("selectWebviewFocusVisible is false once the pane's tab is hidden", () => {
+    useAppStore.getState().setWebviewFocused("pane-1", true);
+    useAppStore.setState((s) => {
+      const layout = s.workspaceLayouts[WS_PATH];
+      const panel = layout.panels["panel-1"];
+      return {
+        workspaceLayouts: {
+          [WS_PATH]: {
+            ...layout,
+            panels: {
+              ...layout.panels,
+              "panel-1": {
+                ...panel,
+                tabs: [
+                  ...panel.tabs,
+                  {
+                    id: "tab-3",
+                    title: "Tab 3",
+                    rootNode: { type: "leaf" as const, paneId: "pane-3" },
+                    focusedPaneId: "pane-3",
+                  },
+                ],
+                selectedTabId: "tab-3",
+              },
+            },
+          },
+        },
+      };
+    });
+    expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
+  });
+
+  it("selectWebviewFocusVisible is false in another workspace", () => {
+    useAppStore.getState().setWebviewFocused("pane-1", true);
+    useAppStore.setState({ activeWorkspacePath: "/other" });
+    expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
   });
 });

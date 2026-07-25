@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../ipc-validate";
+import { resolveSpawnCwd } from "../paths";
 import type { IpcDeps } from "./types";
 
 /** Read git branch synchronously from a repo or worktree root. */
@@ -39,7 +40,7 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
   if (cwd !== null) assertString(cwd, "cwd");
   assertPositiveInt(cols, "cols");
   assertPositiveInt(rows, "rows");
-  return cwd || process.env.HOME || "/";
+  return resolveSpawnCwd(cwd);
 }
 
 export function register(deps: IpcDeps): void {
@@ -182,6 +183,6 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null, agentKind?: string | null) => {
     assertString(cwd, "cwd");
-    await deps.prewarmManager?.updateCwd(cwd, agentCommand, agentKind);
+    await deps.prewarmManager?.updateCwd(resolveSpawnCwd(cwd), agentCommand, agentKind);
   });
 }

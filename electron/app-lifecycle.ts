@@ -16,6 +16,7 @@ import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager } from "./github";
 import { LinearManager } from "./linear";
 import { ShellManager } from "./shell";
+import { homeWorkspaceDir } from "./paths";
 import {
   AgentHookServer,
   ensureHookScript,
@@ -55,6 +56,7 @@ import * as webviewIpc from "./ipc/webview";
 import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
+import * as windowIpc from "./ipc/window";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -127,7 +129,44 @@ export function handleStreamEvent(
 }
 
 export function initApp(devTitle: string | null): void {
+  // `mainWindow` is the PRIMARY renderer window. The `get mainWindow()` getter
+  // on ipcDeps keeps returning it, so every existing handler is unaffected.
   let mainWindow: BrowserWindow | null = null;
+
+  // ── Window registry ────────────────────────────────────────────────────
+  // All live renderer windows (primary + any detached popup windows) are
+  // tracked here so stream events can be broadcast to every window that might
+  // host a pane. Detached windows are additionally keyed by their windowId so
+  // ticket 2 can associate a handoff payload with the right window.
+  const rendererWindows = new Set<BrowserWindow>();
+  const detachedWindows = new Map<string, BrowserWindow>();
+
+  function trackRendererWindow(win: BrowserWindow): void {
+    rendererWindows.add(win);
+    win.on("closed", () => {
+      rendererWindows.delete(win);
+    });
+  }
+
+  /** Live, non-destroyed renderer windows (primary + detached). */
+  function getRendererWindows(): BrowserWindow[] {
+    return Array.from(rendererWindows).filter(
+      (win) => !win.isDestroyed() && !win.webContents.isDestroyed(),
+    );
+  }
+
+  /**
+   * Register a detached popup window created via `createDetachedWindow`. Ticket
+   * 2 calls this after creating the window so it can be reached by its windowId
+   * (e.g. to deliver a one-shot detach payload) and receives broadcast events.
+   */
+  function registerDetachedWindow(windowId: string, win: BrowserWindow): void {
+    detachedWindows.set(windowId, win);
+    trackRendererWindow(win);
+    win.on("closed", () => {
+      detachedWindows.delete(windowId);
+    });
+  }
 
   // Managers
   const client = new TerminalHostClient();
@@ -173,32 +212,33 @@ export function initApp(devTitle: string | null): void {
   ensureHookScript();
   ensureWebviewCli();
   registerAllAgents();
+  // The Home surface's harness runs in ~/.manor/home. Create it once here
+  // instead of on every new session's launch command.
+  fs.mkdirSync(homeWorkspaceDir(), { recursive: true });
 
   // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
   let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;
 
-  // Set up stream event handler — forward events to renderer
+  // Set up stream event handler — broadcast events to every live renderer
+  // window. A detached window hosting a terminal pane must receive its `pty:*`
+  // stream events; windows that don't own the pane ignore them harmlessly.
   backend.pty.onEvent((event: StreamEvent) => {
-    if (
-      !mainWindow ||
-      mainWindow.isDestroyed() ||
-      mainWindow.webContents.isDestroyed()
-    )
-      return;
-    // Check that the main frame is still available (avoids "Render frame was
-    // disposed" errors during window reload/close).
-    try {
-      if (!mainWindow.webContents.mainFrame) return;
-    } catch {
-      return;
+    for (const win of getRendererWindows()) {
+      // Check that the main frame is still available (avoids "Render frame was
+      // disposed" errors during window reload/close).
+      try {
+        if (!win.webContents.mainFrame) continue;
+      } catch {
+        continue;
+      }
+      handleStreamEvent(
+        event,
+        win,
+        taskManager,
+        preferencesManager,
+        notifyAgentDetectorGone,
+      );
     }
-    handleStreamEvent(
-      event,
-      mainWindow,
-      taskManager,
-      preferencesManager,
-      notifyAgentDetectorGone,
-    );
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
@@ -208,6 +248,8 @@ export function initApp(devTitle: string | null): void {
     githubManager,
     linearManager,
     layoutPersistence,
+    taskManager,
+    backend,
   );
 
   // Build shared deps object for extracted IPC modules
@@ -215,6 +257,8 @@ export function initApp(devTitle: string | null): void {
     get mainWindow() {
       return mainWindow;
     },
+    getRendererWindows,
+    registerDetachedWindow,
     backend,
     layoutPersistence,
     projectManager,
@@ -247,6 +291,7 @@ export function initApp(devTitle: string | null): void {
   tasksIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
+  windowIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
@@ -338,6 +383,7 @@ export function initApp(devTitle: string | null): void {
     }
 
     mainWindow = createWindow();
+    trackRendererWindow(mainWindow);
 
     // Backstop cleanup: child popup windows are parented to the main window so
     // Chromium closes them with it, but explicitly flush the tracking registry
@@ -423,7 +469,10 @@ export function initApp(devTitle: string | null): void {
     });
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) {
+        mainWindow = createWindow();
+        trackRendererWindow(mainWindow);
+      }
     });
   });
 

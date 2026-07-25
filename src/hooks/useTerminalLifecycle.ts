@@ -17,7 +17,10 @@ import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
+import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
+import { isHomePath } from "../lib/home";
+import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -225,6 +228,12 @@ export function useTerminalLifecycle(
     // is set in the PTY env for connector-aware spawns.
     const agentKindForCreate: string | null = (() => {
       if (!cwd) return null;
+      if (isHomePath(cwd)) {
+        const prefs = usePreferencesStore.getState().preferences;
+        return getAgentKindForCommand(
+          resolveHomeAdapter(prefs).launchCommand(),
+        );
+      }
       const projects = useProjectStore.getState().projects;
       const project = projects.find((p) =>
         p.workspaces.some((ws) => ws.path === cwd),
@@ -233,7 +242,12 @@ export function useTerminalLifecycle(
       return command ? getAgentKindForCommand(command) : "claude";
     })();
 
-    create(cwd ?? null, cols, rows, agentKindForCreate).then(
+    // The home sentinel path resolves to ~/.manor/home at the pty boundary
+    // (see resolveSpawnCwd in electron/ipc/pty.ts), so it needs no special
+    // casing here — pass it through like any workspace path.
+    const spawnCwd = cwd ?? null;
+
+    create(spawnCwd, cols, rows, agentKindForCreate).then(
       (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
         if (!disposed && !result.ok) {
           setPtyError(
@@ -248,18 +262,30 @@ export function useTerminalLifecycle(
 
           // Set pane context for task association
           if (cwd) {
-            const projects = useProjectStore.getState().projects;
-            const project = projects.find((p) =>
-              p.workspaces.some((ws) => ws.path === cwd),
-            );
+            if (isHomePath(cwd)) {
+              // The home has no owning project — associate the pane with
+              // the sentinel workspace and the resolved harness command.
+              const prefs = usePreferencesStore.getState().preferences;
+              window.electronAPI.tasks.setPaneContext(paneId, {
+                projectId: "",
+                projectName: "Home",
+                workspacePath: cwd,
+                agentCommand: resolveHomeAdapter(prefs).launchCommand(),
+              });
+            } else {
+              const projects = useProjectStore.getState().projects;
+              const project = projects.find((p) =>
+                p.workspaces.some((ws) => ws.path === cwd),
+              );
 
-            // Fire-and-forget call to set pane context
-            window.electronAPI.tasks.setPaneContext(paneId, {
-              projectId: project?.id ?? "",
-              projectName: project?.name ?? "",
-              workspacePath: cwd,
-              agentCommand: project?.agentCommand ?? null,
-            });
+              // Fire-and-forget call to set pane context
+              window.electronAPI.tasks.setPaneContext(paneId, {
+                projectId: project?.id ?? "",
+                projectName: project?.name ?? "",
+                workspacePath: cwd,
+                agentCommand: project?.agentCommand ?? null,
+              });
+            }
           }
 
           // Check for pending startup command (e.g. worktree start script)

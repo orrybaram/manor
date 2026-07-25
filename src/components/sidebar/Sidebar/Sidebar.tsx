@@ -5,10 +5,25 @@ import React, {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Boxes from "lucide-react/dist/esm/icons/boxes";
+import House from "lucide-react/dist/esm/icons/house";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
+import { useKeybindingsStore } from "../../../store/keybindings-store";
+import { useNavigationHistoryStore } from "../../../store/navigation-history-store";
+import {
+  navigateBack,
+  navigateForward,
+} from "../../../hooks/useNavigationHistory";
+import { formatCombo } from "../../../lib/keybindings";
+import {
+  HOME_PATH,
+  isHomePath,
+} from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
@@ -32,6 +47,15 @@ export function Sidebar(props: SidebarProps) {
   const { onShowTasks, onOpenProjectSettings, onAddProject } = props;
 
   const projects = useProjectStore((s) => s.projects);
+  const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
+  const canGoForward = useNavigationHistoryStore((s) => s.canGoForward());
+  const bindings = useKeybindingsStore((s) => s.bindings);
+  const backLabel = bindings["history-back"]
+    ? `Back (${formatCombo(bindings["history-back"])})`
+    : "Back";
+  const forwardLabel = bindings["history-forward"]
+    ? `Forward (${formatCombo(bindings["history-forward"])})`
+    : "Forward";
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const removeProject = useProjectStore((s) => s.removeProject);
   const selectProject = useProjectStore((s) => s.selectProject);
@@ -49,6 +73,9 @@ export function Sidebar(props: SidebarProps) {
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+  const homeActive = isHomePath(activeWorkspacePath);
 
   useBranchWatcher();
   useDiffWatcher();
@@ -223,8 +250,45 @@ export function Sidebar(props: SidebarProps) {
       className={styles.sidebar}
       style={{ width: sidebarWidth }}
     >
-      <div className={styles.titlebar} />
+      <div className={styles.titlebar}>
+        <div className={styles.navControls}>
+          <Tooltip label={backLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateBack()}
+              disabled={!canGoBack}
+              aria-label="Navigate back"
+            >
+              <ArrowLeft size={12} />
+            </Button>
+          </Tooltip>
+          <Tooltip label={forwardLabel}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.navButton}
+              onClick={() => navigateForward()}
+              disabled={!canGoForward}
+              aria-label="Navigate forward"
+            >
+              <ArrowRight size={12} />
+            </Button>
+          </Tooltip>
+        </div>
+      </div>
       <div className={styles.content}>
+        <div
+          className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
+          data-testid="home-row"
+          onClick={() => setActiveWorkspace(HOME_PATH)}
+        >
+          <span className={styles.homeIcon}>
+            <House size={12} />
+          </span>
+          <span className={styles.homeLabel}>Home</span>
+        </div>
         <div>
           <ContextMenu.Root>
             <ContextMenu.Trigger asChild>
@@ -278,7 +342,7 @@ export function Sidebar(props: SidebarProps) {
                     >
                       <ProjectItem
                         project={project}
-                        isSelected={idx === selectedProjectIndex}
+                        isSelected={!homeActive && idx === selectedProjectIndex}
                         collapsed={collapsedProjectIds.has(project.id)}
                         onToggleCollapsed={() => {
                           if (!projJustDragged.current)

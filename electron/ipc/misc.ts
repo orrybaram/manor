@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, clipboard } from "electron";
+import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -115,12 +115,22 @@ export function register(deps: IpcDeps): void {
   });
 
   // ── Notifications ──
+  /**
+   * Returns whether a native notification was presented. `false` means the
+   * calling window is focused, so the renderer should show an in-app toast
+   * instead — the renderer must not make that call itself, see
+   * `presentNotification`.
+   */
   ipcMain.handle(
     "notifications:show",
-    (_event, payload: { title: string; body: string; url?: string }) => {
+    (event, payload: { title: string; body: string; url?: string }): boolean => {
       assertString(payload.title, "title");
       assertString(payload.body, "body");
-      showPrNotification(payload, getMainWindow(), preferencesManager);
+      // Focus is judged against the window that asked, not the primary one:
+      // the poller may live in a detached window (ADR-156).
+      const callerWindow =
+        BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
+      return showPrNotification(payload, callerWindow, preferencesManager);
     },
   );
 

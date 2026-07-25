@@ -92,13 +92,22 @@ export function playNotificationSound(soundName: string | false): void {
  * Present a silent native notification, suppressed while the window is focused.
  * Clicking it surfaces the window, then runs `onClick`. Single source of truth
  * for how the app shows native notifications and plays the configured sound.
+ *
+ * Returns whether a notification was actually presented. Callers that have an
+ * in-app fallback (a toast) must branch on this rather than deciding for
+ * themselves whether the window is focused: a renderer cannot see its own
+ * focus reliably — `document.hasFocus()` is false whenever a `<webview>` pane
+ * holds focus, while `win.isFocused()` is true, so both sides suppressing
+ * independently dropped the event entirely.
  */
 function presentNotification(
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
   opts: { title: string; body: string; onClick?: () => void },
-): void {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
+): boolean {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
+    return false;
+  }
 
   const notification = new Notification({
     title: opts.title,
@@ -113,6 +122,7 @@ function presentNotification(
   });
   notification.show();
   playNotificationSound(preferencesManager.get("notificationSound"));
+  return true;
 }
 
 export function maybeSendNotification(
@@ -149,14 +159,15 @@ export function maybeSendNotification(
 
 /**
  * Show a native notification on demand, triggered by the renderer (e.g. for
- * PR update alerts — see ADR-147).
+ * PR update alerts — see ADR-147). Returns whether it was presented; `false`
+ * means the calling window is focused and the renderer should toast instead.
  */
 export function showPrNotification(
   payload: { title: string; body: string; url?: string },
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
-): void {
-  presentNotification(mainWindow, preferencesManager, {
+): boolean {
+  return presentNotification(mainWindow, preferencesManager, {
     title: payload.title,
     body: payload.body,
     onClick: payload.url ? () => shell.openExternal(payload.url!) : undefined,

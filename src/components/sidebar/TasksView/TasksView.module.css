@@ -206,19 +206,10 @@
   display: block;
   width: 100%;
   padding: 6px 0;
-  margin-top: 4px;
-  background: none;
-  border: 1px solid var(--surface);
-  border-radius: 4px;
   color: var(--text-dim);
   font-family: inherit;
   font-size: 11px;
-  cursor: pointer;
-}
-
-.loadMore:hover {
-  color: var(--text-selected);
-  background: var(--surface);
+  text-align: center;
 }
 
 .empty {

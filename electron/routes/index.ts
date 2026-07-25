@@ -20,6 +20,7 @@ import { contextRoutes } from "./context";
 import { paneRoutes, tabRoutes } from "./panes";
 import { projectRoutes } from "./projects";
 import { issueRoutes } from "./issues";
+import { tasksRoutes } from "./tasks";
 
 /**
  * Every route this module serves, in match order. See `router.ts`'s header
@@ -33,6 +34,7 @@ export const routes: readonly Route[] = [
   ...tabRoutes,
   ...projectRoutes,
   ...issueRoutes,
+  ...tasksRoutes,
 ];
 
 /**

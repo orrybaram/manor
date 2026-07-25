@@ -277,6 +277,18 @@ describe("LayoutPersistence", () => {
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(2);
     });
+
+    it("records the saved workspace as the last-active surface", () => {
+      persistence.saveWorkspace(
+        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
+      );
+      persistence.saveWorkspace(
+        makeV2Workspace("__home__", [makeLeafTab("p2", "ds2")], "y"),
+      );
+
+      // The most recently saved workspace is the last-active surface.
+      expect(persistence.load()!.lastActiveWorkspacePath).toBe("__home__");
+    });
   });
 
   describe("removeWorkspace", () => {

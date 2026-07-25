@@ -74,29 +74,41 @@ const PREF_FOR: Record<PrNotifyEventKind, keyof AppPreferences> = {
   "checks-failed": "notifyOnPrChecksFailed",
 };
 
-/** Deliver a single event: in-app toast when focused, native notification otherwise. */
-function notifyPrEvent(event: PrNotifyEvent, url: string): void {
-  if (document.hasFocus()) {
-    useToastStore.getState().addToast({
-      id: `pr-${event.kind}-${url}`,
-      message: event.title,
-      detail: event.body,
-      status:
-        event.kind === "checks-failed" || event.kind === "changes-requested"
-          ? "error"
-          : "success",
-      action: {
-        label: "View PR",
-        onClick: () => void window.electronAPI.shell.openExternal(url),
-      },
-    });
-  } else {
-    void window.electronAPI.notifications.show({
-      title: event.title,
-      body: event.body,
-      url,
-    });
-  }
+/**
+ * Deliver a single event: native notification when unfocused, in-app toast
+ * otherwise.
+ *
+ * Main decides which, because the renderer cannot see its own focus reliably:
+ * `document.hasFocus()` is false whenever a `<webview>` pane holds focus, but
+ * `win.isFocused()` is true — so gating the toast here and gating the native
+ * notification in main dropped the event on the floor whenever a browser pane
+ * (or a detached window) had focus. `notifications.show` returns whether it
+ * presented; a `false` means "this window is focused, you toast it".
+ */
+async function notifyPrEvent(
+  event: PrNotifyEvent,
+  url: string,
+): Promise<void> {
+  const shown = await window.electronAPI.notifications.show({
+    title: event.title,
+    body: event.body,
+    url,
+  });
+  if (shown) return;
+
+  useToastStore.getState().addToast({
+    id: `pr-${event.kind}-${url}`,
+    message: event.title,
+    detail: event.body,
+    status:
+      event.kind === "checks-failed" || event.kind === "changes-requested"
+        ? "error"
+        : "success",
+    action: {
+      label: "View PR",
+      onClick: () => void window.electronAPI.shell.openExternal(url),
+    },
+  });
 }
 
 /**
@@ -110,6 +122,6 @@ export function deliverPrNotifications(
 ): void {
   if (!next) return;
   for (const event of diffPrEvents(prev, next)) {
-    if (prefs[PREF_FOR[event.kind]]) notifyPrEvent(event, next.url);
+    if (prefs[PREF_FOR[event.kind]]) void notifyPrEvent(event, next.url);
   }
 }

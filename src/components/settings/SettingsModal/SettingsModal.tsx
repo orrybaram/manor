@@ -8,21 +8,17 @@ import Settings from "lucide-react/dist/esm/icons/settings";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import { useProjectStore } from "../../../store/project-store";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
+import { HomeSettingsPage } from "../HomeSettingsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
-
-type SettingsModalProps = {
-  open: boolean;
-  onClose: () => void;
-  initialProjectId?: string | null;
-};
 
 type SettingsPage =
   | { type: "general" }
@@ -30,10 +26,21 @@ type SettingsPage =
   | { type: "keybindings" }
   | { type: "notifications" }
   | { type: "integrations" }
+  | { type: "home" }
   | { type: "project"; projectId: string };
 
+/** Fixed (non-project) settings pages that a command can deep-link to. */
+export type SettingsPageId = Exclude<SettingsPage, { type: "project" }>["type"];
+
+type SettingsModalProps = {
+  open: boolean;
+  onClose: () => void;
+  initialProjectId?: string | null;
+  initialPage?: SettingsPageId | null;
+};
+
 export function SettingsModal(props: SettingsModalProps) {
-  const { open, onClose, initialProjectId } = props;
+  const { open, onClose, initialProjectId, initialPage } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
@@ -43,6 +50,8 @@ export function SettingsModal(props: SettingsModalProps) {
   if (open && !prevOpenRef.current) {
     if (initialProjectId) {
       setPage({ type: "project", projectId: initialProjectId });
+    } else if (initialPage) {
+      setPage({ type: initialPage });
     } else {
       setPage({ type: "general" });
     }
@@ -128,6 +137,14 @@ export function SettingsModal(props: SettingsModalProps) {
               </button>
 
               <button
+                className={`${styles.navItem} ${page.type === "home" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "home" })}
+              >
+                <Bot size={14} />
+                <span>Home</span>
+              </button>
+
+              <button
                 className={styles.navGroupHeader}
                 onClick={() => setProjectsExpanded((v) => !v)}
               >
@@ -166,6 +183,7 @@ export function SettingsModal(props: SettingsModalProps) {
               {page.type === "keybindings" && <KeybindingsPage />}
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
+              {page.type === "home" && <HomeSettingsPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage
                   key={currentProject.id}

@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
+import type { DetachedTabPayload } from "../src/store/detach-types";
+
+interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
@@ -18,10 +26,25 @@ function onChannel<T>(
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
+// Detached-window flag (ADR-156). Mirrors the `--manor-packaged` pattern: main
+// injects `--manor-detached=<windowId>` via additionalArguments so the renderer
+// can boot in detached mode synchronously, without an IPC round-trip.
+const detachedArg = process.argv.find((arg) =>
+  arg.startsWith("--manor-detached="),
+);
+const detachedWindowId = detachedArg
+  ? detachedArg.slice("--manor-detached=".length)
+  : null;
+const isDetached = detachedWindowId !== null;
+
 contextBridge.exposeInMainWorld("electronAPI", {
   env: {
     isPackaged,
   },
+
+  // True when this renderer was launched as a detached popup window (ADR-156).
+  isDetached,
+  detachedWindowId,
 
   pty: {
     create: (paneId: string, cwd: string | null, cols: number, rows: number, agentKind?: string | null) =>
@@ -159,6 +182,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
+        portlessEnabled: boolean;
       }>,
     ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
@@ -408,7 +432,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onNavigateToTask: (callback: (taskId: string) => void) =>
       onChannel("notification:navigate-to-task", callback),
     show: (payload: { title: string; body: string; url?: string }) =>
-      ipcRenderer.invoke("notifications:show", payload),
+      ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
   },
 
   clipboard: {
@@ -534,5 +558,35 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("webview:audio-state-changed", listener);
       return () => ipcRenderer.removeListener("webview:audio-state-changed", listener);
     },
+  },
+
+  // Multi-window (ADR-156). Named `window` on electronAPI — this does NOT shadow
+  // the global `window`, which is untouched here.
+  window: {
+    detachTab: (payload: DetachedTabPayload, spawnBounds: WindowBounds) =>
+      ipcRenderer.invoke("window:detachTab", payload, spawnBounds) as Promise<string>,
+    getDetachPayload: () =>
+      ipcRenderer.invoke("window:getDetachPayload") as Promise<DetachedTabPayload | null>,
+    getBounds: () =>
+      ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
+    setPosition: (x: number, y: number) =>
+      ipcRenderer.send("window:setPosition", x, y),
+    listWindows: () =>
+      ipcRenderer.invoke("window:listWindows") as Promise<
+        { id: number; bounds: WindowBounds }[]
+      >,
+    transferTab: (targetWindowId: number, payload: DetachedTabPayload) =>
+      ipcRenderer.invoke(
+        "window:transferTab",
+        targetWindowId,
+        payload,
+      ) as Promise<boolean>,
+    onTabReceived: (callback: (payload: DetachedTabPayload) => void) =>
+      onChannel<DetachedTabPayload>("window:tab-received", callback),
+    closeSelf: () => ipcRenderer.send("window:closeSelf"),
+    reattachTab: (payload: DetachedTabPayload) =>
+      ipcRenderer.invoke("window:reattachTab", payload) as Promise<void>,
+    onTabReattached: (callback: (payload: DetachedTabPayload) => void) =>
+      onChannel<DetachedTabPayload>("window:tab-reattached", callback),
   },
 });

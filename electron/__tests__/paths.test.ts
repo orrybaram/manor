@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 import * as paths from "../paths";
+import { HOME_PATH } from "../../src/lib/home-path";
 
 describe("electron/paths", () => {
   let tmpHome: string;
@@ -241,6 +242,10 @@ describe("electron/paths", () => {
       expect(paths.worktreesDir()).toBe(path.join(homeRoot(), "worktrees"));
     });
 
+    it("homeWorkspaceDir", () => {
+      expect(paths.homeWorkspaceDir()).toBe(path.join(homeRoot(), "home"));
+    });
+
     it("home-dir getters work identically on linux", () => {
       mockPlatform("linux");
       expect(paths.daemonSocketFile()).toBe(
@@ -248,6 +253,26 @@ describe("electron/paths", () => {
       );
       expect(paths.layoutFile()).toBe(path.join(homeRoot(), "layout.json"));
       expect(paths.worktreesDir()).toBe(path.join(homeRoot(), "worktrees"));
+    });
+  });
+
+  describe("resolveSpawnCwd()", () => {
+    beforeEach(() => mockPlatform("darwin"));
+
+    // Regression: the Home sentinel is not a real directory. It must resolve to
+    // ~/.manor/home, never be passed through verbatim (which would spawn a
+    // shell in a nonexistent "__home__" dir — the pre-refactor reset bug).
+    it("maps the Home sentinel path to homeWorkspaceDir()", () => {
+      expect(paths.resolveSpawnCwd(HOME_PATH)).toBe(paths.homeWorkspaceDir());
+    });
+
+    it("passes a real workspace path through unchanged", () => {
+      expect(paths.resolveSpawnCwd("/repos/manor")).toBe("/repos/manor");
+    });
+
+    it("falls back to $HOME for null/empty", () => {
+      expect(paths.resolveSpawnCwd(null)).toBe(tmpHome);
+      expect(paths.resolveSpawnCwd("")).toBe(tmpHome);
     });
   });
 
@@ -278,6 +303,7 @@ describe("electron/paths", () => {
         paths.scrollbackSessionsDir,
         paths.layoutFile,
         paths.worktreesDir,
+        paths.homeWorkspaceDir,
       ];
       for (const getter of getters) {
         expect(path.isAbsolute(getter())).toBe(true);

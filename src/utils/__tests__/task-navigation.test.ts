@@ -63,6 +63,7 @@ function makeProject(): ProjectInfo {
     commands: [],
     themeName: null,
     setupComplete: true,
+    portlessEnabled: true,
   };
 }
 

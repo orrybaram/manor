@@ -1,4 +1,6 @@
 import type { PrInfo } from "./lib/pr-info";
+import type { HarnessKind } from "./lib/harness";
+import type { DetachedTabPayload } from "./store/detach-types";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -16,6 +18,12 @@ export interface AppPreferences {
   taskRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
   taskPruneNoticeShown: boolean;
+  /** Agent-agnostic harness Home auto-launches. */
+  homeHarness: HarnessKind;
+  /** Launch command used when `homeHarness === "custom"`. */
+  homeCustomCommand: string;
+  /** Interrupt sequence used when `homeHarness === "custom"`. */
+  homeCustomInterrupt: string;
 }
 
 export type TaskStatus = "active" | "completed" | "error" | "abandoned";
@@ -191,6 +199,12 @@ export interface PersistedWorkspace {
 export interface PersistedLayout {
   version: 2;
   workspaces: PersistedWorkspace[];
+  /**
+   * Path of the workspace/surface active when the layout was last saved
+   * (includes the Home surface's `HOME_PATH`). Used to restore the last-active
+   * surface on relaunch. Absent in layouts saved before this field existed.
+   */
+  lastActiveWorkspacePath?: string | null;
 }
 
 export interface RestoredSessionsInfo {
@@ -212,6 +226,15 @@ export interface ElectronAPI {
   env: {
     isPackaged: boolean;
   };
+
+  /**
+   * Multi-window detach (ADR-156). `isDetached` is true when this renderer was
+   * launched as a detached popup window; `detachedWindowId` carries that
+   * window's id (null in the primary window). Both are surfaced synchronously
+   * from the `--manor-detached=<id>` launch argument.
+   */
+  isDetached: boolean;
+  detachedWindowId: string | null;
 
   pty: {
     create: (
@@ -346,6 +369,7 @@ export interface ElectronAPI {
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
+        portlessEnabled: boolean;
       }>,
     ) => Promise<void>;
     killPort: (pid: number) => Promise<void>;
@@ -569,11 +593,16 @@ export interface ElectronAPI {
 
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
+    /**
+     * Resolves `true` when a native notification was presented, `false` when
+     * the calling window is focused — in which case the caller should show an
+     * in-app toast instead.
+     */
     show: (payload: {
       title: string;
       body: string;
       url?: string;
-    }) => Promise<void>;
+    }) => Promise<boolean>;
   };
 
   clipboard: {
@@ -633,6 +662,68 @@ export interface ElectronAPI {
     onGoForward: (callback: (paneId: string) => void) => () => void;
     setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
     onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => () => void;
+  };
+
+  /** Multi-window detach/reattach handoff (ADR-156). */
+  window: {
+    /** Create a detached popup window for `payload`; resolves its windowId. */
+    detachTab: (
+      payload: DetachedTabPayload,
+      spawnBounds: { x: number; y: number; width: number; height: number },
+    ) => Promise<string>;
+    /** Detached renderer pulls its one-shot handoff payload on boot. */
+    getDetachPayload: () => Promise<DetachedTabPayload | null>;
+    /** Outer bounds of the calling window (used by the drag-out trigger). */
+    getBounds: () => Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>;
+    /**
+     * Move the calling window's top-left to a screen-space point.
+     * Fire-and-forget — driven at pointermove frequency while a window whose
+     * only tab is being dragged follows the cursor instead of tearing off.
+     */
+    setPosition: (x: number, y: number) => void;
+    /**
+     * Every OTHER manor window that a dragged tab could be dropped into,
+     * topmost-first (focus recency). Fetched once per drag; the renderer
+     * hit-tests the release point against these bounds itself.
+     */
+    listWindows: () => Promise<
+      { id: number; bounds: { x: number; y: number; width: number; height: number } }[]
+    >;
+    /**
+     * Hand a tab to an existing window (id from `listWindows`). Resolves false
+     * if that window is gone, so the caller can fall back to detaching.
+     */
+    transferTab: (
+      targetWindowId: number,
+      payload: DetachedTabPayload,
+    ) => Promise<boolean>;
+    /**
+     * Listener for a tab dropped into THIS window from another window.
+     * Returns an unsubscribe. Every renderer subscribes.
+     */
+    onTabReceived: (
+      callback: (payload: DetachedTabPayload) => void,
+    ) => () => void;
+    /** Close the calling window (a detached window that gave away its last tab). */
+    closeSelf: () => void;
+    /**
+     * Send a detached window's tab back to the primary window and close this
+     * detached window. Called from the detached renderer after it has released
+     * its panes via `removeDetachedTabLocally`.
+     */
+    reattachTab: (payload: DetachedTabPayload) => Promise<void>;
+    /**
+     * Primary-window listener: fires when a detached window reattaches its tab.
+     * Returns an unsubscribe. Only the primary renderer subscribes.
+     */
+    onTabReattached: (
+      callback: (payload: DetachedTabPayload) => void,
+    ) => () => void;
   };
 }
 

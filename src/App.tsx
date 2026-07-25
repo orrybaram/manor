@@ -26,12 +26,12 @@ import {
   getPersistedActiveWorkspacePath,
 } from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
-import { useKeybindingsStore } from "./store/keybindings-store";
-import { useToastStore } from "./store/toast-store";
 import { appCommandHandlers } from "./lib/app-commands";
-import { comboFromEvent, comboMatches } from "./lib/keybindings";
-import { getBrowserPaneRef } from "./lib/browser-pane-registry";
-import type { BrowserPaneRef } from "./components/workspace-panes/BrowserPane/BrowserPane";
+import {
+  createSharedKeybindingHandlers,
+  dispatchKeybinding,
+  startNewTask,
+} from "./lib/keybinding-commands";
 import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
@@ -235,28 +235,12 @@ function App() {
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
-  const selectTabByGlobalIndex = useAppStore((s) => s.selectTabByGlobalIndex);
-  const selectNextTab = useAppStore((s) => s.selectNextTab);
-  const selectPrevTab = useAppStore((s) => s.selectPrevTab);
-  const splitPane = useAppStore((s) => s.splitPane);
-  const requestClosePane = useAppStore((s) => s.requestClosePane);
-  const reopenClosedPane = useAppStore((s) => s.reopenClosedPane);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
   const requestCloseTab = useAppStore((s) => s.requestCloseTab);
   const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
   const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
-  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
-  const focusNextPane = useAppStore((s) => s.focusNextPane);
-  const focusPrevPane = useAppStore((s) => s.focusPrevPane);
-  const splitPanel = useAppStore((s) => s.splitPanel);
-  const focusNextPanel = useAppStore((s) => s.focusNextPanel);
-  const focusPrevPanel = useAppStore((s) => s.focusPrevPanel);
-  const closePanel = useAppStore((s) => s.closePanel);
-  const moveTabToPanel = useAppStore((s) => s.moveTabToPanel);
-  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
-  const openDiffInNewPanel = useAppStore((s) => s.openDiffInNewPanel);
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -380,145 +364,29 @@ function App() {
   const handleNewTaskRef = useRef<() => void>(() => {});
   const handleNewTaskWithPromptRef = useRef<(prompt: string) => void>(() => {});
 
-  // Helper to get the focused browser pane's ref (if focused pane is a browser)
-  function getFocusedBrowserRef(): BrowserPaneRef | undefined {
-    const state = useAppStore.getState();
-    const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-    if (!layout) return;
-    const panel = layout.panels[layout.activePanelId];
-    if (!panel) return;
-    const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
-    if (!tab) return;
-    const focusedPaneId = tab.focusedPaneId;
-    if (!focusedPaneId) return;
-    if (state.paneContentType[focusedPaneId] !== "browser") return;
-    return getBrowserPaneRef(focusedPaneId);
-  }
-
-  // Handler map: command ID → action
+  // Handler map: command ID → action. The window-agnostic half is shared with
+  // the detached-window renderer (see `keybinding-commands`); only the commands
+  // that need this window's chrome (modals, sidebar, navigation history) live
+  // here. The primary window is the one that owns the prewarmed session, so it
+  // is also the only window that consumes it for a new task.
   const handlersRef = useRef<Record<string, () => void>>({});
   handlersRef.current = {
+    ...createSharedKeybindingHandlers({ prewarmNewTask: true }),
     settings: () => setSettingsOpen((v) => !v),
     "command-palette": () => setPaletteOpen((v) => !v),
-    "new-tab": () => addTab(),
-    "split-h": () => splitPane("horizontal"),
-    "split-v": () => splitPane("vertical"),
-    "close-pane": () => requestClosePane(),
-    "reopen-pane": () => reopenClosedPane(),
     "close-tab": () => {
       const tab = activeTabRef.current;
       if (tab) requestCloseTab(tab.id);
     },
-    "next-tab": () => selectNextTab(),
-    "prev-tab": () => selectPrevTab(),
-    "next-pane": () => focusNextPane(),
-    "prev-pane": () => focusPrevPane(),
     "toggle-sidebar": () => toggleSidebar(),
     "history-back": () => navigateBack(),
     "history-forward": () => navigateForward(),
-    "new-task": () => handleNewTaskRef.current(),
     "new-workspace": () => setNewWorkspaceOpen(true),
-    "new-browser": () => addBrowserTab("about:blank"),
-    "copy-branch": () => {
-      const state = useAppStore.getState();
-      const awp = state.activeWorkspacePath;
-      const proj = useProjectStore.getState().projects.find((p) =>
-        p.workspaces.some((w) => w.path === awp),
-      );
-      const ws = proj?.workspaces.find((w) => w.path === awp);
-      const branch = ws?.branch;
-      if (branch) {
-        navigator.clipboard.writeText(branch);
-        useToastStore.getState().addToast({
-          id: `copy-branch-${Date.now()}`,
-          message: `Copied "${branch}"`,
-          status: "success",
-        });
-      }
-    },
-    "split-panel-right": () => splitPanel("horizontal"),
-    "split-panel-down": () => splitPanel("vertical"),
-    "focus-next-panel": () => focusNextPanel(),
-    "focus-prev-panel": () => focusPrevPanel(),
-    "close-panel": () => {
-      const state = useAppStore.getState();
-      const wsPath = state.activeWorkspacePath;
-      if (!wsPath) return;
-      const layout = state.workspaceLayouts[wsPath];
-      if (!layout) return;
-      closePanel(layout.activePanelId);
-    },
-    "move-tab-to-next-panel": () => {
-      const state = useAppStore.getState();
-      const wsPath = state.activeWorkspacePath;
-      if (!wsPath) return;
-      const layout = state.workspaceLayouts[wsPath];
-      if (!layout) return;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return;
-      const panelIds = Object.keys(layout.panels);
-      if (panelIds.length < 2) return;
-      const idx = panelIds.indexOf(layout.activePanelId);
-      const nextId = panelIds[(idx + 1) % panelIds.length];
-      moveTabToPanel(panel.selectedTabId, nextId);
-    },
-    "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
-    "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
-    "browser-zoom-reset": () => getFocusedBrowserRef()?.zoomReset(),
-    "browser-reload": () => getFocusedBrowserRef()?.reload(),
-    "browser-focus-url": () => {
-      const state = useAppStore.getState();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      if (!layout) return;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return;
-      const tab = panel.tabs.find(s => s.id === panel.selectedTabId);
-      const focusedPaneId = tab?.focusedPaneId;
-      if (!focusedPaneId || state.paneContentType[focusedPaneId] !== "browser") return;
-      const input = document.querySelector<HTMLInputElement>(`[data-pane-url-input="${focusedPaneId}"]`);
-      input?.focus();
-      input?.select();
-    },
-    "open-diff": () => {
-      const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
-      if (diffOpensInNewPanel) {
-        openDiffInNewPanel();
-      } else {
-        openOrFocusDiff();
-      }
-    },
-    ...Object.fromEntries(
-      Array.from({ length: 9 }, (_, i) => [
-        `select-tab-${i + 1}`,
-        () => selectTabByGlobalIndex(i),
-      ]),
-    ),
   };
 
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Skip plain keys with no modifier — custom bindings always use at least one
-      if (!e.metaKey && !e.ctrlKey && !e.altKey) return;
-
-      const combo = comboFromEvent(e);
-      const bindings = useKeybindingsStore.getState().bindings;
-
-      for (const [commandId, boundCombo] of Object.entries(bindings)) {
-        if (comboMatches(combo, boundCombo)) {
-          // Browser commands are conditional — only fire when focused pane is a browser.
-          // When no browser is focused, skip this match entirely so the event
-          // reaches the native menu (app zoom) or terminal unimpeded.
-          if (commandId.startsWith("browser-")) {
-            if (!getFocusedBrowserRef()) continue;
-            e.preventDefault();
-            handlersRef.current[commandId]?.();
-            return;
-          }
-          e.preventDefault();
-          handlersRef.current[commandId]?.();
-          return;
-        }
-      }
+      dispatchKeybinding(e, handlersRef.current);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -593,14 +461,8 @@ function App() {
     // session when one is ready. On a cold start (no prewarm, or the command
     // hadn't been injected yet) seed the surface's launch command; the pty
     // boundary resolves the cwd, so Home needs no special casing here.
-    const prewarmed = await window.electronAPI.pty.consumePrewarmed();
-    if (activeWorkspacePath && !prewarmed?.commandInjected) {
-      useAppStore
-        .getState()
-        .setPendingStartupCommand(activeWorkspacePath, activeWorkspaceCommand);
-    }
-    addTab(prewarmed?.paneId);
-  }, [addTab, activeWorkspacePath, activeWorkspaceCommand]);
+    await startNewTask({ prewarm: true });
+  }, []);
   handleNewTaskRef.current = handleNewTask;
 
   const handleNewTaskWithPrompt = useCallback(

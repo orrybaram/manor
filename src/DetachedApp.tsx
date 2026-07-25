@@ -8,8 +8,11 @@ import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
 import { useAppStore } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useThemeStore } from "./store/theme-store";
-import { useKeybindingsStore } from "./store/keybindings-store";
-import { comboFromEvent, comboMatches } from "./lib/keybindings";
+import {
+  createSharedKeybindingHandlers,
+  dispatchKeybinding,
+  startNewTask,
+} from "./lib/keybinding-commands";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { allPaneIds } from "./store/pane-tree";
 import "./App.css";
@@ -42,7 +45,6 @@ export default function DetachedApp() {
   const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const hydrateDetachedTab = useAppStore((s) => s.hydrateDetachedTab);
-  const addTab = useAppStore((s) => s.addTab);
   const [bootState, setBootState] = useState<BootState>("loading");
 
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -89,6 +91,10 @@ export default function DetachedApp() {
     // macOS traffic lights instead of hiding beneath them. This store is
     // per-renderer and not persisted, so it never affects the primary window.
     useProjectStore.setState({ sidebarVisible: false });
+    // The popout renders no sidebar, but it still needs the project list: the
+    // new-agent command reads the workspace's `agentCommand` from it, and
+    // copy-branch reads the workspace's branch.
+    void useProjectStore.getState().loadProjects();
     let cancelled = false;
     window.electronAPI.window
       .getDetachPayload()
@@ -116,39 +122,20 @@ export default function DetachedApp() {
 
   // Keyboard shortcuts. A detached window runs `DetachedApp`, which does not
   // mount the primary window's global key handler — so without this, Cmd+W and
-  // the other tab/pane shortcuts would be dead here. We handle the subset that
-  // makes sense in a single-tab popout, and close the window when it empties.
+  // the other tab/pane shortcuts would be dead here. It gets the same
+  // window-agnostic command map as the primary window (new tab, new agent, new
+  // browser, pane/panel/browser commands); the primary-only commands (command
+  // palette, settings, sidebar, new workspace, navigation history) are absent
+  // by design and simply fall through. Closing the window when it empties is
+  // handled by the store subscription above, no matter which command emptied it.
   useMountEffect(() => {
-    const handlers: Record<string, () => void> = {
-      "close-pane": () => useAppStore.getState().requestClosePane(),
-      "close-tab": () => {
-        const st = useAppStore.getState();
-        const path = st.activeWorkspacePath;
-        const layout = path ? st.workspaceLayouts[path] : undefined;
-        const panel = layout ? layout.panels[layout.activePanelId] : undefined;
-        if (panel?.selectedTabId) st.requestCloseTab(panel.selectedTabId);
-      },
-      "new-tab": () => useAppStore.getState().addTab(),
-      "split-h": () => useAppStore.getState().splitPane("horizontal"),
-      "split-v": () => useAppStore.getState().splitPane("vertical"),
-      "next-tab": () => useAppStore.getState().selectNextTab(),
-      "prev-tab": () => useAppStore.getState().selectPrevTab(),
-      "next-pane": () => useAppStore.getState().focusNextPane(),
-      "prev-pane": () => useAppStore.getState().focusPrevPane(),
-      "reopen-pane": () => useAppStore.getState().reopenClosedPane(),
-    };
+    // Popouts never consume the prewarmed session: its cwd tracks the PRIMARY
+    // window's active workspace, so a popout on a different workspace would
+    // inherit the wrong directory.
+    const handlers = createSharedKeybindingHandlers({ prewarmNewTask: false });
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (!e.metaKey && !e.ctrlKey && !e.altKey) return;
-      const combo = comboFromEvent(e);
-      const bindings = useKeybindingsStore.getState().bindings;
-      for (const [commandId, boundCombo] of Object.entries(bindings)) {
-        if (handlers[commandId] && comboMatches(combo, boundCombo)) {
-          e.preventDefault();
-          handlers[commandId]();
-          return;
-        }
-      }
+      dispatchKeybinding(e, handlers);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -239,7 +226,7 @@ export default function DetachedApp() {
                 key={activeWorkspacePath}
                 node={workspaceLayouts[activeWorkspacePath].panelTree}
                 workspacePath={activeWorkspacePath}
-                onNewTask={() => addTab()}
+                onNewTask={() => void startNewTask()}
               />
             </div>
           </PaneDragProvider>

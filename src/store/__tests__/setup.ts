@@ -35,6 +35,21 @@ if (typeof globalThis.window === "undefined") {
       notifications: {
         onNavigateToTask: vi.fn(() => vi.fn()),
       },
+      // preferences-store.ts and keybindings-store.ts both read their state and
+      // subscribe to changes at module-init time, so anything importing them
+      // needs these surfaces.
+      preferences: {
+        getAll: vi.fn().mockResolvedValue({}),
+        onChange: vi.fn(() => vi.fn()),
+        set: vi.fn(),
+      },
+      keybindings: {
+        getAll: vi.fn().mockResolvedValue({}),
+        onChange: vi.fn(() => vi.fn()),
+        set: vi.fn(),
+        reset: vi.fn(),
+        resetAll: vi.fn(),
+      },
     },
   };
   (globalThis as unknown as Record<string, unknown>).window = win;

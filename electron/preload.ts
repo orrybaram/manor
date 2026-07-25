@@ -182,6 +182,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
+        portlessEnabled: boolean;
       }>,
     ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
@@ -431,7 +432,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onNavigateToTask: (callback: (taskId: string) => void) =>
       onChannel("notification:navigate-to-task", callback),
     show: (payload: { title: string; body: string; url?: string }) =>
-      ipcRenderer.invoke("notifications:show", payload),
+      ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
   },
 
   clipboard: {

@@ -369,6 +369,7 @@ export interface ElectronAPI {
         projectName: string | null;
         branch: string | null;
         isMain: boolean;
+        portlessEnabled: boolean;
       }>,
     ) => Promise<void>;
     killPort: (pid: number) => Promise<void>;
@@ -592,11 +593,16 @@ export interface ElectronAPI {
 
   notifications: {
     onNavigateToTask: (callback: (taskId: string) => void) => () => void;
+    /**
+     * Resolves `true` when a native notification was presented, `false` when
+     * the calling window is focused — in which case the caller should show an
+     * in-app toast instead.
+     */
     show: (payload: {
       title: string;
       body: string;
       url?: string;
-    }) => Promise<void>;
+    }) => Promise<boolean>;
   };
 
   clipboard: {

@@ -15,6 +15,7 @@ import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
 
 const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
+type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
@@ -102,9 +103,11 @@ function App() {
   const [settingsProjectId, setSettingsProjectId] = useState<string | null>(
     null,
   );
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
+    setSettingsPage(null);
     // Revert to the active surface's theme in case settings was previewing a
     // different theme. Home has no project override — it inherits the global
     // theme (null).
@@ -183,7 +186,10 @@ function App() {
     openWizardForLatestProject();
   }, [addProject, openWizardForLatestProject]);
 
-  const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleOpenSettings = useCallback((page?: SettingsPageId) => {
+    setSettingsPage(page ?? null);
+    setSettingsOpen(true);
+  }, []);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const handleOpenFeedback = useCallback(() => setFeedbackOpen(true), []);
   const handleOpenProjectSettings = useCallback((projectId: string) => {
@@ -217,20 +223,6 @@ function App() {
   const handleOpenPaletteView = useCallback(
     (view: PaletteView) => {
       setPaletteInitialView(view);
-      setPaletteOpen(true);
-    },
-    [],
-  );
-
-  const handleOpenIssueDetail = useCallback(
-    (opts: { type: "linear"; issueId: string } | { type: "github"; issueNumber: number }) => {
-      if (opts.type === "linear") {
-        setPaletteInitialView("issue-detail");
-        setPaletteInitialIssueId(opts.issueId);
-      } else {
-        setPaletteInitialView("github-issue-detail");
-        setPaletteInitialGitHubIssueNumber(opts.issueNumber);
-      }
       setPaletteOpen(true);
     },
     [],
@@ -666,9 +658,9 @@ function App() {
                     ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                     : !hasTabs &&
                       (isHomePath(activeWorkspacePath)
-                        ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} />
+                        ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
                         : hasProjects
-                          ? <WorkspaceEmptyState onOpenIssueDetail={handleOpenIssueDetail} onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
+                          ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
                           : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
                 </div>
               </>
@@ -711,6 +703,7 @@ function App() {
           open={settingsOpen}
           onClose={closeSettings}
           initialProjectId={settingsProjectId}
+          initialPage={settingsPage}
         />
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <TasksModal

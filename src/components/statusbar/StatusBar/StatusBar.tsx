@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore, selectWebviewFocusVisible } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
@@ -54,7 +54,7 @@ export function StatusBar(props: StatusBarProps) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  const webviewFocusedPaneId = useAppStore((s) => s.webviewFocusedPaneId);
+  const browserFocused = useAppStore(selectWebviewFocusVisible);
   const projects = useProjectStore((s) => s.projects);
 
   const project = projects.find((p) =>
@@ -114,7 +114,7 @@ export function StatusBar(props: StatusBarProps) {
             )}
           </>
         )}
-        {webviewFocusedPaneId && (
+        {browserFocused && (
           <div className={styles.browserFocusBadge}>
             <span className={styles.browserFocusLabel}>BROWSER</span>
             <span className={styles.browserFocusHint}>(Esc Esc to return focus)</span>

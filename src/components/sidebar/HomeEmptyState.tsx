@@ -5,20 +5,26 @@ import Terminal from "lucide-react/dist/esm/icons/terminal";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import { useAppStore } from "../../store/app-store";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
+import { useIssuesShortcut } from "./useIssuesShortcut";
+import type { PaletteView } from "../command-palette/types";
 
 type HomeEmptyStateProps = {
   /** Boots the configured home harness in a fresh tab (⌘N). */
   onNewTask: () => void;
   /** Opens the directory picker to add a new project. */
   onAddProject: () => void;
+  /** Opens the command palette on a specific view (issue lists). */
+  onOpenPaletteView?: (view: PaletteView) => void;
 };
 
 /** Shown when the home surface has no tabs open. */
 export function HomeEmptyState(props: HomeEmptyStateProps) {
-  const { onNewTask, onAddProject } = props;
+  const { onNewTask, onAddProject, onOpenPaletteView } = props;
 
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const addTab = useAppStore((s) => s.addTab);
+
+  const { action: issuesAction } = useIssuesShortcut(onOpenPaletteView);
 
   const actions: ActionItem[] = [
     {
@@ -55,6 +61,7 @@ export function HomeEmptyState(props: HomeEmptyStateProps) {
         );
       },
     },
+    ...(issuesAction ? [issuesAction] : []),
   ];
 
   return <EmptyStateShell actions={actions} />;

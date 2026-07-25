@@ -20,12 +20,6 @@ import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
 
-type SettingsModalProps = {
-  open: boolean;
-  onClose: () => void;
-  initialProjectId?: string | null;
-};
-
 type SettingsPage =
   | { type: "general" }
   | { type: "app" }
@@ -35,8 +29,18 @@ type SettingsPage =
   | { type: "home" }
   | { type: "project"; projectId: string };
 
+/** Fixed (non-project) settings pages that a command can deep-link to. */
+export type SettingsPageId = Exclude<SettingsPage, { type: "project" }>["type"];
+
+type SettingsModalProps = {
+  open: boolean;
+  onClose: () => void;
+  initialProjectId?: string | null;
+  initialPage?: SettingsPageId | null;
+};
+
 export function SettingsModal(props: SettingsModalProps) {
-  const { open, onClose, initialProjectId } = props;
+  const { open, onClose, initialProjectId, initialPage } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
@@ -46,6 +50,8 @@ export function SettingsModal(props: SettingsModalProps) {
   if (open && !prevOpenRef.current) {
     if (initialProjectId) {
       setPage({ type: "project", projectId: initialProjectId });
+    } else if (initialPage) {
+      setPage({ type: initialPage });
     } else {
       setPage({ type: "general" });
     }

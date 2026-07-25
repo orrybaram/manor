@@ -89,7 +89,7 @@ export function LeafPane(props: LeafPaneProps) {
   const setPaneFavicon = useAppStore((s) => s.setPaneFavicon);
   const handleNavStateChange = useCallback((state: BrowserPaneNavState) => {
     setNavState(state);
-    setWebviewFocused(state.webviewFocused ? paneId : null);
+    setWebviewFocused(paneId, state.webviewFocused);
     setPaneFavicon(paneId, state.favicon);
   }, [paneId, setWebviewFocused, setPaneFavicon]);
 
@@ -108,6 +108,9 @@ export function LeafPane(props: LeafPaneProps) {
     return () => {
       cancelAnimationFrame(id);
       unregisterBrowserPane(paneId);
+      // A closed/torn-off browser pane never fires blur, so drop any focus it
+      // still owns — otherwise the status-bar BROWSER badge sticks around.
+      setWebviewFocused(paneId, false);
     };
   });
 

@@ -9,16 +9,23 @@ export interface ActionItem {
   keys: string[];
   action: () => void;
   variant?: "danger";
+  /**
+   * Set on rows whose availability resolves asynchronously: `true` reserves the
+   * row's height without showing it, `false` fades it in. Leave undefined for
+   * rows that are always present.
+   */
+  hidden?: boolean;
 }
 
 type EmptyStateShellProps = {
   subtitle?: string;
   actions: ActionItem[];
-  ticketsSection?: ReactNode;
+  /** Optional notice rendered above the shortcut list (e.g. the gh CLI nudge). */
+  banner?: ReactNode;
 };
 
 export function EmptyStateShell(props: EmptyStateShellProps) {
-  const { subtitle, actions, ticketsSection } = props;
+  const { subtitle, actions, banner } = props;
 
   return (
     <Row align="center" justify="center" className={styles.container}>
@@ -27,13 +34,23 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
           <ManorLogo />
           {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
         </div>
-        {ticketsSection}
+        {banner}
         <Stack gap="xs" className={styles.actions}>
           {actions.map((item) => (
             <button
               key={item.label}
-              className={`${styles.action} ${item.variant === "danger" ? styles.actionDanger : ""}`}
+              className={[
+                styles.action,
+                item.variant === "danger" ? styles.actionDanger : "",
+                item.hidden === true ? styles.actionReserved : "",
+                item.hidden === false ? styles.actionRevealed : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               onClick={item.action}
+              disabled={item.hidden === true}
+              aria-hidden={item.hidden === true || undefined}
+              tabIndex={item.hidden === true ? -1 : undefined}
             >
               <span className={styles.actionIcon}>{item.icon}</span>
               <span className={styles.actionLabel}>{item.label}</span>

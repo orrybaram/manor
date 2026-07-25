@@ -374,7 +374,7 @@ export interface AppState {
   updateSplitRatio: (firstPaneId: string, ratio: number) => void;
 
   // Webview focus
-  setWebviewFocused: (paneId: string | null) => void;
+  setWebviewFocused: (paneId: string, focused: boolean) => void;
 
   // Picked element
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
@@ -437,6 +437,23 @@ export function selectActiveWorkspace(
   const layout = state.workspaceLayouts[state.activeWorkspacePath];
   if (!layout) return null;
   return layout.panels[layout.activePanelId] ?? null;
+}
+
+/**
+ * True when the browser pane holding webview focus is actually on screen: in
+ * the active workspace, inside a panel's *selected* tab. Hidden tabs stay
+ * mounted and webviews don't always blur when their tab is hidden, so the
+ * status-bar badge must be gated on visibility, not on the raw pane id.
+ */
+export function selectWebviewFocusVisible(state: AppState): boolean {
+  const paneId = state.webviewFocusedPaneId;
+  if (!paneId) return false;
+  const ctx = getActiveLayoutContext(state);
+  if (!ctx) return false;
+  return Object.values(ctx.layout.panels).some((panel) => {
+    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    return tab ? hasPaneId(tab.rootNode, paneId) : false;
+  });
 }
 
 /**
@@ -2150,8 +2167,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       return newState;
     }),
 
-  setWebviewFocused: (paneId: string | null) =>
-    set({ webviewFocusedPaneId: paneId }),
+  setWebviewFocused: (paneId: string, focused: boolean) =>
+    set((state) => {
+      if (focused) return { webviewFocusedPaneId: paneId };
+      // Only the pane that owns the focus may clear it — a blur from some other
+      // browser pane must not wipe the active one's badge.
+      return state.webviewFocusedPaneId === paneId
+        ? { webviewFocusedPaneId: null }
+        : {};
+    }),
 
   setPaneAgentStatus: (paneId: string, agent: AgentState) =>
     set((state) => {

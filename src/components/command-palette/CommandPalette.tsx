@@ -50,6 +50,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
   const projects = useProjectStore((s) => s.projects);
+  const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
 
   const { ports } = usePortsData();
@@ -71,13 +72,17 @@ export function CommandPalette(props: CommandPaletteProps) {
   const [showGhosts, setShowGhosts] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Derive the active project from the active workspace
+  // Derive the active project from the active workspace; on surfaces with no
+  // workspace (home) fall back to the sidebar's selected project so issue
+  // lists still resolve a tracker.
   const activeProject = useMemo(
     () =>
       projects.find((p) =>
         p.workspaces.some((ws) => ws.path === activeWorkspacePath),
-      ) ?? null,
-    [projects, activeWorkspacePath],
+      ) ??
+      projects[selectedProjectIndex] ??
+      null,
+    [projects, activeWorkspacePath, selectedProjectIndex],
   );
 
   // Get team IDs from the active project's Linear associations

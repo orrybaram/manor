@@ -13,7 +13,15 @@ import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
-import { hasPaneId } from "../../store/pane-tree";
+import { hasPaneId, allPaneIds } from "../../store/pane-tree";
+import {
+  isOutsideWindow,
+  findWindowAtPoint,
+  spawnBoundsFor,
+  buildDragImage,
+  type Bounds,
+  type WindowInfo,
+} from "../../lib/detach-drag";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
@@ -31,6 +39,19 @@ import browserStyles from "./BrowserPane/BrowserPane.module.css";
 
 function stripUrlForDisplay(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
+}
+
+/** Total panes across every tab of every panel of this window's workspace. */
+function countPanesInWindow(): number {
+  const state = useAppStore.getState();
+  const path = state.activeWorkspacePath;
+  if (!path) return 0;
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return 0;
+  return Object.values(layout.panels).reduce(
+    (n, p) => n + p.tabs.reduce((m, t) => m + allPaneIds(t.rootNode).length, 0),
+    0,
+  );
 }
 
 type LeafPaneProps = {
@@ -90,9 +111,25 @@ export function LeafPane(props: LeafPaneProps) {
     };
   });
 
-  const dragStartX = useRef(0);
-  const dragStartY = useRef(0);
-  const dragActive = useRef(false);
+  // Native HTML5 drag-and-drop tear-off (ADR-157), mirroring the tab bar: the
+  // OS renders one drag image via setDragImage, and dragging the pane clearly
+  // outside this window tears it into a new popout window (or hands it to
+  // another manor window).
+  // Set once we've torn this pane into a new window mid-drag (spawn-on-exit),
+  // so the eventual dragend does not tear off a SECOND window.
+  const tearOffCommitted = useRef(false);
+  // Where inside the status bar the pointer grabbed it, so a torn-off / new
+  // window lands with the chip under the cursor.
+  const dragGrabOffset = useRef({ x: 0, y: 0 });
+  // The status bar's position within the window at drag start, so an
+  // orphan-window move can keep the chip under the cursor.
+  const dragStatusBarLeftInWindow = useRef(0);
+  const dragStatusBarTopInWindow = useRef(0);
+  // This window's outer bounds and the other manor windows this pane could be
+  // dropped into, snapshotted at drag start so the dragend hit-test needs no
+  // async IPC.
+  const windowBounds = useRef<Bounds | null>(null);
+  const otherWindows = useRef<WindowInfo[]>([]);
 
   const dragTabId = drag?.type === "tab" ? drag.tabId : null;
   const paneIsInDraggedTab = useAppStore((s) => {
@@ -127,80 +164,177 @@ export function LeafPane(props: LeafPaneProps) {
     requestClosePaneById(paneId);
   };
 
-  const handleStatusBarPointerDown = (
-    e: React.PointerEvent<HTMLDivElement>,
-  ) => {
-    if (e.button !== 0) return;
-    // Don't start drag when clicking a button
+  // ── dragstart: begin a native HTML5 drag for this pane ──────────────────────
+  const handleStatusBarDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    // Don't start a drag when the grab lands on a button/input in the bar.
     const target = e.target as HTMLElement;
-    if (target.closest("button") || target.closest("input")) return;
+    if (target.closest("button") || target.closest("input")) {
+      e.preventDefault();
+      return;
+    }
 
     const statusBarEl = e.currentTarget;
-    const statusBarRect = statusBarEl.getBoundingClientRect();
-    const pointerId = e.pointerId;
-    dragStartX.current = e.clientX;
-    dragStartY.current = e.clientY;
-    dragActive.current = false;
+    const rect = statusBarEl.getBoundingClientRect();
+    const grabX = e.clientX - rect.left;
+    const grabY = e.clientY - rect.top;
+    dragGrabOffset.current = { x: grabX, y: grabY };
+    dragStatusBarLeftInWindow.current = rect.left;
+    dragStatusBarTopInWindow.current = rect.top;
 
-    const grabOffset = {
-      x: e.clientX - statusBarRect.left,
-      y: e.clientY - statusBarRect.top,
-    };
+    e.dataTransfer.effectAllowed = "move";
+    // A string marker so drop targets can recognise our drag in dragover
+    // (getData is unreadable there); the real payload is resolved from state.
+    e.dataTransfer.setData("application/x-manor-pane", paneId);
 
-    statusBarEl.setPointerCapture(pointerId);
+    // The single OS-rendered drag visual, rendered off-screen just long enough
+    // for the OS to snapshot it. Mirrors an app tab chip.
+    const s = useAppStore.getState();
+    const img = buildDragImage(
+      styles.paneDragImage,
+      title,
+      s.paneContentType[paneId],
+      s.paneFavicon[paneId] ?? undefined,
+    );
+    document.body.appendChild(img);
+    e.dataTransfer.setDragImage(img, grabX, grabY);
+    setTimeout(() => img.remove(), 0);
 
-    const onMove = (ev: PointerEvent) => {
-      const dx = ev.clientX - dragStartX.current;
-      const dy = ev.clientY - dragStartY.current;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (!dragActive.current && dist < 4) return;
+    // Signal an active pane drag so pane drop zones render and highlight.
+    startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current });
+    tearOffCommitted.current = false;
 
-      if (!dragActive.current) {
-        dragActive.current = true;
-        // Release pointer capture so drop zones on other panes can receive events
-        try {
-          statusBarEl.releasePointerCapture(pointerId);
-        } catch {
-          /* may already be released */
-        }
-        startDrag({ type: "pane", paneId, grabOffset });
-      }
-    };
+    // Snapshot geometry for the dragend tear-off hit-test (no async there).
+    windowBounds.current = null;
+    otherWindows.current = [];
+    void window.electronAPI.window
+      .getBounds()
+      .then((b) => {
+        windowBounds.current = b;
+      })
+      .catch(() => {});
+    void window.electronAPI.window
+      .listWindows()
+      .then((w) => {
+        otherWindows.current = w;
+      })
+      .catch(() => {});
+  };
 
-    const cleanup = () => {
-      statusBarEl.removeEventListener("pointermove", onMove);
-      statusBarEl.removeEventListener("pointerup", onUp);
-      statusBarEl.removeEventListener("lostpointercapture", onCaptureLost);
-    };
+  // ── drag: fires continuously on the source, even outside the window ─────────
+  // Spawn-on-exit tear-off (see TabBar for the full rationale): the instant the
+  // pane is dragged clearly OUTSIDE this window (and not over another manor
+  // window, which would be a move-into-that-window on release), detach it into
+  // a new window right away — before release — so the window appears with no
+  // wait and no fly-back.
+  const handleStatusBarDrag = (e: React.DragEvent<HTMLDivElement>) => {
+    if (tearOffCommitted.current) return;
+    const b = windowBounds.current;
+    if (!b) return;
+    const sx = e.screenX;
+    const sy = e.screenY;
+    // The final drag event (and some mid-drag ones) report 0,0 — ignore those.
+    if (sx === 0 && sy === 0) return;
 
-    const onUp = () => {
-      cleanup();
-      dragActive.current = false;
-    };
+    if (!isOutsideWindow(sx, sy, b)) return;
 
-    // When pointer capture is released to start the drag, clean up status bar
-    // listeners but keep dragActive true so the global cleanup can handle
-    // drops that land outside any drop zone.
-    const onCaptureLost = () => {
-      cleanup();
-    };
+    // Over another manor window → this is a move-into-that-window; let the
+    // release (dragend) hand it off rather than spawning a new window here.
+    if (findWindowAtPoint(sx, sy, otherWindows.current)) return;
 
-    statusBarEl.addEventListener("pointermove", onMove);
-    statusBarEl.addEventListener("pointerup", onUp);
-    statusBarEl.addEventListener("lostpointercapture", onCaptureLost);
+    // Sole pane of a detached window: tearing it off would orphan this window.
+    // Leave that to the release path, which moves this window to the drop.
+    if (window.electronAPI?.isDetached && countPanesInWindow() === 1) return;
 
-    // Global listener to end drag if user drops outside any pane/tab bar
-    const globalCleanup = (_ev: PointerEvent) => {
-      if (!dragActive.current) {
-        document.removeEventListener("pointerup", globalCleanup);
-        return;
-      }
-      requestAnimationFrame(() => {
-        endDrag();
-      });
-      document.removeEventListener("pointerup", globalCleanup);
-    };
-    document.addEventListener("pointerup", globalCleanup);
+    // Commit the new-window tear-off NOW.
+    tearOffCommitted.current = true;
+    const grab = dragGrabOffset.current;
+    const store = useAppStore.getState();
+    const payload = store.serializePaneForDetach(paneId);
+    store.removeDetachedPaneLocally(paneId);
+    void window.electronAPI.window
+      .detachTab(payload, spawnBoundsFor(sx, sy, grab))
+      .catch((err) => console.error("Failed to tear pane into new window", err));
+
+    endDrag();
+    if (window.electronAPI?.isDetached && countPanesInWindow() === 0) {
+      window.electronAPI.window.closeSelf();
+    }
+  };
+
+  // ── dragend: fires on the source; the whole drag is over here ───────────────
+  const handleStatusBarDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    // Already detached mid-drag by spawn-on-exit — nothing left to do.
+    if (tearOffCommitted.current) {
+      tearOffCommitted.current = false;
+      return;
+    }
+    const handledInApp = e.dataTransfer.dropEffect !== "none";
+    const grab = dragGrabOffset.current;
+    const barLeft = dragStatusBarLeftInWindow.current;
+    const barTop = dragStatusBarTopInWindow.current;
+    const sx = e.screenX;
+    const sy = e.screenY;
+
+    // Clear shared drag state.
+    endDrag();
+
+    // Consumed by an in-app drop target (a PaneDropZone / TabBar) — done.
+    if (handledInApp) return;
+
+    // Not consumed by any in-app drop target. Where it landed decides:
+    const bounds = windowBounds.current;
+    const releasedOutside = bounds !== null && isOutsideWindow(sx, sy, bounds, 0);
+    // Dropped in dead space inside the window → cancel (no-op).
+    if (!releasedOutside) return;
+
+    // Topmost other window under the release point, if any.
+    const target = findWindowAtPoint(sx, sy, otherWindows.current);
+    // Sole pane of a detached window: tearing it off would orphan this empty
+    // window. Move this window to the drop point instead. (The primary window
+    // is never an orphan: it falls back to Home.)
+    const wouldOrphanWindow =
+      target === null &&
+      window.electronAPI?.isDetached === true &&
+      countPanesInWindow() === 1;
+
+    if (wouldOrphanWindow) {
+      window.electronAPI.window.setPosition(
+        Math.round(sx - grab.x - barLeft),
+        Math.round(sy - grab.y - barTop),
+      );
+      return;
+    }
+
+    const store = useAppStore.getState();
+    const payload = store.serializePaneForDetach(paneId);
+    const spawnBounds = spawnBoundsFor(sx, sy, grab);
+    // Remove the pane from THIS window synchronously so the origin updates in
+    // the same frame, then fire the destination IPC without awaiting.
+    // (Serialize first: removeDetachedPaneLocally releases the panes.)
+    store.removeDetachedPaneLocally(paneId);
+    if (target) {
+      void window.electronAPI.window
+        .transferTab(target.id, payload)
+        .then((accepted) => {
+          if (!accepted) {
+            void window.electronAPI.window.detachTab(payload, spawnBounds);
+          }
+        })
+        .catch((err) =>
+          console.error("Failed to move pane out of this window", err),
+        );
+    } else {
+      void window.electronAPI.window
+        .detachTab(payload, spawnBounds)
+        .catch((err) =>
+          console.error("Failed to move pane out of this window", err),
+        );
+    }
+    // A detached window that just gave away its last pane has nothing left to
+    // show — close it rather than orphan it.
+    if (window.electronAPI?.isDetached && countPanesInWindow() === 0) {
+      window.electronAPI.window.closeSelf();
+    }
   };
 
   const isThisPaneDragging = drag?.type === "pane" && drag.paneId === paneId;
@@ -215,7 +349,10 @@ export function LeafPane(props: LeafPaneProps) {
     >
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
-        onPointerDown={handleStatusBarPointerDown}
+        draggable
+        onDragStart={handleStatusBarDragStart}
+        onDrag={handleStatusBarDrag}
+        onDragEnd={handleStatusBarDragEnd}
       >
         {contentType === "diff" ? (
           <span className={styles.paneStatusTitle}>Diff</span>

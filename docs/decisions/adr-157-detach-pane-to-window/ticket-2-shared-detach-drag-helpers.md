@@ -1,6 +1,6 @@
 ---
 title: Shared detach-drag geometry + drag-image helpers
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

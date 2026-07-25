@@ -45,6 +45,32 @@
   cursor: grabbing;
 }
 
+/* Element handed to setDragImage() as the OS-rendered drag visual. Rendered
+   off-screen only long enough for the OS to snapshot it. Mirrors an app tab. */
+.paneDragImage {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 240px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.paneDragImage svg,
+.paneDragImage img {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 .leafDragging {
   opacity: 0.3;
 }

@@ -2,8 +2,26 @@
  * MCP tools for inspecting and controlling webview panes.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Http, ToolDef, ToolModule } from "./types";
 import { text } from "./types";
+
+/**
+ * Persist a base64-encoded PNG to disk. Relative paths resolve against the MCP
+ * process cwd (the caller's workspace); a `.png` extension is appended when the
+ * given path has none, and parent directories are created as needed. Returns
+ * the absolute path written.
+ */
+function saveScreenshotToDisk(base64Png: string, savePath: string): string {
+  let resolved = path.resolve(savePath);
+  if (path.extname(resolved) === "") {
+    resolved += ".png";
+  }
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, Buffer.from(base64Png, "base64"));
+  return resolved;
+}
 
 // ── Pane resolution ──
 
@@ -112,13 +130,19 @@ const tools: ToolDef[] = [
   },
   {
     name: "screenshot_webview",
-    description: "Take a screenshot of a webview pane. Returns a PNG image.",
+    description:
+      "Take a screenshot of a webview pane. Returns a PNG image, or saves it to disk when 'path' is given.",
     inputSchema: {
       type: "object" as const,
       properties: {
         paneId: {
           type: "string",
           description: "Pane ID. Omit if only one webview is open.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional file path to save the PNG to disk instead of returning the image. Relative paths resolve against the current working directory; a '.png' extension is added if missing.",
         },
       },
     },
@@ -288,6 +312,13 @@ const handlers: ToolModule["handlers"] = {
     )) as {
       image: string;
     };
+
+    const savePath = args.path as string | undefined;
+    if (savePath) {
+      const written = saveScreenshotToDisk(result.image, savePath);
+      return text(`Screenshot saved to ${written}`);
+    }
+
     return {
       content: [
         {

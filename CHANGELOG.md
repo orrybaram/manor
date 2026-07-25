@@ -1,5 +1,30 @@
 # Changelog
 
+
+## [0.6.3] - 2026-07-25
+
+**Features**
+- Toggle named preview URLs per project
+- Home surface (renamed from Orchestrator) with a real working directory and prewarming
+- Navigation history: back/forward through views with Cmd+Ctrl+[ and Cmd+Ctrl+], plus titlebar buttons
+- Tear off a tab into its own floating window, and drag it back to reattach
+- "Move Tab to New Window" menu item
+- Drag panes out of a split into a new window with native drag-and-drop
+- Tab context menu: Close Others and Close to the Right, with shortcut hints
+- Orchestrator tools: list running tasks, send input to a session, and read session output
+- Orchestrator settings and harness preferences
+- `screenshot_webview` can now save a PNG to disk
+
+**Fixes**
+- PR notifications no longer get dropped while a webview has focus
+- Home is restored as the active surface after relaunch
+- Detached windows no longer open empty or refuse to move
+- Empty-workspace views are recorded and replayed correctly in history
+
+**Improvements**
+- Status bar drops back/forward buttons in favor of a Home label
+- Load-more control in tasks no longer looks like a button
+
 ## [0.6.2] - 2026-07-08
 
 **Features**

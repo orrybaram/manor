@@ -1,6 +1,6 @@
 ---
 title: Recording indicator on the pane
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

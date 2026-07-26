@@ -1,6 +1,6 @@
 ---
 title: MCP tools — start_recording, stop_recording, list_recordings
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

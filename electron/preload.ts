@@ -18,6 +18,7 @@ interface WebviewRecordingCommand {
   cmd: "start" | "stop";
   recordingId: string;
   mediaSourceId?: string;
+  paneId: string;
 }
 
 export type PushProgressEvent =
@@ -573,6 +574,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     /** Main-initiated start/stop of a pane recording. */
     onRecordingCommand: (callback: (command: WebviewRecordingCommand) => void) =>
       onChannel("webview:recording-command", callback),
+    /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
+    stopRecording: (paneId: string) =>
+      ipcRenderer.invoke("webview:stop-recording", paneId) as Promise<void>,
     onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

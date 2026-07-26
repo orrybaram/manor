@@ -198,6 +198,8 @@ export interface AppState {
   paneFavicon: Record<string, string>;
   paneAudioPlaying: Record<string, boolean>;
   paneAudioMuted: Record<string, boolean>;
+  /** Recording start timestamp (ms epoch) per pane, while capture is live (ADR-158). */
+  paneRecordingStartedAt: Record<string, number>;
   paneUrl: Record<string, string>;
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
@@ -319,6 +321,15 @@ export interface AppState {
   // Browser audio state
   setPaneAudioPlaying: (paneId: string, playing: boolean) => void;
   setPaneAudioMuted: (paneId: string, muted: boolean) => void;
+
+  /**
+   * Recording state (ADR-158). `startedAt` (not a boolean) so the pane's
+   * "Recording" indicator can render elapsed time without a second lookup.
+   * Set/cleared from `App.tsx`'s "webview:recording-command" subscription —
+   * main owns the recording lifecycle, the renderer just mirrors it. Pass
+   * `null` to clear.
+   */
+  setPaneRecordingStartedAt: (paneId: string, startedAt: number | null) => void;
 
   // Browser URL tracking
   setPaneUrl: (paneId: string, url: string) => void;
@@ -574,6 +585,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paneFavicon: {},
   paneAudioPlaying: {},
   paneAudioMuted: {},
+  paneRecordingStartedAt: {},
   paneUrl: {},
   panePickedElement: {},
   webviewFocusedPaneId: null,
@@ -2099,6 +2111,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!(paneId in state.paneAudioMuted)) return state;
       const { [paneId]: _, ...rest } = state.paneAudioMuted;
       return { paneAudioMuted: rest };
+    }),
+
+  setPaneRecordingStartedAt: (paneId: string, startedAt: number | null) =>
+    set((state) => {
+      if (startedAt !== null) {
+        if (state.paneRecordingStartedAt[paneId] === startedAt) return state;
+        return {
+          paneRecordingStartedAt: {
+            ...state.paneRecordingStartedAt,
+            [paneId]: startedAt,
+          },
+        };
+      }
+      if (!(paneId in state.paneRecordingStartedAt)) return state;
+      const { [paneId]: _, ...rest } = state.paneRecordingStartedAt;
+      return { paneRecordingStartedAt: rest };
     }),
 
   setPaneUrl: (paneId: string, url: string) =>

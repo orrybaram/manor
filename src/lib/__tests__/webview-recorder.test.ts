@@ -222,21 +222,24 @@ describe("stopRecording", () => {
 
 describe("handleRecordingCommand", () => {
   it("starts on a start command", async () => {
-    await handleRecordingCommand({
+    const result = await handleRecordingCommand({
       cmd: "start",
       recordingId: "rec-1",
       mediaSourceId: "source-abc",
+      paneId: "pane-1",
     });
     expect(activeRecordingIds()).toEqual(["rec-1"]);
+    expect(result).toEqual({ ok: true });
   });
 
   it("reports a failed capture to main instead of leaving it hanging", async () => {
     getUserMedia.mockRejectedValueOnce(new Error("Permission denied"));
 
-    await handleRecordingCommand({
+    const result = await handleRecordingCommand({
       cmd: "start",
       recordingId: "rec-1",
       mediaSourceId: "source-abc",
+      paneId: "pane-1",
     });
 
     expect(activeRecordingIds()).toEqual([]);
@@ -244,12 +247,20 @@ describe("handleRecordingCommand", () => {
       "rec-1",
       "Permission denied",
     );
+    // A caller driving a "Recording" indicator (ADR-158 ticket 5) must be
+    // able to tell this apart from a real start — nothing ever ran.
+    expect(result).toEqual({ ok: false, error: "Permission denied" });
   });
 
   it("stops on a stop command", async () => {
     await startRecording("rec-1", "source-abc");
-    await handleRecordingCommand({ cmd: "stop", recordingId: "rec-1" });
+    const result = await handleRecordingCommand({
+      cmd: "stop",
+      recordingId: "rec-1",
+      paneId: "pane-1",
+    });
     expect(activeRecordingIds()).toEqual([]);
     expect(notifyRecordingStopped).toHaveBeenCalledWith("rec-1");
+    expect(result).toEqual({ ok: true });
   });
 });

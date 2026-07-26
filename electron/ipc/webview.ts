@@ -93,6 +93,13 @@ interface RecordingCommand {
   recordingId: string;
   /** Chromium media source id of the pane's webview. Required for "start". */
   mediaSourceId?: string;
+  /**
+   * Pane this command is for. The renderer needs it to drive a per-pane
+   * "Recording" indicator (ADR-158 ticket 5) — `sendRecordingCommand` already
+   * routes to the right window by paneId, but the payload itself didn't carry
+   * it until then.
+   */
+  paneId: string;
 }
 
 /**
@@ -255,7 +262,7 @@ export function startRendererRecording(
       resolve({ ok: false, error: error ?? "Renderer failed to start recording" });
     });
   });
-  sendRecordingCommand(paneId, { cmd: "start", recordingId, mediaSourceId });
+  sendRecordingCommand(paneId, { cmd: "start", recordingId, mediaSourceId, paneId });
   return confirmed;
 }
 
@@ -280,7 +287,7 @@ export function stopRendererRecording(
       resolve();
     });
   });
-  sendRecordingCommand(paneId, { cmd: "stop", recordingId });
+  sendRecordingCommand(paneId, { cmd: "stop", recordingId, paneId });
   return confirmed;
 }
 
@@ -744,6 +751,16 @@ export function register(deps: IpcDeps): void {
       void recordingManager.stop(recordingId);
     },
   );
+
+  // The user clicked the pane's "Recording" indicator (ADR-158 ticket 5) — the
+  // one way out that does not require asking the agent to stop. Reuses the
+  // exact same drain-then-finalize path as the MCP `stop_recording` tool.
+  ipcMain.handle("webview:stop-recording", async (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    const recording = recordingManager.list().find((r) => r.paneId === paneId);
+    if (!recording) return;
+    await stopRecording(recording.recordingId);
+  });
 
   // A `maxDurationSec` trip only closes the file; without this the renderer's
   // `MediaRecorder` would keep capturing into nothing. Listeners are awaited

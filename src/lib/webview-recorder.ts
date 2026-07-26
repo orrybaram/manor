@@ -17,6 +17,17 @@ export interface RecordingCommand {
   recordingId: string;
   /** Chromium media source id of the pane's webview. Required for "start". */
   mediaSourceId?: string;
+  /** Pane this command is for — lets a caller (e.g. the app store) key state by pane. */
+  paneId: string;
+}
+
+/** Outcome of a "start" command, so a caller can tell a real start from a
+ * setup failure (bad mediaSourceId, getUserMedia rejection) that never
+ * produced a running `MediaRecorder`. A "stop" always succeeds from the
+ * caller's point of view — there is nothing left to be wrong about. */
+export interface RecordingCommandResult {
+  ok: boolean;
+  error?: string;
 }
 
 /**
@@ -190,30 +201,38 @@ export function activeRecordingIds(): string[] {
  * Entry point for the "webview:recording-command" subscription in `App.tsx`.
  * A start that fails is reported as an immediate stop so main does not sit on
  * an empty file waiting for chunks that will never arrive.
+ *
+ * Returns whether a "start" actually got a `MediaRecorder` running, so a
+ * caller driving a UI indicator (ADR-158 ticket 5) never lights one up for a
+ * capture that failed before it began.
  */
 export async function handleRecordingCommand(
   command: RecordingCommand,
-): Promise<void> {
+): Promise<RecordingCommandResult> {
   if (command.cmd === "start") {
     if (!command.mediaSourceId) {
+      const error = "Missing mediaSourceId";
       await window.electronAPI.webview.notifyRecordingStopped(
         command.recordingId,
-        "Missing mediaSourceId",
+        error,
       );
-      return;
+      return { ok: false, error };
     }
     try {
       await startRecording(command.recordingId, command.mediaSourceId);
+      return { ok: true };
     } catch (err) {
+      const error = errorMessage(err);
       await window.electronAPI.webview.notifyRecordingStopped(
         command.recordingId,
-        errorMessage(err),
+        error,
       );
+      return { ok: false, error };
     }
-    return;
   }
 
   if (command.cmd === "stop") {
     await stopRecording(command.recordingId);
   }
+  return { ok: true };
 }

@@ -674,6 +674,8 @@ export interface ElectronAPI {
     onRecordingCommand: (
       callback: (command: WebviewRecordingCommand) => void,
     ) => () => void;
+    /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
+    stopRecording: (paneId: string) => Promise<void>;
   };
 
   /** Multi-window detach/reattach handoff (ADR-156). */

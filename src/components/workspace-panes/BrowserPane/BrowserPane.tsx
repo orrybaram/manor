@@ -74,6 +74,8 @@ export interface BrowserPaneRef {
   stopFind(): void;
   toggleFindBar(): void;
   toggleMute(): void;
+  /** Stop this pane's active recording (ADR-158), if any. */
+  stopRecording(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
   getUrlInputValue(): string;
   /** Handlers for the URL input element rendered by LeafPane. */
@@ -331,6 +333,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         window.electronAPI.webview.setAudioMuted(paneId, newMuted);
         fireNavStateChange({ muted: newMuted });
         useAppStore.getState().setPaneAudioMuted(paneId, newMuted);
+      },
+      stopRecording() {
+        void window.electronAPI.webview.stopRecording(paneId);
       },
       getUrlInputValue() {
         return urlRef.current;

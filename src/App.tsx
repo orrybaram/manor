@@ -318,10 +318,31 @@ function App() {
 
   // Webview recording (ADR-158). Main owns the file and the lifecycle, but only
   // a renderer can call `getUserMedia`, so it drives the `MediaRecorder` here.
+  // The store mirrors the same state so the pane can show a "Recording"
+  // indicator — a capture the user cannot see running is not acceptable, so
+  // this has to track both ends of the lifecycle:
+  //  - "stop" clears immediately (covers a clean agent stop AND the
+  //    `maxDurationSec` auto-stop, both of which arrive as "stop").
+  //  - "start" only lights up once `handleRecordingCommand` confirms the
+  //    renderer's `MediaRecorder` actually started; a setup failure
+  //    (missing mediaSourceId, getUserMedia rejection) must never show a red
+  //    dot for a capture that never happened.
   useEffect(
     () =>
       window.electronAPI.webview.onRecordingCommand((command) => {
-        void handleRecordingCommand(command);
+        if (command.cmd === "stop") {
+          useAppStore.getState().setPaneRecordingStartedAt(command.paneId, null);
+        }
+        void handleRecordingCommand(command).then((result) => {
+          if (command.cmd === "start") {
+            useAppStore
+              .getState()
+              .setPaneRecordingStartedAt(
+                command.paneId,
+                result.ok ? Date.now() : null,
+              );
+          }
+        });
       }),
     [],
   );

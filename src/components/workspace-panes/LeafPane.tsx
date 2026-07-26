@@ -25,6 +25,7 @@ import {
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
+import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
@@ -60,6 +61,7 @@ export function LeafPane(props: LeafPaneProps) {
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = useAppStore((s) => s.paneContentType[paneId]);
   const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
+  const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -426,6 +428,12 @@ export function LeafPane(props: LeafPaneProps) {
                 autoFocus={!paneUrl || paneUrl === "about:blank"}
               />
             </div>
+            {recordingStartedAt !== undefined && (
+              <RecordingIndicator
+                startedAt={recordingStartedAt}
+                onStop={() => browserRef.current?.stopRecording()}
+              />
+            )}
             <Tooltip label="Pick element">
               <button
                 className={`${styles.paneStatusBtn} ${navState?.pickerActive ? styles.paneStatusBtnActive : ""}`}

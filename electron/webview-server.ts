@@ -14,6 +14,13 @@ import { PICKER_SCRIPT } from "./picker-script";
 import { SYMBOLICATION_SCRIPT } from "./sourcemap-symbolication";
 import { webviewServerPortFile } from "./paths";
 import { handleControlRequest } from "./routes";
+import {
+  recordingManager,
+  startRendererRecording,
+  stopRecording,
+  getPaneRendererWebContents,
+} from "./ipc/webview";
+import type { StartRecordingResult } from "./recording-manager";
 import type { ProjectManager } from "./persistence";
 import type { GitHubManager } from "./github";
 import type { LinearManager } from "./linear";
@@ -28,6 +35,14 @@ interface ConsoleEntry {
 }
 
 const MAX_CONSOLE_ENTRIES = 200;
+
+/**
+ * How long `/webview/:id/record/stop` waits for the renderer to confirm its
+ * `MediaRecorder` flushed. Longer than `stopRendererRecording`'s 5s default —
+ * flushing a large trailing chunk to a slow disk can take a moment, and this
+ * is an explicit agent-initiated stop, not a background teardown.
+ */
+const RECORD_STOP_TIMEOUT_MS = 15_000;
 
 /** Capture a cropped region of the webview, clamped to viewport bounds. */
 async function captureElementRegion(
@@ -280,6 +295,12 @@ export class WebviewServer {
       return;
     }
 
+    // ── GET /recordings ──
+    if (method === "GET" && url.pathname === "/recordings") {
+      json(200, recordingManager.list());
+      return;
+    }
+
     // ── Route: /webview/:id/* ──
     const webviewMatch = url.pathname.match(/^\/webview\/([^/]+)(?:\/(.*))?$/);
     if (!webviewMatch) {
@@ -303,6 +324,105 @@ export class WebviewServer {
       if (method === "POST" && action === "screenshot") {
         const image = await wc.capturePage();
         json(200, { image: image.toPNG().toString("base64") });
+        return;
+      }
+
+      // ── POST /webview/:id/record/start ──
+      if (method === "POST" && action === "record/start") {
+        const body = await readBody();
+        const savePath =
+          typeof body.path === "string" ? body.path : undefined;
+        const maxDurationSec =
+          typeof body.maxDurationSec === "number"
+            ? body.maxDurationSec
+            : undefined;
+        const keyframeIntervalSec =
+          typeof body.keyframeIntervalSec === "number"
+            ? body.keyframeIntervalSec
+            : undefined;
+
+        const rendererWc = getPaneRendererWebContents(paneId);
+        if (!rendererWc) {
+          json(503, {
+            error: "No renderer window is currently hosting this pane",
+          });
+          return;
+        }
+        const mediaSourceId = wc.getMediaSourceId(rendererWc);
+
+        let started: StartRecordingResult;
+        try {
+          started = recordingManager.start({
+            paneId,
+            path: savePath,
+            maxDurationSec,
+            keyframeIntervalSec,
+            capture: () =>
+              wc.capturePage().then((image) => image.toPNG().toString("base64")),
+          });
+        } catch (err) {
+          json(409, { error: String(err instanceof Error ? err.message : err) });
+          return;
+        }
+
+        const renderResult = await startRendererRecording(
+          started.recordingId,
+          paneId,
+          mediaSourceId,
+        );
+        if (!renderResult.ok) {
+          // Roll back: a registered recording with no MediaRecorder behind it
+          // would sit collecting keyframes and never produce video.
+          await recordingManager.stop(started.recordingId);
+          fs.promises.unlink(started.path).catch(() => {
+            // Best-effort: the stream may not have flushed anything yet.
+          });
+          json(500, { error: renderResult.error });
+          return;
+        }
+
+        // Chromium throttles rendering for hidden/occluded contents, so a
+        // pane that is not the one currently in view may capture stalled or
+        // black frames.
+        const warning = rendererWc.isFocused()
+          ? undefined
+          : "Pane's window is not focused; capture may stall or produce black frames while backgrounded.";
+
+        json(200, {
+          recordingId: started.recordingId,
+          path: started.path,
+          ...(warning ? { warning } : {}),
+        });
+        return;
+      }
+
+      // ── POST /webview/:id/record/stop ──
+      if (method === "POST" && action === "record/stop") {
+        const body = await readBody();
+        const recordingId =
+          typeof body.recordingId === "string"
+            ? body.recordingId
+            : recordingManager.list().find((r) => r.paneId === paneId)
+                ?.recordingId;
+
+        if (!recordingId) {
+          json(404, { error: "No active recording for this pane" });
+          return;
+        }
+
+        const result = await stopRecording(recordingId, RECORD_STOP_TIMEOUT_MS);
+        if (!result) {
+          json(404, { error: `Unknown recordingId: ${recordingId}` });
+          return;
+        }
+
+        json(200, {
+          path: result.path,
+          durationMs: result.durationMs,
+          bytes: result.bytes,
+          keyframes: result.keyframes,
+          ...(result.alreadyStopped ? { alreadyStopped: true } : {}),
+        });
         return;
       }
 

@@ -318,15 +318,19 @@ describe("RecordingManager", () => {
       await expect(manager.stop("not-a-recording")).resolves.toBeNull();
     });
 
-    it("returns null on a second stop of the same recording", async () => {
+    it("replays the finished result (with alreadyStopped: true) on a second stop of the same recording", async () => {
       const { recordingId } = manager.start({
         paneId: "pane-1",
         path: out("clip.webm"),
         capture,
       });
 
-      expect(await manager.stop(recordingId)).not.toBeNull();
-      expect(await manager.stop(recordingId)).toBeNull();
+      const first = await manager.stop(recordingId);
+      expect(first).not.toBeNull();
+      expect(first?.alreadyStopped).toBe(false);
+
+      const second = await manager.stop(recordingId);
+      expect(second).toEqual({ ...first, alreadyStopped: true });
     });
 
     it("frees the pane for a new recording", async () => {
@@ -407,8 +411,11 @@ describe("RecordingManager", () => {
 
       await waitFor(() => manager.list().length === 0, "recording finalized");
       expect(fs.readFileSync(outPath, "utf8")).toBe("abc");
-      // Finalized: an explicit stop afterwards is a no-op.
-      expect(await manager.stop(recordingId)).toBeNull();
+      // Finalized: an explicit stop afterwards replays the cached result
+      // rather than losing it — see "finished-recordings cache" below.
+      const replayed = await manager.stop(recordingId);
+      expect(replayed?.alreadyStopped).toBe(true);
+      expect(replayed?.path).toBe(outPath);
     });
 
     it("lets a listener flush a final chunk before the stream closes", async () => {
@@ -479,6 +486,47 @@ describe("RecordingManager", () => {
 
       await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
       expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("finished-recordings cache", () => {
+    it("returns the auto-stopped result from a later stop(), marked alreadyStopped", async () => {
+      const { recordingId, path: outPath } = manager.start({
+        paneId: "pane-1",
+        path: out("clip.webm"),
+        maxDurationSec: 0.001, // clamped up to the 1s floor
+        capture,
+      });
+      manager.appendChunk(recordingId, Buffer.from("abc"));
+
+      await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
+
+      const result = await manager.stop(recordingId);
+      expect(result).not.toBeNull();
+      expect(result?.alreadyStopped).toBe(true);
+      expect(result?.recordingId).toBe(recordingId);
+      expect(result?.path).toBe(outPath);
+      expect(result?.bytes).toBe(3);
+    });
+
+    it("returns null for an id evicted from the bounded cache", async () => {
+      // Cap is 16; fill it with 17 finished recordings so the first is evicted.
+      const ids: string[] = [];
+      for (let i = 0; i < 17; i++) {
+        const { recordingId } = manager.start({
+          paneId: "pane-1",
+          path: out(`clip-${i}.webm`),
+          capture,
+        });
+        ids.push(recordingId);
+        await manager.stop(recordingId);
+      }
+
+      // The first recording's result was evicted once the 17th was cached.
+      expect(await manager.stop(ids[0])).toBeNull();
+      // The most recent is still retrievable.
+      const last = await manager.stop(ids[ids.length - 1]);
+      expect(last?.alreadyStopped).toBe(true);
     });
   });
 

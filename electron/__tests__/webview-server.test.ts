@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { Mock } from "vitest";
 import * as http from "node:http";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 // ── Mock electron ──
@@ -13,6 +15,8 @@ const mockWebContents: Record<string, unknown> = {
   loadURL: vi.fn(),
   sendInputEvent: vi.fn(),
   isDestroyed: vi.fn(() => false),
+  getMediaSourceId: vi.fn(() => "media-source-1"),
+  isFocused: vi.fn(() => true),
   on: vi.fn(),
   off: vi.fn(),
 };
@@ -23,8 +27,31 @@ vi.mock("electron", () => ({
   },
 }));
 
+// ── Mock the recording round-trip to the renderer (ADR-158) ──
+//
+// `RecordingManager` itself has no Electron dependency (see its own file
+// header), so it is used for real here to exercise `start()`/`stop()`/`list()`
+// against a fresh instance. Only the renderer round-trip — which genuinely
+// crosses a process boundary this test cannot simulate — and the pane→renderer
+// webContents lookup are doubled.
+vi.mock("../ipc/webview", async () => {
+  const { RecordingManager } = await import("../recording-manager");
+  return {
+    recordingManager: new RecordingManager(),
+    startRendererRecording: vi.fn(),
+    stopRecording: vi.fn(),
+    getPaneRendererWebContents: vi.fn(),
+  };
+});
+
 import { WebviewServer } from "../webview-server";
 import { webContents } from "electron";
+import {
+  recordingManager,
+  startRendererRecording,
+  stopRecording,
+  getPaneRendererWebContents,
+} from "../ipc/webview";
 
 // ── HTTP helper ──
 
@@ -113,16 +140,29 @@ describe("WebviewServer", () => {
     (
       mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>
     ).mockResolvedValue("result");
+    (mockWebContents.getMediaSourceId as ReturnType<typeof vi.fn>).mockReturnValue(
+      "media-source-1",
+    );
+    (mockWebContents.isFocused as ReturnType<typeof vi.fn>).mockReturnValue(
+      true,
+    );
     (mockWebContents.loadURL as ReturnType<typeof vi.fn>).mockResolvedValue(
       undefined,
     );
+
+    (startRendererRecording as Mock).mockReset().mockResolvedValue({ ok: true });
+    (stopRecording as Mock).mockReset();
+    (getPaneRendererWebContents as Mock)
+      .mockReset()
+      .mockReturnValue(mockWebContents);
 
     server = new WebviewServer(registry);
     await server.start();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     server.stop();
+    await recordingManager.stopAll();
   });
 
   // ── Server lifecycle ──
@@ -216,6 +256,141 @@ describe("WebviewServer", () => {
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
       expect(data.image).toBe(Buffer.from("fakepng").toString("base64"));
+    });
+  });
+
+  // ── POST /webview/:id/record/start, /record/stop, GET /recordings ──
+
+  describe("Recording routes", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "manor-webview-server-test-"),
+      );
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    });
+
+    function outPath(name: string): string {
+      return path.join(tmpDir, name);
+    }
+
+    describe("POST /webview/:id/record/start", () => {
+      it("returns a recordingId and path on success", async () => {
+        const res = await httpPost(
+          server.serverPort,
+          "/webview/pane-1/record/start",
+          { path: outPath("clip.webm") },
+        );
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(typeof data.recordingId).toBe("string");
+        expect(data.path).toBe(outPath("clip.webm"));
+        expect(data.warning).toBeUndefined();
+
+        expect(startRendererRecording).toHaveBeenCalledWith(
+          data.recordingId,
+          "pane-1",
+          "media-source-1",
+        );
+
+        const active = recordingManager.list();
+        expect(active).toHaveLength(1);
+        expect(active[0].recordingId).toBe(data.recordingId);
+      });
+
+      it("returns 404 for an unknown paneId", async () => {
+        const res = await httpPost(
+          server.serverPort,
+          "/webview/unknown-pane/record/start",
+          {},
+        );
+        expect(res.status).toBe(404);
+      });
+
+      it("rolls back and leaves no recording when the renderer fails to start", async () => {
+        (startRendererRecording as Mock).mockResolvedValue({
+          ok: false,
+          error: "getUserMedia failed",
+        });
+
+        const res = await httpPost(
+          server.serverPort,
+          "/webview/pane-1/record/start",
+          { path: outPath("clip.webm") },
+        );
+        expect(res.status).toBe(500);
+        const data = JSON.parse(res.body);
+        expect(data.error).toContain("getUserMedia failed");
+
+        expect(recordingManager.list()).toHaveLength(0);
+      });
+    });
+
+    describe("POST /webview/:id/record/stop", () => {
+      it("returns path, duration, bytes and keyframes", async () => {
+        (stopRecording as Mock).mockResolvedValue({
+          recordingId: "rec-1",
+          paneId: "pane-1",
+          path: outPath("clip.webm"),
+          durationMs: 1234,
+          bytes: 42,
+          keyframes: ["AAAA"],
+          alreadyStopped: false,
+        });
+
+        const res = await httpPost(
+          server.serverPort,
+          "/webview/pane-1/record/stop",
+          { recordingId: "rec-1" },
+        );
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data).toEqual({
+          path: outPath("clip.webm"),
+          durationMs: 1234,
+          bytes: 42,
+          keyframes: ["AAAA"],
+        });
+        expect(stopRecording).toHaveBeenCalledWith("rec-1", expect.any(Number));
+      });
+
+      it("returns 404 for an unknown recordingId", async () => {
+        (stopRecording as Mock).mockResolvedValue(null);
+
+        const res = await httpPost(
+          server.serverPort,
+          "/webview/pane-1/record/stop",
+          { recordingId: "no-such-id" },
+        );
+        expect(res.status).toBe(404);
+      });
+    });
+
+    describe("GET /recordings", () => {
+      it("lists active recordings", async () => {
+        const started = recordingManager.start({
+          paneId: "pane-1",
+          path: outPath("active.webm"),
+          capture: async () => "AAAA",
+        });
+
+        const res = await httpGet(server.serverPort, "/recordings");
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data).toHaveLength(1);
+        expect(data[0].recordingId).toBe(started.recordingId);
+        expect(data[0].paneId).toBe("pane-1");
+        expect(data[0].path).toBe(outPath("active.webm"));
+        expect(typeof data[0].elapsedMs).toBe("number");
+      });
     });
   });
 

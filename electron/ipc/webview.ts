@@ -43,6 +43,22 @@ export { recordingManager };
  */
 const paneRenderers = new Map<string, number>();
 
+/**
+ * The webContents of the renderer window hosting `paneId`. `MediaRecorder`
+ * runs in that renderer (via `window.electronAPI`, not exposed to arbitrary
+ * guest page content), so it — not the pane's own `webContents` — is the
+ * `requestWebContents` argument `wc.getMediaSourceId()` needs. Exported for
+ * ticket 3's `record/start` route.
+ */
+export function getPaneRendererWebContents(
+  paneId: string,
+): Electron.WebContents | undefined {
+  const rendererId = paneRenderers.get(paneId);
+  if (rendererId === undefined) return undefined;
+  const rendererWc = webContents.fromId(rendererId);
+  return rendererWc && !rendererWc.isDestroyed() ? rendererWc : undefined;
+}
+
 const webviewContextMenuCleanup = new Map<string, () => void>();
 const webviewEscapeCleanup = new Map<string, () => void>();
 const webviewUnloadCleanup = new Map<string, () => void>();
@@ -89,6 +105,14 @@ const MAX_QUEUED_CHUNK_BYTES = 32 * 1024 * 1024;
 /** How long to wait for the renderer to confirm its recorder flushed. */
 const RENDERER_STOP_TIMEOUT_MS = 5000;
 
+/**
+ * How long to wait for the renderer to report a *failed* start before
+ * assuming it succeeded. `getUserMedia`/`MediaRecorder` setup failures
+ * (bad `mediaSourceId`, permission denial) surface almost immediately, so
+ * this only needs to outlast that — not the recording itself.
+ */
+const RENDERER_START_CONFIRM_TIMEOUT_MS = 5000;
+
 interface ChunkQueue {
   /** Chunks held back while the write stream is over its high-water mark. */
   pending: Buffer[];
@@ -100,6 +124,14 @@ const chunkQueues = new Map<string, ChunkQueue>();
 
 /** Resolvers for `webview:recording-stopped`, keyed by recordingId. */
 const pendingStopConfirmations = new Map<string, () => void>();
+
+/**
+ * Resolvers for a start's failure notification, keyed by recordingId. Only
+ * populated while `startRendererRecording`'s returned promise is pending; a
+ * "webview:recording-stopped" that arrives after it settled (or a later,
+ * unrelated stop) instead falls through to the normal self-cleanup path.
+ */
+const pendingStartConfirmations = new Map<string, (error?: string) => void>();
 
 function queueFor(recordingId: string): ChunkQueue {
   let queue = chunkQueues.get(recordingId);
@@ -192,16 +224,39 @@ function sendRecordingCommand(paneId: string, command: RecordingCommand): void {
   fallback?.webContents.send("webview:recording-command", command);
 }
 
+/** Outcome of a `startRendererRecording` round-trip. */
+export type StartRendererRecordingResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 /**
- * Tell the renderer to start capturing `paneId` into `recordingId`. Fire-and-
- * forget: a failed capture comes back as an immediate stop notification.
+ * Tell the renderer to start capturing `paneId` into `recordingId`, and wait
+ * to see whether it reports an immediate failure.
+ *
+ * The renderer has nothing to say on success — the `MediaRecorder` just runs —
+ * so this can only ever confirm a *failure*: a `webview:recording-stopped`
+ * call for this id before the timeout elapses. No such call within the window
+ * is treated as success. Ticket 3's start route relies on this to roll back a
+ * registered recording that never got a `MediaRecorder` behind it.
  */
 export function startRendererRecording(
   recordingId: string,
   paneId: string,
   mediaSourceId: string,
-): void {
+): Promise<StartRendererRecordingResult> {
+  const confirmed = new Promise<StartRendererRecordingResult>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingStartConfirmations.delete(recordingId);
+      resolve({ ok: true });
+    }, RENDERER_START_CONFIRM_TIMEOUT_MS);
+    pendingStartConfirmations.set(recordingId, (error) => {
+      clearTimeout(timer);
+      pendingStartConfirmations.delete(recordingId);
+      resolve({ ok: false, error: error ?? "Renderer failed to start recording" });
+    });
+  });
   sendRecordingCommand(paneId, { cmd: "start", recordingId, mediaSourceId });
+  return confirmed;
 }
 
 /**
@@ -212,12 +267,13 @@ export function startRendererRecording(
 export function stopRendererRecording(
   recordingId: string,
   paneId: string,
+  timeoutMs = RENDERER_STOP_TIMEOUT_MS,
 ): Promise<void> {
   const confirmed = new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       pendingStopConfirmations.delete(recordingId);
       resolve();
-    }, RENDERER_STOP_TIMEOUT_MS);
+    }, timeoutMs);
     pendingStopConfirmations.set(recordingId, () => {
       clearTimeout(timer);
       pendingStopConfirmations.delete(recordingId);
@@ -232,11 +288,11 @@ export function stopRendererRecording(
  * Full stop: drain the renderer first, then finalize the file. This is what
  * ticket 3's HTTP routes and the teardown paths should call.
  */
-export async function stopRecording(recordingId: string) {
+export async function stopRecording(recordingId: string, timeoutMs?: number) {
   const paneId = recordingManager
     .list()
     .find((r) => r.recordingId === recordingId)?.paneId;
-  if (paneId) await stopRendererRecording(recordingId, paneId);
+  if (paneId) await stopRendererRecording(recordingId, paneId, timeoutMs);
   flushChunkQueue(recordingId);
   return recordingManager.stop(recordingId);
 }
@@ -663,9 +719,10 @@ export function register(deps: IpcDeps): void {
     },
   );
 
-  // The renderer's recorder has flushed. Either main is already finalizing and
-  // is waiting on this, or the recorder stopped on its own (failed capture,
-  // destroyed webview) and main has to finalize now.
+  // The renderer's recorder has flushed. One of three callers is waiting: a
+  // `stopRendererRecording` round-trip, a `startRendererRecording` round-trip
+  // reporting an immediate failure, or nobody — the recorder stopped on its
+  // own (failed capture, destroyed webview) and main has to finalize now.
   ipcMain.handle(
     "webview:recording-stopped",
     (_event, recordingId: string, error?: string) => {
@@ -674,9 +731,14 @@ export function register(deps: IpcDeps): void {
         console.error(`[recording] renderer stopped ${recordingId}: ${error}`);
       }
       flushChunkQueue(recordingId);
-      const confirm = pendingStopConfirmations.get(recordingId);
-      if (confirm) {
-        confirm();
+      const stopConfirm = pendingStopConfirmations.get(recordingId);
+      if (stopConfirm) {
+        stopConfirm();
+        return;
+      }
+      const startConfirm = pendingStartConfirmations.get(recordingId);
+      if (startConfirm) {
+        startConfirm(error);
         return;
       }
       void recordingManager.stop(recordingId);

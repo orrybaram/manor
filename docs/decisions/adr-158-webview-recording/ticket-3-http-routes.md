@@ -1,6 +1,6 @@
 ---
 title: HTTP routes for record start/stop/list
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]

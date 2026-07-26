@@ -34,6 +34,15 @@ const MAX_KEYFRAME_INTERVAL_SEC = 600;
  */
 const MAX_KEYFRAMES = 8;
 
+/**
+ * Cap on recently-finished recordings kept around after `stop()` finalizes
+ * them, so a later `stop(recordingId)` — e.g. an agent that comes back after
+ * a `maxDurationSec` auto-stop — can still retrieve the result instead of
+ * getting `null`. Small and bounded: this is a short-lived convenience, not a
+ * history feature.
+ */
+const MAX_FINISHED_RECORDINGS = 16;
+
 // ── Types ──
 
 interface Recording {
@@ -79,6 +88,13 @@ export interface StopRecordingResult {
   bytes: number;
   /** Base64-encoded PNGs sampled during the recording. */
   keyframes: string[];
+  /**
+   * True when this result is being replayed from the finished-recordings
+   * cache rather than just finalized — i.e. this `stop()` call did not itself
+   * end the recording (it already auto-stopped, or a previous `stop()` call
+   * did). Callers use this to avoid implying their call was what ended it.
+   */
+  alreadyStopped: boolean;
 }
 
 export interface ActiveRecording {
@@ -142,6 +158,12 @@ function resolveOutputPath(
 export class RecordingManager {
   private recordings = new Map<string, Recording>();
   private autoStopListeners = new Set<AutoStopListener>();
+  /**
+   * Bounded, most-recent-last cache of finalized results, consulted by
+   * `stop()` when a recordingId is no longer in `recordings`. See
+   * `MAX_FINISHED_RECORDINGS`.
+   */
+  private finished = new Map<string, StopRecordingResult>();
 
   /**
    * Open a recording for a pane: resolve the path, open the stream, arm the
@@ -240,11 +262,20 @@ export class RecordingManager {
 
   /**
    * Finalize a recording: clear both timers, end the stream, wait for it to
-   * flush, and return the result. Returns null for an unknown id.
+   * flush, and return the result.
+   *
+   * Falls back to the finished-recordings cache for an id no longer in
+   * `recordings` — it may have already been finalized (auto-stop, or a
+   * previous `stop()` call) — returning that result with `alreadyStopped:
+   * true` rather than `null`. Only an id neither active nor cached (unknown,
+   * or evicted from the bounded cache) returns `null`.
    */
   async stop(recordingId: string): Promise<StopRecordingResult | null> {
     const recording = this.recordings.get(recordingId);
-    if (!recording) return null;
+    if (!recording) {
+      const cached = this.finished.get(recordingId);
+      return cached ? { ...cached, alreadyStopped: true } : null;
+    }
 
     // Drop it from the map before any await so a concurrent stop (auto-stop
     // racing an explicit stop) cannot finalize the same stream twice.
@@ -255,14 +286,17 @@ export class RecordingManager {
 
     await endStream(recording.stream);
 
-    return {
+    const result: StopRecordingResult = {
       recordingId: recording.recordingId,
       paneId: recording.paneId,
       path: recording.path,
       durationMs: Date.now() - recording.startedAt,
       bytes: recording.bytes,
       keyframes: recording.keyframes,
+      alreadyStopped: false,
     };
+    this.rememberFinished(result);
+    return result;
   }
 
   /** Stop the recording for a pane, if any. Used by pane teardown paths. */
@@ -305,6 +339,20 @@ export class RecordingManager {
       if (recording.paneId === paneId) return recording;
     }
     return undefined;
+  }
+
+  /**
+   * Remember a just-finalized result so a later `stop()` for the same id can
+   * still retrieve it. Bounded FIFO: `Map` preserves insertion order, so the
+   * oldest entry is always the first key.
+   */
+  private rememberFinished(result: StopRecordingResult): void {
+    this.finished.set(result.recordingId, result);
+    while (this.finished.size > MAX_FINISHED_RECORDINGS) {
+      const oldestKey = this.finished.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.finished.delete(oldestKey);
+    }
   }
 
   /**

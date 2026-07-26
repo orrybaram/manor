@@ -45,8 +45,10 @@ single webview pane to a `.webm` file on disk, built on Chromium's capture stack
 
 ### Capture pipeline
 
-`webContents.getMediaSourceId()` on the pane's webContents returns a source handle. The renderer
-passes it to `getUserMedia` and pipes the stream into a `MediaRecorder`:
+`webContents.getMediaSourceId(requestWebContents)` on the pane's webContents returns a source
+handle. The argument is required and is the renderer that will call `getUserMedia` — in Manor that
+is the window hosting the pane, not necessarily the first window, since a pane can be popped out.
+The renderer passes the handle to `getUserMedia` and pipes the stream into a `MediaRecorder`:
 
 ```ts
 const stream = await navigator.mediaDevices.getUserMedia({
@@ -147,8 +149,12 @@ keyframes are for the agent.
 - `.webm` does not open in QuickTime. It plays in Chrome, VS Code, and IINA. Documented in the tool
   description so agents can tell the user.
 - Chromium throttles rendering for hidden or fully occluded contents, so recording a
-  non-visible pane can yield stalled or black frames. `start_recording` should surface a warning
-  when the target pane is not the active one rather than silently producing a dead file.
+  non-visible pane can yield stalled or black frames. `start_recording` surfaces a warning rather
+  than silently producing a dead file — but the check is approximate. Manor has no per-pane
+  visibility signal in main, so the implementation falls back to `isFocused()` on the host window,
+  which cannot tell whether the target pane is the visible one within a split or tabbed layout.
+  If the warning proves too noisy or too quiet in practice, plumbing a real active-pane signal from
+  the renderer is the fix.
 - `chromeMediaSource: "tab"` is a non-standard Chromium constraint reached through a `mandatory`
   block that TypeScript's `MediaStreamConstraints` does not model; it needs a local cast. If a
   future Electron upgrade changes the constraint shape, this breaks at runtime, not compile time —

@@ -1577,7 +1577,7 @@ describe("requestRenderer", () => {
 // ── TOOLS/handlers parity test (ADR-149) ──
 
 describe("MCP tools composition and parity", () => {
-  it("composes exactly 28 tools with matching handlers", () => {
+  it("composes exactly 31 tools with matching handlers", () => {
     // Compose the modules the same way mcp-webview-server.ts does
     // (we import directly rather than from mcp-webview-server.ts because
     // that module calls main() at load time).
@@ -1585,10 +1585,11 @@ describe("MCP tools composition and parity", () => {
     const tools = modules.flatMap((m) => m.tools);
     const handlers = Object.assign({}, ...modules.map((m) => m.handlers));
 
-    // Assert the total tool count: 11 webview + 7 projects + 4 agents + 6 pane tools = 28
-    // (projects gained `current_workspace` in ADR-150.)
+    // Assert the total tool count: 14 webview + 7 projects + 4 agents + 6 pane tools = 31
+    // (projects gained `current_workspace` in ADR-150; webview gained
+    // start_recording/stop_recording/list_recordings in ADR-158.)
     const toolNames = tools.map((t) => t.name);
-    expect(tools).toHaveLength(28);
+    expect(tools).toHaveLength(31);
 
     // Assert the six new pane tools are present
     const newPaneTools = ["list_panes", "split_pane", "new_terminal", "new_browser", "focus_pane", "close_pane"];
@@ -2041,5 +2042,151 @@ describe("screenshot_webview handler", () => {
       screenshotHttp(),
     );
     expect(fs.existsSync(target)).toBe(true);
+  });
+});
+
+// ── recording tools ──
+
+describe("start_recording handler", () => {
+  function recordHttp(response: {
+    recordingId: string;
+    path: string;
+    warning?: string;
+  }): Http {
+    return {
+      get: async () => [{ paneId: "only-pane", url: "u", title: "t" }],
+      post: async () => response,
+      del: async () => ({}),
+    };
+  }
+
+  it("returns text with the recordingId and path", async () => {
+    const result = await webviewModule.handlers.start_recording(
+      {},
+      recordHttp({ recordingId: "rec-1", path: "/tmp/out.webm" }),
+    );
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+    expect(result.content[0].text).toContain("rec-1");
+    expect(result.content[0].text).toContain("/tmp/out.webm");
+  });
+
+  it("appends the server's warning when present", async () => {
+    const result = await webviewModule.handlers.start_recording(
+      {},
+      recordHttp({
+        recordingId: "rec-1",
+        path: "/tmp/out.webm",
+        warning: "Pane's window is not focused; capture may stall.",
+      }),
+    );
+    expect(result.content[0].text).toContain(
+      "Pane's window is not focused; capture may stall.",
+    );
+  });
+});
+
+describe("stop_recording handler", () => {
+  const KEYFRAME_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
+
+  function stopHttp(response: {
+    path: string;
+    durationMs: number;
+    bytes: number;
+    keyframes: string[];
+    alreadyStopped?: boolean;
+  }): Http {
+    return {
+      get: async () => [{ paneId: "only-pane", url: "u", title: "t" }],
+      post: async () => response,
+      del: async () => ({}),
+    };
+  }
+
+  it("emits one text block plus one image block per keyframe", async () => {
+    const result = await webviewModule.handlers.stop_recording(
+      {},
+      stopHttp({
+        path: "/tmp/out.webm",
+        durationMs: 5000,
+        bytes: 12345,
+        keyframes: [KEYFRAME_B64, KEYFRAME_B64],
+      }),
+    );
+    expect(result.content).toHaveLength(3);
+    expect(result.content[0].type).toBe("text");
+    expect(result.content[0].text).toContain("/tmp/out.webm");
+    expect(result.content[0].text).toContain("5000");
+    expect(result.content[0].text).toContain("12345");
+    expect(result.content[1]).toEqual({
+      type: "image",
+      data: KEYFRAME_B64,
+      mimeType: "image/png",
+    });
+    expect(result.content[2]).toEqual({
+      type: "image",
+      data: KEYFRAME_B64,
+      mimeType: "image/png",
+    });
+  });
+
+  it("emits text only when there are zero keyframes", async () => {
+    const result = await webviewModule.handlers.stop_recording(
+      {},
+      stopHttp({
+        path: "/tmp/out.webm",
+        durationMs: 1000,
+        bytes: 100,
+        keyframes: [],
+      }),
+    );
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+  });
+
+  it("surfaces alreadyStopped in the text", async () => {
+    const result = await webviewModule.handlers.stop_recording(
+      {},
+      stopHttp({
+        path: "/tmp/out.webm",
+        durationMs: 1000,
+        bytes: 100,
+        keyframes: [],
+        alreadyStopped: true,
+      }),
+    );
+    expect(result.content[0].text).toMatch(/already/i);
+  });
+});
+
+describe("list_recordings handler", () => {
+  it("renders the empty case", async () => {
+    const http: Http = {
+      get: async () => [],
+      post: async () => ({}),
+      del: async () => ({}),
+    };
+    const result = await webviewModule.handlers.list_recordings({}, http);
+    expect(result.content[0].text).toBe("No active recordings.");
+  });
+
+  it("renders active recordings with elapsed time", async () => {
+    const http: Http = {
+      get: async () => [
+        {
+          recordingId: "rec-1",
+          paneId: "only-pane",
+          path: "/tmp/out.webm",
+          elapsedMs: 4200,
+        },
+      ],
+      post: async () => ({}),
+      del: async () => ({}),
+    };
+    const result = await webviewModule.handlers.list_recordings({}, http);
+    expect(result.content[0].text).toContain("rec-1");
+    expect(result.content[0].text).toContain("/tmp/out.webm");
+    expect(result.content[0].text).toContain("4200");
   });
 });

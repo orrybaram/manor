@@ -289,6 +289,61 @@ const tools: ToolDef[] = [
       required: ["selector"],
     },
   },
+  {
+    name: "start_recording",
+    description:
+      "Start recording a webview pane to a .webm file on disk. Returns immediately with a " +
+      "recordingId; call stop_recording with that id when you're done — every start_recording " +
+      "must be paired with a stop_recording. Recording is not open-ended: it auto-stops after " +
+      "maxDurationSec (default 120s). Note that .webm does not open in QuickTime, but plays fine " +
+      "in Chrome, VS Code, and IINA — keep that in mind if you're handing the path to a human.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional file path to write the .webm to. Relative paths resolve against the current working directory.",
+        },
+        maxDurationSec: {
+          type: "number",
+          description: "Auto-stop after this many seconds. Default 120.",
+        },
+        keyframeIntervalSec: {
+          type: "number",
+          description: "Interval in seconds between sampled keyframe images. Default 2.",
+        },
+      },
+    },
+  },
+  {
+    name: "stop_recording",
+    description:
+      "Stop a recording started with start_recording. Returns the file path on disk plus a set " +
+      "of sampled keyframe images from the recording — the video itself is not returned inline, " +
+      "so do not expect its contents in this response.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        recordingId: {
+          type: "string",
+          description: "Recording ID returned by start_recording. Omit if only one recording is active for the pane.",
+        },
+      },
+    },
+  },
+  {
+    name: "list_recordings",
+    description: "List currently active recordings and how long each has been running.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
 ];
 
 // ── Tool handlers ──
@@ -437,6 +492,79 @@ const handlers: ToolModule["handlers"] = {
       ctxContent.push({ type: "image", data: result.screenshot, mimeType: "image/png" });
     }
     return { content: ctxContent };
+  },
+
+  async start_recording(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    const body: Record<string, unknown> = {};
+    if (args.path !== undefined) body.path = args.path;
+    if (args.maxDurationSec !== undefined) body.maxDurationSec = args.maxDurationSec;
+    if (args.keyframeIntervalSec !== undefined)
+      body.keyframeIntervalSec = args.keyframeIntervalSec;
+
+    const result = (await http.post(
+      `/webview/${encodeURIComponent(id)}/record/start`,
+      body,
+    )) as { recordingId: string; path: string; warning?: string };
+
+    let message = `Recording started: ${result.recordingId}\nWriting to ${result.path}`;
+    if (result.warning) {
+      message += `\nWarning: ${result.warning}`;
+    }
+    return text(message);
+  },
+
+  async stop_recording(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    const body: Record<string, unknown> = {};
+    if (args.recordingId !== undefined) body.recordingId = args.recordingId;
+
+    const result = (await http.post(
+      `/webview/${encodeURIComponent(id)}/record/stop`,
+      body,
+    )) as {
+      path: string;
+      durationMs: number;
+      bytes: number;
+      keyframes: string[];
+      alreadyStopped?: boolean;
+    };
+
+    let message = `Recording stopped: ${result.path}\nDuration: ${result.durationMs}ms, size: ${result.bytes} bytes`;
+    if (result.alreadyStopped) {
+      message +=
+        "\nNote: this recording had already finished (likely hit its maxDurationSec limit) before this call — this call did not stop it, it just fetched the cached result.";
+    }
+
+    const content: Array<{
+      type: string;
+      text?: string;
+      data?: string;
+      mimeType?: string;
+    }> = [{ type: "text", text: message }];
+    for (const keyframe of result.keyframes) {
+      content.push({ type: "image", data: keyframe, mimeType: "image/png" });
+    }
+    return { content };
+  },
+
+  async list_recordings(_args, http) {
+    const recordings = (await http.get("/recordings")) as Array<{
+      recordingId: string;
+      paneId: string;
+      path: string;
+      elapsedMs: number;
+    }>;
+    if (recordings.length === 0) {
+      return text("No active recordings.");
+    }
+    const formatted = recordings
+      .map(
+        (r) =>
+          `${r.recordingId} (pane ${r.paneId}): ${r.path} — ${r.elapsedMs}ms elapsed`,
+      )
+      .join("\n");
+    return text(formatted);
   },
 };
 

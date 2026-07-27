@@ -2,6 +2,16 @@
 
 
 
+
+## [0.6.5] - 2026-07-27
+
+**Features**
+- Record terminal sessions with a live recording indicator on the pane
+- Start, stop, and list recordings from MCP tools
+
+**Fixes**
+- Sidebar: clicking to add a tab no longer misbehaves
+
 ## [0.6.4] - 2026-07-25
 
 ## Features

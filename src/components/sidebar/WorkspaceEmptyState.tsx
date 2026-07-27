@@ -79,7 +79,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
       icon: <Terminal size={16} />,
       label: "Open Terminal",
       keys: ["⌘", "T"],
-      action: addTab,
+      action: () => addTab(),
     },
     {
       icon: <Globe size={16} />,

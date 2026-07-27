@@ -47,7 +47,7 @@ export function EmptyStateShell(props: EmptyStateShellProps) {
               ]
                 .filter(Boolean)
                 .join(" ")}
-              onClick={item.action}
+              onClick={() => item.action()}
               disabled={item.hidden === true}
               aria-hidden={item.hidden === true || undefined}
               tabIndex={item.hidden === true ? -1 : undefined}

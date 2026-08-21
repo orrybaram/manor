@@ -1,6 +1,6 @@
 ---
 title: Main process — carry seq to the renderer
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

@@ -72,6 +72,7 @@ export function handleStreamEvent(
         window.webContents.send(
           `pty-output-${event.sessionId}`,
           event.data,
+          event.seq,
         );
         break;
       case "exit":

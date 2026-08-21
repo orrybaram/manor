@@ -81,6 +81,14 @@ export class Session {
   private exitCode = 0;
   private pid: number | null = null;
 
+  /**
+   * Count of `data` events broadcast so far. Stamped on each event and on every
+   * snapshot, so a reattaching client can tell which output its snapshot
+   * already contains. Counts events rather than bytes — the client drops whole
+   * chunks, and bytes would mean tracking encodings.
+   */
+  private outputSeq = 0;
+
   // Headless write flush tracking — write() is async, we need to
   // wait for it before serialize() will return content
   private headlessWritesPending = 0;
@@ -303,7 +311,12 @@ export class Session {
         this.trackModes(data);
 
         // Broadcast to attached clients
-        this.broadcastEvent({ type: "data", sessionId: this.sessionId, data });
+        this.broadcastEvent({
+          type: "data",
+          sessionId: this.sessionId,
+          data,
+          seq: ++this.outputSeq,
+        });
         break;
       }
 
@@ -439,8 +452,11 @@ export class Session {
   /** Get a snapshot of the terminal state for warm restore */
   async getSnapshot(): Promise<TerminalSnapshot> {
     await this.flushHeadless();
+    // Read the counter after the flush: before it, the screen would not yet
+    // show output the number claims.
     return {
       screenAnsi: this.serializeAddon.serialize(),
+      seq: this.outputSeq,
       scrollbackAnsi: "", // headless serialize already includes scrollback
       modes: { ...this.modes },
       cwd: this.cwd,

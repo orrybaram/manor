@@ -22,6 +22,12 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
   screenAnsi: string;
+  /**
+   * Position in the session's output stream that this screen reflects: the
+   * number of `data` events broadcast when it was serialized. A client that
+   * subscribed before snapshotting uses it to skip the events already baked in.
+   */
+  seq: number;
   scrollbackAnsi: string;
   modes: TerminalModes;
   cwd: string | null;
@@ -104,7 +110,7 @@ export interface AgentState {
 // ── Stream socket event types ──
 
 export type StreamEvent =
-  | { type: "data"; sessionId: string; data: string }
+  | { type: "data"; sessionId: string; data: string; seq: number }
   | { type: "exit"; sessionId: string; exitCode: number }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }

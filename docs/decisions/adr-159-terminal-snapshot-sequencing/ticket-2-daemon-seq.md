@@ -1,6 +1,6 @@
 ---
 title: Daemon — sequence-number the output stream and stamp snapshots
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [1]

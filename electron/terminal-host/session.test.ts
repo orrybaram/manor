@@ -99,6 +99,62 @@ describe("Session", () => {
     });
   });
 
+  describe("output sequence numbers (ADR-159)", () => {
+    /** Sequence numbers carried by the data events a socket received. */
+    function dataSeqs(written: string[]): number[] {
+      return written
+        .map((line) => JSON.parse(line) as StreamEvent)
+        .filter((event): event is Extract<StreamEvent, { type: "data" }> =>
+          event.type === "data",
+        )
+        .map((event) => event.seq);
+    }
+
+    it("numbers each data event, starting at one", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "first");
+      pushDataFrame(session, "second");
+      pushDataFrame(session, "third");
+
+      expect(dataSeqs(written)).toEqual([1, 2, 3]);
+    });
+
+    it("reports the position the snapshot was taken at", async () => {
+      const { socket } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "one");
+      pushDataFrame(session, "two");
+
+      expect((await session.getSnapshot()).seq).toBe(2);
+    });
+
+    it("does not move the position when nothing was emitted", async () => {
+      pushDataFrame(session, "only");
+      const first = await session.getSnapshot();
+      const second = await session.getSnapshot();
+      expect(second.seq).toBe(first.seq);
+    });
+
+    it("starts at zero so a fresh session covers nothing", async () => {
+      expect((await session.getSnapshot()).seq).toBe(0);
+    });
+
+    it("counts output emitted while no client is attached", async () => {
+      pushDataFrame(session, "while detached");
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+      pushDataFrame(session, "after attach");
+
+      // The attached client sees seq 2 — it missed 1, and the snapshot it
+      // fetches will say so.
+      expect(dataSeqs(written)).toEqual([2]);
+      expect((await session.getSnapshot()).seq).toBe(2);
+    });
+  });
+
   describe("OSC 7 CWD tracking", () => {
     it("updates CWD from OSC 7 with BEL terminator", async () => {
       pushDataFrame(session, "\x1b]7;file://localhost/Users/test\x07");

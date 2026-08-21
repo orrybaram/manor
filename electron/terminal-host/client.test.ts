@@ -41,6 +41,8 @@ class TestDaemon {
   readonly socketPath: string;
   readonly tokenPath: string;
   readonly pidPath: string;
+  /** Every request seen, in order, as "control:type" / "stream:type". */
+  readonly seen: string[] = [];
 
   constructor(dir: string) {
     // macOS has a 104-char limit for unix socket paths — use a short socket path
@@ -138,6 +140,7 @@ class TestDaemon {
     let req: ControlRequest & { requestId?: string };
     try {
       req = JSON.parse(line);
+      this.seen.push(`control:${req.type}`);
     } catch {
       this.send(socket, { type: "error", message: "Invalid JSON" });
       return;
@@ -232,6 +235,7 @@ class TestDaemon {
     let cmd: any;
     try {
       cmd = JSON.parse(line);
+      this.seen.push(`stream:${cmd.type}`);
     } catch {
       return;
     }
@@ -498,6 +502,50 @@ describe("TerminalHostClient", () => {
       const result = await client.createOrAttach("pane-1", "/tmp", 80, 24);
       expect(result.snapshot).not.toBeNull();
       expect(result.snapshot!.screenAnsi).toContain("hello from pty");
+      client.disconnect();
+    });
+
+    it("resizes, then subscribes, then snapshots when reattaching (ADR-159)", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      const host = daemon.getHost();
+      const session = (host as any).sessions.get("pane-1");
+      (session as any).decoder.push(encodeFrame(MSG.DATA, "already on screen"));
+
+      client.disconnect();
+      await client.connect();
+      daemon.seen.length = 0;
+
+      const result = await client.createOrAttach("pane-1", "/tmp", 100, 30);
+
+      // Subscribing before snapshotting is what closes the loss window; the
+      // duplicates it admits are filtered by seq downstream.
+      const order = daemon.seen.filter((entry) =>
+        ["control:resize", "stream:subscribe", "control:getSnapshot"].includes(
+          entry,
+        ),
+      );
+      expect(order).toEqual([
+        "control:resize",
+        "stream:subscribe",
+        "control:getSnapshot",
+      ]);
+      expect(result.snapshot!.seq).toBeGreaterThan(0);
+      client.disconnect();
+    });
+
+    it("does not resize or subscribe when creating a fresh session", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      daemon.seen.length = 0;
+
+      const result = await client.createOrAttach("pane-fresh", "/tmp", 80, 24);
+
+      expect(result.snapshot).toBeNull();
+      expect(daemon.seen).toContain("control:create");
+      expect(daemon.seen).not.toContain("control:resize");
       client.disconnect();
     });
 

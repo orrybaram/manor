@@ -184,23 +184,41 @@ export class TerminalHostClient {
     await this.ensureConnected();
 
     try {
-      // Check if the daemon already has this session (warm restore).
-      // Use getSnapshot instead of attach to avoid adding the control socket
-      // to the session's broadcast list (which would corrupt the control protocol).
-      const snapshotResp = await this.request({
-        type: "getSnapshot",
-        sessionId,
-      });
-      if (snapshotResp.type === "snapshot") {
-        // Session exists — resize to match new terminal dimensions before subscribing,
-        // so we don't receive a SIGWINCH-triggered prompt redraw as a stream event.
+      // Warm restore: does the daemon already have this session? `listSessions`
+      // answers without side effects, and unlike `attach` it never adds the
+      // control socket to the session's broadcast list (which would corrupt the
+      // control protocol).
+      const sessionsResp = await this.request({ type: "listSessions" });
+      const existing =
+        sessionsResp.type === "sessions" &&
+        sessionsResp.sessions.some((s) => s.sessionId === sessionId);
+
+      if (existing) {
+        // Order matters, and it is the opposite of what it looks like.
+        //
+        // 1. Resize first. A resize raises SIGWINCH, and a full-screen TUI
+        //    answers by repainting — output we want either already inside the
+        //    snapshot or arriving afterwards with a higher seq, never straddling.
+        // 2. Subscribe second. From here on nothing the PTY produces is lost;
+        //    before this point there is no one listening.
+        // 3. Snapshot last. It reports the stream position it reflects, so the
+        //    renderer can drop the events between (2) and (3) that it also
+        //    contains. Duplicates are expected here and are filtered by seq —
+        //    losing output is the failure mode worth avoiding, since nothing
+        //    downstream can reconstruct it.
         await this.request({ type: "resize", sessionId, cols, rows });
-        // Subscribe on stream socket for ongoing events
         this.streamWrite({ type: "subscribe", sessionId });
-        return {
-          session: { sessionId, cwd, cols, rows, alive: true },
-          snapshot: snapshotResp.snapshot,
-        };
+        const snapshotResp = await this.request({
+          type: "getSnapshot",
+          sessionId,
+        });
+        if (snapshotResp.type === "snapshot") {
+          return {
+            session: { sessionId, cwd, cols, rows, alive: true },
+            snapshot: snapshotResp.snapshot,
+          };
+        }
+        // The session died between the two requests — fall through and create.
       }
 
       // Create new session

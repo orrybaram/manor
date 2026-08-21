@@ -1224,23 +1224,30 @@ describe("E2E: warm restore delivers output exactly once", () => {
     return control;
   }
 
-  it("loses nothing emitted between the snapshot and the subscribe", async () => {
+  it("loses nothing emitted while the handshake is in flight", async () => {
     const control = await createSession("gap");
     const host = daemon.getHost();
     feedSessionData(host, "gap", "BANNER LINE\r\n");
     await delay(20);
 
-    // The handshake, with the PTY producing output throughout.
-    control.send({ type: "getSnapshot", sessionId: "gap" });
-    const snapResp = await control.readLine();
-    const snapshot = snapResp.snapshot as TerminalSnapshot;
+    // The handshake the client performs, with the PTY producing output
+    // throughout: resize, subscribe, snapshot.
+    control.send({ type: "resize", sessionId: "gap", cols: 100, rows: 30 });
+    await control.readLine();
 
-    feedSessionData(host, "gap", "MIDDLE LINE\r\n");
+    feedSessionData(host, "gap", "AFTER RESIZE\r\n");
     await delay(20);
 
     const stream = await streamClient();
     stream.subscribe("gap");
     await delay(20);
+
+    feedSessionData(host, "gap", "MIDDLE LINE\r\n");
+    await delay(20);
+
+    control.send({ type: "getSnapshot", sessionId: "gap" });
+    const snapResp = await control.readLine();
+    const snapshot = snapResp.snapshot as TerminalSnapshot;
 
     feedSessionData(host, "gap", "AFTER LINE\r\n");
     await delay(50);

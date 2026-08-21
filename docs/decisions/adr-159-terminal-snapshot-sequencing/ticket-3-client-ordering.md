@@ -1,6 +1,6 @@
 ---
 title: Client — subscribe before snapshotting, and return the snapshot's seq
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [2]

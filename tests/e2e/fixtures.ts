@@ -131,20 +131,32 @@ export async function bootWorkspaceWithTerminal(
   }
   await expect(wizard).not.toBeVisible({ timeout: 5_000 });
 
-  await window.locator('[data-testid="sidebar-new-workspace-button"]').click();
-  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
-  await window
-    .locator('[data-testid="new-workspace-name-input"]')
-    .fill(workspaceName);
-  await window.locator('[data-testid="new-workspace-submit"]').click();
-  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+  await createWorkspace(window, workspaceName);
 
   await window.keyboard.press("Meta+t");
   await expect(window.locator('[data-testid="terminal-pane"]').first()).toBeVisible({
     timeout: 30_000,
   });
   await assertVisiblePaneCount(window, 1);
+}
+
+/**
+ * Open the New Workspace dialog and create `name` in the selected project.
+ *
+ * Driven by the new-workspace keybinding (Meta+Shift+N) rather than a sidebar
+ * button — the button's test id drifted away once already, and the keybinding
+ * is a stable, user-facing entry point.
+ */
+export async function createWorkspace(
+  window: Page,
+  name: string,
+): Promise<void> {
+  await window.keyboard.press("Meta+Shift+n");
+  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await window.locator('[data-testid="new-workspace-name-input"]').fill(name);
+  await window.locator('[data-testid="new-workspace-submit"]').click();
+  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
 }
 
 /** Poll the count of visible workspace-panes (only the active tab's tree counts). */

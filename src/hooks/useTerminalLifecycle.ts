@@ -70,8 +70,15 @@ export function useTerminalLifecycle(
   const { attachHandler } = useTerminalHotkeys(onOpenSearch);
 
   // Subscribe to stream events (pass write so the stream handler can
-  // respond to kitty keyboard protocol queries on behalf of xterm.js)
-  useTerminalStream(paneId, term, write, setPtyError, resettingRef);
+  // respond to kitty keyboard protocol queries on behalf of xterm.js).
+  // Output stays queued until openOutput() — see the create() call below.
+  const { openOutput } = useTerminalStream(
+    paneId,
+    term,
+    write,
+    setPtyError,
+    resettingRef,
+  );
 
   // Auto-resize
   useTerminalResize(containerRef, fitAddon, term);
@@ -139,7 +146,6 @@ export function useTerminalLifecycle(
     t.unicode.activeVersion = "11";
 
     t.open(container);
-    fit.fit();
 
     // Post-open addons (require DOM/canvas)
     try {
@@ -169,6 +175,13 @@ export function useTerminalLifecycle(
     } catch {
       // ignored
     }
+
+    // Fit only once every addon is loaded. The WebGL addon swaps the render
+    // service and with it the measured cell size, so fitting before that can
+    // report different cols/rows than the settled layout — and the correction
+    // reaches the PTY as a SIGWINCH that makes full-screen TUIs repaint their
+    // frame into the scrollback.
+    fit.fit();
 
     // File path links (CMD+click to open in editor)
     t.registerLinkProvider(
@@ -353,7 +366,12 @@ export function useTerminalLifecycle(
           );
         }
       },
-    );
+    ).finally(() => {
+      // Whatever happened above, the terminal now shows everything the daemon
+      // had at attach time, so live output can flow. This has to run after the
+      // snapshot write — reversed, the snapshot repeats bytes already on screen.
+      if (!disposed) openOutput(t);
+    });
 
     // Terminal title changes (OSC sequences) → store
     const titleDisposable = t.onTitleChange((title) => {

@@ -47,6 +47,13 @@ export function useTerminalResize(
       observerRef.current = new ResizeObserver(() => {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(() => {
+          // A collapsed container (hidden pane, minimized window, mid-drag
+          // layout) makes the fit addon propose its 2x1 floor. Resizing the PTY
+          // that small makes full-screen TUIs repaint their whole frame at 2
+          // columns, and that garbled repaint is appended to the scrollback for
+          // good. Skip the fit until the container has a real box again.
+          const el = containerRef.current;
+          if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
           fitAddonRef.current?.fit();
           // Force a full viewport refresh after fit to fix WebGL renderer
           // glitches where text becomes garbled until the next resize.

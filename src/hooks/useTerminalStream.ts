@@ -1,12 +1,18 @@
 /**
  * useTerminalStream — subscribes to PTY output, exit, and CWD events.
  *
+ * Owns the whole PTY-bytes-to-xterm path, including its opening move: output is
+ * queued until the caller calls `openOutput(term)`. The daemon subscribes us to
+ * the session's stream before the create/attach reply gets back here, so live
+ * bytes would otherwise land in xterm *before* the warm-restore snapshot, and
+ * the snapshot would then repeat everything the terminal had already shown.
+ *
  * Also handles kitty keyboard protocol negotiation: intercepts push/pop/query
  * sequences from the child process and responds on behalf of xterm.js (which
  * does not implement the protocol natively).
  */
 
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useAppStore } from "../store/app-store";
 import { useMountEffect } from "./useMountEffect";
@@ -30,6 +36,19 @@ export function useTerminalStream(
   ptyWriteRef.current = ptyWrite;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  /** Output received so far, or null once the terminal is taking writes. */
+  const queuedRef = useRef<string[] | null>([]);
+
+  /**
+   * Start writing output through, replaying whatever arrived while queued.
+   * Takes the terminal explicitly so the caller doesn't have to assume React
+   * has re-rendered with it by the time the create/attach round trip lands.
+   */
+  const openOutput = useCallback((target: Terminal) => {
+    const queued = queuedRef.current;
+    queuedRef.current = null;
+    if (queued) for (const chunk of queued) target.write(chunk);
+  }, []);
 
   useMountEffect(() => {
     let kittyFlags = 0;
@@ -37,9 +56,6 @@ export function useTerminalStream(
     const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
       (data: string) => {
-        const currentTerm = termRef.current;
-        if (!currentTerm) return;
-
         // Intercept kitty keyboard protocol sequences before xterm sees them
         let hasKitty = false;
         const filtered = data.replace(KITTY_KB_RE, (_match, prefix, digits) => {
@@ -57,7 +73,9 @@ export function useTerminalStream(
           return ""; // strip from output so xterm doesn't choke
         });
 
-        currentTerm.write(hasKitty ? filtered : data);
+        const out = hasKitty ? filtered : data;
+        if (queuedRef.current) queuedRef.current.push(out);
+        else termRef.current?.write(out);
       },
     );
 
@@ -92,4 +110,6 @@ export function useTerminalStream(
       unsubError();
     };
   });
+
+  return { openOutput };
 }

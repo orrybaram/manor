@@ -5,7 +5,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
-import { test as base, expect } from "./fixtures";
+import { createWorkspace, test as base, expect } from "./fixtures";
 
 const repoRoot = path.join(__dirname, "../..");
 
@@ -128,12 +128,7 @@ test("setup script survives navigation; persistent toast signals background work
   ).toBeVisible({ timeout: 10_000 });
 
   // Create a new workspace named "smoke-bg".
-  await window.locator('[data-testid="sidebar-new-workspace-button"]').click();
-  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
-  await window.locator('[data-testid="new-workspace-name-input"]').fill("smoke-bg");
-  await window.locator('[data-testid="new-workspace-submit"]').click();
-  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+  await createWorkspace(window, "smoke-bg");
 
   // Setup view should appear — git ops are fast, then the setup-script step
   // flips to in-progress and the PTY runs `sleep 4` in the background.

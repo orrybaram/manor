@@ -1,6 +1,6 @@
 ---
 title: Failing test — warm restore duplicates output across the attach gap
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

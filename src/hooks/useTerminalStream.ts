@@ -2,10 +2,11 @@
  * useTerminalStream — subscribes to PTY output, exit, and CWD events.
  *
  * Owns the whole PTY-bytes-to-xterm path, including its opening move: output is
- * queued until the caller calls `openOutput(term)`. The daemon subscribes us to
- * the session's stream before the create/attach reply gets back here, so live
- * bytes would otherwise land in xterm *before* the warm-restore snapshot, and
- * the snapshot would then repeat everything the terminal had already shown.
+ * queued until the caller calls `openOutput(term, snapshotSeq)`. The daemon
+ * subscribes us to the session's stream before the create/attach reply gets
+ * back here — deliberately, so nothing is lost in the gap — which means some of
+ * what we queued is also inside the warm-restore snapshot. Each chunk's stream
+ * position sorts that out: see `outputAfterSnapshot`.
  *
  * Also handles kitty keyboard protocol negotiation: intercepts push/pop/query
  * sequences from the child process and responds on behalf of xterm.js (which
@@ -16,6 +17,10 @@ import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useAppStore } from "../store/app-store";
 import { useMountEffect } from "./useMountEffect";
+import {
+  outputAfterSnapshot,
+  type QueuedOutput,
+} from "../lib/snapshot-dedupe";
 
 // Matches kitty keyboard protocol sequences:
 //   \x1b[>Xu  — push mode (flags = X, one or more digits)
@@ -37,25 +42,33 @@ export function useTerminalStream(
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
   /** Output received so far, or null once the terminal is taking writes. */
-  const queuedRef = useRef<string[] | null>([]);
+  const queuedRef = useRef<QueuedOutput[] | null>([]);
 
   /**
-   * Start writing output through, replaying whatever arrived while queued.
+   * Start writing output through, replaying what arrived while queued minus
+   * whatever the snapshot at `snapshotSeq` already put on screen.
+   *
    * Takes the terminal explicitly so the caller doesn't have to assume React
    * has re-rendered with it by the time the create/attach round trip lands.
    */
-  const openOutput = useCallback((target: Terminal) => {
-    const queued = queuedRef.current;
-    queuedRef.current = null;
-    if (queued) for (const chunk of queued) target.write(chunk);
-  }, []);
+  const openOutput = useCallback(
+    (target: Terminal, snapshotSeq?: number | null) => {
+      const queued = queuedRef.current;
+      queuedRef.current = null;
+      if (!queued) return;
+      for (const chunk of outputAfterSnapshot(queued, snapshotSeq)) {
+        target.write(chunk.data);
+      }
+    },
+    [],
+  );
 
   useMountEffect(() => {
     let kittyFlags = 0;
 
     const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
-      (data: string) => {
+      (data: string, seq?: number) => {
         // Intercept kitty keyboard protocol sequences before xterm sees them
         let hasKitty = false;
         const filtered = data.replace(KITTY_KB_RE, (_match, prefix, digits) => {
@@ -74,7 +87,7 @@ export function useTerminalStream(
         });
 
         const out = hasKitty ? filtered : data;
-        if (queuedRef.current) queuedRef.current.push(out);
+        if (queuedRef.current) queuedRef.current.push({ data: out, seq });
         else termRef.current?.write(out);
       },
     );

@@ -260,8 +260,18 @@ export function useTerminalLifecycle(
     // casing here — pass it through like any workspace path.
     const spawnCwd = cwd ?? null;
 
+    // Captured for the .finally below, which needs to know how much of the
+    // queued output the snapshot already covers.
+    let snapshotSeq: number | null | undefined;
+
     create(spawnCwd, cols, rows, agentKindForCreate).then(
-      (result: { ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }) => {
+      (result: {
+        ok: boolean;
+        snapshot?: string | null;
+        snapshotSeq?: number | null;
+        error?: string;
+        prewarmed?: boolean;
+      }) => {
         if (!disposed && !result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
@@ -269,6 +279,7 @@ export function useTerminalLifecycle(
           return;
         }
         if (!disposed && result.ok) {
+          snapshotSeq = result.snapshotSeq;
           if (result.snapshot) {
             t.write(result.snapshot);
           }
@@ -370,7 +381,9 @@ export function useTerminalLifecycle(
       // Whatever happened above, the terminal now shows everything the daemon
       // had at attach time, so live output can flow. This has to run after the
       // snapshot write — reversed, the snapshot repeats bytes already on screen.
-      if (!disposed) openOutput(t);
+      // The snapshot's stream position tells openOutput which queued chunks it
+      // already accounts for; see ADR-159.
+      if (!disposed) openOutput(t, snapshotSeq);
     });
 
     // Terminal title changes (OSC sequences) → store

@@ -43,28 +43,27 @@ async function runInTerminal(window: Page, command: string): Promise<void> {
  * Wait until the pane's shell is actually at a prompt.
  *
  * A freshly opened pane is visible before its shell has one, and zsh's line
- * editor discards anything typed while it is still initializing — so a probe
- * gets retyped until it echoes back. Retrying a *probe* rather than the real
- * command matters: the tests below count how many times a line appears, and a
- * retyped command would inflate that count.
+ * editor discards anything typed while it is still initializing. Retyping is
+ * not a fix — under load every retry can land inside that window, and for the
+ * tests below a retyped command would also inflate the counts they assert on.
+ *
+ * So wait for the shell to actually settle: the session's scrollback starts
+ * empty, fills as zsh sources its rc files and draws a prompt, and then stops.
+ * A size that has held steady for two samples means it is done talking.
  */
 async function awaitShellReady(
   window: Page,
   tempHome: string,
   paneId: string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await runInTerminal(window, `printf 'SHELL%s\\n' UP`);
-    try {
-      await expect
-        .poll(() => scrollback(tempHome, paneId).includes("SHELLUP"), {
-          timeout: 6_000,
-        })
-        .toBe(true);
-      return;
-    } catch {
-      // Swallowed by an un-initialized ZLE — probe again.
-    }
+  let last = -1;
+  let steady = 0;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    await window.waitForTimeout(200);
+    const size = scrollback(tempHome, paneId).length;
+    steady = size > 0 && size === last ? steady + 1 : 0;
+    last = size;
+    if (steady >= 2) return;
   }
   throw new Error("shell never reached a prompt");
 }

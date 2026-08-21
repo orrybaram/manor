@@ -82,12 +82,25 @@ export class Session {
   private pid: number | null = null;
 
   /**
-   * Count of `data` events broadcast so far. Stamped on each event and on every
-   * snapshot, so a reattaching client can tell which output its snapshot
-   * already contains. Counts events rather than bytes — the client drops whole
-   * chunks, and bytes would mean tracking encodings.
+   * Position of the last `data` event broadcast. Stamped on each event so a
+   * reattaching client can tell which output its snapshot already contains.
+   * Counts events rather than bytes — the client drops whole chunks, and bytes
+   * would mean tracking encodings.
    */
   private outputSeq = 0;
+
+  /**
+   * Position of the last event the headless screen has actually applied, which
+   * is what a snapshot reports.
+   *
+   * It trails `outputSeq` whenever writes are still in flight, and `getSnapshot`
+   * normally waits for them — but `flushHeadless` gives up after 2s and
+   * serializes anyway. Reporting the broadcast position there would tell the
+   * client its snapshot covers output the screen never received, and the client
+   * would drop exactly those chunks. Reporting the applied position makes the
+   * worst case a duplicate rather than a hole.
+   */
+  private appliedSeq = 0;
 
   // Headless write flush tracking — write() is async, we need to
   // wait for it before serialize() will return content
@@ -267,8 +280,10 @@ export class Session {
         }
 
         // Feed headless emulator (async — write callback fires after processing)
+        const seq = ++this.outputSeq;
         this.headlessWritesPending++;
         this.headless.write(data, () => {
+          this.appliedSeq = seq;
           this.headlessWritesPending--;
           if (this.headlessWritesPending === 0) {
             const cbs = this.headlessFlushCallbacks.splice(0);
@@ -315,7 +330,7 @@ export class Session {
           type: "data",
           sessionId: this.sessionId,
           data,
-          seq: ++this.outputSeq,
+          seq,
         });
         break;
       }
@@ -452,11 +467,9 @@ export class Session {
   /** Get a snapshot of the terminal state for warm restore */
   async getSnapshot(): Promise<TerminalSnapshot> {
     await this.flushHeadless();
-    // Read the counter after the flush: before it, the screen would not yet
-    // show output the number claims.
     return {
       screenAnsi: this.serializeAddon.serialize(),
-      seq: this.outputSeq,
+      seq: this.appliedSeq,
       scrollbackAnsi: "", // headless serialize already includes scrollback
       modes: { ...this.modes },
       cwd: this.cwd,

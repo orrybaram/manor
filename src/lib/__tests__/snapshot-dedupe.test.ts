@@ -4,7 +4,7 @@ import { outputAfterSnapshot, type QueuedOutput } from "../snapshot-dedupe";
 const chunks = (...entries: Array<[string, number?]>): QueuedOutput[] =>
   entries.map(([data, seq]) => (seq === undefined ? { data } : { data, seq }));
 
-const texts = (queued: QueuedOutput[]) => queued.map((c) => c.data);
+const texts = (queued: readonly QueuedOutput[]) => queued.map((c) => c.data);
 
 describe("outputAfterSnapshot", () => {
   it("drops what the snapshot already shows", () => {
@@ -18,12 +18,6 @@ describe("outputAfterSnapshot", () => {
   });
 
   it("keeps everything for a session with no snapshot", () => {
-    const queued = chunks(["a", 1], ["b", 2]);
-    expect(texts(outputAfterSnapshot(queued, null))).toEqual(["a", "b"]);
-  });
-
-  it("keeps everything when the daemon reports no position", () => {
-    // An older daemon: dedupe is impossible, so behave as before ADR-159.
     const queued = chunks(["a", 1], ["b", 2]);
     expect(texts(outputAfterSnapshot(queued, undefined))).toEqual(["a", "b"]);
   });
@@ -54,5 +48,11 @@ describe("outputAfterSnapshot", () => {
     const queued = chunks(["a", 1], ["b", 2]);
     outputAfterSnapshot(queued, 1);
     expect(texts(queued)).toEqual(["a", "b"]);
+  });
+
+  it("returns the queue untouched when there is nothing to drop", () => {
+    // The cold-start path runs on every new pane; it should not copy.
+    const queued = chunks(["a", 1]);
+    expect(outputAfterSnapshot(queued, undefined)).toBe(queued);
   });
 });

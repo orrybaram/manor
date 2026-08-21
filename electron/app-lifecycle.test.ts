@@ -193,11 +193,11 @@ describe("handleStreamEvent", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
 
       // An older daemon predates ADR-159 and omits the field entirely.
-      const event = {
+      const event: StreamEvent = {
         type: "data",
         sessionId: paneId,
         data: "hello",
-      } as StreamEvent;
+      };
 
       handleStreamEvent(event, mockWindow, taskManager);
 

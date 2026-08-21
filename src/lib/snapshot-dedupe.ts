@@ -8,11 +8,21 @@
  * position it was serialized at, so the overlap is exactly identifiable.
  */
 
+import type { StreamPosition } from "../electron.d";
+
+/** What the daemon hands back when reattaching to a session it still has. */
+export interface TerminalRestore {
+  /** Serialized screen, ready to write to a terminal. */
+  ansi: string;
+  /** Stream position the screen reflects; absent from pre-ADR-159 daemons. */
+  seq?: StreamPosition;
+}
+
 /** A chunk of PTY output, with its position in the session's stream. */
 export interface QueuedOutput {
   data: string;
   /** Absent when the daemon predates sequence numbers. */
-  seq?: number;
+  seq?: StreamPosition;
 }
 
 /**
@@ -20,14 +30,14 @@ export interface QueuedOutput {
  * display, in arrival order.
  *
  * Anything not positively known to be covered is kept: dropping output nothing
- * can reconstruct is a worse failure than writing a duplicate, so a missing
+ * can reconstruct is a worse failure than writing a duplicate, so an absent
  * `snapshotSeq` (fresh session, or an older daemon) keeps everything, and so
- * does a chunk with no `seq` of its own.
+ * does a chunk with no position of its own.
  */
 export function outputAfterSnapshot(
   queued: readonly QueuedOutput[],
-  snapshotSeq: number | null | undefined,
-): QueuedOutput[] {
-  if (snapshotSeq == null) return [...queued];
+  snapshotSeq: StreamPosition | undefined,
+): readonly QueuedOutput[] {
+  if (snapshotSeq === undefined) return queued;
   return queued.filter((chunk) => chunk.seq == null || chunk.seq > snapshotSeq);
 }

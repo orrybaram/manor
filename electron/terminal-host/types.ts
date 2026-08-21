@@ -19,15 +19,24 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
   reverseWraparound: false,
 };
 
+/**
+ * Position in a session's output stream: the number of `data` events broadcast.
+ *
+ * Optional wherever it crosses the daemon↔app boundary — the daemon outlives
+ * the app, so a new app can meet a daemon that predates ADR-159 and sends none.
+ * Absent means "cannot tell what the snapshot covers", which is handled by
+ * applying everything.
+ */
+export type StreamPosition = number;
+
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
   screenAnsi: string;
   /**
-   * Position in the session's output stream that this screen reflects: the
-   * number of `data` events broadcast when it was serialized. A client that
-   * subscribed before snapshotting uses it to skip the events already baked in.
+   * Position this screen reflects. A client that subscribed before snapshotting
+   * uses it to skip the events already baked in.
    */
-  seq: number;
+  seq?: StreamPosition;
   scrollbackAnsi: string;
   modes: TerminalModes;
   cwd: string | null;
@@ -110,7 +119,7 @@ export interface AgentState {
 // ── Stream socket event types ──
 
 export type StreamEvent =
-  | { type: "data"; sessionId: string; data: string; seq: number }
+  | { type: "data"; sessionId: string; data: string; seq?: StreamPosition }
   | { type: "exit"; sessionId: string; exitCode: number }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }

@@ -536,16 +536,23 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("does not resize or subscribe when creating a fresh session", async () => {
+    it("creates and subscribes when the daemon has no such session", async () => {
       const client = createTestClient(daemon);
       await client.connect();
       daemon.seen.length = 0;
 
       const result = await client.createOrAttach("pane-fresh", "/tmp", 80, 24);
 
+      // The resize and subscribe that precede the snapshot are no-ops against
+      // a session the daemon does not have; what matters is that the fresh
+      // session gets created and then subscribed. The subscribe is a
+      // fire-and-forget stream write, so give it a tick to land.
+      await new Promise((resolve) => setTimeout(resolve, 20));
       expect(result.snapshot).toBeNull();
       expect(daemon.seen).toContain("control:create");
-      expect(daemon.seen).not.toContain("control:resize");
+      expect(daemon.seen.lastIndexOf("stream:subscribe")).toBeGreaterThan(
+        daemon.seen.indexOf("control:create"),
+      );
       client.disconnect();
     });
 

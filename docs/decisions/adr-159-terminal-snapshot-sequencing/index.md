@@ -101,18 +101,21 @@ repaint it provokes is either already in the snapshot or arrives with a higher
 `seq` — either way it is applied once. The snapshot's `seq` is returned
 alongside it.
 
-**Main process** (`app-lifecycle.ts`, `ipc/pty.ts`, `preload.ts`, `pty.ts`)
+**Main process** (`app-lifecycle.ts`, `ipc/pty.ts`, `preload.ts`)
 
 Forward `seq` with each `pty-output-*` message, and return `snapshotSeq` from
-`pty:create`. The legacy in-process PTY backend emits an incrementing `seq` too,
-so the renderer sees one shape.
+`pty:create`. (`electron/pty.ts`'s in-process `PtyManager` also sends on that
+channel, but nothing imports it — it is left alone rather than kept in sync
+with a protocol it never speaks.)
 
 **Renderer** (`useTerminalStream.ts`, `useTerminalLifecycle.ts`)
 
-The existing output queue holds `{ seq, data }`. `openOutput(term, snapshotSeq)`
-drops queued chunks whose `seq` is at or below the snapshot's, writes the rest
-in order, and lets subsequent output through live. A fresh session has no
-snapshot, so nothing is dropped.
+The existing output queue holds `{ seq, data }`. Syncing a terminal with its
+session is one operation and lives in one place: `openRestored(term, snapshot)`
+writes the snapshot, then the queued chunks it does not already cover, then
+lets output through live. A fresh session passes no snapshot, so nothing is
+dropped. The queue re-arms on detach, so every attach gets that ordering rather
+than only the first of a component's life.
 
 The dedupe rule is extracted as a pure function so it can be unit-tested without
 a terminal or an IPC bridge.
@@ -130,14 +133,30 @@ a terminal or an IPC bridge.
 
 **Harder / riskier**
 
-- `seq` becomes part of the daemon↔app protocol. A new app talking to an old
-  daemon sees `seq: undefined`; the renderer must treat a missing `seq` as
-  "cannot dedupe, apply everything", which is exactly today's behavior. Version
-  skew is real here because the daemon outlives the app.
+- `seq` becomes part of the daemon↔app protocol, and it is optional on the wire
+  because version skew is real: the daemon outlives the app, so a new app meets
+  an old daemon that sends no `seq`. Absent means "cannot dedupe, apply
+  everything" — exactly today's behavior.
+- A snapshot reports the position its *screen* has applied, not the position
+  broadcast. The two diverge only when `flushHeadless` gives up (2s), and
+  reporting the broadcast position there would tell the client to drop output
+  the screen never received.
 - Four layers gain a field that must be threaded consistently. The mitigation is
   that the interesting logic sits in one pure function with direct tests.
 - Sequence numbers count events, not bytes. That is enough for dedupe, and it
   keeps the daemon from having to track byte offsets across encodings.
+
+**Test-harness fallout found on the way**
+
+- The e2e fixtures forwarded the whole environment to the app under test,
+  including `VITE_DEV_SERVER_URL`. Any run from a `pnpm dev` shell was testing
+  the dev server rather than the build — and once that server exits, every test
+  fails on a blank error page. Launch and teardown now live in one helper that
+  strips it, instead of two copies that both inherited the bug.
+- The shell-readiness probe retyped its command when the shell swallowed it.
+  Under load every retry can land inside the same window, and for tests that
+  count occurrences a retyped command inflates what they assert. It now waits
+  for the session's scrollback to stop growing instead.
 
 **Explicitly not covered**
 

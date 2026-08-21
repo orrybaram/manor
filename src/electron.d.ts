@@ -150,6 +150,13 @@ export interface AgentState {
   title: string | null;
 }
 
+/**
+ * Position in a session's PTY output stream (mirrored from
+ * electron/terminal-host/types.ts). Optional wherever it crosses the boundary:
+ * the daemon outlives the app, so a daemon predating ADR-159 reports none.
+ */
+export type StreamPosition = number;
+
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
 export interface PersistedPaneSession {
   daemonSessionId: string;
@@ -247,7 +254,7 @@ export interface ElectronAPI {
     ) => Promise<{
       ok: boolean;
       snapshot?: string | null;
-      snapshotSeq?: number | null;
+      snapshotSeq?: StreamPosition;
       error?: string;
       prewarmed?: boolean;
     }>;
@@ -265,7 +272,7 @@ export interface ElectronAPI {
     updatePrewarmCwd: (cwd: string, agentCommand?: string | null, agentKind?: string | null) => Promise<void>;
     onOutput: (
       paneId: string,
-      callback: (data: string, seq?: number) => void,
+      callback: (data: string, seq?: StreamPosition) => void,
     ) => () => void;
     onExit: (paneId: string, callback: () => void) => () => void;
     onCwd: (paneId: string, callback: (cwd: string) => void) => () => void;

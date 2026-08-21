@@ -138,6 +138,33 @@ describe("Session", () => {
       expect(second.seq).toBe(first.seq);
     });
 
+    it("reports only what the screen has applied when the flush times out", async () => {
+      // Hold the headless terminal's write callbacks so the data is broadcast
+      // but never reaches the screen. flushHeadless gives up after 2s and
+      // serializes anyway; the snapshot must not claim the withheld output,
+      // or the client would drop chunks nothing can rebuild.
+      const held: Array<() => void> = [];
+      const headless = (session as any).headless;
+      headless.write = (_data: string, cb?: () => void) => {
+        if (cb) held.push(cb);
+      };
+
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+      pushDataFrame(session, "never applied");
+
+      vi.useFakeTimers();
+      const pending = session.getSnapshot();
+      await vi.advanceTimersByTimeAsync(2_100);
+      const snapshot = await pending;
+      vi.useRealTimers();
+
+      // Broadcast as event 1, but the screen never got it.
+      expect(dataSeqs(written)).toEqual([1]);
+      expect(snapshot.seq).toBe(0);
+      expect(held).toHaveLength(1);
+    });
+
     it("starts at zero so a fresh session covers nothing", async () => {
       expect((await session.getSnapshot()).seq).toBe(0);
     });

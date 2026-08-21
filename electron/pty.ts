@@ -4,8 +4,6 @@ import { ShellManager } from "./shell";
 
 interface PtySession {
   process: pty.IPty;
-  /** Position in this pane's output stream; mirrors the daemon's seq. */
-  outputSeq: number;
 }
 
 export class PtyManager {
@@ -87,9 +85,7 @@ export class PtyManager {
         }
       }
 
-      const session = this.sessions.get(paneId);
-      const seq = session ? ++session.outputSeq : undefined;
-      window.webContents.send(`pty-output-${paneId}`, data, seq);
+      window.webContents.send(`pty-output-${paneId}`, data);
     });
 
     ptyProcess.onExit(() => {
@@ -97,7 +93,7 @@ export class PtyManager {
       this.sessions.delete(paneId);
     });
 
-    this.sessions.set(paneId, { process: ptyProcess, outputSeq: 0 });
+    this.sessions.set(paneId, { process: ptyProcess });
   }
 
   write(paneId: string, data: string): void {

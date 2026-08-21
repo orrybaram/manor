@@ -20,6 +20,7 @@ import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
+import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
@@ -71,8 +72,8 @@ export function useTerminalLifecycle(
 
   // Subscribe to stream events (pass write so the stream handler can
   // respond to kitty keyboard protocol queries on behalf of xterm.js).
-  // Output stays queued until openOutput() — see the create() call below.
-  const { openOutput } = useTerminalStream(
+  // Output stays queued until openRestored() — see the create() call below.
+  const { openRestored, closeOutput } = useTerminalStream(
     paneId,
     term,
     write,
@@ -260,29 +261,31 @@ export function useTerminalLifecycle(
     // casing here — pass it through like any workspace path.
     const spawnCwd = cwd ?? null;
 
-    // Captured for the .finally below, which needs to know how much of the
-    // queued output the snapshot already covers.
-    let snapshotSeq: number | null | undefined;
-
     create(spawnCwd, cols, rows, agentKindForCreate).then(
       (result: {
         ok: boolean;
         snapshot?: string | null;
-        snapshotSeq?: number | null;
+        snapshotSeq?: StreamPosition;
         error?: string;
         prewarmed?: boolean;
       }) => {
-        if (!disposed && !result.ok) {
+        if (disposed) return;
+        if (!result.ok) {
           setPtyError(
             result.error ?? "Failed to create terminal session",
           );
           return;
         }
-        if (!disposed && result.ok) {
-          snapshotSeq = result.snapshotSeq;
-          if (result.snapshot) {
-            t.write(result.snapshot);
-          }
+        if (result.ok) {
+          // Sync the terminal with the daemon and let output flow. Writing the
+          // snapshot and releasing the queue is one operation — split apart,
+          // the snapshot repeats bytes already on screen.
+          openRestored(
+            t,
+            result.snapshot
+              ? { ansi: result.snapshot, seq: result.snapshotSeq }
+              : null,
+          );
 
           // Set pane context for task association
           if (cwd) {
@@ -377,14 +380,7 @@ export function useTerminalLifecycle(
           );
         }
       },
-    ).finally(() => {
-      // Whatever happened above, the terminal now shows everything the daemon
-      // had at attach time, so live output can flow. This has to run after the
-      // snapshot write — reversed, the snapshot repeats bytes already on screen.
-      // The snapshot's stream position tells openOutput which queued chunks it
-      // already accounts for; see ADR-159.
-      if (!disposed) openOutput(t, snapshotSeq);
-    });
+    );
 
     // Terminal title changes (OSC sequences) → store
     const titleDisposable = t.onTitleChange((title) => {
@@ -406,6 +402,9 @@ export function useTerminalLifecycle(
 
     return () => {
       disposed = true;
+      // Queue output again for whoever attaches next: the ordering guarantee
+      // belongs to each attach, not to the first one of this component's life.
+      closeOutput();
       cwdLatchUnsub();
       if (resizeTimer) clearTimeout(resizeTimer);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);

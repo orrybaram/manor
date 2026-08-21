@@ -184,41 +184,35 @@ export class TerminalHostClient {
     await this.ensureConnected();
 
     try {
-      // Warm restore: does the daemon already have this session? `listSessions`
-      // answers without side effects, and unlike `attach` it never adds the
-      // control socket to the session's broadcast list (which would corrupt the
-      // control protocol).
-      const sessionsResp = await this.request({ type: "listSessions" });
-      const existing =
-        sessionsResp.type === "sessions" &&
-        sessionsResp.sessions.some((s) => s.sessionId === sessionId);
+      // Warm restore, in the order that makes the handshake lossless.
+      //
+      // 1. Resize first. A resize raises SIGWINCH and a full-screen TUI answers
+      //    by repainting — output we want either already inside the snapshot or
+      //    arriving afterwards with a higher seq, never straddling the two.
+      // 2. Subscribe second. From here on nothing the PTY produces is lost;
+      //    before this point there is no one listening.
+      // 3. Snapshot last. It reports the stream position it reflects, so the
+      //    renderer can drop the events from (2) that it also contains.
+      //    Duplicates are expected and filtered by seq; losing output is the
+      //    failure mode worth avoiding, since nothing downstream can rebuild it.
+      //
+      // Steps 1 and 2 are no-ops against a session the daemon does not have, so
+      // they are safe to send before knowing whether this is a restore. Probing
+      // first with `listSessions` would be wrong anyway: it hides prewarmed
+      // sessions, and `attach` would add the *control* socket to the session's
+      // broadcast list and corrupt the control protocol.
+      await this.request({ type: "resize", sessionId, cols, rows });
+      this.streamWrite({ type: "subscribe", sessionId });
 
-      if (existing) {
-        // Order matters, and it is the opposite of what it looks like.
-        //
-        // 1. Resize first. A resize raises SIGWINCH, and a full-screen TUI
-        //    answers by repainting — output we want either already inside the
-        //    snapshot or arriving afterwards with a higher seq, never straddling.
-        // 2. Subscribe second. From here on nothing the PTY produces is lost;
-        //    before this point there is no one listening.
-        // 3. Snapshot last. It reports the stream position it reflects, so the
-        //    renderer can drop the events between (2) and (3) that it also
-        //    contains. Duplicates are expected here and are filtered by seq —
-        //    losing output is the failure mode worth avoiding, since nothing
-        //    downstream can reconstruct it.
-        await this.request({ type: "resize", sessionId, cols, rows });
-        this.streamWrite({ type: "subscribe", sessionId });
-        const snapshotResp = await this.request({
-          type: "getSnapshot",
-          sessionId,
-        });
-        if (snapshotResp.type === "snapshot") {
-          return {
-            session: { sessionId, cwd, cols, rows, alive: true },
-            snapshot: snapshotResp.snapshot,
-          };
-        }
-        // The session died between the two requests — fall through and create.
+      const snapshotResp = await this.request({
+        type: "getSnapshot",
+        sessionId,
+      });
+      if (snapshotResp.type === "snapshot") {
+        return {
+          session: { sessionId, cwd, cols, rows, alive: true },
+          snapshot: snapshotResp.snapshot,
+        };
       }
 
       // Create new session

@@ -127,6 +127,13 @@ export function RemoteControlPage() {
               The listener binds 127.0.0.1. A tunnel is what makes it reachable
               from your phone, and Manor never starts one on its own.
             </div>
+            {status.port !== null && (
+              <div className={styles.fieldHint}>
+                Listening on <code>http://127.0.0.1:{status.port}</code> — open
+                that with a pairing token in the fragment to try the client from
+                this machine.
+              </div>
+            )}
 
             {running ? (
               <Stack gap="sm">

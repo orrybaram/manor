@@ -253,6 +253,16 @@ shadow anything in the real table, so "what is reachable" is still one file to r
 "enabled" flag that reopens a listener after an update is the kind of surprise this
 feature cannot afford, and re-ticking a box costs a second.
 
+### Found in review, fixed
+
+**Path traversal through `POST /sessions/read`.** The route deliberately accepts an
+unresolved `target` as a raw pane id, and that id was used unvalidated as a directory
+name under `~/.manor/sessions`. Locally that was inert; behind a tunnel it was a
+constrained arbitrary-file read — any `scrollback.bin` or `meta.json` on the machine.
+`isSafeSessionId` in `electron/terminal-host/scrollback.ts` now requires a session id to
+be a single path segment, enforced at the two static readers so every caller (including
+the local MCP path) is covered.
+
 ### Found in review, not fixed
 
 - **An unauthenticated caller can request the app shell repeatedly.** Static serving sits

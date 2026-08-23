@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import {
   ScrollbackWriter,
+  isSafeSessionId,
   MAX_SCROLLBACK_BYTES,
   COLD_RESTORE_MAX_BYTES,
   type SessionMeta,
@@ -333,6 +334,57 @@ describe("ScrollbackWriter static readers", () => {
       expect(
         ScrollbackWriter.isUncleanShutdown("nonexistent", sessionsDir),
       ).toBe(false);
+    });
+  });
+
+  /**
+   * `POST /sessions/read` passes an unresolved target through as a raw session
+   * id, and ADR-161 puts that route on a listener reachable through a tunnel.
+   * A session id therefore has to stay one directory name.
+   */
+  describe("session id containment", () => {
+    it("accepts a real pane id", () => {
+      expect(isSafeSessionId("pane-3f2504e0-4f89-11d3-9a0c-0305e82c3301")).toBe(
+        true,
+      );
+    });
+
+    it("rejects anything that is not a single path segment", () => {
+      for (const bad of [
+        "",
+        ".",
+        "..",
+        "../secrets",
+        "../../../../etc",
+        "a/b",
+        "a\\b",
+        "/etc",
+      ])
+        expect(isSafeSessionId(bad), bad).toBe(false);
+    });
+
+    it("does not read a scrollback.bin outside the sessions directory", () => {
+      const outside = path.join(tmpDir, "outside");
+      fs.mkdirSync(outside, { recursive: true });
+      fs.writeFileSync(
+        path.join(outside, "scrollback.bin"),
+        "SECRET-SCROLLBACK",
+      );
+
+      expect(ScrollbackWriter.readScrollback("../outside", sessionsDir)).toBe(
+        "",
+      );
+    });
+
+    it("does not read a meta.json outside the sessions directory", () => {
+      const outside = path.join(tmpDir, "outside");
+      fs.mkdirSync(outside, { recursive: true });
+      fs.writeFileSync(
+        path.join(outside, "meta.json"),
+        JSON.stringify({ sessionId: "leaked" }),
+      );
+
+      expect(ScrollbackWriter.readMeta("../outside", sessionsDir)).toBeNull();
     });
   });
 

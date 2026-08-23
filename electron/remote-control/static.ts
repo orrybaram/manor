@@ -85,11 +85,14 @@ export function serveClientAsset(
     "Content-Security-Policy": CSP,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
-    // The bundle is content-hashed; the shell must not be, or a rebuilt client
-    // would keep loading the previous bundle from a phone's cache.
-    "Cache-Control": resolved.endsWith(".html")
-      ? "no-store"
-      : "public, max-age=31536000, immutable",
+    // The bundle is content-hashed and may be pinned. The shell and the
+    // service worker are not: both are fetched by a stable name, and a phone
+    // holding either for a year would keep running a client this build has
+    // replaced.
+    "Cache-Control":
+      resolved.endsWith(".html") || path.basename(resolved) === "sw.js"
+        ? "no-store"
+        : "public, max-age=31536000, immutable",
   });
   res.end(contents);
   return true;

@@ -14,6 +14,28 @@ export const SESSIONS_DIR = scrollbackSessionsDir();
 export const MAX_SCROLLBACK_BYTES = 5 * 1024 * 1024; // 5MB
 export const COLD_RESTORE_MAX_BYTES = 500 * 1024; // 500KB read limit for cold restore
 
+/**
+ * A session id is used as a single directory name under `SESSIONS_DIR`, so it
+ * must be exactly that — one path segment, no separators, no `.` or `..`.
+ *
+ * This matters because `POST /sessions/read` accepts an unresolved `target` as
+ * a raw pane id, and ADR-161 puts that route on an internet-reachable listener.
+ * Without this, a caller could walk out of the sessions directory and read any
+ * `scrollback.bin` or `meta.json` on the machine. Real ids are
+ * `pane-<uuid>`, so nothing legitimate is turned away.
+ */
+export function isSafeSessionId(sessionId: string): boolean {
+  return (
+    sessionId.length > 0 &&
+    sessionId !== "." &&
+    sessionId !== ".." &&
+    !sessionId.includes("/") &&
+    !sessionId.includes("\\") &&
+    !sessionId.includes("\0") &&
+    path.basename(sessionId) === sessionId
+  );
+}
+
 export interface SessionMeta {
   sessionId: string;
   cols: number;
@@ -179,6 +201,7 @@ export class ScrollbackWriter {
     sessionId: string,
     sessionsDir: string = SESSIONS_DIR,
   ): SessionMeta | null {
+    if (!isSafeSessionId(sessionId)) return null;
     try {
       const metaPath = path.join(sessionsDir, sessionId, "meta.json");
       const raw = fs.readFileSync(metaPath, "utf-8");
@@ -193,6 +216,7 @@ export class ScrollbackWriter {
     sessionId: string,
     sessionsDir: string = SESSIONS_DIR,
   ): string {
+    if (!isSafeSessionId(sessionId)) return "";
     try {
       const scrollbackPath = path.join(
         sessionsDir,

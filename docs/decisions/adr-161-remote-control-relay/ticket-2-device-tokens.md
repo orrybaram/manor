@@ -1,6 +1,6 @@
 ---
 title: Per-device token store with safeStorage
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

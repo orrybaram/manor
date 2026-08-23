@@ -60,6 +60,11 @@ while IFS= read -r -n 1 char; do
     [ -n "$line" ] || continue
     hook UserPromptSubmit
     printf 'received: %s\n' "$line"
+    # A long reply on demand, so a test can check what a full screen of output
+    # does to the reader's scroll position.
+    if [ "$line" = "spam" ]; then
+      for i in $(seq 1 200); do printf 'line %s\n' "$i"; done
+    fi
     line=""
     hook Stop
     hook Notification permission_prompt

@@ -218,6 +218,62 @@ test.describe("remote control", () => {
     }
   });
 
+  test("the open session survives its own live updates", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("remote-control-live");
+
+    const { phone } = await pairedPhone(app, window, tempHome, request, {
+      label: "live phone",
+      canSend: true,
+    });
+
+    try {
+      await sessionRow(phone.page, {
+        name: AGENT_TITLE,
+        project: PROJECT_NAME,
+      }).click();
+      const terminal = phone.page.locator("pre.terminal");
+      await expect(terminal).toContainText(FAKE_AGENT_BANNER, {
+        timeout: 20_000,
+      });
+
+      // A transcript long enough to scroll, so the reader's position is a real
+      // position and not just "the top, which is also the bottom".
+      const composer = phone.page.locator(".composer input");
+      await composer.fill("spam");
+      await phone.page.getByRole("button", { name: "Send" }).first().click();
+      await phone.page
+        .locator(".sheet")
+        .getByRole("button", { name: "Send" })
+        .click();
+      await expect(terminal).toContainText("line 200", { timeout: 30_000 });
+
+      // Half-typed text, and a caret, must survive the refreshes that happen
+      // while someone is typing — on a phone, losing focus dismisses the
+      // keyboard mid-sentence.
+      await composer.click();
+      await composer.pressSequentially("hello ag", { delay: 20 });
+      await phone.page.waitForTimeout(4_000);
+      await expect(composer).toBeFocused();
+      await expect(composer).toHaveValue("hello ag");
+
+      // And the view must still be where the reader left it: at the bottom,
+      // watching, rather than thrown back to the top by its own repaint.
+      const fromBottom = await terminal.evaluate(
+        (node) => node.scrollHeight - node.scrollTop - node.clientHeight,
+      );
+      expect(fromBottom).toBeLessThan(24);
+      await film.shot(phone.page, "phone-long-transcript");
+    } finally {
+      film.write("phone-console.log", phone.log.join("\n") + "\n");
+      await phone.close();
+    }
+  });
+
   test("a read-only device cannot send, by absence and not by refusal", async ({
     app,
     window,

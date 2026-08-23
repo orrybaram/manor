@@ -27,6 +27,9 @@
  */
 
 import { renderAnsi, trimBlankRows } from "./ansi";
+// The shape `GET /tasks` returns, imported rather than re-declared: this
+// client is a separate bundle, but it is not a separate contract.
+import type { TaskSummary } from "../../electron/routes/tasks";
 
 const TOKEN_KEY = "manor.remote.token";
 
@@ -34,16 +37,6 @@ const TOKEN_KEY = "manor.remote.token";
 const TRANSCRIPT_MS = 1_500;
 /** How often the session list re-reads itself, under the live stream. */
 const LIST_MS = 5_000;
-
-interface TaskSummary {
-  id: string;
-  name: string | null;
-  status: string;
-  lastAgentStatus: string | null;
-  projectName: string | null;
-  paneId: string | null;
-  updatedAt: string;
-}
 
 interface Identity {
   id: string;
@@ -323,21 +316,34 @@ function ago(iso: string): string {
   return `${Math.floor(seconds / 86_400)}d ago`;
 }
 
-function liveIndicator({ compact = false } = {}): HTMLElement {
-  const node = el(
-    "span",
-    `live${live ? "" : " off"}${compact ? " compact" : ""}`,
-    live ? "live" : "…",
-  );
-  node.title = live
-    ? "Connected to the live event stream"
-    : "Reconnecting to the live event stream";
+/**
+ * The stream's own state, kept as one long-lived node.
+ *
+ * Everything on a screen is built once and then mutated. Rebuilding — even
+ * re-inserting the very same element — detaches it first, and a detached input
+ * loses focus while a detached scroller loses its position. On a phone that
+ * reads as the keyboard closing mid-sentence and the transcript jumping to the
+ * top, every time anything refreshes.
+ */
+function makeLive(compact: boolean): HTMLElement {
+  const node = el("span", "live");
+  if (compact) node.classList.add("compact");
   return node;
 }
 
-function noticeBanner(): HTMLElement | null {
-  if (!notice) return null;
-  return el("div", `banner ${notice.tone}`, notice.text);
+function paintLive(node: HTMLElement): void {
+  node.classList.toggle("off", !live);
+  node.textContent = live ? "live" : "…";
+  node.title = live
+    ? "Connected to the live event stream"
+    : "Reconnecting to the live event stream";
+}
+
+function paintNotice(node: HTMLElement): void {
+  node.hidden = notice === null;
+  if (!notice) return;
+  node.className = `banner ${notice.tone}`;
+  node.textContent = notice.text;
 }
 
 function setNotice(text: string | null, tone: "ok" | "warn" = "ok"): void {
@@ -378,38 +384,42 @@ function mountUnpaired(): Screen {
 
 function mountList(): Screen {
   const heading = el("h1", undefined, "Sessions");
+  const device = el("span", "sub");
+  const liveNode = makeLive(false);
+  bar.replaceChildren(heading, device, liveNode);
+
+  const banner = el("div", "banner");
   const list = el("ul", "sessions");
-  const timer = setInterval(() => void loadTasks(), LIST_MS);
+  const empty = el("div", "empty");
+  empty.append(
+    el("strong", undefined, "No active sessions"),
+    el(
+      "span",
+      undefined,
+      "Start an agent in Manor and it will appear here on its own.",
+    ),
+  );
+  body.replaceChildren(banner, list, empty);
 
-  const update = () => {
-    const sub = identity ? el("span", "sub", identity.label) : null;
-    bar.replaceChildren(heading, ...(sub ? [sub] : []), liveIndicator());
-
-    const banner = noticeBanner();
-    if (tasks.length === 0) {
-      const empty = el("div", "empty");
-      empty.append(
-        el("strong", undefined, "No active sessions"),
-        el(
-          "span",
-          undefined,
-          "Start an agent in Manor and it will appear here on its own.",
-        ),
-      );
-      body.replaceChildren(...(banner ? [banner] : []), empty);
-      return;
-    }
-
-    list.replaceChildren(
-      ...[...tasks]
-        .sort((a, b) => rank(a) - rank(b))
-        .map((task) => sessionRow(task)),
-    );
-    body.replaceChildren(...(banner ? [banner] : []), list);
-  };
+  const timer = setInterval(() => {
+    if (document.visibilityState === "visible") void loadTasks();
+  }, LIST_MS);
 
   return {
-    update,
+    update() {
+      device.textContent = identity?.label ?? "";
+      paintLive(liveNode);
+      paintNotice(banner);
+
+      empty.hidden = tasks.length > 0;
+      list.hidden = tasks.length === 0;
+      // Rows hold no state a reader can lose, so rebuilding them is free —
+      // and the list element itself stays put, which is what keeps the page's
+      // scroll position.
+      list.replaceChildren(
+        ...[...tasks].sort((a, b) => rank(a) - rank(b)).map(sessionRow),
+      );
+    },
     dispose: () => clearInterval(timer),
   };
 }
@@ -462,14 +472,17 @@ function backToList(): void {
 function mountDetail(taskId: string): Screen {
   const back = el("button", "back", "Back");
   back.addEventListener("click", backToList);
-
   const heading = el("h1");
+  const pill = el("span", "pill");
+  const liveNode = makeLive(true);
+  bar.replaceChildren(back, heading, pill, liveNode);
+
+  const banner = el("div", "banner");
   const terminal = el("pre", "terminal empty");
   // The transcript lives in a child so the `pre` can stay a flex column that
   // pins output to the bottom, the way a shell fills upward from its prompt.
-  const stream = el("code", "stream");
+  const stream = el("code", "stream", "Loading…");
   terminal.append(stream);
-  stream.textContent = "Loading…";
 
   const composer = el("div", "composer");
   const input = el("input");
@@ -492,35 +505,43 @@ function mountDetail(taskId: string): Screen {
   });
   composer.append(input, send);
 
+  body.replaceChildren(banner, terminal);
+
+  /** The transcript currently drawn, so an unchanged poll costs nothing. */
+  let painted: string | null = null;
+
   // The transcript re-reads itself while it is open. An agent's reply lands a
   // second or two after a send, and a phone should not have to be asked.
-  const timer = setInterval(() => void loadTranscript(taskId), TRANSCRIPT_MS);
-
-  const update = () => {
-    const task = taskById(taskId);
-    const status = task ? statusOf(task) : "idle";
-    heading.textContent = task?.name ?? taskId;
-    bar.replaceChildren(
-      back,
-      heading,
-      el("span", `pill ${status}`, statusLabel(status)),
-      liveIndicator({ compact: true }),
-    );
-
-    if (transcript?.taskId === taskId) {
-      paintTerminal(terminal, stream, transcript.text);
-    }
-
-    const banner = noticeBanner();
-    body.replaceChildren(
-      ...(banner ? [banner] : []),
-      terminal,
-      ...(identity?.canSend ? [composer] : []),
-    );
-  };
+  const timer = setInterval(() => {
+    if (document.visibilityState === "visible") void loadTranscript(taskId);
+  }, TRANSCRIPT_MS);
 
   return {
-    update,
+    update() {
+      const task = taskById(taskId);
+      const status = task ? statusOf(task) : "idle";
+      heading.textContent = task?.name ?? taskId;
+      pill.className = `pill ${status}`;
+      pill.textContent = statusLabel(status);
+      paintLive(liveNode);
+      paintNotice(banner);
+      // Absence, not disablement: a device without the capability never gets a
+      // composer at all, which is the same shape the server's route table
+      // takes for the send route.
+      if (identity?.canSend === true) {
+        if (!composer.isConnected) body.append(composer);
+      } else {
+        composer.remove();
+      }
+
+      // Identical output is not worth re-rendering: the poll fires every
+      // second or two whether or not the session said anything, and every
+      // repaint is a chance to lose the reader's place.
+      if (transcript?.taskId === taskId && transcript.text !== painted) {
+        painted = transcript.text;
+        paintTerminal(terminal, stream, transcript.text);
+      }
+    },
     dispose: () => clearInterval(timer),
   };
 }
@@ -612,6 +633,14 @@ async function main(): Promise<void> {
   await loadTasks();
   void watch();
   void enablePush();
+
+  // Coming back to the page is itself a request for fresh state — waiting out
+  // the next poll would show a phone what was true before it was pocketed.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    void loadTasks();
+    if (openTaskId) void loadTranscript(openTaskId);
+  });
 
   // Tapping a push notification asks the page to open that session.
   navigator.serviceWorker?.addEventListener("message", (event) => {

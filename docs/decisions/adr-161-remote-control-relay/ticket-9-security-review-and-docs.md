@@ -1,6 +1,6 @@
 ---
 title: Security review pass and user documentation
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [4, 5, 6, 7, 8]

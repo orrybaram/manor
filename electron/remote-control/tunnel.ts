@@ -210,6 +210,23 @@ export class TunnelManager {
     });
   }
 
+  /**
+   * Synchronous last resort for `process.on("exit")`, where nothing may await.
+   * `stop()` is the real path; this exists so a quit that skips `before-quit`
+   * still cannot leave a tunnel pointed at this machine.
+   */
+  killNow(): void {
+    const child = this.child;
+    this.child = null;
+    if (!child) return;
+    this.stopping = true;
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Already dead.
+    }
+  }
+
   /** Idempotent, and waits for the child to actually be gone. */
   async stop(): Promise<void> {
     await this.killChild();

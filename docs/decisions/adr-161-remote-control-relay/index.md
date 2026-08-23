@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -165,9 +165,14 @@ Views: a list of sessions with agent status (`idle` / `thinking` / `working` /
 scrollback, and — when the device holds the capability — a send box.
 
 Live updates over Server-Sent Events (`GET /events`, token-authenticated) rather than
-WebSocket: the payload is one-directional status fan-out, SSE reconnects on its own, and
-it is meaningfully less code. Fall back to polling `GET /tasks` on a 5s interval if the
-stream drops.
+WebSocket: the payload is one-directional status fan-out, and it is meaningfully less
+code. Fall back to polling `GET /tasks` on a 5s interval if the stream drops.
+
+The client reads that stream with `fetch` and a `ReadableStream` rather than with
+`EventSource`. `EventSource` cannot set an `Authorization` header, and the only
+alternative — the token in a query string — would write the credential into every proxy
+log between the phone and the machine. Parsing the SSE framing by hand is about thirty
+lines, and the reconnect/backoff logic was needed for the polling fallback regardless.
 
 ### 6. Push
 
@@ -219,6 +224,48 @@ rather than convenient.
 
 Anyone reviewing the implementation should treat §2 and §1's allowlist as the parts that
 matter, and be unsympathetic about them.
+
+### Decisions taken during implementation
+
+Four things landed differently from the sketch above, each for a reason worth recording.
+
+**Two of the "read" routes did not exist.** `/agents` exists only as `POST /agents`,
+which launches a process, and `/tabs` only as `POST /tabs`. Neither is a read, so the
+remote read surface is `GET /tasks`, `GET /context`, `GET /panes`, and
+`POST /sessions/read`. The allowlist test asserts every entry resolves to a real route,
+so a rename cannot silently shrink the surface again.
+
+**The app shell is served without authentication.** It has to be: the pairing token
+arrives in the URL fragment, which browsers never send to a server, so the page must load
+before it can present a token. What is reachable unauthenticated is HTML, CSS, and a
+bundle — no session data, no device list, no token — and everything that reads or changes
+state stays behind the auth pipeline. Path containment is resolve-then-verify against the
+client directory, tested directly rather than through `fetch` (which normalises `..` away
+before a server ever sees it).
+
+**Three routes are the listener's own, not allowlist entries.** `GET /me` (the calling
+device's own label and send capability, plus the public VAPID key), `GET /events`, and
+`POST /push/subscribe` are answered by the listener itself, not dispatched into
+`electron/routes/`. They are enumerated in `LISTENER_OWN_ROUTES` and asserted not to
+shadow anything in the real table, so "what is reachable" is still one file to read.
+
+**Enablement is not persisted.** Remote control is off at every launch. A stored
+"enabled" flag that reopens a listener after an update is the kind of surprise this
+feature cannot afford, and re-ticking a box costs a second.
+
+### Found in review, not fixed
+
+- **An unauthenticated caller can request the app shell repeatedly.** Static serving sits
+  ahead of the rate limiter, because the limiter keys on authentication failures and the
+  shell has none. The cost is bounded file reads from one directory; nothing is disclosed
+  beyond "this machine runs Manor".
+- **A hard kill of Manor can orphan the tunnel child.** `stop()` runs on `before-quit` and
+  a synchronous `SIGKILL` runs on `process.on("exit")`, which covers `app.exit()` and
+  fatal errors — but nothing runs when Manor is itself `SIGKILL`ed. The exposure indicator
+  cannot help there either, since it dies with the app.
+- **A cloudflared quick-tunnel hostname is effectively public.** That is inherent to the
+  tool; it is why Tailscale is preferred and why the confirmation dialog names the
+  difference.
 
 ## Tickets
 

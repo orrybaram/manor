@@ -140,6 +140,10 @@ export class RemoteControlServer {
     this.server = null;
     this.port = 0;
     if (!server) return;
+    // `close()` waits for open connections to end, and a keep-alive socket
+    // would hold a "stopped" listener open indefinitely. Disabling remote
+    // control has to actually stop answering.
+    server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 

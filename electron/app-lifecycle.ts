@@ -548,6 +548,13 @@ export function initApp(devTitle: string | null): void {
     });
   });
 
+  // `before-quit` covers the ordinary path. This covers the ones that skip it
+  // — `app.exit()`, an unhandled fatal — where a surviving tunnel would leave
+  // this machine reachable with nothing listening behind it.
+  process.on("exit", () => {
+    remoteTunnel.killNow();
+  });
+
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });

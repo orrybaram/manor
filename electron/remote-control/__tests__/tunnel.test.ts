@@ -245,6 +245,22 @@ describe("stop", () => {
     }
   });
 
+  it("killNow SIGKILLs synchronously, for the paths that cannot await", async () => {
+    const child = new FakeChild();
+    const { mgr } = manager(hasAll, child);
+    const started = mgr.start("cloudflared", 1);
+    child.stderr.write(CLOUDFLARE_BANNER);
+    await started;
+
+    mgr.killNow();
+    expect(child.killed).toEqual(["SIGKILL"]);
+  });
+
+  it("killNow is safe with no tunnel running", () => {
+    const { mgr } = manager(hasAll);
+    expect(() => mgr.killNow()).not.toThrow();
+  });
+
   it("is idempotent and safe before any start", async () => {
     const { mgr } = manager(hasAll);
     await mgr.stop();

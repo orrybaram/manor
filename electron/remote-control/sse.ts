@@ -17,6 +17,14 @@ import type { ServerResponse } from "node:http";
 /** Idle proxies drop quiet connections; a comment line is the cheapest keepalive. */
 const HEARTBEAT_MS = 20_000;
 
+/**
+ * Streams one device may hold open. A phone needs one; a few more cover a
+ * reconnect racing a sleeping socket. Beyond that it is a client bug or a
+ * device deliberately holding sockets, and either way the oldest is dropped
+ * rather than accumulating.
+ */
+const MAX_PER_DEVICE = 4;
+
 export interface SseClient {
   /** Device id, for logging. Never a token. */
   deviceId: string;
@@ -48,6 +56,7 @@ export class SseHub {
 
     const client: SseClient = { deviceId, res };
     this.clients.add(client);
+    this.trim(deviceId);
 
     const drop = () => this.drop(client);
     res.on("close", drop);
@@ -80,6 +89,22 @@ export class SseHub {
       this.clients.delete(client);
     }
     this.stopHeartbeat();
+  }
+
+  /** Close this device's oldest streams until it is within the cap. */
+  private trim(deviceId: string): void {
+    const mine = [...this.clients].filter((c) => c.deviceId === deviceId);
+    for (const stale of mine.slice(
+      0,
+      Math.max(0, mine.length - MAX_PER_DEVICE),
+    )) {
+      try {
+        stale.res.end();
+      } catch {
+        // Already gone.
+      }
+      this.drop(stale);
+    }
   }
 
   private drop(client: SseClient): void {

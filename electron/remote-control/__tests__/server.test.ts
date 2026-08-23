@@ -521,6 +521,20 @@ describe("RemoteControlServer", () => {
       await vi.waitFor(() => expect(server.listenerCount).toBe(0));
     });
 
+    it("caps how many streams one device may hold open", async () => {
+      const open: AbortController[] = [];
+      for (let i = 0; i < 6; i++) {
+        const controller = new AbortController();
+        open.push(controller);
+        await fetch(`${base}/events`, {
+          headers: { Authorization: `Bearer ${READ_TOKEN}` },
+          signal: controller.signal,
+        });
+      }
+      await vi.waitFor(() => expect(server.listenerCount).toBe(4));
+      for (const controller of open) controller.abort();
+    });
+
     it("stop() closes open streams", async () => {
       const res = await fetch(`${base}/events`, {
         headers: { Authorization: `Bearer ${READ_TOKEN}` },

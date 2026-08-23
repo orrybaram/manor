@@ -1,6 +1,6 @@
 ---
 title: Installable client, so push works on iPhone
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

@@ -10,11 +10,16 @@ import path from "node:path";
  * which the remote-control listener serves at `/`.
  *
  * `base: "./"` matters: the page is served from a tunnel hostname we do not
- * know at build time, so every asset reference has to be relative.
+ * know at build time, so every asset reference has to be relative — including
+ * the ones inside `manifest.webmanifest`, which is why the manifest and its
+ * icons live in `public/` and are copied verbatim rather than being processed
+ * into hashed asset names the manifest's own JSON could not be rewritten to
+ * follow.
  */
 export default defineConfig({
   root: path.resolve(__dirname, "src/remote-client"),
   base: "./",
+  publicDir: path.resolve(__dirname, "src/remote-client/public"),
   build: {
     outDir: path.resolve(__dirname, "dist-electron/remote"),
     emptyOutDir: true,

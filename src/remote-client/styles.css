@@ -510,6 +510,60 @@ button:active {
   color: var(--green);
 }
 
+/*
+ * The install / notification nudge.
+ *
+ * Sits where the notice banner does, but reads as an offer rather than a
+ * problem — accent-tinted rather than yellow, and always dismissible. It is
+ * the only thing on this page that asks the user for anything.
+ */
+.hint {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+
+/* `display: flex` above would otherwise win against the UA's [hidden] rule. */
+.hint[hidden] {
+  display: none;
+}
+
+.hint-text strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 3px;
+}
+
+.hint-text span {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.hint-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hint-actions button {
+  flex: 1;
+  padding: 9px 14px;
+  font-size: 14px;
+}
+
+/* A lone dismissal should not wear the full width of a primary action. */
+.hint-actions > button:only-child {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .empty {
   margin: auto;
   text-align: center;

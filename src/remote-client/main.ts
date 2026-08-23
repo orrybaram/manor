@@ -24,6 +24,11 @@
  *   - **Nothing here asks to be refreshed.** The stream drives updates, a poll
  *     backs it up, and an open transcript re-reads itself — a phone glanced at
  *     is a phone showing what is true now.
+ *   - **Push needs the page installed, on iOS.** Safari exposes neither
+ *     `PushManager` nor `Notification` to a page in a tab, and requires a user
+ *     gesture for the permission prompt once it is installed. So push is
+ *     offered by a tap rather than requested on load, and a device that cannot
+ *     do it yet is told what is missing instead of silently going quiet.
  */
 
 import { renderAnsi, trimBlankRows } from "./ansi";
@@ -32,6 +37,8 @@ import { renderAnsi, trimBlankRows } from "./ansi";
 import type { TaskSummary } from "../../electron/routes/tasks";
 
 const TOKEN_KEY = "manor.remote.token";
+/** Hints the user has dismissed, so a nudge stays a nudge. */
+const HINT_KEY = "manor.remote.dismissedHints";
 
 /** How often an open transcript re-reads itself. */
 const TRANSCRIPT_MS = 1_500;
@@ -50,6 +57,27 @@ interface Screen {
   update(): void;
   dispose?(): void;
 }
+
+/**
+ * What push can do on this device *right now*, and why not when it cannot.
+ *
+ * Worth being this specific: "no notifications" has four causes here with four
+ * different answers, and the one that matters most — an iPhone browsing in a
+ * tab, where iOS hides push entirely until the page is on the Home Screen — is
+ * indistinguishable from an unsupported browser unless it is named.
+ */
+type PushState =
+  | "unknown"
+  /** Subscribed; the machine will push to this device. */
+  | "on"
+  /** Supported and unasked. Needs a tap, because iOS needs a user gesture. */
+  | "offer"
+  /** iOS in a tab: install to the Home Screen and push becomes possible. */
+  | "needs-install"
+  /** The user said no. Asking again is the browser's job, not ours. */
+  | "denied"
+  /** No signing key on the machine, or a browser that will never do push. */
+  | "unavailable";
 
 /** Blocked first — being told what needs attention is the whole point. */
 const STATUS_RANK: Record<string, number> = {
@@ -74,6 +102,8 @@ let transcript: { taskId: string; text: string } | null = null;
 let notice: { text: string; tone: "ok" | "warn" } | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let live = false;
+let pushState: PushState = "unknown";
+const dismissed = readDismissed();
 /** The task whose transcript is on screen, or null on the list. */
 let openTaskId: string | null = null;
 let screen: Screen = { update() {} };
@@ -237,22 +267,85 @@ function decodeKey(base64url: string): Uint8Array {
   return bytes;
 }
 
-/**
- * Subscribe this device for push, if it can. Every step is allowed to fail
- * quietly: no service worker, no push support, permission denied, or a machine
- * with no signing key all mean "no push", never "no app".
- */
-async function enablePush(): Promise<void> {
-  const key = identity?.vapidPublicKey;
-  if (!key) return;
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-  if (Notification.permission === "denied") return;
+/** iOS, including an iPad that reports itself as a Mac with a touchscreen. */
+function isIos(): boolean {
+  const ua = navigator.userAgent;
+  return (
+    /iPhone|iPad|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+  );
+}
 
+/** Launched from the Home Screen rather than viewed in a browser tab. */
+function isStandalone(): boolean {
+  return (
+    (navigator as { standalone?: boolean }).standalone === true ||
+    window.matchMedia?.("(display-mode: standalone)").matches === true
+  );
+}
+
+function setPushState(next: PushState): void {
+  if (pushState === next) return;
+  pushState = next;
+  screen.update();
+}
+
+/**
+ * Work out where this device stands on push, and subscribe if it already may.
+ *
+ * Deliberately does *not* ask for permission. Safari honours
+ * `requestPermission()` only inside a user gesture, so a prompt fired on load
+ * is a prompt that never appears. When permission is outstanding this settles
+ * on `offer` and the list screen puts a button in front of the user; the tap
+ * is what calls `subscribeToPush`.
+ */
+async function refreshPush(): Promise<void> {
+  if (!identity?.vapidPublicKey) {
+    setPushState("unavailable");
+    return;
+  }
+  if (
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window) ||
+    !("Notification" in window)
+  ) {
+    // iOS exposes none of the three until the page is on the Home Screen, so
+    // in a tab this is a missing install, not a browser that cannot do push.
+    setPushState(isIos() && !isStandalone() ? "needs-install" : "unavailable");
+    return;
+  }
+  if (Notification.permission === "denied") {
+    setPushState("denied");
+    return;
+  }
+  if (Notification.permission !== "granted") {
+    setPushState("offer");
+    return;
+  }
+  await subscribeToPush();
+}
+
+/**
+ * Register, ask if we still have to, and hand the subscription to the machine.
+ *
+ * Every step may fail quietly, as before: push is a bonus on top of the live
+ * stream, never a prerequisite. What is new is that each failure lands on a
+ * state, so the UI can say which one it was.
+ */
+async function subscribeToPush(): Promise<void> {
+  const key = identity?.vapidPublicKey;
+  if (!key) {
+    setPushState("unavailable");
+    return;
+  }
   try {
     const registration = await navigator.serviceWorker.register("./sw.js");
     if (Notification.permission === "default") {
       const granted = await Notification.requestPermission();
-      if (granted !== "granted") return;
+      if (granted !== "granted") {
+        setPushState(granted === "denied" ? "denied" : "offer");
+        return;
+      }
     }
     const subscription =
       (await registration.pushManager.getSubscription()) ??
@@ -260,12 +353,13 @@ async function enablePush(): Promise<void> {
         userVisibleOnly: true,
         applicationServerKey: decodeKey(key),
       }));
-    await api("/push/subscribe", {
+    const stored = await api("/push/subscribe", {
       method: "POST",
       body: JSON.stringify(subscription.toJSON()),
     });
+    setPushState(stored ? "on" : "offer");
   } catch {
-    // Push is a bonus on top of the live stream, never a prerequisite.
+    setPushState("unavailable");
   }
 }
 
@@ -358,6 +452,81 @@ function setNotice(text: string | null, tone: "ok" | "warn" = "ok"): void {
   }
 }
 
+function readDismissed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HINT_KEY) ?? "";
+    return new Set(raw.split(",").filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Dismissal is per push state, so refusing one hint does not hide the next. */
+function dismissHint(kind: string): void {
+  dismissed.add(kind);
+  try {
+    localStorage.setItem(HINT_KEY, [...dismissed].join(","));
+  } catch {
+    // A phone with storage blocked will be nudged again. Acceptable.
+  }
+  screen.update();
+}
+
+/**
+ * The one nudge this client makes.
+ *
+ * It exists because of a genuinely invisible failure: on an iPhone browsing in
+ * a tab, iOS exposes no push API at all, so the app appears to work and simply
+ * never tells you anything. Being told is the whole point of the feature, and
+ * a user cannot be expected to guess that the fix is Add to Home Screen. So it
+ * is said once, plainly, and can be dismissed for good.
+ *
+ * Rebuilt only when the state it is showing changes — an `update()` that
+ * repaints on every poll would detach the button mid-tap.
+ */
+function paintHint(node: HTMLElement): void {
+  const kind =
+    (pushState === "needs-install" || pushState === "offer") &&
+    !dismissed.has(pushState)
+      ? pushState
+      : "";
+  if (node.dataset.kind === kind) return;
+  node.dataset.kind = kind;
+  node.hidden = kind === "";
+  node.replaceChildren();
+  if (kind === "") return;
+
+  const text = el("div", "hint-text");
+  text.append(
+    el(
+      "strong",
+      undefined,
+      kind === "needs-install"
+        ? "Add Manor to your Home Screen"
+        : "Get told, instead of checking",
+    ),
+    el(
+      "span",
+      undefined,
+      kind === "needs-install"
+        ? "iOS only lets an installed app notify you. Tap Share, then Add to Home Screen, and open Manor from there."
+        : "Notify this device when a session needs input or errors.",
+    ),
+  );
+  node.append(text);
+
+  const actions = el("div", "hint-actions");
+  if (kind === "offer") {
+    const enable = el("button", "primary", "Turn on");
+    enable.addEventListener("click", () => void subscribeToPush());
+    actions.append(enable);
+  }
+  const close = el("button", "ghost", "Not now");
+  close.addEventListener("click", () => dismissHint(kind));
+  actions.append(close);
+  node.append(actions);
+}
+
 /** Swap the visible screen, letting the old one drop its timers. */
 function show(next: Screen): void {
   screen.dispose?.();
@@ -389,6 +558,7 @@ function mountList(): Screen {
   bar.replaceChildren(heading, device, liveNode);
 
   const banner = el("div", "banner");
+  const hint = el("div", "hint");
   const list = el("ul", "sessions");
   const empty = el("div", "empty");
   empty.append(
@@ -399,7 +569,7 @@ function mountList(): Screen {
       "Start an agent in Manor and it will appear here on its own.",
     ),
   );
-  body.replaceChildren(banner, list, empty);
+  body.replaceChildren(banner, hint, list, empty);
 
   const timer = setInterval(() => {
     if (document.visibilityState === "visible") void loadTasks();
@@ -410,6 +580,7 @@ function mountList(): Screen {
       device.textContent = identity?.label ?? "";
       paintLive(liveNode);
       paintNotice(banner);
+      paintHint(hint);
 
       empty.hidden = tasks.length > 0;
       list.hidden = tasks.length === 0;
@@ -632,7 +803,7 @@ async function main(): Promise<void> {
   await loadIdentity();
   await loadTasks();
   void watch();
-  void enablePush();
+  void refreshPush();
 
   // Coming back to the page is itself a request for fresh state — waiting out
   // the next poll would show a phone what was true before it was pocketed.

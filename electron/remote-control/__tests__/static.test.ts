@@ -42,6 +42,9 @@ describe("serveClientAsset", () => {
     fs.writeFileSync(path.join(dir, "index.html"), "<title>Manor</title>");
     fs.mkdirSync(path.join(dir, "assets"));
     fs.writeFileSync(path.join(dir, "assets", "app.js"), "export {};");
+    fs.writeFileSync(path.join(dir, "manifest.webmanifest"), "{}");
+    fs.mkdirSync(path.join(dir, "icons"));
+    fs.writeFileSync(path.join(dir, "icons", "icon-192.png"), "PNG");
     outside = fs.mkdtempSync(path.join(os.tmpdir(), "manor-secret-"));
     fs.writeFileSync(path.join(outside, "token.enc"), "SECRET");
   });
@@ -72,6 +75,23 @@ describe("serveClientAsset", () => {
     const r = serve("/assets/app.js");
     expect(r.handled).toBe(true);
     expect(r.written[0].headers["Content-Type"]).toContain("text/javascript");
+  });
+
+  it("serves the manifest as a manifest, so a phone can install the app", () => {
+    // iOS grants Web Push only to an installed page. A manifest served as
+    // `application/octet-stream` is a manifest the browser ignores, which
+    // would take the notification half of the feature down silently.
+    const r = serve("/manifest.webmanifest");
+    expect(r.handled).toBe(true);
+    expect(r.written[0].headers["Content-Type"]).toBe(
+      "application/manifest+json",
+    );
+  });
+
+  it("serves the icons the manifest points at", () => {
+    const r = serve("/icons/icon-192.png");
+    expect(r.handled).toBe(true);
+    expect(r.written[0].headers["Content-Type"]).toBe("image/png");
   });
 
   it("refuses a traversal that escapes the client directory", () => {

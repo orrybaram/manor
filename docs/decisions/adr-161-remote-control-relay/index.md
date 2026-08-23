@@ -249,6 +249,13 @@ device's own label and send capability, plus the public VAPID key), `GET /events
 `electron/routes/`. They are enumerated in `LISTENER_OWN_ROUTES` and asserted not to
 shadow anything in the real table, so "what is reachable" is still one file to read.
 
+**Push is offered by a tap, and the client is installable.** iOS grants Web Push only to
+a page added to the Home Screen, and only honours `requestPermission()` inside a user
+gesture — so ticket 8's push, correct in every other respect, could never fire on the
+device this ADR was written for. The client ships a manifest and icons, works out which of
+four reasons push is unavailable when it is, and asks with a button rather than a prompt
+on load. A phone browsing in a tab is told what is missing instead of going quiet.
+
 **Enablement is not persisted.** Remote control is off at every launch. A stored
 "enabled" flag that reopens a listener after an update is the kind of surprise this
 feature cannot afford, and re-ticking a box costs a second.
@@ -283,11 +290,6 @@ v1 is complete against tickets 1–9 and the security posture above is the part 
 trusting. What it is not yet is *full-featured*, and the gap has a shape: the surface can
 report, but it can barely act, and on the device most people will use it from the
 notification half does not fire at all.
-
-**Push does not work on an iPhone.** iOS grants Web Push only to a site installed to the
-Home Screen as a PWA, and the client ships no manifest, so Safari never offers the option.
-Ticket 8 is correct and simply never runs there. Being told rather than checking is the
-premise of this ADR; ticket 10 is therefore the highest-priority remaining work.
 
 **The client cannot interrupt.** The listener has passed `interrupt` through since ticket
 4 and audits it as its own field; the client never sets it. Stopping a runaway agent is

@@ -100,6 +100,14 @@ session goes to `requires_input` or `error`. This is the same signal that
 drives Manor's dock badge and desktop notifications, so muting *Agent needs
 input* in **Settings → Notifications** mutes the pushes too.
 
+**On an iPhone or iPad, add the page to your Home Screen first.** iOS gives
+notifications only to an installed web app — in a Safari tab there is no way to
+grant permission at all. Open the paired link, tap Share, then *Add to Home
+Screen*, and open Manor from the icon; the client says as much the first time it
+sees a phone that has not done it. On Android and desktop the page can subscribe
+from a tab. Either way the client asks with a button rather than a prompt on
+load, because Safari only honours the permission request inside a tap.
+
 Push payloads carry the session name and project only. Scrollback never goes
 into a push — a notification reaches your lock screen and is retained by the OS.
 

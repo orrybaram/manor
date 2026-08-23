@@ -29,8 +29,15 @@ import http from "node:http";
 
 import { routes } from "../routes/index";
 import { dispatch } from "../routes/router";
-import type { ControlDeps, Json, ReadBody } from "../routes/types";
-import { remoteRouteTable } from "./allowlist";
+import type {
+  ControlDeps,
+  Json,
+  ReadBody,
+  Route,
+  RouteContext,
+} from "../routes/types";
+import { remoteRouteTable, routeKey } from "./allowlist";
+import { hashText, RemoteAuditLog } from "./audit";
 import { AuthRateLimiter } from "./rate-limit";
 import { SseHub } from "./sse";
 
@@ -54,6 +61,9 @@ export interface RemoteStatusEvent {
   previousStatus: string | null;
 }
 
+/** The only acting route on the surface. Wrapped, never reached bare. */
+const SEND_ROUTE = "POST /sessions/send";
+
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 /** No allowlisted route uses anything else, so nothing else gets past step 1. */
@@ -68,6 +78,7 @@ export class RemoteControlServer {
     private readonly getDeps: () => ControlDeps,
     private readonly devices: DeviceVerifier,
     private readonly limiter: AuthRateLimiter = new AuthRateLimiter(),
+    private readonly audit: RemoteAuditLog = new RemoteAuditLog(),
   ) {}
 
   get running(): boolean {
@@ -206,7 +217,10 @@ export class RemoteControlServer {
     }
 
     const readBody = makeReadBody(req);
-    const table = remoteRouteTable(routes, device.canSend);
+    const table = this.guardWrites(
+      remoteRouteTable(routes, device.canSend),
+      device,
+    );
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
     const matched = await dispatch(
@@ -224,7 +238,87 @@ export class RemoteControlServer {
     // in the table.
     if (!matched) json(404, { error: "Not found" });
   }
+
+  /**
+   * Wrap the send route without touching `electron/routes/tasks.ts` — the local
+   * MCP path must keep working exactly as it does, so the confirmation and the
+   * audit line are remote-only concerns and live here.
+   *
+   * This is the *third* gate. The first is the table: a device without
+   * `canSend` never sees this route at all, so nothing below is what stops it.
+   */
+  private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
+    return table.map((route) =>
+      routeKey(route) === SEND_ROUTE
+        ? {
+            ...route,
+            handler: (ctx: RouteContext) =>
+              this.guardedSend(route, device, ctx),
+          }
+        : route,
+    );
+  }
+
+  private async guardedSend(
+    route: Route,
+    device: AuthenticatedDevice,
+    ctx: RouteContext,
+  ): Promise<void> {
+    const body = await ctx.readBody();
+    const target = typeof body.target === "string" ? body.target : null;
+    const text = typeof body.text === "string" ? body.text : null;
+    const interrupt = typeof body.interrupt === "string";
+
+    const line = (
+      outcome: RemoteAuditEntryOutcome,
+      status: number,
+      reason?: string,
+    ) =>
+      this.audit.append({
+        at: new Date().toISOString(),
+        deviceId: device.id,
+        deviceLabel: device.label,
+        route: SEND_ROUTE,
+        target,
+        textLength: text === null ? null : text.length,
+        textSha256: text === null ? null : hashText(text),
+        interrupt,
+        outcome,
+        status,
+        ...(reason ? { reason } : {}),
+      });
+
+    // Gate two: an explicit opt-in *in the request*. The client shows the text
+    // and the target before setting it (ticket 6/7), and a bare `curl` holding
+    // a stolen token still has to say it meant to — which the audit trail then
+    // distinguishes from a confirmed send made through the UI.
+    if (body.confirmed !== true) {
+      line("rejected", 400, "missing confirmed:true");
+      ctx.json(400, {
+        error: "A remote send must set 'confirmed': true",
+      });
+      return;
+    }
+
+    let status = 0;
+    const json: Json = (s, b) => {
+      status = s;
+      ctx.json(s, b);
+    };
+
+    try {
+      // `route.handler` is the real handler — `guardWrites` built a new row and
+      // closed over the original, so this is not the wrapper again.
+      await route.handler({ ...ctx, json });
+    } catch (err) {
+      line("failed", 500, "handler threw");
+      throw err;
+    }
+    line(status === 200 ? "sent" : "rejected", status);
+  }
 }
+
+type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
 
 /** The raw bearer token, or null. Never logged by any caller. */
 function bearerToken(req: http.IncomingMessage): string | null {
@@ -258,8 +352,12 @@ function originAgrees(req: http.IncomingMessage): boolean {
  * `Content-Length` header is a claim, and the socket is what actually arrives.
  */
 function makeReadBody(req: http.IncomingMessage): ReadBody {
-  return () =>
-    new Promise((resolve, reject) => {
+  // Memoized: a socket can only be drained once, and the send wrapper needs to
+  // inspect the body before handing it to the handler that also reads it.
+  let pending: Promise<Record<string, unknown>> | null = null;
+  return () => {
+    if (pending) return pending;
+    pending = new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let size = 0;
       req.on("data", (chunk: Buffer) => {
@@ -286,4 +384,6 @@ function makeReadBody(req: http.IncomingMessage): ReadBody {
       });
       req.on("error", reject);
     });
+    return pending;
+  };
 }

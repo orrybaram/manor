@@ -7,8 +7,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
+import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import type { ControlDeps } from "../../routes/types";
 
@@ -40,9 +44,15 @@ describe("RemoteControlServer", () => {
   let getTaskById: ReturnType<typeof vi.fn>;
   let deps: ControlDeps;
   let now: number;
+  let auditDir: string;
+  let audit: RemoteAuditLog;
+  let ptyWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     now = 1_000_000;
+    auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-remote-audit-"));
+    audit = new RemoteAuditLog(path.join(auditDir, "remote-audit.jsonl"));
+    ptyWrite = vi.fn();
     getTaskById = vi.fn(() => null);
     deps = {
       projectManager: null,
@@ -63,6 +73,7 @@ describe("RemoteControlServer", () => {
       () => deps,
       devices,
       new AuthRateLimiter(() => now),
+      audit,
     );
     const { port } = await server.start();
     base = `http://127.0.0.1:${port}`;
@@ -70,7 +81,25 @@ describe("RemoteControlServer", () => {
 
   afterEach(async () => {
     await server.stop();
+    fs.rmSync(auditDir, { recursive: true, force: true });
   });
+
+  /** Give the deps a live session so a send can actually succeed. */
+  function withLiveSession(): void {
+    const task = {
+      id: "task-1",
+      name: "fix the thing",
+      paneId: "pane-1",
+      agentKind: "claude",
+      lastAgentStatus: "requires_input",
+    };
+    getTaskById.mockImplementation((id: string) =>
+      id === "task-1" ? task : null,
+    );
+    deps.backend = {
+      pty: { write: ptyWrite },
+    } as unknown as ControlDeps["backend"];
+  }
 
   const get = (path: string, token?: string, headers: HeadersInit = {}) =>
     fetch(`${base}${path}`, {
@@ -195,10 +224,97 @@ describe("RemoteControlServer", () => {
       const res = await post("/sessions/send", WRITE_TOKEN, {
         target: "t",
         text: "hi",
+        confirmed: true,
       });
       // 503 is the handler answering (no backend in these deps) — the point is
       // that the request got past the table, which the read device cannot.
       expect(res.status).toBe(503);
+    });
+  });
+
+  describe("the send gates", () => {
+    it("rejects a send that is not confirmed", async () => {
+      withLiveSession();
+      const res = await post("/sessions/send", WRITE_TOKEN, {
+        target: "task-1",
+        text: "hello",
+      });
+      expect(res.status).toBe(400);
+      expect(ptyWrite).not.toHaveBeenCalled();
+    });
+
+    it("audits a rejected send", async () => {
+      withLiveSession();
+      await post("/sessions/send", WRITE_TOKEN, {
+        target: "task-1",
+        text: "hello",
+      });
+      const [entry, ...rest] = audit.read();
+      expect(rest).toEqual([]);
+      expect(entry.outcome).toBe("rejected");
+      expect(entry.status).toBe(400);
+      expect(entry.deviceId).toBe(writer.id);
+    });
+
+    it("sends when confirmed, and writes exactly one audit line", async () => {
+      withLiveSession();
+      const res = await post("/sessions/send", WRITE_TOKEN, {
+        target: "task-1",
+        text: "hello",
+        confirmed: true,
+      });
+      expect(res.status).toBe(200);
+      expect(ptyWrite).toHaveBeenCalled();
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        outcome: "sent",
+        status: 200,
+        deviceId: writer.id,
+        deviceLabel: writer.label,
+        route: "POST /sessions/send",
+        target: "task-1",
+        textLength: 5,
+        interrupt: false,
+      });
+    });
+
+    it("never writes the sent text into the audit line", async () => {
+      withLiveSession();
+      await post("/sessions/send", WRITE_TOKEN, {
+        target: "task-1",
+        text: "sk-secret-value",
+        confirmed: true,
+      });
+      const line = JSON.stringify(audit.read()[0]);
+      expect(line).not.toContain("sk-secret-value");
+      expect(audit.read()[0].textSha256).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("treats an interrupt override as a write and records it", async () => {
+      withLiveSession();
+      await post("/sessions/send", WRITE_TOKEN, {
+        target: "task-1",
+        text: "stop",
+        interrupt: "\u0003",
+        confirmed: true,
+      });
+      expect(audit.read()[0].interrupt).toBe(true);
+    });
+
+    it("writes no audit line for a device that cannot send", async () => {
+      withLiveSession();
+      const res = await post("/sessions/send", READ_TOKEN, {
+        target: "task-1",
+        text: "hello",
+        confirmed: true,
+      });
+      // The route was never in this device's table, so nothing to audit — and
+      // nothing reached the shell.
+      expect(res.status).toBe(404);
+      expect(ptyWrite).not.toHaveBeenCalled();
+      expect(audit.read()).toEqual([]);
     });
   });
 

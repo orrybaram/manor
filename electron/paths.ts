@@ -68,6 +68,10 @@ export function remoteDevicesFile(): string {
   return path.join(manorDataDir(), "remote-devices.enc");
 }
 
+export function remoteAuditFile(): string {
+  return path.join(manorDataDir(), "remote-audit.jsonl");
+}
+
 export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }

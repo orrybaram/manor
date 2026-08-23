@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import { routes } from "../../routes/index";
 import type { Route } from "../../routes/types";
 import {
+  LISTENER_OWN_ROUTES,
   REMOTE_READ_ROUTES,
   REMOTE_WRITE_ROUTES,
   remoteRouteTable,
@@ -55,6 +56,18 @@ describe("the remote allowlist", () => {
     const remote = remoteRouteTable(routes, true);
     const indices = remote.map((r) => routes.indexOf(r));
     expect([...indices].sort((a, b) => a - b)).toEqual(indices);
+  });
+});
+
+describe("the listener's own routes", () => {
+  it("do not shadow, or duplicate, anything in the real route table", () => {
+    const real = new Set(routes.map(routeKey));
+    for (const key of LISTENER_OWN_ROUTES) expect(real.has(key)).toBe(false);
+  });
+
+  it("are not reachable through the dispatched table", () => {
+    const remote = keys(remoteRouteTable(routes, true));
+    for (const key of LISTENER_OWN_ROUTES) expect(remote).not.toContain(key);
   });
 });
 

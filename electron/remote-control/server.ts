@@ -38,6 +38,7 @@ import type {
 } from "../routes/types";
 import { remoteRouteTable, routeKey } from "./allowlist";
 import { hashText, RemoteAuditLog } from "./audit";
+import type { PushManager } from "./push";
 import { AuthRateLimiter } from "./rate-limit";
 import { SseHub } from "./sse";
 import { defaultClientDir, serveClientAsset } from "./static";
@@ -82,6 +83,8 @@ export class RemoteControlServer {
     private readonly audit: RemoteAuditLog = new RemoteAuditLog(),
     /** Built client directory; null serves no page (tests, and dev before a build). */
     private readonly clientDir: string | null = defaultClientDir(),
+    /** Null disables push entirely; the client then simply never subscribes. */
+    private readonly push: PushManager | null = null,
   ) {}
 
   get running(): boolean {
@@ -225,8 +228,13 @@ export class RemoteControlServer {
       return;
     }
 
+    // One reader per request: it memoizes, so the send wrapper and the handler
+    // it wraps both see the same body.
+    const readBody = makeReadBody(req);
+
     // ── 5. Routing, against a table the dangerous routes were never in ──
-    // `/me` and `/events` are the listener's own, not `electron/routes/` rows:
+    // `/me`, `/push/subscribe` and `/events` are the listener's own, not
+    // `electron/routes/` rows (see `LISTENER_OWN_ROUTES` in `allowlist.ts`):
     // they exist only for the phone client, so they are not allowlist entries.
     // `/me` returns the device's own record — its label and whether it may
     // send — and no token, no hash, and nothing about any other device.
@@ -235,7 +243,27 @@ export class RemoteControlServer {
         id: device.id,
         label: device.label,
         canSend: device.canSend,
+        // The *public* half of the VAPID pair. It is an application server
+        // key, not a secret — a client cannot subscribe without it.
+        vapidPublicKey: this.push?.publicKey() ?? null,
       });
+      return;
+    }
+
+    // Subscribing is not a write: being told that a session is blocked is the
+    // read surface's whole point, so a read-only device may do it.
+    if (method === "POST" && url.pathname === "/push/subscribe") {
+      if (!this.push) {
+        json(503, { error: "Push is not available" });
+        return;
+      }
+      const subscription = asSubscription(await readBody());
+      if (!subscription) {
+        json(400, { error: "Expected a push subscription" });
+        return;
+      }
+      const stored = this.push.subscribe(device.id, subscription);
+      json(stored ? 200 : 404, stored ? { ok: true } : { error: "Not found" });
       return;
     }
 
@@ -244,7 +272,6 @@ export class RemoteControlServer {
       return;
     }
 
-    const readBody = makeReadBody(req);
     const table = this.guardWrites(
       remoteRouteTable(routes, device.canSend),
       device,
@@ -347,6 +374,23 @@ export class RemoteControlServer {
 }
 
 type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
+
+/**
+ * Validate a subscription body. `endpoint` must be https — a push endpoint is a
+ * capability URL, and we will not store one that would be sent in the clear.
+ */
+function asSubscription(
+  body: Record<string, unknown>,
+): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
+  const endpoint = body.endpoint;
+  const keys = body.keys;
+  if (typeof endpoint !== "string" || !endpoint.startsWith("https://"))
+    return null;
+  if (typeof keys !== "object" || keys === null) return null;
+  const { p256dh, auth } = keys as Record<string, unknown>;
+  if (typeof p256dh !== "string" || typeof auth !== "string") return null;
+  return { endpoint, keys: { p256dh, auth } };
+}
 
 /** The raw bearer token, or null. Never logged by any caller. */
 function bearerToken(req: http.IncomingMessage): string | null {

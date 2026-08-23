@@ -22,7 +22,17 @@ export default defineConfig({
     // `default-src 'none'` plus `'self'`, so the bundle must be self-contained.
     assetsInlineLimit: 0,
     rollupOptions: {
-      input: path.resolve(__dirname, "src/remote-client/index.html"),
+      input: {
+        index: path.resolve(__dirname, "src/remote-client/index.html"),
+        // The service worker must land at a stable, un-hashed path at the root
+        // of the scope it controls — a hashed filename would change its scope
+        // and orphan every existing registration.
+        sw: path.resolve(__dirname, "src/remote-client/sw.ts"),
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js",
+      },
     },
   },
 });

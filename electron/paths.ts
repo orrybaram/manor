@@ -72,6 +72,10 @@ export function remoteAuditFile(): string {
   return path.join(manorDataDir(), "remote-audit.jsonl");
 }
 
+export function remoteVapidFile(): string {
+  return path.join(manorDataDir(), "remote-vapid.enc");
+}
+
 export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }

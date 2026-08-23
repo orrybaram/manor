@@ -38,10 +38,28 @@ export interface RemoteDevice {
   canSend: boolean;
   createdAt: number;
   lastSeenAt: number | null;
+  /**
+   * Web Push endpoint for this device, if it subscribed. Stored *on the device*
+   * rather than in a table of its own so that revoking a device revokes its
+   * push channel in the same operation — there is no second place to forget.
+   */
+  pushSubscription: PushSubscriptionRecord | null;
 }
 
-/** What `list()` hands out: a device minus the only secret-adjacent field. */
-export type RemoteDeviceInfo = Omit<RemoteDevice, "tokenHash">;
+/** The subset of a `PushSubscription` the push service needs back. */
+export interface PushSubscriptionRecord {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/**
+ * What `list()` hands out: a device minus the token hash and minus the push
+ * endpoint, which is a capability URL in its own right.
+ */
+export type RemoteDeviceInfo = Omit<
+  RemoteDevice,
+  "tokenHash" | "pushSubscription"
+> & { hasPush: boolean };
 
 /** Raised when the OS keychain cannot encrypt — pairing must not proceed. */
 export class EncryptionUnavailableError extends Error {
@@ -104,6 +122,7 @@ export class RemoteDeviceStore {
       canSend,
       createdAt: Date.now(),
       lastSeenAt: null,
+      pushSubscription: null,
     };
     this.devices.set(device.id, device);
     this.persist();
@@ -146,6 +165,43 @@ export class RemoteDeviceStore {
       this.persist();
     }
     return matched;
+  }
+
+  /**
+   * Attach (or clear) a device's push subscription. Called from the listener's
+   * `POST /push/subscribe`; a revoked device is simply absent, so a late
+   * subscribe from one is dropped rather than resurrecting it.
+   */
+  setPushSubscription(
+    id: string,
+    subscription: PushSubscriptionRecord | null,
+  ): boolean {
+    this.load();
+    const device = this.devices.get(id);
+    if (!device) return false;
+    device.pushSubscription = subscription;
+    this.persist();
+    return true;
+  }
+
+  /** Every device that can currently receive a push. */
+  pushTargets(): Array<{
+    device: RemoteDeviceInfo;
+    subscription: PushSubscriptionRecord;
+  }> {
+    this.load();
+    const targets: Array<{
+      device: RemoteDeviceInfo;
+      subscription: PushSubscriptionRecord;
+    }> = [];
+    for (const device of this.devices.values()) {
+      if (device.pushSubscription)
+        targets.push({
+          device: publicView(device),
+          subscription: device.pushSubscription,
+        });
+    }
+    return targets;
   }
 
   /** Immediate: the map this deletes from is what `verify()` walks. */
@@ -208,8 +264,21 @@ export class RemoteDeviceStore {
 }
 
 function publicView(device: RemoteDevice): RemoteDeviceInfo {
-  const { tokenHash: _tokenHash, ...rest } = device;
-  return rest;
+  const { tokenHash: _tokenHash, pushSubscription, ...rest } = device;
+  return { ...rest, hasPush: pushSubscription !== null };
+}
+
+/** A stored push subscription, or null if it is not one. */
+function asSubscription(value: unknown): PushSubscriptionRecord | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.endpoint !== "string" || !/^https:\/\//.test(v.endpoint))
+    return null;
+  const keys = v.keys;
+  if (typeof keys !== "object" || keys === null) return null;
+  const k = keys as Record<string, unknown>;
+  if (typeof k.p256dh !== "string" || typeof k.auth !== "string") return null;
+  return { endpoint: v.endpoint, keys: { p256dh: k.p256dh, auth: k.auth } };
 }
 
 /** Validate one persisted row. A row that fails any check is dropped. */
@@ -230,5 +299,6 @@ function asDevice(value: unknown): RemoteDevice | null {
     canSend: v.canSend,
     createdAt: v.createdAt,
     lastSeenAt,
+    pushSubscription: asSubscription(v.pushSubscription),
   };
 }

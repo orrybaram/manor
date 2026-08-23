@@ -35,6 +35,8 @@ interface Identity {
   id: string;
   label: string;
   canSend: boolean;
+  /** Application server key; null when this machine cannot store one. */
+  vapidPublicKey: string | null;
 }
 
 type View = { kind: "list" } | { kind: "detail"; task: TaskSummary };
@@ -91,10 +93,7 @@ function forgetToken(): void {
   }
 }
 
-async function api<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T | null> {
+async function api<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   if (!token) return null;
   const res = await fetch(path, {
     ...init,
@@ -133,6 +132,49 @@ async function loadTasks(): Promise<void> {
 
 function rank(task: TaskSummary): number {
   return STATUS_RANK[task.lastAgentStatus ?? "idle"] ?? 6;
+}
+
+// ── Push ──
+
+/** base64url → the `Uint8Array` `pushManager.subscribe` wants. */
+function decodeKey(base64url: string): Uint8Array {
+  const padded = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Subscribe this device for push, if it can. Every step is allowed to fail
+ * quietly: no service worker, no push support, permission denied, or a machine
+ * with no signing key all mean "no push", never "no app".
+ */
+async function enablePush(): Promise<void> {
+  const key = identity?.vapidPublicKey;
+  if (!key) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (Notification.permission === "denied") return;
+
+  try {
+    const registration = await navigator.serviceWorker.register("./sw.js");
+    if (Notification.permission === "default") {
+      const granted = await Notification.requestPermission();
+      if (granted !== "granted") return;
+    }
+    const subscription =
+      (await registration.pushManager.getSubscription()) ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeKey(key),
+      }));
+    await api("/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify(subscription.toJSON()),
+    });
+  } catch {
+    // Push is a bonus on top of the live stream, never a prerequisite.
+  }
 }
 
 // ── Live updates ──
@@ -386,6 +428,18 @@ async function main(): Promise<void> {
   await loadTasks();
   render();
   void watch();
+  void enablePush();
+
+  // Tapping a push notification asks the page to open that session.
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    const data = event.data as { type?: string; taskId?: string } | null;
+    if (data?.type !== "open-task" || !data.taskId) return;
+    const task = tasks.find((t) => t.id === data.taskId);
+    if (!task) return;
+    view = { kind: "detail", task };
+    render();
+    void openDetail(task);
+  });
 }
 
 void main();

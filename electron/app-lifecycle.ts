@@ -42,6 +42,11 @@ import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
+import {
+  PushManager,
+  isPushable,
+  pushPayloadFor,
+} from "./remote-control/push";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -204,6 +209,7 @@ export function initApp(devTitle: string | null): void {
   // off until the user turns it on, and even then the listener is loopback-only
   // until they separately start a tunnel.
   const remoteDeviceStore = new RemoteDeviceStore();
+  const remotePush = new PushManager(remoteDeviceStore);
   const remoteControlServer = new RemoteControlServer(
     () => ({
       projectManager,
@@ -214,6 +220,11 @@ export function initApp(devTitle: string | null): void {
       backend,
     }),
     remoteDeviceStore,
+    // Rate limiter, audit log, and client directory all take their defaults.
+    undefined,
+    undefined,
+    undefined,
+    remotePush,
   );
   // Detected, never installed; started only by an explicit user action. The
   // manager is constructed here so shutdown can guarantee the child dies with
@@ -254,6 +265,16 @@ export function initApp(devTitle: string | null): void {
       status: newStatus,
       previousStatus: prevStatus ?? null,
     });
+    // Third sink on the same transition. Gated on the same preference as the
+    // desktop notification — a user who muted "agent needs input" has muted it
+    // everywhere, not just on this machine.
+    if (
+      isPushable(newStatus) &&
+      newStatus !== prevStatus &&
+      preferencesManager.get("notifyOnRequiresInput")
+    ) {
+      void remotePush.notify(pushPayloadFor(newStatus, task));
+    }
   }
 
   // Ensure shell integration and agent hooks are set up

@@ -24,6 +24,7 @@ const CSP = [
   "style-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
+  "worker-src 'self'",
   "manifest-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",

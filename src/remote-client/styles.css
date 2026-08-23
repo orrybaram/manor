@@ -27,7 +27,11 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+  font:
+    15px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
     sans-serif;
   overscroll-behavior-y: none;
 }
@@ -150,7 +154,11 @@ pre.scrollback {
   border-radius: 10px;
   padding: 12px;
   margin: 0;
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 60vh;
@@ -212,7 +220,11 @@ pre.scrollback {
   border-radius: 8px;
   padding: 10px;
   margin: 10px 0;
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   word-break: break-word;
 }
 

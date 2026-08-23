@@ -1,6 +1,6 @@
 ---
 title: Web Push on requires_input
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [3, 7]

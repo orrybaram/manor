@@ -47,6 +47,7 @@ describe("RemoteControlServer", () => {
   let auditDir: string;
   let audit: RemoteAuditLog;
   let clientDir: string;
+  let subscribe: ReturnType<typeof vi.fn>;
   let ptyWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -61,6 +62,7 @@ describe("RemoteControlServer", () => {
     fs.mkdirSync(path.join(clientDir, "assets"));
     fs.writeFileSync(path.join(clientDir, "assets", "app.js"), "export {};");
     ptyWrite = vi.fn();
+    subscribe = vi.fn(() => true);
     getTaskById = vi.fn(() => null);
     deps = {
       projectManager: null,
@@ -83,6 +85,10 @@ describe("RemoteControlServer", () => {
       new AuthRateLimiter(() => now),
       audit,
       clientDir,
+      {
+        publicKey: () => "vapid-public-key",
+        subscribe,
+      } as unknown as import("../push").PushManager,
     );
     const { port } = await server.start();
     base = `http://127.0.0.1:${port}`;
@@ -410,8 +416,16 @@ describe("RemoteControlServer", () => {
         id: writer.id,
         label: writer.label,
         canSend: true,
+        vapidPublicKey: "vapid-public-key",
       });
       expect(JSON.stringify(body)).not.toContain(WRITE_TOKEN);
+    });
+
+    it("includes the public application server key", async () => {
+      const body = (await (await get("/me", READ_TOKEN)).json()) as {
+        vapidPublicKey: string;
+      };
+      expect(body.vapidPublicKey).toBe("vapid-public-key");
     });
 
     it("reports a read-only device as unable to send", async () => {
@@ -419,6 +433,51 @@ describe("RemoteControlServer", () => {
         canSend: boolean;
       };
       expect(body.canSend).toBe(false);
+    });
+  });
+
+  describe("POST /push/subscribe", () => {
+    const subscription = {
+      endpoint: "https://push.example/abc",
+      keys: { p256dh: "p", auth: "a" },
+    };
+
+    it("requires a token", async () => {
+      const res = await post("/push/subscribe", undefined, subscription);
+      expect(res.status).toBe(401);
+      expect(subscribe).not.toHaveBeenCalled();
+    });
+
+    it("stores a subscription against the calling device", async () => {
+      const res = await post("/push/subscribe", READ_TOKEN, subscription);
+      expect(res.status).toBe(200);
+      expect(subscribe).toHaveBeenCalledWith(reader.id, subscription);
+    });
+
+    it("is open to a read-only device — being told is not a write", async () => {
+      expect(
+        (await post("/push/subscribe", READ_TOKEN, subscription)).status,
+      ).toBe(200);
+    });
+
+    it("rejects a malformed subscription", async () => {
+      expect((await post("/push/subscribe", READ_TOKEN, {})).status).toBe(400);
+      expect(
+        (
+          await post("/push/subscribe", READ_TOKEN, {
+            endpoint: "https://push.example/abc",
+          })
+        ).status,
+      ).toBe(400);
+      expect(subscribe).not.toHaveBeenCalled();
+    });
+
+    it("refuses a non-https endpoint", async () => {
+      const res = await post("/push/subscribe", READ_TOKEN, {
+        ...subscription,
+        endpoint: "http://push.example/abc",
+      });
+      expect(res.status).toBe(400);
     });
   });
 

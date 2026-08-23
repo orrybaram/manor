@@ -6,6 +6,7 @@ import type { TaskInfo } from "../../../electron.d";
 import { useTaskStore } from "../../../store/task-store";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { useTaskDisplay } from "../../../hooks/useTaskDisplay";
+import { relativeShortThenDate } from "../../../utils/relative-time";
 import styles from "./TasksView.module.css";
 
 // ── Helpers ──
@@ -45,22 +46,6 @@ function getDateBucket(dateStr: string): DateBucket {
   return "Older";
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "active") return task.status === "active";
@@ -94,7 +79,7 @@ const TaskViewRow = memo(function TaskViewRow(props: TaskViewRowProps) {
         {task.projectName || "No Project"}
       </span>
       <span className={styles.taskTime}>
-        {formatRelativeTime(task.updatedAt)}
+        {relativeShortThenDate(new Date(task.updatedAt).getTime())}
       </span>
       <span
         role="button"

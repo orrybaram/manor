@@ -14,6 +14,7 @@ import { Stack, Row } from "../ui/Layout/Layout";
 import { Switch } from "../ui/Switch/Switch";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { CopyField } from "./CopyField";
+import { relativeShort } from "../../utils/relative-time";
 import {
   PairingResultDialog,
   TunnelConfirmDialog,
@@ -29,16 +30,6 @@ const TUNNEL_LABEL: Record<TunnelKind, string> = {
   tailscale: "Tailscale",
   cloudflared: "Cloudflare Tunnel",
 };
-
-/** "3m ago" — a device list is about recency, not calendar dates. */
-function ago(value: number | null): string {
-  if (value === null) return "never";
-  const seconds = Math.max(0, (Date.now() - value) / 1000);
-  if (seconds < 45) return "just now";
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h ago`;
-  return `${Math.round(seconds / 86_400)}d ago`;
-}
 
 /**
  * The remote-control settings surface (ADR-161 ticket 6).
@@ -334,10 +325,10 @@ function DeviceRow(props: {
           )}
         </div>
         <div className={styles.fieldHint}>
-          Paired {ago(device.createdAt)} ·{" "}
+          Paired {relativeShort(device.createdAt)} ·{" "}
           {device.lastSeenAt === null
             ? "not connected yet"
-            : `last seen ${ago(device.lastSeenAt)}`}
+            : `last seen ${relativeShort(device.lastSeenAt)}`}
         </div>
       </div>
       <Tooltip label="Revoke this device's token">

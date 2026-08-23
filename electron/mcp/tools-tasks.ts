@@ -20,7 +20,12 @@ interface SendResult {
 /** The wire shape `POST /sessions/read` returns. */
 interface ReadResult {
   ok: boolean;
-  target: { id: string; paneId: string; lastAgentStatus: string | null };
+  target: {
+    id: string;
+    paneId: string;
+    lastAgentStatus: string | null;
+    kind: "session" | "pane";
+  };
   source: "live" | "scrollback";
   text: string;
   lineCount: number;
@@ -69,7 +74,8 @@ const tools: ToolDef[] = [
         },
         text: {
           type: "string",
-          description: "The new prompt to submit after interrupting the target.",
+          description:
+            "The new prompt to submit after interrupting the target.",
         },
         interrupt: {
           type: "string",
@@ -83,26 +89,29 @@ const tools: ToolDef[] = [
   {
     name: "read_session",
     description:
-      "Read another session's rendered output (its conversation/transcript) by the handle list_tasks returns. Plain text by default; pass raw:true for the ANSI stream. Read-only — does not touch the session. Works for running sessions (live rendered buffer) and ended ones (persisted scrollback).",
+      "Read any terminal pane's rendered output — an agent session's conversation/transcript, or a plain terminal's scrollback. Targets accept an agent handle from list_tasks OR a raw paneId from list_panes, so panes that were never started as agent sessions are readable too. Plain text by default; pass raw:true for the ANSI stream. Read-only — does not touch the pane. Works for live panes (rendered buffer, up to 10k lines of scrollback) and ended ones (persisted scrollback). Returns the last 200 lines by default — raise tailLines to read further back.",
     inputSchema: {
       type: "object" as const,
       properties: {
         target: {
           type: "string",
           description:
-            "Which session to read. Accepts a task id (from list_tasks), a raw pane id, '#<issue>', or a workspace branch.",
+            "Which pane to read. Accepts a task id (from list_tasks), a raw paneId (from list_panes — including plain, non-agent terminals), '#<issue>', or a workspace branch.",
         },
         tailLines: {
           type: "number",
-          description: "How many trailing lines to return. Defaults to 200.",
+          description:
+            "How many trailing lines to return. Defaults to 200; raise it (e.g. 5000) to read the full scrollback.",
         },
         maxBytes: {
           type: "number",
-          description: "Additionally cap the returned text to this many bytes, from the end.",
+          description:
+            "Additionally cap the returned text to this many bytes, from the end.",
         },
         raw: {
           type: "boolean",
-          description: "Return the raw ANSI stream instead of plain (stripped) text.",
+          description:
+            "Return the raw ANSI stream instead of plain (stripped) text.",
         },
       },
       required: ["target"],
@@ -129,7 +138,8 @@ function formatTask(task: TaskSummary): string {
 const handlers: ToolModule["handlers"] = {
   async list_tasks(args, http) {
     const params = new URLSearchParams();
-    if (args.projectId !== undefined) params.set("projectId", String(args.projectId));
+    if (args.projectId !== undefined)
+      params.set("projectId", String(args.projectId));
     if (args.status !== undefined) params.set("status", String(args.status));
     if (args.limit !== undefined) params.set("limit", String(args.limit));
     const qs = params.toString();
@@ -161,7 +171,7 @@ const handlers: ToolModule["handlers"] = {
       raw: args.raw,
     })) as ReadResult;
 
-    const header = `source=${res.source} lines=${res.lineCount}${res.truncated ? " (truncated)" : ""}`;
+    const header = `${res.target.kind}=${res.target.id} source=${res.source} lines=${res.lineCount}${res.truncated ? " (truncated)" : ""}`;
     return text(`${header}\n\n${res.text}`);
   },
 };

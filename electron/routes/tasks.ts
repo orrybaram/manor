@@ -59,7 +59,10 @@ function toSummary(task: TaskInfo): TaskSummary {
  * that scan only ever considers *active* tasks — steering a completed session
  * is meaningless and would surprise the caller.
  */
-function resolveTarget(taskManager: TaskManager, target: string): TaskInfo | null {
+function resolveTarget(
+  taskManager: TaskManager,
+  target: string,
+): TaskInfo | null {
   // 1. Stable task id (what list_tasks hands back).
   const byId = taskManager.getTaskById(target);
   if (byId) return byId;
@@ -109,9 +112,13 @@ export const tasksRoutes: Route[] = [
       const projectId = url.searchParams.get("projectId") ?? undefined;
       const status = url.searchParams.get("status") ?? undefined;
       const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
-      const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
+      const limit =
+        Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
       const offsetParam = parseInt(url.searchParams.get("offset") ?? "", 10);
-      const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : undefined;
+      const offset =
+        Number.isFinite(offsetParam) && offsetParam >= 0
+          ? offsetParam
+          : undefined;
 
       // No filters at all: default to just the active sessions, which is what
       // "see every session" means in practice — completed/errored/abandoned
@@ -216,26 +223,40 @@ export const tasksRoutes: Route[] = [
         return;
       }
 
+      // A task handle is the *preferred* target, but not the only one: plain
+      // terminal panes never get a TaskInfo, and their scrollback is just as
+      // readable — paneId is the pty sessionId is the scrollback dir key. So an
+      // unresolved target falls through to being treated as a raw pane id.
       const task = resolveTarget(deps.taskManager, target);
-      if (!task) {
-        json(404, { error: `No session matches target '${target}'` });
-        return;
-      }
-      if (!task.paneId) {
+      if (task && !task.paneId) {
         json(409, {
           error: `Session '${task.id}' has no live pane to read from`,
         });
         return;
       }
+      const paneId = task?.paneId ?? target;
 
-      const snap = await deps.backend.pty.getSnapshot(task.paneId);
+      const snap = await deps.backend.pty.getSnapshot(paneId);
       let ansi: string;
       let source: "live" | "scrollback";
       if (snap) {
         ansi = snap.screenAnsi;
         source = "live";
       } else {
-        ansi = ScrollbackWriter.readScrollback(task.paneId);
+        ansi = ScrollbackWriter.readScrollback(paneId);
+        // Without a task row there is nothing else vouching for this target, so
+        // an empty disk read means the pane simply doesn't exist — 404 rather
+        // than hand back a convincing-looking empty transcript.
+        if (
+          !task &&
+          ansi === "" &&
+          ScrollbackWriter.readMeta(paneId) === null
+        ) {
+          json(404, {
+            error: `No session or pane matches target '${target}'`,
+          });
+          return;
+        }
         source = "scrollback";
       }
 
@@ -281,7 +302,12 @@ export const tasksRoutes: Route[] = [
 
       json(200, {
         ok: true,
-        target: { id: task.id, paneId: task.paneId, lastAgentStatus: task.lastAgentStatus },
+        target: {
+          id: task?.id ?? paneId,
+          paneId,
+          lastAgentStatus: task?.lastAgentStatus ?? null,
+          kind: task ? "session" : "pane",
+        },
         source,
         text: output,
         lineCount,

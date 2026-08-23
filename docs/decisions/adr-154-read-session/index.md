@@ -130,3 +130,23 @@ returned text (with a short `source`/`truncated` header) via `text()`.
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>
+
+## Amendment (2026-08-23): any pane, not just agent sessions
+
+The tool shipped resolving `target` **only** through `resolveTarget`, which
+consults the `TaskManager`. Plain terminal panes never get a `TaskInfo`, so the
+two-thirds of a typical workspace that isn't an agent session 404'd — even
+though their output is just as readable, and for the same reason the ADR already
+noted: **identity is unified** (`paneId` == pty `sessionId` == scrollback dir
+key).
+
+`POST /sessions/read` now falls through: an unresolved `target` is treated as a
+raw pane id and read via the same snapshot-first / disk-scrollback path. A
+resolved-but-paneless task still 409s (it has a pane-less answer, not a missing
+one). Since nothing vouches for a raw target, a pane with no live snapshot *and*
+no `meta.json` on disk 404s rather than returning a convincing empty transcript.
+The response's `target` gains `kind: "session" | "pane"` so the caller knows
+which door it came through.
+
+`send_to_session` deliberately keeps its task-only resolution — writing into a
+pane needs a harness-aware interrupt sequence, which only a task row carries.

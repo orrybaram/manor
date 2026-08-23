@@ -14,7 +14,8 @@ import { text } from "./types";
  * `electron/pty.ts` sets when launching a Manor-managed terminal. Absent for
  * clients not launched from a Manor PTY.
  */
-const callerPaneId = (): string | undefined => process.env.MANOR_PANE_ID || undefined;
+const callerPaneId = (): string | undefined =>
+  process.env.MANOR_PANE_ID || undefined;
 
 // ── Formatting ──
 
@@ -49,7 +50,7 @@ const tools: ToolDef[] = [
   {
     name: "list_panes",
     description:
-      "List every tab and pane in the active workspace as an indented tree, marking the active tab and the focused pane. Every pane line includes its paneId, which is the join key for split_pane, focus_pane, close_pane, and all webview tools (navigate, screenshot_webview, get_dom, click_element, type_text, get_console_logs).",
+      "List every tab and pane in the active workspace as an indented tree, marking the active tab and the focused pane. Every pane line includes its paneId, which is the join key for split_pane, focus_pane, close_pane, read_session (reads a terminal pane's scrollback), and all webview tools (navigate, screenshot_webview, get_dom, click_element, type_text, get_console_logs).",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -86,11 +87,13 @@ const tools: ToolDef[] = [
         },
         url: {
           type: "string",
-          description: "URL to load. Only applies when contentType is 'browser'.",
+          description:
+            "URL to load. Only applies when contentType is 'browser'.",
         },
         command: {
           type: "string",
-          description: "Command to auto-run. Only applies to a 'terminal' pane.",
+          description:
+            "Command to auto-run. Only applies to a 'terminal' pane.",
         },
       },
       required: ["direction"],
@@ -122,7 +125,10 @@ const tools: ToolDef[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        url: { type: "string", description: "URL to load in the new browser tab." },
+        url: {
+          type: "string",
+          description: "URL to load in the new browser tab.",
+        },
         workspacePath: {
           type: "string",
           description:
@@ -225,7 +231,9 @@ const handlers: ToolModule["handlers"] = {
   },
 
   async focus_pane(args, http) {
-    await http.post(`/panes/${encodeURIComponent(args.paneId as string)}/focus`);
+    await http.post(
+      `/panes/${encodeURIComponent(args.paneId as string)}/focus`,
+    );
     return text(`Focused pane ${args.paneId}.`);
   },
 

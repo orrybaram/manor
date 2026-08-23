@@ -3,6 +3,7 @@ import {
   useState,
   useMemo,
   useCallback,
+  useLayoutEffect,
   useRef,
   useImperativeHandle,
   forwardRef,
@@ -67,7 +68,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const savedSelection = useRef<string>("");
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       const container = containerRef.current;
       if (!headerEl || !container) return;
       const update = () => {
@@ -498,7 +499,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
     if (loading) {
       return (
-        <div className={styles.container}>
+        <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <div className={styles.status}>Loading diff...</div>
           {workspacePath && (
@@ -515,7 +516,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
     if (error) {
       return (
-        <div className={styles.container}>
+        <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <EmptyState message={error} />
           {workspacePath && (

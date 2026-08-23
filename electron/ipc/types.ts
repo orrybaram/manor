@@ -14,6 +14,7 @@ import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
 import type { PrewarmManager } from "../prewarm-manager";
+import type { RemoteControlController } from "../remote-control/controller";
 
 export interface WorkspaceMeta {
   path: string;
@@ -56,4 +57,6 @@ export interface IpcDeps {
   webviewServer: WebviewServer;
   workspaceMeta: WorkspaceMeta[];
   prewarmManager: PrewarmManager;
+  /** ADR-161. Off until the user enables it; see the controller header. */
+  remoteControl: RemoteControlController;
 }

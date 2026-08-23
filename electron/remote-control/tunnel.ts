@@ -135,7 +135,10 @@ export class TunnelManager {
     } catch (err) {
       const error = `Could not start ${command}: ${String(err)}`;
       this.setState({ state: "failed", kind, url: null, error });
-      throw new Error(error, { cause: err });
+      // `Object.assign` rather than the `cause` constructor option: this
+      // module compiles against the ES2020 lib, where that overload does not
+      // exist yet.
+      throw Object.assign(new Error(error), { cause: err });
     }
     this.child = child;
 

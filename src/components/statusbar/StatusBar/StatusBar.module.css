@@ -116,3 +116,24 @@
 .browserFocusHint {
   color: var(--text-dim);
 }
+
+/* ── Remote-control exposure indicator (ADR-161) ── */
+
+.remoteBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--green, #2ea043);
+  color: #fff;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+.remoteBadgeFailed {
+  background: var(--danger, #c74e39);
+}

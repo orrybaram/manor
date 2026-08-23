@@ -7,6 +7,7 @@ import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
+import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue } from "../../../store/project-store";
@@ -122,6 +123,7 @@ export function StatusBar(props: StatusBarProps) {
         )}
       </div>
       <div className={styles.right}>
+        <RemoteExposureIndicator />
         <button
           className={styles.logoButton}
           onClick={() => setFeedbackOpen(true)}

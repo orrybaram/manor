@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   Menu,
   nativeImage,
+  safeStorage,
 } from "electron";
 import fs from "node:fs";
 import path from "node:path";
@@ -40,6 +41,7 @@ import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { TunnelManager } from "./remote-control/tunnel";
+import { RemoteControlController } from "./remote-control/controller";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -61,6 +63,7 @@ import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
+import * as remoteControlIpc from "./ipc/remote-control";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -220,6 +223,12 @@ export function initApp(devTitle: string | null): void {
     spawn: (command, args) =>
       spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
   });
+  const remoteControl = new RemoteControlController(
+    remoteControlServer,
+    remoteDeviceStore,
+    remoteTunnel,
+    () => safeStorage.isEncryptionAvailable(),
+  );
   const paneContextMap = new Map<
     string,
     { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
@@ -318,6 +327,7 @@ export function initApp(devTitle: string | null): void {
     webviewServer,
     workspaceMeta: [],
     prewarmManager,
+    remoteControl,
   };
 
   ptyIpc.register(ipcDeps);
@@ -332,6 +342,7 @@ export function initApp(devTitle: string | null): void {
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
+  remoteControlIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
@@ -523,8 +534,9 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", () => {
     agentHookServer.stop();
     webviewServer.stop();
-    void remoteControlServer.stop();
-    void remoteTunnel.stop();
+    // Takes the tunnel down first, then the listener. A tunnel must never
+    // outlive the app that opened it.
+    void remoteControl.shutdown();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

@@ -9,6 +9,7 @@ import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import { useProjectStore } from "../../../store/project-store";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -16,6 +17,7 @@ import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { HomeSettingsPage } from "../HomeSettingsPage";
+import { RemoteControlPage } from "../RemoteControlPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import styles from "./SettingsModal.module.css";
@@ -27,6 +29,7 @@ type SettingsPage =
   | { type: "notifications" }
   | { type: "integrations" }
   | { type: "home" }
+  | { type: "remote" }
   | { type: "project"; projectId: string };
 
 /** Fixed (non-project) settings pages that a command can deep-link to. */
@@ -145,6 +148,14 @@ export function SettingsModal(props: SettingsModalProps) {
               </button>
 
               <button
+                className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
+                onClick={() => setPage({ type: "remote" })}
+              >
+                <Smartphone size={14} />
+                <span>Remote control</span>
+              </button>
+
+              <button
                 className={styles.navGroupHeader}
                 onClick={() => setProjectsExpanded((v) => !v)}
               >
@@ -184,6 +195,7 @@ export function SettingsModal(props: SettingsModalProps) {
               {page.type === "notifications" && <NotificationsPage />}
               {page.type === "integrations" && <IntegrationsPage />}
               {page.type === "home" && <HomeSettingsPage />}
+              {page.type === "remote" && <RemoteControlPage />}
               {page.type === "project" && currentProject && (
                 <ProjectSettingsPage
                   key={currentProject.id}

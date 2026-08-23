@@ -1,6 +1,6 @@
 ---
 title: Settings UI — enable, pair devices, show exposure
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2, 5]

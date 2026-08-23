@@ -602,6 +602,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     },
   },
 
+  // Remote control (ADR-161). Off until the user enables it; `pair` is the one
+  // call that returns a raw token, and it is returned once and never re-fetched.
+  remoteControl: {
+    getStatus: () => ipcRenderer.invoke("remoteControl:getStatus"),
+    refreshDetection: () => ipcRenderer.invoke("remoteControl:refreshDetection"),
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke("remoteControl:setEnabled", enabled),
+    pair: (label: string, canSend: boolean) =>
+      ipcRenderer.invoke("remoteControl:pair", label, canSend),
+    revoke: (id: string) => ipcRenderer.invoke("remoteControl:revoke", id),
+    startTunnel: (kind?: "tailscale" | "cloudflared") =>
+      ipcRenderer.invoke("remoteControl:startTunnel", kind),
+    stopTunnel: () => ipcRenderer.invoke("remoteControl:stopTunnel"),
+    onStatus: (callback: (status: unknown) => void) =>
+      onChannel<unknown>("remoteControl:status", callback),
+  },
+
   // Multi-window (ADR-156). Named `window` on electronAPI — this does NOT shadow
   // the global `window`, which is untouched here.
   window: {

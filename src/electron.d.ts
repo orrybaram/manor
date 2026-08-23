@@ -469,6 +469,17 @@ export interface ElectronAPI {
     ) => Promise<string[]>;
   };
 
+  remoteControl: {
+    getStatus: () => Promise<RemoteControlStatus>;
+    refreshDetection: () => Promise<RemoteControlStatus>;
+    setEnabled: (enabled: boolean) => Promise<RemoteControlStatus>;
+    pair: (label: string, canSend: boolean) => Promise<RemotePairResult>;
+    revoke: (id: string) => Promise<RemoteControlStatus>;
+    startTunnel: (kind?: TunnelKind) => Promise<RemoteControlStatus>;
+    stopTunnel: () => Promise<RemoteControlStatus>;
+    onStatus: (callback: (status: RemoteControlStatus) => void) => () => void;
+  };
+
   linear: {
     connect: (apiKey: string) => Promise<{ name: string; email: string }>;
     disconnect: () => Promise<void>;
@@ -774,6 +785,44 @@ export interface PickedElementResult {
     name: string;
     source?: { fileName: string; lineNumber: number };
   }>;
+}
+
+// ── Remote control (ADR-161) ──
+
+export type TunnelKind = "tailscale" | "cloudflared";
+export type TunnelState = "stopped" | "starting" | "running" | "failed";
+
+export interface TunnelStatus {
+  state: TunnelState;
+  kind: TunnelKind | null;
+  url: string | null;
+  error: string | null;
+}
+
+export interface RemoteDeviceInfo {
+  id: string;
+  label: string;
+  /** Whether this device may type into a session. Off unless explicitly granted. */
+  canSend: boolean;
+  createdAt: number;
+  lastSeenAt: number | null;
+}
+
+export interface RemoteControlStatus {
+  enabled: boolean;
+  port: number | null;
+  devices: RemoteDeviceInfo[];
+  tunnel: TunnelStatus;
+  detected: Record<TunnelKind, boolean>;
+  encryptionAvailable: boolean;
+  listeners: number;
+}
+
+export interface RemotePairResult {
+  device: RemoteDeviceInfo;
+  /** Shown once. Never retrievable again. */
+  rawToken: string;
+  pairingUrl: string | null;
 }
 
 declare global {

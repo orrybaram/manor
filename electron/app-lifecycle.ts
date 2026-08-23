@@ -36,6 +36,8 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
+import { RemoteDeviceStore } from "./remote-control/devices";
+import { RemoteControlServer } from "./remote-control/server";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -191,6 +193,23 @@ export function initApp(devTitle: string | null): void {
     preferencesManager.get("taskRetentionDays"),
   );
   const keybindingsManager = new KeybindingsManager();
+
+  // ADR-161's remote-control surface. Constructed here so the status sink and
+  // the quit hook can see it; deliberately *not* started — remote control is
+  // off until the user turns it on, and even then the listener is loopback-only
+  // until they separately start a tunnel.
+  const remoteDeviceStore = new RemoteDeviceStore();
+  const remoteControlServer = new RemoteControlServer(
+    () => ({
+      projectManager,
+      githubManager,
+      linearManager,
+      layoutPersistence,
+      taskManager,
+      backend,
+    }),
+    remoteDeviceStore,
+  );
   const paneContextMap = new Map<
     string,
     { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
@@ -206,6 +225,16 @@ export function initApp(devTitle: string | null): void {
     newStatus: AgentStatus,
   ): void {
     _maybeSendNotification(task, prevStatus, newStatus, mainWindow, preferencesManager);
+    // A second sink on the same transition, not a second detector: whatever
+    // moves the dock badge is what a paired phone hears about. No-op unless
+    // the listener is running with a live SSE client.
+    remoteControlServer.publishStatus({
+      taskId: task.id,
+      name: task.name,
+      projectName: task.projectName,
+      status: newStatus,
+      previousStatus: prevStatus ?? null,
+    });
   }
 
   // Ensure shell integration and agent hooks are set up
@@ -484,6 +513,7 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", () => {
     agentHookServer.stop();
     webviewServer.stop();
+    void remoteControlServer.stop();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

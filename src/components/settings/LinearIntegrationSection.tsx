@@ -91,7 +91,11 @@ export function LinearIntegrationSection() {
               Linear teams
             </div>
           )}
-          <Button variant="secondary" className={styles.linearButton} onClick={handleDisconnect}>
+          <Button
+            variant="secondary"
+            className={styles.linearButton}
+            onClick={handleDisconnect}
+          >
             <Unlink size={13} />
             Disconnect
           </Button>

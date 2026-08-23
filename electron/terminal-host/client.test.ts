@@ -28,7 +28,8 @@ vi.mock("../shell", () => ({
 
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
-import { TerminalHostClient } from "./client";
+import { TerminalHostClient, isDaemonStale, daemonProtocolOf } from "./client";
+import { TERMINAL_HOST_PROTOCOL } from "./types";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
 
@@ -917,5 +918,69 @@ describe("TerminalHostClient", () => {
       await expect(client.connect()).rejects.toThrow("connection failed");
       expect((client as any).connectPromise).toBeNull();
     });
+  });
+});
+
+
+describe("isDaemonStale", () => {
+  const CURRENT = "0.6.5";
+  const current = (over: Partial<ControlResponse> = {}): ControlResponse =>
+    ({
+      type: "handshake",
+      daemonVersion: CURRENT,
+      protocol: TERMINAL_HOST_PROTOCOL,
+      ...over,
+    }) as ControlResponse;
+
+  it("keeps a daemon that matches on both version and protocol", () => {
+    expect(isDaemonStale(current(), CURRENT)).toBe(false);
+  });
+
+  it("replaces a daemon built from a different app version", () => {
+    expect(isDaemonStale(current({ daemonVersion: "0.6.4" }), CURRENT)).toBe(true);
+  });
+
+  // The regression this function exists for: two dev builds of one release meet
+  // across a protocol bump. The version check passes, so the pre-ADR-159 daemon
+  // survives, reports no `seq`, and every warm restore duplicates output again.
+  it("replaces a same-version daemon that speaks an older protocol", () => {
+    expect(isDaemonStale(current({ protocol: 0 }), CURRENT)).toBe(true);
+  });
+
+  it("replaces a same-version daemon that omits the protocol entirely", () => {
+    const legacy = { type: "handshake", daemonVersion: CURRENT } as ControlResponse;
+    expect(isDaemonStale(legacy, CURRENT)).toBe(true);
+  });
+
+  it("replaces a daemon too old to answer the handshake at all", () => {
+    const err = { type: "error", message: "Unknown request" } as ControlResponse;
+    expect(isDaemonStale(err, CURRENT)).toBe(true);
+  });
+});
+
+describe("daemonProtocolOf", () => {
+  it("reads the reported protocol", () => {
+    expect(
+      daemonProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+        protocol: 1,
+      } as ControlResponse),
+    ).toBe(1);
+  });
+
+  it("reports 0 for a handshake without a protocol field", () => {
+    expect(
+      daemonProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+      } as ControlResponse),
+    ).toBe(0);
+  });
+
+  it("reports 0 when the daemon could not answer the handshake", () => {
+    expect(
+      daemonProtocolOf({ type: "error", message: "nope" } as ControlResponse),
+    ).toBe(0);
   });
 });

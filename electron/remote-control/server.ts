@@ -212,15 +212,23 @@ export class RemoteControlServer {
       return;
     }
 
-    const device = this.devices.verify(bearerToken(req));
+    const presented = bearerToken(req);
+    const device = presented === null ? null : this.devices.verify(presented);
     if (!device) {
-      const delay = this.limiter.recordFailure(source);
-      // Loud on purpose: a knock on this listener is worth seeing. The
-      // presented token is never logged, in any form.
-      console.warn(
-        `[remote-control] rejected request from ${source} ` +
-          `(${this.limiter.failureCount(source)} consecutive, backing off ${delay}ms)`,
-      );
+      // Only a request that actually presented a token counts as an attempt.
+      // A browser asks for `/favicon.ico` with no `Authorization` header the
+      // moment the page loads; penalising that would back the address off
+      // before the app's own first call, and a perfectly good token would see
+      // 429. Guessing still costs, because guessing means sending a token.
+      if (presented !== null) {
+        const delay = this.limiter.recordFailure(source);
+        // Loud on purpose: a knock on this listener is worth seeing. The
+        // presented token is never logged, in any form.
+        console.warn(
+          `[remote-control] rejected request from ${source} ` +
+            `(${this.limiter.failureCount(source)} consecutive, backing off ${delay}ms)`,
+        );
+      }
       json(401, { error: "Unauthorized" });
       return;
     }

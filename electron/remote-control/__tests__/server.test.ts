@@ -196,6 +196,15 @@ describe("RemoteControlServer", () => {
       expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
     });
 
+    // The bug this covers: a phone loads the client, the browser asks for
+    // `/favicon.ico` with no `Authorization` header, and the app's own first
+    // call — with a perfectly good token — came back 429.
+    it("does not back off a request that presented no token at all", async () => {
+      expect((await get("/favicon.ico")).status).toBe(401);
+      expect((await get("/tasks")).status).toBe(401);
+      expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
+    });
+
     it("clears the backoff after a success", async () => {
       expect((await get("/tasks", "wrong")).status).toBe(401);
       now += 1_000;

@@ -190,8 +190,15 @@ test.describe("remote control", () => {
       await film.shot(window, "app-after-send");
 
       // MANOR_E2E_HOLD keeps both windows up here, at the point where the
-      // paired phone is live and usable, so the flow can be poked at by hand.
-      if (HOLD_MS > 0) await phone.page.waitForTimeout(HOLD_MS);
+      // paired phone is live and usable, so the flow can be poked at by hand —
+      // and then the test stops. Everything below assumes nobody has touched
+      // the app since the assertions above, which is exactly what a hold
+      // invites someone to do: revoke the device by hand and the revoke step
+      // waits for a button that is already gone.
+      if (HOLD_MS > 0) {
+        await phone.page.waitForTimeout(HOLD_MS);
+        return;
+      }
 
       // ── Revoking is immediate ──
       await openRemoteControlSettings(window);

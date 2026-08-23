@@ -101,6 +101,12 @@ repaint it provokes is either already in the snapshot or arrives with a higher
 `seq` — either way it is applied once. The snapshot's `seq` is returned
 alongside it.
 
+Reattaching also stops guessing whether a session exists. `getSnapshot` (and
+`attach`, for consistency) answers `notFound` — a fact — rather than an `error`
+the client has to interpret, and a fresh shell is spawned only on that answer. Reading any failure as "not there"
+hands a live session to a terminal that believes it is new, which drops the
+snapshot and the dedupe along with it.
+
 **Main process** (`app-lifecycle.ts`, `ipc/pty.ts`, `preload.ts`)
 
 Forward `seq` with each `pty-output-*` message, and return `snapshotSeq` from
@@ -157,6 +163,29 @@ a terminal or an IPC bridge.
   Under load every retry can land inside the same window, and for tests that
   count occurrences a retyped command inflates what they assert. It now waits
   for the session's scrollback to stop growing instead.
+
+**Notes for whoever builds remote workspaces**
+
+The daemon↔client protocol is the seam a remote backend would run over (see the
+`WorkspaceBackend` abstraction from ADR-107), and two things here matter more
+there than they do locally:
+
+- **The absent-`seq` fallback is load-bearing once a daemon is remote.** Locally
+  it is nearly unreachable: `TerminalHostClient.connect` kills and respawns a
+  daemon whose version differs, so app and daemon always match — and that
+  respawn destroys the sessions anyway, leaving nothing to restore. Over SSH you
+  cannot casually kill someone's daemon, and a remote binary may legitimately
+  lag the local app, so "no position reported → apply everything" becomes a real
+  path. Keep it.
+- **Sequence numbers are what a resumable stream needs.** A client whose link
+  drops could reattach saying "I have through N" and receive only what it
+  missed. The daemon keeps no per-position buffer today, so this is not
+  implemented — but the number it would key off now exists.
+
+Round trips also cost more there: the handshake is three of them, which is
+nothing over a unix socket and real over SSH. Collapsing them belongs with the
+transport work rather than ahead of it, since that work reshapes this client
+anyway.
 
 **Explicitly not covered**
 

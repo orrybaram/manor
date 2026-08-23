@@ -192,7 +192,7 @@ export class E2EDaemon {
           socket,
           snap
             ? { type: "snapshot", snapshot: snap }
-            : { type: "error", message: "not found" },
+            : { type: "notFound", sessionId: req.sessionId },
         );
         break;
       }

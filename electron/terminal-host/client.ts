@@ -214,6 +214,19 @@ export class TerminalHostClient {
           snapshot: snapshotResp.snapshot,
         };
       }
+      if (snapshotResp.type !== "notFound") {
+        // Only a definite "no such session" means spawn a fresh shell. Treating
+        // any failure that way would hand a live session to a terminal that
+        // thinks it is new — which drops the snapshot, and with it the dedupe
+        // that keeps a reattach from repeating output.
+        throw new Error(
+          `Snapshot failed for ${sessionId}: ${
+            snapshotResp.type === "error"
+              ? snapshotResp.message
+              : `unexpected response type: ${snapshotResp.type}`
+          }`,
+        );
+      }
 
       // Create new session
       const createResp = await this.request({

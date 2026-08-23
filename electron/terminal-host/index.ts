@@ -111,10 +111,11 @@ async function handleControlMessage(
       if (snapshot) {
         sendResponse(socket, { type: "attached", snapshot }, requestId);
       } else {
-        sendResponse(socket, {
-          type: "error",
-          message: `Session ${request.sessionId} not found`,
-        }, requestId);
+        sendResponse(
+          socket,
+          { type: "notFound", sessionId: request.sessionId },
+          requestId,
+        );
       }
       break;
     }
@@ -153,10 +154,12 @@ async function handleControlMessage(
         host.clearPrewarmed(request.sessionId);
         sendResponse(socket, { type: "snapshot", snapshot }, requestId);
       } else {
-        sendResponse(socket, {
-          type: "error",
-          message: `Session ${request.sessionId} not found`,
-        }, requestId);
+        // A fact, not a failure — the caller decides whether to spawn a shell.
+        sendResponse(
+          socket,
+          { type: "notFound", sessionId: request.sessionId },
+          requestId,
+        );
       }
       break;
     }

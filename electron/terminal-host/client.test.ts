@@ -43,6 +43,8 @@ class TestDaemon {
   readonly pidPath: string;
   /** Every request seen, in order, as "control:type" / "stream:type". */
   readonly seen: string[] = [];
+  /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
+  failNextSnapshot = false;
 
   constructor(dir: string) {
     // macOS has a 104-char limit for unix socket paths — use a short socket path
@@ -205,14 +207,16 @@ class TestDaemon {
         this.send(socket, { type: "killed" }, requestId);
         break;
       case "getSnapshot": {
+        if (this.failNextSnapshot) {
+          this.failNextSnapshot = false;
+          this.send(socket, { type: "error", message: "socket exploded" }, requestId);
+          break;
+        }
         const snapshot = await this.host.getSnapshot(req.sessionId);
         if (snapshot) {
           this.send(socket, { type: "snapshot", snapshot }, requestId);
         } else {
-          this.send(socket, {
-            type: "error",
-            message: `Session ${req.sessionId} not found`,
-          }, requestId);
+          this.send(socket, { type: "notFound", sessionId: req.sessionId }, requestId);
         }
         break;
       }
@@ -533,6 +537,26 @@ describe("TerminalHostClient", () => {
         "control:getSnapshot",
       ]);
       expect(result.snapshot!.seq).toBeGreaterThan(0);
+      client.disconnect();
+    });
+
+    it("refuses to spawn a fresh shell when the snapshot request fails", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      client.disconnect();
+      await client.connect();
+      daemon.seen.length = 0;
+      daemon.failNextSnapshot = true;
+
+      // The session is alive; the daemon just failed to answer. Creating here
+      // would hand a live shell to a terminal that thinks it is new, dropping
+      // the snapshot and the dedupe that comes with it.
+      await expect(
+        client.createOrAttach("pane-1", "/tmp", 80, 24),
+      ).rejects.toThrow(/socket exploded/);
+      expect(daemon.seen).not.toContain("control:create");
       client.disconnect();
     });
 

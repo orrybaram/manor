@@ -88,6 +88,14 @@ export type ControlResponse =
   | { type: "resized" }
   | { type: "killed" }
   | { type: "snapshot"; snapshot: TerminalSnapshot }
+  /**
+   * The daemon has no session by that id — a fact, not a failure.
+   *
+   * Distinct from `error` on purpose: a client that reattaches decides whether
+   * to spawn a fresh shell on this answer, and reading any error as "not there"
+   * turns a transport hiccup into a live session silently treated as new.
+   */
+  | { type: "notFound"; sessionId: string }
   | { type: "sessions"; sessions: SessionInfo[] }
   | { type: "pong" }
   | { type: "envUpdated" }

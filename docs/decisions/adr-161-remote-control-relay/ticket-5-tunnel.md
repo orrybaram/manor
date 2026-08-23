@@ -1,6 +1,6 @@
 ---
 title: Tunnel lifecycle — Tailscale or cloudflared, user-initiated
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

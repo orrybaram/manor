@@ -6,6 +6,7 @@ import {
 } from "electron";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
@@ -38,6 +39,7 @@ import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
+import { TunnelManager } from "./remote-control/tunnel";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -210,6 +212,14 @@ export function initApp(devTitle: string | null): void {
     }),
     remoteDeviceStore,
   );
+  // Detected, never installed; started only by an explicit user action. The
+  // manager is constructed here so shutdown can guarantee the child dies with
+  // the app — a tunnel outliving Manor is the feature's worst failure mode.
+  const remoteTunnel = new TunnelManager({
+    which: (bin) => backend.shell.which(bin),
+    spawn: (command, args) =>
+      spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+  });
   const paneContextMap = new Map<
     string,
     { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
@@ -514,6 +524,7 @@ export function initApp(devTitle: string | null): void {
     agentHookServer.stop();
     webviewServer.stop();
     void remoteControlServer.stop();
+    void remoteTunnel.stop();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

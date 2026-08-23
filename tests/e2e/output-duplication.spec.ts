@@ -1,7 +1,16 @@
-import fs from "fs";
-import path from "path";
 import type { Page } from "@playwright/test";
-import { bootWorkspaceWithTerminal, createWorkspace, expect, test } from "./fixtures";
+import {
+  bootWorkspaceWithTerminal,
+  createWorkspace,
+  expect,
+  test,
+} from "./fixtures";
+import {
+  activePaneId,
+  awaitShellReady,
+  runInTerminal,
+  scrollback,
+} from "./helpers/terminal";
 
 /**
  * The bug these tests guard: a line the shell printed once shows up on screen
@@ -14,59 +23,6 @@ import { bootWorkspaceWithTerminal, createWorkspace, expect, test } from "./fixt
  * renderer-side view of the terminal a test can read (WebGL draws to canvas,
  * so there are no row elements to query).
  */
-
-/** Read the daemon-side scrollback for a pane out of the test's temp HOME. */
-function scrollback(tempHome: string, paneId: string): string {
-  const file = path.join(tempHome, ".manor/sessions", paneId, "scrollback.bin");
-  if (!fs.existsSync(file)) return "";
-   
-  return fs.readFileSync(file, "utf8").replace(/\[[0-9;?]*[a-zA-Z]/g, "");
-}
-
-async function activePaneId(window: Page): Promise<string> {
-  const id = await window
-    .locator('[data-testid="workspace-pane"]:visible')
-    .first()
-    .getAttribute("data-pane-id");
-  expect(id).toBeTruthy();
-  return id!;
-}
-
-/** Type a command into the focused terminal and submit it. */
-async function runInTerminal(window: Page, command: string): Promise<void> {
-  await window.locator('[data-testid="terminal-pane"]:visible').first().click();
-  await window.keyboard.type(command);
-  await window.keyboard.press("Enter");
-}
-
-/**
- * Wait until the pane's shell is actually at a prompt.
- *
- * A freshly opened pane is visible before its shell has one, and zsh's line
- * editor discards anything typed while it is still initializing. Retyping is
- * not a fix — under load every retry can land inside that window, and for the
- * tests below a retyped command would also inflate the counts they assert on.
- *
- * So wait for the shell to actually settle: the session's scrollback starts
- * empty, fills as zsh sources its rc files and draws a prompt, and then stops.
- * A size that has held steady for two samples means it is done talking.
- */
-async function awaitShellReady(
-  window: Page,
-  tempHome: string,
-  paneId: string,
-): Promise<void> {
-  let last = -1;
-  let steady = 0;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    await window.waitForTimeout(200);
-    const size = scrollback(tempHome, paneId).length;
-    steady = size > 0 && size === last ? steady + 1 : 0;
-    last = size;
-    if (steady >= 2) return;
-  }
-  throw new Error("shell never reached a prompt");
-}
 
 /** Run `command` exactly once and wait for `marker` to reach the scrollback. */
 async function runOnce(
@@ -229,9 +185,12 @@ test("control: the SIGWINCH tripwire fires on a real resize", async ({
   ).toHaveCount(2, { timeout: 10_000 });
 
   await expect
-    .poll(() => (scrollback(tempHome, paneId).match(/GOTWINCH/g) ?? []).length, {
-      timeout: 45_000,
-    })
+    .poll(
+      () => (scrollback(tempHome, paneId).match(/GOTWINCH/g) ?? []).length,
+      {
+        timeout: 45_000,
+      },
+    )
     .toBeGreaterThan(0);
 });
 

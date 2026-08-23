@@ -100,6 +100,7 @@ export function RemoteControlPage() {
           </div>
         </div>
         <Switch
+          data-testid="remote-control-switch"
           checked={status.enabled}
           disabled={busy || !status.encryptionAvailable}
           onCheckedChange={(checked) => void setEnabled(checked)}
@@ -129,9 +130,12 @@ export function RemoteControlPage() {
             </div>
             {status.port !== null && (
               <div className={styles.fieldHint}>
-                Listening on <code>http://127.0.0.1:{status.port}</code> — open
-                that with a pairing token in the fragment to try the client from
-                this machine.
+                Listening on{" "}
+                <code data-testid="remote-listener-address">
+                  http://127.0.0.1:{status.port}
+                </code>{" "}
+                — open that with a pairing token in the fragment to try the
+                client from this machine.
               </div>
             )}
 
@@ -201,12 +205,14 @@ export function RemoteControlPage() {
             </div>
             <Row gap="sm">
               <Input
+                data-testid="remote-pair-label"
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
                 onChange={(e) => setLabel(e.target.value)}
               />
               <Button
+                data-testid="remote-pair-submit"
                 variant="secondary"
                 disabled={label.trim().length === 0}
                 onClick={() => void handlePair()}
@@ -216,6 +222,7 @@ export function RemoteControlPage() {
             </Row>
             <label className={styles.remoteCapabilityRow}>
               <Checkbox
+                data-testid="remote-pair-can-send"
                 checked={canSend}
                 onCheckedChange={(checked) => setCanSend(checked === true)}
               />
@@ -243,7 +250,11 @@ export function RemoteControlPage() {
               <div className={styles.placeholder}>No devices paired</div>
             ) : (
               status.devices.map((device) => (
-                <div key={device.id} className={styles.remoteDeviceRow}>
+                <div
+                  key={device.id}
+                  data-testid="remote-device-row"
+                  className={styles.remoteDeviceRow}
+                >
                   <div>
                     <div className={styles.remoteDeviceLabel}>
                       <Smartphone size={12} />
@@ -377,7 +388,10 @@ function PairingResultDialog(props: {
     >
       <Dialog.Portal>
         <Dialog.Overlay className={dialogStyles.confirmOverlay} />
-        <Dialog.Content className={dialogStyles.confirmDialog}>
+        <Dialog.Content
+          data-testid="remote-pairing-dialog"
+          className={dialogStyles.confirmDialog}
+        >
           <Dialog.Title className={dialogStyles.confirmTitle}>
             {result?.device.label} paired
           </Dialog.Title>
@@ -414,7 +428,12 @@ function PairingResultDialog(props: {
           )}
 
           <Stack gap="xs">
-            <code className={styles.remoteToken}>{result?.rawToken}</code>
+            <code
+              data-testid="remote-pairing-token"
+              className={styles.remoteToken}
+            >
+              {result?.rawToken}
+            </code>
             <Button
               variant="secondary"
               onClick={() => result && copy("token", result.rawToken)}
@@ -424,7 +443,11 @@ function PairingResultDialog(props: {
           </Stack>
 
           <div className={dialogStyles.confirmActions}>
-            <Button variant="secondary" onClick={onClose}>
+            <Button
+              data-testid="remote-pairing-done"
+              variant="secondary"
+              onClick={onClose}
+            >
               Done
             </Button>
           </div>

@@ -39,3 +39,6 @@ playwright-report/
 tsconfig.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Playwright e2e screenshots and logs
+tests/e2e/artifacts/

@@ -79,6 +79,7 @@ export function SettingsModal(props: SettingsModalProps) {
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
+          data-testid="settings-modal"
           className={styles.modal}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
@@ -148,6 +149,7 @@ export function SettingsModal(props: SettingsModalProps) {
               </button>
 
               <button
+                data-testid="settings-nav-remote"
                 className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
                 onClick={() => setPage({ type: "remote" })}
               >

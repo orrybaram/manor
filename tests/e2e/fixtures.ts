@@ -37,11 +37,24 @@ export const test = base.extend<{
 
     await use(tempHome);
 
-    fs.rmSync(tempHome, { recursive: true, force: true });
+    await removeTempHome(tempHome);
   },
 
   app: async ({ tempHome }, use) => {
     const app = await launchApp(tempHome);
+    // MANOR_E2E_LOG=1 forwards the app's own stdout/stderr into the test
+    // output. The launched app is a separate process, so without this its
+    // console — including anything the main process logs about a failing
+    // request — is invisible to a failing test.
+    if (process.env.MANOR_E2E_LOG === "1") {
+      const forward = (prefix: string) => (chunk: Buffer) => {
+        for (const line of chunk.toString().split("\n")) {
+          if (line.trim()) console.log(`${prefix} ${line}`);
+        }
+      };
+      app.process().stdout?.on("data", forward("[app out]"));
+      app.process().stderr?.on("data", forward("[app err]"));
+    }
     await use(app);
     await killApp(app);
   },
@@ -57,6 +70,31 @@ export const test = base.extend<{
 export { expect } from "@playwright/test";
 
 /**
+ * Remove the temp home, allowing for the app still letting go of it.
+ *
+ * The daemon and its sessions are killed with the app, but a last scrollback
+ * or layout write can land between the kill and this call, and `rm -rf` on a
+ * directory that grows a file mid-walk fails with ENOTEMPTY. Retrying is
+ * enough; a temp directory that survives anyway is not worth failing a passing
+ * test over, so the last attempt only warns.
+ */
+async function removeTempHome(tempHome: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  try {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`[e2e] could not remove ${tempHome}:`, err);
+  }
+}
+
+/**
  * Launch the built app against `tempHome`.
  *
  * The environment is inherited minus anything that would point the app at a
@@ -65,13 +103,59 @@ export { expect } from "@playwright/test";
  * such a shell silently tests the dev server, or loads a blank error page once
  * that server exits.
  */
-export async function launchApp(tempHome: string): Promise<ElectronApplication> {
-  const { VITE_DEV_SERVER_URL: _devServer, ...env } = process.env;
+export async function launchApp(
+  tempHome: string,
+): Promise<ElectronApplication> {
+  const { VITE_DEV_SERVER_URL: _devServer, ...rest } = process.env;
+
+  // A run started from a terminal *inside* Manor inherits that app's session
+  // environment — MANOR_PANE_ID, MANOR_HOOK_PORT, and a ZDOTDIR pointing at
+  // the real installation's shell config. Left in place, the test app's shells
+  // source another Manor's zdotdir out of a home that no longer exists, and
+  // anything reading MANOR_* before the pty layer overrides it talks to the
+  // wrong app. Drop the lot: the launched app is meant to know nothing but
+  // `tempHome`.
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (value === undefined) continue;
+    if (key.startsWith("MANOR_") || key === "ZDOTDIR") continue;
+    env[key] = value;
+  }
+  env.PATH = pathWithoutAgents(env.PATH ?? "");
+
   return _electron.launch({
     args: [path.join(repoRoot, "dist-electron/main.js")],
     env: { ...env, HOME: tempHome },
     cwd: repoRoot,
   });
+}
+
+/**
+ * PATH with any directory holding a real agent CLI removed.
+ *
+ * Manor's default agent command is `claude`, and a test that has not yet
+ * pointed its project somewhere else — or that consumes a session warmed
+ * before it did — would otherwise launch the real thing: a live agent, in a
+ * temp home, waiting on onboarding no one is watching. A test run must not be
+ * able to start one by accident, so the binaries are simply not reachable.
+ */
+function pathWithoutAgents(currentPath: string): string {
+  const agents = ["claude", "codex"];
+  return currentPath
+    .split(path.delimiter)
+    .filter(
+      (dir) =>
+        dir !== "" &&
+        !agents.some((agent) => {
+          try {
+            fs.accessSync(path.join(dir, agent), fs.constants.X_OK);
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+    )
+    .join(path.delimiter);
 }
 
 /**
@@ -101,21 +185,68 @@ export async function killApp(app: ElectronApplication): Promise<void> {
 
   try {
     electronProcess.stdout?.destroy();
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   try {
     electronProcess.stderr?.destroy();
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   if (pid) {
     try {
       process.kill(-pid, "SIGKILL");
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   await closed;
 }
 
+/**
+ * Import the seeded project and dismiss the setup wizard.
+ *
+ * Split out from `bootWorkspaceWithTerminal` because *when* a project exists
+ * matters to anything that configures it: a test that wants a different agent
+ * command has to set it before a workspace — and therefore a prewarmed
+ * session — is created against the old one.
+ */
+export async function importSeededProject(
+  app: ElectronApplication,
+  window: Page,
+  tempHome: string,
+): Promise<void> {
+  const seededProjectPath = path.join(tempHome, "test-project");
 
+  await app.evaluate(({ dialog }, projectPath) => {
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [projectPath],
+    });
+  }, seededProjectPath);
+
+  await window.locator('[data-testid="import-project-button"]').click();
+
+  const wizard = window.locator('[data-testid="project-setup-wizard"]');
+  const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });
+  await expect(wizard).toBeVisible({ timeout: 10_000 });
+  for (let i = 0; i < 5; i++) {
+    if (!(await wizard.isVisible())) break;
+    await skipButton.click();
+  }
+  await expect(wizard).not.toBeVisible({ timeout: 5_000 });
+}
+
+/** Open a terminal tab and wait for its pane to be the only visible one. */
+export async function openTerminalTab(window: Page): Promise<void> {
+  await window.keyboard.press("Meta+t");
+  await expect(
+    window.locator('[data-testid="terminal-pane"]').first(),
+  ).toBeVisible({ timeout: 30_000 });
+  await assertVisiblePaneCount(window, 1);
+}
 
 /**
  * Import the seeded project, dismiss the setup wizard, create a workspace,
@@ -128,36 +259,9 @@ export async function bootWorkspaceWithTerminal(
   tempHome: string,
   workspaceName: string,
 ): Promise<void> {
-  const seededProjectPath = path.join(tempHome, "test-project");
-
-  await app.evaluate(
-    ({ dialog }, projectPath) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [projectPath],
-      });
-    },
-    seededProjectPath,
-  );
-
-  await window.locator('[data-testid="import-project-button"]').click();
-
-  const wizard = window.locator('[data-testid="project-setup-wizard"]');
-  const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });
-  await expect(wizard).toBeVisible({ timeout: 10_000 });
-  for (let i = 0; i < 5; i++) {
-    if (!(await wizard.isVisible())) break;
-    await skipButton.click();
-  }
-  await expect(wizard).not.toBeVisible({ timeout: 5_000 });
-
+  await importSeededProject(app, window, tempHome);
   await createWorkspace(window, workspaceName);
-
-  await window.keyboard.press("Meta+t");
-  await expect(window.locator('[data-testid="terminal-pane"]').first()).toBeVisible({
-    timeout: 30_000,
-  });
-  await assertVisiblePaneCount(window, 1);
+  await openTerminalTab(window);
 }
 
 /**

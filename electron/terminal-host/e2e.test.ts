@@ -9,13 +9,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
-import * as crypto from "node:crypto";
 import { PassThrough } from "node:stream";
-import { MSG, encodeFrame } from "./pty-subprocess-ipc";
 
 import "./xterm-env-polyfill";
 
@@ -35,259 +31,24 @@ vi.mock("../shell", () => ({
   },
 }));
 
-import { TerminalHost } from "./terminal-host";
 import { ScrollbackWriter, type SessionMeta } from "./scrollback";
+import {
+  connectRaw,
+  delay,
+  E2EDaemon,
+  feedSessionData,
+  flushScrollback,
+  makeTmpDir,
+} from "./daemon-harness";
 import {
   LayoutPersistence,
   type PersistedWorkspace,
   type PersistedPanel,
   type PersistedTab,
 } from "./layout-persistence";
-import type { ControlRequest, ControlResponse } from "./types";
 
 // ── Helpers ──
 
-/** Create a temp dir that gets cleaned up after the test */
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "manor-e2e-"));
-}
-
-/** In-process daemon on a temp socket with a real TerminalHost + real sessionsDir */
-class E2EDaemon {
-  private server: net.Server;
-  private host: TerminalHost;
-  private token: string;
-  private authenticatedSockets = new WeakSet<net.Socket>();
-  readonly socketPath: string;
-  readonly sessionsDir: string;
-
-  constructor(tmpDir: string) {
-    this.sessionsDir = path.join(tmpDir, "sessions");
-    fs.mkdirSync(this.sessionsDir, { recursive: true });
-    this.socketPath = path.join(tmpDir, "terminal-host.sock");
-    this.token = crypto.randomBytes(16).toString("hex");
-    this.host = new TerminalHost(this.sessionsDir);
-    this.server = net.createServer((s) => this.handleConnection(s));
-  }
-
-  get authToken(): string {
-    return this.token;
-  }
-  getHost(): TerminalHost {
-    return this.host;
-  }
-
-  async start(): Promise<void> {
-    return new Promise((r) => this.server.listen(this.socketPath, r));
-  }
-
-  async stop(): Promise<void> {
-    this.host.disposeAll();
-    return new Promise((r) => {
-      this.server.close(() => {
-        try {
-          fs.unlinkSync(this.socketPath);
-        } catch {}
-        r();
-      });
-    });
-  }
-
-  /** Stop without clean session dispose — simulates a crash */
-  async crash(): Promise<void> {
-    return new Promise((r) => {
-      this.server.close(() => {
-        try {
-          fs.unlinkSync(this.socketPath);
-        } catch {}
-        r();
-      });
-    });
-  }
-
-  private handleConnection(socket: net.Socket): void {
-    let type: "control" | "stream" | null = null;
-    let buf = "";
-    socket.on("data", (chunk) => {
-      buf += chunk.toString("utf-8");
-      const lines = buf.split("\n");
-      buf = lines.pop()!;
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        if (type === null) {
-          try {
-            const msg = JSON.parse(line);
-            if (msg.connectionType === "stream") {
-              type = "stream";
-              if (msg.token === this.token)
-                this.authenticatedSockets.add(socket);
-              continue;
-            }
-          } catch {}
-          type = "control";
-          this.handleControl(socket, line);
-        } else if (type === "control") {
-          this.handleControl(socket, line);
-        } else {
-          this.handleStream(socket, line);
-        }
-      }
-    });
-    socket.on("close", () => this.host.detachAllFromSocket(socket));
-  }
-
-  private async handleControl(socket: net.Socket, line: string): Promise<void> {
-    let req: ControlRequest;
-    try {
-      req = JSON.parse(line);
-    } catch {
-      this.send(socket, { type: "error", message: "Invalid JSON" });
-      return;
-    }
-    if (req.type !== "auth" && !this.authenticatedSockets.has(socket)) {
-      this.send(socket, { type: "error", message: "Not authenticated" });
-      return;
-    }
-    switch (req.type) {
-      case "auth":
-        if (req.token === this.token) {
-          this.authenticatedSockets.add(socket);
-          this.send(socket, { type: "authOk" });
-        } else {
-          this.send(socket, { type: "error", message: "Invalid token" });
-        }
-        break;
-      case "create":
-        this.send(socket, {
-          type: "created",
-          session: this.host.create(
-            req.sessionId,
-            req.cwd,
-            req.cols,
-            req.rows,
-            req.shellArgs,
-          ),
-        });
-        break;
-      case "attach": {
-        const snap = await this.host.attach(req.sessionId, socket);
-        this.send(
-          socket,
-          snap
-            ? { type: "attached", snapshot: snap }
-            : { type: "error", message: "not found" },
-        );
-        break;
-      }
-      case "detach":
-        this.host.detach(req.sessionId, socket);
-        this.send(socket, { type: "detached" });
-        break;
-      case "resize":
-        this.host.resize(req.sessionId, req.cols, req.rows);
-        this.send(socket, { type: "resized" });
-        break;
-      case "kill":
-        await this.host.kill(req.sessionId);
-        this.send(socket, { type: "killed" });
-        break;
-      case "getSnapshot": {
-        const snap = await this.host.getSnapshot(req.sessionId);
-        this.send(
-          socket,
-          snap
-            ? { type: "snapshot", snapshot: snap }
-            : { type: "error", message: "not found" },
-        );
-        break;
-      }
-      case "listSessions":
-        this.send(socket, {
-          type: "sessions",
-          sessions: this.host.listSessions(),
-        });
-        break;
-      case "ping":
-        this.send(socket, { type: "pong" });
-        break;
-    }
-  }
-
-  private async handleStream(socket: net.Socket, line: string): Promise<void> {
-    let cmd: any;
-    try {
-      cmd = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (!this.authenticatedSockets.has(socket)) return;
-    if (cmd.type === "write") this.host.write(cmd.sessionId, cmd.data);
-    else if (cmd.type === "subscribe")
-      await this.host.attach(cmd.sessionId, socket);
-    else if (cmd.type === "unsubscribe")
-      this.host.detach(cmd.sessionId, socket);
-  }
-
-  private send(socket: net.Socket, resp: ControlResponse): void {
-    socket.write(JSON.stringify(resp) + "\n");
-  }
-}
-
-function connectRaw(socketPath: string): Promise<{
-  socket: net.Socket;
-  send: (msg: any) => void;
-  readLine: () => Promise<any>;
-  close: () => void;
-}> {
-  return new Promise((resolve) => {
-    const socket = net.createConnection(socketPath, () => {
-      let buf = "";
-      const pending: Array<(v: any) => void> = [];
-      const received: any[] = [];
-      socket.on("data", (chunk) => {
-        buf += chunk.toString("utf-8");
-        const lines = buf.split("\n");
-        buf = lines.pop()!;
-        for (const l of lines) {
-          if (!l.trim()) continue;
-          const p = JSON.parse(l);
-          if (pending.length > 0) pending.shift()!(p);
-          else received.push(p);
-        }
-      });
-      resolve({
-        socket,
-        send: (msg: any) => socket.write(JSON.stringify(msg) + "\n"),
-        readLine: () =>
-          new Promise((r) => {
-            if (received.length > 0) r(received.shift());
-            else pending.push(r);
-          }),
-        close: () => socket.destroy(),
-      });
-    });
-  });
-}
-
-function feedSessionData(
-  host: TerminalHost,
-  sessionId: string,
-  data: string,
-): void {
-  const session = (host as any).sessions.get(sessionId);
-  if (!session) throw new Error(`Session ${sessionId} not found`);
-  (session as any).decoder.push(encodeFrame(MSG.DATA, data));
-}
-
-/** Force-flush scrollback writer inside a session */
-function flushScrollback(host: TerminalHost, sessionId: string): void {
-  const session = (host as any).sessions.get(sessionId);
-  if (!session) return;
-  const writer = (session as any).scrollbackWriter as ScrollbackWriter | null;
-  writer?.flush();
-}
-
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Tests ──
 

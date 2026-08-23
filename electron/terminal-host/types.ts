@@ -19,9 +19,37 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
   reverseWraparound: false,
 };
 
+/**
+ * Position in a session's output stream: the number of `data` events broadcast.
+ *
+ * Optional wherever it crosses the daemon↔app boundary — the daemon outlives
+ * the app, so a new app can meet a daemon that predates ADR-159 and sends none.
+ * Absent means "cannot tell what the snapshot covers", which is handled by
+ * applying everything.
+ */
+export type StreamPosition = number;
+
+/**
+ * Version of the daemon↔client wire protocol, bumped whenever a change would
+ * confuse the other side.
+ *
+ * Separate from the app version on purpose. A daemon outlives the app that
+ * spawned it and is only replaced when the *app version* differs, so two builds
+ * of the same release can meet across a protocol change — which is exactly how
+ * a client that required `notFound` met a daemon that only said `error`.
+ *
+ * 1 — `notFound` replies, and `seq` on data events and snapshots (ADR-159).
+ */
+export const TERMINAL_HOST_PROTOCOL = 1;
+
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
   screenAnsi: string;
+  /**
+   * Position this screen reflects. A client that subscribed before snapshotting
+   * uses it to skip the events already baked in.
+   */
+  seq?: StreamPosition;
   scrollbackAnsi: string;
   modes: TerminalModes;
   cwd: string | null;
@@ -73,12 +101,25 @@ export type ControlResponse =
   | { type: "resized" }
   | { type: "killed" }
   | { type: "snapshot"; snapshot: TerminalSnapshot }
+  /**
+   * The daemon has no session by that id — a fact, not a failure.
+   *
+   * Distinct from `error` on purpose: a client that reattaches decides whether
+   * to spawn a fresh shell on this answer, and reading any error as "not there"
+   * turns a transport hiccup into a live session silently treated as new.
+   */
+  | { type: "notFound"; sessionId: string }
   | { type: "sessions"; sessions: SessionInfo[] }
   | { type: "pong" }
   | { type: "envUpdated" }
   | { type: "writeQueued" }
   | { type: "disposedDead" }
-  | { type: "handshake"; daemonVersion: string }
+  | {
+      type: "handshake";
+      daemonVersion: string;
+      /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
+      protocol?: number;
+    }
   | { type: "error"; message: string };
 
 // ── Agent status types ──
@@ -104,7 +145,7 @@ export interface AgentState {
 // ── Stream socket event types ──
 
 export type StreamEvent =
-  | { type: "data"; sessionId: string; data: string }
+  | { type: "data"; sessionId: string; data: string; seq?: StreamPosition }
   | { type: "exit"; sessionId: string; exitCode: number }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }

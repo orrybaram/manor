@@ -41,50 +41,9 @@ export const test = base.extend<{
   },
 
   app: async ({ tempHome }, use) => {
-    const app = await _electron.launch({
-      args: [path.join(repoRoot, "dist-electron/main.js")],
-      env: { ...process.env, HOME: tempHome },
-      cwd: repoRoot,
-    });
-
+    const app = await launchApp(tempHome);
     await use(app);
-
-    // app.close() hangs because Manor's detached child processes (terminal-host,
-    // spawned with stdio:["ignore","ignore","inherit"]) keep the Electron stderr
-    // pipe open. Playwright waits for the 'close' event (all stdio closed) before
-    // resolving its gracefullyCloseSet entry. We work around this by:
-    //   1. Destroying the piped stdio streams directly so Node emits 'close'.
-    //   2. Killing the Electron process group.
-    const electronProcess = app.process();
-    const pid = electronProcess.pid;
-
-    const closed = new Promise<void>((resolve) => {
-      if (electronProcess.exitCode !== null || electronProcess.signalCode !== null) {
-        // Already exited — resolve immediately after current tick so Playwright's
-        // own 'close' listener (registered before ours) has had a chance to run.
-        setImmediate(resolve);
-      } else {
-        electronProcess.once("close", () => setImmediate(resolve));
-      }
-    });
-
-    // Destroy the stdio streams to force 'close' event even if child processes
-    // hold the pipe FDs open.
-    try {
-      electronProcess.stdout?.destroy();
-    } catch { /* ignore */ }
-    try {
-      electronProcess.stderr?.destroy();
-    } catch { /* ignore */ }
-
-    // Kill the Electron process group
-    if (pid) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch { /* ignore */ }
-    }
-
-    await closed;
+    await killApp(app);
   },
 
   window: async ({ app }, use) => {
@@ -96,6 +55,67 @@ export const test = base.extend<{
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * Launch the built app against `tempHome`.
+ *
+ * The environment is inherited minus anything that would point the app at a
+ * different build: VITE_DEV_SERVER_URL is set in any shell started by
+ * `pnpm dev`, and the app prefers it over the bundled renderer — so a run from
+ * such a shell silently tests the dev server, or loads a blank error page once
+ * that server exits.
+ */
+export async function launchApp(tempHome: string): Promise<ElectronApplication> {
+  const { VITE_DEV_SERVER_URL: _devServer, ...env } = process.env;
+  return _electron.launch({
+    args: [path.join(repoRoot, "dist-electron/main.js")],
+    env: { ...env, HOME: tempHome },
+    cwd: repoRoot,
+  });
+}
+
+/**
+ * Shut the app down.
+ *
+ * app.close() hangs because Manor's detached child processes (terminal-host,
+ * spawned with stdio:["ignore","ignore","inherit"]) keep the Electron stderr
+ * pipe open, and Playwright waits for the 'close' event (all stdio closed).
+ * So: destroy the piped stdio directly, then kill the process group.
+ */
+export async function killApp(app: ElectronApplication): Promise<void> {
+  const electronProcess = app.process();
+  const pid = electronProcess.pid;
+
+  const closed = new Promise<void>((resolve) => {
+    if (
+      electronProcess.exitCode !== null ||
+      electronProcess.signalCode !== null
+    ) {
+      // Already exited — resolve after the current tick so Playwright's own
+      // 'close' listener (registered before ours) has had a chance to run.
+      setImmediate(resolve);
+    } else {
+      electronProcess.once("close", () => setImmediate(resolve));
+    }
+  });
+
+  try {
+    electronProcess.stdout?.destroy();
+  } catch { /* ignore */ }
+  try {
+    electronProcess.stderr?.destroy();
+  } catch { /* ignore */ }
+
+  if (pid) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch { /* ignore */ }
+  }
+
+  await closed;
+}
+
+
 
 /**
  * Import the seeded project, dismiss the setup wizard, create a workspace,
@@ -131,20 +151,32 @@ export async function bootWorkspaceWithTerminal(
   }
   await expect(wizard).not.toBeVisible({ timeout: 5_000 });
 
-  await window.locator('[data-testid="sidebar-new-workspace-button"]').click();
-  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
-  await window
-    .locator('[data-testid="new-workspace-name-input"]')
-    .fill(workspaceName);
-  await window.locator('[data-testid="new-workspace-submit"]').click();
-  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+  await createWorkspace(window, workspaceName);
 
   await window.keyboard.press("Meta+t");
   await expect(window.locator('[data-testid="terminal-pane"]').first()).toBeVisible({
     timeout: 30_000,
   });
   await assertVisiblePaneCount(window, 1);
+}
+
+/**
+ * Open the New Workspace dialog and create `name` in the selected project.
+ *
+ * Driven by the new-workspace keybinding (Meta+Shift+N) rather than a sidebar
+ * button — the button's test id drifted away once already, and the keybinding
+ * is a stable, user-facing entry point.
+ */
+export async function createWorkspace(
+  window: Page,
+  name: string,
+): Promise<void> {
+  await window.keyboard.press("Meta+Shift+n");
+  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await window.locator('[data-testid="new-workspace-name-input"]').fill(name);
+  await window.locator('[data-testid="new-workspace-submit"]').click();
+  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
 }
 
 /** Poll the count of visible workspace-panes (only the active tab's tree counts). */

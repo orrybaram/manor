@@ -89,6 +89,23 @@ body,
   overflow: hidden;
 }
 
+/* Positioned containing block for the workspace stack. Every workspace — and
+   the empty/wizard surface — is an `inset: 0` child of this, so active and
+   inactive workspaces share one box and switching between them never changes a
+   terminal's pixel size. */
+.workspace-stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.empty-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .terminal-container {
   flex: 1;
   overflow: hidden;

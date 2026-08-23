@@ -71,8 +71,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
     updatePrewarmCwd: (cwd: string, agentCommand?: string | null, agentKind?: string | null) => ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
-    onOutput: (paneId: string, callback: (data: string) => void) =>
-      onChannel(`pty-output-${paneId}`, callback),
+    // Output carries its position in the session's stream (ADR-159) so the
+    // renderer can drop what a warm-restore snapshot already covers. It is
+    // undefined when an older daemon is on the other end.
+    onOutput: (
+      paneId: string,
+      callback: (data: string, seq?: number) => void,
+    ) => {
+      const channel = `pty-output-${paneId}`;
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: string,
+        seq?: number,
+      ) => callback(data, seq);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
     onExit: (paneId: string, callback: () => void) =>
       onChannel(`pty-exit-${paneId}`, callback),
     onCwd: (paneId: string, callback: (cwd: string) => void) =>

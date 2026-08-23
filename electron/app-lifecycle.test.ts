@@ -175,6 +175,28 @@ describe("handleStreamEvent", () => {
         type: "data",
         sessionId: paneId,
         data: "hello",
+        seq: 7,
+      };
+
+      handleStreamEvent(event, mockWindow, taskManager);
+
+      // The seq rides along so the renderer can drop output a warm-restore
+      // snapshot already covers (ADR-159).
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        `pty-output-${paneId}`,
+        "hello",
+        7,
+      );
+    });
+
+    it("forwards data from a daemon that sends no seq", () => {
+      const paneId = `pane-${crypto.randomUUID()}`;
+
+      // An older daemon predates ADR-159 and omits the field entirely.
+      const event: StreamEvent = {
+        type: "data",
+        sessionId: paneId,
+        data: "hello",
       };
 
       handleStreamEvent(event, mockWindow, taskManager);
@@ -182,6 +204,7 @@ describe("handleStreamEvent", () => {
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-output-${paneId}`,
         "hello",
+        undefined,
       );
     });
 

@@ -75,6 +75,10 @@ export function register(deps: IpcDeps): void {
         return {
           ok: true,
           snapshot: result.snapshot?.screenAnsi || null,
+          // Stream position the snapshot reflects — the renderer drops queued
+          // output at or below it (ADR-159). Absent when there is no snapshot,
+          // or when an older daemon does not report one.
+          snapshotSeq: result.snapshot?.seq,
           prewarmed: result.snapshot !== null,
         };
       } catch (err) {

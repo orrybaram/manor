@@ -99,6 +99,89 @@ describe("Session", () => {
     });
   });
 
+  describe("output sequence numbers (ADR-159)", () => {
+    /** Sequence numbers carried by the data events a socket received. */
+    function dataSeqs(written: string[]): number[] {
+      return written
+        .map((line) => JSON.parse(line) as StreamEvent)
+        .filter((event): event is Extract<StreamEvent, { type: "data" }> =>
+          event.type === "data",
+        )
+        .map((event) => event.seq);
+    }
+
+    it("numbers each data event, starting at one", () => {
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "first");
+      pushDataFrame(session, "second");
+      pushDataFrame(session, "third");
+
+      expect(dataSeqs(written)).toEqual([1, 2, 3]);
+    });
+
+    it("reports the position the snapshot was taken at", async () => {
+      const { socket } = mockSocket();
+      session.attachClient(socket);
+
+      pushDataFrame(session, "one");
+      pushDataFrame(session, "two");
+
+      expect((await session.getSnapshot()).seq).toBe(2);
+    });
+
+    it("does not move the position when nothing was emitted", async () => {
+      pushDataFrame(session, "only");
+      const first = await session.getSnapshot();
+      const second = await session.getSnapshot();
+      expect(second.seq).toBe(first.seq);
+    });
+
+    it("reports only what the screen has applied when the flush times out", async () => {
+      // Hold the headless terminal's write callbacks so the data is broadcast
+      // but never reaches the screen. flushHeadless gives up after 2s and
+      // serializes anyway; the snapshot must not claim the withheld output,
+      // or the client would drop chunks nothing can rebuild.
+      const held: Array<() => void> = [];
+      const headless = (session as any).headless;
+      headless.write = (_data: string, cb?: () => void) => {
+        if (cb) held.push(cb);
+      };
+
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+      pushDataFrame(session, "never applied");
+
+      vi.useFakeTimers();
+      const pending = session.getSnapshot();
+      await vi.advanceTimersByTimeAsync(2_100);
+      const snapshot = await pending;
+      vi.useRealTimers();
+
+      // Broadcast as event 1, but the screen never got it.
+      expect(dataSeqs(written)).toEqual([1]);
+      expect(snapshot.seq).toBe(0);
+      expect(held).toHaveLength(1);
+    });
+
+    it("starts at zero so a fresh session covers nothing", async () => {
+      expect((await session.getSnapshot()).seq).toBe(0);
+    });
+
+    it("counts output emitted while no client is attached", async () => {
+      pushDataFrame(session, "while detached");
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+      pushDataFrame(session, "after attach");
+
+      // The attached client sees seq 2 — it missed 1, and the snapshot it
+      // fetches will say so.
+      expect(dataSeqs(written)).toEqual([2]);
+      expect((await session.getSnapshot()).seq).toBe(2);
+    });
+  });
+
   describe("OSC 7 CWD tracking", () => {
     it("updates CWD from OSC 7 with BEL terminator", async () => {
       pushDataFrame(session, "\x1b]7;file://localhost/Users/test\x07");

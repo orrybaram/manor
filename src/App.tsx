@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
-import { PaneLayout } from "./components/workspace-panes/PaneLayout/PaneLayout";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
@@ -52,7 +51,7 @@ import {
   homeLaunchCommand,
   HOME_PATH,
 } from "./lib/home";
-import { TAB_HIDDEN_STYLE } from "./lib/tab-styles";
+import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import "./App.css";
 
 function App() {
@@ -537,40 +536,46 @@ function App() {
         )}
         <PaneDragProvider>
           <div className="main-content">
-            {activeWorkspacePath && hasTabs ? (
-              <PanelLayout
-                key={activeWorkspacePath}
-                node={workspaceLayouts[activeWorkspacePath].panelTree}
-                workspacePath={activeWorkspacePath}
-                onNewTask={handleNewTask}
-              />
-            ) : (
-              <>
-                <div className="drag-region" />
-                <div className="terminal-container">
-                  {wizardStillValid && wizardProjectId
-                    ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
-                    : !hasTabs &&
-                      (isHomePath(activeWorkspacePath)
-                        ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
-                        : hasProjects
-                          ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
-                          : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+            {/* Every workspace renders through the same PanelLayout in a single
+                positioned stack, active or not. Inactive ones are only hidden,
+                never unmounted or re-parented, so their terminals keep the exact
+                pixel box the active workspace has. Any geometry difference here
+                resizes the PTY on every workspace switch, and a SIGWINCH makes
+                full-screen TUIs repaint their frame into the scrollback — which
+                shows up as the same output duplicated over and over. */}
+            <div className="workspace-stack">
+              {Object.entries(workspaceLayouts).map(([wpath, wsLayout]) => (
+                <div
+                  key={wpath}
+                  style={
+                    wpath === activeWorkspacePath && hasTabs
+                      ? TAB_VISIBLE_STYLE
+                      : TAB_HIDDEN_STYLE
+                  }
+                >
+                  <PanelLayout
+                    node={wsLayout.panelTree}
+                    workspacePath={wpath}
+                    onNewTask={handleNewTask}
+                  />
                 </div>
-              </>
-            )}
-            {/* Hidden: keep non-active workspace terminals alive */}
-            {Object.entries(workspaceLayouts)
-              .filter(([wpath]) => wpath !== activeWorkspacePath)
-              .flatMap(([wpath, wsLayout]) =>
-                Object.values(wsLayout.panels).flatMap((panel) =>
-                  panel.tabs.map((tab) => (
-                    <div key={tab.id} style={TAB_HIDDEN_STYLE}>
-                      <PaneLayout node={tab.rootNode} workspacePath={wpath} />
-                    </div>
-                  ))
-                )
+              ))}
+              {!(activeWorkspacePath && hasTabs) && (
+                <div className="empty-surface">
+                  <div className="drag-region" />
+                  <div className="terminal-container">
+                    {wizardStillValid && wizardProjectId
+                      ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                      : !hasTabs &&
+                        (isHomePath(activeWorkspacePath)
+                          ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
+                          : hasProjects
+                            ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
+                            : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
+                  </div>
+                </div>
               )}
+            </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
               onNewTaskWithPrompt={handleNewTaskWithPrompt}

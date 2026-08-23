@@ -19,7 +19,45 @@ import type {
   AgentStatus,
   AgentKind,
 } from "./types";
+import { TERMINAL_HOST_PROTOCOL } from "./types";
 import { manorHomeDir } from "../paths";
+
+/**
+ * The wire protocol a handshake reply reports. A daemon old enough not to
+ * answer the handshake, or not to carry the field, speaks 0.
+ */
+export function daemonProtocolOf(response: ControlResponse): number {
+  return response.type === "handshake" ? (response.protocol ?? 0) : 0;
+}
+
+/**
+ * Whether the daemon that sent `response` must be replaced before it can serve
+ * this client.
+ *
+ * Two independent reasons, and checking only the first is what let ADR-159's
+ * fix sit inert in a running app for days:
+ *
+ * - **Different app version** — the daemon binary is mismatched.
+ * - **Older wire protocol at the same app version** — two builds of one
+ *   release meet across a protocol bump. The client *can* degrade (see
+ *   `daemonProtocol`), but degrading means doing without sequence numbers, and
+ *   without those every warm restore duplicates output: precisely the bug
+ *   ADR-159 exists to fix. Serving a terminal we know is broken is worse than
+ *   replacing the daemon, even though replacing it ends live sessions.
+ *
+ * In a released build the second reason is unreachable — a protocol bump ships
+ * inside a version bump, so the version check fires first. It exists for
+ * development, where the version is constant across rebuilds and a daemon can
+ * outlive the protocol it was built against by days.
+ */
+export function isDaemonStale(
+  response: ControlResponse,
+  clientVersion: string,
+): boolean {
+  if (response.type === "handshake" && response.daemonVersion !== clientVersion)
+    return true;
+  return daemonProtocolOf(response) < TERMINAL_HOST_PROTOCOL;
+}
 
 const MANOR_DIR = manorHomeDir();
 
@@ -47,6 +85,12 @@ export class TerminalHostClient {
   private eventHandler: StreamEventHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
+  /**
+   * Wire protocol the connected daemon speaks; 0 means it is old enough not to
+   * report one. Re-read on every connect, since reconnecting can land on a
+   * different daemon.
+   */
+  private daemonProtocol = 0;
   private _migratedOldDaemons = false;
 
   constructor(version?: string) {
@@ -112,12 +156,26 @@ export class TerminalHostClient {
       );
     }
 
-    // Version handshake: if the running daemon is from a different app version,
-    // kill it and spawn a fresh one that matches. This preserves sessions across
-    // same-version restarts while ensuring the daemon binary is never mismatched.
+    // Version handshake: replace the running daemon when it cannot serve this
+    // client. Two independent ways that happens, and checking only the first
+    // is what let this bug ship.
+    //
+    // - **Different app version** — the daemon binary is simply mismatched.
+    // - **Older wire protocol at the same app version** — two builds of one
+    //   release meet across a protocol bump. The client *can* degrade here
+    //   (`daemonProtocol` gates the reads that need it), but degrading means
+    //   doing without sequence numbers, and without those every warm restore
+    //   duplicates output: precisely the bug ADR-159 exists to fix. Serving a
+    //   terminal we know is broken is worse than replacing the daemon.
+    //
+    // In a released build the second branch is unreachable — a protocol bump
+    // ships inside a version bump, so the version check fires first. It exists
+    // for development, where the version is constant across rebuilds and a
+    // daemon can outlive the protocol it was built against by days.
     const clientVer = this.clientVersion ?? "unknown";
     const hsResp = await this.request({ type: "handshake", clientVersion: clientVer });
-    if (hsResp.type === "handshake" && hsResp.daemonVersion !== clientVer) {
+    this.daemonProtocol = daemonProtocolOf(hsResp);
+    if (isDaemonStale(hsResp, clientVer)) {
       // Stale daemon — replace it
       this.cleanup();
       await this.killAndRespawn();
@@ -130,6 +188,11 @@ export class TerminalHostClient {
           `Auth failed after daemon respawn: ${authResp2.type === "error" ? authResp2.message : "unknown"}`,
         );
       }
+      // The daemon we just spawned is built from this client's source, so it
+      // speaks this protocol by construction. Recording it here keeps the
+      // field describing the daemon we are actually talking to rather than
+      // the one we replaced.
+      this.daemonProtocol = TERMINAL_HOST_PROTOCOL;
     }
 
     // Push current env vars to the daemon so new PTY sessions inherit fresh
@@ -184,23 +247,57 @@ export class TerminalHostClient {
     await this.ensureConnected();
 
     try {
-      // Check if the daemon already has this session (warm restore).
-      // Use getSnapshot instead of attach to avoid adding the control socket
-      // to the session's broadcast list (which would corrupt the control protocol).
+      // Warm restore, in the order that makes the handshake lossless.
+      //
+      // 1. Resize first. A resize raises SIGWINCH and a full-screen TUI answers
+      //    by repainting — output we want either already inside the snapshot or
+      //    arriving afterwards with a higher seq, never straddling the two.
+      // 2. Subscribe second. From here on nothing the PTY produces is lost;
+      //    before this point there is no one listening.
+      // 3. Snapshot last. It reports the stream position it reflects, so the
+      //    renderer can drop the events from (2) that it also contains.
+      //    Duplicates are expected and filtered by seq; losing output is the
+      //    failure mode worth avoiding, since nothing downstream can rebuild it.
+      //
+      // Steps 1 and 2 are no-ops against a session the daemon does not have, so
+      // they are safe to send before knowing whether this is a restore. Probing
+      // first with `listSessions` would be wrong anyway: it hides prewarmed
+      // sessions, and `attach` would add the *control* socket to the session's
+      // broadcast list and corrupt the control protocol.
+      await this.request({ type: "resize", sessionId, cols, rows });
+      this.streamWrite({ type: "subscribe", sessionId });
+
       const snapshotResp = await this.request({
         type: "getSnapshot",
         sessionId,
       });
       if (snapshotResp.type === "snapshot") {
-        // Session exists — resize to match new terminal dimensions before subscribing,
-        // so we don't receive a SIGWINCH-triggered prompt redraw as a stream event.
-        await this.request({ type: "resize", sessionId, cols, rows });
-        // Subscribe on stream socket for ongoing events
-        this.streamWrite({ type: "subscribe", sessionId });
         return {
           session: { sessionId, cwd, cols, rows, alive: true },
           snapshot: snapshotResp.snapshot,
         };
+      }
+      // Only a definite "no such session" means spawn a fresh shell. Treating
+      // any failure that way would hand a live session to a terminal that
+      // thinks it is new — which drops the snapshot, and with it the dedupe
+      // that keeps a reattach from repeating output.
+      //
+      // A daemon below protocol 1 cannot make that distinction: it answers a
+      // missing session with a plain `error`. Reading every error as absence is
+      // what that daemon's own client did, so it is the right reading here — and
+      // it keeps a daemon that is already running working across an in-place
+      // upgrade, instead of failing every new terminal until someone kills it.
+      const sessionIsAbsent =
+        snapshotResp.type === "notFound" ||
+        (this.daemonProtocol < 1 && snapshotResp.type === "error");
+      if (!sessionIsAbsent) {
+        throw new Error(
+          `Snapshot failed for ${sessionId}: ${
+            snapshotResp.type === "error"
+              ? snapshotResp.message
+              : `unexpected response type: ${snapshotResp.type}`
+          }`,
+        );
       }
 
       // Create new session

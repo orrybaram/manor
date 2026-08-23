@@ -1,13 +1,13 @@
 import fs from "fs";
 import path from "path";
+import { type ElectronApplication, type Page } from "@playwright/test";
 import {
-  _electron,
-  type ElectronApplication,
-  type Page,
-} from "@playwright/test";
-import { test as base, expect } from "./fixtures";
-
-const repoRoot = path.join(__dirname, "../..");
+  createWorkspace,
+  killApp,
+  launchApp,
+  test as base,
+  expect,
+} from "./fixtures";
 
 /**
  * Overrides the base `app` fixture to seed a projects.json before launch.
@@ -67,47 +67,9 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
       );
     }
 
-    const app = await _electron.launch({
-      args: [path.join(repoRoot, "dist-electron/main.js")],
-      env: { ...process.env, HOME: tempHome },
-      cwd: repoRoot,
-    });
-
+    const app = await launchApp(tempHome);
     await use(app);
-
-    // Same shutdown dance as the base fixture — terminal-host child keeps the
-    // stderr pipe open so app.close() hangs. Force stdio close + SIGKILL the
-    // process group.
-    const electronProcess = app.process();
-    const pid = electronProcess.pid;
-    const closed = new Promise<void>((resolve) => {
-      if (
-        electronProcess.exitCode !== null ||
-        electronProcess.signalCode !== null
-      ) {
-        setImmediate(resolve);
-      } else {
-        electronProcess.once("close", () => setImmediate(resolve));
-      }
-    });
-    try {
-      electronProcess.stdout?.destroy();
-    } catch {
-      /* ignore */
-    }
-    try {
-      electronProcess.stderr?.destroy();
-    } catch {
-      /* ignore */
-    }
-    if (pid) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }
-    await closed;
+    await killApp(app);
   },
 });
 
@@ -128,12 +90,7 @@ test("setup script survives navigation; persistent toast signals background work
   ).toBeVisible({ timeout: 10_000 });
 
   // Create a new workspace named "smoke-bg".
-  await window.locator('[data-testid="sidebar-new-workspace-button"]').click();
-  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
-  await window.locator('[data-testid="new-workspace-name-input"]').fill("smoke-bg");
-  await window.locator('[data-testid="new-workspace-submit"]').click();
-  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+  await createWorkspace(window, "smoke-bg");
 
   // Setup view should appear — git ops are fast, then the setup-script step
   // flips to in-progress and the PTY runs `sleep 4` in the background.

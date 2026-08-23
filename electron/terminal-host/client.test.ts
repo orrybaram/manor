@@ -28,7 +28,8 @@ vi.mock("../shell", () => ({
 
 import { TerminalHost } from "./terminal-host";
 import type { ControlRequest, ControlResponse } from "./types";
-import { TerminalHostClient } from "./client";
+import { TerminalHostClient, isDaemonStale, daemonProtocolOf } from "./client";
+import { TERMINAL_HOST_PROTOCOL } from "./types";
 
 // ── Test daemon (same as daemon.integration.test.ts but with error handling fix) ──
 
@@ -41,6 +42,12 @@ class TestDaemon {
   readonly socketPath: string;
   readonly tokenPath: string;
   readonly pidPath: string;
+  /** Every request seen, in order, as "control:type" / "stream:type". */
+  readonly seen: string[] = [];
+  /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
+  failNextSnapshot = false;
+  /** Behave like a daemon from before ADR-159: no protocol, no `notFound`. */
+  legacyProtocol = false;
 
   constructor(dir: string) {
     // macOS has a 104-char limit for unix socket paths — use a short socket path
@@ -138,6 +145,7 @@ class TestDaemon {
     let req: ControlRequest & { requestId?: string };
     try {
       req = JSON.parse(line);
+      this.seen.push(`control:${req.type}`);
     } catch {
       this.send(socket, { type: "error", message: "Invalid JSON" });
       return;
@@ -202,14 +210,21 @@ class TestDaemon {
         this.send(socket, { type: "killed" }, requestId);
         break;
       case "getSnapshot": {
+        if (this.failNextSnapshot) {
+          this.failNextSnapshot = false;
+          this.send(socket, { type: "error", message: "socket exploded" }, requestId);
+          break;
+        }
         const snapshot = await this.host.getSnapshot(req.sessionId);
         if (snapshot) {
           this.send(socket, { type: "snapshot", snapshot }, requestId);
-        } else {
+        } else if (this.legacyProtocol) {
           this.send(socket, {
             type: "error",
             message: `Session ${req.sessionId} not found`,
           }, requestId);
+        } else {
+          this.send(socket, { type: "notFound", sessionId: req.sessionId }, requestId);
         }
         break;
       }
@@ -222,6 +237,21 @@ class TestDaemon {
       case "ping":
         this.send(socket, { type: "pong" }, requestId);
         break;
+      case "handshake":
+        // Echo the client's version so it does not decide we are stale and
+        // respawn us. `protocol` is omitted when playing an older daemon.
+        this.send(
+          socket,
+          this.legacyProtocol
+            ? { type: "handshake", daemonVersion: req.clientVersion }
+            : {
+                type: "handshake",
+                daemonVersion: req.clientVersion,
+                protocol: 1,
+              },
+          requestId,
+        );
+        break;
     }
   }
 
@@ -232,6 +262,7 @@ class TestDaemon {
     let cmd: any;
     try {
       cmd = JSON.parse(line);
+      this.seen.push(`stream:${cmd.type}`);
     } catch {
       return;
     }
@@ -358,6 +389,15 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
       );
     }
+    // Mirror the real doConnect's protocol negotiation — minus the kill and
+    // respawn on a version mismatch, which a test daemon never needs. Without
+    // this the client would treat every test daemon as pre-ADR-159.
+    const hsResp = await origRequest({
+      type: "handshake",
+      clientVersion: (client as any).clientVersion ?? "unknown",
+    });
+    (client as any).daemonProtocol =
+      hsResp.type === "handshake" ? (hsResp.protocol ?? 0) : 0;
     await (client as any).connectStreamSocket(token);
     (client as any).connected = true;
   };
@@ -498,6 +538,92 @@ describe("TerminalHostClient", () => {
       const result = await client.createOrAttach("pane-1", "/tmp", 80, 24);
       expect(result.snapshot).not.toBeNull();
       expect(result.snapshot!.screenAnsi).toContain("hello from pty");
+      client.disconnect();
+    });
+
+    it("resizes, then subscribes, then snapshots when reattaching (ADR-159)", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      const host = daemon.getHost();
+      const session = (host as any).sessions.get("pane-1");
+      (session as any).decoder.push(encodeFrame(MSG.DATA, "already on screen"));
+
+      client.disconnect();
+      await client.connect();
+      daemon.seen.length = 0;
+
+      const result = await client.createOrAttach("pane-1", "/tmp", 100, 30);
+
+      // Subscribing before snapshotting is what closes the loss window; the
+      // duplicates it admits are filtered by seq downstream.
+      const order = daemon.seen.filter((entry) =>
+        ["control:resize", "stream:subscribe", "control:getSnapshot"].includes(
+          entry,
+        ),
+      );
+      expect(order).toEqual([
+        "control:resize",
+        "stream:subscribe",
+        "control:getSnapshot",
+      ]);
+      expect(result.snapshot!.seq).toBeGreaterThan(0);
+      client.disconnect();
+    });
+
+    it("refuses to spawn a fresh shell when the snapshot request fails", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+
+      client.disconnect();
+      await client.connect();
+      daemon.seen.length = 0;
+      daemon.failNextSnapshot = true;
+
+      // The session is alive; the daemon just failed to answer. Creating here
+      // would hand a live shell to a terminal that thinks it is new, dropping
+      // the snapshot and the dedupe that comes with it.
+      await expect(
+        client.createOrAttach("pane-1", "/tmp", 80, 24),
+      ).rejects.toThrow(/socket exploded/);
+      expect(daemon.seen).not.toContain("control:create");
+      client.disconnect();
+    });
+
+    it("still attaches to a daemon that predates the notFound reply", async () => {
+      // The upgrade case that bit in practice: a daemon left running from an
+      // earlier build of the same app version, so nothing replaces it, talking
+      // to a client that now knows about `notFound`.
+      daemon.legacyProtocol = true;
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const result = await client.createOrAttach("pane-legacy", "/tmp", 80, 24);
+
+      expect(result.session.sessionId).toBe("pane-legacy");
+      expect(result.snapshot).toBeNull();
+      client.disconnect();
+    });
+
+    it("creates and subscribes when the daemon has no such session", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      daemon.seen.length = 0;
+
+      const result = await client.createOrAttach("pane-fresh", "/tmp", 80, 24);
+
+      // The resize and subscribe that precede the snapshot are no-ops against
+      // a session the daemon does not have; what matters is that the fresh
+      // session gets created and then subscribed. The subscribe is a
+      // fire-and-forget stream write, so give it a tick to land.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(result.snapshot).toBeNull();
+      expect(daemon.seen).toContain("control:create");
+      expect(daemon.seen.lastIndexOf("stream:subscribe")).toBeGreaterThan(
+        daemon.seen.indexOf("control:create"),
+      );
       client.disconnect();
     });
 
@@ -792,5 +918,69 @@ describe("TerminalHostClient", () => {
       await expect(client.connect()).rejects.toThrow("connection failed");
       expect((client as any).connectPromise).toBeNull();
     });
+  });
+});
+
+
+describe("isDaemonStale", () => {
+  const CURRENT = "0.6.5";
+  const current = (over: Partial<ControlResponse> = {}): ControlResponse =>
+    ({
+      type: "handshake",
+      daemonVersion: CURRENT,
+      protocol: TERMINAL_HOST_PROTOCOL,
+      ...over,
+    }) as ControlResponse;
+
+  it("keeps a daemon that matches on both version and protocol", () => {
+    expect(isDaemonStale(current(), CURRENT)).toBe(false);
+  });
+
+  it("replaces a daemon built from a different app version", () => {
+    expect(isDaemonStale(current({ daemonVersion: "0.6.4" }), CURRENT)).toBe(true);
+  });
+
+  // The regression this function exists for: two dev builds of one release meet
+  // across a protocol bump. The version check passes, so the pre-ADR-159 daemon
+  // survives, reports no `seq`, and every warm restore duplicates output again.
+  it("replaces a same-version daemon that speaks an older protocol", () => {
+    expect(isDaemonStale(current({ protocol: 0 }), CURRENT)).toBe(true);
+  });
+
+  it("replaces a same-version daemon that omits the protocol entirely", () => {
+    const legacy = { type: "handshake", daemonVersion: CURRENT } as ControlResponse;
+    expect(isDaemonStale(legacy, CURRENT)).toBe(true);
+  });
+
+  it("replaces a daemon too old to answer the handshake at all", () => {
+    const err = { type: "error", message: "Unknown request" } as ControlResponse;
+    expect(isDaemonStale(err, CURRENT)).toBe(true);
+  });
+});
+
+describe("daemonProtocolOf", () => {
+  it("reads the reported protocol", () => {
+    expect(
+      daemonProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+        protocol: 1,
+      } as ControlResponse),
+    ).toBe(1);
+  });
+
+  it("reports 0 for a handshake without a protocol field", () => {
+    expect(
+      daemonProtocolOf({
+        type: "handshake",
+        daemonVersion: "0.6.5",
+      } as ControlResponse),
+    ).toBe(0);
+  });
+
+  it("reports 0 when the daemon could not answer the handshake", () => {
+    expect(
+      daemonProtocolOf({ type: "error", message: "nope" } as ControlResponse),
+    ).toBe(0);
   });
 });

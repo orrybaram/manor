@@ -46,12 +46,20 @@ describe("RemoteControlServer", () => {
   let now: number;
   let auditDir: string;
   let audit: RemoteAuditLog;
+  let clientDir: string;
   let ptyWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     now = 1_000_000;
     auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-remote-audit-"));
     audit = new RemoteAuditLog(path.join(auditDir, "remote-audit.jsonl"));
+    clientDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-remote-client-"));
+    fs.writeFileSync(
+      path.join(clientDir, "index.html"),
+      "<!doctype html><title>Manor</title>",
+    );
+    fs.mkdirSync(path.join(clientDir, "assets"));
+    fs.writeFileSync(path.join(clientDir, "assets", "app.js"), "export {};");
     ptyWrite = vi.fn();
     getTaskById = vi.fn(() => null);
     deps = {
@@ -74,6 +82,7 @@ describe("RemoteControlServer", () => {
       devices,
       new AuthRateLimiter(() => now),
       audit,
+      clientDir,
     );
     const { port } = await server.start();
     base = `http://127.0.0.1:${port}`;
@@ -82,6 +91,7 @@ describe("RemoteControlServer", () => {
   afterEach(async () => {
     await server.stop();
     fs.rmSync(auditDir, { recursive: true, force: true });
+    fs.rmSync(clientDir, { recursive: true, force: true });
   });
 
   /** Give the deps a live session so a send can actually succeed. */
@@ -344,6 +354,71 @@ describe("RemoteControlServer", () => {
         Origin: base,
       });
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("the served client", () => {
+    it("serves the shell without a token, because the token is in the fragment", async () => {
+      const res = await fetch(`${base}/`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(await res.text()).toContain("Manor");
+    });
+
+    it("serves it under a CSP that forbids reaching anywhere else", async () => {
+      const csp = (await fetch(`${base}/`)).headers.get(
+        "content-security-policy",
+      );
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain("connect-src 'self'");
+      expect(csp).toContain("frame-ancestors 'none'");
+    });
+
+    it("serves hashed assets", async () => {
+      const res = await fetch(`${base}/assets/app.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/javascript");
+    });
+
+    it("does not serve anything outside the client directory", async () => {
+      const secret = path.join(auditDir, "remote-audit.jsonl");
+      fs.writeFileSync(secret, "secret-audit-content");
+      const res = await fetch(
+        `${base}/../${path.basename(auditDir)}/remote-audit.jsonl`,
+      );
+      expect(res.status).not.toBe(200);
+      expect(await res.text()).not.toContain("secret-audit-content");
+    });
+
+    it("never serves an API path as a file", async () => {
+      // `/tasks` is not a file, so it falls through to the authenticated
+      // pipeline and 401s rather than leaking anything.
+      expect((await fetch(`${base}/tasks`)).status).toBe(401);
+    });
+  });
+
+  describe("GET /me", () => {
+    it("requires a token", async () => {
+      expect((await get("/me")).status).toBe(401);
+    });
+
+    it("returns this device's own record and nothing else", async () => {
+      const res = await get("/me", WRITE_TOKEN);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        id: writer.id,
+        label: writer.label,
+        canSend: true,
+      });
+      expect(JSON.stringify(body)).not.toContain(WRITE_TOKEN);
+    });
+
+    it("reports a read-only device as unable to send", async () => {
+      const body = (await (await get("/me", READ_TOKEN)).json()) as {
+        canSend: boolean;
+      };
+      expect(body.canSend).toBe(false);
     });
   });
 

@@ -1,6 +1,6 @@
 ---
 title: Mobile web client
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

@@ -1,0 +1,223 @@
+/*
+ * Phone-first, and deliberately dependency-free: no webfont, no icon set, no
+ * remote anything. The page must render correctly with `default-src 'none'`
+ * plus `'self'`, because that is the CSP the listener serves it under.
+ */
+
+:root {
+  --bg: #14161a;
+  --surface: #1c1f26;
+  --border: #2a2f38;
+  --text: #e6e8ec;
+  --dim: #949aa6;
+  --blocked: #e5a03c;
+  --error: #d75f5f;
+  --working: #56a8f5;
+  --idle: #6f7681;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  overscroll-behavior-y: none;
+}
+
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 12px
+    max(12px, env(safe-area-inset-bottom));
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+
+h1 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+
+.muted {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 14px;
+  cursor: pointer;
+  /* Comfortably tappable — this is a phone surface first. */
+  min-height: 44px;
+}
+
+button:active {
+  background: var(--border);
+}
+
+button.primary {
+  background: var(--working);
+  border-color: var(--working);
+  color: #08101c;
+  font-weight: 600;
+}
+
+button.danger {
+  background: var(--error);
+  border-color: var(--error);
+  color: #1a0c0c;
+  font-weight: 600;
+}
+
+ul.sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+li.session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+li.session.blocked {
+  border-color: var(--blocked);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--idle);
+}
+
+.dot.requires_input {
+  background: var(--blocked);
+}
+.dot.error {
+  background: var(--error);
+}
+.dot.working,
+.dot.thinking {
+  background: var(--working);
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-name strong {
+  display: block;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+pre.scrollback {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 0;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.banner.warn {
+  border-color: var(--blocked);
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet-inner {
+  width: 100%;
+  max-width: 720px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+}
+
+.sheet-inner code {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 10px 0;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-word;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

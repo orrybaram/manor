@@ -40,6 +40,7 @@ import { remoteRouteTable, routeKey } from "./allowlist";
 import { hashText, RemoteAuditLog } from "./audit";
 import { AuthRateLimiter } from "./rate-limit";
 import { SseHub } from "./sse";
+import { defaultClientDir, serveClientAsset } from "./static";
 
 /** What the listener needs of a device. `RemoteDeviceStore` satisfies it. */
 export interface AuthenticatedDevice {
@@ -79,6 +80,8 @@ export class RemoteControlServer {
     private readonly devices: DeviceVerifier,
     private readonly limiter: AuthRateLimiter = new AuthRateLimiter(),
     private readonly audit: RemoteAuditLog = new RemoteAuditLog(),
+    /** Built client directory; null serves no page (tests, and dev before a build). */
+    private readonly clientDir: string | null = defaultClientDir(),
   ) {}
 
   get running(): boolean {
@@ -176,6 +179,20 @@ export class RemoteControlServer {
       return;
     }
 
+    const url = new URL(req.url, "http://127.0.0.1");
+
+    // ── 1b. The app shell, before auth and on purpose ──
+    // The pairing token rides in the URL fragment, which never reaches the
+    // server, so the page has to load unauthenticated and present its token
+    // from JavaScript. Only static files are reachable this way; see
+    // `static.ts`. Nothing below this line is.
+    if (
+      method === "GET" &&
+      serveClientAsset(res, url.pathname, this.clientDir)
+    ) {
+      return;
+    }
+
     // ── 2 & 3. Authenticate before anything else happens ──
     const source = req.socket.remoteAddress ?? "unknown";
     const retryAfter = this.limiter.retryAfterMs(source);
@@ -208,9 +225,20 @@ export class RemoteControlServer {
       return;
     }
 
-    const url = new URL(req.url, "http://127.0.0.1");
-
     // ── 5. Routing, against a table the dangerous routes were never in ──
+    // `/me` and `/events` are the listener's own, not `electron/routes/` rows:
+    // they exist only for the phone client, so they are not allowlist entries.
+    // `/me` returns the device's own record — its label and whether it may
+    // send — and no token, no hash, and nothing about any other device.
+    if (method === "GET" && url.pathname === "/me") {
+      json(200, {
+        id: device.id,
+        label: device.label,
+        canSend: device.canSend,
+      });
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/events") {
       this.hub.add(device.id, res);
       return;

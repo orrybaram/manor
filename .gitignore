@@ -34,3 +34,6 @@ release/
 test-results/
 playwright-report/
 .playwright/
+
+# Claude Code agent worktrees
+.claude/worktrees/

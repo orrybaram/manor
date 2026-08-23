@@ -15,19 +15,22 @@ verification primitive before anything listens.
 
 ```ts
 interface RemoteDevice {
-  id: string;            // random id, safe to log
-  label: string;         // user-supplied, e.g. "Orry's phone"
-  tokenHash: string;     // sha256 hex of the raw token
-  canSend: boolean;      // write capability, default false
+  id: string; // random id, safe to log
+  label: string; // user-supplied, e.g. "Orry's phone"
+  tokenHash: string; // sha256 hex of the raw token
+  canSend: boolean; // write capability, default false
   createdAt: number;
   lastSeenAt: number | null;
 }
 
 class RemoteDeviceStore {
-  pair(label: string, canSend: boolean): { device: RemoteDevice; rawToken: string };
+  pair(
+    label: string,
+    canSend: boolean,
+  ): { device: RemoteDevice; rawToken: string };
   verify(rawToken: string): RemoteDevice | null;
   revoke(id: string): void;
-  list(): RemoteDevice[];   // never includes tokenHash
+  list(): RemoteDevice[]; // never includes tokenHash
 }
 ```
 
@@ -56,6 +59,7 @@ immediate; a wrong-length token is rejected without throwing; persistence round-
 encryption-unavailable refuses rather than degrading.
 
 ## Files to touch
+
 - `electron/remote-control/devices.ts` — new.
 - `electron/remote-control/rate-limit.ts` — new.
 - `electron/paths.ts` — `remoteDevicesFile()`.

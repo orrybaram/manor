@@ -34,6 +34,7 @@ rejected; a successful send writes exactly one audit line containing no plaintex
 audit file is 0600; rotation triggers at the cap.
 
 ## Files to touch
+
 - `electron/remote-control/audit.ts` — new.
 - `electron/remote-control/server.ts` — remote-only wrapper around the send route.
 - `electron/paths.ts` — `remoteAuditFile()`.

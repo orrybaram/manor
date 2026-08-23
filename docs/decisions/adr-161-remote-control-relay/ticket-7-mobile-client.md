@@ -20,6 +20,7 @@ not linger in the address bar or history. Every request sends
 again" state rather than retrying.
 
 **Views.**
+
 - Session list: label, project, agent status from the existing `AgentStatus` union
   (`idle` / `thinking` / `working` / `complete` / `requires_input` / `error` /
   `responded`). Sort blocked-first — `requires_input` and `error` at the top, since being
@@ -31,12 +32,13 @@ again" state rather than retrying.
   `confirmed: true` (ticket 4 rejects sends without it).
 
 **Live updates.** `EventSource` against `GET /events`. On error, fall back to polling
-`GET /agents` every 5s and retry the stream with backoff.
+`GET /tasks` every 5s and retry the stream with backoff.
 
 Add the build as a vite entry writing to `dist-electron/remote/`, following the pattern
 the other standalone entries use in `vite.config.ts`.
 
 ## Files to touch
+
 - `src/remote-client/` — new; the page, its styles, and its entry.
 - `vite.config.ts` — build entry emitting to `dist-electron/remote/`.
 - `electron/remote-control/server.ts` — serve the built assets at `/` with correct

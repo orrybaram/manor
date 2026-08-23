@@ -38,7 +38,7 @@ Manor needs none of the polling. The API already exists. `WebviewServer`
 (`electron/webview-server.ts`) runs an HTTP listener in Electron main, and
 `electron/routes/` serves exactly the surface a phone client wants:
 
-- `GET /agents`, `GET /tasks`, `GET /context`, `GET /panes`, `GET /tabs`
+- `GET /tasks`, `GET /context`, `GET /panes` — the read surface
 - `POST /sessions/read` — scrollback for a task handle or raw pane id
 - `POST /sessions/send` — type into a session, with an interrupt override
 - `POST /panes/split`, `POST /panes/:paneId/focus`, `DELETE /panes/:paneId`
@@ -57,7 +57,7 @@ Exposing today's listener to the internet, even behind an obscure hostname, is r
 execution with extra steps. Origin validation of the kind herdr-remote relies on does not
 help — it is a browser-enforced control, and `curl` does not enforce it.
 
-So the shape is forced: a *second*, authenticated listener with an explicit route
+So the shape is forced: a _second_, authenticated listener with an explicit route
 allowlist, rather than auth bolted onto the existing one. Two listeners with two threat
 models beats one listener with a mode flag, because the failure mode of a mode flag is
 that someone forgets to check it on one route.
@@ -81,10 +81,20 @@ route reaches the remote surface only by being named in the allowlist:
 
 ```ts
 // electron/remote-control/allowlist.ts
-export const READ_ROUTES  = ["/agents", "/tasks", "/context", "/panes", "/tabs",
-                             "POST /sessions/read"];
-export const WRITE_ROUTES = ["POST /sessions/send"];   // gated, see §4
+export const REMOTE_READ_ROUTES = [
+  "GET /tasks",
+  "GET /context",
+  "GET /panes",
+  "POST /sessions/read",
+];
+export const REMOTE_WRITE_ROUTES = ["POST /sessions/send"]; // gated, see §4
 ```
+
+The read list is shorter than the inventory above suggests, because two of those
+endpoints are not what their prefix implies: `/agents` exists only as
+`POST /agents`, which _launches_ a process, and `/tabs` only as `POST /tabs`,
+which creates one. Neither is a read, so neither reaches the surface; the
+session list the client renders is `GET /tasks`.
 
 Everything else — project mutation, issue fan-out, agent launching, pane split/close —
 is absent from the remote surface in v1. Not "returns 403": absent, because a route that
@@ -156,7 +166,7 @@ scrollback, and — when the device holds the capability — a send box.
 
 Live updates over Server-Sent Events (`GET /events`, token-authenticated) rather than
 WebSocket: the payload is one-directional status fan-out, SSE reconnects on its own, and
-it is meaningfully less code. Fall back to polling `GET /agents` on a 5s interval if the
+it is meaningfully less code. Fall back to polling `GET /tasks` on a 5s interval if the
 stream drops.
 
 ### 6. Push
@@ -204,7 +214,7 @@ code (mitigated by per-device revocation and by keeping send capability off by d
 and a user leaving a quick tunnel running indefinitely without realising (mitigated by
 the persistent indicator and tunnel-stops-with-app). The `/sessions/read` route returns
 raw scrollback, which routinely contains secrets — that is not a mitigable property of
-the feature, it *is* the feature, and it is the reason the auth story has to be right
+the feature, it _is_ the feature, and it is the reason the auth story has to be right
 rather than convenient.
 
 Anyone reviewing the implementation should treat §2 and §1's allowlist as the parts that

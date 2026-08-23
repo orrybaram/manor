@@ -34,6 +34,7 @@ Tests: detection with a faked `which`; URL parsing for both tools' real output f
 timeout kills the child; `stop()` is idempotent; unexpected child exit emits `failed`.
 
 ## Files to touch
+
 - `electron/remote-control/tunnel.ts` — new.
 - `electron/app-lifecycle.ts` — stop the tunnel on quit.
 - `electron/remote-control/__tests__/tunnel.test.ts` — new.

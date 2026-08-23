@@ -37,6 +37,7 @@ Generate the QR code locally — no external service, no CDN. Add a small QR dep
 render one inline; do not fetch an image from a third party with a token in the URL.
 
 ## Files to touch
+
 - `src/components/` — remote-control settings panel (follow the existing settings patterns).
 - `src/components/` — exposure indicator in the persistent chrome.
 - `electron/preload.ts` + `electron/ipc/` — IPC for enable/disable, pair, revoke, list,

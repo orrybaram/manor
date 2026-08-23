@@ -34,6 +34,7 @@ transition to `working` sends none; a revoked device receives nothing; an expire
 subscription is dropped; muted preferences suppress the send.
 
 ## Files to touch
+
 - `electron/remote-control/push.ts` — new; VAPID keys, subscription store, send.
 - `electron/remote-control/server.ts` — `POST /push/subscribe`.
 - `electron/remote-control/allowlist.ts` — add the subscribe route.

@@ -16,7 +16,7 @@ ships, review it as an adversary, then write down honestly what it exposes.
 1. A route reachable remotely that is not in the allowlist — including anything added to
    `electron/routes/` while this ADR was in flight. Re-run the subset assertion and read
    the real table, do not trust the test alone.
-2. Any path where the body is read, a handler runs, or state changes *before*
+2. Any path where the body is read, a handler runs, or state changes _before_
    authentication completes.
 3. Token comparison that is not `timingSafeEqual` over equal-length buffers, or any error
    path that distinguishes "no such token" from "wrong token" by timing or message.
@@ -48,6 +48,7 @@ Then run `/security-review` on the accumulated diff and address its findings.
 Link it from `README.md`.
 
 ## Files to touch
+
 - Any file the review turns up.
 - `docs/decisions/adr-161-remote-control-relay/index.md` — update Risks with anything
   found and not fixed.

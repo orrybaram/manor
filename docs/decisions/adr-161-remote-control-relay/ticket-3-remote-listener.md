@@ -41,6 +41,7 @@ because the route is absent); a `canSend: false` device cannot reach `POST /sess
 SSE emits on status change and cleans up on disconnect.
 
 ## Files to touch
+
 - `electron/remote-control/server.ts` — new.
 - `electron/remote-control/sse.ts` — new; SSE connection registry and heartbeat.
 - `electron/app-lifecycle.ts` — construct the server and the device store; keep stopped.

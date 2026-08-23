@@ -277,6 +277,42 @@ the local MCP path) is covered.
   tool; it is why Tailscale is preferred and why the confirmation dialog names the
   difference.
 
+## What v1 does not do yet
+
+v1 is complete against tickets 1–9 and the security posture above is the part worth
+trusting. What it is not yet is *full-featured*, and the gap has a shape: the surface can
+report, but it can barely act, and on the device most people will use it from the
+notification half does not fire at all.
+
+**Push does not work on an iPhone.** iOS grants Web Push only to a site installed to the
+Home Screen as a PWA, and the client ships no manifest, so Safari never offers the option.
+Ticket 8 is correct and simply never runs there. Being told rather than checking is the
+premise of this ADR; ticket 10 is therefore the highest-priority remaining work.
+
+**The client cannot interrupt.** The listener has passed `interrupt` through since ticket
+4 and audits it as its own field; the client never sets it. Stopping a runaway agent is
+the most valuable remote action there is, and it is the one action not wired up (ticket
+11). Answering a permission prompt likewise costs a phone keyboard and a paragraph of
+confirmation to send the character `1`.
+
+**Rate limiting keys on the wrong thing behind a tunnel.** Every tunnelled request reaches
+a loopback listener, so `req.socket.remoteAddress` is `127.0.0.1` for all remote devices.
+They share one bucket, which means someone guessing tokens backs *your own phone* off into
+429s. The limiter was written to slow an intruder down and currently lets one lock the
+owner out (ticket 12).
+
+**Nothing survives a restart.** Enablement is deliberately not persisted, and a cloudflared
+quick tunnel rotates its hostname on every start — a new origin, so the phone's token,
+its push subscription, and (after ticket 10) its install all evaporate. The feature exists
+for the times you are away from the machine, and today those are exactly the times it
+cannot be recovered. Ticket 13 is a decision about how far to bend the no-persist rule,
+and it should amend the section above rather than quietly contradict it.
+
+The rest is smaller and enumerated in tickets 14–17: a tunnel that dies unattended stays
+dead, the audit log has no reader inside the app, a paired device's capability can only be
+changed by re-pairing it, and two allowlisted routes have no caller — which is either a
+missing feature or a surface to remove, but not something to leave undecided.
+
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>

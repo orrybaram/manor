@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { TerminalHost } from "./terminal-host";
+import { TERMINAL_HOST_PROTOCOL } from "./types";
 import type { ControlRequest, ControlResponse, StreamCommand } from "./types";
 import { daemonDir, daemonSocketFile, daemonTokenFile, daemonPidFile } from "../paths";
 
@@ -195,7 +196,15 @@ async function handleControlMessage(
     case "handshake": {
       // Client sends its app version; daemon replies with its own.
       // Version mismatch causes the client to kill and respawn the daemon.
-      sendResponse(socket, { type: "handshake", daemonVersion: daemonVersion ?? "unknown" }, requestId);
+      sendResponse(
+        socket,
+        {
+          type: "handshake",
+          daemonVersion: daemonVersion ?? "unknown",
+          protocol: TERMINAL_HOST_PROTOCOL,
+        },
+        requestId,
+      );
       break;
     }
   }

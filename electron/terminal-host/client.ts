@@ -47,6 +47,12 @@ export class TerminalHostClient {
   private eventHandler: StreamEventHandler | null = null;
   private daemonProcess: ChildProcess | null = null;
   private clientVersion: string | undefined;
+  /**
+   * Wire protocol the connected daemon speaks; 0 means it is old enough not to
+   * report one. Re-read on every connect, since reconnecting can land on a
+   * different daemon.
+   */
+  private daemonProtocol = 0;
   private _migratedOldDaemons = false;
 
   constructor(version?: string) {
@@ -117,6 +123,8 @@ export class TerminalHostClient {
     // same-version restarts while ensuring the daemon binary is never mismatched.
     const clientVer = this.clientVersion ?? "unknown";
     const hsResp = await this.request({ type: "handshake", clientVersion: clientVer });
+    this.daemonProtocol =
+      hsResp.type === "handshake" ? (hsResp.protocol ?? 0) : 0;
     if (hsResp.type === "handshake" && hsResp.daemonVersion !== clientVer) {
       // Stale daemon — replace it
       this.cleanup();
@@ -214,11 +222,20 @@ export class TerminalHostClient {
           snapshot: snapshotResp.snapshot,
         };
       }
-      if (snapshotResp.type !== "notFound") {
-        // Only a definite "no such session" means spawn a fresh shell. Treating
-        // any failure that way would hand a live session to a terminal that
-        // thinks it is new — which drops the snapshot, and with it the dedupe
-        // that keeps a reattach from repeating output.
+      // Only a definite "no such session" means spawn a fresh shell. Treating
+      // any failure that way would hand a live session to a terminal that
+      // thinks it is new — which drops the snapshot, and with it the dedupe
+      // that keeps a reattach from repeating output.
+      //
+      // A daemon below protocol 1 cannot make that distinction: it answers a
+      // missing session with a plain `error`. Reading every error as absence is
+      // what that daemon's own client did, so it is the right reading here — and
+      // it keeps a daemon that is already running working across an in-place
+      // upgrade, instead of failing every new terminal until someone kills it.
+      const sessionIsAbsent =
+        snapshotResp.type === "notFound" ||
+        (this.daemonProtocol < 1 && snapshotResp.type === "error");
+      if (!sessionIsAbsent) {
         throw new Error(
           `Snapshot failed for ${sessionId}: ${
             snapshotResp.type === "error"

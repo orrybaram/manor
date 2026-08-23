@@ -29,6 +29,19 @@ export const DEFAULT_TERMINAL_MODES: TerminalModes = {
  */
 export type StreamPosition = number;
 
+/**
+ * Version of the daemon↔client wire protocol, bumped whenever a change would
+ * confuse the other side.
+ *
+ * Separate from the app version on purpose. A daemon outlives the app that
+ * spawned it and is only replaced when the *app version* differs, so two builds
+ * of the same release can meet across a protocol change — which is exactly how
+ * a client that required `notFound` met a daemon that only said `error`.
+ *
+ * 1 — `notFound` replies, and `seq` on data events and snapshots (ADR-159).
+ */
+export const TERMINAL_HOST_PROTOCOL = 1;
+
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
   screenAnsi: string;
@@ -101,7 +114,12 @@ export type ControlResponse =
   | { type: "envUpdated" }
   | { type: "writeQueued" }
   | { type: "disposedDead" }
-  | { type: "handshake"; daemonVersion: string }
+  | {
+      type: "handshake";
+      daemonVersion: string;
+      /** Absent from daemons older than TERMINAL_HOST_PROTOCOL 1. */
+      protocol?: number;
+    }
   | { type: "error"; message: string };
 
 // ── Agent status types ──

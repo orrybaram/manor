@@ -45,6 +45,8 @@ class TestDaemon {
   readonly seen: string[] = [];
   /** Set to make the next getSnapshot fail as though the daemon misbehaved. */
   failNextSnapshot = false;
+  /** Behave like a daemon from before ADR-159: no protocol, no `notFound`. */
+  legacyProtocol = false;
 
   constructor(dir: string) {
     // macOS has a 104-char limit for unix socket paths — use a short socket path
@@ -215,6 +217,11 @@ class TestDaemon {
         const snapshot = await this.host.getSnapshot(req.sessionId);
         if (snapshot) {
           this.send(socket, { type: "snapshot", snapshot }, requestId);
+        } else if (this.legacyProtocol) {
+          this.send(socket, {
+            type: "error",
+            message: `Session ${req.sessionId} not found`,
+          }, requestId);
         } else {
           this.send(socket, { type: "notFound", sessionId: req.sessionId }, requestId);
         }
@@ -228,6 +235,21 @@ class TestDaemon {
         break;
       case "ping":
         this.send(socket, { type: "pong" }, requestId);
+        break;
+      case "handshake":
+        // Echo the client's version so it does not decide we are stale and
+        // respawn us. `protocol` is omitted when playing an older daemon.
+        this.send(
+          socket,
+          this.legacyProtocol
+            ? { type: "handshake", daemonVersion: req.clientVersion }
+            : {
+                type: "handshake",
+                daemonVersion: req.clientVersion,
+                protocol: 1,
+              },
+          requestId,
+        );
         break;
     }
   }
@@ -366,6 +388,15 @@ function createTestClient(daemon: TestDaemon): TerminalHostClient {
         `Auth failed: ${authResp.type === "error" ? authResp.message : "unknown"}`,
       );
     }
+    // Mirror the real doConnect's protocol negotiation — minus the kill and
+    // respawn on a version mismatch, which a test daemon never needs. Without
+    // this the client would treat every test daemon as pre-ADR-159.
+    const hsResp = await origRequest({
+      type: "handshake",
+      clientVersion: (client as any).clientVersion ?? "unknown",
+    });
+    (client as any).daemonProtocol =
+      hsResp.type === "handshake" ? (hsResp.protocol ?? 0) : 0;
     await (client as any).connectStreamSocket(token);
     (client as any).connected = true;
   };
@@ -557,6 +588,21 @@ describe("TerminalHostClient", () => {
         client.createOrAttach("pane-1", "/tmp", 80, 24),
       ).rejects.toThrow(/socket exploded/);
       expect(daemon.seen).not.toContain("control:create");
+      client.disconnect();
+    });
+
+    it("still attaches to a daemon that predates the notFound reply", async () => {
+      // The upgrade case that bit in practice: a daemon left running from an
+      // earlier build of the same app version, so nothing replaces it, talking
+      // to a client that now knows about `notFound`.
+      daemon.legacyProtocol = true;
+      const client = createTestClient(daemon);
+      await client.connect();
+
+      const result = await client.createOrAttach("pane-legacy", "/tmp", 80, 24);
+
+      expect(result.session.sessionId).toBe("pane-legacy");
+      expect(result.snapshot).toBeNull();
       client.disconnect();
     });
 

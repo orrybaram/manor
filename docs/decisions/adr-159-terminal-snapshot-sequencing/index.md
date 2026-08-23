@@ -170,13 +170,18 @@ The daemon↔client protocol is the seam a remote backend would run over (see th
 `WorkspaceBackend` abstraction from ADR-107), and two things here matter more
 there than they do locally:
 
-- **The absent-`seq` fallback is load-bearing once a daemon is remote.** Locally
-  it is nearly unreachable: `TerminalHostClient.connect` kills and respawns a
-  daemon whose version differs, so app and daemon always match — and that
-  respawn destroys the sessions anyway, leaving nothing to restore. Over SSH you
-  cannot casually kill someone's daemon, and a remote binary may legitimately
-  lag the local app, so "no position reported → apply everything" becomes a real
-  path. Keep it.
+- **The absent-`seq` fallback is load-bearing, and not only remotely.** An
+  earlier draft of this ADR claimed local skew was nearly unreachable, because
+  `TerminalHostClient.connect` replaces a daemon whose version differs. That
+  reasoning was wrong, and it broke a running app within two days: the check
+  compares *app* versions, so two builds of the same release meet across a
+  protocol change and the stale daemon is kept. A daemon that had been running
+  since before this ADR answered a missing session with `error`, the new client
+  demanded `notFound`, and every new terminal failed to start. Hence
+  `TERMINAL_HOST_PROTOCOL`: the daemon reports what it speaks in the handshake,
+  and a client that meets protocol 0 reads absence the old way. Over SSH the
+  same fallback matters more, since killing someone else's daemon is not an
+  option.
 - **Sequence numbers are what a resumable stream needs.** A client whose link
   drops could reattach saying "I have through N" and receive only what it
   missed. The daemon keeps no per-position buffer today, so this is not

@@ -274,13 +274,10 @@ test.describe("notification center", () => {
    * The agent path, end to end: a hook event moves a task's status, main
    * records what it would have banner-ed, and the row shows up under the bell.
    *
-   * The first park is deliberately not asserted on. A session whose *first*
-   * task-creating hook event is `requires_input` is created by the relay's
-   * `CreateTask` effect, which has never called `maybeSendNotification` — so
-   * there is no banner for it today, and therefore no record either. That gap
-   * is upstream of this ADR (which records where notifications are emitted,
-   * rather than changing when they fire). What follows drives the transitions
-   * a running agent actually produces.
+   * The fake agent parks in `requires_input` on startup, which is the case the
+   * relay's `CreateTask` effect owns — no prior task exists for
+   * `UpdateTaskActiveStatus` to find — and then answers each message with a
+   * Stop. Both kinds of transition have to reach the log.
    */
   test("an agent's status changes land in the log while the window is focused", async ({
     app,
@@ -297,39 +294,46 @@ test.describe("notification center", () => {
     await runInTerminal(window, `"${FAKE_AGENT}" notif-agent`);
     await expect(bell(window)).toBeVisible();
 
-    // Answer the agent twice. Each reply is a Stop the relay turns into
-    // `responded`, and the window is focused throughout, so neither showed a
-    // banner. The log is the only trace, which is the point.
+    // The agent parks needing input before anything else happens. Focused
+    // window, so no banner — the record is the only trace, which is the point.
+    await expect
+      .poll(() => readPersistedTitles(tempHome), { timeout: 90_000 })
+      .toEqual(["Agent needs input"]);
+
+    // Answer it. The reply is a Stop the relay turns into `responded`.
     //
-    // (The agent parks in `requires_input` again after each reply, but the
-    // relay drops a re-park that arrives while the session is already
-    // `responded` — ADR-139's late-active guard. No banner today, so no
-    // record either.)
+    // (The agent parks again straight after, but the relay drops a re-park
+    // that arrives while the session is already `responded` — ADR-139's
+    // late-active guard. No banner for it, so no record either.)
     await runInTerminal(window, "hello");
     await expect
       .poll(() => readPersistedTitles(tempHome), { timeout: 90_000 })
-      .toEqual(["Agent responded"]);
+      .toEqual(["Agent responded", "Agent needs input"]);
 
     await runInTerminal(window, "again");
-    // Two turns, two records. The unseen bit this sits alongside collapses a
-    // round trip into a single flag; the whole point of a log is that it does
-    // not.
+    // Two turns, two `responded` records. The unseen bit this sits alongside
+    // collapses a round trip into a single flag; the whole point of a log is
+    // that it does not.
     await expect
       .poll(() => readPersistedTitles(tempHome), { timeout: 90_000 })
-      .toEqual(["Agent responded", "Agent responded"]);
+      .toEqual(["Agent responded", "Agent responded", "Agent needs input"]);
 
-    await expect(window.getByTestId("notifications-badge")).toHaveText("2", {
+    await expect(window.getByTestId("notifications-badge")).toHaveText("3", {
       timeout: 15_000,
     });
     await openBell(window);
 
-    await expect(rows(window)).toHaveCount(2);
+    await expect(rows(window)).toHaveCount(3);
     const respondedRow = rows(window).first();
     await expect(respondedRow).toHaveAttribute("data-kind", "agent-responded");
     await expect(respondedRow).toContainText("Agent responded");
     // The body names the task and its project, exactly as the banner would.
     await expect(respondedRow).toContainText("notif-agent");
     await expect(respondedRow).toContainText("test-project");
+
+    const inputRow = rows(window).last();
+    await expect(inputRow).toHaveAttribute("data-kind", "agent-requires-input");
+    await expect(inputRow).toContainText("Agent needs input");
 
     await closeBell(window);
   });

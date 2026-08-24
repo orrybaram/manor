@@ -69,10 +69,11 @@ export function NotificationsPopover() {
             size="sm"
             className={styles.bellButton}
             aria-label="Notifications"
+            data-testid="notifications-bell"
           >
             <Bell size={12} />
             {unreadCount > 0 && (
-              <span className={styles.badge}>
+              <span className={styles.badge} data-testid="notifications-badge">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -82,9 +83,11 @@ export function NotificationsPopover() {
       <Popover.Portal>
         <Popover.Content
           className={styles.popover}
+          data-testid="notifications-popover"
           side="bottom"
           align="end"
           sideOffset={6}
+          collisionPadding={8}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <div className={styles.header}>
@@ -109,7 +112,9 @@ export function NotificationsPopover() {
 
           <div className={styles.scrollArea}>
             {notifications.length === 0 && (
-              <div className={styles.empty}>Nothing here yet.</div>
+              <div className={styles.empty} data-testid="notifications-empty">
+                Nothing here yet.
+              </div>
             )}
 
             {BUCKET_ORDER.map((bucket) => {
@@ -126,6 +131,9 @@ export function NotificationsPopover() {
                       <div
                         key={record.id}
                         className={`${styles.row} ${record.read ? styles.rowRead : ""}`}
+                        data-testid="notification-row"
+                        data-kind={record.kind}
+                        data-read={record.read ? "true" : "false"}
                         role="button"
                         tabIndex={0}
                         onClick={() => handleRowClick(record)}

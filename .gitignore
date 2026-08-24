@@ -42,3 +42,6 @@ vite.config.d.ts
 
 # Playwright e2e screenshots and logs
 tests/e2e/artifacts/
+
+# Claude Code agent worktrees
+.claude/worktrees/

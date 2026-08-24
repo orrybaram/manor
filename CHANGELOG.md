@@ -3,6 +3,21 @@
 
 
 
+
+## [0.7.0] - 2026-08-23
+
+## Features
+
+- Every workspace now stays mounted, so switching between them is instant and no longer duplicates terminal output
+- Sessions that no longer exist now report cleanly as "not found" instead of surfacing an error
+
+## Fixes
+
+- Fixed duplicated terminal output when restoring a session after reconnecting
+- Restored sticky file headers in the diff view
+- Reading a session now works for plain terminal panes
+- The app negotiates a protocol version with the background daemon, preventing breakage when versions differ
+
 ## [0.6.5] - 2026-07-27
 
 **Features**

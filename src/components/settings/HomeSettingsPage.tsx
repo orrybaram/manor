@@ -46,9 +46,7 @@ export function HomeSettingsPage() {
               type="text"
               placeholder={"e.g. \\x03 for Ctrl-C"}
               value={preferences.homeCustomInterrupt}
-              onChange={(e) =>
-                set("homeCustomInterrupt", e.target.value)
-              }
+              onChange={(e) => set("homeCustomInterrupt", e.target.value)}
             />
             <div className={styles.fieldHint}>
               Raw pty bytes sent to gracefully end the harness's current turn

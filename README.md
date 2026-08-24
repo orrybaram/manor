@@ -118,6 +118,7 @@ Per-project themes with hundreds of options. Matches your Ghostty config automat
 - **AI agent detection** — Visual indicators when Claude Code or other agents are active in a terminal
 - **Theming** — Per-project themes with hundreds of options; matches your Ghostty config automatically
 - **Command palette** — Quick access to projects, workspaces, and actions via `Cmd+K`
+- **Remote control** — Check on your agents from a phone, and get pushed a notification when one is blocked. Off by default; read [what it exposes](docs/remote-control.md) before turning it on
 
 <br />
 

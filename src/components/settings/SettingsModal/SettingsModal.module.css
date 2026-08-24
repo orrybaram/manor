@@ -51,7 +51,6 @@
   color: var(--text-selected);
 }
 
-
 /* ── Layout: sidebar + content ── */
 
 .layout {
@@ -152,7 +151,6 @@
 }
 
 /* ── Settings groups ── */
-
 
 .sectionTitle {
   font-size: 11px;
@@ -592,7 +590,6 @@
   margin-bottom: 4px;
 }
 
-
 .keybindingRow {
   display: flex;
   align-items: center;
@@ -640,7 +637,6 @@
   color: var(--red, #f38ba8);
   width: 100%;
 }
-
 
 .keybindingActionBtn {
   background: none;
@@ -717,4 +713,165 @@
     opacity: 0;
     transform: scale(0.96);
   }
+}
+
+/* ── Remote control (ADR-161) ── */
+
+.remoteWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg);
+  border: 1px solid var(--danger, #c74e39);
+  border-radius: 6px;
+}
+
+.remoteExposureCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+}
+
+/* A tunnel is a different fact about the machine, not a different control —
+   so it reads differently at a glance. */
+.remoteExposureOpen {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.remoteExposureIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+.remoteExposureOpen .remoteExposureIcon {
+  color: var(--accent);
+}
+
+.remoteExposureBody {
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+
+.remoteExposureTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+/* The pairing dialog stacks several labelled blocks; the shared confirm dialog
+   is a plain block, so the rhythm has to come from here. */
+.remotePairingBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.remotePairingBody .fieldLabel {
+  margin: 0 0 4px;
+}
+
+.remoteCopyRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.remoteCode {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
+}
+
+.remoteCapabilityRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 2px 0 4px;
+}
+
+.remoteCapabilityRow .fieldHint {
+  display: block;
+  margin-top: 2px;
+}
+
+.remoteDeviceList {
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.remoteDeviceRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.remoteDeviceIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.remoteDeviceBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.remoteDeviceRow:last-child {
+  border-bottom: none;
+}
+
+.remoteDeviceLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.remoteSendBadge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  border: 1px solid var(--surface);
+}
+
+.remoteQr {
+  display: block;
+  width: 220px;
+  height: 220px;
+  margin: 4px auto;
+  border-radius: 6px;
+  background: #fff;
 }

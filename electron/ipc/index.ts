@@ -11,6 +11,7 @@ import * as tasksIpc from "./tasks";
 import * as miscIpc from "./misc";
 import * as processesIpc from "./processes";
 import * as windowIpc from "./window";
+import * as remoteControlIpc from "./remote-control";
 
 export { createWebviewServer } from "./webview";
 
@@ -27,4 +28,5 @@ export function registerAllIpc(deps: IpcDeps): void {
   miscIpc.register(deps);
   processesIpc.register(deps);
   windowIpc.register(deps);
+  remoteControlIpc.register(deps);
 }

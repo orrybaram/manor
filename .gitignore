@@ -35,5 +35,13 @@ test-results/
 playwright-report/
 .playwright/
 
+# tsc -b byproducts (the checked-in tsconfig.node.tsbuildinfo predates this)
+tsconfig.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Playwright e2e screenshots and logs
+tests/e2e/artifacts/
+
 # Claude Code agent worktrees
 .claude/worktrees/

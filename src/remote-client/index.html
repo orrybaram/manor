@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#1e1e2e" />
+    <title>Manor</title>
+
+    <!--
+      Installable on purpose. iOS grants Web Push only to a page added to the
+      Home Screen, so without a manifest the notification half of this client
+      cannot run at all on the device it exists for. The paths are absolute
+      because these files come from `public/`; `base: "./"` rewrites them to
+      relative at build time, which the rotating tunnel hostname requires.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Manor" />
+    <!-- The bar already pads for `env(safe-area-inset-top)`. -->
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

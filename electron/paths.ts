@@ -64,6 +64,18 @@ export function linearTokenFile(): string {
   return path.join(manorDataDir(), "linear-token.enc");
 }
 
+export function remoteDevicesFile(): string {
+  return path.join(manorDataDir(), "remote-devices.enc");
+}
+
+export function remoteAuditFile(): string {
+  return path.join(manorDataDir(), "remote-audit.jsonl");
+}
+
+export function remoteVapidFile(): string {
+  return path.join(manorDataDir(), "remote-vapid.enc");
+}
+
 export function shellZdotdir(): string {
   return path.join(manorDataDir(), "zdotdir");
 }

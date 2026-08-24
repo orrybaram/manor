@@ -266,10 +266,22 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
-    ) => Promise<{ ok: boolean; snapshot?: string | null; error?: string; prewarmed?: boolean }>;
+    ) => Promise<{
+      ok: boolean;
+      snapshot?: string | null;
+      error?: string;
+      prewarmed?: boolean;
+    }>;
     detach: (paneId: string) => Promise<void>;
-    consumePrewarmed: () => Promise<{ paneId: string; commandInjected: boolean } | null>;
-    updatePrewarmCwd: (cwd: string, agentCommand?: string | null, agentKind?: string | null) => Promise<void>;
+    consumePrewarmed: () => Promise<{
+      paneId: string;
+      commandInjected: boolean;
+    } | null>;
+    updatePrewarmCwd: (
+      cwd: string,
+      agentCommand?: string | null,
+      agentKind?: string | null,
+    ) => Promise<void>;
     onOutput: (
       paneId: string,
       callback: (data: string, seq?: StreamPosition) => void,
@@ -280,7 +292,10 @@ export interface ElectronAPI {
       paneId: string,
       callback: (agent: AgentState) => void,
     ) => () => void;
-    onError: (paneId: string, callback: (message: string) => void) => () => void;
+    onError: (
+      paneId: string,
+      callback: (message: string) => void,
+    ) => () => void;
   };
 
   layout: {
@@ -308,7 +323,11 @@ export interface ElectronAPI {
       deleteBranch?: boolean,
     ) => Promise<void>;
     onRemoveWorktreeProgress: (callback: (step: string) => void) => () => void;
-    onWorktreeSetupProgress: (callback: (event: import("./store/project-store").SetupProgressEvent) => void) => () => void;
+    onWorktreeSetupProgress: (
+      callback: (
+        event: import("./store/project-store").SetupProgressEvent,
+      ) => void,
+    ) => () => void;
     canQuickMerge: (
       projectId: string,
       worktreePath: string,
@@ -434,7 +453,10 @@ export interface ElectronAPI {
     stash: (wsPath: string, files: string[]) => Promise<void>;
     commit: (wsPath: string, message: string, flags: string[]) => Promise<void>;
     push: {
-      start: (args: { wsPath: string; setUpstream?: boolean }) => Promise<{ pushId: string; startedAt: number }>;
+      start: (args: {
+        wsPath: string;
+        setUpstream?: boolean;
+      }) => Promise<{ pushId: string; startedAt: number }>;
       cancel: (pushId: string) => Promise<void>;
       onProgress: (handler: (evt: PushProgressEvent) => void) => () => void;
     };
@@ -451,8 +473,16 @@ export interface ElectronAPI {
       authenticated: boolean;
       username?: string;
     }>;
-    getMyIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") => Promise<GitHubIssue[]>;
-    getAllIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") => Promise<GitHubIssue[]>;
+    getMyIssues: (
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+    ) => Promise<GitHubIssue[]>;
+    getAllIssues: (
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+    ) => Promise<GitHubIssue[]>;
     getIssueDetail: (
       repoPath: string,
       issueNumber: number,
@@ -467,6 +497,17 @@ export interface ElectronAPI {
     uploadFeedbackImages: (
       images: { base64: string; name: string }[],
     ) => Promise<string[]>;
+  };
+
+  remoteControl: {
+    getStatus: () => Promise<RemoteControlStatus>;
+    refreshDetection: () => Promise<RemoteControlStatus>;
+    setEnabled: (enabled: boolean) => Promise<RemoteControlStatus>;
+    pair: (label: string, canSend: boolean) => Promise<RemotePairResult>;
+    revoke: (id: string) => Promise<RemoteControlStatus>;
+    startTunnel: (kind?: TunnelKind) => Promise<RemoteControlStatus>;
+    stopTunnel: () => Promise<RemoteControlStatus>;
+    onStatus: (callback: (status: RemoteControlStatus) => void) => () => void;
   };
 
   linear: {
@@ -503,7 +544,9 @@ export interface ElectronAPI {
   updater: {
     checkForUpdates: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
-    onChecking: (callback: (payload: { manual: boolean }) => void) => () => void;
+    onChecking: (
+      callback: (payload: { manual: boolean }) => void,
+    ) => () => void;
     onUpdateAvailable: (
       callback: (info: { version: string }) => void,
     ) => () => void;
@@ -521,7 +564,9 @@ export interface ElectronAPI {
         total: number;
       }) => void,
     ) => () => void;
-    onError: (callback: (payload: { message: string; manual: boolean }) => void) => () => void;
+    onError: (
+      callback: (payload: { message: string; manual: boolean }) => void,
+    ) => () => void;
   };
 
   dialog: {
@@ -666,19 +711,42 @@ export interface ElectronAPI {
     onEscape: (callback: (paneId: string) => void) => () => void;
     onFocusUrl: (callback: (paneId: string) => void) => () => void;
     onNewWindow: (
-      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
+      callback: (
+        paneId: string,
+        url: string,
+        opts?: { background?: boolean },
+      ) => void,
     ) => () => void;
     stop: (paneId: string) => Promise<void>;
-    findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<void>;
+    findInPage: (
+      paneId: string,
+      query: string,
+      options?: { forward?: boolean; findNext?: boolean },
+    ) => Promise<void>;
     stopFindInPage: (paneId: string) => Promise<void>;
-    onLoadingChanged: (callback: (paneId: string, isLoading: boolean) => void) => () => void;
-    onFaviconUpdated: (callback: (paneId: string, faviconUrl: string) => void) => () => void;
-    onFindResult: (callback: (paneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) => () => void;
+    onLoadingChanged: (
+      callback: (paneId: string, isLoading: boolean) => void,
+    ) => () => void;
+    onFaviconUpdated: (
+      callback: (paneId: string, faviconUrl: string) => void,
+    ) => () => void;
+    onFindResult: (
+      callback: (
+        paneId: string,
+        result: {
+          activeMatchOrdinal: number;
+          matches: number;
+          finalUpdate: boolean;
+        },
+      ) => void,
+    ) => () => void;
     onFind: (callback: (paneId: string) => void) => () => void;
     onGoBack: (callback: (paneId: string) => void) => () => void;
     onGoForward: (callback: (paneId: string) => void) => () => void;
     setAudioMuted: (paneId: string, muted: boolean) => Promise<void>;
-    onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => () => void;
+    onAudioStateChanged: (
+      callback: (paneId: string, audible: boolean) => void,
+    ) => () => void;
     /** One webm chunk from a pane's `MediaRecorder` (ADR-158). */
     sendRecordingChunk: (recordingId: string, chunk: ArrayBuffer) => void;
     /** Renderer's recorder has flushed; main may finalize the file. */
@@ -722,7 +790,10 @@ export interface ElectronAPI {
      * hit-tests the release point against these bounds itself.
      */
     listWindows: () => Promise<
-      { id: number; bounds: { x: number; y: number; width: number; height: number } }[]
+      {
+        id: number;
+        bounds: { x: number; y: number; width: number; height: number };
+      }[]
     >;
     /**
      * Hand a tab to an existing window (id from `listWindows`). Resolves false
@@ -774,6 +845,46 @@ export interface PickedElementResult {
     name: string;
     source?: { fileName: string; lineNumber: number };
   }>;
+}
+
+// ── Remote control (ADR-161) ──
+
+export type TunnelKind = "tailscale" | "cloudflared";
+export type TunnelState = "stopped" | "starting" | "running" | "failed";
+
+export interface TunnelStatus {
+  state: TunnelState;
+  kind: TunnelKind | null;
+  url: string | null;
+  error: string | null;
+}
+
+export interface RemoteDeviceInfo {
+  id: string;
+  label: string;
+  /** Whether this device may type into a session. Off unless explicitly granted. */
+  canSend: boolean;
+  createdAt: number;
+  lastSeenAt: number | null;
+  /** Whether the device has a live Web Push subscription. */
+  hasPush: boolean;
+}
+
+export interface RemoteControlStatus {
+  enabled: boolean;
+  port: number | null;
+  devices: RemoteDeviceInfo[];
+  tunnel: TunnelStatus;
+  detected: Record<TunnelKind, boolean>;
+  encryptionAvailable: boolean;
+  listeners: number;
+}
+
+export interface RemotePairResult {
+  device: RemoteDeviceInfo;
+  /** Shown once. Never retrievable again. */
+  rawToken: string;
+  pairingUrl: string | null;
 }
 
 declare global {

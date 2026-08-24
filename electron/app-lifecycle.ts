@@ -1,11 +1,7 @@
-import {
-  app,
-  BrowserWindow,
-  Menu,
-  nativeImage,
-} from "electron";
+import { app, BrowserWindow, Menu, nativeImage, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
 import { ProjectManager } from "./persistence";
@@ -22,10 +18,7 @@ import {
   ensureHookScript,
   registerAllAgents,
 } from "./agent-hooks";
-import {
-  createHookRelay,
-  SWEEP_INTERVAL_MS,
-} from "./hook-relay";
+import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -36,6 +29,11 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
+import { RemoteDeviceStore } from "./remote-control/devices";
+import { RemoteControlServer } from "./remote-control/server";
+import { TunnelManager } from "./remote-control/tunnel";
+import { RemoteControlController } from "./remote-control/controller";
+import { PushManager } from "./remote-control/push";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -57,6 +55,7 @@ import * as tasksIpc from "./ipc/tasks";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
+import * as remoteControlIpc from "./ipc/remote-control";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -92,10 +91,7 @@ export function handleStreamEvent(
         }
         break;
       case "error":
-        window.webContents.send(
-          `pty-error-${event.sessionId}`,
-          event.message,
-        );
+        window.webContents.send(`pty-error-${event.sessionId}`, event.message);
         break;
       case "agentStatus": {
         window.webContents.send(
@@ -191,9 +187,49 @@ export function initApp(devTitle: string | null): void {
     preferencesManager.get("taskRetentionDays"),
   );
   const keybindingsManager = new KeybindingsManager();
+
+  // ADR-161's remote-control surface. Constructed here so the status sink and
+  // the quit hook can see it; deliberately *not* started — remote control is
+  // off until the user turns it on, and even then the listener is loopback-only
+  // until they separately start a tunnel.
+  const remoteDeviceStore = new RemoteDeviceStore();
+  const remotePush = new PushManager(remoteDeviceStore);
+  const remoteControlServer = new RemoteControlServer(
+    () => ({
+      projectManager,
+      githubManager,
+      linearManager,
+      layoutPersistence,
+      taskManager,
+      backend,
+    }),
+    remoteDeviceStore,
+    // Rate limiter, audit log, and client directory all take their defaults.
+    { push: remotePush },
+  );
+  // Detected, never installed; started only by an explicit user action. The
+  // manager is constructed here so shutdown can guarantee the child dies with
+  // the app — a tunnel outliving Manor is the feature's worst failure mode.
+  const remoteTunnel = new TunnelManager({
+    which: (bin) => backend.shell.which(bin),
+    spawn: (command, args) =>
+      spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+  });
+  const remoteControl = new RemoteControlController(
+    remoteControlServer,
+    remoteDeviceStore,
+    remoteTunnel,
+    () => safeStorage.isEncryptionAvailable(),
+    remotePush,
+  );
   const paneContextMap = new Map<
     string,
-    { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
+    {
+      projectId: string;
+      projectName: string;
+      workspacePath: string;
+      agentCommand: string | null;
+    }
   >();
 
   function updateDockBadge(): void {
@@ -205,7 +241,20 @@ export function initApp(devTitle: string | null): void {
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ): void {
-    _maybeSendNotification(task, prevStatus, newStatus, mainWindow, preferencesManager);
+    _maybeSendNotification(
+      task,
+      prevStatus,
+      newStatus,
+      mainWindow,
+      preferencesManager,
+    );
+    // A second sink on the same transition, not a second detector: whatever
+    // moves the dock badge is what a paired phone hears about. What that means
+    // — a stream event, a push, or nothing at all — belongs to
+    // `RemoteControlController`, not here.
+    remoteControl.onAgentStatus(task, prevStatus, newStatus, {
+      notify: preferencesManager.get("notifyOnRequiresInput"),
+    });
   }
 
   // Ensure shell integration and agent hooks are set up
@@ -279,6 +328,7 @@ export function initApp(devTitle: string | null): void {
     webviewServer,
     workspaceMeta: [],
     prewarmManager,
+    remoteControl,
   };
 
   ptyIpc.register(ipcDeps);
@@ -293,6 +343,7 @@ export function initApp(devTitle: string | null): void {
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
+  remoteControlIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
@@ -477,6 +528,13 @@ export function initApp(devTitle: string | null): void {
     });
   });
 
+  // `before-quit` covers the ordinary path. This covers the ones that skip it
+  // — `app.exit()`, an unhandled fatal — where a surviving tunnel would leave
+  // this machine reachable with nothing listening behind it.
+  process.on("exit", () => {
+    remoteControl.killTunnelNow();
+  });
+
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
@@ -484,6 +542,9 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", () => {
     agentHookServer.stop();
     webviewServer.stop();
+    // Takes the tunnel down first, then the listener. A tunnel must never
+    // outlive the app that opened it.
+    void remoteControl.shutdown();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

@@ -37,7 +37,11 @@ export function GitHubIntegrationSection() {
             <Link size={14} />
             <span>Connected as {status.username}</span>
           </div>
-          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
+          <Button
+            variant="secondary"
+            className={styles.linearButton}
+            onClick={checkStatus}
+          >
             <RefreshCw size={13} />
             Refresh
           </Button>
@@ -48,7 +52,11 @@ export function GitHubIntegrationSection() {
           <div className={styles.fieldHint}>
             Run <code>gh auth login</code> in your terminal to connect.
           </div>
-          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
+          <Button
+            variant="secondary"
+            className={styles.linearButton}
+            onClick={checkStatus}
+          >
             <RefreshCw size={13} />
             Refresh
           </Button>
@@ -71,7 +79,11 @@ export function GitHubIntegrationSection() {
           <div className={styles.fieldHint}>
             After installing, run <code>gh auth login</code> in your terminal.
           </div>
-          <Button variant="secondary" className={styles.linearButton} onClick={checkStatus}>
+          <Button
+            variant="secondary"
+            className={styles.linearButton}
+            onClick={checkStatus}
+          >
             <RefreshCw size={13} />
             Refresh
           </Button>

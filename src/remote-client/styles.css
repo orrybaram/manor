@@ -1,0 +1,714 @@
+/*
+ * Manor, on a phone.
+ *
+ * The palette, the status vocabulary, and the type scale are the desktop app's
+ * (`src/App.css`, `electron/theme.ts`) so that the two read as one product:
+ * Catppuccin Mocha, a blue accent, and agent state told by the same glyphs —
+ * a waving hand for a session that wants you, a red spinner for one that is
+ * working, a green pulse for one that just answered.
+ *
+ * Deliberately dependency-free: no webfont, no icon set, no remote anything.
+ * The page must render correctly under `default-src 'none'` plus `'self'`,
+ * because that is the CSP the listener serves it with.
+ */
+
+:root {
+  /* Desktop tokens, unchanged. */
+  --bg: #1e1e2e;
+  --bg-deep: #181825;
+  --surface: #313244;
+  --hover: #2a2a3c;
+  --border: #383850;
+  --fg: #cdd6f4;
+  --text-primary: #cdd6f4b3;
+  --text-dim: #cdd6f466;
+  --accent: #89b4fa;
+  --red: #f38ba8;
+  --green: #a6e3a1;
+  --yellow: #f9e2af;
+  --mauve: #cba6f7;
+
+  /* The transcript surface: the terminal's own background and foreground. */
+  --term-bg: #181825;
+  --term-fg: #cdd6f4;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 var(--font-sans);
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+  gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  background: linear-gradient(var(--bg) 70%, transparent);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar .sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* The stream's own state, said quietly: a filled dot while the event stream is
+   connected, a hollow one while it is retrying. */
+.live {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* In the detail bar the status pill carries the words; the stream only needs
+   to say whether it is connected. */
+.live.compact {
+  gap: 0;
+  font-size: 0;
+}
+
+.live.off::before {
+  background: transparent;
+  border: 1px solid var(--text-dim);
+  animation: none;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.back {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px 6px 9px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.back::before {
+  content: "‹";
+  font-size: 17px;
+  line-height: 1;
+  margin-top: -2px;
+}
+
+.back:active {
+  background: var(--hover);
+}
+
+/* ── Scrollable body ─────────────────────────────────────────────────── */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Session list ────────────────────────────────────────────────────── */
+
+.sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  animation: rise 0.28s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.session:active {
+  background: var(--hover);
+}
+
+/* A session that wants you gets the accent rail — the same "this one, now"
+   emphasis the desktop sidebar gives it. */
+.session.blocked {
+  border-color: color-mix(in srgb, var(--yellow) 45%, var(--border));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--yellow) 9%, var(--surface)),
+    var(--surface) 40%
+  );
+}
+
+.session.error {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+}
+
+.session-name {
+  min-width: 0;
+}
+
+.session-name strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-name .meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chev {
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── Status glyphs, matching AgentDot on the desktop ─────────────────── */
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+}
+
+.glyph.requires_input {
+  animation: wave 1s ease-in-out infinite;
+  transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(20deg);
+  }
+  50% {
+    transform: rotate(-15deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+.glyph .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.glyph.responded .dot {
+  background: var(--green);
+  animation: breathe 2s ease-in-out infinite;
+}
+
+.glyph.complete .dot {
+  background: none;
+  color: var(--green);
+  width: auto;
+  height: auto;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.glyph.error .dot {
+  background: var(--red);
+}
+
+.glyph .spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid;
+}
+
+.glyph.working .spinner {
+  border-color: var(--red) color-mix(in srgb, var(--red) 25%, transparent)
+    var(--red) color-mix(in srgb, var(--red) 25%, transparent);
+  animation: spin 0.8s linear infinite;
+}
+
+.glyph.thinking .spinner {
+  border-color: var(--yellow) color-mix(in srgb, var(--yellow) 25%, transparent)
+    var(--yellow) color-mix(in srgb, var(--yellow) 25%, transparent);
+  animation:
+    spin 1.6s linear infinite,
+    breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Status pill, in the detail header ───────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.pill.requires_input {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 45%, var(--border));
+  background: color-mix(in srgb, var(--yellow) 12%, var(--surface));
+}
+
+.pill.error {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+}
+
+.pill.responded,
+.pill.complete {
+  color: var(--green);
+}
+
+/* ── Transcript ──────────────────────────────────────────────────────── */
+
+.terminal {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Latest output sits against the composer, the way a shell fills upward
+     from the prompt — a short session should not leave a screenful of void
+     between the last line and the reply box. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.terminal .stream {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--term-fg);
+  /* Wrapped, not scrolled sideways: the daemon renders an 80-column screen and
+     a phone is narrower than that, and text hidden off the right edge of a
+     phone is text nobody reads. Every break the terminal itself made is still
+     honoured. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 8;
+}
+
+.terminal.empty {
+  color: var(--text-dim);
+  font-family: var(--font-sans);
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Quick actions ───────────────────────────────────────────────────── */
+
+/*
+ * The row between the transcript and the composer: the answers a blocked
+ * agent is usually waiting for, and the way to stop one that is not.
+ *
+ * On a phone the composer is the expensive path — a keyboard, a sentence, a
+ * confirmation — and the two things most often wanted are one character and
+ * "stop". Those get to be one tap each, sitting where a thumb already is.
+ */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.actions[hidden] {
+  display: none;
+}
+
+.replies {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.replies[hidden] {
+  display: none;
+}
+
+button.chip {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 10px 0;
+}
+
+/* Stop is destructive and sits beside five look-alike chips, so it does not
+   stretch to match them — it should never be the button a thumb finds by
+   accident. */
+.actions > button.danger {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+/* ── Composer ────────────────────────────────────────────────────────── */
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px; /* Anything smaller and iOS zooms on focus. */
+  padding: 11px 12px;
+}
+
+.composer input::placeholder {
+  color: var(--text-dim);
+}
+
+.composer input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+button.primary,
+button.danger,
+button.ghost {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 11px 16px;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--bg-deep);
+}
+
+button.primary:disabled {
+  opacity: 0.4;
+}
+
+button.danger {
+  background: var(--red);
+  color: var(--bg-deep);
+}
+
+button.ghost {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+button:active {
+  filter: brightness(0.92);
+}
+
+/* ── Banners and empty states ────────────────────────────────────────── */
+
+.banner {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.banner.warn {
+  border-color: color-mix(in srgb, var(--yellow) 45%, var(--border));
+  color: var(--yellow);
+}
+
+.banner.ok {
+  border-color: color-mix(in srgb, var(--green) 40%, var(--border));
+  color: var(--green);
+}
+
+/*
+ * The install / notification nudge.
+ *
+ * Sits where the notice banner does, but reads as an offer rather than a
+ * problem — accent-tinted rather than yellow, and always dismissible. It is
+ * the only thing on this page that asks the user for anything.
+ */
+.hint {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+
+/* `display: flex` above would otherwise win against the UA's [hidden] rule. */
+.hint[hidden] {
+  display: none;
+}
+
+.hint-text strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 3px;
+}
+
+.hint-text span {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.hint-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hint-actions button {
+  flex: 1;
+  padding: 9px 14px;
+  font-size: 14px;
+}
+
+/* A lone dismissal should not wear the full width of a primary action. */
+.hint-actions > button:only-child {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 40px 20px;
+}
+
+.empty strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* ── Confirmation sheet ──────────────────────────────────────────────── */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
+  backdrop-filter: blur(2px);
+  animation: fade 0.16s ease both;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet-inner {
+  width: min(100%, 560px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+  animation: slide 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes slide {
+  from {
+    transform: translateY(12px);
+  }
+}
+
+.sheet-inner h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sheet-inner p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.sheet-inner code {
+  display: block;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sheet-actions button {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}

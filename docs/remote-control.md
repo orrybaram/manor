@@ -25,16 +25,27 @@ below has to be right rather than convenient.
 
 Nothing, unless you check **Allow this device to send input** when you pair it.
 
-A device with that capability can type arbitrary text into a live shell, which
-also interrupts whatever the agent was doing. It is off by default and set per
-device, so the phone you use to glance at statuses need not be the one that can
-act.
+A device with that capability can do three things, all of them writes:
 
-Every remote send is written to an append-only audit log in Manor's data
-directory (`remote-audit.jsonl`, mode 0600): timestamp, which device, which
-session, and the **length and SHA-256** of the text. The text itself is never
-recorded — an audit log that accumulated the things you typed would be a worse
-leak than the thing it audits.
+- **Type arbitrary text into a live shell**, which also interrupts whatever the
+  agent was doing.
+- **Answer a prompt with one tap.** When a session is waiting, the client offers
+  `1` `2` `3` `y` `n` as buttons. They are fixed keys — Manor never reads the
+  prompt to work out which option means "allow", because guessing that wrong is
+  a security bug rather than a papercut. You read the transcript above them and
+  choose.
+- **Stop an agent** without saying anything to it, which ends the current turn
+  and discards whatever was in flight.
+
+All three are off by default and set per device, so the phone you use to glance
+at statuses need not be the one that can act. Each one asks for a confirmation
+naming the session before anything happens.
+
+Every remote send and every remote stop is written to an append-only audit log
+in Manor's data directory (`remote-audit.jsonl`, mode 0600): timestamp, which
+device, which session, which of the two actions, and the **length and SHA-256**
+of the text. The text itself is never recorded — an audit log that accumulated
+the things you typed would be a worse leak than the thing it audits.
 
 What is **not** on the remote surface at all: creating or deleting projects and
 workspaces, launching agents, splitting or closing panes, opening tabs, and

@@ -19,7 +19,7 @@ phone simply stops working with no explanation.
   good. A tunnel flapping forever is its own hazard.
 - Keep `stop()` authoritative: a user-initiated stop must never be retried, and disabling
   remote control must not race a pending restart.
-- A restarted quick tunnel comes back on a *different* hostname, which invalidates every
+- A restarted quick tunnel comes back on a _different_ hostname, which invalidates every
   paired device. Do not restart a quick tunnel silently as though nothing changed —
   either surface it loudly, or restrict auto-restart to stable-hostname tunnels
   (Tailscale, or the named tunnel from ticket 13). Decide this explicitly; it is the

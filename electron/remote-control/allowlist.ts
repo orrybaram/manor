@@ -35,8 +35,18 @@ export const REMOTE_READ_ROUTES = [
  * Rows that can act. Present in the table only for a device that holds the
  * send capability — see `remoteRouteTable`'s `allowWrites` and ticket 4's
  * confirmation and audit gates, which sit on top of this.
+ *
+ * `/sessions/interrupt` is a write and is gated identically, even though it
+ * says nothing to the agent: stopping a turn discards whatever it was in the
+ * middle of. It is separate from `/sessions/send` (which interrupts as a
+ * side effect of injecting a prompt) so that "make it stop" is reachable
+ * without having to say something, and so the audit trail can tell the two
+ * apart.
  */
-export const REMOTE_WRITE_ROUTES = ["POST /sessions/send"] as const;
+export const REMOTE_WRITE_ROUTES = [
+  "POST /sessions/send",
+  "POST /sessions/interrupt",
+] as const;
 
 /**
  * Paths the listener answers itself, rather than by dispatching into

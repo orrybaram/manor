@@ -15,7 +15,7 @@ means re-scanning a QR code, and after ticket 10 also re-installing the Home Scr
 
 - **Toggle the send capability in place.** This is the one that matters: the natural
   workflow is pairing read-only, then wanting to answer a prompt an hour later. Turning it
-  *on* is a privilege escalation and deserves the same confirmation that pairing with it
+  _on_ is a privilege escalation and deserves the same confirmation that pairing with it
   does; turning it off should be instant and unceremonious. Both go in the audit log —
   a capability grant is at least as interesting after the fact as a send.
 - **Rename a device.** Labels are how a user decides which row to revoke; "iPhone" twice

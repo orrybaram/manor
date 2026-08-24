@@ -302,6 +302,9 @@ test.describe("remote control", () => {
         { timeout: 20_000 },
       );
       await expect(phone.page.locator(".composer input")).toHaveCount(0);
+      // The quick replies and Stop go with it — a read-only device is shown no
+      // way to act, not a disabled one.
+      await expect(phone.page.locator(".actions")).toHaveCount(0);
       await film.shot(phone.page, "phone-read-only-detail");
     } finally {
       film.write("phone-console.log", phone.log.join("\n") + "\n");
@@ -318,6 +321,17 @@ test.describe("remote control", () => {
       },
     );
     expect(denied.status()).toBe(404);
+
+    // Interrupt is a write too: stopping an agent throws away its turn, so it
+    // is absent from a read-only device's table for the same reason.
+    const stopped = await request.post(
+      `http://127.0.0.1:${port}/sessions/interrupt`,
+      {
+        headers: { Authorization: `Bearer ${device.token}` },
+        data: { target: "anything", confirmed: true },
+      },
+    );
+    expect(stopped.status()).toBe(404);
 
     // And the routes that were never allowlisted are absent for everyone.
     const launch = await request.post(`http://127.0.0.1:${port}/agents`, {

@@ -20,10 +20,10 @@ way the token fragment is already stripped.
 **Two allowlisted routes nothing calls.** `GET /panes` and `GET /context` are in
 `REMOTE_READ_ROUTES`, and `main.ts` calls neither. Pick one:
 
-- *Use them.* `GET /tasks` only knows about task-backed sessions, so a plain terminal
+- _Use them._ `GET /tasks` only knows about task-backed sessions, so a plain terminal
   left running is invisible from the phone. `GET /panes` would make the phone show
   everything the desk shows.
-- *Remove them.* An allowlisted route with no caller is exposure bought for nothing, and
+- _Remove them._ An allowlisted route with no caller is exposure bought for nothing, and
   the allowlist is the part of this feature reviewers are asked to be unsympathetic
   about.
 

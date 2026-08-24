@@ -66,8 +66,10 @@ export interface RemoteStatusEvent {
   previousStatus: string | null;
 }
 
-/** The only acting route on the surface. Wrapped, never reached bare. */
+/** The acting routes on the surface. Wrapped, never reached bare. */
 const SEND_ROUTE = "POST /sessions/send";
+const INTERRUPT_ROUTE = "POST /sessions/interrupt";
+const GUARDED_WRITE_ROUTES = new Set([SEND_ROUTE, INTERRUPT_ROUTE]);
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -325,26 +327,29 @@ export class RemoteControlServer {
   }
 
   /**
-   * Wrap the send route without touching `electron/routes/tasks.ts` — the local
-   * MCP path must keep working exactly as it does, so the confirmation and the
-   * audit line are remote-only concerns and live here.
+   * Wrap the acting routes without touching `electron/routes/tasks.ts` — the
+   * local MCP path must keep working exactly as it does, so the confirmation
+   * and the audit line are remote-only concerns and live here.
    *
    * This is the *third* gate. The first is the table: a device without
-   * `canSend` never sees this route at all, so nothing below is what stops it.
+   * `canSend` never sees these routes at all, so nothing below is what stops
+   * it.
    */
   private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
-    return table.map((route) =>
-      routeKey(route) === SEND_ROUTE
+    return table.map((route) => {
+      const key = routeKey(route);
+      return GUARDED_WRITE_ROUTES.has(key)
         ? {
             ...route,
             handler: (ctx: RouteContext) =>
-              this.guardedSend(route, device, ctx),
+              this.guardedWrite(key, route, device, ctx),
           }
-        : route,
-    );
+        : route;
+    });
   }
 
-  private async guardedSend(
+  private async guardedWrite(
+    key: string,
     route: Route,
     device: AuthenticatedDevice,
     ctx: RouteContext,
@@ -352,7 +357,10 @@ export class RemoteControlServer {
     const body = await ctx.readBody();
     const target = typeof body.target === "string" ? body.target : null;
     const text = typeof body.text === "string" ? body.text : null;
-    const interrupt = typeof body.interrupt === "string";
+    // True for the interrupt route by definition, and for a send that carried
+    // an override of the interrupt sequence.
+    const interrupt =
+      key === INTERRUPT_ROUTE || typeof body.interrupt === "string";
 
     const line = (
       outcome: RemoteAuditEntryOutcome,
@@ -363,7 +371,7 @@ export class RemoteControlServer {
         at: new Date().toISOString(),
         deviceId: device.id,
         deviceLabel: device.label,
-        route: SEND_ROUTE,
+        route: key,
         target,
         textLength: text === null ? null : text.length,
         textSha256: text === null ? null : hashText(text),
@@ -376,11 +384,12 @@ export class RemoteControlServer {
     // Gate two: an explicit opt-in *in the request*. The client shows the text
     // and the target before setting it (ticket 6/7), and a bare `curl` holding
     // a stolen token still has to say it meant to — which the audit trail then
-    // distinguishes from a confirmed send made through the UI.
+    // distinguishes from a confirmed action made through the UI. It applies to
+    // an interrupt too: stopping a turn throws away whatever it was doing.
     if (body.confirmed !== true) {
       line("rejected", 400, "missing confirmed:true");
       ctx.json(400, {
-        error: "A remote send must set 'confirmed': true",
+        error: "A remote write must set 'confirmed': true",
       });
       return;
     }

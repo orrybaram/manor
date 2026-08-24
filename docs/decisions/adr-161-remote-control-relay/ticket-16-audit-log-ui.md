@@ -14,7 +14,7 @@ target, interrupt flag, outcome, status, and the length and SHA-256 of the text.
 in the app reads it.
 
 An audit log nobody can read is a compliance gesture. The question it exists to answer —
-*did something type into my shell while I was away, and from which device* — is one a user
+_did something type into my shell while I was away, and from which device_ — is one a user
 will ask in a hurry, probably right after they suspect a token leaked, and right now the
 only way to answer it is to find a `.jsonl` file in Application Support and read it by
 hand.

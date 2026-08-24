@@ -29,7 +29,7 @@ not universal.
 
 Two threads, both needed:
 
-**A stable address.** Support a *named* cloudflared tunnel — a user-configured hostname
+**A stable address.** Support a _named_ cloudflared tunnel — a user-configured hostname
 they already own — alongside the quick tunnel. Detect which is configured; keep the quick
 tunnel as the zero-setup path and be explicit in the UI that its address is both public
 and temporary. Tailscale stays the recommended default.

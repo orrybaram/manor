@@ -1,6 +1,6 @@
 ---
 title: Interrupt and quick replies
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []
@@ -23,9 +23,15 @@ then a confirmation sheet quoting the text `1`. That is the wrong amount of cere
 the most common interaction, and it is the reason a glance at the phone still ends with
 "I will deal with it when I get back".
 
+**This ticket's premise about interrupt was wrong.** `body.interrupt` is not "please
+interrupt" — `/sessions/send` interrupts unconditionally, because ending the turn is how a
+prompt gets injected, and the field only overrides the key sequence used. With `text`
+required there was no way to express "just stop" at all. So interrupt landed as a new
+route, `POST /sessions/interrupt`, allowlisted as a write and gated identically. Quick
+replies did turn out to be pure client work.
+
 Both are writes and both keep every existing gate: the device capability, `confirmed:
-true` in the request, and an audit line. Nothing about the server's gating changes — this
-is the client learning to use what is already there.
+true` in the request, and an audit line.
 
 - A **Stop** control in the detail view, shown when the device holds the send capability
   and the session is `working` or `thinking`. Its confirmation says what interrupting

@@ -344,6 +344,56 @@ describe("RemoteControlServer", () => {
       expect(audit.read()[0].interrupt).toBe(true);
     });
 
+    it("stops a session without saying anything to it", async () => {
+      withLiveSession();
+      const res = await post("/sessions/interrupt", WRITE_TOKEN, {
+        target: "task-1",
+        confirmed: true,
+      });
+      expect(res.status).toBe(200);
+      // Exactly one write: the interrupt sequence, and no prompt after it.
+      expect(ptyWrite).toHaveBeenCalledTimes(1);
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        outcome: "sent",
+        status: 200,
+        route: "POST /sessions/interrupt",
+        target: "task-1",
+        interrupt: true,
+        textLength: null,
+        textSha256: null,
+      });
+    });
+
+    it("rejects an interrupt that is not confirmed", async () => {
+      withLiveSession();
+      const res = await post("/sessions/interrupt", WRITE_TOKEN, {
+        target: "task-1",
+      });
+      expect(res.status).toBe(400);
+      expect(ptyWrite).not.toHaveBeenCalled();
+      // Still audited: an unconfirmed interrupt is someone trying to stop an
+      // agent without going through the UI, which is worth a line.
+      expect(audit.read()[0]).toMatchObject({
+        outcome: "rejected",
+        route: "POST /sessions/interrupt",
+        interrupt: true,
+      });
+    });
+
+    it("keeps interrupt off a read-only device's surface entirely", async () => {
+      withLiveSession();
+      const res = await post("/sessions/interrupt", READ_TOKEN, {
+        target: "task-1",
+        confirmed: true,
+      });
+      expect(res.status).toBe(404);
+      expect(ptyWrite).not.toHaveBeenCalled();
+      expect(audit.read()).toEqual([]);
+    });
+
     it("writes no audit line for a device that cannot send", async () => {
       withLiveSession();
       const res = await post("/sessions/send", READ_TOKEN, {

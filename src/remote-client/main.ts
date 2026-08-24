@@ -40,6 +40,19 @@ const TOKEN_KEY = "manor.remote.token";
 /** Hints the user has dismissed, so a nudge stays a nudge. */
 const HINT_KEY = "manor.remote.dismissedHints";
 
+/**
+ * The answers a blocked agent is usually waiting for.
+ *
+ * Fixed keys, deliberately: the alternative is parsing the transcript to work
+ * out which numbered option means "allow", and a wrong guess there is a
+ * security bug wearing a convenience hat. The user reads the prompt above and
+ * picks; the client never interprets it.
+ *
+ * There is no bare Enter, because `POST /sessions/send` requires text to send
+ * — every reply here already arrives with a newline after it.
+ */
+const QUICK_REPLIES = ["1", "2", "3", "y", "n"];
+
 /** How often an open transcript re-reads itself. */
 const TRANSCRIPT_MS = 1_500;
 /** How often the session list re-reads itself, under the live stream. */
@@ -655,6 +668,25 @@ function mountDetail(taskId: string): Screen {
   const stream = el("code", "stream", "Loading…");
   terminal.append(stream);
 
+  // Built once and shown or hidden, never rebuilt: a row of buttons that is
+  // re-created under a thumb mid-tap is a row that swallows the tap.
+  const actions = el("div", "actions");
+  const stop = el("button", "danger", "Stop");
+  stop.addEventListener("click", () => {
+    const task = taskById(taskId);
+    if (task) confirmInterrupt(task);
+  });
+  const replies = el("div", "replies");
+  for (const key of QUICK_REPLIES) {
+    const chip = el("button", "chip", key);
+    chip.addEventListener("click", () => {
+      const task = taskById(taskId);
+      if (task) confirmSend(task, key, () => {}, true);
+    });
+    replies.append(chip);
+  }
+  actions.append(replies, stop);
+
   const composer = el("div", "composer");
   const input = el("input");
   input.placeholder = "Send to this session";
@@ -700,10 +732,18 @@ function mountDetail(taskId: string): Screen {
       // composer at all, which is the same shape the server's route table
       // takes for the send route.
       if (identity?.canSend === true) {
+        if (!actions.isConnected) body.append(actions);
         if (!composer.isConnected) body.append(composer);
       } else {
+        actions.remove();
         composer.remove();
       }
+
+      // Offered only where they answer something. Quick replies are for a
+      // session sitting on a prompt; Stop is for one that is still going.
+      replies.hidden = status !== "requires_input";
+      stop.hidden = status !== "working" && status !== "thinking";
+      actions.hidden = replies.hidden && stop.hidden;
 
       // Identical output is not worth re-rendering: the poll fires every
       // second or two whether or not the session said anything, and every
@@ -745,35 +785,60 @@ function paintTerminal(
 }
 
 /**
- * The client-side half of ADR-161 §4: the exact text and the exact session, in
- * front of the user, before anything is typed into a live shell. The server
- * rejects a send that does not carry `confirmed: true`, so this cannot be
- * skipped by a client that forgets to ask.
+ * The client-side half of ADR-161 §4: exactly what is about to happen, and to
+ * which session, in front of the user before anything reaches a live shell.
+ * The server rejects a write that does not carry `confirmed: true`, so this
+ * cannot be skipped by a client that forgets to ask.
+ *
+ * `detail` is omitted for a one-character reply. The point of the sheet is
+ * that nobody acts on a session by accident, and a paragraph explaining what
+ * typing `1` does is ceremony that teaches the user to tap through without
+ * reading — which is the failure mode this is supposed to prevent.
  */
-function confirmSend(
-  task: TaskSummary,
-  text: string,
-  onSent: () => void,
-): void {
+function confirmAction(opts: {
+  title: string;
+  detail?: string;
+  code?: string;
+  verb: string;
+  run: () => Promise<void>;
+}): void {
   const sheet = el("div", "sheet");
   const inner = el("div", "sheet-inner");
-  inner.append(
-    el("h2", undefined, `Send to ${task.name ?? task.id}?`),
-    el(
-      "p",
-      undefined,
-      "This types into a live shell, and interrupts whatever the agent is doing.",
-    ),
-    el("code", undefined, text),
-  );
+  inner.append(el("h2", undefined, opts.title));
+  if (opts.detail) inner.append(el("p", undefined, opts.detail));
+  if (opts.code) inner.append(el("code", undefined, opts.code));
 
   const actions = el("div", "sheet-actions");
   const cancel = el("button", "ghost", "Cancel");
   cancel.addEventListener("click", () => sheet.remove());
-  const send = el("button", "danger", "Send");
-  send.addEventListener("click", () => {
+  const confirm = el("button", "danger", opts.verb);
+  confirm.addEventListener("click", () => {
     sheet.remove();
-    void (async () => {
+    void opts.run();
+  });
+  actions.append(cancel, confirm);
+  inner.append(actions);
+  sheet.append(inner);
+  // On `document.body`, not the screen: the sheet is a fixed overlay, and it
+  // must survive anything that repaints the screen underneath it.
+  document.body.append(sheet);
+}
+
+function confirmSend(
+  task: TaskSummary,
+  text: string,
+  onSent: () => void,
+  brief = false,
+): void {
+  const name = task.name ?? task.id;
+  confirmAction({
+    title: brief ? `Reply ${text} to ${name}?` : `Send to ${name}?`,
+    detail: brief
+      ? undefined
+      : "This types into a live shell, and interrupts whatever the agent is doing.",
+    code: brief ? undefined : text,
+    verb: "Send",
+    run: async () => {
       const result = await api<{ ok: boolean }>("/sessions/send", {
         method: "POST",
         body: JSON.stringify({ target: task.id, text, confirmed: true }),
@@ -782,14 +847,35 @@ function confirmSend(
       onSent();
       setNotice("Sent.", "ok");
       void loadTranscript(task.id);
-    })();
+    },
   });
-  actions.append(cancel, send);
-  inner.append(actions);
-  sheet.append(inner);
-  // On `document.body`, not the screen: the sheet is a fixed overlay, and it
-  // must survive anything that repaints the screen underneath it.
-  document.body.append(sheet);
+}
+
+/**
+ * Stop an agent without saying anything to it.
+ *
+ * The most valuable thing to be able to do from away from the desk, and until
+ * `POST /sessions/interrupt` existed it was the one thing the surface could
+ * not do — every send interrupts, but a send needs something to say. The
+ * confirmation names the cost, because ending a turn discards whatever was in
+ * flight.
+ */
+function confirmInterrupt(task: TaskSummary): void {
+  confirmAction({
+    title: `Stop ${task.name ?? task.id}?`,
+    detail:
+      "This ends the agent's current turn and discards whatever it was working on. Nothing is typed into the session.",
+    verb: "Stop",
+    run: async () => {
+      const result = await api<{ ok: boolean }>("/sessions/interrupt", {
+        method: "POST",
+        body: JSON.stringify({ target: task.id, confirmed: true }),
+      });
+      if (!result) return;
+      setNotice("Stopped.", "ok");
+      void loadTranscript(task.id);
+    },
+  });
 }
 
 // ── Boot ──

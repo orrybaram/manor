@@ -99,6 +99,40 @@ function resolveTarget(
   return active.find((t) => t.name === target) ?? null;
 }
 
+/**
+ * What `/sessions/send` and `/sessions/interrupt` both need before they may
+ * write: a session that exists, and a pane still alive to write into.
+ *
+ * Returns the failure rather than answering it, so the two handlers keep their
+ * own `json()` calls and a reader can see every status either one can produce
+ * without following a callback out of the file.
+ */
+type LiveTarget =
+  | { ok: true; task: TaskInfo; paneId: string }
+  | { ok: false; status: number; error: string };
+
+function resolveLiveTarget(
+  taskManager: TaskManager,
+  target: string,
+): LiveTarget {
+  const task = resolveTarget(taskManager, target);
+  if (!task) {
+    return {
+      ok: false,
+      status: 404,
+      error: `No session matches target '${target}'`,
+    };
+  }
+  if (!task.paneId) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Session '${task.id}' has no live pane to send to`,
+    };
+  }
+  return { ok: true, task, paneId: task.paneId };
+}
+
 export const tasksRoutes: Route[] = [
   {
     method: "GET",
@@ -169,17 +203,12 @@ export const tasksRoutes: Route[] = [
       const interruptOverride =
         typeof body.interrupt === "string" ? body.interrupt : undefined;
 
-      const task = resolveTarget(deps.taskManager, target);
-      if (!task) {
-        json(404, { error: `No session matches target '${target}'` });
+      const resolved = resolveLiveTarget(deps.taskManager, target);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
         return;
       }
-      if (!task.paneId) {
-        json(409, {
-          error: `Session '${task.id}' has no live pane to send to`,
-        });
-        return;
-      }
+      const { task, paneId } = resolved;
 
       // Read the status BEFORE interrupting, so the caller learns whether it
       // just cut off a `working` agent.
@@ -188,12 +217,65 @@ export const tasksRoutes: Route[] = [
       // Ordering is load-bearing: interrupt to end the current turn, then submit
       // the new prompt. No artificial delay — the pty layer can't guarantee one.
       const interrupt = interruptSequenceFor(task.agentKind, interruptOverride);
-      deps.backend.pty.write(task.paneId, interrupt);
-      deps.backend.pty.write(task.paneId, textToSend + "\r");
+      deps.backend.pty.write(paneId, interrupt);
+      deps.backend.pty.write(paneId, textToSend + "\r");
 
       json(200, {
         ok: true,
-        target: { id: task.id, paneId: task.paneId, lastAgentStatus },
+        target: { id: task.id, paneId, lastAgentStatus },
+      });
+    },
+  },
+
+  {
+    // Stop a running agent without saying anything to it.
+    //
+    // `/sessions/send` already interrupts, because injecting a prompt mid-turn
+    // requires ending that turn first — but it *requires* text, so until now
+    // there was no way to simply make an agent stop. That is the one thing you
+    // most want when you are not at the machine and a session has gone wrong,
+    // which is why it is its own route rather than a special case of send: a
+    // distinct action, distinctly authorised, distinctly audited.
+    method: "POST",
+    path: "/sessions/interrupt",
+    async handler({ deps, json, readBody }) {
+      const body = await readBody();
+
+      if (!deps.taskManager) {
+        json(503, { error: "Task management is not available" });
+        return;
+      }
+      if (!deps.backend) {
+        json(503, { error: "Session backend is not available" });
+        return;
+      }
+
+      const target = body.target;
+      if (typeof target !== "string" || target.length === 0) {
+        json(400, { error: "Missing 'target' string in request body" });
+        return;
+      }
+      const interruptOverride =
+        typeof body.interrupt === "string" ? body.interrupt : undefined;
+
+      const resolved = resolveLiveTarget(deps.taskManager, target);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
+        return;
+      }
+      const { task, paneId } = resolved;
+
+      // As above: the pre-interrupt status is what tells the caller whether
+      // this cut off work in progress or landed on an idle prompt.
+      const lastAgentStatus = task.lastAgentStatus;
+      deps.backend.pty.write(
+        paneId,
+        interruptSequenceFor(task.agentKind, interruptOverride),
+      );
+
+      json(200, {
+        ok: true,
+        target: { id: task.id, paneId, lastAgentStatus },
       });
     },
   },

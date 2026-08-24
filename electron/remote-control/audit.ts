@@ -32,7 +32,10 @@ export interface RemoteAuditEntry {
   target: string | null;
   textLength: number | null;
   textSha256: string | null;
-  /** Whether the write carried an interrupt override, which is also a write. */
+  /**
+   * True for `POST /sessions/interrupt`, and for a send that carried an
+   * override of the interrupt sequence. Either way something ended a turn.
+   */
   interrupt: boolean;
   outcome: "sent" | "rejected" | "failed";
   /** The HTTP status the caller actually saw. */

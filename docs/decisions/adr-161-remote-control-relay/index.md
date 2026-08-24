@@ -260,6 +260,24 @@ on load. A phone browsing in a tab is told what is missing instead of going quie
 "enabled" flag that reopens a listener after an update is the kind of surprise this
 feature cannot afford, and re-ticking a box costs a second.
 
+**Interrupt had to become its own route.** §4 says interrupt is "the `interrupt` override
+on the same route", and that reading of the code was wrong: `POST /sessions/send` _always_
+interrupts — ending the turn is how a prompt gets injected mid-flight — and `body.interrupt`
+only overrides which key sequence does it. Since `text` is required, there was no way to
+express "just stop", which is the single most valuable thing to be able to do from away
+from the desk.
+
+So `POST /sessions/interrupt` is a new row in `electron/routes/tasks.ts`, allowlisted as a
+remote **write** and gated identically to send: the capability, `confirmed: true`, and an
+audit line. It is separate from send rather than a special case of it so that the trail can
+tell "stopped it" from "told it something", and so the local MCP surface gains the same
+missing verb.
+
+The client's quick replies use plain sends. They are fixed keys — `1` `2` `3` `y` `n` — and
+never inferred from the transcript: deciding which numbered option means "allow" by parsing
+scrollback is a security bug wearing a convenience hat. There is no bare Enter, because a
+send requires text.
+
 ### Found in review, fixed
 
 **Path traversal through `POST /sessions/read`.** The route deliberately accepts an
@@ -272,7 +290,7 @@ the local MCP path) is covered.
 
 **Rate limiting could lock the owner out.** The listener binds loopback, so every request
 arriving through a tunnel has `127.0.0.1` as its peer — one bucket shared by every remote
-device and every stranger who found the hostname. The backoff was checked *before* the
+device and every stranger who found the hostname. The backoff was checked _before_ the
 token was verified, so a guesser could drive that shared bucket into exponential delay and
 the owner's phone, holding a valid token, got the 429. A control written to slow an
 intruder down was locking the owner out of their own machine, from exactly the place this
@@ -306,15 +324,9 @@ was never what made this safe.
 ## What v1 does not do yet
 
 v1 is complete against tickets 1–9 and the security posture above is the part worth
-trusting. What it is not yet is *full-featured*, and the gap has a shape: the surface can
+trusting. What it is not yet is _full-featured_, and the gap has a shape: the surface can
 report, but it can barely act, and on the device most people will use it from the
 notification half does not fire at all.
-
-**The client cannot interrupt.** The listener has passed `interrupt` through since ticket
-4 and audits it as its own field; the client never sets it. Stopping a runaway agent is
-the most valuable remote action there is, and it is the one action not wired up (ticket
-11). Answering a permission prompt likewise costs a phone keyboard and a paragraph of
-confirmation to send the character `1`.
 
 **Nothing survives a restart.** Enablement is deliberately not persisted, and a cloudflared
 quick tunnel rotates its hostname on every start — a new origin, so the phone's token,

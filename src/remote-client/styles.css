@@ -420,6 +420,63 @@ body {
   justify-content: center;
 }
 
+/* ── Quick actions ───────────────────────────────────────────────────── */
+
+/*
+ * The row between the transcript and the composer: the answers a blocked
+ * agent is usually waiting for, and the way to stop one that is not.
+ *
+ * On a phone the composer is the expensive path — a keyboard, a sentence, a
+ * confirmation — and the two things most often wanted are one character and
+ * "stop". Those get to be one tap each, sitting where a thumb already is.
+ */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.actions[hidden] {
+  display: none;
+}
+
+.replies {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.replies[hidden] {
+  display: none;
+}
+
+button.chip {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 10px 0;
+}
+
+/* Stop is destructive and sits beside five look-alike chips, so it does not
+   stretch to match them — it should never be the button a thumb finds by
+   accident. */
+.actions > button.danger {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
 /* ── Composer ────────────────────────────────────────────────────────── */
 
 .composer {

@@ -4,6 +4,27 @@
 
 
 
+
+## [0.8.0] - 2026-08-23
+
+**Features**
+- Remote control: pair your phone and monitor sessions live from a mobile web client, with push notifications when an agent needs input or errors
+- Stop a running agent or answer a prompt from your phone in a single tap
+- Remote-control settings page to enable access, pair devices, review exposure, and start a Tailscale or cloudflared tunnel on demand
+- Installable phone client (add to home screen on iOS)
+- Notification center: a bell in the sidebar titlebar with full notification history behind it, persisted across restarts
+
+**Fixes**
+- Sessions that already need input when opened now notify you
+- Read state now reflects what's actually on screen, not just clicking a task
+- Popout windows no longer tear down mid-drag
+- Phone client no longer loses focus and scroll position on every refresh
+- Tightened remote-control auth: tokens verified before backoff, rate limiting only on authenticated requests, session IDs constrained to a single path segment
+
+**Improvements**
+- Consolidated remote-control routing, writes, and status ownership behind a single path
+- Unified relative-time formatting across the app
+
 ## [0.7.0] - 2026-08-23
 
 ## Features

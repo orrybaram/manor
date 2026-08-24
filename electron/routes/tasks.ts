@@ -12,7 +12,7 @@ import type { TaskInfo, TaskManager } from "../task-persistence";
 import { interruptSequenceFor } from "../harness-interrupt";
 import { stripAnsi } from "../terminal-host/output-pattern-matcher";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type { Route } from "./types";
+import type { ControlDeps, Route } from "./types";
 
 /** The wire shape `GET /tasks` returns — a curated slice of `TaskInfo`. */
 export interface TaskSummary {
@@ -100,22 +100,64 @@ function resolveTarget(
 }
 
 /**
- * What `/sessions/send` and `/sessions/interrupt` both need before they may
- * write: a session that exists, and a pane still alive to write into.
+ * Everything both write routes need before they may touch a pty.
  *
- * Returns the failure rather than answering it, so the two handlers keep their
- * own `json()` calls and a reader can see every status either one can produce
- * without following a callback out of the file.
+ * `/sessions/send` and `/sessions/interrupt` differ in exactly two ways —
+ * whether text is required, and whether a prompt follows the interrupt. Every
+ * other step is shared, so it happens here once: the deps are present, the
+ * target resolves to a session, that session still has a live pane, and this
+ * harness's interrupt sequence is known.
+ *
+ * `write` is bound to the pane, so neither handler needs a non-null assertion
+ * on `deps.backend` after this has checked it. `result` is the 200 body, built
+ * *now* — which makes the ordering rule structural rather than a comment: the
+ * `lastAgentStatus` a caller gets back is the one from before anything
+ * interrupted, because it was read before the caller could write.
  */
-type LiveTarget =
-  | { ok: true; task: TaskInfo; paneId: string }
-  | { ok: false; status: number; error: string };
+type PreparedWrite =
+  | { ok: false; status: number; error: string }
+  | {
+      ok: true;
+      write: (data: string) => void;
+      interrupt: string;
+      result: { ok: true; target: TargetResult };
+    };
 
-function resolveLiveTarget(
-  taskManager: TaskManager,
-  target: string,
-): LiveTarget {
-  const task = resolveTarget(taskManager, target);
+interface TargetResult {
+  id: string;
+  paneId: string;
+  lastAgentStatus: string | null;
+}
+
+function prepareWrite(
+  deps: ControlDeps,
+  body: Record<string, unknown>,
+): PreparedWrite {
+  if (!deps.taskManager) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Task management is not available",
+    };
+  }
+  if (!deps.backend) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Session backend is not available",
+    };
+  }
+
+  const target = body.target;
+  if (typeof target !== "string" || target.length === 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Missing 'target' string in request body",
+    };
+  }
+
+  const task = resolveTarget(deps.taskManager, target);
   if (!task) {
     return {
       ok: false,
@@ -123,14 +165,28 @@ function resolveLiveTarget(
       error: `No session matches target '${target}'`,
     };
   }
-  if (!task.paneId) {
+  const { paneId } = task;
+  if (!paneId) {
     return {
       ok: false,
       status: 409,
       error: `Session '${task.id}' has no live pane to send to`,
     };
   }
-  return { ok: true, task, paneId: task.paneId };
+
+  const backend = deps.backend;
+  return {
+    ok: true,
+    write: (data) => backend.pty.write(paneId, data),
+    interrupt: interruptSequenceFor(
+      task.agentKind,
+      typeof body.interrupt === "string" ? body.interrupt : undefined,
+    ),
+    result: {
+      ok: true,
+      target: { id: task.id, paneId, lastAgentStatus: task.lastAgentStatus },
+    },
+  };
 }
 
 export const tasksRoutes: Route[] = [
@@ -180,50 +236,24 @@ export const tasksRoutes: Route[] = [
     path: "/sessions/send",
     async handler({ deps, json, readBody }) {
       const body = await readBody();
-
-      if (!deps.taskManager) {
-        json(503, { error: "Task management is not available" });
-        return;
-      }
-      if (!deps.backend) {
-        json(503, { error: "Session backend is not available" });
-        return;
-      }
-
-      const target = body.target;
-      const textToSend = body.text;
-      if (typeof target !== "string" || target.length === 0) {
-        json(400, { error: "Missing 'target' string in request body" });
-        return;
-      }
-      if (typeof textToSend !== "string" || textToSend.length === 0) {
+      const text = body.text;
+      if (typeof text !== "string" || text.length === 0) {
         json(400, { error: "Missing 'text' string in request body" });
         return;
       }
-      const interruptOverride =
-        typeof body.interrupt === "string" ? body.interrupt : undefined;
 
-      const resolved = resolveLiveTarget(deps.taskManager, target);
-      if (!resolved.ok) {
-        json(resolved.status, { error: resolved.error });
+      const ready = prepareWrite(deps, body);
+      if (!ready.ok) {
+        json(ready.status, { error: ready.error });
         return;
       }
-      const { task, paneId } = resolved;
-
-      // Read the status BEFORE interrupting, so the caller learns whether it
-      // just cut off a `working` agent.
-      const lastAgentStatus = task.lastAgentStatus;
 
       // Ordering is load-bearing: interrupt to end the current turn, then submit
       // the new prompt. No artificial delay — the pty layer can't guarantee one.
-      const interrupt = interruptSequenceFor(task.agentKind, interruptOverride);
-      deps.backend.pty.write(paneId, interrupt);
-      deps.backend.pty.write(paneId, textToSend + "\r");
+      ready.write(ready.interrupt);
+      ready.write(text + "\r");
 
-      json(200, {
-        ok: true,
-        target: { id: task.id, paneId, lastAgentStatus },
-      });
+      json(200, ready.result);
     },
   },
 
@@ -239,44 +269,14 @@ export const tasksRoutes: Route[] = [
     method: "POST",
     path: "/sessions/interrupt",
     async handler({ deps, json, readBody }) {
-      const body = await readBody();
-
-      if (!deps.taskManager) {
-        json(503, { error: "Task management is not available" });
-        return;
-      }
-      if (!deps.backend) {
-        json(503, { error: "Session backend is not available" });
+      const ready = prepareWrite(deps, await readBody());
+      if (!ready.ok) {
+        json(ready.status, { error: ready.error });
         return;
       }
 
-      const target = body.target;
-      if (typeof target !== "string" || target.length === 0) {
-        json(400, { error: "Missing 'target' string in request body" });
-        return;
-      }
-      const interruptOverride =
-        typeof body.interrupt === "string" ? body.interrupt : undefined;
-
-      const resolved = resolveLiveTarget(deps.taskManager, target);
-      if (!resolved.ok) {
-        json(resolved.status, { error: resolved.error });
-        return;
-      }
-      const { task, paneId } = resolved;
-
-      // As above: the pre-interrupt status is what tells the caller whether
-      // this cut off work in progress or landed on an idle prompt.
-      const lastAgentStatus = task.lastAgentStatus;
-      deps.backend.pty.write(
-        paneId,
-        interruptSequenceFor(task.agentKind, interruptOverride),
-      );
-
-      json(200, {
-        ok: true,
-        target: { id: task.id, paneId, lastAgentStatus },
-      });
+      ready.write(ready.interrupt);
+      json(200, ready.result);
     },
   },
 

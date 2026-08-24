@@ -49,24 +49,12 @@ export const REMOTE_WRITE_ROUTES = [
 ] as const;
 
 /**
- * Paths the listener answers itself, rather than by dispatching into
- * `electron/routes/`. They exist only for the phone client, they are all
- * authenticated, and none of them reads session state:
- *
- *   - `GET /me` — the calling device's own label and send capability, plus the
- *     public half of the push key. No token, no hash, nothing about any other
- *     device.
- *   - `GET /events` — the SSE status stream.
- *   - `POST /push/subscribe` — store this device's push endpoint.
- *
- * Listed here so the remote surface is one file to read, and asserted against
- * the real listener in `server.test.ts`.
+ * A third group exists and is *not* declared here: the paths the listener
+ * answers itself rather than dispatching into `electron/routes/`. They live in
+ * `./listener-routes.ts` as ordinary `Route` rows, and `LISTENER_OWN_ROUTES`
+ * there is derived from that table so the two cannot drift. Read both files to
+ * know the whole surface; there is no third.
  */
-export const LISTENER_OWN_ROUTES = [
-  "GET /me",
-  "GET /events",
-  "POST /push/subscribe",
-] as const;
 
 /** The `"METHOD /path"` key both allowlists are written in. */
 export function routeKey(route: Route): string {

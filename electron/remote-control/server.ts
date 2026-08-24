@@ -40,6 +40,7 @@ import type {
   RouteContext,
 } from "../routes/types";
 import { remoteRouteTable, routeKey } from "./allowlist";
+import { listenerRoutes } from "./listener-routes";
 import { hashText, RemoteAuditLog } from "./audit";
 import type { PushManager } from "./push";
 import { AuthRateLimiter } from "./rate-limit";
@@ -76,21 +77,46 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** No allowlisted route uses anything else, so nothing else gets past step 1. */
 const ALLOWED_METHODS = new Set(["GET", "POST"]);
 
+/**
+ * The collaborators that have a sensible default. Named rather than positional
+ * because the only caller that overrides the last one would otherwise have to
+ * pass `undefined` three times to reach it.
+ */
+export interface RemoteControlServerOptions {
+  limiter?: AuthRateLimiter;
+  audit?: RemoteAuditLog;
+  /**
+   * Built client directory. Omit for the bundled one; pass `null` to serve no
+   * page at all (tests, and dev before a build).
+   */
+  clientDir?: string | null;
+  /** Null disables push entirely; the client then simply never subscribes. */
+  push?: PushManager | null;
+}
+
 export class RemoteControlServer {
   private server: http.Server | null = null;
   private port = 0;
   private readonly hub = new SseHub();
 
+  private readonly limiter: AuthRateLimiter;
+  private readonly audit: RemoteAuditLog;
+  private readonly clientDir: string | null;
+  private readonly push: PushManager | null;
+
   constructor(
     private readonly getDeps: () => ControlDeps,
     private readonly devices: DeviceVerifier,
-    private readonly limiter: AuthRateLimiter = new AuthRateLimiter(),
-    private readonly audit: RemoteAuditLog = new RemoteAuditLog(),
-    /** Built client directory; null serves no page (tests, and dev before a build). */
-    private readonly clientDir: string | null = defaultClientDir(),
-    /** Null disables push entirely; the client then simply never subscribes. */
-    private readonly push: PushManager | null = null,
-  ) {}
+    options: RemoteControlServerOptions = {},
+  ) {
+    this.limiter = options.limiter ?? new AuthRateLimiter();
+    this.audit = options.audit ?? new RemoteAuditLog();
+    // Not `??`: an explicit `null` means "serve no page at all", which is a
+    // different thing from "not specified, use the built one".
+    this.clientDir =
+      options.clientDir === undefined ? defaultClientDir() : options.clientDir;
+    this.push = options.push ?? null;
+  }
 
   get running(): boolean {
     return this.server !== null;
@@ -265,49 +291,18 @@ export class RemoteControlServer {
     const readBody = makeReadBody(req);
 
     // ── 5. Routing, against a table the dangerous routes were never in ──
-    // `/me`, `/push/subscribe` and `/events` are the listener's own, not
-    // `electron/routes/` rows (see `LISTENER_OWN_ROUTES` in `allowlist.ts`):
-    // they exist only for the phone client, so they are not allowlist entries.
-    // `/me` returns the device's own record — its label and whether it may
-    // send — and no token, no hash, and nothing about any other device.
-    if (method === "GET" && url.pathname === "/me") {
-      json(200, {
-        id: device.id,
-        label: device.label,
-        canSend: device.canSend,
-        // The *public* half of the VAPID pair. It is an application server
-        // key, not a secret — a client cannot subscribe without it.
-        vapidPublicKey: this.push?.publicKey() ?? null,
-      });
-      return;
-    }
-
-    // Subscribing is not a write: being told that a session is blocked is the
-    // read surface's whole point, so a read-only device may do it.
-    if (method === "POST" && url.pathname === "/push/subscribe") {
-      if (!this.push) {
-        json(503, { error: "Push is not available" });
-        return;
-      }
-      const subscription = asSubscription(await readBody());
-      if (!subscription) {
-        json(400, { error: "Expected a push subscription" });
-        return;
-      }
-      const stored = this.push.subscribe(device.id, subscription);
-      json(stored ? 200 : 404, stored ? { ok: true } : { error: "Not found" });
-      return;
-    }
-
+    // One table, one dispatch. `listenerRoutes` are the rows this listener
+    // answers itself — see `./listener-routes.ts` for why they are rows and
+    // not conditionals, and why `/events` below cannot be one.
     if (method === "GET" && url.pathname === "/events") {
       this.hub.add(device.id, res);
       return;
     }
 
-    const table = this.guardWrites(
-      remoteRouteTable(routes, device.canSend),
-      device,
-    );
+    const table = [
+      ...listenerRoutes({ device, push: this.push }),
+      ...this.guardWrites(remoteRouteTable(routes, device.canSend), device),
+    ];
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
     const matched = await dispatch(
@@ -413,23 +408,6 @@ export class RemoteControlServer {
 }
 
 type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
-
-/**
- * Validate a subscription body. `endpoint` must be https — a push endpoint is a
- * capability URL, and we will not store one that would be sent in the clear.
- */
-function asSubscription(
-  body: Record<string, unknown>,
-): { endpoint: string; keys: { p256dh: string; auth: string } } | null {
-  const endpoint = body.endpoint;
-  const keys = body.keys;
-  if (typeof endpoint !== "string" || !endpoint.startsWith("https://"))
-    return null;
-  if (typeof keys !== "object" || keys === null) return null;
-  const { p256dh, auth } = keys as Record<string, unknown>;
-  if (typeof p256dh !== "string" || typeof auth !== "string") return null;
-  return { endpoint, keys: { p256dh, auth } };
-}
 
 /** The raw bearer token, or null. Never logged by any caller. */
 function bearerToken(req: http.IncomingMessage): string | null {

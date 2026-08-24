@@ -10,16 +10,10 @@
  */
 
 import { ipcMain } from "electron";
-import { assertString } from "../ipc-validate";
+import { assertBoolean, assertString } from "../ipc-validate";
 import type { RemoteControlStatus } from "../remote-control/controller";
 import type { TunnelKind } from "../remote-control/tunnel";
 import type { IpcDeps } from "./types";
-
-function assertBoolean(value: unknown, name: string): asserts value is boolean {
-  if (typeof value !== "boolean") {
-    throw new Error(`${name}: expected boolean, got ${typeof value}`);
-  }
-}
 
 function assertTunnelKind(
   value: unknown,

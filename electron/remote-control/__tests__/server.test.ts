@@ -79,17 +79,15 @@ describe("RemoteControlServer", () => {
       } as unknown as ControlDeps["taskManager"],
       backend: null,
     };
-    server = new RemoteControlServer(
-      () => deps,
-      devices,
-      new AuthRateLimiter(() => now),
+    server = new RemoteControlServer(() => deps, devices, {
+      limiter: new AuthRateLimiter(() => now),
       audit,
       clientDir,
-      {
+      push: {
         publicKey: () => "vapid-public-key",
         subscribe,
       } as unknown as import("../push").PushManager,
-    );
+    });
     const { port } = await server.start();
     base = `http://127.0.0.1:${port}`;
   });

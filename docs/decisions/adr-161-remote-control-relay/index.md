@@ -245,9 +245,20 @@ before a server ever sees it).
 
 **Three routes are the listener's own, not allowlist entries.** `GET /me` (the calling
 device's own label and send capability, plus the public VAPID key), `GET /events`, and
-`POST /push/subscribe` are answered by the listener itself, not dispatched into
-`electron/routes/`. They are enumerated in `LISTENER_OWN_ROUTES` and asserted not to
-shadow anything in the real table, so "what is reachable" is still one file to read.
+`POST /push/subscribe` belong to the listener rather than to `electron/routes/`.
+
+Two of them are ordinary `Route` rows in `electron/remote-control/listener-routes.ts`,
+concatenated onto the allowlisted table so there is one table and one `dispatch()`.
+`LISTENER_OWN_ROUTES` is _derived_ from that table. An earlier shape had all three as
+`if (method === … && pathname === …)` blocks in the request handler with their keys
+restated by hand in `allowlist.ts` — two places, and nothing but a reviewer's memory
+holding them together. The old list was exported, cited here as the guarantee that "what
+is reachable is one file to read", and consumed by nothing except a test that only checked
+what it _wasn't_.
+
+`GET /events` genuinely cannot make the trip: it keeps the raw `ServerResponse` open for
+the SSE stream, and `RouteContext` has no `res`. Widening it would hand every route in the
+table a socket, which is a worse trade than one exception named in one place.
 
 **Push is offered by a tap, and the client is installable.** iOS grants Web Push only to
 a page added to the Home Screen, and only honours `requestPermission()` inside a user

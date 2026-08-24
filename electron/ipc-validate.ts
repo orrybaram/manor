@@ -7,6 +7,15 @@ export function assertString(
   }
 }
 
+export function assertBoolean(
+  value: unknown,
+  name: string,
+): asserts value is boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${name}: expected boolean, got ${typeof value}`);
+  }
+}
+
 export function assertNumber(
   value: unknown,
   name: string,

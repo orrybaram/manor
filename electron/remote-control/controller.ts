@@ -15,7 +15,8 @@
  */
 
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
-import type { RemoteControlServer } from "./server";
+import { isPushable, pushPayloadFor, type PushManager } from "./push";
+import type { RemoteControlServer, RemoteStatusEvent } from "./server";
 import type { TunnelKind, TunnelManager, TunnelStatus } from "./tunnel";
 
 export interface RemoteControlStatus {
@@ -52,8 +53,44 @@ export class RemoteControlController {
     private readonly deviceStore: RemoteDeviceStore,
     private readonly tunnel: TunnelManager,
     private readonly encryptionAvailable: () => boolean,
+    /** Null disables push; everything else still works. */
+    private readonly push: PushManager | null = null,
   ) {
     this.tunnel.onStatus(() => this.emit());
+  }
+
+  /**
+   * One agent-status transition, fanned out to everything remote control does
+   * with one.
+   *
+   * The app shell calls this beside the desktop notification and the dock
+   * badge, and that is all it needs to know: which statuses are worth a push,
+   * what a push payload looks like, and that a live SSE client may be
+   * listening are all decisions belonging to this module. `notify` is the
+   * user's existing "agent needs input" preference, passed in rather than read
+   * here — a phone is a second sink on that setting, not a second setting.
+   *
+   * Cheap when nothing is running: the server drops the event with no
+   * listeners, and push returns early with no subscriptions.
+   */
+  onAgentStatus(
+    task: { id: string; name: string | null; projectName: string | null },
+    previousStatus: string | null | undefined,
+    status: string,
+    { notify }: { notify: boolean },
+  ): void {
+    const event: RemoteStatusEvent = {
+      taskId: task.id,
+      name: task.name,
+      projectName: task.projectName,
+      status,
+      previousStatus: previousStatus ?? null,
+    };
+    this.server.publishStatus(event);
+
+    if (!this.push || !notify) return;
+    if (!isPushable(status) || status === previousStatus) return;
+    void this.push.notify(pushPayloadFor(status, task));
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {
@@ -135,6 +172,16 @@ export class RemoteControlController {
     await this.tunnel.stop();
     this.emit();
     return this.status();
+  }
+
+  /**
+   * Last-resort teardown for the paths that skip `before-quit` — `app.exit()`
+   * and fatal errors. Synchronous because `process.on("exit")` is: a tunnel
+   * surviving the app is this feature's worst failure mode, so it gets the
+   * ungraceful kill rather than a promise nobody will await.
+   */
+  killTunnelNow(): void {
+    this.tunnel.killNow();
   }
 
   /** Quit path: the tunnel must never outlive the app. */

@@ -681,7 +681,7 @@ function mountDetail(taskId: string): Screen {
     const chip = el("button", "chip", key);
     chip.addEventListener("click", () => {
       const task = taskById(taskId);
-      if (task) confirmSend(task, key, () => {}, true);
+      if (task) confirmSend(task, key, { brief: true });
     });
     replies.append(chip);
   }
@@ -698,8 +698,10 @@ function mountDetail(taskId: string): Screen {
     if (!text) return;
     const task = taskById(taskId);
     if (!task) return;
-    confirmSend(task, text, () => {
-      input.value = "";
+    confirmSend(task, text, {
+      onSent: () => {
+        input.value = "";
+      },
     });
   };
   send.addEventListener("click", submit);
@@ -728,10 +730,18 @@ function mountDetail(taskId: string): Screen {
       pill.textContent = statusLabel(status);
       paintLive(liveNode);
       paintNotice(banner);
-      // Absence, not disablement: a device without the capability never gets a
-      // composer at all, which is the same shape the server's route table
-      // takes for the send route.
-      if (identity?.canSend === true) {
+
+      // Two mechanisms here, because there are two different meanings and
+      // collapsing them would lose one.
+      //
+      // The capability gate *removes*: a device that may never act is shown no
+      // way to act, which is the shape the server's route table takes for it —
+      // there is nothing to reveal in a devtools inspector because there is
+      // nothing there. `hidden` below means only "this control does not apply
+      // to the session's current state", which is a thing that changes second
+      // to second and must not cost a rebuild.
+      const canSend = identity?.canSend === true;
+      if (canSend) {
         if (!actions.isConnected) body.append(actions);
         if (!composer.isConnected) body.append(composer);
       } else {
@@ -739,8 +749,8 @@ function mountDetail(taskId: string): Screen {
         composer.remove();
       }
 
-      // Offered only where they answer something. Quick replies are for a
-      // session sitting on a prompt; Stop is for one that is still going.
+      // Quick replies answer a session sitting on a prompt; Stop is for one
+      // that is still going. `actions` follows from its own contents.
       replies.hidden = status !== "requires_input";
       stop.hidden = status !== "working" && status !== "thinking";
       actions.hidden = replies.hidden && stop.hidden;
@@ -827,8 +837,7 @@ function confirmAction(opts: {
 function confirmSend(
   task: TaskSummary,
   text: string,
-  onSent: () => void,
-  brief = false,
+  { brief = false, onSent }: { brief?: boolean; onSent?: () => void } = {},
 ): void {
   const name = task.name ?? task.id;
   confirmAction({
@@ -844,7 +853,7 @@ function confirmSend(
         body: JSON.stringify({ target: task.id, text, confirmed: true }),
       });
       if (!result) return;
-      onSent();
+      onSent?.();
       setNotice("Sent.", "ok");
       void loadTranscript(task.id);
     },

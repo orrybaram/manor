@@ -1,10 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  Menu,
-  nativeImage,
-  safeStorage,
-} from "electron";
+import { app, BrowserWindow, Menu, nativeImage, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -24,10 +18,7 @@ import {
   ensureHookScript,
   registerAllAgents,
 } from "./agent-hooks";
-import {
-  createHookRelay,
-  SWEEP_INTERVAL_MS,
-} from "./hook-relay";
+import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { TaskManager, type TaskInfo } from "./task-persistence";
 import { PreferencesManager } from "./preferences";
@@ -42,11 +33,7 @@ import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
-import {
-  PushManager,
-  isPushable,
-  pushPayloadFor,
-} from "./remote-control/push";
+import { PushManager } from "./remote-control/push";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedTasks,
@@ -104,10 +91,7 @@ export function handleStreamEvent(
         }
         break;
       case "error":
-        window.webContents.send(
-          `pty-error-${event.sessionId}`,
-          event.message,
-        );
+        window.webContents.send(`pty-error-${event.sessionId}`, event.message);
         break;
       case "agentStatus": {
         window.webContents.send(
@@ -221,10 +205,7 @@ export function initApp(devTitle: string | null): void {
     }),
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
-    undefined,
-    undefined,
-    undefined,
-    remotePush,
+    { push: remotePush },
   );
   // Detected, never installed; started only by an explicit user action. The
   // manager is constructed here so shutdown can guarantee the child dies with
@@ -239,10 +220,16 @@ export function initApp(devTitle: string | null): void {
     remoteDeviceStore,
     remoteTunnel,
     () => safeStorage.isEncryptionAvailable(),
+    remotePush,
   );
   const paneContextMap = new Map<
     string,
-    { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
+    {
+      projectId: string;
+      projectName: string;
+      workspacePath: string;
+      agentCommand: string | null;
+    }
   >();
 
   function updateDockBadge(): void {
@@ -254,27 +241,20 @@ export function initApp(devTitle: string | null): void {
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ): void {
-    _maybeSendNotification(task, prevStatus, newStatus, mainWindow, preferencesManager);
+    _maybeSendNotification(
+      task,
+      prevStatus,
+      newStatus,
+      mainWindow,
+      preferencesManager,
+    );
     // A second sink on the same transition, not a second detector: whatever
-    // moves the dock badge is what a paired phone hears about. No-op unless
-    // the listener is running with a live SSE client.
-    remoteControlServer.publishStatus({
-      taskId: task.id,
-      name: task.name,
-      projectName: task.projectName,
-      status: newStatus,
-      previousStatus: prevStatus ?? null,
+    // moves the dock badge is what a paired phone hears about. What that means
+    // — a stream event, a push, or nothing at all — belongs to
+    // `RemoteControlController`, not here.
+    remoteControl.onAgentStatus(task, prevStatus, newStatus, {
+      notify: preferencesManager.get("notifyOnRequiresInput"),
     });
-    // Third sink on the same transition. Gated on the same preference as the
-    // desktop notification — a user who muted "agent needs input" has muted it
-    // everywhere, not just on this machine.
-    if (
-      isPushable(newStatus) &&
-      newStatus !== prevStatus &&
-      preferencesManager.get("notifyOnRequiresInput")
-    ) {
-      void remotePush.notify(pushPayloadFor(newStatus, task));
-    }
   }
 
   // Ensure shell integration and agent hooks are set up
@@ -552,7 +532,7 @@ export function initApp(devTitle: string | null): void {
   // — `app.exit()`, an unhandled fatal — where a surviving tunnel would leave
   // this machine reachable with nothing listening behind it.
   process.on("exit", () => {
-    remoteTunnel.killNow();
+    remoteControl.killTunnelNow();
   });
 
   app.on("window-all-closed", () => {

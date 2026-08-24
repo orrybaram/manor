@@ -46,7 +46,11 @@ const notificationsApi = {
   notifications: notificationsApi,
 };
 
-function makeTask(id: string, lastAgentStatus: string | null = null): TaskInfo {
+function makeTask(
+  id: string,
+  lastAgentStatus: string | null = null,
+  paneId: string | null = null,
+): TaskInfo {
   return {
     id,
     agentSessionId: `agent-${id}`,
@@ -62,7 +66,7 @@ function makeTask(id: string, lastAgentStatus: string | null = null): TaskInfo {
     cwd: "/",
     agentKind: "claude",
     agentCommand: null,
-    paneId: null,
+    paneId,
     lastAgentStatus,
     resumedAt: null,
   };
@@ -179,5 +183,126 @@ describe("task-store unseen-flag cache (ADR-136)", () => {
     // Older preload — no unseen arg. Cache should not be wiped.
     onUpdateCallback!(makeTask("t1", "responded"), undefined as never);
     expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
+  });
+});
+
+/**
+ * A one-panel, one-tab layout showing `visiblePaneId`, with `hiddenPaneId` (if
+ * given) parked in a second, unselected tab.
+ */
+function layoutWith(
+  visiblePaneId: string,
+  hiddenPaneId?: string,
+): Record<string, unknown> {
+  const tabs = [
+    {
+      id: "tab-visible",
+      title: "visible",
+      rootNode: { type: "leaf", paneId: visiblePaneId },
+      focusedPaneId: visiblePaneId,
+    },
+  ];
+  if (hiddenPaneId) {
+    tabs.push({
+      id: "tab-hidden",
+      title: "hidden",
+      rootNode: { type: "leaf", paneId: hiddenPaneId },
+      focusedPaneId: hiddenPaneId,
+    });
+  }
+  return {
+    panelTree: { type: "leaf", panelId: "panel-1" },
+    panels: {
+      "panel-1": {
+        id: "panel-1",
+        tabs,
+        selectedTabId: "tab-visible",
+        pinnedTabIds: [],
+      },
+    },
+    activePanelId: "panel-1",
+  };
+}
+
+describe("read state follows what is on screen (issue #142)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    tasksApi.getAll.mockResolvedValue([]);
+    tasksApi.getActive.mockResolvedValue([]);
+    tasksApi.getRecent.mockResolvedValue([]);
+    tasksApi.getUnseen.mockResolvedValue({ responded: [], requires_input: [] });
+    tasksApi.consumePruneNotice.mockResolvedValue(0);
+    onUpdateCallback = null;
+  });
+
+  it("marks a task seen when navigation brings its pane on screen", async () => {
+    const { useTaskStore } = await import("../task-store");
+    const { useAppStore } = await import("../app-store");
+    await flush();
+
+    // Agent responds while the user is elsewhere — no active workspace at all.
+    onUpdateCallback!(makeTask("t1", "responded", "pane-1"), {
+      responded: true,
+      requires_input: false,
+    });
+    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
+    expect(tasksApi.markSeen).not.toHaveBeenCalled();
+
+    // The user navigates to the pane by any means: the layout mutation is the
+    // only signal the store needs.
+    useAppStore.setState({
+      activeWorkspacePath: "/ws",
+      workspaceLayouts: { "/ws": layoutWith("pane-1") } as never,
+    });
+
+    expect(tasksApi.markSeen).toHaveBeenCalledWith("t1");
+    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
+  });
+
+  it("leaves a task unseen while its pane sits in a background tab", async () => {
+    const { useTaskStore } = await import("../task-store");
+    const { useAppStore } = await import("../app-store");
+    await flush();
+
+    onUpdateCallback!(makeTask("t1", "requires_input", "pane-hidden"), {
+      responded: false,
+      requires_input: true,
+    });
+
+    useAppStore.setState({
+      activeWorkspacePath: "/ws",
+      workspaceLayouts: {
+        "/ws": layoutWith("pane-visible", "pane-hidden"),
+      } as never,
+    });
+
+    // The tab is mounted but not selected, so nothing has been read.
+    expect(tasksApi.markSeen).not.toHaveBeenCalled();
+    expect(useTaskStore.getState().unseenInputTaskIds.has("t1")).toBe(true);
+  });
+
+  it("clears unseen flags that arrive for a pane already on screen", async () => {
+    // Boot order matters here: the layout is restored before the unseen
+    // snapshot lands, which is the ordinary case after a relaunch.
+    const { useAppStore } = await import("../app-store");
+    useAppStore.setState({
+      activeWorkspacePath: "/ws",
+      workspaceLayouts: { "/ws": layoutWith("pane-1") } as never,
+    });
+
+    tasksApi.getActive.mockResolvedValue([
+      makeTask("t1", "responded", "pane-1"),
+    ]);
+    tasksApi.getUnseen.mockResolvedValue({
+      responded: ["t1"],
+      requires_input: [],
+    });
+
+    const { useTaskStore } = await import("../task-store");
+    await flush();
+
+    expect(tasksApi.markSeen).toHaveBeenCalledWith("t1");
+    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
   });
 });

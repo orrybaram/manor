@@ -3,7 +3,7 @@ import ListChecks from "lucide-react/dist/esm/icons/list-checks";
 import X from "lucide-react/dist/esm/icons/x";
 import type { TaskInfo } from "../../electron.d";
 import { useTaskStore } from "../../store/task-store";
-import { useAppStore } from "../../store/app-store";
+import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToTask } from "../../utils/task-navigation";
@@ -37,6 +37,7 @@ export function TasksList(props: TasksListProps) {
 
   const { tasks, unseenRespondedTaskIds, unseenInputTaskIds } = useTaskStore();
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
   // Collect all active pane IDs across all workspace layouts
   const activePaneIds = useMemo(() => {
@@ -53,23 +54,13 @@ export function TasksList(props: TasksListProps) {
     return ids;
   }, [workspaceLayouts]);
 
-  // Collect visible pane IDs in the active tab (panes the user can currently see)
-  const visiblePaneIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const layout of Object.values(workspaceLayouts)) {
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) continue;
-      const activeTab = panel.tabs.find(
-        (s) => s.id === panel.selectedTabId,
-      );
-      if (activeTab) {
-        for (const id of allPaneIds(activeTab.rootNode)) {
-          ids.add(id);
-        }
-      }
-    }
-    return ids;
-  }, [workspaceLayouts]);
+  // Panes the user can currently see. Shares `selectVisiblePaneIds` with the
+  // read-state sweep in the task store, so the sidebar dot and main's unseen
+  // flags cannot disagree about what counts as on screen (issue #142).
+  const visiblePaneIds = useMemo(
+    () => selectVisiblePaneIds({ activeWorkspacePath, workspaceLayouts }),
+    [activeWorkspacePath, workspaceLayouts],
+  );
 
   // Show active tasks only while they still own a pane; show completed/error/abandoned
   // only if their pane is still active. Orphaned active records (paneId null) are

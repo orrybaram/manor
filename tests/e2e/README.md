@@ -76,7 +76,9 @@ The helpers it stands on:
   `requires_input` — the state the feature exists to surface — echoes anything
   sent to it, and reads its input non-canonically, the way a real harness does,
   because a send arrives as an ESC interrupt followed by the text and a bare CR.
-  `fake-agent.ts` exports its path and the strings it prints.
+  Send it `FAKE_AGENT_HUSH` and it ends the turn without re-arming the prompt,
+  which is the only way to park a session in `responded`. `fake-agent.ts`
+  exports its path and the strings it prints.
 - **`helpers/terminal.ts`** — typing into a pane and reading the daemon's
   scrollback back out.
 - **`helpers/local-api.ts`** — the app's unauthenticated loopback surface

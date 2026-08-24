@@ -1,8 +1,14 @@
 // electron/main.ts — Thin entry point
-import { app } from "electron";
+import { app, crashReporter } from "electron";
 import { execFileSync } from "node:child_process";
 import { readBranchSync } from "./ipc/pty";
 import { initApp } from "./app-lifecycle";
+
+// Local minidumps, uploaded nowhere. A browser-process crash leaves nothing
+// usable in Apple's report — the release Electron framework symbolicates to the
+// nearest exported symbol, so every frame reads as unrelated noise (#164). The
+// dumps land in `app.getPath("crashDumps")`. Must be started before `ready`.
+crashReporter.start({ uploadToServer: false });
 
 // When launched from Finder/Dock, macOS gives the app a minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't include Homebrew paths

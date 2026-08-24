@@ -48,6 +48,10 @@ export function preferencesFile(): string {
   return path.join(manorDataDir(), "preferences.json");
 }
 
+export function notificationsFile(): string {
+  return path.join(manorDataDir(), "notifications.json");
+}
+
 export function keybindingsFile(): string {
   return path.join(manorDataDir(), "keybindings.json");
 }

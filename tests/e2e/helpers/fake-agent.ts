@@ -16,3 +16,10 @@ export const FAKE_AGENT_BANNER = "fake-agent ready";
 
 /** Prefix the fake agent echoes back for anything sent to it. */
 export const FAKE_AGENT_ECHO = "received:";
+
+/**
+ * Send this and the agent ends its turn without asking for anything back, so
+ * the session parks in `responded` rather than `requires_input`. Any other
+ * message re-arms the permission prompt.
+ */
+export const FAKE_AGENT_HUSH = "hush";

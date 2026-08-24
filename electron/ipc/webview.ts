@@ -343,7 +343,7 @@ export function register(deps: IpcDeps): void {
                 label: "Save Image As...",
                 click: async () => {
                   const win = BrowserWindow.fromWebContents(rendererWebContents);
-                  if (!win) return;
+                  if (!win || win.isDestroyed()) return;
                   const result = await dialog.showSaveDialog(win, {
                     defaultPath: new URL(params.srcURL).pathname
                       .split("/")
@@ -523,10 +523,17 @@ export function register(deps: IpcDeps): void {
           // create a child window (parented to the main window, secure
           // webPreferences, normalized size). The child is captured in
           // `did-create-window` below and tracked for cleanup.
+          // Parent to the window that actually owns this pane. A pane popped out
+          // into a detached window is not the main window's child, and parenting
+          // its popup to the main window (or, once that window is closed, to a
+          // destroyed one) wires the popup to the wrong native window.
+          const owner =
+            BrowserWindow.fromWebContents(rendererWebContents) ??
+            getMainWindow();
           return {
             action: "allow",
             overrideBrowserWindowOptions: buildPopupWindowOptions(
-              getMainWindow(),
+              owner,
               features,
             ),
           };
@@ -547,15 +554,23 @@ export function register(deps: IpcDeps): void {
         // Handle beforeunload — show a native confirm dialog when the page
         // tries to prevent navigation (e.g. unsaved changes warnings).
         const preventUnloadHandler = (event: Electron.Event) => {
-          const win = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc);
-          const choice = dialog.showMessageBoxSync(win ?? getMainWindow()!, {
+          const host = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc);
+          // Falls back to a parentless dialog rather than a destroyed window:
+          // this fires *during* teardown, exactly when the host — or a closed
+          // main window — is most likely to be gone already.
+          const owner = host ?? getMainWindow();
+          const options: Electron.MessageBoxSyncOptions = {
             type: "question",
             buttons: ["Leave", "Stay"],
             defaultId: 1,
             cancelId: 1,
             title: "Leave site?",
             message: "Changes you made may not be saved.",
-          });
+          };
+          const choice =
+            owner && !owner.isDestroyed()
+              ? dialog.showMessageBoxSync(owner, options)
+              : dialog.showMessageBoxSync(options);
           if (choice === 0) {
             event.preventDefault(); // allow navigation
           }

@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import { TaskInfo } from "../electron.d";
 import { useToastStore } from "./toast-store";
-import { useAppStore } from "./app-store";
+import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToTask } from "../utils/task-navigation";
-import { hasPaneId } from "./pane-tree";
 
 /** Page size used for the initial task load and for `loadMoreTasks`. */
 const TASK_PAGE_SIZE = 100;
@@ -38,6 +37,16 @@ interface TaskState {
     unseen?: { responded: boolean; requires_input: boolean },
   ) => void;
   markTaskSeen: (taskId: string) => void;
+  /**
+   * Mark every unseen task whose pane is currently on screen as seen.
+   *
+   * Read state used to be set only by `navigateToTask` — clicking a row in the
+   * task list. Reaching the same pane any other way (focusing it, switching to
+   * its tab, switching workspace) left main's unseen flags standing, so the
+   * dock badge and the tab/project/workspace dots kept announcing a response
+   * the user was already looking at (issue #142).
+   */
+  markVisibleTasksSeen: () => void;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => {
@@ -47,6 +56,20 @@ export const useTaskStore = create<TaskState>((set, get) => {
   // let `receiveTaskUpdate` skip cache reconciliation in that case.
   window.electronAPI?.tasks.onUpdate((task, unseen) => {
     get().receiveTaskUpdate(task, unseen);
+  });
+
+  // Whatever is on screen has been read. Layout mutations are immutable, so
+  // every focus / tab-select / workspace-switch lands here as a fresh
+  // `workspaceLayouts` identity — which is exactly the moment a pane the user
+  // could not see becomes one they can.
+  useAppStore.subscribe((state, prev) => {
+    if (
+      state.workspaceLayouts === prev.workspaceLayouts &&
+      state.activeWorkspacePath === prev.activeWorkspacePath
+    ) {
+      return;
+    }
+    get().markVisibleTasksSeen();
   });
 
   // Navigate to task when a desktop notification is clicked
@@ -94,6 +117,11 @@ export const useTaskStore = create<TaskState>((set, get) => {
         unseenRespondedTaskIds: new Set(unseen.responded),
         unseenInputTaskIds: new Set(unseen.requires_input),
       });
+
+      // The layout may already be restored — anything on screen at boot is
+      // read. If it isn't yet, the app-store subscription above catches it as
+      // soon as it lands.
+      get().markVisibleTasksSeen();
 
       // One-time prune notice. Surfaces only when the most recent boot
       // actually deleted tasks AND the user has not been notified yet.
@@ -212,6 +240,27 @@ export const useTaskStore = create<TaskState>((set, get) => {
       window.electronAPI?.tasks.markSeen(taskId);
     },
 
+    markVisibleTasksSeen: () => {
+      const s = get();
+      if (
+        s.unseenRespondedTaskIds.size === 0 &&
+        s.unseenInputTaskIds.size === 0
+      ) {
+        return;
+      }
+      const visible = selectVisiblePaneIds(useAppStore.getState());
+      if (visible.size === 0) return;
+      for (const task of s.tasks) {
+        if (task.paneId == null || !visible.has(task.paneId)) continue;
+        if (
+          s.unseenRespondedTaskIds.has(task.id) ||
+          s.unseenInputTaskIds.has(task.id)
+        ) {
+          get().markTaskSeen(task.id);
+        }
+      }
+    },
+
     receiveTaskUpdate: (
       task: TaskInfo,
       unseen?: { responded: boolean; requires_input: boolean },
@@ -244,36 +293,10 @@ export const useTaskStore = create<TaskState>((set, get) => {
       }
 
       if (prevStatus !== nextStatus) {
-        // Don't show toasts if the task's pane is visible in the active tab
-        const appState = useAppStore.getState();
-        let isAlreadyVisible = false;
-        if (task.paneId != null && appState.activeWorkspacePath) {
-          const layout = appState.workspaceLayouts[appState.activeWorkspacePath];
-          if (layout) {
-            const panel = layout.panels[layout.activePanelId];
-            if (panel) {
-              const activeTab = panel.tabs.find(
-                (s) => s.id === panel.selectedTabId,
-              );
-              if (
-                activeTab &&
-                hasPaneId(activeTab.rootNode, task.paneId)
-              ) {
-                isAlreadyVisible = true;
-              }
-            }
-          }
-        }
-
-        if (
-          isAlreadyVisible &&
-          (nextStatus === "responded" || nextStatus === "requires_input")
-        ) {
-          // Main will re-broadcast on markSeen with cleared flags; the cache
-          // converges on that. We also call markTaskSeen() to clear locally
-          // for instant feedback.
-          get().markTaskSeen(task.id);
-        }
+        // Don't show toasts if the task's pane is already on screen.
+        const isAlreadyVisible =
+          task.paneId != null &&
+          selectVisiblePaneIds(useAppStore.getState()).has(task.paneId);
 
         if (nextStatus === "requires_input") {
           if (!isAlreadyVisible) {
@@ -346,6 +369,11 @@ export const useTaskStore = create<TaskState>((set, get) => {
         tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         return { tasks };
       });
+
+      // After the task list holds this row, so the sweep can map it to a pane.
+      // Covers a status flipping under a pane the user is already watching —
+      // main will re-broadcast with cleared flags and the cache converges.
+      get().markVisibleTasksSeen();
     },
   };
 });

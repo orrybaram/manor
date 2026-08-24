@@ -468,6 +468,34 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
 }
 
 /**
+ * Every pane the user can currently see: in the active workspace, inside each
+ * panel's *selected* tab.
+ *
+ * Panels sit side by side, so a pane in a non-active panel is on screen too —
+ * `activePanelId` only says where focus lives, not what is rendered. Hidden
+ * tabs stay mounted, so membership in a tab's tree is not enough on its own.
+ *
+ * This is the single definition of "on screen" for read state (issue #142): a
+ * task whose pane is in this set has been seen, whether the user got there by
+ * clicking the task, switching tabs, focusing a pane, or changing workspace.
+ */
+export function selectVisiblePaneIds(
+  state: Pick<AppState, "activeWorkspacePath" | "workspaceLayouts">,
+): Set<string> {
+  const ids = new Set<string>();
+  const path = state.activeWorkspacePath;
+  if (!path) return ids;
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return ids;
+  for (const panel of Object.values(layout.panels)) {
+    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    if (!tab) continue;
+    for (const id of allPaneIds(tab.rootNode)) ids.add(id);
+  }
+  return ids;
+}
+
+/**
  * Derive the current navigable `Location` from layout state. This is the read
  * side of the navigation-history bridge: `app-store` remains the source of
  * truth for "where am I", and the history store only records what this returns.

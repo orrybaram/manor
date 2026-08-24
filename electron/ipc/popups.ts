@@ -15,6 +15,28 @@ const MAX_POPUP_DIMENSION = 2000;
 // window), so each pane maps to a set of live child windows.
 const childWindowsByPane = new Map<string, Set<BrowserWindow>>();
 
+/**
+ * How long a popup gets to honour `close()` before it is destroyed outright.
+ * Only a page with a `beforeunload` handler ever needs it.
+ */
+const POPUP_CLOSE_GRACE_MS = 2000;
+
+/**
+ * Close a child popup the polite way. `destroy()` tears the window down inside
+ * the current stack, and these are swept from `webview:unregister` — which the
+ * renderer fires from inside a live drag while it releases the pane's panes, so
+ * a synchronous native teardown there can free a window Chromium is still using
+ * (see #164). `close()` posts the teardown instead; the hard kill remains as a
+ * fallback for a page that refuses to go.
+ */
+function closePopupWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  win.close();
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.destroy();
+  }, POPUP_CLOSE_GRACE_MS).unref?.();
+}
+
 function clampDimension(
   value: number | undefined,
   fallback: number,
@@ -27,20 +49,25 @@ function clampDimension(
 
 /**
  * Build the `overrideBrowserWindowOptions` for a communicating popup child
- * window. Parented to the main window so it closes with it, sized from the
- * guest's requested `features` (clamped/normalized), and locked to secure
+ * window. Parented to the window that owns the opening pane so it closes with
+ * it, sized from the guest's requested `features` (clamped/normalized), and
+ * locked to secure
  * webPreferences matching the main window (contextIsolation on, nodeIntegration
  * off, sandbox on). `width`/`height` are parsed by Electron from the `features`
  * string into the merged options it passes to `did-create-window`; we normalize
  * them here and let our explicit options take precedence.
  */
 export function buildPopupWindowOptions(
-  mainWindow: BrowserWindow | null,
+  parentWindow: BrowserWindow | null,
   features: string,
 ): Electron.BrowserWindowConstructorOptions {
   const { width, height } = parseFeaturesSize(features);
+  // A destroyed window still has a live JS wrapper, and handing that to `parent`
+  // parents the popup onto a freed native window. Prefer no parent at all.
+  const parent =
+    parentWindow && !parentWindow.isDestroyed() ? parentWindow : undefined;
   return {
-    parent: mainWindow ?? undefined,
+    parent,
     width: clampDimension(width, DEFAULT_POPUP_WIDTH),
     height: clampDimension(height, DEFAULT_POPUP_HEIGHT),
     minWidth: MIN_POPUP_DIMENSION,
@@ -127,9 +154,7 @@ export function closeChildWindowsForPane(paneId: string): void {
   if (!set) return;
   // Copy first: close() triggers the `closed` handler which mutates the set.
   for (const win of [...set]) {
-    if (!win.isDestroyed()) {
-      win.destroy();
-    }
+    closePopupWindow(win);
   }
   childWindowsByPane.delete(paneId);
 }

@@ -54,6 +54,67 @@ function listTasks(
   return getJson<TaskSummary[]>(request, tempHome, "/tasks");
 }
 
+/**
+ * Say something to a session through the app's own send path.
+ *
+ * Typing into the pane only works while the pane is on screen, and a test
+ * about read state needs to poke an agent the user is *not* looking at.
+ */
+export async function sendToSession(
+  request: APIRequestContext,
+  tempHome: string,
+  target: string,
+  text: string,
+): Promise<void> {
+  const res = await request.post(localApiUrl(tempHome, "/sessions/send"), {
+    data: { target, text },
+  });
+  if (!res.ok()) throw new Error(`POST /sessions/send → ${res.status()}`);
+}
+
+/** Wait for one task to report `status`, and return it. */
+export function waitForTaskStatus(
+  request: APIRequestContext,
+  tempHome: string,
+  taskId: string,
+  status: string,
+  timeout = 60_000,
+): Promise<TaskSummary> {
+  return waitFor(
+    `task ${taskId} in ${status}`,
+    async () => {
+      const tasks = await listTasks(request, tempHome);
+      return (
+        tasks.find((t) => t.id === taskId && t.lastAgentStatus === status) ??
+        null
+      );
+    },
+    timeout,
+  );
+}
+
+/** The active workspace's layout: every tab, its panes, and what is active. */
+export function layout(
+  request: APIRequestContext,
+  tempHome: string,
+): Promise<LayoutSnapshot> {
+  return getJson<LayoutSnapshot>(request, tempHome, "/panes");
+}
+
+/** The id of the tab holding `paneId`, from the app's own layout snapshot. */
+export async function tabIdForPane(
+  request: APIRequestContext,
+  tempHome: string,
+  paneId: string,
+): Promise<string> {
+  const snapshot = await layout(request, tempHome);
+  const tab = snapshot.tabs.find((t) =>
+    t.panes.some((pane) => pane.paneId === paneId),
+  );
+  if (!tab) throw new Error(`No tab holds pane ${paneId}`);
+  return tab.tabId;
+}
+
 /** The panes the app is actually showing, across the active workspace's tabs. */
 async function visiblePaneIds(
   request: APIRequestContext,

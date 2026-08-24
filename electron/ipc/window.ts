@@ -18,6 +18,23 @@ interface WindowInfo {
   bounds: Bounds;
 }
 
+/**
+ * Close a window on a later tick rather than inside the current IPC dispatch.
+ *
+ * Every caller here is a window asking to be torn down from inside something
+ * Chromium is still running: a popout closing from a `dragend` handler, or one
+ * that just handed its last tab away. The browser process still holds native
+ * state for that stack — an in-flight drag session, the view that raised the
+ * event — and freeing the window underneath it is a use-after-free (see #164).
+ * A tick costs nothing and removes the whole class.
+ */
+function closeWindowSoon(win: BrowserWindow | null | undefined): void {
+  if (!win || win.isDestroyed()) return;
+  setImmediate(() => {
+    if (!win.isDestroyed()) win.close();
+  });
+}
+
 export function register(deps: IpcDeps): void {
   // Electron exposes no z-order, so we approximate "topmost" with focus recency:
   // webContents ids, most-recently-focused first. Used to pick a single drop
@@ -54,27 +71,62 @@ export function register(deps: IpcDeps): void {
   // webContents (BrowserWindow.fromWebContents → id → windowId).
   const windowIdByWebContentsId = new Map<number, string>();
 
+  /**
+   * Open a popout window holding `payload`. The payload is parked here and the
+   * new renderer pulls it on boot (`window:getDetachPayload`) — a pull the
+   * destination drives itself, so unlike a push it cannot land before the
+   * window's listeners exist.
+   */
+  function spawnDetachedWindow(
+    payload: DetachedTabPayload,
+    spawnBounds?: Bounds,
+  ): string {
+    const windowId = `detached-${randomUUID()}`;
+    const win = createDetachedWindow(windowId, spawnBounds);
+    // Track for broadcast + keyed lookup by windowId (ticket 1 registry).
+    deps.registerDetachedWindow(windowId, win);
+
+    const webContentsId = win.webContents.id;
+    payloadByWindowId.set(windowId, payload);
+    windowIdByWebContentsId.set(webContentsId, windowId);
+
+    // Safety net: drop any un-consumed payload if the window closes before it
+    // asks for one (the normal path deletes it on getDetachPayload).
+    win.on("closed", () => {
+      payloadByWindowId.delete(windowId);
+      windowIdByWebContentsId.delete(webContentsId);
+    });
+
+    return windowId;
+  }
+
+  /**
+   * Hand a payload back to the primary window. The caller has already released
+   * the tab locally, so there is no owner left on this side: when the primary
+   * window is gone (the user closed it while popouts stayed open), dropping the
+   * payload would lose the tab and orphan its still-live daemon session. Fall
+   * back to a popout instead — surprising, but nothing is lost, and the panes
+   * stay reachable.
+   */
+  function sendToPrimary(payload: DetachedTabPayload): void {
+    const primary = deps.mainWindow;
+    if (
+      primary &&
+      !primary.isDestroyed() &&
+      !primary.webContents.isDestroyed()
+    ) {
+      primary.webContents.send("window:tab-reattached", payload);
+      if (primary.isMinimized()) primary.restore();
+      primary.focus();
+      return;
+    }
+    spawnDetachedWindow(payload);
+  }
+
   ipcMain.handle(
     "window:detachTab",
-    (_event, payload: DetachedTabPayload, spawnBounds: Bounds): string => {
-      const windowId = `detached-${randomUUID()}`;
-      const win = createDetachedWindow(windowId, spawnBounds);
-      // Track for broadcast + keyed lookup by windowId (ticket 1 registry).
-      deps.registerDetachedWindow(windowId, win);
-
-      const webContentsId = win.webContents.id;
-      payloadByWindowId.set(windowId, payload);
-      windowIdByWebContentsId.set(webContentsId, windowId);
-
-      // Safety net: drop any un-consumed payload if the window closes before it
-      // asks for one (the normal path deletes it on getDetachPayload).
-      win.on("closed", () => {
-        payloadByWindowId.delete(windowId);
-        windowIdByWebContentsId.delete(webContentsId);
-      });
-
-      return windowId;
-    },
+    (_event, payload: DetachedTabPayload, spawnBounds: Bounds): string =>
+      spawnDetachedWindow(payload, spawnBounds),
   );
 
   ipcMain.handle(
@@ -134,8 +186,10 @@ export function register(deps: IpcDeps): void {
 
   // Close the calling window. Used by a detached window that just gave away its
   // last tab — its store is already empty, so `beforeunload` kills nothing.
+  // Deferred and guarded: this can arrive twice, and it arrives while the
+  // renderer is still inside the handler that emptied the window.
   ipcMain.on("window:closeSelf", (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
+    closeWindowSoon(BrowserWindow.fromWebContents(event.sender));
   });
 
   // Move the calling window's top-left to a screen-space point. Fire-and-forget
@@ -155,18 +209,12 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "window:reattachTab",
     (event, payload: DetachedTabPayload): void => {
-      // deps.mainWindow is the PRIMARY window (ticket 1 registry). Forward the
-      // payload so the primary renderer inserts the tab into its active panel.
-      const primary = deps.mainWindow;
-      if (
-        primary &&
-        !primary.isDestroyed() &&
-        !primary.webContents.isDestroyed()
-      ) {
-        primary.webContents.send("window:tab-reattached", payload);
-      }
-      // Close the calling (detached) window.
-      BrowserWindow.fromWebContents(event.sender)?.close();
+      // Forward the payload so the primary renderer inserts the tab into its
+      // active panel — or, if the primary window is gone, into a fresh popout
+      // rather than nowhere.
+      sendToPrimary(payload);
+      // Close the calling (detached) window, once this dispatch has unwound.
+      closeWindowSoon(BrowserWindow.fromWebContents(event.sender));
     },
   );
 
@@ -177,16 +225,7 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "window:reattachPane",
     (_event, payload: DetachedTabPayload): void => {
-      const primary = deps.mainWindow;
-      if (
-        primary &&
-        !primary.isDestroyed() &&
-        !primary.webContents.isDestroyed()
-      ) {
-        primary.webContents.send("window:tab-reattached", payload);
-        if (primary.isMinimized()) primary.restore();
-        primary.focus();
-      }
+      sendToPrimary(payload);
     },
   );
 }

@@ -90,6 +90,7 @@ async function notifyPrEvent(
   url: string,
 ): Promise<void> {
   const shown = await window.electronAPI.notifications.show({
+    kind: event.kind,
     title: event.title,
     body: event.body,
     url,

@@ -149,6 +149,7 @@ describe("deliverPrNotifications", () => {
     await flush();
 
     expect(show).toHaveBeenCalledWith({
+      kind: "comment",
       title: "PR #123 — new comment",
       body: "Add feature",
       url: "https://github.com/o/r/pull/123",

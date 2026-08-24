@@ -27,7 +27,9 @@ vi.stubGlobal("window", {
       markSeen: markSeenMock,
     },
     notifications: {
-      onNavigateToTask: vi.fn(),
+      getAll: vi.fn().mockResolvedValue([]),
+  onChanged: vi.fn(() => () => {}),
+  onNavigate: vi.fn(() => () => {}),
     },
     projects: {
       select: vi.fn(),

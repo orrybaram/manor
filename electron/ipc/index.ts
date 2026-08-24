@@ -8,6 +8,7 @@ import * as branchesDiffsIpc from "./branches-diffs";
 import * as integrationsIpc from "./integrations";
 import * as webviewIpc from "./webview";
 import * as tasksIpc from "./tasks";
+import * as notificationsIpc from "./notifications";
 import * as miscIpc from "./misc";
 import * as processesIpc from "./processes";
 import * as windowIpc from "./window";
@@ -25,6 +26,7 @@ export function registerAllIpc(deps: IpcDeps): void {
   integrationsIpc.register(deps);
   webviewIpc.register(deps);
   tasksIpc.register(deps);
+  notificationsIpc.register(deps);
   miscIpc.register(deps);
   processesIpc.register(deps);
   windowIpc.register(deps);

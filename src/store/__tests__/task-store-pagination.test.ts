@@ -24,7 +24,9 @@ const tasksApi = {
 };
 
 const notificationsApi = {
-  onNavigateToTask: vi.fn(),
+  getAll: vi.fn().mockResolvedValue([]),
+  onChanged: vi.fn(() => () => {}),
+  onNavigate: vi.fn(() => () => {}),
 };
 
 (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {

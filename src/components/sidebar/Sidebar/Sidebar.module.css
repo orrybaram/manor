@@ -69,6 +69,14 @@
   color: var(--text-dim);
 }
 
+.titlebarActions {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
 .navControls {
   display: flex;
   align-items: center;

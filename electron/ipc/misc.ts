@@ -3,7 +3,11 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString } from "../ipc-validate";
-import { playNotificationSound, showPrNotification } from "../notifications";
+import {
+  playNotificationSound,
+  showPrNotification,
+  type PrNotifyEventKind,
+} from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import type { IpcDeps } from "./types";
 
@@ -132,7 +136,15 @@ export function register(deps: IpcDeps): void {
    */
   ipcMain.handle(
     "notifications:show",
-    (event, payload: { title: string; body: string; url?: string }): boolean => {
+    (
+      event,
+      payload: {
+        kind: PrNotifyEventKind;
+        title: string;
+        body: string;
+        url?: string;
+      },
+    ): boolean => {
       assertString(payload.title, "title");
       assertString(payload.body, "body");
       // Focus is judged against the window that asked, not the primary one:

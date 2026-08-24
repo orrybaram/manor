@@ -31,9 +31,16 @@ if (typeof globalThis.window === "undefined") {
         getAll: vi.fn().mockResolvedValue([]),
         getUnseen: vi.fn().mockResolvedValue([]),
       },
-      // task-store.ts also subscribes to notifications.onNavigateToTask at init.
+      // notification-store.ts subscribes to onChanged/onNavigate and fetches
+      // the snapshot at module-init time (ADR-162).
       notifications: {
-        onNavigateToTask: vi.fn(() => vi.fn()),
+        getAll: vi.fn().mockResolvedValue([]),
+        markRead: vi.fn().mockResolvedValue(undefined),
+        markAllRead: vi.fn().mockResolvedValue(undefined),
+        clear: vi.fn().mockResolvedValue(undefined),
+        onChanged: vi.fn(() => vi.fn()),
+        onNavigate: vi.fn(() => vi.fn()),
+        show: vi.fn().mockResolvedValue(true),
       },
       // preferences-store.ts and keybindings-store.ts both read their state and
       // subscribe to changes at module-init time, so anything importing them

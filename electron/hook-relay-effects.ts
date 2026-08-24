@@ -125,10 +125,20 @@ export function applyEffects(
         });
         const now = new Date().toISOString();
         task = deps.taskManager.updateTask(task.id, { activatedAt: now });
-        if (task && effect.status === "requires_input") {
-          deps.unseenInputTasks.add(task.id);
+        if (task) {
+          if (effect.status === "requires_input") {
+            deps.unseenInputTasks.add(task.id);
+          }
+          // A session whose very first task-creating event already needs input
+          // — an agent that asks for permission before doing anything else —
+          // notifies like any other transition into that state. Only this
+          // branch runs for it: there is no prior task for
+          // `UpdateTaskActiveStatus` to find, and skipping the call here meant
+          // the pulse appeared with no banner and no entry in the log
+          // (ADR-162).
+          deps.maybeSendNotification(task, null, effect.status);
+          deps.broadcastTask(task);
         }
-        if (task) deps.broadcastTask(task);
         break;
       }
 

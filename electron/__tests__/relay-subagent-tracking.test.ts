@@ -1280,6 +1280,71 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
   });
 });
 
+describe("createHookRelay — ADR-162: a session that opens needing input notifies", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    ctx = buildRelay();
+  });
+
+  it("adr162-1: the first task-creating event notifies when it already requires input", () => {
+    const { relay, taskManager, maybeSendNotification, unseenInputTasks } = ctx;
+
+    // An agent that asks for permission before doing anything else: the very
+    // first event that creates a task already carries requires_input, so only
+    // CreateTask runs for it. Skipping the notification here left the pulse
+    // showing with no banner and nothing in the notification log.
+    fire(relay, notification({ paneId: "pane-N", sessionId: "sess-N" }));
+
+    const task = taskManager.getTaskBySessionId("sess-N");
+    expect(task).not.toBeNull();
+    expect(task?.lastAgentStatus).toBe("requires_input");
+    expect(unseenInputTasks.has(task!.id)).toBe(true);
+
+    expect(maybeSendNotification).toHaveBeenCalledTimes(1);
+    expect(maybeSendNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: task!.id }),
+      // No prior task means no prior status.
+      null,
+      "requires_input",
+    );
+  });
+
+  it("adr162-2: creating a task mid-turn does not notify", () => {
+    const { relay, maybeSendNotification } = ctx;
+
+    // "thinking" is not a state anyone is told about — only responded and
+    // requires_input are, and the preference gates live in the callee.
+    fire(relay, userPromptSubmit({ paneId: "pane-T", sessionId: "sess-T" }));
+
+    expect(maybeSendNotification).toHaveBeenCalledTimes(1);
+    expect(maybeSendNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      null,
+      "thinking",
+    );
+  });
+
+  it("adr162-3: a session handed off to a new one still notifies for the new task", () => {
+    const { relay, taskManager, maybeSendNotification } = ctx;
+
+    fire(relay, userPromptSubmit({ paneId: "pane-H", sessionId: "sess-H1" }));
+    maybeSendNotification.mockClear();
+
+    // Handoff on the same pane: CreateTask retires the old task first, then
+    // creates one that already needs input.
+    fire(relay, sessionStart({ paneId: "pane-H", sessionId: "sess-H2" }));
+    fire(relay, notification({ paneId: "pane-H", sessionId: "sess-H2" }));
+
+    const newTask = taskManager.getTaskBySessionId("sess-H2");
+    expect(maybeSendNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: newTask!.id }),
+      null,
+      "requires_input",
+    );
+  });
+});
+
 describe("createHookRelay — ADR-142: CreateTask retires previous pane owner", () => {
   let ctx: ReturnType<typeof buildRelay>;
 

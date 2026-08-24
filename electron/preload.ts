@@ -455,10 +455,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   notifications: {
-    onNavigateToTask: (callback: (taskId: string) => void) =>
-      onChannel("notification:navigate-to-task", callback),
-    show: (payload: { title: string; body: string; url?: string }) =>
-      ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
+    show: (payload: {
+      kind: "comment" | "approved" | "changes-requested" | "checks-failed";
+      title: string;
+      body: string;
+      url?: string;
+    }) => ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
+    getAll: () => ipcRenderer.invoke("notifications:getAll"),
+    markRead: (id: string) => ipcRenderer.invoke("notifications:markRead", id),
+    markAllRead: () => ipcRenderer.invoke("notifications:markAllRead"),
+    clear: () => ipcRenderer.invoke("notifications:clear"),
+    /** Main re-broadcasts the whole list on every mutation (ADR-162 §3). */
+    onChanged: (callback: (list: unknown[]) => void) =>
+      onChannel("notifications:changed", callback),
+    /** A native banner was clicked; the payload is the record id. */
+    onNavigate: (callback: (id: string) => void) =>
+      onChannel("notifications:navigate", callback),
   },
 
   clipboard: {

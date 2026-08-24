@@ -21,6 +21,7 @@ import {
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { TaskManager, type TaskInfo } from "./task-persistence";
+import { NotificationStore } from "./notification-store";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
@@ -41,6 +42,7 @@ import {
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
   sendTaskUpdate,
+  setNotificationStore,
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
@@ -52,6 +54,7 @@ import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as tasksIpc from "./ipc/tasks";
+import * as notificationsIpc from "./ipc/notifications";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
@@ -220,6 +223,10 @@ export function initApp(devTitle: string | null): void {
     preferencesManager.get("taskRetentionDays"),
   );
   const keybindingsManager = new KeybindingsManager();
+  // ADR-162's durable notification log. Handed to `notifications.ts` so the
+  // single recording site inside `presentNotification` can reach it.
+  const notificationStore = new NotificationStore();
+  setNotificationStore(notificationStore);
 
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
@@ -353,6 +360,7 @@ export function initApp(devTitle: string | null): void {
     linearManager,
     agentHookServer,
     taskManager,
+    notificationStore,
     preferencesManager,
     keybindingsManager,
     paneContextMap,
@@ -373,6 +381,7 @@ export function initApp(devTitle: string | null): void {
   integrationsIpc.register(ipcDeps);
   webviewIpc.register(ipcDeps);
   tasksIpc.register(ipcDeps);
+  notificationsIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);

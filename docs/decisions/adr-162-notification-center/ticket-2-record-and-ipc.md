@@ -1,6 +1,6 @@
 ---
 title: Record every notification at emit, expose it over IPC
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

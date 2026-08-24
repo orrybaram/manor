@@ -1,8 +1,66 @@
-import { app, BrowserWindow, Notification, shell } from "electron";
+import { app, BrowserWindow, Notification } from "electron";
 import { execFile } from "node:child_process";
+import type {
+  NotificationKind,
+  NotificationRecord,
+  NotificationStore,
+  NotificationTarget,
+} from "./notification-store";
 import type { PreferencesManager } from "./preferences";
 import type { TaskInfo } from "./task-persistence";
 import type { AgentStatus } from "./terminal-host/types";
+
+/** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
+export type PrNotifyEventKind =
+  | "comment"
+  | "approved"
+  | "changes-requested"
+  | "checks-failed";
+
+const PR_KIND_TO_NOTIFICATION_KIND: Record<PrNotifyEventKind, NotificationKind> = {
+  comment: "pr-comment",
+  approved: "pr-approved",
+  "changes-requested": "pr-changes-requested",
+  "checks-failed": "pr-checks-failed",
+};
+
+/**
+ * The durable notification log (ADR-162). Set once from app-lifecycle; absent
+ * in tests and in any context that never boots the app, where recording is
+ * simply skipped.
+ */
+let notificationStore: NotificationStore | null = null;
+
+export function setNotificationStore(store: NotificationStore | null): void {
+  notificationStore = store;
+}
+
+/**
+ * Broadcast the full notification list to the renderer. This is the single
+ * send-site for `notifications:changed`; do not call
+ * `webContents.send("notifications:changed", ...)` directly.
+ *
+ * The list is capped at 200 records, so shipping all of it on every mutation
+ * is deliberate — it makes renderer drift impossible (ADR-162 §3).
+ */
+export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void {
+  if (!notificationStore) return;
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    mainWindow.webContents.isDestroyed()
+  ) {
+    return;
+  }
+  try {
+    mainWindow.webContents.send(
+      "notifications:changed",
+      notificationStore.getAll(),
+    );
+  } catch {
+    // Render frame disposed — safe to ignore
+  }
+}
 
 export const unseenRespondedTasks = new Set<string>();
 export const unseenInputTasks = new Set<string>();
@@ -103,8 +161,24 @@ export function playNotificationSound(soundName: string | false): void {
 function presentNotification(
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
-  opts: { title: string; body: string; onClick?: () => void },
+  opts: {
+    title: string;
+    body: string;
+    record: { kind: NotificationKind; target: NotificationTarget | null };
+  },
 ): boolean {
+  // Record *before* the focus check. A notification suppressed because the
+  // window was focused is exactly the case the log exists for (ADR-162 §2):
+  // the user may have been looking at a different pane the whole time.
+  const record: NotificationRecord | null =
+    notificationStore?.append({
+      kind: opts.record.kind,
+      title: opts.title,
+      body: opts.body,
+      target: opts.record.target,
+    }) ?? null;
+  sendNotificationsUpdate(mainWindow);
+
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
     return false;
   }
@@ -118,7 +192,11 @@ function presentNotification(
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.show();
     mainWindow.focus();
-    opts.onClick?.();
+    // One click path for banners and in-app rows alike: the renderer resolves
+    // the record's target through `navigateToNotification` (ADR-162 §4).
+    if (record) {
+      mainWindow.webContents.send("notifications:navigate", record.id);
+    }
   });
   notification.show();
   playNotificationSound(preferencesManager.get("notificationSound"));
@@ -133,18 +211,21 @@ export function maybeSendNotification(
   preferencesManager: PreferencesManager,
 ): void {
   let title: string;
+  let kind: NotificationKind;
   if (
     newStatus === "responded" &&
     prevStatus !== "responded" &&
     preferencesManager.get("notifyOnResponse")
   ) {
     title = "Agent responded";
+    kind = "agent-responded";
   } else if (
     newStatus === "requires_input" &&
     prevStatus !== "requires_input" &&
     preferencesManager.get("notifyOnRequiresInput")
   ) {
     title = "Agent needs input";
+    kind = "agent-requires-input";
   } else {
     return;
   }
@@ -152,8 +233,7 @@ export function maybeSendNotification(
   presentNotification(mainWindow, preferencesManager, {
     title,
     body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
-    onClick: () =>
-      mainWindow?.webContents.send("notification:navigate-to-task", task.id),
+    record: { kind, target: { type: "task", taskId: task.id } },
   });
 }
 
@@ -163,13 +243,16 @@ export function maybeSendNotification(
  * means the calling window is focused and the renderer should toast instead.
  */
 export function showPrNotification(
-  payload: { title: string; body: string; url?: string },
+  payload: { kind: PrNotifyEventKind; title: string; body: string; url?: string },
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
 ): boolean {
   return presentNotification(mainWindow, preferencesManager, {
     title: payload.title,
     body: payload.body,
-    onClick: payload.url ? () => shell.openExternal(payload.url!) : undefined,
+    record: {
+      kind: PR_KIND_TO_NOTIFICATION_KIND[payload.kind] ?? "pr-comment",
+      target: payload.url ? { type: "url", url: payload.url } : null,
+    },
   });
 }

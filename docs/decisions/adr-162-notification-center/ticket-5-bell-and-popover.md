@@ -1,6 +1,6 @@
 ---
 title: Bell entry point and notifications popover
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [3, 4]

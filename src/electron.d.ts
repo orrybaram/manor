@@ -50,6 +50,34 @@ export interface TaskInfo {
   resumedAt: string | null;
 }
 
+/**
+ * ADR-162's durable notification log. Mirrors `NotificationRecord` in
+ * `electron/notification-store.ts`; declared here rather than imported so the
+ * renderer's declaration surface stays self-contained.
+ */
+export type NotificationKind =
+  | "agent-responded"
+  | "agent-requires-input"
+  | "pr-comment"
+  | "pr-approved"
+  | "pr-changes-requested"
+  | "pr-checks-failed";
+
+export type NotificationTarget =
+  | { type: "task"; taskId: string }
+  | { type: "url"; url: string };
+
+export interface NotificationRecord {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  /** ISO timestamp. */
+  timestamp: string;
+  read: boolean;
+  target: NotificationTarget | null;
+}
+
 export interface LinearTeam {
   id: string;
   name: string;
@@ -654,17 +682,28 @@ export interface ElectronAPI {
   };
 
   notifications: {
-    onNavigateToTask: (callback: (taskId: string) => void) => () => void;
     /**
      * Resolves `true` when a native notification was presented, `false` when
      * the calling window is focused — in which case the caller should show an
-     * in-app toast instead.
+     * in-app toast instead. Either way the event is recorded in the log.
      */
     show: (payload: {
+      kind: "comment" | "approved" | "changes-requested" | "checks-failed";
       title: string;
       body: string;
       url?: string;
     }) => Promise<boolean>;
+    /** Newest first. Main owns the list; the renderer only caches it. */
+    getAll: () => Promise<NotificationRecord[]>;
+    markRead: (id: string) => Promise<void>;
+    markAllRead: () => Promise<void>;
+    clear: () => Promise<void>;
+    /** Fires with the full list after every mutation (ADR-162 §3). */
+    onChanged: (
+      callback: (list: NotificationRecord[]) => void,
+    ) => () => void;
+    /** A native banner was clicked; the payload is the record id. */
+    onNavigate: (callback: (id: string) => void) => () => void;
   };
 
   clipboard: {

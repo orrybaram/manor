@@ -10,6 +10,7 @@ import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
 import type { TaskManager } from "../task-persistence";
+import type { NotificationStore } from "../notification-store";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
@@ -46,6 +47,8 @@ export interface IpcDeps {
   linearManager: LinearManager;
   agentHookServer: AgentHookServer;
   taskManager: TaskManager;
+  /** ADR-162's durable notification log. */
+  notificationStore: NotificationStore;
   preferencesManager: PreferencesManager;
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<

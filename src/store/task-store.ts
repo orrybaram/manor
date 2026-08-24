@@ -72,18 +72,6 @@ export const useTaskStore = create<TaskState>((set, get) => {
     get().markVisibleTasksSeen();
   });
 
-  // Navigate to task when a desktop notification is clicked
-  window.electronAPI?.notifications.onNavigateToTask(async (taskId) => {
-    const tasks = get().tasks;
-    let task = tasks.find((t) => t.id === taskId) ?? null;
-    if (!task) {
-      task = await window.electronAPI.tasks.get(taskId);
-    }
-    if (task) {
-      navigateToTask(task);
-    }
-  });
-
   // Paginated initial load: active tasks (full set, used by sidebar) +
   // the first page of all tasks (used by the history modal) + main's
   // unseen-flag snapshot (ADR-136 §"Change 3"). The three are merged so

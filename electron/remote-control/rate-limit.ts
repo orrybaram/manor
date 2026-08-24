@@ -9,6 +9,20 @@
  * Deliberately in-memory. Persisting it would let an attacker who can reach the
  * listener grow a file on disk, and a restart clearing the backoff costs
  * nothing an attacker could not get by waiting 60s anyway.
+ *
+ * **The "source" is coarser than it looks.** The listener binds loopback, so
+ * every request that arrives through a tunnel has `127.0.0.1` as its peer:
+ * behind cloudflared or `tailscale serve` this degenerates to a single bucket
+ * shared by every remote caller. That is deliberate, and it is why `server.ts`
+ * verifies a token *before* consulting this class — a shared bucket that could
+ * reject an authenticated request would let a stranger lock the owner out. It
+ * only ever delays requests that already failed to authenticate.
+ *
+ * `X-Forwarded-For` would give finer buckets and is not used. It is written by
+ * the client and merely appended to by the tunnel, so trusting it means picking
+ * the right entry from a list an attacker partly controls — real complexity for
+ * an attacker who can mint a fresh bucket per request anyway. Granularity is
+ * not what makes this safe; the ordering in `server.ts` is.
  */
 
 /** First penalty, doubled per consecutive failure. */

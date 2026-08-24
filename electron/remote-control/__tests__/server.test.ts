@@ -188,11 +188,26 @@ describe("RemoteControlServer", () => {
   describe("rate limiting", () => {
     it("429s a source that just failed, then lets it retry", async () => {
       expect((await get("/tasks", "wrong")).status).toBe(401);
-      const blocked = await get("/tasks", READ_TOKEN);
+      const blocked = await get("/tasks", "wrong-again");
       expect(blocked.status).toBe(429);
       expect(blocked.headers.get("retry-after")).toBe("1");
 
       now += 1_000;
+      expect((await get("/tasks", "wrong-again")).status).toBe(401);
+    });
+
+    // The reason verification runs before the backoff check. This listener is
+    // loopback-bound, so behind a tunnel every remote caller shares one source
+    // address: a stranger guessing tokens against a discovered hostname and the
+    // owner's phone land in the same bucket. If the backoff could reject an
+    // authenticated request, the guesser would be locking the owner out of
+    // their own machine — from away from it, which is the one situation this
+    // feature exists for.
+    it("serves a valid token while another caller is being backed off", async () => {
+      for (let i = 0; i < 5; i++) {
+        await get("/tasks", `guess-${i}`);
+      }
+      // Same source, deep into exponential backoff, and still served.
       expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
     });
 
@@ -207,12 +222,13 @@ describe("RemoteControlServer", () => {
 
     it("clears the backoff after a success", async () => {
       expect((await get("/tasks", "wrong")).status).toBe(401);
-      now += 1_000;
       expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
-      // A success wiped the history, so the next failure starts at 1s again.
+      // The success wiped the history, so the next failure starts at 1s again
+      // rather than resuming the doubling.
       expect((await get("/tasks", "wrong")).status).toBe(401);
-      now += 1_000;
-      expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
+      expect((await get("/tasks", "wrong")).headers.get("retry-after")).toBe(
+        "1",
+      );
     });
   });
 

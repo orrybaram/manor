@@ -1,6 +1,6 @@
 ---
 title: Rate limiting keys on the wrong thing behind a tunnel
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []
@@ -23,7 +23,11 @@ lock the owner out.
 between failures — which is exactly the race you do not want to be relying on while you
 are away from the machine.
 
-The fix needs a decision recorded in the ADR, not just a patch. Two defensible shapes:
+**Resolved by neither of the two shapes below.** Both change the *key*; the actual defect
+is the *order*. `devices.verify()` now runs before the backoff is consulted, so the
+backoff can only ever delay a request that failed to authenticate, and a valid token is
+served no matter what the shared bucket has accumulated. `X-Forwarded-For` stays untrusted
+— see the ADR. The two candidates considered:
 
 - **Trust a forwarded address, narrowly.** Read `X-Forwarded-For`'s leftmost entry, but
   only when the socket peer is loopback *and* a tunnel is currently running — that is the

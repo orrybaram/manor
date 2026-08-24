@@ -13,8 +13,11 @@
  *
  *   1. method and declared size sanity;
  *   2. bearer token out of `Authorization`;
- *   3. rate-limit check, then `devices.verify()` — a failure returns 401
- *      **before the body is read** and before any handler exists;
+ *   3. `devices.verify()`, then — only if it failed — the rate-limit check. A
+ *      failure returns 401 (or 429) **before the body is read** and before any
+ *      handler exists. Verification comes first so that a backoff earned by
+ *      someone else guessing through the same tunnel can never reject a device
+ *      holding a valid token;
  *   4. `Origin`/`Host` agreement, as defence in depth only. This is a
  *      browser-enforced control and `curl` does not enforce it, so it is never
  *      the boundary;
@@ -201,25 +204,40 @@ export class RemoteControlServer {
     }
 
     // ── 2 & 3. Authenticate before anything else happens ──
+    //
+    // Verification comes *before* the backoff check, and that order is the
+    // whole point. This listener binds loopback, so every request arriving
+    // through a tunnel has `127.0.0.1` as its peer — one bucket shared by every
+    // remote device and every stranger who found the hostname. Checking the
+    // backoff first meant a guesser could drive that shared bucket into
+    // exponential delay and the owner's phone, holding a perfectly good token,
+    // got the 429. A control meant to slow an intruder down was locking the
+    // owner out instead.
+    //
+    // So: a valid token is served no matter what anyone else has been doing,
+    // and the backoff applies only to requests that failed to authenticate.
+    // The cost of that ordering is one SHA-256 and a `timingSafeEqual` per
+    // request from a source that is already blocked, which is not a price
+    // worth an availability bug.
     const source = req.socket.remoteAddress ?? "unknown";
-    const retryAfter = this.limiter.retryAfterMs(source);
-    if (retryAfter > 0) {
-      res.writeHead(429, {
-        "Content-Type": "application/json",
-        "Retry-After": String(Math.ceil(retryAfter / 1000)),
-      });
-      res.end(JSON.stringify({ error: "Too many attempts" }));
-      return;
-    }
-
     const presented = bearerToken(req);
     const device = presented === null ? null : this.devices.verify(presented);
+
     if (!device) {
+      const retryAfter = this.limiter.retryAfterMs(source);
+      if (retryAfter > 0) {
+        res.writeHead(429, {
+          "Content-Type": "application/json",
+          "Retry-After": String(Math.ceil(retryAfter / 1000)),
+        });
+        res.end(JSON.stringify({ error: "Too many attempts" }));
+        return;
+      }
       // Only a request that actually presented a token counts as an attempt.
       // A browser asks for `/favicon.ico` with no `Authorization` header the
-      // moment the page loads; penalising that would back the address off
-      // before the app's own first call, and a perfectly good token would see
-      // 429. Guessing still costs, because guessing means sending a token.
+      // moment the page loads, and penalising that would back the address off
+      // before the app's own first call. Guessing still costs, because
+      // guessing means sending a token.
       if (presented !== null) {
         const delay = this.limiter.recordFailure(source);
         // Loud on purpose: a knock on this listener is worth seeing. The

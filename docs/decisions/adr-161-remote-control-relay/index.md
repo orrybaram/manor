@@ -270,6 +270,25 @@ constrained arbitrary-file read — any `scrollback.bin` or `meta.json` on the m
 be a single path segment, enforced at the two static readers so every caller (including
 the local MCP path) is covered.
 
+**Rate limiting could lock the owner out.** The listener binds loopback, so every request
+arriving through a tunnel has `127.0.0.1` as its peer — one bucket shared by every remote
+device and every stranger who found the hostname. The backoff was checked *before* the
+token was verified, so a guesser could drive that shared bucket into exponential delay and
+the owner's phone, holding a valid token, got the 429. A control written to slow an
+intruder down was locking the owner out of their own machine, from exactly the place this
+feature is meant to work from.
+
+The fix is the order, not the key: `devices.verify()` now runs first, and the backoff
+applies only to requests that failed to authenticate. A valid token is served regardless
+of what anyone else has been doing. The cost is one SHA-256 and a `timingSafeEqual` per
+request from an already-blocked source, which is not a price worth an availability bug.
+
+`X-Forwarded-For` was considered and rejected as the alternative. It would give finer
+buckets, but it is written by the client and only appended to by the tunnel, so trusting
+it means choosing the right entry from a list an attacker partly controls — real
+complexity against an attacker who can mint a fresh bucket per request anyway. Granularity
+was never what made this safe.
+
 ### Found in review, not fixed
 
 - **An unauthenticated caller can request the app shell repeatedly.** Static serving sits
@@ -296,12 +315,6 @@ notification half does not fire at all.
 the most valuable remote action there is, and it is the one action not wired up (ticket
 11). Answering a permission prompt likewise costs a phone keyboard and a paragraph of
 confirmation to send the character `1`.
-
-**Rate limiting keys on the wrong thing behind a tunnel.** Every tunnelled request reaches
-a loopback listener, so `req.socket.remoteAddress` is `127.0.0.1` for all remote devices.
-They share one bucket, which means someone guessing tokens backs *your own phone* off into
-429s. The limiter was written to slow an intruder down and currently lets one lock the
-owner out (ticket 12).
 
 **Nothing survives a restart.** Enablement is deliberately not persisted, and a cloudflared
 quick tunnel rotates its hostname on every start — a new origin, so the phone's token,

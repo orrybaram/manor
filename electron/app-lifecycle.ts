@@ -145,6 +145,39 @@ export function initApp(devTitle: string | null): void {
     });
   }
 
+  /**
+   * Create the primary window and wire the lifecycle that belongs to it.
+   *
+   * `mainWindow` is nulled on `closed`: a closed window leaves a live JS wrapper
+   * around a freed native window, and the app outlives it on macOS (popouts keep
+   * running), so anything still reading `deps.mainWindow` would hand that
+   * wrapper to `dialog`, `parent:`, or `webContents.send` (see #164).
+   */
+  function openPrimaryWindow(): BrowserWindow {
+    const win = createWindow();
+    mainWindow = win;
+    trackRendererWindow(win);
+
+    // Backstop cleanup: child popup windows are parented to the main window so
+    // Chromium closes them with it, but explicitly flush the tracking registry
+    // on close so no entries or listeners leak.
+    win.on("close", () => {
+      webviewIpc.closeAllChildWindows();
+    });
+    win.on("closed", () => {
+      if (mainWindow === win) mainWindow = null;
+    });
+
+    if (devTitle) {
+      win.setTitle(devTitle);
+      win.webContents.on("page-title-updated", (e) => {
+        e.preventDefault();
+      });
+    }
+
+    return win;
+  }
+
   /** Live, non-destroyed renderer windows (primary + detached). */
   function getRendererWindows(): BrowserWindow[] {
     return Array.from(rendererWindows).filter(
@@ -434,29 +467,12 @@ export function initApp(devTitle: string | null): void {
       }
     }
 
-    mainWindow = createWindow();
-    trackRendererWindow(mainWindow);
+    openPrimaryWindow();
 
-    // Backstop cleanup: child popup windows are parented to the main window so
-    // Chromium closes them with it, but explicitly flush the tracking registry
-    // on close so no entries or listeners leak.
-    if (mainWindow) {
-      mainWindow.on("close", () => {
-        webviewIpc.closeAllChildWindows();
-      });
-    }
-
-    if (devTitle && mainWindow) {
-      mainWindow.setTitle(devTitle);
-      mainWindow.webContents.on("page-title-updated", (e) => {
-        e.preventDefault();
-      });
-    }
-
-    // Initialize auto-updater
-    if (mainWindow) {
-      initAutoUpdater(mainWindow);
-    }
+    // Initialize auto-updater. It reads the primary window on each event rather
+    // than capturing one — the window it started with may since have been closed
+    // and replaced.
+    initAutoUpdater(() => mainWindow);
 
     // Start agent hook server FIRST to get the port number.
     // The port must be in process.env BEFORE the daemon spawns,
@@ -520,10 +536,12 @@ export function initApp(devTitle: string | null): void {
       clearInterval(staleStopSweep);
     });
 
+    // Reopen the PRIMARY window, not just "a" window: with a popout still open
+    // the old zero-windows test never fired, so a user who closed the main
+    // window could not get it back without quitting.
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow();
-        trackRendererWindow(mainWindow);
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        openPrimaryWindow();
       }
     });
   });

@@ -13,7 +13,7 @@ import {
   dispatchKeybinding,
   startNewTask,
 } from "./lib/keybinding-commands";
-import { countTabsInWindow } from "./lib/window-handoff";
+import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { allPaneIds } from "./store/pane-tree";
 import "./App.css";
@@ -66,11 +66,28 @@ export default function DetachedApp() {
       const total = countTabsInWindow();
       if (total > 0) {
         sawTabs = true;
-      } else if (sawTabs && !closing) {
-        // Was populated, now empty — nothing left to render.
-        closing = true;
-        window.electronAPI.window.closeSelf();
+        return;
       }
+      if (!sawTabs || closing) return;
+      // Was populated, now empty — nothing left to render. Two reasons never to
+      // close from right here: this runs inside the store mutation that emptied
+      // the window, which is itself dispatched from a live native drag (a
+      // tear-off, or a drop onto another window), and the handoff's payload has
+      // not left this renderer yet. Wait for the handoffs, then yield the
+      // stack, so the window is never destroyed underneath Chromium's drag
+      // machinery and never takes an undelivered payload with it.
+      closing = true;
+      void whenHandoffsIdle().then(() => {
+        setTimeout(() => {
+          // A tab may have arrived while we waited (a drop into this window) —
+          // that window is alive again and must not be closed.
+          if (countTabsInWindow() > 0) {
+            closing = false;
+            return;
+          }
+          window.electronAPI.window.closeSelf();
+        }, 0);
+      });
     };
     maybeClose();
     return useAppStore.subscribe(maybeClose);

@@ -3,6 +3,8 @@ import {
   countPanesInWindow,
   movePaneToNewWindow,
   movePaneToMainWindow,
+  trackHandoff,
+  whenHandoffsIdle,
 } from "../window-handoff";
 import { useAppStore } from "../../store/app-store";
 import { hasPaneId } from "../../store/pane-tree";
@@ -148,5 +150,66 @@ describe("movePaneToMainWindow", () => {
     expect(hasPaneId(payload.tab.rootNode, "pane-2")).toBe(true);
     expect(ptyDetach).toHaveBeenCalledWith("pane-2");
     expect(tabHolding("pane-1")).toBeDefined();
+  });
+});
+
+describe("handoff tracking", () => {
+  it("is idle when nothing is in flight", async () => {
+    await expect(whenHandoffsIdle()).resolves.toBeUndefined();
+  });
+
+  it("stays busy until the handoff settles", async () => {
+    let release!: () => void;
+    const handoff = trackHandoff(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    let idle = false;
+    void whenHandoffsIdle().then(() => {
+      idle = true;
+    });
+    await Promise.resolve();
+    expect(idle).toBe(false);
+
+    release();
+    await handoff;
+    await whenHandoffsIdle();
+    expect(idle).toBe(true);
+  });
+
+  it("goes idle when a handoff rejects", async () => {
+    // A popout must still be able to close after a failed handoff — otherwise a
+    // rejected transfer would strand an empty window forever.
+    const handoff = trackHandoff(Promise.reject(new Error("no window")));
+    await expect(handoff).rejects.toThrow("no window");
+    await expect(whenHandoffsIdle()).resolves.toBeUndefined();
+  });
+
+  it("waits for the last of several concurrent handoffs", async () => {
+    const resolvers: Array<() => void> = [];
+    const handoffs = [0, 1].map(() =>
+      trackHandoff(
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        }),
+      ),
+    );
+
+    let idle = false;
+    void whenHandoffsIdle().then(() => {
+      idle = true;
+    });
+
+    resolvers[0]();
+    await handoffs[0];
+    await Promise.resolve();
+    expect(idle).toBe(false);
+
+    resolvers[1]();
+    await handoffs[1];
+    await whenHandoffsIdle();
+    expect(idle).toBe(true);
   });
 });

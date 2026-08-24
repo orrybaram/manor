@@ -8,6 +8,7 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
+import { trackHandoff } from "../../../lib/window-handoff";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
@@ -307,23 +308,23 @@ export function TabBar(props: TabBarProps) {
       const store = useAppStore.getState();
       const payload = store.serializeTabForDetach(tabId);
       store.removeDetachedTabLocally(tabId);
-      void window.electronAPI.window
-        .detachTab(payload, {
+      void trackHandoff(
+        window.electronAPI.window.detachTab(payload, {
           x: Math.round(sx - grab.x),
           y: Math.round(sy - grab.y),
           width: 900,
           height: 600,
-        })
-        .catch((err) => console.error("Failed to tear tab into new window", err));
+        }),
+      ).catch((err) => console.error("Failed to tear tab into new window", err));
 
       clearDragIndicators();
       setDragIndex(null);
       draggedTabId.current = null;
       draggedFromPanelId.current = undefined;
       endDrag();
-      if (window.electronAPI?.isDetached && countTabsInWindow() === 0) {
-        window.electronAPI.window.closeSelf();
-      }
+      // Emptying a popout closes it — but that is `DetachedApp`'s store
+      // subscription's job, not ours. Closing the window from here would do it
+      // synchronously, inside the drag event Chromium is still dispatching.
     },
     [endDrag, clearDragIndicators],
   );
@@ -522,28 +523,29 @@ export function TabBar(props: TabBarProps) {
       // first: removeDetachedTabLocally releases the panes it references.)
       store.removeDetachedTabLocally(tabId);
       if (target) {
-        void window.electronAPI.window
-          .transferTab(target.id, payload)
-          .then((accepted) => {
-            if (!accepted) {
-              void window.electronAPI.window.detachTab(payload, spawnBounds);
-            }
-          })
-          .catch((err) =>
-            console.error("Failed to move tab out of this window", err),
-          );
+        void trackHandoff(
+          window.electronAPI.window
+            .transferTab(target.id, payload)
+            .then((accepted) => {
+              if (!accepted) {
+                return window.electronAPI.window.detachTab(payload, spawnBounds);
+              }
+            }),
+        ).catch((err) =>
+          console.error("Failed to move tab out of this window", err),
+        );
       } else {
-        void window.electronAPI.window
-          .detachTab(payload, spawnBounds)
-          .catch((err) =>
-            console.error("Failed to move tab out of this window", err),
-          );
+        void trackHandoff(
+          window.electronAPI.window.detachTab(payload, spawnBounds),
+        ).catch((err) =>
+          console.error("Failed to move tab out of this window", err),
+        );
       }
       // A detached window that just gave away its last tab has nothing left to
-      // show — close it rather than orphan it.
-      if (window.electronAPI?.isDetached && countTabsInWindow() === 0) {
-        window.electronAPI.window.closeSelf();
-      }
+      // show, and `DetachedApp`'s store subscription closes it — after the
+      // handoff above has actually left this renderer. Closing it here instead
+      // would race the payload and would run inside the `dragend` Chromium is
+      // still dispatching.
     },
     [endDrag, clearDragIndicators],
   );

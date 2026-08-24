@@ -1,6 +1,6 @@
 ---
 title: Renderer notification store and shared navigation helper
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

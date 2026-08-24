@@ -35,6 +35,7 @@ import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { ProjectItem } from "../ProjectItem";
 import { PortsList } from "../../ports/PortsList";
 import { TasksList } from "../TasksList";
+import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
@@ -276,6 +277,9 @@ export function Sidebar(props: SidebarProps) {
               <ArrowRight size={12} />
             </Button>
           </Tooltip>
+        </div>
+        <div className={styles.titlebarActions}>
+          <NotificationsPopover />
         </div>
       </div>
       <div className={styles.content}>

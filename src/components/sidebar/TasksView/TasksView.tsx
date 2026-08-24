@@ -7,44 +7,12 @@ import { useTaskStore } from "../../../store/task-store";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { useTaskDisplay } from "../../../hooks/useTaskDisplay";
 import { relativeShortThenDate } from "../../../utils/relative-time";
+import { BUCKET_ORDER, getDateBucket, type DateBucket } from "../../../utils/date-buckets";
 import styles from "./TasksView.module.css";
 
 // ── Helpers ──
 
-type DateBucket = "Today" | "Yesterday" | "This Week" | "This Month" | "Older";
 type StatusFilter = "all" | "active" | "completed";
-
-const BUCKET_ORDER: DateBucket[] = [
-  "Today",
-  "Yesterday",
-  "This Week",
-  "This Month",
-  "Older",
-];
-
-function getDateBucket(dateStr: string): DateBucket {
-  const date = new Date(dateStr);
-  const now = new Date();
-
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
-  const startOfYesterday = new Date(startOfToday);
-  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  if (date >= startOfToday) return "Today";
-  if (date >= startOfYesterday) return "Yesterday";
-  if (date >= startOfWeek) return "This Week";
-  if (date >= startOfMonth) return "This Month";
-  return "Older";
-}
 
 function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
   if (filter === "all") return true;

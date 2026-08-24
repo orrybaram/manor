@@ -13,9 +13,22 @@ import {
 let lastTriggerWasManual = false;
 let lastCheckedManual = false;
 
-export function initAutoUpdater(win: BrowserWindow): void {
+/**
+ * @param getWindow  Resolves the primary window at send time. The updater runs
+ *   for the life of the app, which outlives any one window: capturing a
+ *   `BrowserWindow` here would leave every event sending into a destroyed one.
+ */
+export function initAutoUpdater(
+  getWindow: () => BrowserWindow | null,
+): void {
   // Skip updater entirely in dev — prevents swallowed-error noise
   if (!app.isPackaged) return;
+
+  function send(channel: string, payload: unknown): void {
+    const win = getWindow();
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send(channel, payload);
+  }
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -23,33 +36,33 @@ export function initAutoUpdater(win: BrowserWindow): void {
   autoUpdater.on("checking-for-update", () => {
     lastCheckedManual = lastTriggerWasManual;
     lastTriggerWasManual = false; // reset for next check cycle
-    win.webContents.send("updater:checking-for-update", { manual: lastCheckedManual });
+    send("updater:checking-for-update", { manual: lastCheckedManual });
   });
 
   autoUpdater.on("update-not-available", (info: UpdateInfo) => {
-    win.webContents.send("updater:update-not-available", {
+    send("updater:update-not-available", {
       version: info.version,
       manual: lastCheckedManual,
     });
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
-    win.webContents.send("updater:update-available", info);
+    send("updater:update-available", info);
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
-    win.webContents.send("updater:update-downloaded", info);
+    send("updater:update-downloaded", info);
   });
 
   autoUpdater.on("error", (err: Error) => {
-    win.webContents.send("updater:error", {
+    send("updater:error", {
       message: err.message,
       manual: lastCheckedManual,
     });
   });
 
   autoUpdater.on("download-progress", (progress: ProgressInfo) => {
-    win.webContents.send("updater:download-progress", {
+    send("updater:download-progress", {
       percent: progress.percent,
       bytesPerSecond: progress.bytesPerSecond,
       transferred: progress.transferred,

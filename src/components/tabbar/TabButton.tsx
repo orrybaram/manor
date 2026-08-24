@@ -8,7 +8,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
-import { countTabsInWindow } from "../../lib/window-handoff";
+import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
@@ -265,7 +265,9 @@ export function TabButton(props: TabButtonProps) {
                     // window closes, so DetachedApp's beforeunload finds an empty
                     // store and kills nothing (preserving the reattached panes).
                     store.removeDetachedTabLocally(tabId);
-                    await window.electronAPI.window.reattachTab(payload);
+                    await trackHandoff(
+                      window.electronAPI.window.reattachTab(payload),
+                    );
                     // Main closes this window after forwarding the payload.
                   } catch (err) {
                     console.error("Failed to reattach tab to main window", err);

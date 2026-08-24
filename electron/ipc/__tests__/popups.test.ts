@@ -148,16 +148,28 @@ describe("buildPopupWindowOptions – features string parsing & size clamping", 
     expect(opts.minHeight).toBe(MIN_POPUP_DIMENSION);
   });
 
-  it("accepts a non-null mainWindow and sets it as parent", () => {
-    // We just need any object to stand in for a BrowserWindow reference;
-    // buildPopupWindowOptions assigns it to `parent` without calling methods.
-    const fakeWindow = { id: 1 } as unknown as Electron.BrowserWindow;
+  it("accepts a live window and sets it as parent", () => {
+    const fakeWindow = {
+      id: 1,
+      isDestroyed: () => false,
+    } as unknown as Electron.BrowserWindow;
     const opts = buildPopupWindowOptions(fakeWindow, "width=400,height=500");
     expect(opts.parent).toBe(fakeWindow);
   });
 
-  it("sets parent to undefined when mainWindow is null", () => {
+  it("sets parent to undefined when there is no window", () => {
     const opts = buildPopupWindowOptions(null, "width=400,height=500");
+    expect(opts.parent).toBeUndefined();
+  });
+
+  it("refuses a destroyed window as parent", () => {
+    // Its JS wrapper outlives the native window; parenting onto it would wire
+    // the popup to freed memory.
+    const closed = {
+      id: 1,
+      isDestroyed: () => true,
+    } as unknown as Electron.BrowserWindow;
+    const opts = buildPopupWindowOptions(closed, "width=400,height=500");
     expect(opts.parent).toBeUndefined();
   });
 

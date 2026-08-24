@@ -31,7 +31,7 @@ import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
 import { PaneWindowMenuItems } from "./PaneWindowMenuItems";
-import { countPanesInWindow } from "../../lib/window-handoff";
+import { countPanesInWindow, trackHandoff } from "../../lib/window-handoff";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
@@ -245,14 +245,17 @@ export function LeafPane(props: LeafPaneProps) {
     const store = useAppStore.getState();
     const payload = store.serializePaneForDetach(paneId);
     store.removeDetachedPaneLocally(paneId);
-    void window.electronAPI.window
-      .detachTab(payload, spawnBoundsFor(sx, sy, grab))
-      .catch((err) => console.error("Failed to tear pane into new window", err));
+    void trackHandoff(
+      window.electronAPI.window.detachTab(
+        payload,
+        spawnBoundsFor(sx, sy, grab),
+      ),
+    ).catch((err) => console.error("Failed to tear pane into new window", err));
 
     endDrag();
-    if (window.electronAPI?.isDetached && countPanesInWindow() === 0) {
-      window.electronAPI.window.closeSelf();
-    }
+    // Emptying a popout closes it — but that is `DetachedApp`'s store
+    // subscription's job, not ours. Closing the window from here would do it
+    // synchronously, inside the drag event Chromium is still dispatching.
   };
 
   // ── dragend: fires on the source; the whole drag is over here ───────────────
@@ -307,28 +310,29 @@ export function LeafPane(props: LeafPaneProps) {
     // (Serialize first: removeDetachedPaneLocally releases the panes.)
     store.removeDetachedPaneLocally(paneId);
     if (target) {
-      void window.electronAPI.window
-        .transferTab(target.id, payload)
-        .then((accepted) => {
-          if (!accepted) {
-            void window.electronAPI.window.detachTab(payload, spawnBounds);
-          }
-        })
-        .catch((err) =>
-          console.error("Failed to move pane out of this window", err),
-        );
+      void trackHandoff(
+        window.electronAPI.window
+          .transferTab(target.id, payload)
+          .then((accepted) => {
+            if (!accepted) {
+              return window.electronAPI.window.detachTab(payload, spawnBounds);
+            }
+          }),
+      ).catch((err) =>
+        console.error("Failed to move pane out of this window", err),
+      );
     } else {
-      void window.electronAPI.window
-        .detachTab(payload, spawnBounds)
-        .catch((err) =>
-          console.error("Failed to move pane out of this window", err),
-        );
+      void trackHandoff(
+        window.electronAPI.window.detachTab(payload, spawnBounds),
+      ).catch((err) =>
+        console.error("Failed to move pane out of this window", err),
+      );
     }
     // A detached window that just gave away its last pane has nothing left to
-    // show — close it rather than orphan it.
-    if (window.electronAPI?.isDetached && countPanesInWindow() === 0) {
-      window.electronAPI.window.closeSelf();
-    }
+    // show, and `DetachedApp`'s store subscription closes it — after the handoff
+    // above has actually left this renderer. Closing it here instead would race
+    // the payload and would run inside the `dragend` Chromium is still
+    // dispatching.
   };
 
   const isThisPaneDragging = drag?.type === "pane" && drag.paneId === paneId;

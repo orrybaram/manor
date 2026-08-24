@@ -19,10 +19,19 @@ export function register(deps: IpcDeps): void {
   }
 
   // ── Dialog ──
-  ipcMain.handle("dialog:openDirectory", async () => {
-    const result = await dialog.showOpenDialog(getMainWindow()!, {
+  ipcMain.handle("dialog:openDirectory", async (event) => {
+    // Attach the sheet to the window that asked — a popout gets its own dialog
+    // instead of one hung off the main window. Falls through to a parentless
+    // dialog rather than a destroyed one when neither window is alive.
+    const owner =
+      BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
+    const options: Electron.OpenDialogOptions = {
       properties: ["openDirectory"],
-    });
+    };
+    const result =
+      owner && !owner.isDestroyed()
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
   });

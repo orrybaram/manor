@@ -27,6 +27,12 @@ export function AgentDot(props: AgentDotProps) {
       <span
         className={`${styles.dot} ${styles[size]} ${respondedClass}`}
         title="Agent responded"
+        // The pulse is the "unread" signal, and CSS-module class names are
+        // hashed in a build — so it is stated here too, for tests that need to
+        // read it back.
+        data-testid="agent-dot"
+        data-status="responded"
+        data-pulse={pulse ? "true" : "false"}
       />
     );
   }
@@ -36,6 +42,8 @@ export function AgentDot(props: AgentDotProps) {
       <span
         className={`${styles.dot} ${styles[size]} ${styles.dotComplete}`}
         title="Agent complete"
+        data-testid="agent-dot"
+        data-status="complete"
       >
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
           <path
@@ -55,6 +63,8 @@ export function AgentDot(props: AgentDotProps) {
       <span
         className={`${styles.dot} ${styles[size]} ${styles.dotRequiresInput}`}
         title="Waiting for input"
+        data-testid="agent-dot"
+        data-status="requires_input"
       >
         <span className={styles.handEmoji}>👋</span>
       </span>
@@ -65,6 +75,8 @@ export function AgentDot(props: AgentDotProps) {
     <span
       className={`${styles.dot} ${styles[size]} ${status === "error" ? styles.dotError : ""}`}
       title={status === "error" ? "Agent error" : ""}
+      data-testid="agent-dot"
+      data-status={status}
     />
   );
 }

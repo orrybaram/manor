@@ -11,6 +11,41 @@
 import { useAppStore } from "../store/app-store";
 import { allPaneIds } from "../store/pane-tree";
 
+// ── Outbound handoffs in flight ─────────────────────────────────────────────
+// A popout closes itself the moment its store empties (see `DetachedApp`), and
+// every handoff empties the store BEFORE its payload's IPC is sent — the origin
+// window has to update in the same frame or the tab visibly snaps back. Without
+// this counter the close races the handoff: the window can be torn down with
+// the payload still sitting in this renderer, which loses the tab and orphans
+// its daemon session. Register every outbound handoff here; the self-close
+// waits for the count to reach zero.
+
+let inFlight = 0;
+const idleWaiters = new Set<() => void>();
+
+/**
+ * Count `promise` as an outbound handoff for as long as it is pending. Returns
+ * the same settlement, so call sites keep their own `.catch`.
+ */
+export function trackHandoff<T>(promise: Promise<T>): Promise<T> {
+  inFlight += 1;
+  return promise.finally(() => {
+    inFlight -= 1;
+    if (inFlight > 0) return;
+    const waiters = [...idleWaiters];
+    idleWaiters.clear();
+    for (const waiter of waiters) waiter();
+  });
+}
+
+/** Resolves once no handoff is in flight (immediately, if none ever was). */
+export function whenHandoffsIdle(): Promise<void> {
+  if (inFlight === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    idleWaiters.add(resolve);
+  });
+}
+
 /** Total panes across every tab of every panel of this window's workspace. */
 export function countPanesInWindow(): number {
   const state = useAppStore.getState();
@@ -66,7 +101,7 @@ export async function movePaneToMainWindow(paneId: string): Promise<void> {
     const store = useAppStore.getState();
     const payload = store.serializePaneForDetach(paneId);
     store.removeDetachedPaneLocally(paneId);
-    await window.electronAPI.window.reattachPane(payload);
+    await trackHandoff(window.electronAPI.window.reattachPane(payload));
   } catch (err) {
     console.error("Failed to move pane back to the main window", err);
   }

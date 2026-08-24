@@ -65,6 +65,14 @@ while IFS= read -r -n 1 char; do
     if [ "$line" = "spam" ]; then
       for i in $(seq 1 200); do printf 'line %s\n' "$i"; done
     fi
+    # "hush" ends the turn and stays there. Every other message re-arms the
+    # permission prompt, so a test that needs the *responded* state — the one
+    # the green dot pulses for — has no other way to reach it.
+    if [ "$line" = "hush" ]; then
+      line=""
+      hook Stop
+      continue
+    fi
     line=""
     hook Stop
     hook Notification permission_prompt

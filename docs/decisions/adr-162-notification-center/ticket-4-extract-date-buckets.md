@@ -1,6 +1,6 @@
 ---
 title: Extract day bucketing out of TasksView
-status: in-progress
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

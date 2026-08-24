@@ -1,6 +1,6 @@
 ---
 title: Main-side NotificationStore with persistence and retention
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

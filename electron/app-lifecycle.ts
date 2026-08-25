@@ -80,6 +80,15 @@ export function handleStreamEvent(
       case "exit":
         window.webContents.send(`pty-exit-${event.sessionId}`);
         break;
+      case "resized":
+        // Forwarded on the same channel ordering as output, because where it
+        // sits among the data events is the whole content of the message.
+        window.webContents.send(
+          `pty-resized-${event.sessionId}`,
+          event.cols,
+          event.rows,
+        );
+        break;
       case "cwd":
         window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
         // Update task's cwd if active and differs from current

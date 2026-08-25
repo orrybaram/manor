@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { stripAnsi } from "./ansi";
 
 /**
  * Driving and observing a terminal pane.
@@ -15,7 +16,26 @@ import { expect } from "@playwright/test";
 export function scrollback(tempHome: string, paneId: string): string {
   const file = path.join(tempHome, ".manor/sessions", paneId, "scrollback.bin");
   if (!fs.existsSync(file)) return "";
-  return fs.readFileSync(file, "utf8").replace(/\[[0-9;?]*[a-zA-Z]/g, "");
+  return stripAnsi(fs.readFileSync(file, "utf8"));
+}
+
+/**
+ * How far the terminal's grid overflows the box it lives in, in pixels.
+ *
+ * The number that has to be <= 0. A grid is sized by dividing the box by one
+ * measured cell, so anything that makes the measurement wrong — a font that
+ * had not loaded, a fit read before the grid moved — shows up here as a pane
+ * sitting taller than its container with its bottom rows clipped.
+ */
+export async function paneOverflowPx(window: Page): Promise<number | null> {
+  return window.evaluate(() => {
+    const pane = document.querySelector(
+      '[data-testid="terminal-pane"]',
+    ) as HTMLElement | null;
+    const screen = pane?.querySelector(".xterm-screen") as HTMLElement | null;
+    if (!pane || !screen) return null;
+    return screen.offsetHeight - pane.clientHeight;
+  });
 }
 
 /** The pane id of the first visible workspace pane. */

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import DetachedApp from "./DetachedApp";
+import { loadTerminalFonts } from "./lib/terminal-font";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -17,6 +18,11 @@ const queryClient = new QueryClient({
 // Detached popup windows (ADR-156) boot a trimmed-down renderer that hosts a
 // single handed-off tab; every other window is the full primary app.
 const Root = window.electronAPI?.isDetached ? DetachedApp : App;
+
+// Before the first pane exists, not after: a terminal measures its cell from
+// the font it can draw right now, and a pane that opens ahead of the webfont
+// keeps the wrong size for the session. See `lib/terminal-font`.
+await loadTerminalFonts();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

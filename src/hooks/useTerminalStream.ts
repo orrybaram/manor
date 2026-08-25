@@ -20,6 +20,7 @@ import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useAppStore } from "../store/app-store";
 import { useMountEffect } from "./useMountEffect";
+import { resizeInStream } from "../lib/terminal-resize-stream";
 import {
   outputAfterSnapshot,
   type QueuedOutput,
@@ -31,6 +32,11 @@ import {
 //   \x1b[<u   — pop mode
 //   \x1b[?u   — query current mode
 const KITTY_KB_RE = /\x1b\[([>?<])(\d*)u/g;
+
+/** A queued resize, or a queued chunk of output, in arrival order. */
+type QueuedItem =
+  | { kind: "data"; chunk: QueuedOutput }
+  | { kind: "resize"; cols: number; rows: number };
 
 export function useTerminalStream(
   paneId: string,
@@ -45,9 +51,12 @@ export function useTerminalStream(
   ptyWriteRef.current = ptyWrite;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
-  /** Output received so far, or null once the terminal is taking writes. */
-  const queuedRef = useRef<QueuedOutput[] | null>([]);
-
+  /**
+   * What arrived before the terminal was taking writes, in order, or null once
+   * it is. A resize sits in here alongside the output because its position
+   * among the chunks is what it means — see ADR-164.
+   */
+  const queuedRef = useRef<QueuedItem[] | null>([]);
   /**
    * Bring `target` up to the session's current state and let output flow: write
    * the warm-restore snapshot, then the queued chunks it does not already
@@ -59,11 +68,21 @@ export function useTerminalStream(
    */
   const openRestored = useCallback(
     (target: Terminal, snapshot?: TerminalRestore | null) => {
-      const queued = queuedRef.current ?? [];
+      const items = queuedRef.current ?? [];
       queuedRef.current = null;
       if (snapshot?.ansi) target.write(snapshot.ansi);
-      for (const chunk of outputAfterSnapshot(queued, snapshot?.seq)) {
-        target.write(chunk.data);
+      // The snapshot was serialized at the session's current size, so anything
+      // it covers is already at that size; only the chunks after it, and the
+      // resizes among them, still have to be replayed in order.
+      const covered = new Set(
+        outputAfterSnapshot(
+          items.flatMap((i) => (i.kind === "data" ? [i.chunk] : [])),
+          snapshot?.seq,
+        ),
+      );
+      for (const item of items) {
+        if (item.kind === "resize") resizeInStream(target, item.cols, item.rows);
+        else if (covered.has(item.chunk)) target.write(item.chunk.data);
       }
     },
     [],
@@ -98,8 +117,18 @@ export function useTerminalStream(
         });
 
         const out = hasKitty ? filtered : data;
-        if (queuedRef.current) queuedRef.current.push({ data: out, seq });
+        if (queuedRef.current)
+          queuedRef.current.push({ kind: "data", chunk: { data: out, seq } });
         else termRef.current?.write(out);
+      },
+    );
+
+    const unsubResized = window.electronAPI.pty.onResized(
+      paneId,
+      (cols: number, rows: number) => {
+        const t = termRef.current;
+        if (queuedRef.current) queuedRef.current.push({ kind: "resize", cols, rows });
+        else if (t) resizeInStream(t, cols, rows);
       },
     );
 
@@ -128,6 +157,7 @@ export function useTerminalStream(
 
     return () => {
       unsubOutput();
+      unsubResized();
       unsubExit();
       unsubCwd();
       unsubAgentStatus();

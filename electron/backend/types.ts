@@ -32,6 +32,7 @@ export interface PtyBackend {
 
   write(sessionId: string, data: string): void;
 
+  /** Resize a session, resolving once the backend's pty is at that size. */
   resize(sessionId: string, cols: number, rows: number): Promise<void>;
 
   kill(sessionId: string): Promise<void>;

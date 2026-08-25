@@ -65,6 +65,9 @@ export function buildShellEnv(
   return { ...env, ...overrides };
 }
 
+/** How long to wait for the pty subprocess to confirm a resize before giving up. */
+const RESIZE_ACK_TIMEOUT_MS = 2_000;
+
 export class Session {
   readonly sessionId: string;
   prewarmed = false;
@@ -122,6 +125,26 @@ export class Session {
   // Pending writes queued before first output (for prewarmed command injection)
   private pendingWrites: string[] = [];
   private hasReceivedOutput = false;
+
+  /**
+   * Resizes sent to the subprocess that have not been acknowledged yet, oldest
+   * first. The subprocess answers each one after the ioctl has landed, which is
+   * the only moment the winsize the program reads actually changed — the write
+   * to its stdin is not.
+   *
+   * Each carries the pair it was sent with, because an ack belongs to one
+   * specific ioctl and that ioctl's size is what it reports. Reading
+   * `this.cols`/`this.rows` instead — already the newest size asked for — makes
+   * the first of two in-flight resizes publish the second one's size, which on
+   * a shrinking drag hands clients a grid narrower than the pty their program
+   * is reading from.
+   */
+  private pendingResizes: Array<{
+    cols: number;
+    rows: number;
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
 
   // OSC 7 parser state
   private oscBuf: number[] = [];
@@ -359,6 +382,15 @@ export class Session {
         break;
       }
 
+      case MSG.RESIZED: {
+        const pending = this.pendingResizes.shift();
+        if (!pending) break;
+        clearTimeout(pending.timer);
+        this.applyResized(pending.cols, pending.rows);
+        pending.resolve();
+        break;
+      }
+
       case MSG.FGPROC: {
         const { name } = JSON.parse(payload.toString("utf-8"));
         this.agentDetector.updateForegroundProcess(name);
@@ -387,15 +419,83 @@ export class Session {
     }
   }
 
-  /** Resize the PTY */
-  resize(cols: number, rows: number): void {
-    if (this.cols === cols && this.rows === rows) return;
+  /**
+   * Resize the PTY, resolving once the ioctl has landed.
+   *
+   * The distinction is the whole point: writing a resize towards the subprocess
+   * says nothing about when the winsize a program reads actually changed, and a
+   * client that moves its own grid on that reply moves it too early.
+   */
+  async resize(cols: number, rows: number): Promise<void> {
+    if (this.cols === cols && this.rows === rows) {
+      // Say so anyway, rather than returning silently.
+      //
+      // A client whose grid has drifted away from the winsize asks for the
+      // size it should already have, and this event is the only thing that
+      // puts it back. Staying quiet is what turns such a disagreement from a
+      // moment into a permanent one — and a grid that wraps at a different
+      // width than the program does strands a copy of every frame the program
+      // repaints, off the top of the screen where nothing can erase it
+      // afterwards (ADR-165).
+      //
+      // A client that already agrees drops this without touching its terminal.
+      // The ioctl is skipped, so no program is made to repaint for a request
+      // that changed nothing.
+      this.applyResized(cols, rows);
+      return;
+    }
     this.cols = cols;
     this.rows = rows;
-    this.headless.resize(cols, rows);
-    if (this.subprocess && this._alive) {
-      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows }));
+    if (!this.subprocess || !this._alive) {
+      this.applyResized(cols, rows);
+      return;
     }
+    return new Promise<void>((resolve) => {
+      // A subprocess that dies mid-resize would otherwise leave the caller —
+      // and the terminal it is holding at the old size — waiting forever. The
+      // oldest pending resize is always the first to time out, so it is the one
+      // at the head of the queue.
+      const timer = setTimeout(() => {
+        if (this.pendingResizes[0]?.timer === timer) this.pendingResizes.shift();
+        // A client left waiting on an event that will never come would keep its
+        // grid at the old size for good, so the timeout publishes one too.
+        this.applyResized(cols, rows);
+        resolve();
+      }, RESIZE_ACK_TIMEOUT_MS);
+      this.pendingResizes.push({ cols, rows, resolve, timer });
+      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows }));
+    });
+  }
+
+  /**
+   * Publish where in the stream the size changed, and bring the mirror with it.
+   *
+   * Attached clients apply the resize at the position in the byte stream they
+   * are reading, so their emulator and the program's belief about the width
+   * change together — which is the whole of ADR-164.
+   *
+   * The two halves are ordered differently on purpose, and getting that wrong
+   * reopens the gap ADR-164 exists to close:
+   *
+   * - The **mirror** resizes behind its own write queue. The subprocess flushed
+   *   its output before the ioctl, so everything drawn at the old size is
+   *   already queued here and a bare `resize` would jump it.
+   * - The **broadcast** goes out synchronously, because a client's position in
+   *   the stream is its position among the events *this* object broadcasts —
+   *   and `data` is broadcast the moment its frame is decoded. Publishing from
+   *   inside the callback above would put the resize behind whatever the mirror
+   *   still has to parse while post-resize output kept overtaking it.
+   */
+  private applyResized(cols: number, rows: number): void {
+    this.headless.write("", () => {
+      this.headless.resize(cols, rows);
+    });
+    this.broadcastEvent({
+      type: "resized",
+      sessionId: this.sessionId,
+      cols,
+      rows,
+    });
   }
 
   /** Dispose of this session entirely */
@@ -430,6 +530,10 @@ export class Session {
       this.subprocess = null;
     }
     this._alive = false;
+    for (const pending of this.pendingResizes.splice(0)) {
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
     this.agentDetector.dispose();
     if (this.pidSweepTimer) {
       clearInterval(this.pidSweepTimer);

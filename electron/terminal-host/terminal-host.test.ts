@@ -63,6 +63,19 @@ describe("TerminalHost", () => {
       expect(info.cwd).toBe("/tmp");
     });
 
+    /**
+     * A session outlives the pane showing it, so it comes back at whatever size
+     * it was left at. Leaving it there means the emulator wraps at one width
+     * and the program at another, which strands a copy of every frame the
+     * program repaints (ADR-165).
+     */
+    it("brings an existing session to the size it was asked for", () => {
+      host.create("s1", "/tmp", 80, 24);
+      const info = host.create("s1", "/tmp", 120, 40);
+      expect(info.cols).toBe(120);
+      expect(info.rows).toBe(40);
+    });
+
     it("creates multiple sessions", () => {
       host.create("s1", "/tmp", 80, 24);
       host.create("s2", "/home", 120, 40);

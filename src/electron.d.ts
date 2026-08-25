@@ -287,6 +287,7 @@ export interface ElectronAPI {
       prewarmed?: boolean;
     }>;
     write: (paneId: string, data: string) => Promise<void>;
+    /** Resolves once the pty is actually at that size, not merely told to be. */
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
     close: (paneId: string) => Promise<void>;
     reset: (
@@ -316,6 +317,14 @@ export interface ElectronAPI {
     ) => () => void;
     onExit: (paneId: string, callback: () => void) => () => void;
     onCwd: (paneId: string, callback: (cwd: string) => void) => () => void;
+    /**
+     * The pty reached this size, at this position in the output stream. Resize
+     * the emulator here — see ADR-164.
+     */
+    onResized: (
+      paneId: string,
+      callback: (cols: number, rows: number) => void,
+    ) => () => void;
     onAgentStatus: (
       paneId: string,
       callback: (agent: AgentState) => void,

@@ -18,6 +18,7 @@
  *   0x14 Exit    — JSON: { exitCode }
  *   0x15 Error   — JSON: { message }
  *   0x16 FgProc  — JSON: { name } (foreground process name, polled)
+ *   0x17 Resized — no payload (the pty ioctl for the last Resize has landed)
  */
 
 // ── Message type constants ──
@@ -38,6 +39,7 @@ export const MSG = {
   EXIT: 0x14,
   ERROR: 0x15,
   FGPROC: 0x16,
+  RESIZED: 0x17,
 } as const;
 
 export type MessageType = (typeof MSG)[keyof typeof MSG];

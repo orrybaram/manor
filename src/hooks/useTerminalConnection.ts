@@ -13,7 +13,7 @@ export function useTerminalConnection(paneId: string) {
   }, []);
 
   const resize = useCallback((cols: number, rows: number) => {
-    window.electronAPI.pty.resize(paneIdRef.current, cols, rows);
+    return window.electronAPI.pty.resize(paneIdRef.current, cols, rows);
   }, []);
 
   const create = useCallback(

@@ -392,7 +392,10 @@ export class TerminalHostClient {
     this.streamWrite({ type: "agentHook", sessionId, status, kind });
   }
 
-  /** Resize a session's terminal */
+  /**
+   * Resize a session's terminal, resolving once the pty is actually at that
+   * size — the ioctl has landed, not merely been sent towards it.
+   */
   async resize(sessionId: string, cols: number, rows: number): Promise<void> {
     await this.ensureConnected();
     await this.request({ type: "resize", sessionId, cols, rows });

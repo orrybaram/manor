@@ -23,7 +23,23 @@ export class TerminalHost {
     this.sessionsDir = sessionsDir;
   }
 
-  /** Create a new session and spawn its PTY */
+  /**
+   * Create a new session and spawn its PTY, or bring an existing one to the
+   * size the caller asked for.
+   *
+   * The reconciliation matters as much as the creation. A session that outlives
+   * the pane showing it comes back at whatever size it was left at, and a grid
+   * that wraps at a different width than the program does strands a copy of
+   * every frame the program repaints (ADR-165). `client.doCreateOrAttach` does
+   * send a resize of its own before it subscribes, but that is one caller's
+   * good manners standing in for an invariant, and the invariant belongs here.
+   *
+   * Not awaited: `Session.resize` records the new size and writes towards the
+   * subprocess synchronously, so `info` already reports what the caller asked
+   * for. What the promise waits for is the ioctl's acknowledgement, and there
+   * is nothing here that needs it — the clients that care are told by the
+   * `resized` event, at its own position in the output stream.
+   */
   create(
     sessionId: string,
     cwd: string,
@@ -33,8 +49,10 @@ export class TerminalHost {
     prewarmed?: boolean,
     envOverrides?: Record<string, string>,
   ): SessionInfo {
-    if (this.sessions.has(sessionId)) {
-      return this.sessions.get(sessionId)!.info;
+    const existing = this.sessions.get(sessionId);
+    if (existing) {
+      void existing.resize(cols, rows);
+      return existing.info;
     }
 
     const session = new Session(sessionId, cwd, cols, rows, this.sessionsDir, envOverrides);
@@ -75,8 +93,8 @@ export class TerminalHost {
   }
 
   /** Resize a session's PTY */
-  resize(sessionId: string, cols: number, rows: number): void {
-    this.sessions.get(sessionId)?.resize(cols, rows);
+  async resize(sessionId: string, cols: number, rows: number): Promise<void> {
+    await this.sessions.get(sessionId)?.resize(cols, rows);
   }
 
   /** Kill a session's PTY process and remove it so the ID can be reused */

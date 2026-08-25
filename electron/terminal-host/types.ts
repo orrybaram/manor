@@ -39,8 +39,22 @@ export type StreamPosition = number;
  * a client that required `notFound` met a daemon that only said `error`.
  *
  * 1 — `notFound` replies, and `seq` on data events and snapshots (ADR-159).
+ * 2 — `resized` replies only once the pty ioctl has landed, rather than as soon
+ *     as a resize has been written towards it.
+ *
+ * 3 — a `resized` *stream* event, broadcast at the position in the output where
+ *     the ioctl landed. A client applies its own grid resize there rather than
+ *     guessing when — see ADR-164. A protocol-2 daemon never sends it, and a
+ *     client that waits for one would never resize its grid at all.
+ *
+ * 4 — every resize *request* answers with a `resized` event, including one that
+ *     changes nothing. That is what repairs a client whose grid has drifted
+ *     away from the winsize (ADR-165), and a protocol-3 daemon stays silent for
+ *     exactly the request that needs an answer — so it cannot serve this client
+ *     correctly, however new its build looks. No wire *shape* changed here;
+ *     the number is carrying the thing it exists to carry.
  */
-export const TERMINAL_HOST_PROTOCOL = 1;
+export const TERMINAL_HOST_PROTOCOL = 4;
 
 /** Serialized terminal snapshot for warm restore */
 export interface TerminalSnapshot {
@@ -98,6 +112,7 @@ export type ControlResponse =
   | { type: "created"; session: SessionInfo }
   | { type: "attached"; snapshot: TerminalSnapshot }
   | { type: "detached" }
+  /** The pty is at the new size — the ioctl has landed, not merely been sent. */
   | { type: "resized" }
   | { type: "killed" }
   | { type: "snapshot"; snapshot: TerminalSnapshot }
@@ -149,7 +164,13 @@ export type StreamEvent =
   | { type: "exit"; sessionId: string; exitCode: number }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
-  | { type: "agentStatus"; sessionId: string; agent: AgentState };
+  | { type: "agentStatus"; sessionId: string; agent: AgentState }
+  /**
+   * The pty is at this size, and this is where in the stream it changed: every
+   * byte before this event was produced at the old size, every byte after it at
+   * the new one. Clients resize their emulator here.
+   */
+  | { type: "resized"; sessionId: string; cols: number; rows: number };
 
 // ── Stream socket commands (client → daemon, fire-and-forget) ──
 

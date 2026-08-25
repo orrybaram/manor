@@ -95,6 +95,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel(`pty-agent-status-${paneId}`, callback),
     onError: (paneId: string, callback: (message: string) => void) =>
       onChannel(`pty-error-${paneId}`, callback),
+    // Its own listener rather than `onChannel`, which forwards a single value:
+    // through that helper `rows` arrived as undefined and xterm rejected the
+    // resize from inside a write callback, wedging the terminal for good.
+    onResized: (
+      paneId: string,
+      callback: (cols: number, rows: number) => void,
+    ) => {
+      const channel = `pty-resized-${paneId}`;
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        cols: number,
+        rows: number,
+      ) => callback(cols, rows);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
   },
 
   layout: {

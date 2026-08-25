@@ -343,6 +343,97 @@ describe("Session", () => {
     });
   });
 
+  /**
+   * The property under test is not "resizes are ordered" — ADR-164 owns that,
+   * and `src/lib/__tests__/terminal-resize-ordering.test.ts` drives the client
+   * half of it. It is that a client can never be left believing a size the pty
+   * does not have. A grid that wraps at a different width than the program does
+   * strands a copy of every frame the program repaints, off the top of the
+   * screen where nothing can erase it afterwards, and it stays wrong until
+   * something puts it right. See ADR-165.
+   */
+  describe("resize (ADR-165)", () => {
+    /** The `resized` events a socket received, in order. */
+    function resizedEvents(
+      written: string[],
+    ): Array<{ cols: number; rows: number }> {
+      return written
+        .map((line) => JSON.parse(line) as StreamEvent)
+        .filter(
+          (e): e is Extract<StreamEvent, { type: "resized" }> =>
+            e.type === "resized",
+        )
+        .map(({ cols, rows }) => ({ cols, rows }));
+    }
+
+    /** Bytes the session wrote towards its pty subprocess. */
+    function captureSubprocessWrites(session: Session): Buffer[] {
+      const chunks: Buffer[] = [];
+      (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+        chunks.push(c),
+      );
+      return chunks;
+    }
+
+    function pushResizedFrame(session: Session): void {
+      (session as any).decoder.push(encodeFrame(MSG.RESIZED));
+    }
+
+    it("publishes a resized event for a request that changes nothing", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+      const toSubprocess = captureSubprocessWrites(session);
+
+      // The size it already has — which is exactly what a client whose grid
+      // has drifted would ask for.
+      await session.resize(80, 24);
+
+      expect(resizedEvents(written)).toEqual([{ cols: 80, rows: 24 }]);
+      // ...and the program is not made to repaint for it.
+      expect(toSubprocess).toHaveLength(0);
+    });
+
+    it("publishes the size the acknowledgement belongs to", () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      void session.resize(100, 30);
+      void session.resize(120, 40);
+
+      // The first ack is the first ioctl's. Reporting the newest size here is
+      // what hands a shrinking drag a grid narrower than its pty.
+      pushResizedFrame(session);
+      expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+
+      pushResizedFrame(session);
+      expect(resizedEvents(written)).toEqual([
+        { cols: 100, rows: 30 },
+        { cols: 120, rows: 40 },
+      ]);
+    });
+
+    it("keeps the resize in order with the output around it", () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      void session.resize(100, 30);
+      // The subprocess flushes what it produced at the old size before the
+      // ioctl, so this arrives ahead of the ack and that one after it.
+      pushDataFrame(session, "drawn at the old size");
+      pushResizedFrame(session);
+      pushDataFrame(session, "drawn at the new size");
+
+      expect(written.map((line) => JSON.parse(line).type)).toEqual([
+        "data",
+        "resized",
+        "data",
+      ]);
+    });
+  });
+
   describe("session info", () => {
     it("returns correct info", () => {
       const info = session.info;

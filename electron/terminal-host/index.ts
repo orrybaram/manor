@@ -10,7 +10,6 @@
 import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { TerminalHost } from "./terminal-host";
 import { TERMINAL_HOST_PROTOCOL } from "./types";
@@ -128,7 +127,7 @@ async function handleControlMessage(
     }
 
     case "resize": {
-      host.resize(request.sessionId, request.cols, request.rows);
+      await host.resize(request.sessionId, request.cols, request.rows);
       sendResponse(socket, { type: "resized" }, requestId);
       break;
     }

@@ -202,11 +202,16 @@ const decoder = new FrameDecoder((type, payload) => {
       break;
     case MSG.RESIZE: {
       const { cols, rows } = JSON.parse(payload.toString("utf-8"));
+      // Everything the pty produced at the old size goes out first, so the
+      // daemon can treat RESIZED as a boundary in the output stream rather
+      // than just a reply: no pre-resize bytes can follow it.
+      flushOutput();
       try {
         ptyProcess?.resize(cols, rows);
       } catch {
         // Ignore resize errors (process may have exited)
       }
+      writeFrame(MSG.RESIZED);
       break;
     }
     case MSG.KILL:

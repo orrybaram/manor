@@ -27,6 +27,10 @@ import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useTerminalResize } from "./useTerminalResize";
 import { useMountEffect } from "./useMountEffect";
+import {
+  registerTerminal,
+  unregisterTerminal,
+} from "../lib/terminal-registry";
 import type { ITheme } from "@xterm/xterm";
 
 /** Grace period (ms) before a closed pane's PTY session is killed. */
@@ -82,7 +86,7 @@ export function useTerminalLifecycle(
   );
 
   // Auto-resize
-  useTerminalResize(containerRef, fitAddon, term);
+  useTerminalResize(containerRef, fitAddon, term, resize);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -140,7 +144,9 @@ export function useTerminalLifecycle(
     t.loadAddon(fit);
     const search = new SearchAddon();
     t.loadAddon(search);
-    t.loadAddon(new SerializeAddon());
+    const serialize = new SerializeAddon();
+    t.loadAddon(serialize);
+    registerTerminal(paneId, { term: t, serialize });
 
     const unicode11 = new Unicode11Addon();
     t.loadAddon(unicode11);
@@ -390,14 +396,6 @@ export function useTerminalLifecycle(
     // User input → PTY
     const dataDisposable = t.onData(write);
 
-    // Resize → PTY (debounced to avoid flooding the shell with SIGWINCH
-    // during continuous window resizes, which causes prompt redraw spam)
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const resizeDisposable = t.onResize(({ cols: c, rows: r }) => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => resize(c, r), 150);
-    });
-
     t.focus();
 
     return () => {
@@ -406,15 +404,14 @@ export function useTerminalLifecycle(
       // belongs to each attach, not to the first one of this component's life.
       closeOutput();
       cwdLatchUnsub();
-      if (resizeTimer) clearTimeout(resizeTimer);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       titleDisposable.dispose();
       dataDisposable.dispose();
-      resizeDisposable.dispose();
       setTerm(null);
       setFitAddon(null);
       setSearchAddon(null);
       termRef.current = null;
+      unregisterTerminal(paneId);
       // Always detach (keep the PTY alive in the daemon).
       // If the user explicitly closed the pane, schedule a delayed kill
       // so they can undo within the grace period.

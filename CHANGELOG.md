@@ -5,6 +5,16 @@
 
 
 
+
+## [0.9.0] - 2026-08-25
+
+**Features**
+- Notification badges, icon actions, and filtering by notification kind
+
+**Fixes**
+- Terminal panes now size correctly on first paint — font loads before measuring
+- Smoother pane resizing with no visual flicker
+
 ## [0.8.0] - 2026-08-23
 
 **Features**

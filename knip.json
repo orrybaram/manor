@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "index.html",
+    "src/remote-client/index.html",
+    "src/remote-client/sw.ts",
+    "electron/main.ts",
+    "electron/preload.ts",
+    "electron/terminal-host/index.ts",
+    "electron/terminal-host/pty-subprocess.ts",
+    "electron/mcp-webview-server.ts",
+    "electron/scripts/agent-hook.js",
+    "scripts/*.{mjs,ts}",
+    "tests/e2e/**/*.spec.ts",
+    "tests/e2e/fixtures.ts",
+    "**/*.test.{ts,tsx}",
+    "**/__tests__/**/*.{ts,tsx}"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "electron/**/*.{ts,js}",
+    "scripts/**/*.{ts,mjs}",
+    "tests/**/*.ts"
+  ],
+  "ignoreDependencies": ["@electron/osx-sign"],
+  "ignoreBinaries": ["afplay"],
+  "vite": {
+    "config": ["vite.config.ts", "vite.remote.config.ts", "vitest.config.ts"]
+  }
+}

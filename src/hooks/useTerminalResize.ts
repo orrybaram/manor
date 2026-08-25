@@ -30,8 +30,7 @@
  * are judged against the last size *sent*; see `shouldSendFit`.
  */
 
-import { useRef } from "react";
-import { useMountEffect } from "./useMountEffect";
+import { useLayoutEffect, useRef } from "react";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 
@@ -84,110 +83,109 @@ export function useTerminalResize(
   term: Terminal | null,
   resizePty: (cols: number, rows: number) => Promise<void>,
 ) {
-  const observerRef = useRef<ResizeObserver | null>(null);
-  const rafRef = useRef<number>(0);
-  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(fitAddon);
-  fitAddonRef.current = fitAddon;
   /** The last size handed to the pty — what a new measurement is judged against. */
   const lastSentRef = useRef<Dimensions | null>(null);
+  /** Kept in a ref so a new `resizePty` identity does not re-run the effect. */
   const resizePtyRef = useRef(resizePty);
   resizePtyRef.current = resizePty;
-  const prevFitAddonRef = useRef<FitAddon | null>(null);
-  const gridRef = useRef<{ dispose(): void } | null>(null);
-  const refitRafRef = useRef<number>(0);
 
-  // Render-time setup: when fitAddon changes (null → value) the component
-  // re-renders and the observer is set up synchronously, rather than a frame
-  // later in an effect. useMountEffect handles teardown on unmount.
-  if (fitAddon !== prevFitAddonRef.current) {
-    prevFitAddonRef.current = fitAddon;
+  /**
+   * Attach to the pane, and detach from it, as one thing.
+   *
+   * A layout effect rather than the render body. Setting up in render meant
+   * three side effects on a render React is free to throw away — two live
+   * subscriptions and, in `sendFit`, an ioctl on a real process. A discarded
+   * render leaves all three behind with nothing tracking them, and a `SIGWINCH`
+   * nobody asked for is precisely how the pty gets told a size the pane never
+   * was, which is the whole of issue #169.
+   *
+   * It is also the only teardown. The render-body version needed a second copy
+   * in an unmount effect, and the two had already drifted: the unmount copy
+   * left `prevFitAddonRef` pointing at the addon it had just detached from, so
+   * anything that unmounted effects while keeping refs — React's `Activity`,
+   * which is exactly how a hidden pane would want to be modelled — came back
+   * with the change check satisfied and never re-attached. No observer, no
+   * re-fit, no error.
+   *
+   * A layout effect is not the "frame later" the old comment was avoiding:
+   * `useLayoutEffect` runs after the DOM is mutated and before paint, in the
+   * same frame. `useEffect` is the one that waits.
+   */
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !fitAddon) return;
 
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = 0;
-    if (settleRef.current) clearTimeout(settleRef.current);
-    settleRef.current = null;
-    if (refitRafRef.current) cancelAnimationFrame(refitRafRef.current);
-    refitRafRef.current = 0;
-    observerRef.current?.disconnect();
-    observerRef.current = null;
-    gridRef.current?.dispose();
-    gridRef.current = null;
     // A new terminal has been sent nothing.
     lastSentRef.current = null;
 
-    const container = containerRef.current;
-    if (container && fitAddon) {
-      /** Send the pane's current size, unless it is the size already sent. */
-      const sendFit = () => {
-        const dims = fitAddonRef.current?.proposeDimensions();
-        if (!dims || !shouldSendFit(dims, lastSentRef.current)) return;
-        const next = { cols: dims.cols, rows: dims.rows };
-        lastSentRef.current = next;
-        void resizePtyRef.current(next.cols, next.rows).catch((e) => {
-          console.error("terminal resize failed", e);
-        });
-      };
+    let observerFrame = 0;
+    let refitFrame = 0;
+    let settle: ReturnType<typeof setTimeout> | null = null;
 
-      sendFit();
-
-      observerRef.current = new ResizeObserver(() => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        rafRef.current = requestAnimationFrame(() => {
-          // A hidden pane (collapsed panel, background tab) measures 0×0, and
-          // sending that would resize the pty to something meaningless and
-          // reflow the buffer for good. Skip until it has a real box again.
-          const el = containerRef.current;
-          if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
-          if (settleRef.current) clearTimeout(settleRef.current);
-          settleRef.current = setTimeout(() => {
-            settleRef.current = null;
-            sendFit();
-          }, SETTLE_MS);
-        });
+    /** Send the pane's current size, unless it is the size already sent. */
+    const sendFit = () => {
+      const dims = fitAddon.proposeDimensions();
+      if (!dims || !shouldSendFit(dims, lastSentRef.current)) return;
+      const next = { cols: dims.cols, rows: dims.rows };
+      lastSentRef.current = next;
+      void resizePtyRef.current(next.cols, next.rows).catch((e) => {
+        console.error("terminal resize failed", e);
       });
-      observerRef.current.observe(container);
+    };
 
-      /**
-       * Re-fit once the grid has actually moved.
-       *
-       * A fit is measured against the grid as it stands, and xterm re-measures
-       * its cell metrics when the grid changes — so the size sent from a single
-       * container change can land a few rows off. The container is unchanged by
-       * that, which is exactly the problem: the ResizeObserver has nothing left
-       * to fire on, so an off-by-a-few fit is the size the pane keeps, sitting
-       * taller than its box with its bottom rows clipped for good. Measured at
-       * three rows on a single window shrink.
-       *
-       * Reading the fit here rather than on the container closes that: the fit
-       * is re-read against the grid that now exists, and `sendFit` is a no-op
-       * once the two agree, so this settles after one extra round trip instead
-       * of oscillating.
-       */
-      gridRef.current = term?.onResize(() => {
-        if (refitRafRef.current) cancelAnimationFrame(refitRafRef.current);
-        refitRafRef.current = requestAnimationFrame(() => {
-          refitRafRef.current = 0;
+    sendFit();
+
+    const observer = new ResizeObserver(() => {
+      if (observerFrame) cancelAnimationFrame(observerFrame);
+      observerFrame = requestAnimationFrame(() => {
+        observerFrame = 0;
+        // A hidden pane (collapsed panel, background tab) measures 0×0, and
+        // sending that would resize the pty to something meaningless and
+        // reflow the buffer for good. Skip until it has a real box again.
+        const el = containerRef.current;
+        if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+        if (settle) clearTimeout(settle);
+        settle = setTimeout(() => {
+          settle = null;
+          sendFit();
+        }, SETTLE_MS);
+      });
+    });
+    observer.observe(container);
+
+    /**
+     * Re-fit once the grid has actually moved.
+     *
+     * A fit is measured against the grid as it stands, and xterm re-measures
+     * its cell metrics when the grid changes — so the size sent from a single
+     * container change can land a few rows off. The container is unchanged by
+     * that, which is exactly the problem: the ResizeObserver has nothing left
+     * to fire on, so an off-by-a-few fit is the size the pane keeps, sitting
+     * taller than its box with its bottom rows clipped for good. Measured at
+     * three rows on a single window shrink.
+     *
+     * Reading the fit here rather than on the container closes that: the fit
+     * is re-read against the grid that now exists, and `sendFit` is a no-op
+     * once the two agree, so this settles after one extra round trip instead
+     * of oscillating.
+     */
+    const grid =
+      term?.onResize(() => {
+        if (refitFrame) cancelAnimationFrame(refitFrame);
+        refitFrame = requestAnimationFrame(() => {
+          refitFrame = 0;
           const el = containerRef.current;
           if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
           sendFit();
         });
       }) ?? null;
-    }
-  }
 
-  useMountEffect(() => {
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = 0;
-      if (settleRef.current) clearTimeout(settleRef.current);
-      settleRef.current = null;
-      if (refitRafRef.current) cancelAnimationFrame(refitRafRef.current);
-      refitRafRef.current = 0;
-      observerRef.current?.disconnect();
-      observerRef.current = null;
-      gridRef.current?.dispose();
-      gridRef.current = null;
+      if (observerFrame) cancelAnimationFrame(observerFrame);
+      if (refitFrame) cancelAnimationFrame(refitFrame);
+      if (settle) clearTimeout(settle);
+      observer.disconnect();
+      grid?.dispose();
     };
-  });
+  }, [containerRef, fitAddon, term]);
 }

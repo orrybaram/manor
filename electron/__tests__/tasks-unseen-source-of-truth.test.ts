@@ -26,6 +26,7 @@ vi.mock("electron", () => ({
 // via the imported module reference below.
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
+  markTaskNotificationsRead: vi.fn(),
   sendTaskUpdate: vi.fn(),
   getUnseenSnapshot: vi.fn(() => ({
     responded: ["t1", "t2"],
@@ -43,6 +44,9 @@ import { register } from "../ipc/tasks";
 const sendTaskUpdate = vi.mocked(notifications.sendTaskUpdate);
 const updateDockBadge = vi.mocked(notifications.updateDockBadge);
 const getUnseenSnapshot = vi.mocked(notifications.getUnseenSnapshot);
+const markTaskNotificationsRead = vi.mocked(
+  notifications.markTaskNotificationsRead,
+);
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -99,6 +103,7 @@ describe("tasks:markSeen re-broadcast (ADR-136)", () => {
     handlers.clear();
     sendTaskUpdate.mockClear();
     updateDockBadge.mockClear();
+    markTaskNotificationsRead.mockClear();
     deps = makeDeps({
       unseenRespondedTasks: new Set<string>(["t1"]),
       unseenInputTasks: new Set<string>(["t1"]),
@@ -120,6 +125,21 @@ describe("tasks:markSeen re-broadcast (ADR-136)", () => {
       deps.mainWindow,
       task,
       deps.preferencesManager,
+    );
+  });
+
+  it("reads the log entries about a task the user is now looking at", async () => {
+    deps.taskManager.getTaskById.mockReturnValue({
+      id: "t1",
+      lastAgentStatus: "responded",
+    });
+
+    const handler = handlers.get("tasks:markSeen")!;
+    await handler({} as never, "t1");
+
+    expect(markTaskNotificationsRead).toHaveBeenCalledWith(
+      "t1",
+      deps.mainWindow,
     );
   });
 

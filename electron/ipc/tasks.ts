@@ -3,6 +3,7 @@ import { getConnector } from "../agent-connectors";
 import { assertString } from "../ipc-validate";
 import {
   getUnseenSnapshot,
+  markTaskNotificationsRead,
   sendTaskUpdate,
   updateDockBadge,
 } from "../notifications";
@@ -107,6 +108,9 @@ export function register(deps: IpcDeps): void {
     assertString(taskId, "taskId");
     unseenRespondedTasks.delete(taskId);
     unseenInputTasks.delete(taskId);
+    // Seeing the pane also reads the log entries about it (ADR-162 §6): the
+    // bell must not keep an indicator up for a session on screen.
+    markTaskNotificationsRead(taskId, deps.mainWindow);
     // Re-broadcast so the renderer cache reflects the cleared flags. The task
     // itself didn't mutate, but `sendTaskUpdate` ships the unseen flags
     // alongside it — this is what keeps main authoritative for pulse state.

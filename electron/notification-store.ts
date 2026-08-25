@@ -155,6 +155,28 @@ export class NotificationStore {
     return true;
   }
 
+  /**
+   * Mark every notification pointing at `taskId` read. Called when the user is
+   * looking at that task's pane — a notification about a session on screen has
+   * already been delivered by the session itself.
+   *
+   * Returns whether anything actually changed, so the caller can skip the
+   * broadcast in the common no-op case.
+   */
+  markReadByTask(taskId: string): boolean {
+    let changed = false;
+    for (const record of this.notifications) {
+      if (record.read) continue;
+      if (record.target?.type !== "task" || record.target.taskId !== taskId) {
+        continue;
+      }
+      record.read = true;
+      changed = true;
+    }
+    if (changed) this.saveState();
+    return changed;
+  }
+
   markAllRead(): void {
     for (const record of this.notifications) {
       record.read = true;

@@ -14,6 +14,7 @@ vi.mock("electron", () => ({
 // ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
+  markTaskNotificationsRead: vi.fn(),
   sendTaskUpdate: vi.fn(),
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));

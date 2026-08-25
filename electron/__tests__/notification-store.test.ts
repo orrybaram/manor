@@ -78,6 +78,27 @@ describe("NotificationStore", () => {
     expect(store.getAll().every((n) => n.read)).toBe(true);
   });
 
+  it("markReadByTask reads only the records pointing at that task", () => {
+    const mine = append({ target: { type: "task", taskId: "t1" } });
+    const other = append({ target: { type: "task", taskId: "t2" } });
+    const urlRecord = append({
+      target: { type: "url", url: "https://example.test/pull/1" },
+    });
+
+    expect(store.markReadByTask("t1")).toBe(true);
+    expect(store.getById(mine.id)?.read).toBe(true);
+    expect(store.getById(other.id)?.read).toBe(false);
+    expect(store.getById(urlRecord.id)?.read).toBe(false);
+    expect(store.unreadCount()).toBe(2);
+  });
+
+  it("markReadByTask reports no change when nothing is left unread", () => {
+    append({ target: { type: "task", taskId: "t1" } });
+    expect(store.markReadByTask("t1")).toBe(true);
+    expect(store.markReadByTask("t1")).toBe(false);
+    expect(store.markReadByTask("never-seen")).toBe(false);
+  });
+
   it("clear empties the store", () => {
     append();
     append();

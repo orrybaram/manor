@@ -57,6 +57,8 @@ function readPersistedTitles(tempHome: string): string[] {
 const bell = (window: Page) => window.getByTestId("notifications-bell");
 const popover = (window: Page) => window.getByTestId("notifications-popover");
 const rows = (window: Page) => window.getByTestId("notification-row");
+/** The kind filter. Scoped: "All" also substring-matches "Mark all read". */
+const filterBar = (window: Page) => window.getByTestId("notifications-filter");
 
 async function openBell(window: Page): Promise<void> {
   await bell(window).click();
@@ -152,7 +154,9 @@ test.describe("notification center", () => {
     // about what happens to the event now.
     expect(presented).toBe(false);
 
-    await expect(window.getByTestId("notifications-badge")).toHaveText("1", {
+    // Presence, not a count — the badge says "something happened", the list
+    // behind it says what.
+    await expect(window.getByTestId("notifications-badge")).toBeVisible({
       timeout: 10_000,
     });
 
@@ -194,7 +198,7 @@ test.describe("notification center", () => {
       });
     }
 
-    await expect(window.getByTestId("notifications-badge")).toHaveText("3", {
+    await expect(window.getByTestId("notifications-badge")).toBeVisible({
       timeout: 10_000,
     });
 
@@ -202,6 +206,13 @@ test.describe("notification center", () => {
     await expect(rows(window)).toHaveCount(3);
     // Newest first, as main sends them.
     await expect(rows(window).first()).toContainText("PR #3");
+
+    // The type filter is a view over the same list — "Agents" hides these PR
+    // records, "All" restores them, and nothing is mutated on the way.
+    await filterBar(window).getByRole("button", { name: "Agents" }).click();
+    await expect(rows(window)).toHaveCount(0);
+    await filterBar(window).getByRole("button", { name: "All" }).click();
+    await expect(rows(window)).toHaveCount(3);
 
     await popover(window).getByRole("button", { name: "Mark all read" }).click();
     await expect(window.getByTestId("notifications-badge")).toHaveCount(0, {
@@ -257,7 +268,7 @@ test.describe("notification center", () => {
 
       await expect(bell(window)).toBeVisible({ timeout: 30_000 });
       // Unread state survives too — a missed notification stays missed.
-      await expect(window.getByTestId("notifications-badge")).toHaveText("1", {
+      await expect(window.getByTestId("notifications-badge")).toBeVisible({
         timeout: 15_000,
       });
       await openBell(window);
@@ -318,7 +329,11 @@ test.describe("notification center", () => {
       .poll(() => readPersistedTitles(tempHome), { timeout: 90_000 })
       .toEqual(["Agent responded", "Agent responded", "Agent needs input"]);
 
-    await expect(window.getByTestId("notifications-badge")).toHaveText("3", {
+    // The agent's own pane is the one on screen the whole time. Logging it is
+    // the point; badging it is not — the user is watching that session, so
+    // main reads those records as the pane is marked seen and the bell stays
+    // quiet.
+    await expect(window.getByTestId("notifications-badge")).toHaveCount(0, {
       timeout: 15_000,
     });
     await openBell(window);
@@ -326,6 +341,7 @@ test.describe("notification center", () => {
     await expect(rows(window)).toHaveCount(3);
     const respondedRow = rows(window).first();
     await expect(respondedRow).toHaveAttribute("data-kind", "agent-responded");
+    await expect(respondedRow).toHaveAttribute("data-read", "true");
     await expect(respondedRow).toContainText("Agent responded");
     // The body names the task and its project, exactly as the banner would.
     await expect(respondedRow).toContainText("notif-agent");
@@ -334,6 +350,14 @@ test.describe("notification center", () => {
     const inputRow = rows(window).last();
     await expect(inputRow).toHaveAttribute("data-kind", "agent-requires-input");
     await expect(inputRow).toContainText("Agent needs input");
+
+    // Filtering is by family: these are all agent records, so "PRs" empties
+    // the list and "Agents" brings every one of them back.
+    await filterBar(window).getByRole("button", { name: "PRs" }).click();
+    await expect(rows(window)).toHaveCount(0);
+    await expect(window.getByTestId("notifications-empty")).toBeVisible();
+    await filterBar(window).getByRole("button", { name: "Agents" }).click();
+    await expect(rows(window)).toHaveCount(3);
 
     await closeBell(window);
   });

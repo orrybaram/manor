@@ -62,6 +62,23 @@ export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void 
   }
 }
 
+/**
+ * Mark every notification about `taskId` read and broadcast the result.
+ *
+ * Paired with `tasks:markSeen`: the moment main accepts that the user is
+ * looking at a task's pane, the log entries for that task stop counting as
+ * unread. Without this the bell kept an indicator up for a session already on
+ * screen — and it came back every time the user navigated away.
+ */
+export function markTaskNotificationsRead(
+  taskId: string,
+  mainWindow: BrowserWindow | null,
+): void {
+  if (!notificationStore) return;
+  if (!notificationStore.markReadByTask(taskId)) return;
+  sendNotificationsUpdate(mainWindow);
+}
+
 export const unseenRespondedTasks = new Set<string>();
 export const unseenInputTasks = new Set<string>();
 

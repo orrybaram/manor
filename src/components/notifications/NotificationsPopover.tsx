@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import CheckCheck from "lucide-react/dist/esm/icons/check-check";
 import CircleHelp from "lucide-react/dist/esm/icons/circle-help";
 import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
 import CircleX from "lucide-react/dist/esm/icons/circle-x";
+import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { NotificationKind, NotificationRecord } from "../../electron.d";
 import { useNotificationStore } from "../../store/notification-store";
 import { navigateToNotification } from "../../utils/notification-navigation";
@@ -16,6 +19,7 @@ import {
 } from "../../utils/date-buckets";
 import { relativeShortThenDate } from "../../utils/relative-time";
 import { Button } from "../ui/Button/Button";
+import { ToggleGroup } from "../ui/ToggleGroup/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import styles from "./NotificationsPopover.module.css";
 
@@ -36,19 +40,55 @@ const TONE_FOR: Partial<Record<NotificationKind, string>> = {
 };
 
 /**
+ * The two families a record can belong to, which is the axis worth filtering
+ * on: the six kinds split cleanly into "an agent did something" and "a pull
+ * request did something", and six chips do not fit a 300px popover.
+ */
+type KindFilter = "all" | "agent" | "pr";
+
+const FILTER_OPTIONS: { value: KindFilter; label: ReactNode }[] = [
+  { value: "all", label: "All" },
+  {
+    value: "agent",
+    label: (
+      <>
+        <Bot size={11} /> Agents
+      </>
+    ),
+  },
+  {
+    value: "pr",
+    label: (
+      <>
+        <GitPullRequest size={11} /> PRs
+      </>
+    ),
+  },
+];
+
+function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
+  if (filter === "all") return true;
+  const isAgent = kind.startsWith("agent-");
+  return filter === "agent" ? isAgent : !isAgent;
+}
+
+/**
  * The notification history (ADR-162 §6). Click-triggered rather than
  * hover-triggered like `PrPopover`: this is something you deliberately open,
  * not a badge you brush past.
  */
 export function NotificationsPopover() {
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<KindFilter>("all");
   const notifications = useNotificationStore((s) => s.notifications);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clear = useNotificationStore((s) => s.clear);
 
+  const visible = notifications.filter((n) => matchesFilter(n.kind, filter));
+
   const grouped = new Map<DateBucket, NotificationRecord[]>();
-  for (const record of notifications) {
+  for (const record of visible) {
     const bucket = getDateBucket(record.timestamp);
     const list = grouped.get(bucket);
     if (list) list.push(record);
@@ -73,9 +113,7 @@ export function NotificationsPopover() {
           >
             <Bell size={12} />
             {unreadCount > 0 && (
-              <span className={styles.badge} data-testid="notifications-badge">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
+              <span className={styles.badge} data-testid="notifications-badge" />
             )}
           </Button>
         </Popover.Trigger>
@@ -92,28 +130,47 @@ export function NotificationsPopover() {
         >
           <div className={styles.header}>
             <span className={styles.headerTitle}>Notifications</span>
-            <Button
-              variant="link"
-              className={styles.headerAction}
-              disabled={unreadCount === 0}
-              onClick={() => void markAllRead()}
-            >
-              Mark all read
-            </Button>
-            <Button
-              variant="link"
-              className={styles.headerAction}
-              disabled={notifications.length === 0}
-              onClick={() => void clear()}
-            >
-              Clear
-            </Button>
+            <Tooltip label="Mark all read">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={styles.headerAction}
+                aria-label="Mark all read"
+                disabled={unreadCount === 0}
+                onClick={() => void markAllRead()}
+              >
+                <CheckCheck size={13} />
+              </Button>
+            </Tooltip>
+            <Tooltip label="Clear">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={styles.headerAction}
+                aria-label="Clear"
+                disabled={notifications.length === 0}
+                onClick={() => void clear()}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </Tooltip>
+          </div>
+
+          <div className={styles.filterBar} data-testid="notifications-filter">
+            <ToggleGroup
+              size="sm"
+              value={filter}
+              onChange={setFilter}
+              options={FILTER_OPTIONS}
+            />
           </div>
 
           <div className={styles.scrollArea}>
-            {notifications.length === 0 && (
+            {visible.length === 0 && (
               <div className={styles.empty} data-testid="notifications-empty">
-                Nothing here yet.
+                {notifications.length === 0
+                  ? "Nothing here yet."
+                  : "Nothing of this kind."}
               </div>
             )}
 

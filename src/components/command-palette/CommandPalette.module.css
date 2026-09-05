@@ -886,3 +886,92 @@
   color: var(--text);
   border-color: var(--text-dim);
 }
+
+/* ── Stats view (ADR-168) ── */
+
+.statsView {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.statsStreak {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.statsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.statsTable thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.statsRowLabel {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-dim);
+  padding: 3px 8px 3px 0;
+  white-space: nowrap;
+}
+
+.statsCell {
+  text-align: right;
+  color: var(--text-primary);
+  padding: 3px 0 3px 12px;
+  width: 72px;
+  white-space: nowrap;
+}
+
+.statsBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--surface);
+}
+
+.statsBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.statsBadgeLocked {
+  opacity: 0.35;
+}
+
+/* Doubled selectors so the footer's `link` Button loses its underline and
+   accent colour without an !important. */
+.footerHint.footerHint {
+  text-decoration: none;
+  color: var(--text-dim);
+}
+
+.footerHint.footerHintDanger {
+  color: var(--red);
+}
+
+.footerHint.footerHintDanger:hover {
+  color: var(--red);
+  opacity: 0.8;
+}

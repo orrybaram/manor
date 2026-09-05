@@ -1,6 +1,6 @@
 ---
 title: Badge definitions, evaluation, and badge-unlocked notifications
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

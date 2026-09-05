@@ -4,6 +4,9 @@ import type { StatsSummary } from "./stats-store";
  * Milestone badges (ADR-168 §4). Pure and Electron-free so the predicates are
  * unit-testable without a `StatsStore`. `StatsStore` runs `evaluateBadges`
  * once per commit and persists newly-earned ids; badges are never revoked.
+ *
+ * Keep the id/title/description of every badge in sync with the renderer
+ * mirror at `src/lib/badges.ts`.
  */
 
 export interface BadgeDef {

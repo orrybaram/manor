@@ -1,6 +1,6 @@
 ---
 title: Stats palette view, status bar segment, settings toggle
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [5]

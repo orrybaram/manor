@@ -1,6 +1,6 @@
 ---
 title: Stats IPC, statsEnabled preference, preload, renderer cache store
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2, 4]

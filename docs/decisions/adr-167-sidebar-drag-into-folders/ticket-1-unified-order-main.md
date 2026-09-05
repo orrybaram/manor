@@ -1,6 +1,6 @@
 ---
 title: Normalize a unified sidebar order in the main process
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

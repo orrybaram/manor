@@ -3,11 +3,15 @@ import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 import { allPaneIds } from "../store/pane-tree";
 import { pickBestPaneStatus } from "./useTabAgentStatus";
-import type { ProjectInfo } from "../store/project-store";
+import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { AgentStatus } from "../electron.d";
 
-export function useProjectAgentStatus(
-  project: ProjectInfo,
+/**
+ * Aggregate agent status across an arbitrary set of workspaces — the whole
+ * project (see `useProjectAgentStatus`) or one folder's members.
+ */
+export function useWorkspacesAgentStatus(
+  workspaces: WorkspaceInfo[],
 ): { status: AgentStatus | null; pulse: boolean } {
   const agents = useAgentStore((s) => s.agents);
   const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
@@ -17,7 +21,7 @@ export function useProjectAgentStatus(
 
   return useMemo(() => {
     const paneIds: string[] = [];
-    for (const ws of project.workspaces) {
+    for (const ws of workspaces) {
       const layout = workspaceLayouts[ws.path];
       if (!layout) continue;
 
@@ -35,11 +39,17 @@ export function useProjectAgentStatus(
       unseenInputAgentIds,
     });
   }, [
-    project.workspaces,
+    workspaces,
     workspaceLayouts,
     paneAgentStatus,
     agents,
     unseenRespondedAgentIds,
     unseenInputAgentIds,
   ]);
+}
+
+export function useProjectAgentStatus(
+  project: ProjectInfo,
+): { status: AgentStatus | null; pulse: boolean } {
+  return useWorkspacesAgentStatus(project.workspaces);
 }

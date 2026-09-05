@@ -63,7 +63,6 @@ export function Sidebar(props: SidebarProps) {
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
   const renameWorkspace = useProjectStore((s) => s.renameWorkspace);
   const setWorkspaceHidden = useProjectStore((s) => s.setWorkspaceHidden);
-  const reorderWorkspaces = useProjectStore((s) => s.reorderWorkspaces);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const createWorktree = useProjectStore((s) => s.createWorktree);
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
@@ -386,9 +385,6 @@ export function Sidebar(props: SidebarProps) {
                         }}
                         onUnhideWorkspace={(ws) =>
                           setWorkspaceHidden(project.id, ws.path, false)
-                        }
-                        onReorderWorkspaces={(orderedPaths) =>
-                          reorderWorkspaces(project.id, orderedPaths)
                         }
                         onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
                           createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)

@@ -26,6 +26,11 @@ export interface CustomCommand {
   command: string;
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -33,6 +38,7 @@ export interface WorkspaceInfo {
   name: string | null;
   linkedIssues?: LinkedIssue[];
   hidden?: boolean;
+  folderId?: string | null;
 }
 
 /** Pre-fetched issue data needed to create a workspace for it. */
@@ -76,6 +82,12 @@ export interface ProjectInfo {
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
   backendType?: "local" | "remote";
+  folders: WorkspaceFolder[];
+  /**
+   * Normalized, depth-first order of workspace paths and folder ids — the
+   * canonical shape of what the sidebar renders. See `normalizeSidebarOrder`.
+   */
+  sidebarOrder: string[];
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -113,6 +125,8 @@ interface PersistedProject {
   workspaceOrder?: string[];
   workspaceIssues?: Record<string, LinkedIssue[]>;
   workspaceHidden?: Record<string, boolean>;
+  workspaceFolders?: WorkspaceFolder[];
+  workspaceFolderIds?: Record<string, string>;
   color?: string | null;
   agentCommand?: string | null;
   commands?: CustomCommand[];
@@ -125,6 +139,77 @@ interface PersistedProject {
 interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
+}
+
+/**
+ * Normalizes a persisted sidebar order against the current set of workspace
+ * paths and folder ids: keeps known entries in order, drops unknown ones,
+ * then appends any missing workspace paths (in git order) followed by any
+ * missing folder ids (in `workspaceFolders` order).
+ */
+export function normalizeSidebarOrder(
+  order: string[] | undefined,
+  workspacePaths: string[],
+  folderIds: string[],
+): string[] {
+  const knownPaths = new Set(workspacePaths);
+  const knownFolderIds = new Set(folderIds);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const entry of order ?? []) {
+    if (seen.has(entry)) continue;
+    if (knownPaths.has(entry) || knownFolderIds.has(entry)) {
+      result.push(entry);
+      seen.add(entry);
+    }
+  }
+
+  for (const p of workspacePaths) {
+    if (!seen.has(p)) {
+      result.push(p);
+      seen.add(p);
+    }
+  }
+  for (const id of folderIds) {
+    if (!seen.has(id)) {
+      result.push(id);
+      seen.add(id);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Removes a folder id from `order` and puts its members' paths in its place,
+ * in `memberPaths`' relative order, gathering any member paths that are
+ * scattered elsewhere in the array. If the folder id isn't present, the
+ * members are appended to the end instead. Never duplicates a path.
+ */
+export function spliceFolderOut(
+  order: string[],
+  folderId: string,
+  memberPaths: string[],
+): string[] {
+  const memberSet = new Set(memberPaths);
+  const rest = order.filter(
+    (entry) => entry !== folderId && !memberSet.has(entry),
+  );
+  const folderIndex = order.indexOf(folderId);
+  if (folderIndex === -1) {
+    return [...rest, ...memberPaths];
+  }
+
+  // Recompute where the folder id sits relative to `rest`: count how many
+  // entries before it in `order` survive into `rest`.
+  let insertAt = 0;
+  for (let i = 0; i < folderIndex; i++) {
+    const entry = order[i];
+    if (entry !== folderId && !memberSet.has(entry)) insertAt++;
+  }
+
+  return [...rest.slice(0, insertAt), ...memberPaths, ...rest.slice(insertAt)];
 }
 
 export class ProjectManager {
@@ -343,6 +428,8 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      folders: [],
+      sidebarOrder: [],
     };
   }
 
@@ -401,6 +488,95 @@ export class ProjectManager {
     this.saveState();
   }
 
+  createWorkspaceFolder(projectId: string, name: string): WorkspaceFolder | null {
+    const project = this.findProject(projectId);
+    if (!project) return null;
+    const trimmed = name.trim();
+    if (trimmed === "") return null;
+    const folder: WorkspaceFolder = { id: crypto.randomUUID(), name: trimmed };
+    if (!project.workspaceFolders) project.workspaceFolders = [];
+    project.workspaceFolders.push(folder);
+    if (Array.isArray(project.workspaceOrder)) {
+      project.workspaceOrder.push(folder.id);
+    }
+    this.saveState();
+    return folder;
+  }
+
+  renameWorkspaceFolder(
+    projectId: string,
+    folderId: string,
+    name: string,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    const folder = project.workspaceFolders?.find((f) => f.id === folderId);
+    if (!folder) return;
+    folder.name = trimmed;
+    this.saveState();
+  }
+
+  deleteWorkspaceFolder(projectId: string, folderId: string): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+
+    // Collect member paths in their current sidebarOrder position (members
+    // not present in the order go last, in workspaceFolderIds insertion order).
+    const memberPaths: string[] = [];
+    if (project.workspaceFolderIds) {
+      const order = project.workspaceOrder ?? [];
+      const orderMap = new Map(order.map((entry, i) => [entry, i]));
+      for (const [path, id] of Object.entries(project.workspaceFolderIds)) {
+        if (id === folderId) memberPaths.push(path);
+      }
+      memberPaths.sort((a, b) => {
+        const ai = orderMap.get(a) ?? Infinity;
+        const bi = orderMap.get(b) ?? Infinity;
+        return ai - bi;
+      });
+    }
+
+    if (project.workspaceFolders) {
+      project.workspaceFolders = project.workspaceFolders.filter(
+        (f) => f.id !== folderId,
+      );
+    }
+    if (project.workspaceFolderIds) {
+      for (const [path, id] of Object.entries(project.workspaceFolderIds)) {
+        if (id === folderId) delete project.workspaceFolderIds[path];
+      }
+    }
+    if (project.workspaceOrder) {
+      project.workspaceOrder = spliceFolderOut(
+        project.workspaceOrder,
+        folderId,
+        memberPaths,
+      );
+    }
+    this.saveState();
+  }
+
+  setWorkspaceFolder(
+    projectId: string,
+    workspacePath: string,
+    folderId: string | null,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (!project.workspaceFolderIds) project.workspaceFolderIds = {};
+    const exists =
+      folderId != null &&
+      (project.workspaceFolders?.some((f) => f.id === folderId) ?? false);
+    if (exists) {
+      project.workspaceFolderIds[workspacePath] = folderId as string;
+    } else {
+      delete project.workspaceFolderIds[workspacePath];
+    }
+    this.saveState();
+  }
+
   async updateProject(
     projectId: string,
     updates: ProjectUpdatableFields,
@@ -419,6 +595,7 @@ export class ProjectManager {
     const rawWorkspaces = (await listGitWorkspaces(this.git, p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ];
+    const rawWorkspacePaths = rawWorkspaces.map((ws) => ws.path);
     // Apply persisted ordering
     const order = p.workspaceOrder;
     if (order && order.length > 0) {
@@ -432,12 +609,22 @@ export class ProjectManager {
     const names = p.workspaceNames ?? {};
     const issues = p.workspaceIssues ?? {};
     const hiddenMap = p.workspaceHidden ?? {};
-    const workspaces = rawWorkspaces.map((ws) => ({
-      ...ws,
-      name: names[ws.path] ?? null,
-      linkedIssues: issues[ws.path] ?? [],
-      hidden: hiddenMap[ws.path] ?? false,
-    }));
+    const folders = p.workspaceFolders ?? [];
+    const folderIds = p.workspaceFolderIds ?? {};
+    const folderIdSet = new Set(folders.map((f) => f.id));
+    const workspaces = rawWorkspaces.map((ws) => {
+      const mappedFolderId = folderIds[ws.path];
+      return {
+        ...ws,
+        name: names[ws.path] ?? null,
+        linkedIssues: issues[ws.path] ?? [],
+        hidden: hiddenMap[ws.path] ?? false,
+        folderId:
+          mappedFolderId && folderIdSet.has(mappedFolderId)
+            ? mappedFolderId
+            : null,
+      };
+    });
     return {
       id: p.id,
       name: p.name,
@@ -457,6 +644,12 @@ export class ProjectManager {
       setupComplete: p.setupComplete ?? true,
       portlessEnabled: p.portlessEnabled ?? true,
       backendType: p.backendType ?? "local",
+      folders,
+      sidebarOrder: normalizeSidebarOrder(
+        p.workspaceOrder,
+        rawWorkspacePaths,
+        folders.map((f) => f.id),
+      ),
     };
   }
 
@@ -518,10 +711,14 @@ export class ProjectManager {
     return project.workspaceIssues?.[workspacePath] ?? [];
   }
 
-  reorderWorkspaces(projectId: string, orderedPaths: string[]): void {
+  /**
+   * Persists the sidebar order verbatim. `orderedKeys` entries may be
+   * workspace paths or folder ids (see ADR-167).
+   */
+  reorderWorkspaces(projectId: string, orderedKeys: string[]): void {
     const project = this.findProject(projectId);
     if (!project) return;
-    project.workspaceOrder = orderedPaths;
+    project.workspaceOrder = orderedKeys;
     this.saveState();
   }
 
@@ -607,6 +804,7 @@ export class ProjectManager {
     if (project.workspaceIssues) {
       delete project.workspaceIssues[worktreePath];
     }
+    delete project.workspaceFolderIds?.[worktreePath];
     this.saveState();
 
     if (deleteBranch && branchName) {

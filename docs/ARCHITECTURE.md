@@ -149,7 +149,7 @@ manor/
 │   │   ├── statusbar/        status bar, feedback modal, about modal
 │   │   └── ports/            port list, badges, groupings
 │   ├── hooks/                useTerminalLifecycle, useDiffWatcher, useBranchWatcher,
-│   │                         useWorkspaceDrag, useAutoUpdate, useListKeyboardNav, …
+│   │                         useSidebarDrag, useAutoUpdate, useListKeyboardNav, …
 │   ├── terminal/             xterm.js addon wiring, paint helpers
 │   ├── lib/                  keybindings parser, browser-pane registry, styles
 │   └── utils/                small shared helpers

@@ -14,11 +14,17 @@ const PROJECT_ID_PROP = {
 
 // ── Project & workspace types ──
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
   isMain: boolean;
   name: string | null;
+  folderId?: string | null;
 }
 
 export interface ProjectInfo {
@@ -29,12 +35,21 @@ export interface ProjectInfo {
   workspaces: WorkspaceInfo[];
   /** Shell script run in a freshly created workspace, if the project sets one. */
   worktreeStartScript?: string | null;
+  folders?: WorkspaceFolder[];
+  sidebarOrder?: string[];
 }
 
-export function formatWorkspace(ws: WorkspaceInfo): string {
+export function formatWorkspace(
+  ws: WorkspaceInfo,
+  folders: WorkspaceFolder[] = [],
+): string {
   const label = ws.name ? `${ws.name} ` : "";
   const main = ws.isMain ? " [main]" : "";
-  return `  - ${label}${ws.path} (${ws.branch})${main}`;
+  const folder = ws.folderId
+    ? folders.find((f) => f.id === ws.folderId)
+    : undefined;
+  const folderLabel = folder ? ` [folder: ${folder.name}]` : "";
+  return `  - ${label}${ws.path} (${ws.branch})${main}${folderLabel}`;
 }
 
 export function formatProject(p: ProjectInfo): string {
@@ -43,7 +58,7 @@ export function formatProject(p: ProjectInfo): string {
     `  path: ${p.path}`,
     `  default branch: ${p.defaultBranch}`,
     `  workspaces (${p.workspaces.length}):`,
-    ...p.workspaces.map(formatWorkspace),
+    ...p.workspaces.map((ws) => formatWorkspace(ws, p.folders)),
   ];
   return lines.join("\n");
 }
@@ -214,7 +229,7 @@ const handlers: ToolModule["handlers"] = {
       : "";
     return text(
       `Created workspace "${label}" in project "${project.name}".${setupNote}\n\nWorkspaces now:\n${project.workspaces
-        .map(formatWorkspace)
+        .map((ws) => formatWorkspace(ws, project.folders))
         .join("\n")}`,
     );
   },
@@ -224,13 +239,17 @@ const handlers: ToolModule["handlers"] = {
       http,
       args.projectId as string | undefined,
     );
-    const workspaces = (await http.get(
-      `/projects/${encodeURIComponent(projectId)}/workspaces`,
-    )) as WorkspaceInfo[];
-    if (workspaces.length === 0) {
+    const project = (await http.get(
+      `/projects/${encodeURIComponent(projectId)}`,
+    )) as ProjectInfo;
+    if (project.workspaces.length === 0) {
       return text("No workspaces in this project.");
     }
-    return text(workspaces.map(formatWorkspace).join("\n"));
+    return text(
+      project.workspaces
+        .map((ws) => formatWorkspace(ws, project.folders))
+        .join("\n"),
+    );
   },
 
   async remove_workspace(args, http) {

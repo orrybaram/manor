@@ -271,3 +271,95 @@
   margin: 4px 0;
   background: var(--border, rgba(255, 255, 255, 0.1));
 }
+
+/* ── Workspace folders (ADR-166) ── */
+
+.folder {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Matches .workspaceDragging: a folder block drags as one row. */
+.folderDragging {
+  opacity: 0.7;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+/* A workspace is hovering this header and will drop into the folder. */
+.folderDropTarget {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--project-color, var(--accent));
+  border-radius: 4px;
+}
+
+.folderHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.folderHeader:hover {
+  background: var(--surface);
+}
+
+.folderChevron {
+  font-size: 10px;
+  width: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.folderChevronOpen {
+  transform: rotate(90deg);
+}
+
+.folderIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.folderName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderCount {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.folderActive {
+  color: var(--project-color, var(--accent));
+}
+
+.folderActive .folderIcon {
+  color: var(--project-color, var(--accent));
+}
+
+.folderBody {
+  /* chevron (12px) + header gap (4px): member icons sit under the folder icon */
+  padding-left: 16px;
+}
+
+/* Members repeat the 8px row rhythm of .workspaces without its margin. */
+.folderMembers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}

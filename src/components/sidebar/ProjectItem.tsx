@@ -1,19 +1,31 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import {
+  folderCollapseKey,
   useProjectStore,
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../../store/project-store";
+import {
+  applyDrop,
+  buildSidebarItems,
+  placeAfterFolder,
+  placeInFolder,
+  type DropTarget,
+  type Row,
+} from "../../utils/sidebar-items";
+import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
@@ -24,7 +36,8 @@ import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
-import { useWorkspaceDrag } from "../../hooks/useWorkspaceDrag";
+import { NewFolderDialog } from "./NewFolderDialog";
+import { FolderItem } from "./FolderItem";
 import { openInEditor } from "../../lib/editor";
 import styles from "./ProjectItem.module.css";
 
@@ -39,7 +52,8 @@ interface WorkspaceItemProps {
   editValue: string;
   editRef: React.RefObject<HTMLInputElement | null>;
   displayName: string;
-  getTransformStyle: (idx: number) => React.CSSProperties | undefined;
+  /** Transform supplied by the sidebar drag while a drag is in flight. */
+  dragStyle: React.CSSProperties | undefined;
   justDragged: React.RefObject<boolean>;
   itemRefCallback: (el: HTMLDivElement | null) => void;
   onSelectWorkspace: (index: number) => void;
@@ -71,7 +85,7 @@ const WorkspaceItem = React.forwardRef<
     editValue,
     editRef,
     displayName,
-    getTransformStyle,
+    dragStyle,
     justDragged,
     itemRefCallback,
     onSelectWorkspace,
@@ -103,7 +117,7 @@ const WorkspaceItem = React.forwardRef<
           ? styles.workspaceActive
           : ""
         } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
-      style={{ ...getTransformStyle(idx), ...rest.style }}
+      style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
         if (!justDragged.current) onSelectWorkspace(idx);
         rest.onClick?.(e);
@@ -191,7 +205,6 @@ type ProjectItemProps = {
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
-  onReorderWorkspaces: (orderedPaths: string[]) => void;
   onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
@@ -212,7 +225,6 @@ export function ProjectItem(props: ProjectItemProps) {
     onRenameWorkspace,
     onHideWorkspace,
     onUnhideWorkspace,
-    onReorderWorkspaces,
     onCreateWorktree,
     onOpenSettings,
     onDragStart,
@@ -229,8 +241,17 @@ export function ProjectItem(props: ProjectItemProps) {
   const [confirmMergeWorktree, setConfirmMergeWorktree] =
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  // Folder chosen via its context menu's "New Workspace…"; the created
+  // workspace is placed inside it once the worktree exists.
+  const [newWorkspaceFolderId, setNewWorkspaceFolderId] = useState<string | null>(null);
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  // Set when "New Folder…" is picked from a workspace's menu: the folder is
+  // created and that workspace moved into it in one step.
+  const [pendingMovePath, setPendingMovePath] = useState<string | null>(null);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
+  // A folder's inline rename input, like a workspace's, suspends dragging.
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
 
   // Keep a path dimmed until the workspace is actually gone. Only prune paths
   // that no longer exist — a workspaces refresh mid-deletion (e.g. git status
@@ -250,22 +271,59 @@ export function ProjectItem(props: ProjectItemProps) {
   } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
 
-  const {
-    dragIndex,
-    handleDragStart,
-    getTransformStyle,
-    justDragged,
-    itemRefs,
-  } = useWorkspaceDrag({
-    workspaces: project.workspaces,
-    onReorderWorkspaces,
-    editingPath,
-  });
+  const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
+  const toggleFolderCollapsed = useProjectStore((s) => s.toggleFolderCollapsed);
+  const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
+  const renameWorkspaceFolder = useProjectStore((s) => s.renameWorkspaceFolder);
+  const deleteWorkspaceFolder = useProjectStore((s) => s.deleteWorkspaceFolder);
+  const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);
   const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
   const hiddenWorkspaces = project.workspaces.filter((ws) => ws.hidden);
+
+  const { id: projectId, workspaces, folders, sidebarOrder } = project;
+  const items = useMemo(
+    () => buildSidebarItems({ workspaces, folders, sidebarOrder }),
+    [workspaces, folders, sidebarOrder],
+  );
+  const collapsedFolderIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const folder of folders) {
+      if (collapsedFolderKeys.has(folderCollapseKey(projectId, folder.id))) {
+        ids.add(folder.id);
+      }
+    }
+    return ids;
+  }, [folders, collapsedFolderKeys, projectId]);
+  const selectedWorkspace = project.workspaces[project.selectedWorkspaceIndex];
+
+  const handleDrop = useCallback(
+    (sourceKey: string, target: DropTarget, rows: Row[]) => {
+      applySidebarChange(projectId, applyDrop(items, sourceKey, target, rows));
+    },
+    [applySidebarChange, projectId, items],
+  );
+
+  const {
+    dragKey,
+    intoFolderId,
+    justDragged,
+    rowRefs,
+    handleDragStart,
+    getTransformStyle,
+  } = useSidebarDrag({
+    items,
+    collapsedFolderIds,
+    disabled: editingPath !== null || editingFolderId !== null,
+    onDrop: handleDrop,
+  });
+
+  const registerRow = (key: string) => (el: HTMLElement | null) => {
+    if (el) rowRefs.current.set(key, el);
+    else rowRefs.current.delete(key);
+  };
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     setEditingPath(ws.path);
@@ -283,6 +341,226 @@ export function ProjectItem(props: ProjectItemProps) {
     },
     [editValue, onRenameWorkspace],
   );
+
+  const renderWorkspace = (ws: WorkspaceInfo) => {
+    // Every callback below the sidebar takes the index into
+    // `project.workspaces`; the drag itself is keyed by path.
+    const globalIdx = project.workspaces.indexOf(ws);
+    const isEditing = editingPath === ws.path;
+    const displayName = ws.isMain
+      ? ws.name || "local"
+      : ws.name || ws.branch || "main";
+    const isDeleting = deletingPaths.has(ws.path);
+
+    const workspaceEl = (
+      <WorkspaceItem
+        ws={ws}
+        idx={globalIdx}
+        isSelected={isSelected}
+        selectedWorkspaceIndex={project.selectedWorkspaceIndex}
+        isDragging={dragKey === ws.path}
+        isDeleting={isDeleting}
+        isEditing={isEditing}
+        editValue={editValue}
+        editRef={editRef}
+        displayName={displayName}
+        dragStyle={getTransformStyle(ws.path)}
+        justDragged={justDragged}
+        itemRefCallback={registerRow(ws.path)}
+        onSelectWorkspace={onSelectWorkspace}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          startRename(ws);
+        }}
+        onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
+        onEditChange={(e) => setEditValue(e.target.value)}
+        onEditBlur={() => {
+          if (editingPath) commitRename(ws);
+        }}
+        onEditKeyDown={(e) => {
+          if (e.key === "Enter") commitRename(ws);
+          if (e.key === "Escape") {
+            setEditingPath(null);
+            e.currentTarget.blur();
+          }
+        }}
+        onEditClick={(e) => e.stopPropagation()}
+        onEditPointerDown={(e) => e.stopPropagation()}
+        onOpenDiff={() => onOpenDiff?.(globalIdx)}
+      />
+    );
+
+    return (
+      <ContextMenu.Root
+        key={ws.path}
+        onOpenChange={(open) => {
+          if (open && !ws.isMain) {
+            setMergeState(null);
+            useProjectStore
+              .getState()
+              .canQuickMerge(project.id, ws.path)
+              .then(setMergeState)
+              .catch(() =>
+                setMergeState({ canMerge: false, reason: "Error checking merge eligibility" }),
+              );
+          } else {
+            setMergeState(null);
+          }
+        }}
+      >
+        <ContextMenu.Trigger asChild>
+          {workspaceEl}
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className={styles.contextMenu}>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() =>
+                window.electronAPI.shell.openExternal(
+                  `file://${ws.path}`,
+                )
+              }
+            >
+              Open in Finder
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => openInEditor(ws.path)}
+            >
+              Open in Editor
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() =>
+                navigator.clipboard.writeText(ws.branch || "main")
+              }
+            >
+              Copy Branch Name
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => navigator.clipboard.writeText(ws.path)}
+            >
+              Copy Path
+            </ContextMenu.Item>
+            {ws.isMain && ws.branch && ws.branch !== project.defaultBranch && (
+              <>
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => setConvertWorkspaceOpen(true)}
+                >
+                  Convert to Workspace…
+                </ContextMenu.Item>
+              </>
+            )}
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger
+                className={styles.contextMenuItem}
+                style={{ display: "flex", alignItems: "center" }}
+              >
+                Move to Folder
+                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent
+                  className={styles.contextMenu}
+                  style={{ maxWidth: 220 }}
+                >
+                  {project.folders.map((folder) => (
+                    <ContextMenu.Item
+                      key={folder.id}
+                      className={styles.contextMenuItem}
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                      disabled={ws.folderId === folder.id}
+                      onSelect={() =>
+                        applySidebarChange(
+                          projectId,
+                          placeInFolder(items, ws.path, folder.id),
+                        )
+                      }
+                    >
+                      {ws.folderId === folder.id && <Check size={12} />}
+                      {folder.name}
+                    </ContextMenu.Item>
+                  ))}
+                  {project.folders.length > 0 && (
+                    <ContextMenu.Separator
+                      className={styles.contextMenuSeparator}
+                    />
+                  )}
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => {
+                      setPendingMovePath(ws.path);
+                      setNewFolderOpen(true);
+                    }}
+                  >
+                    New Folder…
+                  </ContextMenu.Item>
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+            {ws.folderId && (
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={() =>
+                  applySidebarChange(
+                    projectId,
+                    placeAfterFolder(items, ws.path, ws.folderId!),
+                  )
+                }
+              >
+                Remove from Folder
+              </ContextMenu.Item>
+            )}
+            {!ws.isMain && (
+              <>
+                <ContextMenu.Separator
+                  className={styles.contextMenuSeparator}
+                />
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => startRename(ws)}
+                >
+                  Rename Workspace
+                </ContextMenu.Item>
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => onHideWorkspace(ws, globalIdx)}
+                >
+                  Hide Workspace
+                </ContextMenu.Item>
+                {ws.pr?.state?.toLowerCase() !== "merged" && (
+                  <ContextMenu.Item
+                    className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                    disabled={mergeState === null || !mergeState.canMerge}
+                    onSelect={() => setConfirmMergeWorktree(ws)}
+                  >
+                    Merge & Delete
+                    {mergeState && !mergeState.canMerge && mergeState.reason && (
+                      <span className={styles.contextMenuItemHint}>
+                        {mergeState.reason}
+                      </span>
+                    )}
+                  </ContextMenu.Item>
+                )}
+                <ContextMenu.Item
+                  className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
+                  onSelect={() => {
+                    setConfirmDeleteWorktree(ws);
+                  }}
+                >
+                  Delete Workspace
+                </ContextMenu.Item>
+              </>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    );
+  };
 
   return (
     <div
@@ -325,6 +603,15 @@ export function ProjectItem(props: ProjectItemProps) {
               onSelect={() => setNewWorkspaceOpen(true)}
             >
               New Workspace
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                setPendingMovePath(null);
+                setNewFolderOpen(true);
+              }}
+            >
+              New Folder…
             </ContextMenu.Item>
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -376,184 +663,107 @@ export function ProjectItem(props: ProjectItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {expanded && (
+      {expanded && items.length > 0 && (
         <div className={styles.workspaces}>
-          {project.workspaces.map((ws, idx) => {
-            if (ws.hidden) return null;
-            const isEditing = editingPath === ws.path;
-            const displayName = ws.isMain
-              ? ws.name || "local"
-              : ws.name || ws.branch || "main";
-            const isDragging = dragIndex === idx;
-            const isDeleting = deletingPaths.has(ws.path);
-
-            const workspaceEl = (
-              <WorkspaceItem
-                key={ws.path}
-                ws={ws}
-                idx={idx}
-                isSelected={isSelected}
-                selectedWorkspaceIndex={project.selectedWorkspaceIndex}
-                isDragging={isDragging}
-                isDeleting={isDeleting}
-                isEditing={isEditing}
-                editValue={editValue}
-                editRef={editRef}
-                displayName={displayName}
-                getTransformStyle={getTransformStyle}
+          {items.map((item) =>
+            item.kind === "workspace" ? (
+              renderWorkspace(item.ws)
+            ) : (
+              <FolderItem
+                key={item.folder.id}
+                folder={item.folder}
+                workspaces={item.workspaces}
+                collapsed={collapsedFolderIds.has(item.folder.id)}
+                containsSelected={
+                  isSelected &&
+                  !!selectedWorkspace &&
+                  item.workspaces.includes(selectedWorkspace)
+                }
+                dropTarget={intoFolderId === item.folder.id}
+                isDragging={dragKey === item.folder.id}
+                onToggleCollapsed={() =>
+                  toggleFolderCollapsed(projectId, item.folder.id)
+                }
+                onRename={(name) =>
+                  renameWorkspaceFolder(projectId, item.folder.id, name)
+                }
+                onDelete={() => deleteWorkspaceFolder(projectId, item.folder.id)}
+                onNewWorkspace={() => {
+                  setNewWorkspaceFolderId(item.folder.id);
+                  setNewWorkspaceOpen(true);
+                }}
+                onDragStart={(e) =>
+                  handleDragStart(item.folder.id, "folder", e)
+                }
+                registerBlock={registerRow(item.folder.id)}
+                registerHeader={registerRow(headerRefKey(item.folder.id))}
+                style={getTransformStyle(item.folder.id)}
+                headerStyle={getTransformStyle(headerRefKey(item.folder.id))}
                 justDragged={justDragged}
-                itemRefCallback={(el) => {
-                  if (el) itemRefs.current.set(idx, el);
-                  else itemRefs.current.delete(idx);
-                }}
-                onSelectWorkspace={onSelectWorkspace}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  startRename(ws);
-                }}
-                onPointerDown={(e) => handleDragStart(idx, e)}
-                onEditChange={(e) => setEditValue(e.target.value)}
-                onEditBlur={() => {
-                  if (editingPath) commitRename(ws);
-                }}
-                onEditKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename(ws);
-                  if (e.key === "Escape") {
-                    setEditingPath(null);
-                    e.currentTarget.blur();
-                  }
-                }}
-                onEditClick={(e) => e.stopPropagation()}
-                onEditPointerDown={(e) => e.stopPropagation()}
-                onOpenDiff={() => onOpenDiff?.(idx)}
-              />
-            );
-
-            return (
-              <React.Fragment key={ws.path}>
-                <ContextMenu.Root
-                  onOpenChange={(open) => {
-                    if (open && !ws.isMain) {
-                      setMergeState(null);
-                      useProjectStore
-                        .getState()
-                        .canQuickMerge(project.id, ws.path)
-                        .then(setMergeState)
-                        .catch(() =>
-                          setMergeState({ canMerge: false, reason: "Error checking merge eligibility" }),
-                        );
-                    } else {
-                      setMergeState(null);
-                    }
-                  }}
-                >
-                  <ContextMenu.Trigger asChild>
-                    {workspaceEl}
-                  </ContextMenu.Trigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.Content className={styles.contextMenu}>
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() =>
-                          window.electronAPI.shell.openExternal(
-                            `file://${ws.path}`,
-                          )
-                        }
-                      >
-                        Open in Finder
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() => openInEditor(ws.path)}
-                      >
-                        Open in Editor
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() =>
-                          navigator.clipboard.writeText(ws.branch || "main")
-                        }
-                      >
-                        Copy Branch Name
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() => navigator.clipboard.writeText(ws.path)}
-                      >
-                        Copy Path
-                      </ContextMenu.Item>
-                      {ws.isMain && ws.branch && ws.branch !== project.defaultBranch && (
-                        <>
-                          <ContextMenu.Separator className={styles.contextMenuSeparator} />
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            onSelect={() => setConvertWorkspaceOpen(true)}
-                          >
-                            Convert to Workspace…
-                          </ContextMenu.Item>
-                        </>
-                      )}
-                      {!ws.isMain && (
-                        <>
-                          <ContextMenu.Separator
-                            className={styles.contextMenuSeparator}
-                          />
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            onSelect={() => startRename(ws)}
-                          >
-                            Rename Workspace
-                          </ContextMenu.Item>
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            onSelect={() => onHideWorkspace(ws, idx)}
-                          >
-                            Hide Workspace
-                          </ContextMenu.Item>
-                          {ws.pr?.state?.toLowerCase() !== "merged" && (
-                            <ContextMenu.Item
-                              className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                              disabled={mergeState === null || !mergeState.canMerge}
-                              onSelect={() => setConfirmMergeWorktree(ws)}
-                            >
-                              Merge & Delete
-                              {mergeState && !mergeState.canMerge && mergeState.reason && (
-                                <span className={styles.contextMenuItemHint}>
-                                  {mergeState.reason}
-                                </span>
-                              )}
-                            </ContextMenu.Item>
-                          )}
-                          <ContextMenu.Item
-                            className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                            onSelect={() => {
-                              setConfirmDeleteWorktree(ws);
-                            }}
-                          >
-                            Delete Workspace
-                          </ContextMenu.Item>
-                        </>
-                      )}
-                    </ContextMenu.Content>
-                  </ContextMenu.Portal>
-                </ContextMenu.Root>
-              </React.Fragment>
-            );
-          })}
+                onEditingChange={(editing) =>
+                  setEditingFolderId((current) =>
+                    editing
+                      ? item.folder.id
+                      : current === item.folder.id
+                        ? null
+                        : current,
+                  )
+                }
+              >
+                {item.workspaces.length > 0 && (
+                  <div className={styles.folderMembers}>
+                    {item.workspaces.map((ws) => renderWorkspace(ws))}
+                  </div>
+                )}
+              </FolderItem>
+            ),
+          )}
         </div>
       )}
 
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
-        onClose={() => setNewWorkspaceOpen(false)}
+        onClose={() => {
+          setNewWorkspaceOpen(false);
+          setNewWorkspaceFolderId(null);
+        }}
         projects={[project]}
         selectedProjectIndex={0}
         onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch) => {
           const result = await onCreateWorktree(name, branch, baseBranch, useExistingBranch);
           if (result) {
+            const targetFolderId = newWorkspaceFolderId;
             setNewWorkspaceOpen(false);
+            setNewWorkspaceFolderId(null);
+            if (targetFolderId) {
+              // Read the freshly updated project: the store has already
+              // merged the new worktree (and its normalized sidebarOrder).
+              const fresh = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === projectId);
+              if (fresh) {
+                await applySidebarChange(
+                  projectId,
+                  placeInFolder(buildSidebarItems(fresh), result, targetFolderId),
+                );
+              }
+            }
           }
           return !!result;
+        }}
+      />
+
+      <NewFolderDialog
+        open={newFolderOpen}
+        onOpenChange={(open) => {
+          setNewFolderOpen(open);
+          if (!open) setPendingMovePath(null);
+        }}
+        onConfirm={async (name) => {
+          setNewFolderOpen(false);
+          const movePath = pendingMovePath;
+          setPendingMovePath(null);
+          await createWorkspaceFolder(projectId, name, movePath ?? undefined);
         }}
       />
 

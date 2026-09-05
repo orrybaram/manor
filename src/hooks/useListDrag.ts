@@ -5,7 +5,7 @@ import { useDragOverlayStore } from "../store/drag-overlay-store";
 const EMPTY_STYLE: React.CSSProperties = {};
 
 /**
- * Generic pointer-based vertical list reorder. Modeled on useWorkspaceDrag but
+ * Generic pointer-based vertical list reorder. Modeled on the sidebar drag but
  * keyed by opaque item ids so it works for any ordered list (e.g. project
  * commands). Call handleDragStart from a drag handle's onPointerDown, spread
  * getTransformStyle(idx) onto each row, and register each row via itemRefs.

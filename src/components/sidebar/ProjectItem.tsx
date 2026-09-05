@@ -17,7 +17,7 @@ import {
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../../store/project-store";
-import { groupWorkspaces, mergeSectionOrder } from "../../utils/workspace-folders";
+import { buildSidebarItems } from "../../utils/sidebar-items";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
@@ -32,6 +32,31 @@ import { FolderItem } from "./FolderItem";
 import { WorkspaceList, type WorkspaceDragProps } from "./WorkspaceList";
 import { openInEditor } from "../../lib/editor";
 import styles from "./ProjectItem.module.css";
+
+// TODO(adr-167 ticket 3): removed with WorkspaceList. Rewrites the slots a
+// section's paths occupy inside the full sidebar order, leaving folder ids and
+// other sections untouched.
+function mergeSectionOrder(allKeys: string[], sectionPaths: string[]): string[] {
+  const sectionSet = new Set(sectionPaths);
+  let sectionIdx = 0;
+  const result: string[] = [];
+
+  for (const key of allKeys) {
+    if (sectionSet.has(key)) {
+      result.push(sectionPaths[sectionIdx]);
+      sectionIdx++;
+    } else {
+      result.push(key);
+    }
+  }
+
+  const allKeysSet = new Set(allKeys);
+  for (const path of sectionPaths) {
+    if (!allKeysSet.has(path)) result.push(path);
+  }
+
+  return result;
+}
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
@@ -195,7 +220,7 @@ type ProjectItemProps = {
   onRenameWorkspace: (ws: WorkspaceInfo, newName: string) => void;
   onHideWorkspace: (ws: WorkspaceInfo, idx: number) => void;
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
-  onReorderWorkspaces: (orderedPaths: string[]) => void;
+  onReorderSidebar: (orderedKeys: string[]) => void;
   onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
@@ -216,7 +241,7 @@ export function ProjectItem(props: ProjectItemProps) {
     onRenameWorkspace,
     onHideWorkspace,
     onUnhideWorkspace,
-    onReorderWorkspaces,
+    onReorderSidebar,
     onCreateWorktree,
     onOpenSettings,
     onDragStart,
@@ -269,11 +294,22 @@ export function ProjectItem(props: ProjectItemProps) {
   const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
   const hiddenWorkspaces = project.workspaces.filter((ws) => ws.hidden);
 
-  const { workspaces, folders } = project;
-  const grouped = useMemo(
-    () => groupWorkspaces({ workspaces, folders }),
-    [workspaces, folders],
-  );
+  const { workspaces, folders, sidebarOrder } = project;
+  // TODO(adr-167 ticket 3): removed with WorkspaceList — the UI renders
+  // `buildSidebarItems` in one column instead of two sections.
+  const grouped = useMemo(() => {
+    const items = buildSidebarItems({ workspaces, folders, sidebarOrder });
+    return {
+      loose: items.flatMap((item) =>
+        item.kind === "workspace" ? [item.ws] : [],
+      ),
+      folders: items.flatMap((item) =>
+        item.kind === "folder"
+          ? [{ folder: item.folder, workspaces: item.workspaces }]
+          : [],
+      ),
+    };
+  }, [workspaces, folders, sidebarOrder]);
   const selectedWorkspace = project.workspaces[project.selectedWorkspaceIndex];
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
@@ -297,14 +333,9 @@ export function ProjectItem(props: ProjectItemProps) {
   // `project.workspaces` keeps its order.
   const handleSectionReorder = useCallback(
     (sectionPaths: string[]) => {
-      onReorderWorkspaces(
-        mergeSectionOrder(
-          project.workspaces.map((ws) => ws.path),
-          sectionPaths,
-        ),
-      );
+      onReorderSidebar(mergeSectionOrder(sidebarOrder, sectionPaths));
     },
-    [project.workspaces, onReorderWorkspaces],
+    [sidebarOrder, onReorderSidebar],
   );
 
   const renderWorkspace = (ws: WorkspaceInfo, drag: WorkspaceDragProps) => {

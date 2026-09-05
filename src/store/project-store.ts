@@ -2,6 +2,14 @@ import { create } from "zustand";
 import { useAppStore } from "./app-store";
 import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
+import {
+  buildSidebarItems,
+  insertFolderBefore,
+  membershipOf,
+  placeInFolder,
+  serializeOrder,
+  type SidebarItem,
+} from "../utils/sidebar-items";
 import type { ChecksSummary, PrInfo } from "../lib/pr-info";
 
 export type { ChecksSummary, PrInfo } from "../lib/pr-info";
@@ -63,6 +71,51 @@ function saveCollapsedIds(ids: Set<string>): void {
 /** Key used in `collapsedFolderKeys` for a given project/folder pair. */
 export function folderCollapseKey(projectId: string, folderId: string): string {
   return `${projectId}/${folderId}`;
+}
+
+/**
+ * Re-sorts workspaces to match a sidebar order. Entries in `order` that aren't
+ * paths (folder ids) are ignored; paths absent from `order` keep their
+ * relative order at the end.
+ */
+function sortWorkspacesByOrder(
+  workspaces: WorkspaceInfo[],
+  order: string[],
+): WorkspaceInfo[] {
+  const index = new Map<string, number>();
+  order.forEach((entry, i) => {
+    if (!index.has(entry)) index.set(entry, i);
+  });
+  return [...workspaces].sort(
+    (a, b) =>
+      (index.get(a.path) ?? Infinity) - (index.get(b.path) ?? Infinity),
+  );
+}
+
+/**
+ * Mirrors main's `spliceFolderOut`: drops the folder id from the sidebar order
+ * and puts its members' paths in that slot, so ungrouping leaves them where
+ * the folder was. Re-implemented here rather than imported — the renderer
+ * never reaches into `electron/`.
+ */
+function spliceFolderOutOfOrder(
+  order: string[],
+  folderId: string,
+  memberPaths: string[],
+): string[] {
+  const memberSet = new Set(memberPaths);
+  const rest = order.filter(
+    (entry) => entry !== folderId && !memberSet.has(entry),
+  );
+  const folderIndex = order.indexOf(folderId);
+  if (folderIndex === -1) return [...rest, ...memberPaths];
+
+  let insertAt = 0;
+  for (let i = 0; i < folderIndex; i++) {
+    const entry = order[i];
+    if (entry !== folderId && !memberSet.has(entry)) insertAt++;
+  }
+  return [...rest.slice(0, insertAt), ...memberPaths, ...rest.slice(insertAt)];
 }
 
 function loadCollapsedFolderKeys(): Set<string> {
@@ -352,6 +405,8 @@ interface ProjectState {
   createWorkspaceFolder: (
     projectId: string,
     name: string,
+    /** When given, the new folder takes this row's slot and swallows it. */
+    anchorPath?: string,
   ) => Promise<WorkspaceFolder | null>;
   renameWorkspaceFolder: (
     projectId: string,
@@ -369,9 +424,15 @@ interface ProjectState {
   ) => Promise<void>;
   convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
-  reorderWorkspaces: (
+  /** Persists a full sidebar order: workspace paths and folder ids. */
+  reorderSidebar: (
     projectId: string,
-    orderedPaths: string[],
+    orderedKeys: string[],
+  ) => Promise<void>;
+  /** Persists a whole sidebar tree: membership changes, then the order. */
+  applySidebarChange: (
+    projectId: string,
+    next: SidebarItem[],
   ) => Promise<void>;
   updateProject: (
     projectId: string,
@@ -681,26 +742,68 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  reorderWorkspaces: async (projectId: string, orderedPaths: string[]) => {
+  reorderSidebar: async (projectId: string, orderedKeys: string[]) => {
     await window.electronAPI.projects.reorderWorkspaces(
       projectId,
-      orderedPaths,
+      orderedKeys,
     );
     set((s) => ({
-      projects: s.projects.map((p) => {
-        if (p.id !== projectId) return p;
-        const byPath = new Map(p.workspaces.map((ws) => [ws.path, ws]));
-        const reordered = orderedPaths
-          .map((path) => byPath.get(path))
-          .filter((ws): ws is WorkspaceInfo => ws != null);
-        // Append any workspaces not in orderedPaths (shouldn't happen, but safe)
-        const orderedSet = new Set(orderedPaths);
-        for (const ws of p.workspaces) {
-          if (!orderedSet.has(ws.path)) reordered.push(ws);
-        }
-        return { ...p, workspaces: reordered };
-      }),
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              sidebarOrder: orderedKeys,
+              workspaces: sortWorkspacesByOrder(p.workspaces, orderedKeys),
+            }
+          : p,
+      ),
     }));
+  },
+
+  applySidebarChange: async (projectId: string, next: SidebarItem[]) => {
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const order = serializeOrder(next, project);
+    const membership = membershipOf(next);
+    const changes: { path: string; folderId: string | null }[] = [];
+    for (const ws of project.workspaces) {
+      // Hidden workspaces aren't in the tree; their membership is untouched.
+      if (!membership.has(ws.path)) continue;
+      const nextFolderId = membership.get(ws.path) ?? null;
+      if (nextFolderId !== (ws.folderId ?? null)) {
+        changes.push({ path: ws.path, folderId: nextFolderId });
+      }
+    }
+    const changedByPath = new Map(changes.map((c) => [c.path, c.folderId]));
+
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              sidebarOrder: order,
+              workspaces: sortWorkspacesByOrder(
+                p.workspaces.map((ws) =>
+                  changedByPath.has(ws.path)
+                    ? { ...ws, folderId: changedByPath.get(ws.path) ?? null }
+                    : ws,
+                ),
+                order,
+              ),
+            }
+          : p,
+      ),
+    }));
+
+    for (const change of changes) {
+      await window.electronAPI.projects.setWorkspaceFolder(
+        projectId,
+        change.path,
+        change.folderId,
+      );
+    }
+    await window.electronAPI.projects.reorderWorkspaces(projectId, order);
   },
 
   renameWorkspace: async (
@@ -749,20 +852,45 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
-  createWorkspaceFolder: async (projectId: string, name: string) => {
+  createWorkspaceFolder: async (
+    projectId: string,
+    name: string,
+    anchorPath?: string,
+  ) => {
     const folder = await window.electronAPI.projects.createWorkspaceFolder(
       projectId,
       name,
     );
-    if (folder) {
-      set((s) => ({
-        projects: s.projects.map((p) =>
-          p.id === projectId
-            ? { ...p, folders: [...p.folders, folder] }
-            : p,
-        ),
-      }));
+    if (!folder) return folder;
+
+    // Main appends the id to the persisted order; mirror that locally.
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              folders: [...p.folders, folder],
+              sidebarOrder: [...p.sidebarOrder, folder.id],
+            }
+          : p,
+      ),
+    }));
+
+    if (anchorPath) {
+      const project = get().projects.find((p) => p.id === projectId);
+      if (project) {
+        const items = buildSidebarItems(project);
+        await get().applySidebarChange(
+          projectId,
+          placeInFolder(
+            insertFolderBefore(items, folder, anchorPath),
+            anchorPath,
+            folder.id,
+          ),
+        );
+      }
     }
+
     return folder;
   },
 
@@ -793,17 +921,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   deleteWorkspaceFolder: async (projectId: string, folderId: string) => {
     set((s) => ({
-      projects: s.projects.map((p) =>
-        p.id === projectId
-          ? {
-              ...p,
-              folders: p.folders.filter((f) => f.id !== folderId),
-              workspaces: p.workspaces.map((ws) =>
-                ws.folderId === folderId ? { ...ws, folderId: null } : ws,
-              ),
-            }
-          : p,
-      ),
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const memberPaths = sortWorkspacesByOrder(
+          p.workspaces.filter((ws) => ws.folderId === folderId),
+          p.sidebarOrder,
+        ).map((ws) => ws.path);
+        const sidebarOrder = spliceFolderOutOfOrder(
+          p.sidebarOrder,
+          folderId,
+          memberPaths,
+        );
+        return {
+          ...p,
+          folders: p.folders.filter((f) => f.id !== folderId),
+          workspaces: sortWorkspacesByOrder(
+            p.workspaces.map((ws) =>
+              ws.folderId === folderId ? { ...ws, folderId: null } : ws,
+            ),
+            sidebarOrder,
+          ),
+          sidebarOrder,
+        };
+      }),
       collapsedFolderKeys: (() => {
         const next = new Set(s.collapsedFolderKeys);
         next.delete(folderCollapseKey(projectId, folderId));

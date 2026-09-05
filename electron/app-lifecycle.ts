@@ -44,6 +44,7 @@ import {
   maybeSendNotification as _maybeSendNotification,
   sendAgentUpdate,
   setNotificationStore,
+  setStatsStore,
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
@@ -243,6 +244,7 @@ export function initApp(devTitle: string | null): void {
     isEnabled: () =>
       (preferencesManager.getAll() as unknown as Record<string, unknown>).statsEnabled !== false,
   });
+  setStatsStore(statsStore);
 
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is

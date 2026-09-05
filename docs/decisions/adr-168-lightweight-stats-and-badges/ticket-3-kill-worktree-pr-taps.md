@@ -1,6 +1,6 @@
 ---
 title: Taps for agents killed, worktrees, and PR outcomes
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

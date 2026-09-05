@@ -44,6 +44,9 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
         listSessions: vi.fn().mockResolvedValue([]),
       },
     },
+    statsStore: {
+      record: vi.fn(),
+    },
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
@@ -146,5 +149,50 @@ describe("agents:abandonForPane handler", () => {
 
     const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
+  });
+
+  describe("agentsKilled stat", () => {
+    it.each(["working", "thinking", "requires_input"])(
+      "records a kill for an active agent last seen %s",
+      (lastAgentStatus) => {
+        deps.agentManager.getAgentByPaneId.mockReturnValue({
+          id: "t1",
+          status: "active",
+          lastAgentStatus,
+        });
+
+        const handler = handlers.get("agents:abandonForPane")!;
+        handler({} as never, "pane-1");
+
+        expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+        expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      },
+    );
+
+    it("does not record a kill for an active agent that already responded", () => {
+      deps.agentManager.getAgentByPaneId.mockReturnValue({
+        id: "t1",
+        status: "active",
+        lastAgentStatus: "responded",
+      });
+
+      const handler = handlers.get("agents:abandonForPane")!;
+      handler({} as never, "pane-1");
+
+      expect(deps.statsStore.record).not.toHaveBeenCalled();
+    });
+
+    it("does not record a kill for a non-active agent", () => {
+      deps.agentManager.getAgentByPaneId.mockReturnValue({
+        id: "t1",
+        status: "completed",
+        lastAgentStatus: "working",
+      });
+
+      const handler = handlers.get("agents:abandonForPane")!;
+      handler({} as never, "pane-1");
+
+      expect(deps.statsStore.record).not.toHaveBeenCalled();
+    });
   });
 });

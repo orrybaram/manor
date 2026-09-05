@@ -207,8 +207,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspacePath,
         folderId,
       ),
-    reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
-      ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
+    // orderedKeys entries may be workspace paths or folder ids (ADR-167).
+    reorderWorkspaces: (projectId: string, orderedKeys: string[]) =>
+      ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedKeys),
     reorder: (orderedIds: string[]) =>
       ipcRenderer.invoke("projects:reorder", orderedIds),
     update: (

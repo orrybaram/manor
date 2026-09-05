@@ -415,9 +415,10 @@ export interface ElectronAPI {
       workspacePath: string,
       folderId: string | null,
     ) => Promise<void>;
+    /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
     reorderWorkspaces: (
       projectId: string,
-      orderedPaths: string[],
+      orderedKeys: string[],
     ) => Promise<void>;
     reorder: (orderedIds: string[]) => Promise<void>;
     update: (

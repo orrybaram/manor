@@ -193,6 +193,7 @@ describe("pane-context", () => {
       setupComplete: true,
       portlessEnabled: true,
       folders: [],
+      sidebarOrder: [],
       ...overrides,
     };
   }

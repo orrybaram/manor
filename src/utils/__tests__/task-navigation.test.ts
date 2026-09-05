@@ -67,6 +67,7 @@ function makeProject(): ProjectInfo {
     setupComplete: true,
     portlessEnabled: true,
     folders: [],
+    sidebarOrder: [],
   };
 }
 

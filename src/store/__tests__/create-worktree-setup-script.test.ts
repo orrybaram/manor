@@ -51,6 +51,7 @@ function makeProject(overrides: Partial<ProjectInfo> = {}): ProjectInfo {
     setupComplete: true,
     portlessEnabled: true,
     folders: [],
+    sidebarOrder: [],
     ...overrides,
   };
 }

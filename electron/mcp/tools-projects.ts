@@ -36,6 +36,7 @@ export interface ProjectInfo {
   /** Shell script run in a freshly created workspace, if the project sets one. */
   worktreeStartScript?: string | null;
   folders?: WorkspaceFolder[];
+  sidebarOrder?: string[];
 }
 
 export function formatWorkspace(

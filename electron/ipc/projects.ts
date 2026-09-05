@@ -139,10 +139,11 @@ export function register(deps: IpcDeps): void {
     },
   );
 
+  // orderedKeys entries may be workspace paths or folder ids (ADR-167).
   ipcMain.handle(
     "projects:reorderWorkspaces",
-    (_event, projectId: string, orderedPaths: string[]) => {
-      projectManager.reorderWorkspaces(projectId, orderedPaths);
+    (_event, projectId: string, orderedKeys: string[]) => {
+      projectManager.reorderWorkspaces(projectId, orderedKeys);
     },
   );
 

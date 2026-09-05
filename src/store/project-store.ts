@@ -270,6 +270,11 @@ export interface ProjectInfo {
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
   folders: WorkspaceFolder[];
+  /**
+   * Normalized, depth-first order of workspace paths and folder ids — the
+   * canonical shape of what the sidebar renders.
+   */
+  sidebarOrder: string[];
 }
 
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";

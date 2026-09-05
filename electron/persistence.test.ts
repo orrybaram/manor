@@ -3,7 +3,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { ProjectManager } from "./persistence";
+import {
+  ProjectManager,
+  normalizeSidebarOrder,
+  spliceFolderOut,
+} from "./persistence";
 import type { GitBackend } from "./backend/types";
 
 vi.mock("electron", () => ({
@@ -466,6 +470,193 @@ describe("ProjectManager", () => {
         const ws2 = info.workspaces.find((w) => w.path === "/tmp/proj-2")!;
         expect(ws2.folderId).toBeNull();
         void project;
+      });
+    });
+  });
+
+  describe("sidebar order", () => {
+    describe("normalizeSidebarOrder", () => {
+      it("keeps known entries in order", () => {
+        const result = normalizeSidebarOrder(
+          ["folder-a", "/tmp/b", "/tmp/a"],
+          ["/tmp/a", "/tmp/b"],
+          ["folder-a"],
+        );
+        expect(result).toEqual(["folder-a", "/tmp/b", "/tmp/a"]);
+      });
+
+      it("drops unknown ids and stale paths", () => {
+        const result = normalizeSidebarOrder(
+          ["/tmp/gone", "folder-gone", "/tmp/a"],
+          ["/tmp/a"],
+          [],
+        );
+        expect(result).toEqual(["/tmp/a"]);
+      });
+
+      it("appends missing paths then missing folder ids", () => {
+        const result = normalizeSidebarOrder(
+          ["/tmp/a"],
+          ["/tmp/a", "/tmp/b"],
+          ["folder-a"],
+        );
+        expect(result).toEqual(["/tmp/a", "/tmp/b", "folder-a"]);
+      });
+
+      it("undefined input yields paths then folder ids", () => {
+        const result = normalizeSidebarOrder(
+          undefined,
+          ["/tmp/a", "/tmp/b"],
+          ["folder-a"],
+        );
+        expect(result).toEqual(["/tmp/a", "/tmp/b", "folder-a"]);
+      });
+
+      it("never duplicates an entry even if it appears twice in the input", () => {
+        const result = normalizeSidebarOrder(
+          ["/tmp/a", "/tmp/a"],
+          ["/tmp/a", "/tmp/b"],
+          [],
+        );
+        expect(result).toEqual(["/tmp/a", "/tmp/b"]);
+      });
+    });
+
+    describe("spliceFolderOut", () => {
+      it("gathers scattered members into the folder's slot", () => {
+        const result = spliceFolderOut(
+          ["/tmp/loose-1", "/tmp/a", "folder-a", "/tmp/loose-2", "/tmp/b"],
+          "folder-a",
+          ["/tmp/a", "/tmp/b"],
+        );
+        expect(result).toEqual([
+          "/tmp/loose-1",
+          "/tmp/a",
+          "/tmp/b",
+          "/tmp/loose-2",
+        ]);
+      });
+
+      it("appends members when the folder id is absent", () => {
+        const result = spliceFolderOut(
+          ["/tmp/loose-1", "/tmp/loose-2"],
+          "folder-missing",
+          ["/tmp/a", "/tmp/b"],
+        );
+        expect(result).toEqual([
+          "/tmp/loose-1",
+          "/tmp/loose-2",
+          "/tmp/a",
+          "/tmp/b",
+        ]);
+      });
+
+      it("never duplicates a path", () => {
+        const result = spliceFolderOut(
+          ["folder-a", "/tmp/a", "/tmp/b"],
+          "folder-a",
+          ["/tmp/a", "/tmp/b"],
+        );
+        expect(result).toEqual(["/tmp/a", "/tmp/b"]);
+        expect(result.filter((e) => e === "/tmp/a")).toHaveLength(1);
+      });
+    });
+
+    describe("createWorkspaceFolder appends to workspaceOrder", () => {
+      function readState() {
+        return JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
+        );
+      }
+
+      it("appends the new id to an existing workspaceOrder", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        manager.reorderWorkspaces(project.id, ["/tmp/proj"]);
+
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+
+        const state = readState();
+        expect(state.projects[0].workspaceOrder).toEqual([
+          "/tmp/proj",
+          folder.id,
+        ]);
+      });
+
+      it("leaves an unset workspaceOrder unset", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+
+        manager.createWorkspaceFolder(project.id, "Backend");
+
+        const state = readState();
+        expect(state.projects[0].workspaceOrder).toBeUndefined();
+      });
+    });
+
+    describe("deleteWorkspaceFolder rewrites workspaceOrder", () => {
+      function readState() {
+        return JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
+        );
+      }
+
+      it("puts members where the folder was", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.setWorkspaceFolder(project.id, "/tmp/a", folder.id);
+        manager.setWorkspaceFolder(project.id, "/tmp/b", folder.id);
+        manager.reorderWorkspaces(project.id, [
+          "/tmp/loose-1",
+          folder.id,
+          "/tmp/loose-2",
+        ]);
+
+        manager.deleteWorkspaceFolder(project.id, folder.id);
+
+        const state = readState();
+        expect(state.projects[0].workspaceOrder).toEqual([
+          "/tmp/loose-1",
+          "/tmp/a",
+          "/tmp/b",
+          "/tmp/loose-2",
+        ]);
+      });
+    });
+
+    describe("buildProjectInfo", () => {
+      it("returns sidebarOrder with a folder id and two paths in persisted order", async () => {
+        const gitMock = {
+          exec: vi.fn().mockResolvedValue(""),
+          worktreeAdd: vi.fn().mockResolvedValue(undefined),
+          worktreeList: vi.fn().mockResolvedValue([
+            { path: "/tmp/proj", branch: "main", isMain: true },
+            { path: "/tmp/proj-2", branch: "feature", isMain: false },
+          ]),
+          stage: vi.fn(),
+          unstage: vi.fn(),
+          discard: vi.fn(),
+          commit: vi.fn(),
+          stash: vi.fn(),
+          getFullDiff: vi.fn(),
+          getLocalDiff: vi.fn(),
+          getStagedFiles: vi.fn(),
+          worktreeRemove: vi.fn(),
+        } as unknown as GitBackend;
+        manager = new ProjectManager(gitMock, tmpDir);
+
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.reorderWorkspaces(project.id, [
+          folder.id,
+          "/tmp/proj",
+          "/tmp/proj-2",
+        ]);
+
+        const [info] = await manager.getProjects();
+        expect(info.sidebarOrder).toEqual([
+          folder.id,
+          "/tmp/proj",
+          "/tmp/proj-2",
+        ]);
       });
     });
   });

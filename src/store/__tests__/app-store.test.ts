@@ -1,13 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   useAppStore,
   selectActiveWorkspace,
   selectWebviewFocusVisible,
 } from "../app-store";
-import type { AppState, Tab, Panel, WorkspaceLayout } from "../app-store";
-import type { PaneNode } from "../pane-tree";
+import type { Tab, Panel, WorkspaceLayout } from "../app-store";
 import { allPaneIds } from "../pane-tree";
-import { allPanelIds } from "../panel-tree";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 // with a minimal electronAPI mock. No additional stubbing needed here.

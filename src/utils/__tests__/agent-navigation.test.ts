@@ -5,7 +5,8 @@ import { useAppStore } from "../../store/app-store";
 import { useToastStore } from "../../store/toast-store";
 import { useAgentStore } from "../../store/agent-store";
 import type { AgentInfo } from "../../electron.d";
-import type { ProjectInfo, WorkspaceLayout } from "../../store/project-store";
+import type { ProjectInfo } from "../../store/project-store";
+import type { WorkspaceLayout } from "../../store/app-store";
 
 // ---------------------------------------------------------------------------
 // Window mock — must include all APIs accessed at module-init time by the
@@ -109,6 +110,7 @@ function makeAgent(overrides?: Partial<AgentInfo>): AgentInfo {
     agentCommand: null,
     paneId: PANE_ID,
     lastAgentStatus: "requires_input",
+    resumedAt: null,
     ...overrides,
   };
 }

@@ -26,10 +26,6 @@ type PanelNode =
   | { type: "leaf"; panelId: string }
   | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PanelNode; second: PanelNode };
 
-function allPaneIds(node: PaneNode): string[] {
-  if (node.type === "leaf") return [node.paneId];
-  return [...allPaneIds(node.first), ...allPaneIds(node.second)];
-}
 
 type LeafInfo = { paneId: string; contentType?: string };
 

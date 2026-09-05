@@ -1,6 +1,6 @@
 ---
 title: Single-list sidebar drag with drop-into-folder
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

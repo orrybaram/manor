@@ -1,6 +1,6 @@
 ---
 title: Renderer store actions, folder collapse state, and grouping utils
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

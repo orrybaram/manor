@@ -1,0 +1,57 @@
+/* ── Workspace Indicator Dot (sidebar only) ── */
+
+.dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+}
+
+.needsYou {
+  background: var(--yellow, #eab308);
+}
+
+.doneUnread {
+  background: var(--green, #a6e3a1);
+}
+
+.pulse {
+  position: relative;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: ping 2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(0.65);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes ping {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  75%,
+  100% {
+    opacity: 0;
+    transform: scale(3);
+  }
+}

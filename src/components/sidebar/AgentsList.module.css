@@ -1,6 +1,6 @@
-/* ── Tasks ── */
+/* ── Agents ── */
 
-.tasksSection {
+.agentsSection {
   padding: 4px 0;
   margin-top: 24px;
 }
@@ -35,20 +35,20 @@
   color: var(--text-selected);
 }
 
-.taskGroups {
+.agentGroups {
   max-height: 200px;
   overflow-y: auto;
   padding: 0 6px;
 }
 
-.taskGroup {
+.agentGroup {
   display: flex;
   flex-direction: column;
   gap: 1px;
   margin-bottom: 4px;
 }
 
-.taskGroupHeader {
+.agentGroupHeader {
   padding: 2px 6px;
   font-size: 10px;
   color: var(--text-dim);
@@ -83,7 +83,7 @@
   white-space: nowrap;
 }
 
-.taskClose {
+.agentClose {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -93,11 +93,11 @@
   padding: 1px;
 }
 
-.agentItem:hover .taskClose {
+.agentItem:hover .agentClose {
   opacity: 1;
 }
 
-.taskClose:hover {
+.agentClose:hover {
   color: var(--text-selected);
   background: var(--surface);
 }

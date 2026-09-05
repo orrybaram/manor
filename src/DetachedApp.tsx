@@ -11,7 +11,7 @@ import { useThemeStore } from "./store/theme-store";
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
-  startNewTask,
+  startNewAgent,
 } from "./lib/keybinding-commands";
 import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
@@ -141,7 +141,7 @@ export default function DetachedApp() {
     // Popouts never consume the prewarmed session: its cwd tracks the PRIMARY
     // window's active workspace, so a popout on a different workspace would
     // inherit the wrong directory.
-    const handlers = createSharedKeybindingHandlers({ prewarmNewTask: false });
+    const handlers = createSharedKeybindingHandlers({ prewarmNewAgent: false });
 
     function handleKeyDown(e: KeyboardEvent) {
       dispatchKeybinding(e, handlers);
@@ -235,7 +235,7 @@ export default function DetachedApp() {
                 key={activeWorkspacePath}
                 node={workspaceLayouts[activeWorkspacePath].panelTree}
                 workspacePath={activeWorkspacePath}
-                onNewTask={() => void startNewTask()}
+                onNewAgent={() => void startNewAgent()}
               />
             </div>
           </PaneDragProvider>

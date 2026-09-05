@@ -5,8 +5,8 @@
 #
 # Manor does not learn about a session by watching a process: an agent CLI
 # reports its own lifecycle over the hook endpoint (electron/agent-hooks.ts),
-# and hook-relay-effects.ts turns those events into the TaskInfo rows that
-# GET /tasks — and therefore the phone client — renders. So the cheapest honest
+# and hook-relay-effects.ts turns those events into the AgentInfo rows that
+# GET /agents — and therefore the phone client — renders. So the cheapest honest
 # fake is a script that speaks the same hook protocol against $MANOR_HOOK_PORT,
 # using the $MANOR_PANE_ID the pty layer already put in its environment.
 #
@@ -28,7 +28,7 @@ hook() {
     || true
 }
 
-# The window title becomes the task name (see app-lifecycle.ts), which is what
+# The window title becomes the agent name (see app-lifecycle.ts), which is what
 # the session list on the phone shows.
 printf '\033]0;%s\007' "${1:-fake agent}"
 

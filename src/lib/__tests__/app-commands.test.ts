@@ -231,7 +231,7 @@ describe("split-pane", () => {
         url: "https://example.com",
         command: "pnpm dev",
       }),
-    ).toThrow(/command applies only to a terminal or task pane/);
+    ).toThrow(/command applies only to a terminal or agent pane/);
   });
 
   it("throws when a non-browser split carries a url", () => {
@@ -450,7 +450,7 @@ describe("close-pane", () => {
       electronAPI: {
         ...(window as unknown as { electronAPI: Record<string, unknown> })
           .electronAPI,
-        tasks: { abandonForPane: vi.fn().mockResolvedValue(undefined) },
+        agents: { abandonForPane: vi.fn().mockResolvedValue(undefined) },
       },
     });
   });

@@ -16,7 +16,7 @@ import { Filmstrip } from "./helpers/filmstrip";
 import {
   readSession,
   waitForVisibleSession,
-  type TaskSummary,
+  type AgentSummary,
 } from "./helpers/local-api";
 import { openPhoneClient, sessionRow, type Phone } from "./helpers/phone";
 import {
@@ -45,13 +45,13 @@ import {
 
 const HOLD_MS = Number(process.env.MANOR_E2E_HOLD ?? 0) * 1000;
 const HEADED = process.env.MANOR_E2E_HEADED === "1";
-/** Passed to the fake agent, which puts it in the window title → the task name. */
+/** Passed to the fake agent, which puts it in the window title → the agent name. */
 const AGENT_TITLE = "e2e-agent";
 /** The project `tempHome` is seeded with, as the client labels its sessions. */
 const PROJECT_NAME = "test-project";
 
 interface Paired {
-  session: TaskSummary;
+  session: AgentSummary;
   phone: Phone;
   device: PairedDevice;
   port: number;
@@ -64,7 +64,7 @@ interface Paired {
  * The agent is started by typing into a terminal rather than through Cmd+N,
  * and that is the difference between a deterministic test and a flaky one.
  * Cmd+N consumes Manor's prewarmed session, which boots the project's agent
- * command in the background *before* the pane exists — so its task row is
+ * command in the background *before* the pane exists — so its agent row is
  * created with no project and no name, and a second, still-warm prewarm shows
  * up as a session of its own. Typing into a pane that is already on screen
  * gives the hook relay the context it needs the first time.

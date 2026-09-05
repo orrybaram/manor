@@ -24,7 +24,7 @@ export function homeLaunchCommand(prefs: HomeHarnessPreferences): string {
 
 /**
  * Escape a prompt for interpolation inside a double-quoted shell argument.
- * Used by `handleNewTaskWithPrompt` in `App.tsx`, which builds a launch command
+ * Used by `handleNewAgentWithPrompt` in `App.tsx`, which builds a launch command
  * as `<harness> "<escaped prompt>"` to seed the harness's first prompt.
  */
 export function escapeShellDoubleQuoted(text: string): string {

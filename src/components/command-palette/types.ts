@@ -32,10 +32,10 @@ export interface CommandPaletteProps {
     agentPrompt?: string;
     linkedIssue?: import("../../store/project-store").LinkedIssue;
   }) => void;
-  onResumeTask: (task: import("../../electron.d").TaskInfo) => void;
-  onViewAllTasks: () => void;
-  onNewTask: () => void;
-  onNewTaskWithPrompt?: (prompt: string) => void;
+  onResumeAgent: (agent: import("../../electron.d").AgentInfo) => void;
+  onViewAllAgents: () => void;
+  onNewAgent: () => void;
+  onNewAgentWithPrompt?: (prompt: string) => void;
   initialView?: PaletteView;
   initialIssueId?: string | null;
   initialGitHubIssueNumber?: number | null;

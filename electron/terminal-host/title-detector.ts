@@ -18,7 +18,7 @@ function hasBrailleChars(str: string): boolean {
 }
 
 /** Done markers that Claude Code puts in titles when finished.
- *  ✳ is included — Claude Code uses it in completed titles (e.g. "✳ Task name").
+ *  ✳ is included — Claude Code uses it in completed titles (e.g. "✳ Agent name").
  *  False positives are prevented because: braille chars are checked first
  *  (so active spinners always return "working"), and setFallbackStatus()
  *  ignores the signal when no agent is being tracked. */

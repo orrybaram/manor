@@ -173,7 +173,7 @@ test.describe("notification center", () => {
     await expect(row).toHaveAttribute("data-read", "false");
     await expect(row).toContainText("PR #7 approved");
     await expect(row).toContainText("Add the notification center");
-    // Grouped by day, through the same bucketing the task list uses.
+    // Grouped by day, through the same bucketing the agent list uses.
     await expect(popover(window)).toContainText("Today");
     await film.shot(window, "bell-unread-row");
 
@@ -345,12 +345,12 @@ test.describe("notification center", () => {
   });
 
   /**
-   * The agent path, end to end: a hook event moves a task's status, main
+   * The agent path, end to end: a hook event moves an agent's status, main
    * records what it would have banner-ed, and the row shows up under the bell.
    *
    * The fake agent parks in `requires_input` on startup, which is the case the
-   * relay's `CreateTask` effect owns — no prior task exists for
-   * `UpdateTaskActiveStatus` to find — and then answers each message with a
+   * relay's `CreateAgent` effect owns — no prior agent exists for
+   * `UpdateAgentActiveStatus` to find — and then answers each message with a
    * Stop. Both kinds of transition have to reach the log.
    */
   test("an agent's status changes land in the log while the window is focused", async ({
@@ -364,7 +364,7 @@ test.describe("notification center", () => {
 
     await awaitShellReady(window, tempHome, await activePaneId(window));
     // Typed rather than launched with Cmd+N: that consumes the prewarmed
-    // session, whose task row has no pane and no project. See the e2e README.
+    // session, whose agent row has no pane and no project. See the e2e README.
     await runInTerminal(window, `"${FAKE_AGENT}" notif-agent`);
     await expect(bell(window)).toBeVisible();
 
@@ -406,7 +406,7 @@ test.describe("notification center", () => {
     await expect(respondedRow).toHaveAttribute("data-kind", "agent-responded");
     await expect(respondedRow).toHaveAttribute("data-read", "true");
     await expect(respondedRow).toContainText("Agent responded");
-    // The body names the task and its project, exactly as the banner would.
+    // The body names the agent and its project, exactly as the banner would.
     await expect(respondedRow).toContainText("notif-agent");
     await expect(respondedRow).toContainText("test-project");
 

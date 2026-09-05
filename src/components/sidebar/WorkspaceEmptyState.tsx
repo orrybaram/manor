@@ -67,7 +67,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
     },
     {
       icon: <Plus size={16} />,
-      label: "New Task",
+      label: "New Agent",
       keys: ["⌘", "N"],
       action: () => {
         window.dispatchEvent(

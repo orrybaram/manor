@@ -2,52 +2,52 @@ import { useState, useCallback, useEffect, useRef, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import type { TaskInfo } from "../../../electron.d";
-import { useTaskStore } from "../../../store/task-store";
+import type { AgentInfo } from "../../../electron.d";
+import { useAgentStore } from "../../../store/agent-store";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
-import { useTaskDisplay } from "../../../hooks/useTaskDisplay";
+import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { BUCKET_ORDER, getDateBucket, type DateBucket } from "../../../utils/date-buckets";
-import styles from "./TasksView.module.css";
+import styles from "./AgentsView.module.css";
 
 // ── Helpers ──
 
 type StatusFilter = "all" | "active" | "completed";
 
-function matchesFilter(task: TaskInfo, filter: StatusFilter): boolean {
+function matchesFilter(agent: AgentInfo, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "active") return task.status === "active";
+  if (filter === "active") return agent.status === "active";
   if (filter === "completed")
     return (
-      task.status === "completed" ||
-      task.status === "error" ||
-      task.status === "abandoned"
+      agent.status === "completed" ||
+      agent.status === "error" ||
+      agent.status === "abandoned"
     );
   return true;
 }
 
 // ── Components ──
 
-type TaskViewRowProps = {
-  task: TaskInfo;
-  onResumeTask: (task: TaskInfo) => void;
-  onRemoveTask: (taskId: string) => void;
+type AgentViewRowProps = {
+  agent: AgentInfo;
+  onResumeAgent: (agent: AgentInfo) => void;
+  onRemoveAgent: (agentId: string) => void;
 };
 
-const TaskViewRow = memo(function TaskViewRow(props: TaskViewRowProps) {
-  const { task, onResumeTask, onRemoveTask } = props;
+const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
+  const { agent, onResumeAgent, onRemoveAgent } = props;
 
-  const { title, status } = useTaskDisplay(task);
+  const { title, status } = useAgentDisplay(agent);
 
   return (
-    <button className={styles.taskRow} onClick={() => onResumeTask(task)}>
+    <button className={styles.agentRow} onClick={() => onResumeAgent(agent)}>
       <AgentDot status={status} size="sidebar" />
-      <span className={styles.taskName}>{title}</span>
-      <span className={styles.taskProject}>
-        {task.projectName || "No Project"}
+      <span className={styles.agentName}>{title}</span>
+      <span className={styles.agentProject}>
+        {agent.projectName || "No Project"}
       </span>
-      <span className={styles.taskTime}>
-        {relativeShortThenDate(new Date(task.updatedAt).getTime())}
+      <span className={styles.agentTime}>
+        {relativeShortThenDate(new Date(agent.updatedAt).getTime())}
       </span>
       <span
         role="button"
@@ -55,12 +55,12 @@ const TaskViewRow = memo(function TaskViewRow(props: TaskViewRowProps) {
         className={styles.removeButton}
         onClick={(e) => {
           e.stopPropagation();
-          onRemoveTask(task.id);
+          onRemoveAgent(agent.id);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.stopPropagation();
-            onRemoveTask(task.id);
+            onRemoveAgent(agent.id);
           }
         }}
       >
@@ -72,33 +72,33 @@ const TaskViewRow = memo(function TaskViewRow(props: TaskViewRowProps) {
 
 // ── Modal Component ──
 
-type TasksModalProps = {
+type AgentsModalProps = {
   open: boolean;
   onClose: () => void;
-  onResumeTask: (task: TaskInfo) => void;
+  onResumeAgent: (agent: AgentInfo) => void;
 };
 
-export function TasksModal(props: TasksModalProps) {
-  const { open, onClose, onResumeTask } = props;
+export function AgentsModal(props: AgentsModalProps) {
+  const { open, onClose, onResumeAgent } = props;
 
   const {
-    tasks,
+    agents,
     loading,
     loaded,
     hasMore,
     loadingMore,
-    removeTask,
-    loadMoreTasks,
-  } = useTaskStore();
+    removeAgent,
+    loadMoreAgents,
+  } = useAgentStore();
   const [filter, setFilter] = useState<StatusFilter>("all");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const handleResume = useCallback(
-    (task: TaskInfo) => {
+    (agent: AgentInfo) => {
       onClose();
-      onResumeTask(task);
+      onResumeAgent(agent);
     },
-    [onClose, onResumeTask],
+    [onClose, onResumeAgent],
   );
 
   const handleOpenChange = useCallback(
@@ -109,7 +109,7 @@ export function TasksModal(props: TasksModalProps) {
   );
 
   // When the bottom sentinel scrolls into view, request the next page.
-  // The store's `loadMoreTasks` coalesces overlapping calls and short-circuits
+  // The store's `loadMoreAgents` coalesces overlapping calls and short-circuits
   // when `hasMore` is false, so the observer firing more than once is safe.
   useEffect(() => {
     if (!open) return;
@@ -121,7 +121,7 @@ export function TasksModal(props: TasksModalProps) {
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            loadMoreTasks(tasks.length);
+            loadMoreAgents(agents.length);
             break;
           }
         }
@@ -130,27 +130,27 @@ export function TasksModal(props: TasksModalProps) {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [open, hasMore, tasks.length, loadMoreTasks]);
+  }, [open, hasMore, agents.length, loadMoreAgents]);
 
-  const filtered = tasks.filter((t) => matchesFilter(t, filter));
+  const filtered = agents.filter((t) => matchesFilter(t, filter));
 
   // Group by date bucket, then by project within each bucket
-  const grouped = new Map<DateBucket, Map<string, TaskInfo[]>>();
+  const grouped = new Map<DateBucket, Map<string, AgentInfo[]>>();
 
-  for (const task of filtered) {
-    const bucket = getDateBucket(task.createdAt);
+  for (const agent of filtered) {
+    const bucket = getDateBucket(agent.createdAt);
     let projectMap = grouped.get(bucket);
     if (!projectMap) {
-      projectMap = new Map<string, TaskInfo[]>();
+      projectMap = new Map<string, AgentInfo[]>();
       grouped.set(bucket, projectMap);
     }
-    const projectKey = task.projectName || "No Project";
+    const projectKey = agent.projectName || "No Project";
     let list = projectMap.get(projectKey);
     if (!list) {
       list = [];
       projectMap.set(projectKey, list);
     }
-    list.push(task);
+    list.push(agent);
   }
 
   return (
@@ -168,7 +168,7 @@ export function TasksModal(props: TasksModalProps) {
           }}
         >
           <div className={styles.header}>
-            <Dialog.Title className={styles.title}>Tasks</Dialog.Title>
+            <Dialog.Title className={styles.title}>Agents</Dialog.Title>
             <div className={styles.filterTabs}>
               {(["all", "active", "completed"] as const).map((f) => (
                 <button
@@ -193,11 +193,11 @@ export function TasksModal(props: TasksModalProps) {
 
           <div className={styles.scrollArea}>
             {loading && !loaded && (
-              <div className={styles.loading}>Loading tasks...</div>
+              <div className={styles.loading}>Loading agents...</div>
             )}
 
             {loaded && filtered.length === 0 && (
-              <div className={styles.empty}>No tasks found.</div>
+              <div className={styles.empty}>No agents found.</div>
             )}
 
             {BUCKET_ORDER.map((bucket) => {
@@ -208,17 +208,17 @@ export function TasksModal(props: TasksModalProps) {
                 <div key={bucket} className={styles.dateGroup}>
                   <div className={styles.dateGroupHeader}>{bucket}</div>
                   {Array.from(projectMap.entries()).map(
-                    ([projectName, projectTasks]) => (
+                    ([projectName, projectAgents]) => (
                       <div key={projectName} className={styles.projectGroup}>
                         <div className={styles.projectGroupHeader}>
                           {projectName}
                         </div>
-                        {projectTasks.map((task) => (
-                          <TaskViewRow
-                            key={task.id}
-                            task={task}
-                            onResumeTask={handleResume}
-                            onRemoveTask={removeTask}
+                        {projectAgents.map((agent) => (
+                          <AgentViewRow
+                            key={agent.id}
+                            agent={agent}
+                            onResumeAgent={handleResume}
+                            onRemoveAgent={removeAgent}
                           />
                         ))}
                       </div>
@@ -231,7 +231,7 @@ export function TasksModal(props: TasksModalProps) {
             {hasMore && (
               <div
                 ref={sentinelRef}
-                data-testid="tasks-load-more-sentinel"
+                data-testid="agents-load-more-sentinel"
                 className={styles.loadMore}
                 aria-hidden="true"
               >

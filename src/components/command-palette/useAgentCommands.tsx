@@ -1,29 +1,29 @@
 import { useMemo } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Plus from "lucide-react/dist/esm/icons/plus";
-import { useTaskStore } from "../../store/task-store";
+import { useAgentStore } from "../../store/agent-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
 import { formatCombo } from "../../lib/keybindings";
-import { deriveStatus, cleanLiveTitle } from "../../hooks/useTaskDisplay";
+import { deriveStatus, cleanLiveTitle } from "../../hooks/useAgentDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
-import type { TaskInfo } from "../../electron.d";
+import type { AgentInfo } from "../../electron.d";
 import type { CommandItem } from "./types";
 
-interface UseTaskCommandsParams {
-  onResumeTask: (task: TaskInfo) => void;
-  onViewAllTasks: () => void;
+interface UseAgentCommandsParams {
+  onResumeAgent: (agent: AgentInfo) => void;
+  onViewAllAgents: () => void;
   onClose: () => void;
-  onNewTask: () => void;
+  onNewAgent: () => void;
 }
 
-export function useTaskCommands({
-  onResumeTask,
-  onViewAllTasks,
+export function useAgentCommands({
+  onResumeAgent,
+  onViewAllAgents,
   onClose,
-  onNewTask,
-}: UseTaskCommandsParams): CommandItem[] {
-  const tasks = useTaskStore((s) => s.tasks);
+  onNewAgent,
+}: UseAgentCommandsParams): CommandItem[] {
+  const agents = useAgentStore((s) => s.agents);
   const bindings = useKeybindingsStore((s) => s.bindings);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const paneTitle = useAppStore((s) => s.paneTitle);
@@ -37,47 +37,47 @@ export function useTaskCommands({
 
     const items: CommandItem[] = [
       {
-        id: "new-task",
-        label: "New Task",
+        id: "new-agent",
+        label: "New Agent",
         icon: <Plus size={14} />,
-        shortcut: fmt("new-task"),
+        shortcut: fmt("new-agent"),
         action: () => {
           onClose();
-          onNewTask();
+          onNewAgent();
         },
       },
     ];
 
     items.push(
-      ...tasks.filter((t) => t.status === "active").slice(0, 5).map((task) => {
-        const liveAgent = task.paneId ? paneAgentStatus[task.paneId] ?? null : null;
-        const agentStatus = deriveStatus(task, liveAgent);
-        const liveTitle = task.paneId ? paneTitle[task.paneId] ?? null : null;
-        const label = cleanLiveTitle(liveTitle) ?? task.name ?? "Agent";
+      ...agents.filter((t) => t.status === "active").slice(0, 5).map((agent) => {
+        const liveAgent = agent.paneId ? paneAgentStatus[agent.paneId] ?? null : null;
+        const agentStatus = deriveStatus(agent, liveAgent);
+        const liveTitle = agent.paneId ? paneTitle[agent.paneId] ?? null : null;
+        const label = cleanLiveTitle(liveTitle) ?? agent.name ?? "Agent";
         return {
-          id: `task-${task.id}`,
+          id: `agent-${agent.id}`,
           label,
           icon: (
             <AgentDot status={agentStatus} size="sidebar" />
           ),
           action: () => {
             onClose();
-            onResumeTask(task);
+            onResumeAgent(agent);
           },
         };
       }),
     );
 
     items.push({
-      id: "view-all-tasks",
-      label: "View All Tasks...",
+      id: "view-all-agents",
+      label: "View All Agents...",
       icon: <ListTodo size={14} />,
       action: () => {
         onClose();
-        onViewAllTasks();
+        onViewAllAgents();
       },
     });
 
     return items;
-  }, [tasks, onResumeTask, onViewAllTasks, onClose, onNewTask, bindings, paneAgentStatus, paneTitle]);
+  }, [agents, onResumeAgent, onViewAllAgents, onClose, onNewAgent, bindings, paneAgentStatus, paneTitle]);
 }

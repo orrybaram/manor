@@ -66,7 +66,7 @@ export function resolveWorkspaceCommand(workspacePath: string | null): string {
  * PRIMARY window's active workspace, so a popout sitting on a different
  * workspace would inherit the wrong directory. Popouts pay the cold start.
  */
-export async function startNewTask(
+export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
 ): Promise<void> {
   const activeWorkspacePath = useAppStore.getState().activeWorkspacePath;
@@ -84,12 +84,12 @@ export async function startNewTask(
 
 /** Build the window-agnostic half of the command→action map. */
 export function createSharedKeybindingHandlers(
-  { prewarmNewTask }: { prewarmNewTask: boolean } = { prewarmNewTask: false },
+  { prewarmNewAgent }: { prewarmNewAgent: boolean } = { prewarmNewAgent: false },
 ): Record<string, () => void> {
   const store = () => useAppStore.getState();
   return {
     "new-tab": () => store().addTab(),
-    "new-task": () => void startNewTask({ prewarm: prewarmNewTask }),
+    "new-agent": () => void startNewAgent({ prewarm: prewarmNewAgent }),
     "new-browser": () => store().addBrowserTab("about:blank"),
     "split-h": () => store().splitPane("horizontal"),
     "split-v": () => store().splitPane("vertical"),

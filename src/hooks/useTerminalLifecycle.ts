@@ -293,13 +293,13 @@ export function useTerminalLifecycle(
               : null,
           );
 
-          // Set pane context for task association
+          // Set pane context for agent association
           if (cwd) {
             if (isHomePath(cwd)) {
               // The home has no owning project — associate the pane with
               // the sentinel workspace and the resolved harness command.
               const prefs = usePreferencesStore.getState().preferences;
-              window.electronAPI.tasks.setPaneContext(paneId, {
+              window.electronAPI.agents.setPaneContext(paneId, {
                 projectId: "",
                 projectName: "Home",
                 workspacePath: cwd,
@@ -312,7 +312,7 @@ export function useTerminalLifecycle(
               );
 
               // Fire-and-forget call to set pane context
-              window.electronAPI.tasks.setPaneContext(paneId, {
+              window.electronAPI.agents.setPaneContext(paneId, {
                 projectId: project?.id ?? "",
                 projectName: project?.name ?? "",
                 workspacePath: cwd,
@@ -325,7 +325,7 @@ export function useTerminalLifecycle(
           const store = useAppStore.getState();
           const wsPath = store.activeWorkspacePath;
 
-          // Pane-specific command (e.g. split-with-task) takes priority
+          // Pane-specific command (e.g. split-with-agent) takes priority
           const paneCmd = store.consumePendingPaneCommand(paneId);
           const startupCmd =
             !paneCmd && wsPath && cwd === wsPath
@@ -359,22 +359,22 @@ export function useTerminalLifecycle(
             }
           } else if (!result.snapshot) {
             // No pending command and no warm-restore snapshot → cold or fresh session.
-            // Check for an active task that was interrupted (e.g. version upgrade,
+            // Check for an active agent that was interrupted (e.g. version upgrade,
             // app crash) and auto-relaunch its agent command.
             void (async () => {
-              const activeTasks = await window.electronAPI.tasks.getAll({ status: "active" });
-              const resumeTask = activeTasks.find(
+              const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
+              const resumeAgent = activeAgents.find(
                 (t) => t.paneId === paneId && !t.resumedAt && t.agentCommand,
               );
-              if (!resumeTask || disposed) return;
+              if (!resumeAgent || disposed) return;
 
               // Mark resumed immediately to prevent double-launch on re-mount
-              void window.electronAPI.tasks.markResumed(resumeTask.id);
+              void window.electronAPI.agents.markResumed(resumeAgent.id);
 
               // Resume the prior agent session if we can; otherwise relaunch the bare command.
-              const resumeCmd = await window.electronAPI.tasks.buildResumeCommand(resumeTask.id);
+              const resumeCmd = await window.electronAPI.agents.buildResumeCommand(resumeAgent.id);
               if (disposed) return;
-              sendOnShellReady(resumeCmd ?? resumeTask.agentCommand!);
+              sendOnShellReady(resumeCmd ?? resumeAgent.agentCommand!);
             })();
           }
         }

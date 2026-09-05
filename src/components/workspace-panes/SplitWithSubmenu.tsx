@@ -59,13 +59,13 @@ export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps
             onSelect={() => {
               const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
               splitPaneAt(paneId, getDir(), "second", {
-                contentType: "task",
+                contentType: "agent",
                 paneCommand: command,
               });
             }}
           >
             <Bot size={14} />
-            Task
+            Agent
           </ContextMenu.Item>
         </ContextMenu.SubContent>
       </ContextMenu.Portal>

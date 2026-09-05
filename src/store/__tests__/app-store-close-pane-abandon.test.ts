@@ -3,7 +3,7 @@ import { useAppStore } from "../app-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
-// with a minimal electronAPI mock.  We extend it here with tasks.abandonForPane.
+// with a minimal electronAPI mock.  We extend it here with agents.abandonForPane.
 
 const WS_PATH = "/test/workspace";
 
@@ -87,7 +87,7 @@ describe("closePaneById calls abandonForPane", () => {
       ...window,
       electronAPI: {
         ...(window as unknown as { electronAPI: Record<string, unknown> }).electronAPI,
-        tasks: {
+        agents: {
           abandonForPane,
         },
       },
@@ -101,7 +101,7 @@ describe("closePaneById calls abandonForPane", () => {
 
     expect(abandonForPane).toHaveBeenCalledTimes(1);
     // `closePaneById` passes the pane's current title (null when untitled) so
-    // the abandoned task keeps a human-readable name.
+    // the abandoned agent keeps a human-readable name.
     expect(abandonForPane).toHaveBeenCalledWith("pane-1", null);
   });
 });

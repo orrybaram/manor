@@ -11,7 +11,7 @@ import {
 } from "../../store/command-usage-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
-import { useTaskCommands } from "./useTaskCommands";
+import { useAgentCommands } from "./useAgentCommands";
 import { useCustomCommands } from "./useCustomCommands";
 import { usePortsData } from "../ports/usePortsData";
 import { LinearIcon } from "./LinearIcon";
@@ -38,7 +38,7 @@ const HIDDEN_STYLE = { display: "none" } as const;
 const FREQUENT_LIMIT = 5;
 
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
+  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
 
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -194,11 +194,11 @@ export function CommandPalette(props: CommandPaletteProps) {
     navigateToProcesses,
   });
 
-  const taskCommands = useTaskCommands({
-    onResumeTask,
-    onViewAllTasks,
+  const agentCommands = useAgentCommands({
+    onResumeAgent,
+    onViewAllAgents,
     onClose: handleClose,
-    onNewTask,
+    onNewAgent,
   });
 
   const customCommands = useCustomCommands({
@@ -295,7 +295,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     ];
 
     return [
-      { id: "tasks", heading: "Tasks", visible: true, items: taskCommands },
+      { id: "agents", heading: "Agents", visible: true, items: agentCommands },
       ...workspaceCategories,
       {
         id: "run",
@@ -318,7 +318,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       },
     ];
   }, [
-    taskCommands,
+    agentCommands,
     customCommands,
     workspaceGroups,
     commandCategories,
@@ -532,7 +532,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   onBack={navigateBackToList}
                   onClose={handleClose}
                   onNewWorkspace={onNewWorkspace}
-                  onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                 />
               )}
               {view === "github-issue-detail" &&
@@ -544,7 +544,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     onBack={navigateBackToList}
                     onClose={handleClose}
                     onNewWorkspace={onNewWorkspace}
-                    onNewTaskWithPrompt={onNewTaskWithPrompt}
+                    onNewAgentWithPrompt={onNewAgentWithPrompt}
                   />
                 )}
             </Command>

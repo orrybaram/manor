@@ -32,9 +32,9 @@
  */
 
 import { renderAnsi, trimBlankRows } from "./ansi";
-// The shape `GET /tasks` returns, imported rather than re-declared: this
+// The shape `GET /agents` returns, imported rather than re-declared: this
 // client is a separate bundle, but it is not a separate contract.
-import type { TaskSummary } from "../../electron/routes/tasks";
+import type { AgentSummary } from "../../electron/routes/agents";
 
 const TOKEN_KEY = "manor.remote.token";
 /** Hints the user has dismissed, so a nudge stays a nudge. */
@@ -110,15 +110,15 @@ app.append(bar, body);
 
 let token = readToken();
 let identity: Identity | null = null;
-let tasks: TaskSummary[] = [];
-let transcript: { taskId: string; text: string } | null = null;
+let agents: AgentSummary[] = [];
+let transcript: { agentId: string; text: string } | null = null;
 let notice: { text: string; tone: "ok" | "warn" } | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let live = false;
 let pushState: PushState = "unknown";
 const dismissed = readDismissed();
-/** The task whose transcript is on screen, or null on the list. */
-let openTaskId: string | null = null;
+/** The agent whose transcript is on screen, or null on the list. */
+let openAgentId: string | null = null;
 let screen: Screen = { update() {} };
 
 // ── Token ──
@@ -187,25 +187,25 @@ async function loadIdentity(): Promise<void> {
   screen.update();
 }
 
-async function loadTasks(): Promise<void> {
-  const next = await api<TaskSummary[]>("/tasks");
+async function loadAgents(): Promise<void> {
+  const next = await api<AgentSummary[]>("/agents");
   if (!next) return;
-  tasks = next;
+  agents = next;
   screen.update();
 }
 
-async function loadTranscript(taskId: string): Promise<void> {
+async function loadTranscript(agentId: string): Promise<void> {
   const payload = await api<{ text: string }>("/sessions/read", {
     method: "POST",
     // `raw` keeps the escape sequences: this is a terminal, and it is rendered
     // as one. `tailLines` is what a phone can plausibly scroll.
-    body: JSON.stringify({ target: taskId, tailLines: 400, raw: true }),
+    body: JSON.stringify({ target: agentId, tailLines: 400, raw: true }),
   });
   if (!payload) return;
   // A late reply for a session the user has already left must not overwrite
   // what they are looking at now.
-  if (openTaskId !== taskId) return;
-  transcript = { taskId, text: trimBlankRows(payload.text) };
+  if (openAgentId !== agentId) return;
+  transcript = { agentId, text: trimBlankRows(payload.text) };
   screen.update();
 }
 
@@ -248,8 +248,8 @@ async function watch(): Promise<void> {
           const frame = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);
           if (frame.includes("event: status")) {
-            void loadTasks();
-            if (openTaskId) void loadTranscript(openTaskId);
+            void loadAgents();
+            if (openAgentId) void loadTranscript(openAgentId);
           }
           split = buffer.indexOf("\n\n");
         }
@@ -389,8 +389,8 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function statusOf(task: TaskSummary): string {
-  return task.lastAgentStatus ?? "idle";
+function statusOf(agent: AgentSummary): string {
+  return agent.lastAgentStatus ?? "idle";
 }
 
 function statusLabel(status: string): string {
@@ -585,7 +585,7 @@ function mountList(): Screen {
   body.replaceChildren(banner, hint, list, empty);
 
   const timer = setInterval(() => {
-    if (document.visibilityState === "visible") void loadTasks();
+    if (document.visibilityState === "visible") void loadAgents();
   }, LIST_MS);
 
   return {
@@ -595,25 +595,25 @@ function mountList(): Screen {
       paintNotice(banner);
       paintHint(hint);
 
-      empty.hidden = tasks.length > 0;
-      list.hidden = tasks.length === 0;
+      empty.hidden = agents.length > 0;
+      list.hidden = agents.length === 0;
       // Rows hold no state a reader can lose, so rebuilding them is free —
       // and the list element itself stays put, which is what keeps the page's
       // scroll position.
       list.replaceChildren(
-        ...[...tasks].sort((a, b) => rank(a) - rank(b)).map(sessionRow),
+        ...[...agents].sort((a, b) => rank(a) - rank(b)).map(sessionRow),
       );
     },
     dispose: () => clearInterval(timer),
   };
 }
 
-function rank(task: TaskSummary): number {
-  return STATUS_RANK[statusOf(task)] ?? 6;
+function rank(agent: AgentSummary): number {
+  return STATUS_RANK[statusOf(agent)] ?? 6;
 }
 
-function sessionRow(task: TaskSummary): HTMLElement {
-  const status = statusOf(task);
+function sessionRow(agent: AgentSummary): HTMLElement {
+  const status = statusOf(agent);
   const item = el(
     "li",
     `session${status === "requires_input" ? " blocked" : ""}${
@@ -623,37 +623,37 @@ function sessionRow(task: TaskSummary): HTMLElement {
   item.append(glyph(status));
 
   const name = el("div", "session-name");
-  name.append(el("strong", undefined, task.name ?? task.id));
+  name.append(el("strong", undefined, agent.name ?? agent.id));
   name.append(
     el(
       "span",
       "meta",
-      [task.projectName, statusLabel(status), ago(task.updatedAt)]
+      [agent.projectName, statusLabel(status), ago(agent.updatedAt)]
         .filter(Boolean)
         .join(" · "),
     ),
   );
   item.append(name, el("span", "chev", "›"));
 
-  item.addEventListener("click", () => openSession(task));
+  item.addEventListener("click", () => openSession(agent));
   return item;
 }
 
-function openSession(task: TaskSummary): void {
-  openTaskId = task.id;
+function openSession(agent: AgentSummary): void {
+  openAgentId = agent.id;
   transcript = null;
-  show(mountDetail(task.id));
-  void loadTranscript(task.id);
+  show(mountDetail(agent.id));
+  void loadTranscript(agent.id);
 }
 
 function backToList(): void {
-  openTaskId = null;
+  openAgentId = null;
   transcript = null;
   show(mountList());
-  void loadTasks();
+  void loadAgents();
 }
 
-function mountDetail(taskId: string): Screen {
+function mountDetail(agentId: string): Screen {
   const back = el("button", "back", "Back");
   back.addEventListener("click", backToList);
   const heading = el("h1");
@@ -673,15 +673,15 @@ function mountDetail(taskId: string): Screen {
   const actions = el("div", "actions");
   const stop = el("button", "danger", "Stop");
   stop.addEventListener("click", () => {
-    const task = taskById(taskId);
-    if (task) confirmInterrupt(task);
+    const agent = agentById(agentId);
+    if (agent) confirmInterrupt(agent);
   });
   const replies = el("div", "replies");
   for (const key of QUICK_REPLIES) {
     const chip = el("button", "chip", key);
     chip.addEventListener("click", () => {
-      const task = taskById(taskId);
-      if (task) confirmSend(task, key, { brief: true });
+      const agent = agentById(agentId);
+      if (agent) confirmSend(agent, key, { brief: true });
     });
     replies.append(chip);
   }
@@ -696,9 +696,9 @@ function mountDetail(taskId: string): Screen {
   const submit = () => {
     const text = input.value.trim();
     if (!text) return;
-    const task = taskById(taskId);
-    if (!task) return;
-    confirmSend(task, text, {
+    const agent = agentById(agentId);
+    if (!agent) return;
+    confirmSend(agent, text, {
       onSent: () => {
         input.value = "";
       },
@@ -718,14 +718,14 @@ function mountDetail(taskId: string): Screen {
   // The transcript re-reads itself while it is open. An agent's reply lands a
   // second or two after a send, and a phone should not have to be asked.
   const timer = setInterval(() => {
-    if (document.visibilityState === "visible") void loadTranscript(taskId);
+    if (document.visibilityState === "visible") void loadTranscript(agentId);
   }, TRANSCRIPT_MS);
 
   return {
     update() {
-      const task = taskById(taskId);
-      const status = task ? statusOf(task) : "idle";
-      heading.textContent = task?.name ?? taskId;
+      const agent = agentById(agentId);
+      const status = agent ? statusOf(agent) : "idle";
+      heading.textContent = agent?.name ?? agentId;
       pill.className = `pill ${status}`;
       pill.textContent = statusLabel(status);
       paintLive(liveNode);
@@ -758,7 +758,7 @@ function mountDetail(taskId: string): Screen {
       // Identical output is not worth re-rendering: the poll fires every
       // second or two whether or not the session said anything, and every
       // repaint is a chance to lose the reader's place.
-      if (transcript?.taskId === taskId && transcript.text !== painted) {
+      if (transcript?.agentId === agentId && transcript.text !== painted) {
         painted = transcript.text;
         paintTerminal(terminal, stream, transcript.text);
       }
@@ -767,8 +767,8 @@ function mountDetail(taskId: string): Screen {
   };
 }
 
-function taskById(id: string): TaskSummary | null {
-  return tasks.find((task) => task.id === id) ?? null;
+function agentById(id: string): AgentSummary | null {
+  return agents.find((agent) => agent.id === id) ?? null;
 }
 
 /**
@@ -835,11 +835,11 @@ function confirmAction(opts: {
 }
 
 function confirmSend(
-  task: TaskSummary,
+  agent: AgentSummary,
   text: string,
   { brief = false, onSent }: { brief?: boolean; onSent?: () => void } = {},
 ): void {
-  const name = task.name ?? task.id;
+  const name = agent.name ?? agent.id;
   confirmAction({
     title: brief ? `Reply ${text} to ${name}?` : `Send to ${name}?`,
     detail: brief
@@ -850,12 +850,12 @@ function confirmSend(
     run: async () => {
       const result = await api<{ ok: boolean }>("/sessions/send", {
         method: "POST",
-        body: JSON.stringify({ target: task.id, text, confirmed: true }),
+        body: JSON.stringify({ target: agent.id, text, confirmed: true }),
       });
       if (!result) return;
       onSent?.();
       setNotice("Sent.", "ok");
-      void loadTranscript(task.id);
+      void loadTranscript(agent.id);
     },
   });
 }
@@ -869,20 +869,20 @@ function confirmSend(
  * confirmation names the cost, because ending a turn discards whatever was in
  * flight.
  */
-function confirmInterrupt(task: TaskSummary): void {
+function confirmInterrupt(agent: AgentSummary): void {
   confirmAction({
-    title: `Stop ${task.name ?? task.id}?`,
+    title: `Stop ${agent.name ?? agent.id}?`,
     detail:
       "This ends the agent's current turn and discards whatever it was working on. Nothing is typed into the session.",
     verb: "Stop",
     run: async () => {
       const result = await api<{ ok: boolean }>("/sessions/interrupt", {
         method: "POST",
-        body: JSON.stringify({ target: task.id, confirmed: true }),
+        body: JSON.stringify({ target: agent.id, confirmed: true }),
       });
       if (!result) return;
       setNotice("Stopped.", "ok");
-      void loadTranscript(task.id);
+      void loadTranscript(agent.id);
     },
   });
 }
@@ -896,7 +896,7 @@ async function main(): Promise<void> {
   }
   show(mountList());
   await loadIdentity();
-  await loadTasks();
+  await loadAgents();
   void watch();
   void refreshPush();
 
@@ -904,16 +904,16 @@ async function main(): Promise<void> {
   // the next poll would show a phone what was true before it was pocketed.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
-    void loadTasks();
-    if (openTaskId) void loadTranscript(openTaskId);
+    void loadAgents();
+    if (openAgentId) void loadTranscript(openAgentId);
   });
 
   // Tapping a push notification asks the page to open that session.
   navigator.serviceWorker?.addEventListener("message", (event) => {
-    const data = event.data as { type?: string; taskId?: string } | null;
-    if (data?.type !== "open-task" || !data.taskId) return;
-    const task = taskById(data.taskId);
-    if (task) openSession(task);
+    const data = event.data as { type?: string; agentId?: string } | null;
+    if (data?.type !== "open-agent" || !data.agentId) return;
+    const agent = agentById(data.agentId);
+    if (agent) openSession(agent);
   });
 }
 

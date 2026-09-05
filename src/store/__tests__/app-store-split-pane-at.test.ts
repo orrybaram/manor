@@ -142,11 +142,11 @@ describe("splitPaneAt", () => {
     expect(useAppStore.getState().paneUrl[newPane]).toBeUndefined();
   });
 
-  it("does not persist contentType: 'task' to the tree or paneContentType map", () => {
+  it("does not persist contentType: 'agent' to the tree or paneContentType map", () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt(ORIGINAL_PANE_ID, "horizontal", "second", {
-        contentType: "task",
+        contentType: "agent",
         paneCommand: "npm test",
       })!;
 

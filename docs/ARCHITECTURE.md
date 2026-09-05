@@ -49,7 +49,7 @@ Manor runs up to four concurrent process types. The main Electron process is not
 
 **Preload** (`electron/preload.ts`) — The only bridge between renderer and main. Whitelists IPC channels and exposes a typed `window.electronAPI` object via `contextBridge`. Renderer types for it live in `src/electron.d.ts`.
 
-**Main process** (`electron/main.ts` → `electron/app-lifecycle.ts`) — Window lifecycle, auto-updater, menu, and all `ipcMain` handlers. Owns the singleton managers (projects, tasks, themes, prefs, keybindings, GitHub, Linear, branch/diff watchers, port scanner, agent-hook HTTP server, prewarm manager). Does NOT run PTYs — it speaks to the terminal-host daemon over a Unix socket.
+**Main process** (`electron/main.ts` → `electron/app-lifecycle.ts`) — Window lifecycle, auto-updater, menu, and all `ipcMain` handlers. Owns the singleton managers (projects, agents, themes, prefs, keybindings, GitHub, Linear, branch/diff watchers, port scanner, agent-hook HTTP server, prewarm manager). Does NOT run PTYs — it speaks to the terminal-host daemon over a Unix socket.
 
 **Terminal Host Daemon** (`electron/terminal-host/`) — Separate Node process spawned from main via `ELECTRON_RUN_AS_NODE=1`. Intentionally outlives the app: on app quit, main does not kill the daemon, so terminals survive restarts. Exposes two Unix-socket channels (control + stream). Forks one **PTY subprocess** per session. Detects agent activity (Claude, Codex, OpenCode) via title + output pattern matching. Serializes scrollback so restored sessions repaint on reconnect.
 
@@ -65,7 +65,7 @@ manor/
 │   ├── preload.ts            contextBridge surface
 │   ├── window.ts             bounds/zoom persistence, display safety
 │   ├── persistence.ts        ProjectManager — projects, workspaces, worktrees
-│   ├── task-persistence.ts   TaskManager — agent tasks across panes
+│   ├── agent-persistence.ts   AgentManager — agent agents across panes
 │   ├── preferences.ts        PreferencesManager
 │   ├── keybindings.ts        KeybindingsManager
 │   ├── theme.ts              ThemeManager (Ghostty-compatible palettes)
@@ -76,7 +76,7 @@ manor/
 │   ├── portless.ts + ports.ts  port scanner + named preview URLs
 │   ├── agent-hooks.ts        localhost HTTP server for agent shell hooks
 │   ├── agent-connectors.ts   writes MCP config into agent tool configs
-│   ├── notifications.ts      dock badge, system notifications, task-updated broadcasts
+│   ├── notifications.ts      dock badge, system notifications, agent-updated broadcasts
 │   ├── prewarm-manager.ts    pre-spawns a PTY for faster pane creation
 │   ├── updater.ts            electron-updater wrapper
 │   ├── webview-server.ts     in-app HTTP server backing the MCP webview tools
@@ -90,7 +90,7 @@ manor/
 │   │   ├── projects.ts       projects:* and worktree ops
 │   │   ├── branches-diffs.ts branches:*, diffs:*, git:stage/unstage/commit/push
 │   │   ├── integrations.ts   github:* and linear:*
-│   │   ├── tasks.ts          tasks:* CRUD + reconciliation
+│   │   ├── agents.ts          agents:* CRUD + reconciliation
 │   │   ├── processes.ts      process listing and cleanup
 │   │   ├── webview.ts        webview zoom, picker, find-in-page
 │   │   ├── layout.ts         layout:save / layout:load
@@ -128,7 +128,7 @@ manor/
 │   ├── store/                Zustand stores
 │   │   ├── app-store.ts          active workspace, panes, tabs, panels (largest)
 │   │   ├── project-store.ts      projects list, setup state, custom commands
-│   │   ├── task-store.ts         paginated task list, unseen-flag cache
+│   │   ├── agent-store.ts         paginated agent list, unseen-flag cache
 │   │   ├── theme-store.ts        selection + preview
 │   │   ├── preferences-store.ts  UI layout prefs
 │   │   ├── keybindings-store.ts  custom bindings overlay
@@ -180,7 +180,7 @@ manor/
 3. Preload forwards to main (`pty:create`), which calls `LocalPtyBackend.createOrAttach`, which calls `TerminalHostClient.createOrAttach` over the daemon's control socket.
 4. The **daemon** allocates a session, forks a **PTY subprocess** running the user's shell (plus any configured agent command), and streams `data` events back over the stream socket.
 5. Main receives stream events and forwards them on per-pane channels (`pty-data-${paneId}`, `pty-agent-status-${paneId}`, `pty-exit-${paneId}`). Renderer subscribes in `useTerminalStream` / `useDebouncedAgentStatus`.
-6. When the agent detector flips a session from `idle` → `working`, the daemon emits an `agentStatus` event. Main updates the `TaskManager` (cleaned-up title → task name) and broadcasts to the renderer. `useAppStore` re-renders the tab's agent dot.
+6. When the agent detector flips a session from `idle` → `working`, the daemon emits an `agentStatus` event. Main updates the `AgentManager` (cleaned-up title → agent name) and broadcasts to the renderer. `useAppStore` re-renders the tab's agent dot.
 
 ### Linking a Linear issue to a workspace
 
@@ -200,7 +200,7 @@ Manor has no database. All persistence is JSON files on disk.
 
 Files under the data dir:
 - `projects.json` — projects, workspaces, linked issues, setup scripts, custom commands (`ProjectManager`)
-- `tasks.json` — agent tasks across panes (`TaskManager`); pruned on boot per `taskRetentionDays` (default 90)
+- `agents.json` — agent agents across panes (`AgentManager`); pruned on boot per `agentRetentionDays` (default 90)
 - `preferences.json` — app prefs (`PreferencesManager`)
 - `keybindings.json` — custom bindings overrides (`KeybindingsManager`)
 - `theme.json` — selected theme (`ThemeManager`)
@@ -224,7 +224,7 @@ Manor writes to two root directories. The split is intentional and enforced by `
 | File | Purpose |
 |---|---|
 | `projects.json` | Project + workspace registry |
-| `tasks.json` | Task persistence |
+| `agents.json` | Agent persistence |
 | `preferences.json` | App preferences |
 | `keybindings.json` | User keybinding overrides |
 | `window-bounds.json` | Window position/size |
@@ -284,8 +284,8 @@ All Electron-side outputs are CommonJS. Native modules stay external and are reb
 - The webview and MCP HTTP servers bind to localhost only.
 
 ### Agent detection invariants
-- **Agent status is derived, never set**. Renderer and task system read agent state from the daemon, which reads it from the PTY. There is no "set status" path. New states must come from detection, not UI.
-- The daemon, not main, is the source of truth for session liveness. Stale task reconciliation (`tasks:reconcileStale`) exists to rebuild renderer view after a daemon-only restart.
+- **Agent status is derived, never set**. Renderer and agent system read agent state from the daemon, which reads it from the PTY. There is no "set status" path. New states must come from detection, not UI.
+- The daemon, not main, is the source of truth for session liveness. Stale agent reconciliation (`agents:reconcileStale`) exists to rebuild renderer view after a daemon-only restart.
 
 ### Testing
 - **Vitest** (`vitest.config.ts`). Co-located `*.test.ts` in `electron/` and `src/store/__tests__/`. Daemon integration and e2e tests live in `electron/terminal-host/` and are heavier.
@@ -305,8 +305,8 @@ Invariants are stated as absences — what the codebase deliberately does *not* 
 - **IPC handler files are thin.** They validate, forward to a manager, and return. Business logic lives in managers under `electron/`.
 - **There is no database.** Adding one is a cross-cutting change that touches every manager; prefer extending the JSON files unless an ADR argues otherwise.
 - **Agent state is derived, not set.** Nothing outside the daemon tells a session what its status is.
-- **Renderer cannot write task lifecycle fields.** The `tasks:update` IPC allowlists fields the renderer may write (today: `name`). Lifecycle fields (`status`, `agentSessionId`, `lastAgentStatus`, `activatedAt`, `completedAt`, `resumedAt`, `paneId`) are owned by main; widening the allowlist is a deliberate decision, not a default. See ADR-136.
-- **Main is authoritative for unseen-flag state.** The `unseenRespondedTasks` / `unseenInputTasks` Sets in main drive the dock badge and the renderer's pulse animation. The renderer holds a cache populated from `tasks:getUnseen` (boot) and from the `task-updated` broadcast payload, which carries fresh flags on every update. The renderer never resets unseen state locally. Single send-site: `sendTaskUpdate` in `electron/notifications.ts`.
+- **Renderer cannot write agent lifecycle fields.** The `agents:update` IPC allowlists fields the renderer may write (today: `name`). Lifecycle fields (`status`, `agentSessionId`, `lastAgentStatus`, `activatedAt`, `completedAt`, `resumedAt`, `paneId`) are owned by main; widening the allowlist is a deliberate decision, not a default. See ADR-136.
+- **Main is authoritative for unseen-flag state.** The `unseenRespondedAgents` / `unseenInputAgents` Sets in main drive the dock badge and the renderer's pulse animation. The renderer holds a cache populated from `agents:getUnseen` (boot) and from the `agent-updated` broadcast payload, which carries fresh flags on every update. The renderer never resets unseen state locally. Single send-site: `sendAgentUpdate` in `electron/notifications.ts`.
 - **Projects vs workspaces**: projects are directories, workspaces are git worktrees. A workspace's path can exist independently of the project (a worktree can be anywhere on disk); the project is the logical parent, not the filesystem parent.
 - **Default branch.** `project.defaultBranch` is a **bare local branch name** (e.g. `main`, never `origin/main`). It is detected from `origin/HEAD` at project creation and re-detected at startup (ADR-144). Consumers that need the remote ref prepend `origin/` at the use-site (ADR-081) — e.g. diff comparisons and new-worktree base points.
 

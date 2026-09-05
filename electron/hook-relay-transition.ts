@@ -9,7 +9,7 @@
  * The output is `{ state, effects }`:
  *  - `state` is the new SessionState (or `null` to delete the entry)
  *  - `effects` is an ordered list the applier walks to perform the actual
- *    side effects (relayAgentHook, taskManager.*, broadcastTask, etc.)
+ *    side effects (relayAgentHook, agentManager.*, broadcastAgent, etc.)
  *
  * Behaviour parity with `electron/hook-relay.ts`'s `relay()` is load-bearing:
  * the existing integration tests pin specific call orders. Effect ordering
@@ -18,7 +18,7 @@
 
 import type { AgentHookEvent } from "./agent-hook-events";
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
-import type { TaskInfo } from "./task-persistence";
+import type { AgentInfo } from "./agent-persistence";
 
 // ── Public types ──
 
@@ -43,14 +43,14 @@ export type Effect =
   | { kind: "ForceCloseOldSession"; sessionId: string }
   | { kind: "DeleteSessionState"; sessionId: string }
   | {
-      kind: "CreateTask";
+      kind: "CreateAgent";
       sessionId: string;
       paneId: string;
       agentKind: AgentKind;
       status: AgentStatus;
     }
   | {
-      kind: "UpdateTaskActiveStatus";
+      kind: "UpdateAgentActiveStatus";
       sessionId: string;
       status: AgentStatus;
     }
@@ -61,8 +61,8 @@ export type Effect =
 export interface TransitionContext {
   /** Current root session for the event's pane, or null. */
   paneRootSession: string | null;
-  /** Existing task for the event's sessionId, or null. */
-  existingTask: TaskInfo | null;
+  /** Existing agent for the event's sessionId, or null. */
+  existingAgent: AgentInfo | null;
   /** Monotonic ms — used to stamp `lastHookEventAt` on the new state. */
   nowMs: number;
 }
@@ -112,12 +112,12 @@ export function transitionSession(
   context: TransitionContext,
 ): TransitionResult {
   const { paneId, sessionId, agentKind, status, type: eventType } = event;
-  const { paneRootSession, existingTask, nowMs } = context;
+  const { paneRootSession, existingAgent, nowMs } = context;
 
   // ── 1. Late-active guard ──
   // Drop late active-status events for an already-responded session. Hook
   // delivery is independent HTTP, so PostToolUse / PreToolUse can race in
-  // after Stop and would otherwise re-flip the task and AgentDetector dot.
+  // after Stop and would otherwise re-flip the agent and AgentDetector dot.
   // Only UserPromptSubmit legitimately re-activates a responded session
   // (next turn). SessionStart/SessionEnd are lifecycle events handled below.
   if (
@@ -125,7 +125,7 @@ export function transitionSession(
     ACTIVE_STATUSES.has(status) &&
     eventType !== "UserPromptSubmit" &&
     eventType !== "SessionStart" &&
-    existingTask?.lastAgentStatus === "responded"
+    existingAgent?.lastAgentStatus === "responded"
   ) {
     return { state, effects: [] };
   }
@@ -154,20 +154,20 @@ export function transitionSession(
   // ── 3. RelayAgentHook for everything except SessionStart ──
   // We accumulate effects for the rest of the function so we can short-circuit
   // cleanly. Order matters: RelayAgentHook is the first effect for non-
-  // SessionStart events, and stays first whether or not we proceed to task
+  // SessionStart events, and stays first whether or not we proceed to agent
   // persistence below.
   const effects: Effect[] = [
     { kind: "RelayAgentHook", paneId, status, agentKind },
   ];
 
-  // ── 4. No sessionId — relay only, no task persistence ──
+  // ── 4. No sessionId — relay only, no agent persistence ──
   if (!sessionId) {
     return { state, effects };
   }
 
   // ── 5. Subagent-session detection ──
   // If a root already exists for this pane and the event's sessionId differs,
-  // it's a subagent session — relay only, no task state mutations.
+  // it's a subagent session — relay only, no agent state mutations.
   if (paneRootSession !== null && paneRootSession !== sessionId) {
     return { state, effects };
   }
@@ -191,7 +191,7 @@ export function transitionSession(
 
   // ── 7. SubagentStart / SubagentStop set updates ──
   // Both events also have active statuses ("working", "thinking"), so they
-  // fall through into the active-status branch below and create/update a task.
+  // fall through into the active-status branch below and create/update an agent.
   if (eventType === "SubagentStart") {
     const next = new Set(nextState.activeSubagents);
     const id = event.toolUseId ?? `__fallback_${next.size}`;
@@ -208,7 +208,7 @@ export function transitionSession(
     nextState = { ...nextState, activeSubagents: next };
   }
 
-  // ── 8. Active-status events: create or update task ──
+  // ── 8. Active-status events: create or update agent ──
   if (ACTIVE_STATUSES.has(status)) {
     // Reaching an active event marks the session active. If we were in
     // "responded" already, the late-active guard at step 1 would have
@@ -217,15 +217,15 @@ export function transitionSession(
     // flip back to active.
     nextState = { ...nextState, phase: "active" };
 
-    if (existingTask) {
+    if (existingAgent) {
       effects.push({
-        kind: "UpdateTaskActiveStatus",
+        kind: "UpdateAgentActiveStatus",
         sessionId,
         status,
       });
     } else {
       effects.push({
-        kind: "CreateTask",
+        kind: "CreateAgent",
         sessionId,
         paneId,
         agentKind,
@@ -261,7 +261,7 @@ export function transitionSession(
 
   if (eventType === "SessionEnd") {
     // If a Stop was held pending, drain it first so MarkCompleted sees the
-    // task in the responded state. Mirrors hook-relay.ts:380-387.
+    // agent in the responded state. Mirrors hook-relay.ts:380-387.
     if (nextState.phase === "pendingStop") {
       effects.push({ kind: "ApplyStop", sessionId });
     }

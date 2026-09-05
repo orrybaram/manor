@@ -82,7 +82,7 @@ const tools: ToolDef[] = [
         },
         contentType: {
           type: "string",
-          enum: ["terminal", "browser", "diff", "task"],
+          enum: ["terminal", "browser", "diff", "agent"],
           description: "Content type for the new pane. Defaults to 'terminal'.",
         },
         url: {

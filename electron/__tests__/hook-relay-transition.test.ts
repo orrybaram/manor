@@ -9,13 +9,13 @@
 import { describe, it, expect } from "vitest";
 import { transitionSession, type SessionState } from "../hook-relay-transition";
 import type { AgentHookEvent } from "../agent-hook-events";
-import type { TaskInfo } from "../task-persistence";
+import type { AgentInfo } from "../agent-persistence";
 
 // ── Fixtures ──
 
 const baseCtx = (extra: Partial<Record<string, any>> = {}) => ({
   paneRootSession: null,
-  existingTask: null,
+  existingAgent: null,
   nowMs: 1000,
   ...extra,
 });
@@ -41,10 +41,10 @@ const respondedState = (extra: Partial<SessionState> = {}): SessionState => ({
   ...extra,
 });
 
-const task = (overrides: Partial<TaskInfo> = {}): TaskInfo => ({
-  id: "task-1",
+const agent = (overrides: Partial<AgentInfo> = {}): AgentInfo => ({
+  id: "agent-1",
   agentSessionId: "sess-1",
-  name: "test task",
+  name: "test agent",
   status: "active",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -62,8 +62,8 @@ const task = (overrides: Partial<TaskInfo> = {}): TaskInfo => ({
   ...overrides,
 });
 
-const respondedTask = (overrides: Partial<TaskInfo> = {}): TaskInfo =>
-  task({ lastAgentStatus: "responded", ...overrides });
+const respondedAgent = (overrides: Partial<AgentInfo> = {}): AgentInfo =>
+  agent({ lastAgentStatus: "responded", ...overrides });
 
 // ── Event builders ──
 
@@ -189,19 +189,19 @@ describe("transitionSession — Group A: fresh session (state: null)", () => {
     expect(effects).toHaveLength(0);
   });
 
-  it("UserPromptSubmit on fresh session → RelayAgentHook + CreateTask, phase: active", () => {
+  it("UserPromptSubmit on fresh session → RelayAgentHook + CreateAgent, phase: active", () => {
     const event = userPromptSubmit("sess-1");
     const { state, effects } = transitionSession(
       null,
       event,
-      baseCtx({ paneRootSession: null, existingTask: null }),
+      baseCtx({ paneRootSession: null, existingAgent: null }),
     );
 
     expect(state).not.toBeNull();
     expect(state?.phase).toBe("active");
     expect(state?.activeSubagents.size).toBe(0);
 
-    // Effects in order: RelayAgentHook, SetPaneRoot, CreateTask
+    // Effects in order: RelayAgentHook, SetPaneRoot, CreateAgent
     expect(effects).toHaveLength(3);
     expect(effects[0]).toEqual({
       kind: "RelayAgentHook",
@@ -215,7 +215,7 @@ describe("transitionSession — Group A: fresh session (state: null)", () => {
       sessionId: "sess-1",
     });
     expect(effects[2]).toEqual({
-      kind: "CreateTask",
+      kind: "CreateAgent",
       sessionId: "sess-1",
       paneId: "pane-1",
       agentKind: "claude",
@@ -250,7 +250,7 @@ describe("transitionSession — Group A: fresh session (state: null)", () => {
 });
 
 describe("transitionSession — Group B: phase: active", () => {
-  it("PostToolUse → RelayAgentHook + UpdateTaskActiveStatus, phase stays active", () => {
+  it("PostToolUse → RelayAgentHook + UpdateAgentActiveStatus, phase stays active", () => {
     const state = activeState();
     const event = postToolUse("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -258,7 +258,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -271,13 +271,13 @@ describe("transitionSession — Group B: phase: active", () => {
       agentKind: "claude",
     });
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "thinking",
     });
   });
 
-  it("PreToolUse → RelayAgentHook + UpdateTaskActiveStatus, phase stays active", () => {
+  it("PreToolUse → RelayAgentHook + UpdateAgentActiveStatus, phase stays active", () => {
     const state = activeState();
     const event = preToolUse("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -285,7 +285,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -297,7 +297,7 @@ describe("transitionSession — Group B: phase: active", () => {
       agentKind: "claude",
     });
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "working",
     });
@@ -311,7 +311,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -337,7 +337,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -352,7 +352,7 @@ describe("transitionSession — Group B: phase: active", () => {
     expect(effects.some((e) => e.kind === "ApplyStop")).toBe(false);
   });
 
-  it("SubagentStart → RelayAgentHook + UpdateTaskActiveStatus, activeSubagents grows", () => {
+  it("SubagentStart → RelayAgentHook + UpdateAgentActiveStatus, activeSubagents grows", () => {
     const state = activeState();
     const event = subagentStart("sess-1", "tool-a");
     const { state: nextState, effects } = transitionSession(
@@ -360,7 +360,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -373,7 +373,7 @@ describe("transitionSession — Group B: phase: active", () => {
       agentKind: "claude",
     });
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "working",
     });
@@ -387,7 +387,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -403,7 +403,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -420,7 +420,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -436,7 +436,7 @@ describe("transitionSession — Group B: phase: active", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ agentSessionId: "sess-1" }),
+        existingAgent: agent({ agentSessionId: "sess-1" }),
       }),
     );
 
@@ -481,7 +481,7 @@ describe("transitionSession — Group B: phase: active", () => {
 });
 
 describe("transitionSession — Group C: phase: pendingStop", () => {
-  it("SubagentStop that empties the set → RelayAgentHook + UpdateTaskActiveStatus, phase → active (SubagentStop is active status)", () => {
+  it("SubagentStop that empties the set → RelayAgentHook + UpdateAgentActiveStatus, phase → active (SubagentStop is active status)", () => {
     const state = pendingStopState({ activeSubagents: new Set(["tool-1"]) });
     const event = subagentStop("sess-1", "tool-1");
     const { state: nextState, effects } = transitionSession(
@@ -489,7 +489,7 @@ describe("transitionSession — Group C: phase: pendingStop", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -503,7 +503,7 @@ describe("transitionSession — Group C: phase: pendingStop", () => {
       agentKind: "claude",
     });
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "thinking",
     });
@@ -517,7 +517,7 @@ describe("transitionSession — Group C: phase: pendingStop", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -544,7 +544,7 @@ describe("transitionSession — Group C: phase: pendingStop", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -572,7 +572,7 @@ describe("transitionSession — Group C: phase: pendingStop", () => {
 });
 
 describe("transitionSession — Group D: phase: responded (late-event guard)", () => {
-  it("PostToolUse on responded task → effects: [], state unchanged", () => {
+  it("PostToolUse on responded agent → effects: [], state unchanged", () => {
     const state = respondedState();
     const event = postToolUse("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -580,7 +580,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -588,7 +588,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
     expect(effects).toHaveLength(0);
   });
 
-  it("PreToolUse on responded task → effects: [], state unchanged", () => {
+  it("PreToolUse on responded agent → effects: [], state unchanged", () => {
     const state = respondedState();
     const event = preToolUse("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -596,7 +596,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -604,7 +604,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
     expect(effects).toHaveLength(0);
   });
 
-  it("PermissionRequest on responded task → effects: [], state unchanged", () => {
+  it("PermissionRequest on responded agent → effects: [], state unchanged", () => {
     const state = respondedState();
     const event = permissionRequest("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -612,7 +612,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -620,7 +620,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
     expect(effects).toHaveLength(0);
   });
 
-  it("Notification on responded task → effects: [], state unchanged", () => {
+  it("Notification on responded agent → effects: [], state unchanged", () => {
     const state = respondedState();
     const event = notification("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -628,7 +628,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -636,7 +636,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
     expect(effects).toHaveLength(0);
   });
 
-  it("UserPromptSubmit on responded task → RelayAgentHook + UpdateTaskActiveStatus, phase → active", () => {
+  it("UserPromptSubmit on responded agent → RelayAgentHook + UpdateAgentActiveStatus, phase → active", () => {
     const state = respondedState();
     const event = userPromptSubmit("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -644,7 +644,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -656,7 +656,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       agentKind: "claude",
     });
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "thinking",
     });
@@ -670,7 +670,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -699,7 +699,7 @@ describe("transitionSession — Group D: phase: responded (late-event guard)", (
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: respondedTask(),
+        existingAgent: respondedAgent(),
       }),
     );
 
@@ -774,7 +774,7 @@ describe("transitionSession — Group E: sessionId === null", () => {
 });
 
 describe("transitionSession — Group F: subagent session detection", () => {
-  it("Event with different sessionId than paneRootSession → RelayAgentHook only, no state or task work", () => {
+  it("Event with different sessionId than paneRootSession → RelayAgentHook only, no state or agent work", () => {
     const state = activeState();
     const event = postToolUse("subagent-sess");
     const { state: nextState, effects } = transitionSession(
@@ -782,7 +782,7 @@ describe("transitionSession — Group F: subagent session detection", () => {
       event,
       baseCtx({
         paneRootSession: "root-sess",
-        existingTask: null,
+        existingAgent: null,
       }),
     );
 
@@ -794,11 +794,11 @@ describe("transitionSession — Group F: subagent session detection", () => {
       status: "thinking",
       agentKind: "claude",
     });
-    expect(effects.some((e) => e.kind === "CreateTask")).toBe(false);
-    expect(effects.some((e) => e.kind === "UpdateTaskActiveStatus")).toBe(false);
+    expect(effects.some((e) => e.kind === "CreateAgent")).toBe(false);
+    expect(effects.some((e) => e.kind === "UpdateAgentActiveStatus")).toBe(false);
   });
 
-  it("UserPromptSubmit on subagent sessionId → RelayAgentHook only, no task ops", () => {
+  it("UserPromptSubmit on subagent sessionId → RelayAgentHook only, no agent ops", () => {
     const state = activeState();
     const event = userPromptSubmit("subagent-sess");
     const { state: nextState, effects } = transitionSession(
@@ -806,12 +806,12 @@ describe("transitionSession — Group F: subagent session detection", () => {
       event,
       baseCtx({
         paneRootSession: "root-sess",
-        existingTask: null,
+        existingAgent: null,
       }),
     );
 
     expect(nextState).toEqual(state);
-    expect(effects.some((e) => e.kind === "CreateTask")).toBe(false);
+    expect(effects.some((e) => e.kind === "CreateAgent")).toBe(false);
   });
 });
 
@@ -824,7 +824,7 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task(),
+        existingAgent: agent(),
         nowMs: 5000,
       }),
     );
@@ -839,7 +839,7 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: null,
-        existingTask: null,
+        existingAgent: null,
         nowMs: 7000,
       }),
     );
@@ -856,7 +856,7 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task(),
+        existingAgent: agent(),
       }),
     );
 
@@ -876,7 +876,7 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task({ lastAgentStatus: "thinking" }),
+        existingAgent: agent({ lastAgentStatus: "thinking" }),
       }),
     );
 
@@ -898,15 +898,15 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task(),
+        existingAgent: agent(),
       }),
     );
 
     expect(nextState?.phase).toBe("active");
-    expect(effects.some((e) => e.kind === "UpdateTaskActiveStatus")).toBe(true);
+    expect(effects.some((e) => e.kind === "UpdateAgentActiveStatus")).toBe(true);
   });
 
-  it("PermissionRequest is an active status and updates task", () => {
+  it("PermissionRequest is an active status and updates agent", () => {
     const state = activeState();
     const event = permissionRequest("sess-1");
     const { state: nextState, effects } = transitionSession(
@@ -914,13 +914,13 @@ describe("transitionSession — Additional edge cases and invariants", () => {
       event,
       baseCtx({
         paneRootSession: "sess-1",
-        existingTask: task(),
+        existingAgent: agent(),
       }),
     );
 
     expect(nextState?.phase).toBe("active");
     expect(effects[1]).toEqual({
-      kind: "UpdateTaskActiveStatus",
+      kind: "UpdateAgentActiveStatus",
       sessionId: "sess-1",
       status: "requires_input",
     });

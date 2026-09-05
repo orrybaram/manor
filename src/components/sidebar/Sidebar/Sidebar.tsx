@@ -34,18 +34,18 @@ import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { ProjectItem } from "../ProjectItem";
 import { PortsList } from "../../ports/PortsList";
-import { TasksList } from "../TasksList";
+import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
-  onShowTasks?: () => void;
+  onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { onShowTasks, onOpenProjectSettings, onAddProject } = props;
+  const { onShowAgents, onOpenProjectSettings, onAddProject } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
@@ -409,7 +409,7 @@ export function Sidebar(props: SidebarProps) {
             </div>
           </>
         </div>
-        <TasksList onShowAll={onShowTasks} />
+        <AgentsList onShowAll={onShowAgents} />
       </div>
       <PortsList />
 

@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { TaskInfo } from "../../electron.d";
+import type { AgentInfo } from "../../electron.d";
 
 // ── Mock electronAPI ──────────────────────────────────────────────────────────
-// Mirrors the pattern in task-store-pagination.test.ts: replace `electronAPI.tasks`
+// Mirrors the pattern in agent-store-pagination.test.ts: replace `electronAPI.agents`
 // before importing the store, so its eager init picks up the stub.
 
 let onUpdateCallback:
-  | ((task: TaskInfo, unseen: { responded: boolean; requires_input: boolean }) => void)
+  | ((agent: AgentInfo, unseen: { responded: boolean; requires_input: boolean }) => void)
   | null = null;
 
-const tasksApi = {
+const agentsApi = {
   getAll: vi.fn().mockResolvedValue([]),
   getActive: vi.fn().mockResolvedValue([]),
   getRecent: vi.fn().mockResolvedValue([]),
@@ -26,7 +26,7 @@ const tasksApi = {
   onUpdate: vi.fn(
     (
       cb: (
-        task: TaskInfo,
+        agent: AgentInfo,
         unseen: { responded: boolean; requires_input: boolean },
       ) => void,
     ) => {
@@ -44,19 +44,19 @@ const notificationsApi = {
 
 (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
   ...((window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI ?? {}),
-  tasks: tasksApi,
+  agents: agentsApi,
   notifications: notificationsApi,
 };
 
-function makeTask(
+function makeAgent(
   id: string,
   lastAgentStatus: string | null = null,
   paneId: string | null = null,
-): TaskInfo {
+): AgentInfo {
   return {
     id,
     agentSessionId: `agent-${id}`,
-    name: `Task ${id}`,
+    name: `Agent ${id}`,
     status: "active",
     createdAt: "2024-01-15T00:00:00Z",
     updatedAt: "2024-01-15T00:00:00Z",
@@ -79,112 +79,112 @@ async function flush(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0));
 }
 
-describe("task-store unseen-flag cache (ADR-136)", () => {
+describe("agent-store unseen-flag cache (ADR-136)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     // Re-prime defaults that vi.clearAllMocks erased.
-    tasksApi.getAll.mockResolvedValue([]);
-    tasksApi.getActive.mockResolvedValue([]);
-    tasksApi.getRecent.mockResolvedValue([]);
-    tasksApi.getUnseen.mockResolvedValue({ responded: [], requires_input: [] });
-    tasksApi.consumePruneNotice.mockResolvedValue(0);
+    agentsApi.getAll.mockResolvedValue([]);
+    agentsApi.getActive.mockResolvedValue([]);
+    agentsApi.getRecent.mockResolvedValue([]);
+    agentsApi.getUnseen.mockResolvedValue({ responded: [], requires_input: [] });
+    agentsApi.consumePruneNotice.mockResolvedValue(0);
     onUpdateCallback = null;
   });
 
-  it("primes unseen Sets from tasks:getUnseen on init", async () => {
-    tasksApi.getUnseen.mockResolvedValue({
+  it("primes unseen Sets from agents:getUnseen on init", async () => {
+    agentsApi.getUnseen.mockResolvedValue({
       responded: ["t1", "t2"],
       requires_input: ["t3"],
     });
 
-    const { useTaskStore } = await import("../task-store");
+    const { useAgentStore } = await import("../agent-store");
     await flush();
 
-    const state = useTaskStore.getState();
-    expect(state.unseenRespondedTaskIds).toEqual(new Set(["t1", "t2"]));
-    expect(state.unseenInputTaskIds).toEqual(new Set(["t3"]));
+    const state = useAgentStore.getState();
+    expect(state.unseenRespondedAgentIds).toEqual(new Set(["t1", "t2"]));
+    expect(state.unseenInputAgentIds).toEqual(new Set(["t3"]));
   });
 
-  it("reconciles unseen Sets to broadcast flags on every task-updated event", async () => {
-    const { useTaskStore } = await import("../task-store");
+  it("reconciles unseen Sets to broadcast flags on every agent-updated event", async () => {
+    const { useAgentStore } = await import("../agent-store");
     await flush();
     expect(onUpdateCallback).not.toBeNull();
 
     // Status flip storm: responded -> requires_input -> responded.
-    onUpdateCallback!(makeTask("t1", "responded"), {
+    onUpdateCallback!(makeAgent("t1", "responded"), {
       responded: true,
       requires_input: false,
     });
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
-    expect(useTaskStore.getState().unseenInputTaskIds.has("t1")).toBe(false);
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(true);
+    expect(useAgentStore.getState().unseenInputAgentIds.has("t1")).toBe(false);
 
-    onUpdateCallback!(makeTask("t1", "requires_input"), {
+    onUpdateCallback!(makeAgent("t1", "requires_input"), {
       responded: false,
       requires_input: true,
     });
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
-    expect(useTaskStore.getState().unseenInputTaskIds.has("t1")).toBe(true);
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(false);
+    expect(useAgentStore.getState().unseenInputAgentIds.has("t1")).toBe(true);
 
-    onUpdateCallback!(makeTask("t1", "responded"), {
+    onUpdateCallback!(makeAgent("t1", "responded"), {
       responded: true,
       requires_input: false,
     });
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
-    expect(useTaskStore.getState().unseenInputTaskIds.has("t1")).toBe(false);
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(true);
+    expect(useAgentStore.getState().unseenInputAgentIds.has("t1")).toBe(false);
   });
 
-  it("markTaskSeen optimistically clears local cache and calls IPC", async () => {
-    tasksApi.getUnseen.mockResolvedValue({
+  it("markAgentSeen optimistically clears local cache and calls IPC", async () => {
+    agentsApi.getUnseen.mockResolvedValue({
       responded: ["t1"],
       requires_input: ["t1"],
     });
 
-    const { useTaskStore } = await import("../task-store");
+    const { useAgentStore } = await import("../agent-store");
     await flush();
 
-    useTaskStore.getState().markTaskSeen("t1");
+    useAgentStore.getState().markAgentSeen("t1");
 
-    const state = useTaskStore.getState();
-    expect(state.unseenRespondedTaskIds.has("t1")).toBe(false);
-    expect(state.unseenInputTaskIds.has("t1")).toBe(false);
-    expect(tasksApi.markSeen).toHaveBeenCalledWith("t1");
+    const state = useAgentStore.getState();
+    expect(state.unseenRespondedAgentIds.has("t1")).toBe(false);
+    expect(state.unseenInputAgentIds.has("t1")).toBe(false);
+    expect(agentsApi.markSeen).toHaveBeenCalledWith("t1");
   });
 
-  it("re-pulses on a subsequent status update after markTaskSeen", async () => {
-    tasksApi.getUnseen.mockResolvedValue({
+  it("re-pulses on a subsequent status update after markAgentSeen", async () => {
+    agentsApi.getUnseen.mockResolvedValue({
       responded: ["t1"],
       requires_input: [],
     });
 
-    const { useTaskStore } = await import("../task-store");
+    const { useAgentStore } = await import("../agent-store");
     await flush();
 
     // Mark seen — cache clears.
-    useTaskStore.getState().markTaskSeen("t1");
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
+    useAgentStore.getState().markAgentSeen("t1");
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(false);
 
     // A later broadcast (e.g. another responded after a new turn) puts the
-    // task back into the unseen Set, so the pulse predicate fires again.
-    onUpdateCallback!(makeTask("t1", "responded"), {
+    // agent back into the unseen Set, so the pulse predicate fires again.
+    onUpdateCallback!(makeAgent("t1", "responded"), {
       responded: true,
       requires_input: false,
     });
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(true);
   });
 
   it("leaves the cache untouched when the broadcast omits the unseen argument", async () => {
-    tasksApi.getUnseen.mockResolvedValue({
+    agentsApi.getUnseen.mockResolvedValue({
       responded: ["t1"],
       requires_input: [],
     });
 
-    const { useTaskStore } = await import("../task-store");
+    const { useAgentStore } = await import("../agent-store");
     await flush();
 
     // Older preload — no unseen arg. Cache should not be wiped.
-    onUpdateCallback!(makeTask("t1", "responded"), undefined as never);
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
+    onUpdateCallback!(makeAgent("t1", "responded"), undefined as never);
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(true);
   });
 });
 
@@ -230,26 +230,26 @@ describe("read state follows what is on screen (issue #142)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    tasksApi.getAll.mockResolvedValue([]);
-    tasksApi.getActive.mockResolvedValue([]);
-    tasksApi.getRecent.mockResolvedValue([]);
-    tasksApi.getUnseen.mockResolvedValue({ responded: [], requires_input: [] });
-    tasksApi.consumePruneNotice.mockResolvedValue(0);
+    agentsApi.getAll.mockResolvedValue([]);
+    agentsApi.getActive.mockResolvedValue([]);
+    agentsApi.getRecent.mockResolvedValue([]);
+    agentsApi.getUnseen.mockResolvedValue({ responded: [], requires_input: [] });
+    agentsApi.consumePruneNotice.mockResolvedValue(0);
     onUpdateCallback = null;
   });
 
-  it("marks a task seen when navigation brings its pane on screen", async () => {
-    const { useTaskStore } = await import("../task-store");
+  it("marks an agent seen when navigation brings its pane on screen", async () => {
+    const { useAgentStore } = await import("../agent-store");
     const { useAppStore } = await import("../app-store");
     await flush();
 
     // Agent responds while the user is elsewhere — no active workspace at all.
-    onUpdateCallback!(makeTask("t1", "responded", "pane-1"), {
+    onUpdateCallback!(makeAgent("t1", "responded", "pane-1"), {
       responded: true,
       requires_input: false,
     });
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(true);
-    expect(tasksApi.markSeen).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(true);
+    expect(agentsApi.markSeen).not.toHaveBeenCalled();
 
     // The user navigates to the pane by any means: the layout mutation is the
     // only signal the store needs.
@@ -258,16 +258,16 @@ describe("read state follows what is on screen (issue #142)", () => {
       workspaceLayouts: { "/ws": layoutWith("pane-1") } as never,
     });
 
-    expect(tasksApi.markSeen).toHaveBeenCalledWith("t1");
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
+    expect(agentsApi.markSeen).toHaveBeenCalledWith("t1");
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(false);
   });
 
-  it("leaves a task unseen while its pane sits in a background tab", async () => {
-    const { useTaskStore } = await import("../task-store");
+  it("leaves an agent unseen while its pane sits in a background tab", async () => {
+    const { useAgentStore } = await import("../agent-store");
     const { useAppStore } = await import("../app-store");
     await flush();
 
-    onUpdateCallback!(makeTask("t1", "requires_input", "pane-hidden"), {
+    onUpdateCallback!(makeAgent("t1", "requires_input", "pane-hidden"), {
       responded: false,
       requires_input: true,
     });
@@ -280,8 +280,8 @@ describe("read state follows what is on screen (issue #142)", () => {
     });
 
     // The tab is mounted but not selected, so nothing has been read.
-    expect(tasksApi.markSeen).not.toHaveBeenCalled();
-    expect(useTaskStore.getState().unseenInputTaskIds.has("t1")).toBe(true);
+    expect(agentsApi.markSeen).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().unseenInputAgentIds.has("t1")).toBe(true);
   });
 
   it("clears unseen flags that arrive for a pane already on screen", async () => {
@@ -293,18 +293,18 @@ describe("read state follows what is on screen (issue #142)", () => {
       workspaceLayouts: { "/ws": layoutWith("pane-1") } as never,
     });
 
-    tasksApi.getActive.mockResolvedValue([
-      makeTask("t1", "responded", "pane-1"),
+    agentsApi.getActive.mockResolvedValue([
+      makeAgent("t1", "responded", "pane-1"),
     ]);
-    tasksApi.getUnseen.mockResolvedValue({
+    agentsApi.getUnseen.mockResolvedValue({
       responded: ["t1"],
       requires_input: [],
     });
 
-    const { useTaskStore } = await import("../task-store");
+    const { useAgentStore } = await import("../agent-store");
     await flush();
 
-    expect(tasksApi.markSeen).toHaveBeenCalledWith("t1");
-    expect(useTaskStore.getState().unseenRespondedTaskIds.has("t1")).toBe(false);
+    expect(agentsApi.markSeen).toHaveBeenCalledWith("t1");
+    expect(useAgentStore.getState().unseenRespondedAgentIds.has("t1")).toBe(false);
   });
 });

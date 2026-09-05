@@ -1,6 +1,6 @@
 /**
- * `/sessions/read` targeting (ADR-154, widened): a task handle is the preferred
- * target, but plain terminal panes — which never get a `TaskInfo` — must be
+ * `/sessions/read` targeting (ADR-154, widened): an agent handle is the preferred
+ * target, but plain terminal panes — which never get a `AgentInfo` — must be
  * readable by their raw paneId too.
  */
 
@@ -14,39 +14,39 @@ vi.mock("../terminal-host/scrollback", () => ({
 }));
 
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import { tasksRoutes } from "./tasks";
+import { agentRoutes } from "./agents";
 import type { ControlDeps, Route } from "./types";
 
-const readRoute = tasksRoutes.find(
+const readRoute = agentRoutes.find(
   (r: Route) => r.path === "/sessions/read" && r.method === "POST",
 )!;
 
 const readScrollback = vi.mocked(ScrollbackWriter.readScrollback);
 const readMeta = vi.mocked(ScrollbackWriter.readMeta);
 
-/** A TaskManager stub that knows about exactly one agent session. */
-function taskManager(task: Record<string, unknown> | null) {
+/** An AgentManager stub that knows about exactly one agent session. */
+function agentManager(agent: Record<string, unknown> | null) {
   return {
-    getTaskById: (id: string) => (task && task.id === id ? task : null),
-    getTaskByPaneId: (pane: string) =>
-      task && task.paneId === pane ? task : null,
-    getActiveTasks: () => (task ? [task] : []),
+    getAgentById: (id: string) => (agent && agent.id === id ? agent : null),
+    getAgentByPaneId: (pane: string) =>
+      agent && agent.paneId === pane ? agent : null,
+    getActiveAgents: () => (agent ? [agent] : []),
   };
 }
 
 async function read(
   body: Record<string, unknown>,
   {
-    task = null,
+    agent = null,
     snapshots = {} as Record<string, string>,
   }: {
-    task?: Record<string, unknown> | null;
+    agent?: Record<string, unknown> | null;
     snapshots?: Record<string, string>;
   } = {},
 ) {
   const calls: Array<{ status: number; body: any }> = [];
   const deps = {
-    taskManager: taskManager(task),
+    agentManager: agentManager(agent),
     backend: {
       pty: {
         getSnapshot: async (id: string) =>
@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("POST /sessions/read", () => {
-  it("reads a live pane that has no task row at all", async () => {
+  it("reads a live pane that has no agent row at all", async () => {
     const res = await read(
       { target: "pane-7" },
       { snapshots: { "pane-7": "$ ls\nREADME.md\n" } },
@@ -99,7 +99,7 @@ describe("POST /sessions/read", () => {
     expect(res.body.target.kind).toBe("pane");
   });
 
-  it("404s on a target that is neither a task nor a known pane", async () => {
+  it("404s on a target that is neither an agent nor a known pane", async () => {
     const res = await read({ target: "nonsense" });
 
     expect(res.status).toBe(404);
@@ -117,18 +117,18 @@ describe("POST /sessions/read", () => {
     expect(res.body.text).toBe("");
   });
 
-  it("prefers the task's pane when the target resolves to a session", async () => {
+  it("prefers the agent's pane when the target resolves to a session", async () => {
     const res = await read(
-      { target: "task-1" },
+      { target: "agent-1" },
       {
-        task: { id: "task-1", paneId: "pane-1", lastAgentStatus: "working" },
+        agent: { id: "agent-1", paneId: "pane-1", lastAgentStatus: "working" },
         snapshots: { "pane-1": "thinking...\n" },
       },
     );
 
     expect(res.status).toBe(200);
     expect(res.body.target).toMatchObject({
-      id: "task-1",
+      id: "agent-1",
       paneId: "pane-1",
       kind: "session",
       lastAgentStatus: "working",
@@ -137,8 +137,8 @@ describe("POST /sessions/read", () => {
 
   it("409s on a resolved session with no pane instead of reading the raw target", async () => {
     const res = await read(
-      { target: "task-2" },
-      { task: { id: "task-2", paneId: null, lastAgentStatus: null } },
+      { target: "agent-2" },
+      { agent: { id: "agent-2", paneId: null, lastAgentStatus: null } },
     );
 
     expect(res.status).toBe(409);

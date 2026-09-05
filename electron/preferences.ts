@@ -15,16 +15,16 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   /**
-   * Number of days to retain non-active tasks. Tasks with `status !== "active"`
-   * whose `completedAt` is older than this are pruned on TaskManager construction.
+   * Number of days to retain non-active agents. Agents with `status !== "active"`
+   * whose `completedAt` is older than this are pruned on AgentManager construction.
    * Set to 0 (or any non-positive number) to disable pruning.
    */
-  taskRetentionDays: number;
+  agentRetentionDays: number;
   /**
-   * Set the first time the prune-on-boot path actually deletes any tasks.
+   * Set the first time the prune-on-boot path actually deletes any agents.
    * Used to surface a one-time notice; never reset automatically.
    */
-  taskPruneNoticeShown: boolean;
+  agentPruneNoticeShown: boolean;
   /** Agent-agnostic harness Home auto-launches. */
   homeHarness: "claude" | "codex" | "custom";
   /** Launch command used when `homeHarness === "custom"`. */
@@ -44,8 +44,8 @@ const DEFAULTS: AppPreferences = {
   notificationSound: "Glass",
   defaultEditor: "",
   editorIsTerminal: false,
-  taskRetentionDays: 90,
-  taskPruneNoticeShown: false,
+  agentRetentionDays: 90,
+  agentPruneNoticeShown: false,
   homeHarness: "claude",
   homeCustomCommand: "",
   homeCustomInterrupt: "",
@@ -79,6 +79,23 @@ export class PreferencesManager {
       } else if (rawSound === false) {
         parsed.notificationSound = false;
       }
+      // Migration: "tasks" became "agents"; adopt the old keys once and drop
+      // them so they are not written back.
+      const legacy = parsed as Record<string, unknown>;
+      if (
+        parsed.agentRetentionDays === undefined &&
+        typeof legacy.taskRetentionDays === "number"
+      ) {
+        parsed.agentRetentionDays = legacy.taskRetentionDays;
+      }
+      if (
+        parsed.agentPruneNoticeShown === undefined &&
+        typeof legacy.taskPruneNoticeShown === "boolean"
+      ) {
+        parsed.agentPruneNoticeShown = legacy.taskPruneNoticeShown;
+      }
+      delete legacy.taskRetentionDays;
+      delete legacy.taskPruneNoticeShown;
       return { ...DEFAULTS, ...parsed };
     } catch {
       return { ...DEFAULTS };

@@ -76,7 +76,7 @@ The helpers it stands on:
 
 - **`helpers/fake-agent.sh`** — a stand-in agent CLI. Manor does not learn about
   a session by watching a process: an agent reports its own lifecycle to the
-  hook endpoint, and the relay turns those events into the task rows the phone
+  hook endpoint, and the relay turns those events into the agent rows the phone
   renders. So the fake agent speaks that hook protocol using the
   `MANOR_HOOK_PORT` / `MANOR_PANE_ID` the pty layer gives it. It parks in
   `requires_input` — the state the feature exists to surface — echoes anything
@@ -108,7 +108,7 @@ claim the feature makes.
 
 The session is started by typing the fake agent's path into a terminal pane
 rather than with Cmd+N. Cmd+N consumes Manor's prewarmed session, which boots
-the project's agent command _before_ the pane exists — so its task row is
+the project's agent command _before_ the pane exists — so its agent row is
 created with no project and no name — and the prewarm that replaces it keeps
 running the same agent in the background. Typing into a pane that is already on
 screen gives the hook relay its context the first time, and keeps the test off
@@ -118,15 +118,15 @@ a race it would otherwise have to retry through.
 
 - **The prewarmed session shows up as a session.** Manor keeps a warm pty with
   the agent command already injected, so that agent reports a lifecycle too and
-  earns a task row — no project, no pane in the layout, name is just a uuid. It
-  is visible on the phone. Tests pick their session by intersecting `GET /tasks`
+  earns an agent row — no project, no pane in the layout, name is just a uuid. It
+  is visible on the phone. Tests pick their session by intersecting `GET /agents`
   with `GET /panes` rather than taking the first row.
 - **The detail view does not follow a session.** Scrollback is read when a
   session is opened and once immediately after a send, which is too early to
   catch the reply; the live stream updates the list, not the open transcript.
   The test taps the client's own Refresh button rather than waiting.
 - **A name that lands after the client connected never reaches it.** The stream
-  carries status transitions only, so tests wait for the task to be named before
+  carries status transitions only, so tests wait for the agent to be named before
   the phone loads.
 - **Push is not exercised.** Web Push needs a real push service, so the tests
   cover the live-stream path and leave the notification itself untested.

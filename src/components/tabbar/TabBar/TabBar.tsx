@@ -88,13 +88,13 @@ function buildTabDragImage(
 }
 
 type TabBarProps = {
-  onNewTask: () => void;
+  onNewAgent: () => void;
   panelId?: string;
   workspacePath?: string;
 };
 
 export function TabBar(props: TabBarProps) {
-  const { onNewTask, panelId, workspacePath } = props;
+  const { onNewAgent, panelId, workspacePath } = props;
 
   const panel = useAppStore((s) => {
     if (panelId && workspacePath) {
@@ -662,12 +662,12 @@ export function TabBar(props: TabBarProps) {
                     className={styles.contextMenuItem}
                     onClick={() => {
                       ensureFocused();
-                      onNewTask();
+                      onNewAgent();
                       setAddMenuOpen(false);
                     }}
                   >
                     <ListTodo size={14} />
-                    Task
+                    Agent
                   </button>
                 </Popover.Content>
               </Popover.Portal>

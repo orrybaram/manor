@@ -3,7 +3,7 @@ import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
   resolveWorkspaceCommand,
-  startNewTask,
+  startNewAgent,
 } from "../keybinding-commands";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
@@ -95,7 +95,7 @@ describe("createSharedKeybindingHandlers", () => {
     const handlers = createSharedKeybindingHandlers();
     for (const id of [
       "new-tab",
-      "new-task",
+      "new-agent",
       "new-browser",
       "split-h",
       "split-v",
@@ -161,7 +161,7 @@ describe("resolveWorkspaceCommand", () => {
   });
 });
 
-describe("startNewTask", () => {
+describe("startNewAgent", () => {
   it("seeds the workspace's agent command and adds a tab without prewarm", async () => {
     useProjectStore.setState({ projects: [makeProject("my-agent")] });
     const consumePrewarmed = vi.fn();
@@ -170,7 +170,7 @@ describe("startNewTask", () => {
       electronAPI: { ...window.electronAPI, pty: { consumePrewarmed } },
     });
 
-    await startNewTask({ prewarm: false });
+    await startNewAgent({ prewarm: false });
 
     expect(consumePrewarmed).not.toHaveBeenCalled();
     expect(useAppStore.getState().pendingStartupCommands[WS_PATH]).toBe(
@@ -195,7 +195,7 @@ describe("startNewTask", () => {
       },
     });
 
-    await startNewTask({ prewarm: true });
+    await startNewAgent({ prewarm: true });
 
     // The command already ran in the prewarmed session — don't queue it again.
     expect(

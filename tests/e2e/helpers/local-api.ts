@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { APIRequestContext } from "@playwright/test";
 
-import type { TaskSummary } from "../../../electron/routes/tasks";
+import type { AgentSummary } from "../../../electron/routes/agents";
 import type { LayoutSnapshot } from "../../../src/store/layout-snapshot";
 
 /**
@@ -10,7 +10,7 @@ import type { LayoutSnapshot } from "../../../src/store/layout-snapshot";
  * loopback listener the MCP server and CLI already use.
  *
  * Tests reach for it to observe state that the UI renders into a WebGL canvas
- * (terminal output) or not at all (the task list behind a session row). It is
+ * (terminal output) or not at all (the agent list behind a session row). It is
  * also a second, independent witness for anything the phone client claims:
  * when a send lands, this is the path that proves it reached the pty rather
  * than only the view that asked for it.
@@ -20,7 +20,7 @@ import type { LayoutSnapshot } from "../../../src/store/layout-snapshot";
  * hand-written duplicate.
  */
 
-export type { TaskSummary };
+export type { AgentSummary };
 
 /** The port `WebviewServer` published for this app instance. */
 function localApiPort(tempHome: string): number {
@@ -47,11 +47,11 @@ async function getJson<T>(
   return (await res.json()) as T;
 }
 
-function listTasks(
+function listAgents(
   request: APIRequestContext,
   tempHome: string,
-): Promise<TaskSummary[]> {
-  return getJson<TaskSummary[]>(request, tempHome, "/tasks");
+): Promise<AgentSummary[]> {
+  return getJson<AgentSummary[]>(request, tempHome, "/agents");
 }
 
 /**
@@ -72,20 +72,20 @@ export async function sendToSession(
   if (!res.ok()) throw new Error(`POST /sessions/send → ${res.status()}`);
 }
 
-/** Wait for one task to report `status`, and return it. */
-export function waitForTaskStatus(
+/** Wait for one agent to report `status`, and return it. */
+export function waitForAgentStatus(
   request: APIRequestContext,
   tempHome: string,
-  taskId: string,
+  agentId: string,
   status: string,
   timeout = 60_000,
-): Promise<TaskSummary> {
+): Promise<AgentSummary> {
   return waitFor(
-    `task ${taskId} in ${status}`,
+    `agent ${agentId} in ${status}`,
     async () => {
-      const tasks = await listTasks(request, tempHome);
+      const agents = await listAgents(request, tempHome);
       return (
-        tasks.find((t) => t.id === taskId && t.lastAgentStatus === status) ??
+        agents.find((t) => t.id === agentId && t.lastAgentStatus === status) ??
         null
       );
     },
@@ -126,7 +126,7 @@ async function visiblePaneIds(
   );
 }
 
-/** Rendered scrollback for a task handle or a raw pane id. */
+/** Rendered scrollback for an agent handle or a raw pane id. */
 export async function readSession(
   request: APIRequestContext,
   tempHome: string,
@@ -143,16 +143,16 @@ export async function readSession(
  * Wait for the session the app is actually showing to park in
  * `requires_input`, and return it.
  *
- * Two things make the naive "first active task" wrong. The signal itself is a
- * whole pipeline — pty env → hook HTTP → relay → `TaskInfo` — so it needs
- * waiting on rather than assuming. And `GET /tasks` legitimately returns more
+ * Two things make the naive "first active agent" wrong. The signal itself is a
+ * whole pipeline — pty env → hook HTTP → relay → `AgentInfo` — so it needs
+ * waiting on rather than assuming. And `GET /agents` legitimately returns more
  * than the sessions on screen: the prewarmed session Manor keeps ready boots
  * the same agent command in the background, and that agent reports its own
- * lifecycle too, so it earns a task row with no project and no pane in the
+ * lifecycle too, so it earns an agent row with no project and no pane in the
  * layout. Intersecting with `GET /panes` is what picks out the session a
  * person would point at.
  *
- * `name` is worth waiting for as well: a task is named from its window title,
+ * `name` is worth waiting for as well: an agent is named from its window title,
  * which lands after the row exists, and the phone reads the list once and then
  * only on a status event — so a name that arrives after the client connected
  * never shows up there.
@@ -161,23 +161,23 @@ export function waitForVisibleSession(
   request: APIRequestContext,
   tempHome: string,
   { name, timeout = 90_000 }: { name?: string; timeout?: number } = {},
-): Promise<TaskSummary> {
+): Promise<AgentSummary> {
   return waitFor(
     name
       ? `an on-screen session named "${name}" in requires_input`
       : "an on-screen session in requires_input",
     async () => {
-      const [tasks, panes] = await Promise.all([
-        listTasks(request, tempHome),
+      const [agents, panes] = await Promise.all([
+        listAgents(request, tempHome),
         visiblePaneIds(request, tempHome),
       ]);
       return (
-        tasks.find(
-          (task) =>
-            task.paneId !== null &&
-            panes.has(task.paneId) &&
-            task.lastAgentStatus === "requires_input" &&
-            (name === undefined || task.name === name),
+        agents.find(
+          (agent) =>
+            agent.paneId !== null &&
+            panes.has(agent.paneId) &&
+            agent.lastAgentStatus === "requires_input" &&
+            (name === undefined || agent.name === name),
         ) ?? null
       );
     },

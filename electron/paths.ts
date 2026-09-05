@@ -40,8 +40,8 @@ export function projectsFile(): string {
   return path.join(manorDataDir(), "projects.json");
 }
 
-export function tasksFile(): string {
-  return path.join(manorDataDir(), "tasks.json");
+export function agentsFile(): string {
+  return path.join(manorDataDir(), "agents.json");
 }
 
 export function preferencesFile(): string {

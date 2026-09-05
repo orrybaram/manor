@@ -7,10 +7,10 @@ import styles from "./PanelLayout.module.css";
 interface LeafPanelProps {
   panelId: string;
   workspacePath: string;
-  onNewTask: () => void;
+  onNewAgent: () => void;
 }
 
-export function LeafPanel({ panelId, workspacePath, onNewTask }: LeafPanelProps) {
+export function LeafPanel({ panelId, workspacePath, onNewAgent }: LeafPanelProps) {
   const panel = useAppStore((s) => s.workspaceLayouts[workspacePath]?.panels[panelId]);
   const isActivePanel = useAppStore(
     (s) => s.workspaceLayouts[workspacePath]?.activePanelId === panelId,
@@ -24,7 +24,7 @@ export function LeafPanel({ panelId, workspacePath, onNewTask }: LeafPanelProps)
       className={`${styles.panel} ${isActivePanel ? styles.panelActive : ""}`}
       onClick={() => focusPanel(panelId)}
     >
-      <TabBar panelId={panelId} workspacePath={workspacePath} onNewTask={onNewTask} />
+      <TabBar panelId={panelId} workspacePath={workspacePath} onNewAgent={onNewAgent} />
       <div className="terminal-container">
         {panel.tabs.map((tab) => (
           <div

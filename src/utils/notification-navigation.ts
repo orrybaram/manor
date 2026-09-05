@@ -1,7 +1,7 @@
 import type { NotificationRecord } from "../electron.d";
 import { useNotificationStore } from "../store/notification-store";
-import { useTaskStore } from "../store/task-store";
-import { navigateToTask } from "./task-navigation";
+import { useAgentStore } from "../store/agent-store";
+import { navigateToAgent } from "./agent-navigation";
 
 /**
  * Resolve a notification to wherever it points. The single destination for
@@ -24,11 +24,11 @@ export async function navigateToNotification(
     return;
   }
 
-  const tasks = useTaskStore.getState().tasks;
-  let task = tasks.find((t) => t.id === target.taskId) ?? null;
-  if (!task) {
-    task = (await window.electronAPI?.tasks.get(target.taskId)) ?? null;
+  const agents = useAgentStore.getState().agents;
+  let agent = agents.find((t) => t.id === target.agentId) ?? null;
+  if (!agent) {
+    agent = (await window.electronAPI?.agents.get(target.agentId)) ?? null;
   }
-  // The task may have been pruned out from under the record; nothing to do.
-  if (task) navigateToTask(task);
+  // The agent may have been pruned out from under the record; nothing to do.
+  if (agent) navigateToAgent(agent);
 }

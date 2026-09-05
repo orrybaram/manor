@@ -1,22 +1,22 @@
-import type { TaskInfo } from "../electron.d";
+import type { AgentInfo } from "../electron.d";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
-import { useTaskStore } from "../store/task-store";
+import { useAgentStore } from "../store/agent-store";
 import { useToastStore } from "../store/toast-store";
 import { hasPaneId } from "../store/pane-tree";
 
-export function navigateToTask(task: TaskInfo) {
+export function navigateToAgent(agent: AgentInfo) {
   const { selectProject, setProjectExpanded, selectWorkspace, projects } =
     useProjectStore.getState();
 
   // Find the project by projectId
-  const projectIndex = projects.findIndex((p) => p.id === task.projectId);
+  const projectIndex = projects.findIndex((p) => p.id === agent.projectId);
   if (projectIndex < 0) return;
   const project = projects[projectIndex];
 
   // Find the workspace index by workspacePath
   const workspaceIndex = project.workspaces.findIndex(
-    (ws) => ws.path === task.workspacePath,
+    (ws) => ws.path === agent.workspacePath,
   );
   if (workspaceIndex < 0) return;
 
@@ -25,15 +25,15 @@ export function navigateToTask(task: TaskInfo) {
   setProjectExpanded(project.id);
   selectWorkspace(project.id, workspaceIndex);
 
-  if (task.workspacePath && task.paneId) {
-    // Find the tab containing task.paneId by searching all panels
+  if (agent.workspacePath && agent.paneId) {
+    // Find the tab containing agent.paneId by searching all panels
     const { workspaceLayouts } = useAppStore.getState();
-    const layout = workspaceLayouts[task.workspacePath];
+    const layout = workspaceLayouts[agent.workspacePath];
     let tabId: string | null = null;
     if (layout) {
       for (const panel of Object.values(layout.panels)) {
         for (const tab of panel.tabs) {
-          if (hasPaneId(tab.rootNode, task.paneId)) {
+          if (hasPaneId(tab.rootNode, agent.paneId)) {
             tabId = tab.id;
             break;
           }
@@ -45,14 +45,14 @@ export function navigateToTask(task: TaskInfo) {
     if (tabId) {
       // Atomically select tab and focus pane in one Zustand set() call
       useAppStore.getState().navigateToContext({
-        workspacePath: task.workspacePath,
+        workspacePath: agent.workspacePath,
         tabId,
-        paneId: task.paneId,
+        paneId: agent.paneId,
       });
     }
   }
 
-  window.electronAPI?.tasks.markSeen(task.id);
-  useTaskStore.getState().markTaskSeen(task.id);
-  useToastStore.getState().removeToast(`task-input-${task.id}`);
+  window.electronAPI?.agents.markSeen(agent.id);
+  useAgentStore.getState().markAgentSeen(agent.id);
+  useToastStore.getState().removeToast(`agent-input-${agent.id}`);
 }

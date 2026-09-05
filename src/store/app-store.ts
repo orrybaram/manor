@@ -210,7 +210,7 @@ export interface AppState {
   closedPaneStack: ClosedSnapshot[];
   /** Pending startup commands to run in new terminals (workspace path → script) */
   pendingStartupCommands: Record<string, string>;
-  /** Pending startup commands keyed by pane ID (for split-with-task) */
+  /** Pending startup commands keyed by pane ID (for split-with-agent) */
   pendingPaneCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
@@ -274,7 +274,7 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "task";
+      contentType?: "terminal" | "browser" | "diff" | "agent";
       paneCommand?: string;
       url?: string;
     },
@@ -476,8 +476,8 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * tabs stay mounted, so membership in a tab's tree is not enough on its own.
  *
  * This is the single definition of "on screen" for read state (issue #142): a
- * task whose pane is in this set has been seen, whether the user got there by
- * clicking the task, switching tabs, focusing a pane, or changing workspace.
+ * agent whose pane is in this set has been seen, whether the user got there by
+ * clicking the agent, switching tabs, focusing a pane, or changing workspace.
  */
 export function selectVisiblePaneIds(
   state: Pick<AppState, "activeWorkspacePath" | "workspaceLayouts">,
@@ -1354,7 +1354,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "task";
+      contentType?: "terminal" | "browser" | "diff" | "agent";
       paneCommand?: string;
       url?: string;
     },
@@ -1371,8 +1371,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const contentType = opts?.contentType;
     const paneCommand = opts?.paneCommand;
     const url = opts?.url;
-    // "task" panes are terminals that auto-run a command -- don't persist as a content type
-    const treeContentType = contentType === "task" ? undefined : contentType;
+    // "agent" panes are terminals that auto-run a command -- don't persist as a content type
+    const treeContentType = contentType === "agent" ? undefined : contentType;
     const newRoot = insertSplitAt(
       tab.rootNode,
       targetPaneId,
@@ -1739,7 +1739,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closePaneById: (paneId: string) => {
     const currentTitle = get().paneTitle[paneId] ?? null;
-    window.electronAPI.tasks.abandonForPane(paneId, currentTitle).catch(console.error);
+    window.electronAPI.agents.abandonForPane(paneId, currentTitle).catch(console.error);
     const state = get();
     const ctx = getActiveLayoutContext(state);
     if (!ctx) return;

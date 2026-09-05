@@ -13,58 +13,58 @@ import {
   SWEEP_INTERVAL_MS,
   type HookRelayDeps,
 } from "../hook-relay";
-import type { TaskInfo } from "../task-persistence";
+import type { AgentInfo } from "../agent-persistence";
 import type { AgentKind } from "../terminal-host/types";
 import type { AgentHookEvent } from "../agent-hook-events";
 
-// ── Fake TaskManager ──
+// ── Fake AgentManager ──
 
-type CreateData = Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">;
+type CreateData = Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">;
 
-function makeFakeTaskManager() {
-  const tasks = new Map<string, TaskInfo>();
+function makeFakeAgentManager() {
+  const agents = new Map<string, AgentInfo>();
   let counter = 0;
 
-  function createTask(data: CreateData): TaskInfo {
+  function createAgent(data: CreateData): AgentInfo {
     counter += 1;
-    const task: TaskInfo = {
+    const agent: AgentInfo = {
       ...data,
-      id: `task-${counter}`,
+      id: `agent-${counter}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       activatedAt: null,
-    } as TaskInfo;
-    tasks.set(task.agentSessionId, task);
-    return task;
+    } as AgentInfo;
+    agents.set(agent.agentSessionId, agent);
+    return agent;
   }
 
-  function updateTask(id: string, updates: Partial<TaskInfo>): TaskInfo | null {
-    for (const [key, task] of tasks) {
-      if (task.id === id) {
-        const updated = { ...task, ...updates, id: task.id, updatedAt: new Date().toISOString() } as TaskInfo;
-        tasks.set(key, updated);
+  function updateAgent(id: string, updates: Partial<AgentInfo>): AgentInfo | null {
+    for (const [key, agent] of agents) {
+      if (agent.id === id) {
+        const updated = { ...agent, ...updates, id: agent.id, updatedAt: new Date().toISOString() } as AgentInfo;
+        agents.set(key, updated);
         return updated;
       }
     }
     return null;
   }
 
-  function getTaskBySessionId(sessionId: string): TaskInfo | null {
-    return tasks.get(sessionId) ?? null;
+  function getAgentBySessionId(sessionId: string): AgentInfo | null {
+    return agents.get(sessionId) ?? null;
   }
 
-  function getTaskByPaneId(paneId: string): TaskInfo | null {
-    for (const task of tasks.values()) {
-      if (task.paneId === paneId) return task;
+  function getAgentByPaneId(paneId: string): AgentInfo | null {
+    for (const agent of agents.values()) {
+      if (agent.paneId === paneId) return agent;
     }
     return null;
   }
 
-  function getActiveTasks(): TaskInfo[] {
-    return Array.from(tasks.values()).filter((t) => t.status === "active");
+  function getActiveAgents(): AgentInfo[] {
+    return Array.from(agents.values()).filter((t) => t.status === "active");
   }
 
-  return { createTask, updateTask, getTaskBySessionId, getTaskByPaneId, getActiveTasks, tasks };
+  return { createAgent, updateAgent, getAgentBySessionId, getAgentByPaneId, getActiveAgents, agents };
 }
 
 // ── Relay builder ──
@@ -77,10 +77,10 @@ interface BuildRelayOptions {
 }
 
 function buildRelay(options: BuildRelayOptions = {}) {
-  const taskManager = makeFakeTaskManager();
-  const unseenRespondedTasks = new Set<string>();
-  const unseenInputTasks = new Set<string>();
-  const broadcastTask = vi.fn();
+  const agentManager = makeFakeAgentManager();
+  const unseenRespondedAgents = new Set<string>();
+  const unseenInputAgents = new Set<string>();
+  const broadcastAgent = vi.fn();
   const maybeSendNotification = vi.fn();
   const relayAgentHook = vi.fn();
 
@@ -89,11 +89,11 @@ function buildRelay(options: BuildRelayOptions = {}) {
   // idle clock. ADR-135 ticket-4 tests pass explicit clocks to simulate suspend.
   const deps: HookRelayDeps = {
     relayAgentHook,
-    taskManager,
+    agentManager,
     getPaneContext: () => undefined,
-    unseenRespondedTasks,
-    unseenInputTasks,
-    broadcastTask,
+    unseenRespondedAgents,
+    unseenInputAgents,
+    broadcastAgent,
     maybeSendNotification,
     monoClock: options.monoClock ?? (() => Date.now()),
     wallClock: options.wallClock ?? (() => Date.now()),
@@ -103,10 +103,10 @@ function buildRelay(options: BuildRelayOptions = {}) {
 
   return {
     ...ctx,
-    taskManager,
-    unseenRespondedTasks,
-    unseenInputTasks,
-    broadcastTask,
+    agentManager,
+    unseenRespondedAgents,
+    unseenInputAgents,
+    broadcastAgent,
     maybeSendNotification,
     relayAgentHook,
   };
@@ -231,9 +231,9 @@ describe("createHookRelay — subagent Set tracking", () => {
     // Stop is dropped because subagent is still running
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-1" }));
     expect(state.pendingStopAt).not.toBeNull();
-    // Task should NOT be updated to responded yet
-    const task = ctx.taskManager.getTaskBySessionId("sess-1");
-    expect(task?.lastAgentStatus).not.toBe("responded");
+    // Agent should NOT be updated to responded yet
+    const agent = ctx.agentManager.getAgentBySessionId("sess-1");
+    expect(agent?.lastAgentStatus).not.toBe("responded");
 
     // SubagentStop clears the Set
     fire(relay, subagentStop({ paneId: "pane-1", sessionId: "sess-1", toolUseId: "tool-a" }));
@@ -243,8 +243,8 @@ describe("createHookRelay — subagent Set tracking", () => {
     // Manually invoke the pending stop path — fire another Stop event
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-1" }));
     expect(state.pendingStopAt).toBeNull();
-    const taskAfter = ctx.taskManager.getTaskBySessionId("sess-1");
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = ctx.agentManager.getAgentBySessionId("sess-1");
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
   });
 
   it("case 2: missing SubagentStop — Stop is dropped, pendingStopAt is set", () => {
@@ -258,9 +258,9 @@ describe("createHookRelay — subagent Set tracking", () => {
 
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-2" }));
     expect(state.pendingStopAt).not.toBeNull();
-    // Task still active, not responded (last status was "working" from SubagentStart)
-    const task = ctx.taskManager.getTaskBySessionId("sess-2");
-    expect(task?.lastAgentStatus).not.toBe("responded");
+    // Agent still active, not responded (last status was "working" from SubagentStart)
+    const agent = ctx.agentManager.getAgentBySessionId("sess-2");
+    expect(agent?.lastAgentStatus).not.toBe("responded");
   });
 
   it("case 5: SubagentStop with unknown toolUseId is a no-op", () => {
@@ -329,8 +329,8 @@ describe("createHookRelay — sweep safety nets", () => {
 
     // After sweep, Stop should be applied
     expect(state.pendingStopAt).toBeNull();
-    const task = ctx.taskManager.getTaskBySessionId("sess-sw");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-sw");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("case 4: safety-net defers — PostToolUse resets lastHookEventAt, sweep does not fire", () => {
@@ -352,8 +352,8 @@ describe("createHookRelay — sweep safety nets", () => {
 
     // pendingStopAt should still be set — sweep did NOT apply
     expect(state.pendingStopAt).not.toBeNull();
-    const task = ctx.taskManager.getTaskBySessionId("sess-sw");
-    expect(task?.lastAgentStatus).not.toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-sw");
+    expect(agent?.lastAgentStatus).not.toBe("responded");
   });
 
   it("STALE_STOP_MS is 15000 and SWEEP_INTERVAL_MS is 10000", () => {
@@ -372,27 +372,27 @@ describe("createHookRelay — sweep safety nets", () => {
 
     sweepStaleSessions();
 
-    const task = ctx.taskManager.getTaskBySessionId("sess-7");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-7");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
-  it("case 9: stale-active sweep does NOT fire if task is already terminal", () => {
+  it("case 9: stale-active sweep does NOT fire if agent is already terminal", () => {
     const { relay, sweepStaleSessions } = ctx;
 
     // UserPromptSubmit then Stop (no subagents, so Stop applies immediately)
     fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-9" }));
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-9" }));
 
-    const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-9");
-    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+    const agentAfterStop = ctx.agentManager.getAgentBySessionId("sess-9");
+    expect(agentAfterStop?.lastAgentStatus).toBe("responded");
 
     vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
 
     sweepStaleSessions();
 
     // Still responded — unchanged
-    const task = ctx.taskManager.getTaskBySessionId("sess-9");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-9");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("case 10: stale-active sweep does NOT fire if activity is fresh", () => {
@@ -410,9 +410,9 @@ describe("createHookRelay — sweep safety nets", () => {
 
     sweepStaleSessions();
 
-    // Task should still be active (thinking), not responded
-    const task = ctx.taskManager.getTaskBySessionId("sess-10");
-    expect(task?.lastAgentStatus).not.toBe("responded");
+    // Agent should still be active (thinking), not responded
+    const agent = ctx.agentManager.getAgentBySessionId("sess-10");
+    expect(agent?.lastAgentStatus).not.toBe("responded");
   });
 
   it("case 11: pending-stop branch still wins over stale-active branch", () => {
@@ -432,8 +432,8 @@ describe("createHookRelay — sweep safety nets", () => {
     sweepStaleSessions();
 
     // pending-Stop branch should have fired
-    const task = ctx.taskManager.getTaskBySessionId("sess-11");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-11");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 });
 
@@ -488,9 +488,9 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     // pendingStopAt must be null (Stop was not dropped)
     expect(state.pendingStopAt).toBeNull();
 
-    // Task transitions to responded
-    const task = ctx.taskManager.getTaskBySessionId("sess-f1b");
-    expect(task?.lastAgentStatus).toBe("responded");
+    // Agent transitions to responded
+    const agent = ctx.agentManager.getAgentBySessionId("sess-f1b");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("fix1-c: SubagentStop with idle status also clears the tracker", () => {
@@ -509,30 +509,30 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     // Stop now applies directly — pendingStopAt stays null
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-f1c" }));
     expect(state.pendingStopAt).toBeNull();
-    const task = ctx.taskManager.getTaskBySessionId("sess-f1c");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-f1c");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
-  // ── Fix 2: SessionStart on the same pane force-closes the old task ──
+  // ── Fix 2: SessionStart on the same pane force-closes the old agent ──
 
-  it("fix2-a: SessionStart replacement force-closes the old active task", () => {
+  it("fix2-a: SessionStart replacement force-closes the old active agent", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Establish sessionA on paneX, drive it to working
     fire(relay, userPromptSubmit({ paneId: "pane-x", sessionId: "sess-a" }));
     fire(relay, preToolUse({ paneId: "pane-x", sessionId: "sess-a" }));
 
-    // Confirm sessionA task is working
-    const taskA = ctx.taskManager.getTaskBySessionId("sess-a");
-    expect(taskA?.lastAgentStatus).toBe("working");
+    // Confirm sessionA agent is working
+    const agentA = ctx.agentManager.getAgentBySessionId("sess-a");
+    expect(agentA?.lastAgentStatus).toBe("working");
 
     // Deliver SessionStart for sessionB on the same paneX
     fire(relay, sessionStart({ paneId: "pane-x", sessionId: "sess-b" }));
 
-    // sessionA's task should be force-closed to responded
-    const taskAAfter = ctx.taskManager.getTaskBySessionId("sess-a");
-    expect(taskAAfter?.lastAgentStatus).toBe("responded");
-    expect(taskAAfter?.status).toBe("active"); // applyStopForSession sets status: "active"
+    // sessionA's agent should be force-closed to responded
+    const agentAAfter = ctx.agentManager.getAgentBySessionId("sess-a");
+    expect(agentAAfter?.lastAgentStatus).toBe("responded");
+    expect(agentAAfter?.status).toBe("active"); // applyStopForSession sets status: "active"
 
     // sessionStateMap should no longer track sessionA (it was cleaned up)
     expect(sessionStateMap.has("sess-a")).toBe(false);
@@ -541,7 +541,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     expect(sessionStateMap.has("sess-b")).toBe(false);
   });
 
-  it("fix2-b: SessionStart replacement does NOT force-close if old task was never active (hasBeenActive=false)", () => {
+  it("fix2-b: SessionStart replacement does NOT force-close if old agent was never active (hasBeenActive=false)", () => {
     const { relay, sessionStateMap } = ctx;
 
     // Deliver SessionStart for sessionC on paneY (no subsequent active events)
@@ -551,35 +551,35 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     // Now deliver SessionStart for sessionD on the same paneY
     fire(relay, sessionStart({ paneId: "pane-y", sessionId: "sess-d" }));
 
-    // sessionC never activated, so no task was created and no force-close happens
-    const taskC = ctx.taskManager.getTaskBySessionId("sess-c");
-    expect(taskC).toBeNull();
+    // sessionC never activated, so no agent was created and no force-close happens
+    const agentC = ctx.agentManager.getAgentBySessionId("sess-c");
+    expect(agentC).toBeNull();
 
     // sessionD also has no state entry (hasn't received a non-SessionStart event)
     expect(sessionStateMap.has("sess-d")).toBe(false);
   });
 
-  it("fix2-c: SessionStart replacement does NOT force-close if old task lastAgentStatus is already terminal", () => {
+  it("fix2-c: SessionStart replacement does NOT force-close if old agent lastAgentStatus is already terminal", () => {
     const { relay } = ctx;
 
     // Activate sessionE then stop it normally
     fire(relay, userPromptSubmit({ paneId: "pane-z", sessionId: "sess-e" }));
     fire(relay, stop({ paneId: "pane-z", sessionId: "sess-e" }));
 
-    const taskEAfterStop = ctx.taskManager.getTaskBySessionId("sess-e");
-    expect(taskEAfterStop?.lastAgentStatus).toBe("responded");
+    const agentEAfterStop = ctx.agentManager.getAgentBySessionId("sess-e");
+    expect(agentEAfterStop?.lastAgentStatus).toBe("responded");
 
-    const broadcastCallsBefore = ctx.broadcastTask.mock.calls.length;
+    const broadcastCallsBefore = ctx.broadcastAgent.mock.calls.length;
 
     // Deliver SessionStart for a new session on pane-z
     fire(relay, sessionStart({ paneId: "pane-z", sessionId: "sess-f-new" }));
 
-    // broadcastTask should NOT have been called again (no force-close)
-    expect(ctx.broadcastTask.mock.calls.length).toBe(broadcastCallsBefore);
+    // broadcastAgent should NOT have been called again (no force-close)
+    expect(ctx.broadcastAgent.mock.calls.length).toBe(broadcastCallsBefore);
 
-    // sessionE task unchanged
-    const taskEFinal = ctx.taskManager.getTaskBySessionId("sess-e");
-    expect(taskEFinal?.lastAgentStatus).toBe("responded");
+    // sessionE agent unchanged
+    const agentEFinal = ctx.agentManager.getAgentBySessionId("sess-e");
+    expect(agentEFinal?.lastAgentStatus).toBe("responded");
   });
 
   it("fix2-d: SessionStart does NOT flip AgentDetector status (no spinner on bare process startup)", () => {
@@ -599,9 +599,9 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     expect(relayAgentHook).toHaveBeenCalledWith("pane-q", "thinking", "claude");
   });
 
-  // ── PROBE: late active hook after Stop should NOT re-activate task/dot ──
+  // ── PROBE: late active hook after Stop should NOT re-activate agent/dot ──
 
-  it("PROBE-h1-postooluse-after-stop: late PostToolUse after Stop must not flip task back to thinking", () => {
+  it("PROBE-h1-postooluse-after-stop: late PostToolUse after Stop must not flip agent back to thinking", () => {
     const { relay, relayAgentHook } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-h1", sessionId: "sess-h1" }));
@@ -609,7 +609,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     fire(relay, postToolUse({ paneId: "pane-h1", sessionId: "sess-h1" }));
     fire(relay, stop({ paneId: "pane-h1", sessionId: "sess-h1" }));
 
-    const afterStop = ctx.taskManager.getTaskBySessionId("sess-h1");
+    const afterStop = ctx.agentManager.getAgentBySessionId("sess-h1");
     expect(afterStop?.lastAgentStatus).toBe("responded");
 
     relayAgentHook.mockClear();
@@ -617,47 +617,47 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     // Late PostToolUse arrives after Stop (HTTP reordering / delayed delivery).
     fire(relay, postToolUse({ paneId: "pane-h1", sessionId: "sess-h1" }));
 
-    const afterLate = ctx.taskManager.getTaskBySessionId("sess-h1");
-    // Task should remain responded — the agent already finished its turn.
+    const afterLate = ctx.agentManager.getAgentBySessionId("sess-h1");
+    // Agent should remain responded — the agent already finished its turn.
     expect(afterLate?.lastAgentStatus).toBe("responded");
     // AgentDetector dot should not flip back to thinking.
     expect(relayAgentHook).not.toHaveBeenCalledWith("pane-h1", "thinking", "claude");
   });
 
-  it("PROBE-h1-pretooluse-after-stop: late PreToolUse after Stop must not flip task back to working", () => {
+  it("PROBE-h1-pretooluse-after-stop: late PreToolUse after Stop must not flip agent back to working", () => {
     const { relay, relayAgentHook } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
     fire(relay, stop({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
-    expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
+    expect(ctx.agentManager.getAgentBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
 
     relayAgentHook.mockClear();
     fire(relay, preToolUse({ paneId: "pane-h1b", sessionId: "sess-h1b" }));
 
-    expect(ctx.taskManager.getTaskBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
+    expect(ctx.agentManager.getAgentBySessionId("sess-h1b")?.lastAgentStatus).toBe("responded");
     expect(relayAgentHook).not.toHaveBeenCalledWith("pane-h1b", "working", "claude");
   });
 
-  it("PROBE-h1-allowed-userpromptsubmit: UserPromptSubmit after Stop SHOULD legitimately re-activate task", () => {
+  it("PROBE-h1-allowed-userpromptsubmit: UserPromptSubmit after Stop SHOULD legitimately re-activate agent", () => {
     const { relay } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
     fire(relay, stop({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
-    expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("responded");
+    expect(ctx.agentManager.getAgentBySessionId("sess-h1c")?.lastAgentStatus).toBe("responded");
 
     fire(relay, userPromptSubmit({ paneId: "pane-h1c", sessionId: "sess-h1c" }));
 
-    expect(ctx.taskManager.getTaskBySessionId("sess-h1c")?.lastAgentStatus).toBe("thinking");
+    expect(ctx.agentManager.getAgentBySessionId("sess-h1c")?.lastAgentStatus).toBe("thinking");
   });
 
-  // ── Fix 3: Orphan-task sweep ──
+  // ── Fix 3: Orphan-agent sweep ──
 
-  it("fix3-a: orphan-task sweep closes a stale working task with no session state", () => {
-    const { sweepStaleSessions, taskManager } = ctx;
+  it("fix3-a: orphan-agent sweep closes a stale working agent with no session state", () => {
+    const { sweepStaleSessions, agentManager } = ctx;
 
-    // Seed an orphan task directly — no session state, old activatedAt
+    // Seed an orphan agent directly — no session state, old activatedAt
     const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "orphan-session",
       name: null,
       status: "active",
@@ -672,7 +672,7 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
       lastAgentStatus: "working",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: oldTime });
+    agentManager.updateAgent(agent.id, { activatedAt: oldTime });
 
     // No session state for "orphan-session"
     expect(ctx.sessionStateMap.has("orphan-session")).toBe(false);
@@ -682,16 +682,16 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
 
     sweepStaleSessions();
 
-    const taskAfter = taskManager.getTaskBySessionId("orphan-session");
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = agentManager.getAgentBySessionId("orphan-session");
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
   });
 
-  it("fix3-b (negative): orphan sweep leaves task unchanged if activatedAt is too recent", () => {
-    const { sweepStaleSessions, taskManager } = ctx;
+  it("fix3-b (negative): orphan sweep leaves agent unchanged if activatedAt is too recent", () => {
+    const { sweepStaleSessions, agentManager } = ctx;
 
     // Recent activatedAt — within STALE_ACTIVE_MS
     const recentTime = new Date(Date.now() - 5_000).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "young-orphan",
       name: null,
       status: "active",
@@ -706,21 +706,21 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
       lastAgentStatus: "working",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: recentTime });
+    agentManager.updateAgent(agent.id, { activatedAt: recentTime });
 
     expect(ctx.sessionStateMap.has("young-orphan")).toBe(false);
 
     sweepStaleSessions();
 
-    const taskAfter = taskManager.getTaskBySessionId("young-orphan");
-    expect(taskAfter?.lastAgentStatus).toBe("working");
+    const agentAfter = agentManager.getAgentBySessionId("young-orphan");
+    expect(agentAfter?.lastAgentStatus).toBe("working");
   });
 
-  it("fix3-c (negative): orphan sweep leaves task unchanged if status is not working/thinking", () => {
-    const { sweepStaleSessions, taskManager } = ctx;
+  it("fix3-c (negative): orphan sweep leaves agent unchanged if status is not working/thinking", () => {
+    const { sweepStaleSessions, agentManager } = ctx;
 
     const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "responded-orphan",
       name: null,
       status: "active",
@@ -735,26 +735,26 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
       lastAgentStatus: "responded",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: oldTime });
+    agentManager.updateAgent(agent.id, { activatedAt: oldTime });
 
     expect(ctx.sessionStateMap.has("responded-orphan")).toBe(false);
 
     vi.advanceTimersByTime(STALE_ACTIVE_MS + 5_000);
     sweepStaleSessions();
 
-    const taskAfter = taskManager.getTaskBySessionId("responded-orphan");
-    // Still responded — orphan branch skips non-working/thinking tasks
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = agentManager.getAgentBySessionId("responded-orphan");
+    // Still responded — orphan branch skips non-working/thinking agents
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
   });
 
   it("fix3-d (negative): orphan sweep does not run orphan branch when session state is present", () => {
-    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+    const { relay, sweepStaleSessions, agentManager, sessionStateMap } = ctx;
 
-    // Create a task via the relay (which also creates session state)
+    // Create an agent via the relay (which also creates session state)
     fire(relay, userPromptSubmit({ paneId: "pane-live", sessionId: "live-session" }));
 
-    const taskBefore = taskManager.getTaskBySessionId("live-session");
-    expect(taskBefore?.lastAgentStatus).toBe("thinking");
+    const agentBefore = agentManager.getAgentBySessionId("live-session");
+    expect(agentBefore?.lastAgentStatus).toBe("thinking");
 
     // Confirm session state exists for this session
     expect(sessionStateMap.has("live-session")).toBe(true);
@@ -768,12 +768,12 @@ describe("createHookRelay — ADR-132 recovery fixes", () => {
     // That's expected. The key assertion: the orphan branch (branch 3) did NOT
     // also apply — we verify by confirming session state was present, which gates
     // the orphan branch. The result after sweep is the same either way (responded),
-    // but we can verify that if we seed a task with a fresh session state entry
+    // but we can verify that if we seed an agent with a fresh session state entry
     // (pendingStopAt=null, hasBeenActive=true) the orphan branch short-circuits.
-    // Simplest observable: task is responded (stale-active handled it) and the
+    // Simplest observable: agent is responded (stale-active handled it) and the
     // sessionStateMap entry still exists (orphan branch didn't delete it).
-    const taskAfter = taskManager.getTaskBySessionId("live-session");
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = agentManager.getAgentBySessionId("live-session");
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
 
     // Session state entry is preserved — orphan branch skipped it (only stale-active ran)
     expect(sessionStateMap.has("live-session")).toBe(true);
@@ -787,7 +787,7 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     ctx = buildRelay();
   });
 
-  it("bridge-1: notifyAgentDetectorGone force-closes active task", () => {
+  it("bridge-1: notifyAgentDetectorGone force-closes active agent", () => {
     const { relay, notifyAgentDetectorGone, sessionStateMap } = ctx;
 
     // Activate session on pane-1
@@ -795,40 +795,40 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
 
     notifyAgentDetectorGone("pane-1");
 
-    const task = ctx.taskManager.getTaskBySessionId("sess-b1");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-b1");
+    expect(agent?.lastAgentStatus).toBe("responded");
 
     const state = sessionStateMap.get("sess-b1")!;
     expect(state.activeSubagents.size).toBe(0);
   });
 
   it("bridge-2: notifyAgentDetectorGone is a no-op on unknown pane", () => {
-    const { notifyAgentDetectorGone, broadcastTask } = ctx;
+    const { notifyAgentDetectorGone, broadcastAgent } = ctx;
 
-    const callsBefore = broadcastTask.mock.calls.length;
+    const callsBefore = broadcastAgent.mock.calls.length;
     notifyAgentDetectorGone("pane-does-not-exist");
-    expect(broadcastTask.mock.calls.length).toBe(callsBefore);
+    expect(broadcastAgent.mock.calls.length).toBe(callsBefore);
   });
 
-  it("bridge-3: notifyAgentDetectorGone is a no-op if task already terminal", () => {
-    const { relay, notifyAgentDetectorGone, broadcastTask } = ctx;
+  it("bridge-3: notifyAgentDetectorGone is a no-op if agent already terminal", () => {
+    const { relay, notifyAgentDetectorGone, broadcastAgent } = ctx;
 
     // Activate and then stop normally
     fire(relay, userPromptSubmit({ paneId: "pane-1", sessionId: "sess-b3" }));
     fire(relay, stop({ paneId: "pane-1", sessionId: "sess-b3" }));
 
-    const taskAfterStop = ctx.taskManager.getTaskBySessionId("sess-b3");
-    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+    const agentAfterStop = ctx.agentManager.getAgentBySessionId("sess-b3");
+    expect(agentAfterStop?.lastAgentStatus).toBe("responded");
 
-    const callsBefore = broadcastTask.mock.calls.length;
+    const callsBefore = broadcastAgent.mock.calls.length;
 
     notifyAgentDetectorGone("pane-1");
 
-    // broadcastTask should not be called again
-    expect(broadcastTask.mock.calls.length).toBe(callsBefore);
-    // Task status unchanged
-    const task = ctx.taskManager.getTaskBySessionId("sess-b3");
-    expect(task?.lastAgentStatus).toBe("responded");
+    // broadcastAgent should not be called again
+    expect(broadcastAgent.mock.calls.length).toBe(callsBefore);
+    // Agent status unchanged
+    const agent = ctx.agentManager.getAgentBySessionId("sess-b3");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("bridge-4: notifyAgentDetectorGone clears pendingStopAt too", () => {
@@ -847,8 +847,8 @@ describe("createHookRelay — AgentDetector gone-bridge", () => {
     expect(state.pendingStopAt).toBeNull();
     expect(state.activeSubagents.size).toBe(0);
 
-    const task = ctx.taskManager.getTaskBySessionId("sess-b4");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = ctx.agentManager.getAgentBySessionId("sess-b4");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 });
 
@@ -859,8 +859,8 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
     ctx = buildRelay();
   });
 
-  it("t3-1: pending Stop + SessionEnd fires 'responded' notification then task reaches 'completed'", () => {
-    const { relay, taskManager, maybeSendNotification, unseenRespondedTasks } = ctx;
+  it("t3-1: pending Stop + SessionEnd fires 'responded' notification then agent reaches 'completed'", () => {
+    const { relay, agentManager, maybeSendNotification, unseenRespondedAgents } = ctx;
 
     // Drive session to working, start a subagent so Stop gets blocked
     fire(relay, userPromptSubmit({ paneId: "pane-t3a", sessionId: "sess-t3a" }));
@@ -877,17 +877,17 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
 
     // maybeSendNotification must have been called with "responded"
     const respondedCall = maybeSendNotification.mock.calls.find(
-      (args: [TaskInfo, string | null, string]) => args[2] === "responded",
+      (args: [AgentInfo, string | null, string]) => args[2] === "responded",
     );
     expect(respondedCall).toBeDefined();
 
-    // unseenRespondedTasks was added by applyStopForSession then deleted by SessionEnd cleanup
-    expect(unseenRespondedTasks.has(respondedCall![0].id)).toBe(false);
+    // unseenRespondedAgents was added by applyStopForSession then deleted by SessionEnd cleanup
+    expect(unseenRespondedAgents.has(respondedCall![0].id)).toBe(false);
 
-    // Final task state
-    const task = taskManager.getTaskBySessionId("sess-t3a");
-    expect(task?.status).toBe("completed");
-    expect(task?.lastAgentStatus).toBe("complete");
+    // Final agent state
+    const agent = agentManager.getAgentBySessionId("sess-t3a");
+    expect(agent?.status).toBe("completed");
+    expect(agent?.lastAgentStatus).toBe("complete");
 
     // sessionState is removed
     expect(ctx.sessionStateMap.has("sess-t3a")).toBe(false);
@@ -895,14 +895,14 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
   });
 
   it("t3-2 (negative): SessionEnd without pending Stop behaves identically to current behavior", () => {
-    const { relay, taskManager, maybeSendNotification, sessionStateMap, paneRootSessionMap } = ctx;
+    const { relay, agentManager, maybeSendNotification, sessionStateMap, paneRootSessionMap } = ctx;
 
     // Activate session normally (no subagent, so Stop applies immediately)
     fire(relay, userPromptSubmit({ paneId: "pane-t3c", sessionId: "sess-t3c" }));
     fire(relay, stop({ paneId: "pane-t3c", sessionId: "sess-t3c" }));
 
-    const taskAfterStop = taskManager.getTaskBySessionId("sess-t3c");
-    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+    const agentAfterStop = agentManager.getAgentBySessionId("sess-t3c");
+    expect(agentAfterStop?.lastAgentStatus).toBe("responded");
 
     const notifyCallsBefore = maybeSendNotification.mock.calls.length;
 
@@ -912,9 +912,9 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
     // maybeSendNotification NOT called again (no extra "responded" fired)
     expect(maybeSendNotification.mock.calls.length).toBe(notifyCallsBefore);
 
-    const finalTask = taskManager.getTaskBySessionId("sess-t3c");
-    expect(finalTask?.status).toBe("completed");
-    expect(finalTask?.lastAgentStatus).toBe("complete");
+    const finalAgent = agentManager.getAgentBySessionId("sess-t3c");
+    expect(finalAgent?.status).toBe("completed");
+    expect(finalAgent?.lastAgentStatus).toBe("complete");
 
     // Session state cleaned up
     expect(sessionStateMap.has("sess-t3c")).toBe(false);
@@ -935,12 +935,12 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
   });
 
   /**
-   * Helper: seed a task with requires_input status directly into taskManager,
+   * Helper: seed an agent with requires_input status directly into agentManager,
    * bypassing the relay (to simulate a zombie with no session state).
    */
-  function seedRequiresInputOrphan(taskManager: ReturnType<typeof makeFakeTaskManager>, sessionId: string, paneId: string) {
+  function seedRequiresInputOrphan(agentManager: ReturnType<typeof makeFakeAgentManager>, sessionId: string, paneId: string) {
     const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: sessionId,
       name: null,
       status: "active",
@@ -955,14 +955,14 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
       lastAgentStatus: "requires_input",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: oldTime });
-    return task;
+    agentManager.updateAgent(agent.id, { activatedAt: oldTime });
+    return agent;
   }
 
   it("ri-1: requires_input orphan (no session state) recovered by sweep", () => {
-    const { sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+    const { sweepStaleSessions, agentManager, sessionStateMap } = ctx;
 
-    seedRequiresInputOrphan(taskManager, "sess-ri1", "pane-ri1");
+    seedRequiresInputOrphan(agentManager, "sess-ri1", "pane-ri1");
 
     // No session state for this session
     expect(sessionStateMap.has("sess-ri1")).toBe(false);
@@ -972,69 +972,69 @@ describe("createHookRelay — ADR-135 requires_input zombie recovery", () => {
 
     sweepStaleSessions();
 
-    const task = taskManager.getTaskBySessionId("sess-ri1");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = agentManager.getAgentBySessionId("sess-ri1");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("ri-2: requires_input zombie recovered by notifyAgentDetectorGone", () => {
-    const { relay, notifyAgentDetectorGone, taskManager } = ctx;
+    const { relay, notifyAgentDetectorGone, agentManager } = ctx;
 
     // Establish a root session mapping by firing a SessionStart
     fire(relay, sessionStart({ paneId: "pane-ri2", sessionId: "sess-ri2" }));
 
-    // Drive the task to requires_input via a PermissionRequest event
+    // Drive the agent to requires_input via a PermissionRequest event
     fire(relay, permissionRequest({ paneId: "pane-ri2", sessionId: "sess-ri2" }));
 
-    const taskBefore = taskManager.getTaskBySessionId("sess-ri2");
-    expect(taskBefore?.lastAgentStatus).toBe("requires_input");
+    const agentBefore = agentManager.getAgentBySessionId("sess-ri2");
+    expect(agentBefore?.lastAgentStatus).toBe("requires_input");
 
     notifyAgentDetectorGone("pane-ri2");
 
-    const task = taskManager.getTaskBySessionId("sess-ri2");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = agentManager.getAgentBySessionId("sess-ri2");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
-  it("ri-3: SessionStart replacement force-closes old requires_input task", () => {
-    const { relay, taskManager } = ctx;
+  it("ri-3: SessionStart replacement force-closes old requires_input agent", () => {
+    const { relay, agentManager } = ctx;
 
     // Activate sessionA on pane-ri3, drive it to requires_input
     fire(relay, userPromptSubmit({ paneId: "pane-ri3", sessionId: "sess-ri3a" }));
     fire(relay, permissionRequest({ paneId: "pane-ri3", sessionId: "sess-ri3a" }));
 
-    const taskA = taskManager.getTaskBySessionId("sess-ri3a");
-    expect(taskA?.lastAgentStatus).toBe("requires_input");
+    const agentA = agentManager.getAgentBySessionId("sess-ri3a");
+    expect(agentA?.lastAgentStatus).toBe("requires_input");
 
     // Deliver SessionStart for a new session on the same pane
     fire(relay, sessionStart({ paneId: "pane-ri3", sessionId: "sess-ri3b" }));
 
-    // Old task should be force-closed to responded
-    const taskAAfter = taskManager.getTaskBySessionId("sess-ri3a");
-    expect(taskAAfter?.lastAgentStatus).toBe("responded");
+    // Old agent should be force-closed to responded
+    const agentAAfter = agentManager.getAgentBySessionId("sess-ri3a");
+    expect(agentAAfter?.lastAgentStatus).toBe("responded");
   });
 
-  it("ri-4 (negative): task already in responded is not affected by sweep", () => {
-    const { relay, sweepStaleSessions, broadcastTask, taskManager } = ctx;
+  it("ri-4 (negative): agent already in responded is not affected by sweep", () => {
+    const { relay, sweepStaleSessions, broadcastAgent, agentManager } = ctx;
 
     // Activate then stop normally
     fire(relay, userPromptSubmit({ paneId: "pane-ri4", sessionId: "sess-ri4" }));
     fire(relay, stop({ paneId: "pane-ri4", sessionId: "sess-ri4" }));
 
-    const taskAfterStop = taskManager.getTaskBySessionId("sess-ri4");
-    expect(taskAfterStop?.lastAgentStatus).toBe("responded");
+    const agentAfterStop = agentManager.getAgentBySessionId("sess-ri4");
+    expect(agentAfterStop?.lastAgentStatus).toBe("responded");
 
-    const broadcastCallsBefore = broadcastTask.mock.calls.length;
+    const broadcastCallsBefore = broadcastAgent.mock.calls.length;
 
     // Advance time well past all thresholds
     vi.advanceTimersByTime(STALE_ACTIVE_MS + 10_000);
 
     sweepStaleSessions();
 
-    // broadcastTask should NOT have been called again
-    expect(broadcastTask.mock.calls.length).toBe(broadcastCallsBefore);
+    // broadcastAgent should NOT have been called again
+    expect(broadcastAgent.mock.calls.length).toBe(broadcastCallsBefore);
 
-    // Task status still responded
-    const task = taskManager.getTaskBySessionId("sess-ri4");
-    expect(task?.lastAgentStatus).toBe("responded");
+    // Agent status still responded
+    const agent = agentManager.getAgentBySessionId("sess-ri4");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 });
 
@@ -1054,13 +1054,13 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { relay, sweepStaleSessions, taskManager } = ctx;
+    const { relay, sweepStaleSessions, agentManager } = ctx;
 
     // Activate a session so it's tracked by the sweep.
     fire(relay, userPromptSubmit({ paneId: "pane-t4a", sessionId: "sess-t4a" }));
 
-    const taskBefore = taskManager.getTaskBySessionId("sess-t4a");
-    expect(taskBefore?.lastAgentStatus).toBe("thinking");
+    const agentBefore = agentManager.getAgentBySessionId("sess-t4a");
+    expect(agentBefore?.lastAgentStatus).toBe("thinking");
 
     // Suspend simulation: wall clock jumps forward by 60 minutes; mono untouched.
     wall += 60 * 60 * 1_000;
@@ -1070,8 +1070,8 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
     sweepStaleSessions();
 
     // Branch 2 must NOT fire because monotonic idle (~1s) is far below STALE_ACTIVE_MS.
-    const taskAfter = taskManager.getTaskBySessionId("sess-t4a");
-    expect(taskAfter?.lastAgentStatus).toBe("thinking");
+    const agentAfter = agentManager.getAgentBySessionId("sess-t4a");
+    expect(agentAfter?.lastAgentStatus).toBe("thinking");
   });
 
   it("t4-2: real 70s monotonic idle still trips Branch 2 (regression check)", () => {
@@ -1083,7 +1083,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { relay, sweepStaleSessions, taskManager } = ctx;
+    const { relay, sweepStaleSessions, agentManager } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-t4b", sessionId: "sess-t4b" }));
 
@@ -1093,8 +1093,8 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     sweepStaleSessions();
 
-    const task = taskManager.getTaskBySessionId("sess-t4b");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = agentManager.getAgentBySessionId("sess-t4b");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("t4-3: real 16s monotonic idle still trips Branch 1 with pendingStopAt", () => {
@@ -1106,7 +1106,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+    const { relay, sweepStaleSessions, agentManager, sessionStateMap } = ctx;
 
     // Drive the session into pendingStopAt (subagent active, Stop dropped).
     fire(relay, userPromptSubmit({ paneId: "pane-t4c", sessionId: "sess-t4c" }));
@@ -1123,8 +1123,8 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
     sweepStaleSessions();
 
     expect(state.pendingStopAt).toBeNull();
-    const task = taskManager.getTaskBySessionId("sess-t4c");
-    expect(task?.lastAgentStatus).toBe("responded");
+    const agent = agentManager.getAgentBySessionId("sess-t4c");
+    expect(agent?.lastAgentStatus).toBe("responded");
   });
 
   it("t4-4: pendingStopAt — wall jumps 60min while mono unchanged → Branch 1 does NOT fire", () => {
@@ -1136,7 +1136,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { relay, sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+    const { relay, sweepStaleSessions, agentManager, sessionStateMap } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-t4d", sessionId: "sess-t4d" }));
     fire(relay, subagentStart({ paneId: "pane-t4d", sessionId: "sess-t4d", toolUseId: "tool-t4d" }));
@@ -1153,8 +1153,8 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     // Branch 1 should NOT have fired — monotonic idle (~1s) is below STALE_STOP_MS.
     expect(state.pendingStopAt).not.toBeNull();
-    const task = taskManager.getTaskBySessionId("sess-t4d");
-    expect(task?.lastAgentStatus).not.toBe("responded");
+    const agent = agentManager.getAgentBySessionId("sess-t4d");
+    expect(agent?.lastAgentStatus).not.toBe("responded");
   });
 
   it("t4-5: Branch 3 (orphan) — wall jumped 60min, mono only 5s → sweep is a no-op", () => {
@@ -1166,11 +1166,11 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { sweepStaleSessions, taskManager, sessionStateMap } = ctx;
+    const { sweepStaleSessions, agentManager, sessionStateMap } = ctx;
 
-    // Seed an orphan task whose activatedAt is "now" (right after relay boot).
+    // Seed an orphan agent whose activatedAt is "now" (right after relay boot).
     const activatedAtIso = new Date(wall).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "orphan-t4e",
       name: null,
       status: "active",
@@ -1185,7 +1185,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       lastAgentStatus: "working",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+    agentManager.updateAgent(agent.id, { activatedAt: activatedAtIso });
 
     expect(sessionStateMap.has("orphan-t4e")).toBe(false);
 
@@ -1195,9 +1195,9 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     sweepStaleSessions();
 
-    // taskMonotonicAgeMs clamps to monoSinceBoot (5s) — well under ORPHAN_TASK_MS (60s).
-    const taskAfter = taskManager.getTaskBySessionId("orphan-t4e");
-    expect(taskAfter?.lastAgentStatus).toBe("working");
+    // agentMonotonicAgeMs clamps to monoSinceBoot (5s) — well under ORPHAN_TASK_MS (60s).
+    const agentAfter = agentManager.getAgentBySessionId("orphan-t4e");
+    expect(agentAfter?.lastAgentStatus).toBe("working");
   });
 
   it("t4-6: Branch 3 (orphan) — real monotonic 65s elapsed → sweep fires", () => {
@@ -1209,10 +1209,10 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { sweepStaleSessions, taskManager } = ctx;
+    const { sweepStaleSessions, agentManager } = ctx;
 
     const activatedAtIso = new Date(wall).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "orphan-t4f",
       name: null,
       status: "active",
@@ -1227,7 +1227,7 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       lastAgentStatus: "working",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+    agentManager.updateAgent(agent.id, { activatedAt: activatedAtIso });
 
     // Real elapsed time: 65s on both clocks (no suspend).
     mono += 65_000;
@@ -1235,13 +1235,13 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
 
     sweepStaleSessions();
 
-    const taskAfter = taskManager.getTaskBySessionId("orphan-t4f");
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = agentManager.getAgentBySessionId("orphan-t4f");
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
   });
 
-  it("t4-7: Branch 3 (orphan) — pre-relay-boot task with stale wall age, no suspend → sweep fires", () => {
-    // Task was activated long before the relay started (e.g. main-process restart).
-    // wallSinceBoot ≤ monoSinceBoot, so taskMonotonicAgeMs falls through to wallAge.
+  it("t4-7: Branch 3 (orphan) — pre-relay-boot agent with stale wall age, no suspend → sweep fires", () => {
+    // Agent was activated long before the relay started (e.g. main-process restart).
+    // wallSinceBoot ≤ monoSinceBoot, so agentMonotonicAgeMs falls through to wallAge.
     const mono = 5_000_000;
     const wall = 1_700_000_000_000;
 
@@ -1250,11 +1250,11 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       wallClock: () => wall,
     });
 
-    const { sweepStaleSessions, taskManager } = ctx;
+    const { sweepStaleSessions, agentManager } = ctx;
 
     // activatedAt is 10 minutes before relay boot wall — pre-existing orphan.
     const activatedAtIso = new Date(wall - 10 * 60 * 1_000).toISOString();
-    const task = taskManager.createTask({
+    const agent = agentManager.createAgent({
       agentSessionId: "orphan-t4g",
       name: null,
       status: "active",
@@ -1269,14 +1269,14 @@ describe("createHookRelay — ADR-135 ticket-4: monotonic sweep clock", () => {
       lastAgentStatus: "working",
       resumedAt: null,
     });
-    taskManager.updateTask(task.id, { activatedAt: activatedAtIso });
+    agentManager.updateAgent(agent.id, { activatedAt: activatedAtIso });
 
     // No further time advance — wallSinceBoot = 0, monoSinceBoot = 0.
     // wallSinceBoot is NOT > monoSinceBoot, so wallAge (10min) is used unclamped → fires.
     sweepStaleSessions();
 
-    const taskAfter = taskManager.getTaskBySessionId("orphan-t4g");
-    expect(taskAfter?.lastAgentStatus).toBe("responded");
+    const agentAfter = agentManager.getAgentBySessionId("orphan-t4g");
+    expect(agentAfter?.lastAgentStatus).toBe("responded");
   });
 });
 
@@ -1287,30 +1287,30 @@ describe("createHookRelay — ADR-162: a session that opens needing input notifi
     ctx = buildRelay();
   });
 
-  it("adr162-1: the first task-creating event notifies when it already requires input", () => {
-    const { relay, taskManager, maybeSendNotification, unseenInputTasks } = ctx;
+  it("adr162-1: the first agent-creating event notifies when it already requires input", () => {
+    const { relay, agentManager, maybeSendNotification, unseenInputAgents } = ctx;
 
     // An agent that asks for permission before doing anything else: the very
-    // first event that creates a task already carries requires_input, so only
-    // CreateTask runs for it. Skipping the notification here left the pulse
+    // first event that creates an agent already carries requires_input, so only
+    // CreateAgent runs for it. Skipping the notification here left the pulse
     // showing with no banner and nothing in the notification log.
     fire(relay, notification({ paneId: "pane-N", sessionId: "sess-N" }));
 
-    const task = taskManager.getTaskBySessionId("sess-N");
-    expect(task).not.toBeNull();
-    expect(task?.lastAgentStatus).toBe("requires_input");
-    expect(unseenInputTasks.has(task!.id)).toBe(true);
+    const agent = agentManager.getAgentBySessionId("sess-N");
+    expect(agent).not.toBeNull();
+    expect(agent?.lastAgentStatus).toBe("requires_input");
+    expect(unseenInputAgents.has(agent!.id)).toBe(true);
 
     expect(maybeSendNotification).toHaveBeenCalledTimes(1);
     expect(maybeSendNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ id: task!.id }),
-      // No prior task means no prior status.
+      expect.objectContaining({ id: agent!.id }),
+      // No prior agent means no prior status.
       null,
       "requires_input",
     );
   });
 
-  it("adr162-2: creating a task mid-turn does not notify", () => {
+  it("adr162-2: creating an agent mid-turn does not notify", () => {
     const { relay, maybeSendNotification } = ctx;
 
     // "thinking" is not a state anyone is told about — only responded and
@@ -1325,133 +1325,133 @@ describe("createHookRelay — ADR-162: a session that opens needing input notifi
     );
   });
 
-  it("adr162-3: a session handed off to a new one still notifies for the new task", () => {
-    const { relay, taskManager, maybeSendNotification } = ctx;
+  it("adr162-3: a session handed off to a new one still notifies for the new agent", () => {
+    const { relay, agentManager, maybeSendNotification } = ctx;
 
     fire(relay, userPromptSubmit({ paneId: "pane-H", sessionId: "sess-H1" }));
     maybeSendNotification.mockClear();
 
-    // Handoff on the same pane: CreateTask retires the old task first, then
+    // Handoff on the same pane: CreateAgent retires the old agent first, then
     // creates one that already needs input.
     fire(relay, sessionStart({ paneId: "pane-H", sessionId: "sess-H2" }));
     fire(relay, notification({ paneId: "pane-H", sessionId: "sess-H2" }));
 
-    const newTask = taskManager.getTaskBySessionId("sess-H2");
+    const newAgent = agentManager.getAgentBySessionId("sess-H2");
     expect(maybeSendNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ id: newTask!.id }),
+      expect.objectContaining({ id: newAgent!.id }),
       null,
       "requires_input",
     );
   });
 });
 
-describe("createHookRelay — ADR-142: CreateTask retires previous pane owner", () => {
+describe("createHookRelay — ADR-142: CreateAgent retires previous pane owner", () => {
   let ctx: ReturnType<typeof buildRelay>;
 
   beforeEach(() => {
     ctx = buildRelay();
   });
 
-  it("adr142-1: session handoff retires old task to completed and creates exactly one active task on the pane", () => {
-    const { relay, taskManager } = ctx;
+  it("adr142-1: session handoff retires old agent to completed and creates exactly one active agent on the pane", () => {
+    const { relay, agentManager } = ctx;
 
     // Step 1: Drive sessionA active on paneP
     fire(relay, userPromptSubmit({ paneId: "pane-P", sessionId: "sess-A" }));
 
-    const taskA = taskManager.getTaskBySessionId("sess-A");
-    expect(taskA).not.toBeNull();
-    expect(taskA?.status).toBe("active");
-    expect(taskA?.paneId).toBe("pane-P");
+    const agentA = agentManager.getAgentBySessionId("sess-A");
+    expect(agentA).not.toBeNull();
+    expect(agentA?.status).toBe("active");
+    expect(agentA?.paneId).toBe("pane-P");
 
     // Step 2: Simulate session handoff — SessionStart for sessionB on the same pane,
-    // followed by an active event for sessionB (which triggers CreateTask).
+    // followed by an active event for sessionB (which triggers CreateAgent).
     fire(relay, sessionStart({ paneId: "pane-P", sessionId: "sess-B" }));
     fire(relay, userPromptSubmit({ paneId: "pane-P", sessionId: "sess-B" }));
 
-    const taskAAfter = taskManager.getTaskBySessionId("sess-A");
-    const taskBAfter = taskManager.getTaskBySessionId("sess-B");
+    const agentAAfter = agentManager.getAgentBySessionId("sess-A");
+    const agentBAfter = agentManager.getAgentBySessionId("sess-B");
 
-    // The original task (sessionA) must be retired: paneId null, status completed
-    expect(taskAAfter?.status).toBe("completed");
-    expect(taskAAfter?.paneId).toBeNull();
-    expect(taskAAfter?.completedAt).not.toBeNull();
+    // The original agent (sessionA) must be retired: paneId null, status completed
+    expect(agentAAfter?.status).toBe("completed");
+    expect(agentAAfter?.paneId).toBeNull();
+    expect(agentAAfter?.completedAt).not.toBeNull();
 
-    // The new task (sessionB) is the only active task on paneP
-    expect(taskBAfter?.status).toBe("active");
-    expect(taskBAfter?.paneId).toBe("pane-P");
+    // The new agent (sessionB) is the only active agent on paneP
+    expect(agentBAfter?.status).toBe("active");
+    expect(agentBAfter?.paneId).toBe("pane-P");
 
-    // Exactly one task should have status==="active" with paneId===pane-P
-    const activePaneTasks = Array.from(taskManager.tasks.values()).filter(
+    // Exactly one agent should have status==="active" with paneId===pane-P
+    const activePaneAgents = Array.from(agentManager.agents.values()).filter(
       (t) => t.status === "active" && t.paneId === "pane-P",
     );
-    expect(activePaneTasks).toHaveLength(1);
-    expect(activePaneTasks[0].agentSessionId).toBe("sess-B");
+    expect(activePaneAgents).toHaveLength(1);
+    expect(activePaneAgents[0].agentSessionId).toBe("sess-B");
   });
 
-  it("adr142-2: broadcastTask is called for the retired task (completed) and for the new task", () => {
-    const { relay, taskManager, broadcastTask } = ctx;
+  it("adr142-2: broadcastAgent is called for the retired agent (completed) and for the new agent", () => {
+    const { relay, agentManager, broadcastAgent } = ctx;
 
     // Drive sessionA active on paneP
     fire(relay, userPromptSubmit({ paneId: "pane-P2", sessionId: "sess-A2" }));
 
-    const taskA = taskManager.getTaskBySessionId("sess-A2");
-    expect(taskA).not.toBeNull();
+    const agentA = agentManager.getAgentBySessionId("sess-A2");
+    expect(agentA).not.toBeNull();
 
     // Record broadcast count before the handoff
-    const broadcastCountBefore = broadcastTask.mock.calls.length;
+    const broadcastCountBefore = broadcastAgent.mock.calls.length;
 
     // Trigger handoff: SessionStart fires ForceCloseOldSession (broadcasts sess-A2
     // as lastAgentStatus:"responded", status:"active"), then userPromptSubmit fires
-    // CreateTask which retires sess-A2 to status:"completed" (second broadcast for
-    // sess-A2) before broadcasting the new sess-B2 task.
+    // CreateAgent which retires sess-A2 to status:"completed" (second broadcast for
+    // sess-A2) before broadcasting the new sess-B2 agent.
     fire(relay, sessionStart({ paneId: "pane-P2", sessionId: "sess-B2" }));
     fire(relay, userPromptSubmit({ paneId: "pane-P2", sessionId: "sess-B2" }));
 
-    const newCalls = broadcastTask.mock.calls.slice(broadcastCountBefore);
+    const newCalls = broadcastAgent.mock.calls.slice(broadcastCountBefore);
     expect(newCalls.length).toBeGreaterThanOrEqual(2);
 
     // There must be a broadcast for sess-A2 with status:"completed" and paneId:null.
-    // This is the retirement broadcast emitted by the CreateTask block.
-    const retiredBroadcast = (newCalls.map((c) => c[0]) as TaskInfo[]).find(
+    // This is the retirement broadcast emitted by the CreateAgent block.
+    const retiredBroadcast = (newCalls.map((c) => c[0]) as AgentInfo[]).find(
       (t) => t.agentSessionId === "sess-A2" && t.status === "completed",
     );
     expect(retiredBroadcast).toBeDefined();
     expect(retiredBroadcast!.paneId).toBeNull();
 
-    // The retirement broadcast must come BEFORE the new-task broadcast.
+    // The retirement broadcast must come BEFORE the new-agent broadcast.
     const retiredIdx = newCalls.findIndex(
-      (c) => (c[0] as TaskInfo).agentSessionId === "sess-A2" && (c[0] as TaskInfo).status === "completed",
+      (c) => (c[0] as AgentInfo).agentSessionId === "sess-A2" && (c[0] as AgentInfo).status === "completed",
     );
-    const newTaskIdx = newCalls.findIndex(
-      (c) => (c[0] as TaskInfo).agentSessionId === "sess-B2",
+    const newAgentIdx = newCalls.findIndex(
+      (c) => (c[0] as AgentInfo).agentSessionId === "sess-B2",
     );
     expect(retiredIdx).toBeGreaterThanOrEqual(0);
-    expect(newTaskIdx).toBeGreaterThanOrEqual(0);
-    expect(retiredIdx).toBeLessThan(newTaskIdx);
+    expect(newAgentIdx).toBeGreaterThanOrEqual(0);
+    expect(retiredIdx).toBeLessThan(newAgentIdx);
 
-    // The new task broadcast should be active
-    expect((newCalls[newTaskIdx][0] as TaskInfo).status).toBe("active");
+    // The new agent broadcast should be active
+    expect((newCalls[newAgentIdx][0] as AgentInfo).status).toBe("active");
   });
 
-  it("adr142-3: unseen flags are cleared for the retired task", () => {
-    const { relay, taskManager, unseenRespondedTasks, unseenInputTasks } = ctx;
+  it("adr142-3: unseen flags are cleared for the retired agent", () => {
+    const { relay, agentManager, unseenRespondedAgents, unseenInputAgents } = ctx;
 
     // Drive sessionA to requires_input so it gets an unseen flag
     fire(relay, userPromptSubmit({ paneId: "pane-P3", sessionId: "sess-A3" }));
     fire(relay, permissionRequest({ paneId: "pane-P3", sessionId: "sess-A3" }));
 
-    const taskA = taskManager.getTaskBySessionId("sess-A3");
-    expect(taskA).not.toBeNull();
+    const agentA = agentManager.getAgentBySessionId("sess-A3");
+    expect(agentA).not.toBeNull();
     // Manually seed both unseen sets to simulate worst-case
-    unseenRespondedTasks.add(taskA!.id);
-    unseenInputTasks.add(taskA!.id);
+    unseenRespondedAgents.add(agentA!.id);
+    unseenInputAgents.add(agentA!.id);
 
     // Trigger handoff
     fire(relay, sessionStart({ paneId: "pane-P3", sessionId: "sess-B3" }));
     fire(relay, userPromptSubmit({ paneId: "pane-P3", sessionId: "sess-B3" }));
 
-    // Both unseen flags for the retired task must be cleared
-    expect(unseenRespondedTasks.has(taskA!.id)).toBe(false);
-    expect(unseenInputTasks.has(taskA!.id)).toBe(false);
+    // Both unseen flags for the retired agent must be cleared
+    expect(unseenRespondedAgents.has(agentA!.id)).toBe(false);
+    expect(unseenInputAgents.has(agentA!.id)).toBe(false);
   });
 });

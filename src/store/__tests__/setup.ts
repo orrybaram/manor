@@ -16,11 +16,11 @@ if (typeof globalThis.window === "undefined") {
         load: vi.fn().mockResolvedValue(null),
         save: vi.fn(),
       },
-      // task-store.ts subscribes to tasks.onUpdate at module-init time, and
-      // app-store.closePaneById calls tasks.abandonForPane. Provide a minimal
-      // tasks surface so importing those stores does not throw. Individual
+      // agent-store.ts subscribes to agents.onUpdate at module-init time, and
+      // app-store.closePaneById calls agents.abandonForPane. Provide a minimal
+      // agents surface so importing those stores does not throw. Individual
       // tests can override specific methods via vi.stubGlobal.
-      tasks: {
+      agents: {
         onUpdate: vi.fn(() => vi.fn()),
         markSeen: vi.fn().mockResolvedValue(undefined),
         abandonForPane: vi.fn().mockResolvedValue(undefined),

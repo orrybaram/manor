@@ -18,11 +18,11 @@ type SplitPanelLayoutProps = {
   first: PanelNode;
   second: PanelNode;
   workspacePath: string;
-  onNewTask: () => void;
+  onNewAgent: () => void;
 };
 
 export function SplitPanelLayout(props: SplitPanelLayoutProps) {
-  const { direction, ratio, first, second, workspacePath, onNewTask } = props;
+  const { direction, ratio, first, second, workspacePath, onNewAgent } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentRatio, setCurrentRatio] = useState(ratio);
@@ -89,7 +89,7 @@ export function SplitPanelLayout(props: SplitPanelLayoutProps) {
         className={styles.splitChild}
         style={isHorizontal ? { width: firstSize } : { height: firstSize }}
       >
-        <PanelLayout node={first} workspacePath={workspacePath} onNewTask={onNewTask} />
+        <PanelLayout node={first} workspacePath={workspacePath} onNewAgent={onNewAgent} />
       </div>
       <div
         className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
@@ -99,7 +99,7 @@ export function SplitPanelLayout(props: SplitPanelLayoutProps) {
         className={styles.splitChild}
         style={isHorizontal ? { width: secondSize } : { height: secondSize }}
       >
-        <PanelLayout node={second} workspacePath={workspacePath} onNewTask={onNewTask} />
+        <PanelLayout node={second} workspacePath={workspacePath} onNewAgent={onNewAgent} />
       </div>
     </div>
   );

@@ -267,7 +267,7 @@ describe("pendingPaneCommands pruning", () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt("pane-a1", "horizontal", "second", {
-        contentType: "task",
+        contentType: "agent",
         paneCommand: "pnpm test",
       })!;
     expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("pnpm test");

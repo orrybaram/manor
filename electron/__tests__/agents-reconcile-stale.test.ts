@@ -14,8 +14,8 @@ vi.mock("electron", () => ({
 // ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
-  markTaskNotificationsRead: vi.fn(),
-  sendTaskUpdate: vi.fn(),
+  markAgentNotificationsRead: vi.fn(),
+  sendAgentUpdate: vi.fn(),
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
@@ -24,11 +24,11 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/tasks";
+import { register } from "../ipc/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function makeTask(
+function makeAgent(
   overrides: Partial<{
     id: string;
     status: string;
@@ -47,14 +47,14 @@ function makeTask(
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
-    taskManager: {
-      getAllTasks: vi.fn().mockReturnValue([]),
-      updateTask: vi.fn((id: string, updates: Record<string, unknown>) => ({
+    agentManager: {
+      getAllAgents: vi.fn().mockReturnValue([]),
+      updateAgent: vi.fn((id: string, updates: Record<string, unknown>) => ({
         id,
         ...updates,
       })),
-      getTaskByPaneId: vi.fn().mockReturnValue(null),
-      deleteTask: vi.fn(),
+      getAgentByPaneId: vi.fn().mockReturnValue(null),
+      deleteAgent: vi.fn(),
     },
     backend: {
       pty: {
@@ -64,15 +64,15 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
-    unseenRespondedTasks: new Set(),
-    unseenInputTasks: new Set(),
+    unseenRespondedAgents: new Set(),
+    unseenInputAgents: new Set(),
     ...overrides,
   };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("tasks:reconcileStale handler", () => {
+describe("agents:reconcileStale handler", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -81,23 +81,23 @@ describe("tasks:reconcileStale handler", () => {
     register(deps as never);
   });
 
-  it("marks active tasks with dead sessions as abandoned", async () => {
-    deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "active", paneId: "pane-1" }), // dead
-      makeTask({ id: "t2", status: "active", paneId: "pane-2" }), // alive
+  it("marks active agents with dead sessions as abandoned", async () => {
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "t1", status: "active", paneId: "pane-1" }), // dead
+      makeAgent({ id: "t2", status: "active", paneId: "pane-2" }), // alive
     ]);
     // listSessions() returns pane IDs — only pane-2 is live
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-2" }]);
 
-    const handler = handlers.get("tasks:reconcileStale")!;
+    const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    expect(deps.taskManager.updateTask).toHaveBeenCalledTimes(1);
-    expect(deps.taskManager.updateTask).toHaveBeenCalledWith(
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
       "t1",
       expect.objectContaining({ status: "abandoned" }),
     );
-    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).toHaveProperty("completedAt");
     expect(typeof updates.completedAt).toBe("string");
   });
@@ -105,44 +105,44 @@ describe("tasks:reconcileStale handler", () => {
   it("does nothing when daemon is unreachable", async () => {
     deps.backend.pty.listSessions.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const handler = handlers.get("tasks:reconcileStale")!;
+    const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    expect(deps.taskManager.getAllTasks).not.toHaveBeenCalled();
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("skips tasks with null paneId", async () => {
-    deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "active", paneId: null }),
+  it("skips agents with null paneId", async () => {
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "t1", status: "active", paneId: null }),
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    const handler = handlers.get("tasks:reconcileStale")!;
+    const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("skips non-active tasks", async () => {
-    deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({ id: "t1", status: "completed", paneId: "pane-1" }),
+  it("skips non-active agents", async () => {
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({ id: "t1", status: "completed", paneId: "pane-1" }),
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    const handler = handlers.get("tasks:reconcileStale")!;
+    const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("regression: does not abandon a task when paneId is live but agentSessionId is not", async () => {
+  it("regression: does not abandon an agent when paneId is live but agentSessionId is not", async () => {
     // This is the original namespace bug: the old code compared agentSessionId
     // against listSessions().sessionId, which actually returns pane IDs.
-    // A task with paneId "pane-1" should be considered live when listSessions()
+    // An agent with paneId "pane-1" should be considered live when listSessions()
     // returns [{ sessionId: "pane-1" }], even if agentSessionId is a different UUID.
-    deps.taskManager.getAllTasks.mockReturnValue([
-      makeTask({
+    deps.agentManager.getAllAgents.mockReturnValue([
+      makeAgent({
         id: "t1",
         status: "active",
         agentSessionId: "agent-uuid-1", // different namespace — NOT in listSessions results
@@ -151,10 +151,10 @@ describe("tasks:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-1" }]);
 
-    const handler = handlers.get("tasks:reconcileStale")!;
+    const handler = handlers.get("agents:reconcileStale")!;
     await handler({} as never);
 
-    // paneId "pane-1" is live → task must NOT be abandoned
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    // paneId "pane-1" is live → agent must NOT be abandoned
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 });

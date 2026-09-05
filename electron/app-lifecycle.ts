@@ -20,7 +20,7 @@ import {
 } from "./agent-hooks";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
-import { TaskManager, type TaskInfo } from "./task-persistence";
+import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
@@ -37,11 +37,11 @@ import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import { createWindow, saveZoomLevel } from "./window";
 import {
-  unseenRespondedTasks,
-  unseenInputTasks,
+  unseenRespondedAgents,
+  unseenInputAgents,
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
-  sendTaskUpdate,
+  sendAgentUpdate,
   setNotificationStore,
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
@@ -53,7 +53,7 @@ import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
-import * as tasksIpc from "./ipc/tasks";
+import * as agentsIpc from "./ipc/agents";
 import * as notificationsIpc from "./ipc/notifications";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
@@ -64,7 +64,7 @@ import * as remoteControlIpc from "./ipc/remote-control";
 export function handleStreamEvent(
   event: StreamEvent,
   window: BrowserWindow,
-  taskManager: TaskManager,
+  agentManager: AgentManager,
   preferencesManager: PreferencesManager,
   notifyAgentDetectorGone?: (sessionId: string) => void,
 ): void {
@@ -91,13 +91,13 @@ export function handleStreamEvent(
         break;
       case "cwd":
         window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
-        // Update task's cwd if active and differs from current
+        // Update agent's cwd if active and differs from current
         {
-          const task = taskManager.getTaskByPaneId(event.sessionId);
-          if (task && task.status === "active" && task.cwd !== event.cwd) {
-            const updated = taskManager.updateTask(task.id, { cwd: event.cwd });
+          const agent = agentManager.getAgentByPaneId(event.sessionId);
+          if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
+            const updated = agentManager.updateAgent(agent.id, { cwd: event.cwd });
             if (updated) {
-              sendTaskUpdate(window, updated, preferencesManager);
+              sendAgentUpdate(window, updated, preferencesManager);
             }
           }
         }
@@ -110,14 +110,14 @@ export function handleStreamEvent(
           `pty-agent-status-${event.sessionId}`,
           event.agent,
         );
-        // Update persisted task name from agent title
+        // Update persisted agent name from agent title
         const cleaned = cleanAgentTitle(event.agent.title);
         if (cleaned) {
-          const task = taskManager.getTaskByPaneId(event.sessionId);
-          if (task && task.name !== cleaned) {
-            const updated = taskManager.updateTask(task.id, { name: cleaned });
+          const agent = agentManager.getAgentByPaneId(event.sessionId);
+          if (agent && agent.name !== cleaned) {
+            const updated = agentManager.updateAgent(agent.id, { name: cleaned });
             if (updated) {
-              sendTaskUpdate(window, updated, preferencesManager);
+              sendAgentUpdate(window, updated, preferencesManager);
             }
           }
         }
@@ -224,12 +224,12 @@ export function initApp(devTitle: string | null): void {
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
   const agentHookServer = new AgentHookServer();
-  // PreferencesManager must be constructed before TaskManager so we can pass
+  // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
-  const taskManager = new TaskManager(
+  const agentManager = new AgentManager(
     undefined,
-    preferencesManager.get("taskRetentionDays"),
+    preferencesManager.get("agentRetentionDays"),
   );
   const keybindingsManager = new KeybindingsManager();
   // ADR-162's durable notification log. Handed to `notifications.ts` so the
@@ -249,7 +249,7 @@ export function initApp(devTitle: string | null): void {
       githubManager,
       linearManager,
       layoutPersistence,
-      taskManager,
+      agentManager,
       backend,
     }),
     remoteDeviceStore,
@@ -286,12 +286,12 @@ export function initApp(devTitle: string | null): void {
   }
 
   function maybeSendNotification(
-    task: TaskInfo,
+    agent: AgentInfo,
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ): void {
     _maybeSendNotification(
-      task,
+      agent,
       prevStatus,
       newStatus,
       mainWindow,
@@ -301,7 +301,7 @@ export function initApp(devTitle: string | null): void {
     // moves the dock badge is what a paired phone hears about. What that means
     // — a stream event, a push, or nothing at all — belongs to
     // `RemoteControlController`, not here.
-    remoteControl.onAgentStatus(task, prevStatus, newStatus, {
+    remoteControl.onAgentStatus(agent, prevStatus, newStatus, {
       notify: preferencesManager.get("notifyOnRequiresInput"),
     });
   }
@@ -333,7 +333,7 @@ export function initApp(devTitle: string | null): void {
       handleStreamEvent(
         event,
         win,
-        taskManager,
+        agentManager,
         preferencesManager,
         notifyAgentDetectorGone,
       );
@@ -347,7 +347,7 @@ export function initApp(devTitle: string | null): void {
     githubManager,
     linearManager,
     layoutPersistence,
-    taskManager,
+    agentManager,
     backend,
   );
 
@@ -368,13 +368,13 @@ export function initApp(devTitle: string | null): void {
     githubManager,
     linearManager,
     agentHookServer,
-    taskManager,
+    agentManager,
     notificationStore,
     preferencesManager,
     keybindingsManager,
     paneContextMap,
-    unseenRespondedTasks,
-    unseenInputTasks,
+    unseenRespondedAgents,
+    unseenInputAgents,
     webviewServer,
     workspaceMeta: [],
     prewarmManager,
@@ -389,7 +389,7 @@ export function initApp(devTitle: string | null): void {
   branchesDiffsIpc.register(ipcDeps);
   integrationsIpc.register(ipcDeps);
   webviewIpc.register(ipcDeps);
-  tasksIpc.register(ipcDeps);
+  agentsIpc.register(ipcDeps);
   notificationsIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
@@ -511,14 +511,14 @@ export function initApp(devTitle: string | null): void {
       console.error("Failed to connect to terminal host daemon:", err);
     }
 
-    // Pre-warm a terminal session for instant new-task
+    // Pre-warm a terminal session for instant new-agent
     prewarmManager.warm().catch(() => {});
 
     // Set the relay callback now that the client is connected.
     // Hook events route through the daemon's AgentDetector state machine.
 
-    function broadcastTask(task: TaskInfo): void {
-      sendTaskUpdate(mainWindow, task, preferencesManager);
+    function broadcastAgent(agent: AgentInfo): void {
+      sendAgentUpdate(mainWindow, agent, preferencesManager);
     }
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
@@ -533,11 +533,11 @@ export function initApp(devTitle: string | null): void {
     } = createHookRelay({
       relayAgentHook: (paneId, status, kind) =>
         backend.pty.relayAgentHook(paneId, status, kind),
-      taskManager,
+      agentManager,
       getPaneContext: (paneId) => paneContextMap.get(paneId),
-      unseenRespondedTasks,
-      unseenInputTasks,
-      broadcastTask,
+      unseenRespondedAgents,
+      unseenInputAgents,
+      broadcastAgent,
       maybeSendNotification,
     });
 

@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { navigateToTask } from "../task-navigation";
+import { navigateToAgent } from "../agent-navigation";
 import { useProjectStore } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import { useToastStore } from "../../store/toast-store";
-import { useTaskStore } from "../../store/task-store";
-import type { TaskInfo } from "../../electron.d";
+import { useAgentStore } from "../../store/agent-store";
+import type { AgentInfo } from "../../electron.d";
 import type { ProjectInfo, WorkspaceLayout } from "../../store/project-store";
 
 // ---------------------------------------------------------------------------
 // Window mock — must include all APIs accessed at module-init time by the
-// stores imported transitively (task-store, app-store, project-store).
+// stores imported transitively (agent-store, app-store, project-store).
 // ---------------------------------------------------------------------------
 
 const markSeenMock = vi.fn();
@@ -21,7 +21,7 @@ vi.stubGlobal("window", {
       load: vi.fn().mockResolvedValue(null),
       save: vi.fn(),
     },
-    tasks: {
+    agents: {
       onUpdate: vi.fn(),
       getAll: vi.fn().mockResolvedValue([]),
       markSeen: markSeenMock,
@@ -45,7 +45,7 @@ vi.stubGlobal("window", {
 const PROJECT_ID = "proj-1";
 const WS_PATH = "/test/workspace";
 const PANE_ID = "pane-1";
-const TASK_ID = "task-1";
+const TASK_ID = "agent-1";
 
 function makeProject(): ProjectInfo {
   return {
@@ -91,11 +91,11 @@ function makeLayout(): WorkspaceLayout {
   };
 }
 
-function makeTask(overrides?: Partial<TaskInfo>): TaskInfo {
+function makeAgent(overrides?: Partial<AgentInfo>): AgentInfo {
   return {
     id: TASK_ID,
     agentSessionId: "session-1",
-    name: "Test task",
+    name: "Test agent",
     status: "active",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -117,7 +117,7 @@ function makeTask(overrides?: Partial<TaskInfo>): TaskInfo {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("navigateToTask toast cleanup", () => {
+describe("navigateToAgent toast cleanup", () => {
   beforeEach(() => {
     markSeenMock.mockClear();
     useProjectStore.setState({ projects: [makeProject()], selectedProjectIndex: 0 });
@@ -126,46 +126,46 @@ describe("navigateToTask toast cleanup", () => {
       workspaceLayouts: { [WS_PATH]: makeLayout() },
     });
     useToastStore.setState({ toasts: [] });
-    useTaskStore.setState({
-      tasks: [],
-      unseenRespondedTaskIds: new Set(),
-      unseenInputTaskIds: new Set(),
+    useAgentStore.setState({
+      agents: [],
+      unseenRespondedAgentIds: new Set(),
+      unseenInputAgentIds: new Set(),
     });
   });
 
-  it("removes the task-input toast when navigating to the task", () => {
-    const toastId = `task-input-${TASK_ID}`;
+  it("removes the agent-input toast when navigating to the agent", () => {
+    const toastId = `agent-input-${TASK_ID}`;
     useToastStore.getState().addToast({
       id: toastId,
-      message: "Task needs input",
+      message: "Agent needs input",
       status: "loading",
       persistent: true,
     });
     expect(useToastStore.getState().toasts).toHaveLength(1);
 
-    navigateToTask(makeTask());
+    navigateToAgent(makeAgent());
 
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
-  it("is a no-op when no toast exists for the task", () => {
+  it("is a no-op when no toast exists for the agent", () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
 
-    navigateToTask(makeTask());
+    navigateToAgent(makeAgent());
 
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
-  it("does not remove toasts belonging to other tasks", () => {
-    const otherToastId = `task-input-other-task`;
+  it("does not remove toasts belonging to other agents", () => {
+    const otherToastId = `agent-input-other-agent`;
     useToastStore.getState().addToast({
       id: otherToastId,
-      message: "Task needs input",
+      message: "Agent needs input",
       status: "loading",
       persistent: true,
     });
 
-    navigateToTask(makeTask());
+    navigateToAgent(makeAgent());
 
     expect(useToastStore.getState().toasts).toHaveLength(1);
     expect(useToastStore.getState().toasts[0].id).toBe(otherToastId);
@@ -173,30 +173,30 @@ describe("navigateToTask toast cleanup", () => {
 
   it("does not remove toast when project is not found (early return)", () => {
     useProjectStore.setState({ projects: [] });
-    const toastId = `task-input-${TASK_ID}`;
+    const toastId = `agent-input-${TASK_ID}`;
     useToastStore.getState().addToast({
       id: toastId,
-      message: "Task needs input",
+      message: "Agent needs input",
       status: "loading",
       persistent: true,
     });
 
-    navigateToTask(makeTask());
+    navigateToAgent(makeAgent());
 
-    // navigateToTask returns early without reaching removeToast
+    // navigateToAgent returns early without reaching removeToast
     expect(useToastStore.getState().toasts).toHaveLength(1);
   });
 
   it("does not remove toast when workspace is not found (early return)", () => {
-    const toastId = `task-input-${TASK_ID}`;
+    const toastId = `agent-input-${TASK_ID}`;
     useToastStore.getState().addToast({
       id: toastId,
-      message: "Task needs input",
+      message: "Agent needs input",
       status: "loading",
       persistent: true,
     });
 
-    navigateToTask(makeTask({ workspacePath: "/nonexistent/path" }));
+    navigateToAgent(makeAgent({ workspacePath: "/nonexistent/path" }));
 
     expect(useToastStore.getState().toasts).toHaveLength(1);
   });

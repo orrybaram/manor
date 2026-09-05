@@ -1,4 +1,4 @@
-/* ── Tasks Modal ── */
+/* ── Agents Modal ── */
 
 .overlay {
   position: fixed;
@@ -136,7 +136,7 @@
   white-space: nowrap;
 }
 
-.taskRow {
+.agentRow {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -152,18 +152,18 @@
   font-family: inherit;
 }
 
-.taskRow:hover {
+.agentRow:hover {
   background: var(--surface);
 }
 
-.taskName {
+.agentName {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.taskProject {
+.agentProject {
   font-size: 10px;
   color: var(--text-dim);
   flex-shrink: 0;
@@ -173,7 +173,7 @@
   max-width: 140px;
 }
 
-.taskTime {
+.agentTime {
   font-size: 10px;
   color: var(--text-dim);
   flex-shrink: 0;
@@ -198,7 +198,7 @@
   color: var(--text-selected);
 }
 
-.taskRow:hover .removeButton {
+.agentRow:hover .removeButton {
   opacity: 1;
 }
 

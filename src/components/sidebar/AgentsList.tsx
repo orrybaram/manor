@@ -1,41 +1,41 @@
 import { useMemo } from "react";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks";
 import X from "lucide-react/dist/esm/icons/x";
-import type { TaskInfo } from "../../electron.d";
-import { useTaskStore } from "../../store/task-store";
+import type { AgentInfo } from "../../electron.d";
+import { useAgentStore } from "../../store/agent-store";
 import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
-import { navigateToTask } from "../../utils/task-navigation";
-import { useTaskDisplay } from "../../hooks/useTaskDisplay";
-import styles from "./TasksList.module.css";
+import { navigateToAgent } from "../../utils/agent-navigation";
+import { useAgentDisplay } from "../../hooks/useAgentDisplay";
+import styles from "./AgentsList.module.css";
 
-function TaskRow({ task, shouldPulse, onClose, onClick }: {
-  task: TaskInfo;
+function AgentRow({ agent, shouldPulse, onClose, onClick }: {
+  agent: AgentInfo;
   shouldPulse: boolean;
   onClose: () => void;
   onClick: () => void;
 }) {
-  const { title, status } = useTaskDisplay(task);
+  const { title, status } = useAgentDisplay(agent);
   return (
     <button className={styles.agentItem} onClick={onClick}>
       <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
       <span className={styles.agentName}>{title}</span>
-      <span className={styles.taskClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close task">
+      <span className={styles.agentClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close agent">
         <X size={12} />
       </span>
     </button>
   );
 }
 
-type TasksListProps = {
+type AgentsListProps = {
   onShowAll?: () => void;
 };
 
-export function TasksList(props: TasksListProps) {
+export function AgentsList(props: AgentsListProps) {
   const { onShowAll } = props;
 
-  const { tasks, unseenRespondedTaskIds, unseenInputTaskIds } = useTaskStore();
+  const { agents, unseenRespondedAgentIds, unseenInputAgentIds } = useAgentStore();
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
@@ -55,94 +55,94 @@ export function TasksList(props: TasksListProps) {
   }, [workspaceLayouts]);
 
   // Panes the user can currently see. Shares `selectVisiblePaneIds` with the
-  // read-state sweep in the task store, so the sidebar dot and main's unseen
+  // read-state sweep in the agent store, so the sidebar dot and main's unseen
   // flags cannot disagree about what counts as on screen (issue #142).
   const visiblePaneIds = useMemo(
     () => selectVisiblePaneIds({ activeWorkspacePath, workspaceLayouts }),
     [activeWorkspacePath, workspaceLayouts],
   );
 
-  // Show active tasks only while they still own a pane; show completed/error/abandoned
+  // Show active agents only while they still own a pane; show completed/error/abandoned
   // only if their pane is still active. Orphaned active records (paneId null) are
   // hidden because they have no pane to navigate to.
   //
-  // Pagination note (ADR-136): the task store loads `tasks:getActive` (all active)
-  // plus the first page of `tasks:getAll` (most recent N). A non-active task whose
+  // Pagination note (ADR-136): the agent store loads `agents:getActive` (all active)
+  // plus the first page of `agents:getAll` (most recent N). A non-active agent whose
   // paneId is still in the current layout is by construction recent — its pane
   // hasn't been closed yet — and is therefore expected to be inside the first
   // page. If a user closes the modal before scrolling far enough to load older
-  // tasks, the visible set here is unaffected.
-  const visibleTasks = useMemo(
+  // agents, the visible set here is unaffected.
+  const visibleAgents = useMemo(
     () =>
-      tasks.filter(
+      agents.filter(
         (t) =>
           (t.status === "active" && t.paneId != null) ||
           (t.paneId != null && activePaneIds.has(t.paneId)),
       ),
-    [tasks, activePaneIds],
+    [agents, activePaneIds],
   );
 
-  // Group tasks by projectName
+  // Group agents by projectName
   const groups = useMemo(() => {
-    const map = new Map<string, TaskInfo[]>();
-    for (const task of visibleTasks) {
-      const key = task.projectName ?? "Unknown";
+    const map = new Map<string, AgentInfo[]>();
+    for (const agent of visibleAgents) {
+      const key = agent.projectName ?? "Unknown";
       let list = map.get(key);
       if (!list) {
         list = [];
         map.set(key, list);
       }
-      list.push(task);
+      list.push(agent);
     }
     return map;
-  }, [visibleTasks]);
+  }, [visibleAgents]);
 
-  if (visibleTasks.length === 0) return null;
+  if (visibleAgents.length === 0) return null;
 
   return (
-    <div className={styles.tasksSection}>
+    <div className={styles.agentsSection}>
       <div className={styles.sectionHeader}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <ListChecks size={12} />
-          Tasks
+          Agents
         </span>
         {onShowAll && (
           <button
             className={styles.action}
             onClick={onShowAll}
-            title="View all tasks"
+            title="View all agents"
             style={{ fontSize: 10, opacity: 0.6 }}
           >
             View All
           </button>
         )}
       </div>
-      <div className={styles.taskGroups}>
-        {Array.from(groups.entries()).map(([projectName, groupTasks]) => (
-          <div key={projectName} className={styles.taskGroup}>
-            <div className={styles.taskGroupHeader}>{projectName}</div>
-            {groupTasks.map((task) => {
+      <div className={styles.agentGroups}>
+        {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
+          <div key={projectName} className={styles.agentGroup}>
+            <div className={styles.agentGroupHeader}>{projectName}</div>
+            {groupAgents.map((agent) => {
               const isVisible =
-                task.paneId != null && visiblePaneIds.has(task.paneId);
+                agent.paneId != null && visiblePaneIds.has(agent.paneId);
               // Pulse predicate (ADR-136 §"Change 3"): main owns the unseen
               // flags; pulse iff the current status matches an unseen axis.
               const shouldPulse =
                 !isVisible &&
-                ((task.lastAgentStatus === "responded" &&
-                  unseenRespondedTaskIds.has(task.id)) ||
-                  (task.lastAgentStatus === "requires_input" &&
-                    unseenInputTaskIds.has(task.id)));
+                ((agent.lastAgentStatus === "responded" &&
+                  unseenRespondedAgentIds.has(agent.id)) ||
+                  (agent.lastAgentStatus === "requires_input" &&
+                    unseenInputAgentIds.has(agent.id)));
               return (
-                <TaskRow
-                  key={task.id}
-                  task={task}
+                <AgentRow
+                  key={agent.id}
+                  agent={agent}
                   shouldPulse={shouldPulse}
-                  onClick={() => navigateToTask(task)}
+                  onClick={() => navigateToAgent(agent)}
                   onClose={() => {
-                    if (task.paneId) {
-                      useAppStore.getState().closePaneById(task.paneId);
+                    if (agent.paneId) {
+                      useAppStore.getState().closePaneById(agent.paneId);
                     }
-                    useTaskStore.getState().removeTask(task.id);
+                    useAgentStore.getState().removeAgent(agent.id);
                   }}
                 />
               );

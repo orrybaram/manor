@@ -8,7 +8,7 @@ import { manorDataDir } from "./paths";
 /**
  * Notification persistence model
  *
- * Mirrors the shape and conventions of `task-persistence.ts` (`TaskManager`):
+ * Mirrors the shape and conventions of `agent-persistence.ts` (`AgentManager`):
  * in-memory state backed by a JSON file on disk, writes debounced through a
  * single timer, and retention pruning applied at construction and after every
  * append.
@@ -23,7 +23,7 @@ export type NotificationKind =
   | "pr-checks-failed";
 
 export type NotificationTarget =
-  | { type: "task"; taskId: string }
+  | { type: "agent"; agentId: string }
   | { type: "url"; url: string };
 
 export interface NotificationRecord {
@@ -72,6 +72,7 @@ export class NotificationStore {
       const state: PersistedState = JSON.parse(data);
       const notifications: NotificationRecord[] = [];
       for (const record of state.notifications ?? []) {
+        migrateLegacyTarget(record);
         if (!isValidRecord(record)) continue;
         notifications.push(record);
       }
@@ -165,18 +166,18 @@ export class NotificationStore {
   }
 
   /**
-   * Mark every notification pointing at `taskId` read. Called when the user is
-   * looking at that task's pane — a notification about a session on screen has
+   * Mark every notification pointing at `agentId` read. Called when the user is
+   * looking at that agent's pane — a notification about a session on screen has
    * already been delivered by the session itself.
    *
    * Returns whether anything actually changed, so the caller can skip the
    * broadcast in the common no-op case.
    */
-  markReadByTask(taskId: string): boolean {
+  markReadByAgent(agentId: string): boolean {
     let changed = false;
     for (const record of this.notifications) {
       if (record.read) continue;
-      if (record.target?.type !== "task" || record.target.taskId !== taskId) {
+      if (record.target?.type !== "agent" || record.target.agentId !== agentId) {
         continue;
       }
       record.read = true;
@@ -200,6 +201,19 @@ export class NotificationStore {
 
   unreadCount(): number {
     return this.notifications.filter((n) => !n.read).length;
+  }
+}
+
+/**
+ * Records written before "tasks" became "agents" carry
+ * `{ type: "task", taskId }` targets. Rewrite them in place on load.
+ */
+function migrateLegacyTarget(record: unknown): void {
+  if (!record || typeof record !== "object") return;
+  const holder = record as { target?: Record<string, unknown> };
+  const target = holder.target;
+  if (target?.type === "task" && typeof target.taskId === "string") {
+    holder.target = { type: "agent", agentId: target.taskId };
   }
 }
 

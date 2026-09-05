@@ -62,7 +62,7 @@ export async function openPhoneClient(
 /**
  * One session row in the client's list.
  *
- * Addressed by what it says rather than by position: `GET /tasks` also returns
+ * Addressed by what it says rather than by position: `GET /agents` also returns
  * the prewarmed session Manor keeps warm in the background, which has no
  * project and is therefore indistinguishable from the real one by rank alone.
  */

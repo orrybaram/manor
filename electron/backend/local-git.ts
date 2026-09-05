@@ -348,13 +348,13 @@ function parseCommitError(err: unknown): string {
   const stripped = raw.replace(/^Command failed:[^\n]*\n?/, "");
 
   // Look for [FAILED] lines from lint-staged
-  const failedTasks = stripped
+  const failedAgents = stripped
     .split("\n")
     .filter((l: string) => /\[FAILED]/.test(l))
     .map((l: string) => l.replace(/\[FAILED]\s*/, "").trim());
 
-  if (failedTasks.length > 0) {
-    // Extract the actual error output: lines after the task list that aren't
+  if (failedAgents.length > 0) {
+    // Extract the actual error output: lines after the agent list that aren't
     // lint-staged status markers (e.g. [STARTED], [COMPLETED], etc.)
     const errorLines = stripped
       .split("\n")
@@ -365,7 +365,7 @@ function parseCommitError(err: unknown): string {
           l.trim() !== "",
       );
 
-    const summary = `Pre-commit hook failed:\n${failedTasks.map((t: string) => `  - ${t}`).join("\n")}`;
+    const summary = `Pre-commit hook failed:\n${failedAgents.map((t: string) => `  - ${t}`).join("\n")}`;
     const detail = errorLines.length > 0 ? `\n\n${errorLines.join("\n")}` : "";
     return summary + detail;
   }

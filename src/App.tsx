@@ -17,7 +17,7 @@ const SettingsModal = lazy(() => import("./components/settings/SettingsModal/Set
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
-const TasksModal = lazy(() => import("./components/sidebar/TasksView/TasksView").then(m => ({ default: m.TasksModal })));
+const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
 const FeedbackModal = lazy(() => import("./components/statusbar/FeedbackModal/FeedbackModal").then(m => ({ default: m.FeedbackModal })));
 import {
   useAppStore,
@@ -30,7 +30,7 @@ import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
-  startNewTask,
+  startNewAgent,
 } from "./lib/keybinding-commands";
 import { useThemeStore } from "./store/theme-store";
 import { usePreferencesStore } from "./store/preferences-store";
@@ -41,8 +41,8 @@ import {
   navigateBack,
   navigateForward,
 } from "./hooks/useNavigationHistory";
-import type { TaskInfo } from "./electron.d";
-import { navigateToTask } from "./utils/task-navigation";
+import type { AgentInfo } from "./electron.d";
+import { navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./store/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
@@ -82,7 +82,7 @@ function App() {
         }
       }
       setAppReady(true);
-      window.electronAPI.tasks.reconcileStale().catch(console.error);
+      window.electronAPI.agents.reconcileStale().catch(console.error);
     });
   });
 
@@ -118,8 +118,8 @@ function App() {
         ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const closeTasks = useCallback(() => setTasksOpen(false), []);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const closeAgents = useCallback(() => setAgentsOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [preselectedProjectId, setPreselectedProjectId] = useState<
     string | null
@@ -275,7 +275,7 @@ function App() {
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
   // its sentinel path to the real dir); a project workspace uses its
-  // agentCommand. Shared by prewarming and both new-task handlers below.
+  // agentCommand. Shared by prewarming and both new-agent handlers below.
   const homeHarness = usePreferencesStore((s) => s.preferences.homeHarness);
   const homeCustomCommand = usePreferencesStore((s) => s.preferences.homeCustomCommand);
   const homeCustomInterrupt = usePreferencesStore((s) => s.preferences.homeCustomInterrupt);
@@ -356,8 +356,8 @@ function App() {
         if (cmd === "start-agent" && workspacePath) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
-          if (prompt) handleNewTaskWithPromptRef.current(prompt);
-          else handleNewTaskRef.current();
+          if (prompt) handleNewAgentWithPromptRef.current(prompt);
+          else handleNewAgentRef.current();
           return;
         }
         if (cmd === "run-setup-script" && workspacePath && script) {
@@ -392,17 +392,17 @@ function App() {
   activeTabRef.current = activeTab;
   const wsRef = useRef(ws);
   wsRef.current = ws;
-  const handleNewTaskRef = useRef<() => void>(() => {});
-  const handleNewTaskWithPromptRef = useRef<(prompt: string) => void>(() => {});
+  const handleNewAgentRef = useRef<() => void>(() => {});
+  const handleNewAgentWithPromptRef = useRef<(prompt: string) => void>(() => {});
 
   // Handler map: command ID → action. The window-agnostic half is shared with
   // the detached-window renderer (see `keybinding-commands`); only the commands
   // that need this window's chrome (modals, sidebar, navigation history) live
   // here. The primary window is the one that owns the prewarmed session, so it
-  // is also the only window that consumes it for a new task.
+  // is also the only window that consumes it for a new agent.
   const handlersRef = useRef<Record<string, () => void>>({});
   handlersRef.current = {
-    ...createSharedKeybindingHandlers({ prewarmNewTask: true }),
+    ...createSharedKeybindingHandlers({ prewarmNewAgent: true }),
     settings: () => setSettingsOpen((v) => !v),
     "command-palette": () => setPaletteOpen((v) => !v),
     "close-tab": () => {
@@ -444,41 +444,41 @@ function App() {
     return () => window.removeEventListener("mouseup", handleMouseUp);
   });
 
-  const handleResumeTask = useCallback(
-    async (task: TaskInfo) => {
-      // If the task is active and has a pane, switch to it instead of opening a new tab
-      if (task.status === "active" && task.paneId && task.workspacePath) {
+  const handleResumeAgent = useCallback(
+    async (agent: AgentInfo) => {
+      // If the agent is active and has a pane, switch to it instead of opening a new tab
+      if (agent.status === "active" && agent.paneId && agent.workspacePath) {
         const wsLayout =
-          useAppStore.getState().workspaceLayouts[task.workspacePath];
+          useAppStore.getState().workspaceLayouts[agent.workspacePath];
         if (wsLayout) {
           const paneExists = Object.values(wsLayout.panels).some((panel) =>
-            panel.tabs.some((tab) => hasPaneId(tab.rootNode, task.paneId!)),
+            panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
           );
           if (paneExists) {
-            navigateToTask(task);
+            navigateToAgent(agent);
             return;
           }
         }
       }
 
-      const wsPath = task.workspacePath;
+      const wsPath = agent.workspacePath;
       if (wsPath) {
         setActiveWorkspace(wsPath);
       }
       const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
       if (activePath) {
-        const taskProject = projects.find((p) =>
+        const agentProject = projects.find((p) =>
           p.workspaces.some((w) => w.path === wsPath),
         );
         const agentCommand =
-          task.agentCommand ??
-          taskProject?.agentCommand ??
+          agent.agentCommand ??
+          agentProject?.agentCommand ??
           DEFAULT_AGENT_COMMAND;
         useAppStore
           .getState()
           .setPendingStartupCommand(
             activePath,
-            `${agentCommand} --resume ${task.agentSessionId}`,
+            `${agentCommand} --resume ${agent.agentSessionId}`,
           );
       }
       // Don't consume prewarmed — resume needs a specific --resume command
@@ -487,16 +487,16 @@ function App() {
     [setActiveWorkspace, addTab, projects],
   );
 
-  const handleNewTask = useCallback(async () => {
+  const handleNewAgent = useCallback(async () => {
     // Every surface — Home and project workspaces alike — consumes a prewarmed
     // session when one is ready. On a cold start (no prewarm, or the command
     // hadn't been injected yet) seed the surface's launch command; the pty
     // boundary resolves the cwd, so Home needs no special casing here.
-    await startNewTask({ prewarm: true });
+    await startNewAgent({ prewarm: true });
   }, []);
-  handleNewTaskRef.current = handleNewTask;
+  handleNewAgentRef.current = handleNewAgent;
 
-  const handleNewTaskWithPrompt = useCallback(
+  const handleNewAgentWithPrompt = useCallback(
     (prompt: string) => {
       if (activeWorkspacePath) {
         const escaped = escapeShellDoubleQuoted(prompt);
@@ -511,7 +511,7 @@ function App() {
     },
     [addTab, activeWorkspacePath, activeWorkspaceCommand],
   );
-  handleNewTaskWithPromptRef.current = handleNewTaskWithPrompt;
+  handleNewAgentWithPromptRef.current = handleNewAgentWithPrompt;
 
   if (!appReady) {
     return (
@@ -529,7 +529,7 @@ function App() {
       <div className="app-body">
         {sidebarVisible && hasProjects && (
           <Sidebar
-            onShowTasks={() => setTasksOpen(true)}
+            onShowAgents={() => setAgentsOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
             onAddProject={handleAddProject}
           />
@@ -556,7 +556,7 @@ function App() {
                   <PanelLayout
                     node={wsLayout.panelTree}
                     workspacePath={wpath}
-                    onNewTask={handleNewTask}
+                    onNewAgent={handleNewAgent}
                   />
                 </div>
               ))}
@@ -568,7 +568,7 @@ function App() {
                       ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
                       : !hasTabs &&
                         (isHomePath(activeWorkspacePath)
-                          ? <HomeEmptyState onNewTask={handleNewTask} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
+                          ? <HomeEmptyState onNewAgent={handleNewAgent} onAddProject={handleAddProject} onOpenPaletteView={handleOpenPaletteView} />
                           : hasProjects
                             ? <WorkspaceEmptyState onOpenPaletteView={handleOpenPaletteView} onNewWorkspace={handleNewWorkspace} />
                             : <WelcomeEmptyState onAddProject={handleAddProject} onDropFolder={handleDropFolder} />)}
@@ -578,7 +578,7 @@ function App() {
             </div>
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
-              onNewTaskWithPrompt={handleNewTaskWithPrompt}
+              onNewAgentWithPrompt={handleNewAgentWithPrompt}
             />
           </div>
         </PaneDragProvider>
@@ -593,10 +593,10 @@ function App() {
           initialView={paletteInitialView}
           initialIssueId={paletteInitialIssueId}
           initialGitHubIssueNumber={paletteInitialGitHubIssueNumber}
-          onResumeTask={handleResumeTask}
-          onViewAllTasks={() => setTasksOpen(true)}
-          onNewTask={handleNewTask}
-          onNewTaskWithPrompt={handleNewTaskWithPrompt}
+          onResumeAgent={handleResumeAgent}
+          onViewAllAgents={() => setAgentsOpen(true)}
+          onNewAgent={handleNewAgent}
+          onNewAgentWithPrompt={handleNewAgentWithPrompt}
         />
         <SettingsModal
           open={settingsOpen}
@@ -605,10 +605,10 @@ function App() {
           initialPage={settingsPage}
         />
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-        <TasksModal
-          open={tasksOpen}
-          onClose={closeTasks}
-          onResumeTask={handleResumeTask}
+        <AgentsModal
+          open={agentsOpen}
+          onClose={closeAgents}
+          onResumeAgent={handleResumeAgent}
         />
         <NewWorkspaceDialog
           open={newWorkspaceOpen}

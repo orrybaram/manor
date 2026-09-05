@@ -14,8 +14,8 @@ vi.mock("electron", () => ({
 // ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
-  markTaskNotificationsRead: vi.fn(),
-  sendTaskUpdate: vi.fn(),
+  markAgentNotificationsRead: vi.fn(),
+  sendAgentUpdate: vi.fn(),
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
@@ -24,20 +24,20 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/tasks";
+import { register } from "../ipc/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
-    taskManager: {
-      getAllTasks: vi.fn().mockReturnValue([]),
-      updateTask: vi.fn((id: string, updates: Record<string, unknown>) => ({
+    agentManager: {
+      getAllAgents: vi.fn().mockReturnValue([]),
+      updateAgent: vi.fn((id: string, updates: Record<string, unknown>) => ({
         id,
         ...updates,
       })),
-      getTaskByPaneId: vi.fn().mockReturnValue(null),
-      deleteTask: vi.fn(),
+      getAgentByPaneId: vi.fn().mockReturnValue(null),
+      deleteAgent: vi.fn(),
     },
     backend: {
       pty: {
@@ -47,15 +47,15 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     mainWindow: null,
     preferencesManager: {},
     paneContextMap: new Map(),
-    unseenRespondedTasks: new Set(),
-    unseenInputTasks: new Set(),
+    unseenRespondedAgents: new Set(),
+    unseenInputAgents: new Set(),
     ...overrides,
   };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("tasks:abandonForPane handler", () => {
+describe("agents:abandonForPane handler", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -64,87 +64,87 @@ describe("tasks:abandonForPane handler", () => {
     register(deps as never);
   });
 
-  it("marks the active task for a pane as abandoned", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue({
+  it("marks the active agent for a pane as abandoned", () => {
+    deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
       status: "active",
     });
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1");
 
-    expect(deps.taskManager.updateTask).toHaveBeenCalledTimes(1);
-    expect(deps.taskManager.updateTask).toHaveBeenCalledWith(
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
       "t1",
       expect.objectContaining({ status: "abandoned" }),
     );
-    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).toHaveProperty("completedAt");
     expect(typeof updates.completedAt).toBe("string");
   });
 
-  it("does nothing if no task for that pane", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue(undefined);
+  it("does nothing if no agent for that pane", () => {
+    deps.agentManager.getAgentByPaneId.mockReturnValue(undefined);
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-99");
 
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("does nothing if task is not active", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue({
+  it("does nothing if agent is not active", () => {
+    deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
       status: "completed",
     });
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1");
 
-    expect(deps.taskManager.updateTask).not.toHaveBeenCalled();
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("sets task name from title when task has no name", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue({
+  it("sets agent name from title when agent has no name", () => {
+    deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
       status: "active",
       name: null,
     });
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
 
-    expect(deps.taskManager.updateTask).toHaveBeenCalledWith(
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
       "t1",
       expect.objectContaining({ name: "Fix conversation naming after slash clear command" }),
     );
   });
 
-  it("preserves existing task name when title is also provided", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue({
+  it("preserves existing agent name when title is also provided", () => {
+    deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
       status: "active",
-      name: "Existing task name",
+      name: "Existing agent name",
     });
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "Some other title");
 
-    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
   });
 
   it("does not set name when title is a generic agent name", () => {
-    deps.taskManager.getTaskByPaneId.mockReturnValue({
+    deps.agentManager.getAgentByPaneId.mockReturnValue({
       id: "t1",
       status: "active",
       name: null,
     });
 
-    const handler = handlers.get("tasks:abandonForPane")!;
+    const handler = handlers.get("agents:abandonForPane")!;
     handler({} as never, "pane-1", "claude ⠋");
 
-    const [[, updates]] = (deps.taskManager.updateTask as ReturnType<typeof vi.fn>).mock.calls;
+    const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
   });
 });

@@ -14,8 +14,8 @@ vi.mock("electron", () => ({
 // ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
-  markTaskNotificationsRead: vi.fn(),
-  sendTaskUpdate: vi.fn(),
+  markAgentNotificationsRead: vi.fn(),
+  sendAgentUpdate: vi.fn(),
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
@@ -24,19 +24,19 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/tasks";
+import { register } from "../ipc/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
-    taskManager: {
-      getAllTasks: vi.fn().mockReturnValue([]),
-      getActiveTasks: vi.fn().mockReturnValue([]),
+    agentManager: {
+      getAllAgents: vi.fn().mockReturnValue([]),
+      getActiveAgents: vi.fn().mockReturnValue([]),
       getLastPruneCount: vi.fn().mockReturnValue(0),
-      updateTask: vi.fn(),
-      getTaskByPaneId: vi.fn().mockReturnValue(null),
-      deleteTask: vi.fn(),
+      updateAgent: vi.fn(),
+      getAgentByPaneId: vi.fn().mockReturnValue(null),
+      deleteAgent: vi.fn(),
     },
     backend: {
       pty: {
@@ -49,15 +49,15 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       set: vi.fn(),
     },
     paneContextMap: new Map(),
-    unseenRespondedTasks: new Set(),
-    unseenInputTasks: new Set(),
+    unseenRespondedAgents: new Set(),
+    unseenInputAgents: new Set(),
     ...overrides,
   };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("tasks:getActive (ADR-136)", () => {
+describe("agents:getActive (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -66,37 +66,37 @@ describe("tasks:getActive (ADR-136)", () => {
     register(deps as never);
   });
 
-  it("returns getActiveTasks() output verbatim", async () => {
+  it("returns getActiveAgents() output verbatim", async () => {
     const active = [
       { id: "t1", status: "active" },
       { id: "t2", status: "active" },
     ];
-    deps.taskManager.getActiveTasks.mockReturnValue(active);
+    deps.agentManager.getActiveAgents.mockReturnValue(active);
 
-    const handler = handlers.get("tasks:getActive")!;
+    const handler = handlers.get("agents:getActive")!;
     expect(handler).toBeDefined();
 
     const result = await handler({} as never);
     expect(result).toBe(active);
-    expect(deps.taskManager.getActiveTasks).toHaveBeenCalledTimes(1);
+    expect(deps.agentManager.getActiveAgents).toHaveBeenCalledTimes(1);
   });
 
-  it("never invokes the sort/slice path of getAllTasks", async () => {
-    const handler = handlers.get("tasks:getActive")!;
+  it("never invokes the sort/slice path of getAllAgents", async () => {
+    const handler = handlers.get("agents:getActive")!;
     await handler({} as never);
 
-    expect(deps.taskManager.getAllTasks).not.toHaveBeenCalled();
+    expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
   });
 
   it("does not require any arguments", () => {
-    const handler = handlers.get("tasks:getActive")!;
+    const handler = handlers.get("agents:getActive")!;
     // Calling with only the implicit IpcMainInvokeEvent argument.
     const result = handler({} as never);
     expect(result).toBeDefined();
   });
 });
 
-describe("tasks:getRecent (ADR-136)", () => {
+describe("agents:getRecent (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -105,22 +105,22 @@ describe("tasks:getRecent (ADR-136)", () => {
     register(deps as never);
   });
 
-  it("calls getAllTasks with the requested limit", async () => {
-    const handler = handlers.get("tasks:getRecent")!;
+  it("calls getAllAgents with the requested limit", async () => {
+    const handler = handlers.get("agents:getRecent")!;
     expect(handler).toBeDefined();
 
     await handler({} as never, { limit: 25 });
-    expect(deps.taskManager.getAllTasks).toHaveBeenCalledWith({ limit: 25 });
+    expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 25 });
   });
 
   it("defaults to a limit of 50 when none is provided", async () => {
-    const handler = handlers.get("tasks:getRecent")!;
+    const handler = handlers.get("agents:getRecent")!;
     await handler({} as never);
-    expect(deps.taskManager.getAllTasks).toHaveBeenCalledWith({ limit: 50 });
+    expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 50 });
   });
 });
 
-describe("tasks:consumePruneNotice (ADR-136)", () => {
+describe("agents:consumePruneNotice (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -130,32 +130,32 @@ describe("tasks:consumePruneNotice (ADR-136)", () => {
   });
 
   it("returns 0 when nothing was pruned", async () => {
-    deps.taskManager.getLastPruneCount.mockReturnValue(0);
+    deps.agentManager.getLastPruneCount.mockReturnValue(0);
 
-    const handler = handlers.get("tasks:consumePruneNotice")!;
+    const handler = handlers.get("agents:consumePruneNotice")!;
     const result = await handler({} as never);
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();
   });
 
   it("returns the count and sets the shown flag on first call", async () => {
-    deps.taskManager.getLastPruneCount.mockReturnValue(5);
+    deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(false);
 
-    const handler = handlers.get("tasks:consumePruneNotice")!;
+    const handler = handlers.get("agents:consumePruneNotice")!;
     const result = await handler({} as never);
     expect(result).toBe(5);
     expect(deps.preferencesManager.set).toHaveBeenCalledWith(
-      "taskPruneNoticeShown",
+      "agentPruneNoticeShown",
       true,
     );
   });
 
   it("returns 0 when the shown flag is already set, even if count > 0", async () => {
-    deps.taskManager.getLastPruneCount.mockReturnValue(5);
+    deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(true);
 
-    const handler = handlers.get("tasks:consumePruneNotice")!;
+    const handler = handlers.get("agents:consumePruneNotice")!;
     const result = await handler({} as never);
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();

@@ -11,7 +11,7 @@ import {
   layout,
   sendToSession,
   tabIdForPane,
-  waitForTaskStatus,
+  waitForAgentStatus,
   waitForVisibleSession,
 } from "./helpers/local-api";
 import {
@@ -23,11 +23,11 @@ import {
 /**
  * Read state, end to end (issue #142).
  *
- * Clicking a row in the task list marked its task read. Arriving at the same
+ * Clicking a row in the agent list marked its agent read. Arriving at the same
  * agent any other way — switching to its tab, switching back to its workspace
  * — did not, so main went on announcing a response the user was already
  * looking at: the dock badge stayed up and the tab, workspace and project dots
- * kept pulsing while the task list itself had gone quiet.
+ * kept pulsing while the agent list itself had gone quiet.
  *
  * Nothing here fabricates the unread state. An agent reports a status over the
  * hook endpoint while its pane is off screen, and the app is then driven back
@@ -107,7 +107,7 @@ test.describe("read state", () => {
     // back: `responded` is the status the green dot pulses for.
     await openTabAwayFrom(window, agentPaneId);
     await sendToSession(request, tempHome, session.id, FAKE_AGENT_HUSH);
-    await waitForTaskStatus(request, tempHome, session.id, "responded");
+    await waitForAgentStatus(request, tempHome, session.id, "responded");
 
     const dot = window.locator(
       `[data-testid="tab"][data-tab-id="${agentTabId}"] [data-testid="agent-dot"]`,
@@ -157,7 +157,7 @@ test.describe("read state", () => {
     await expectPaneHidden(window, agentPaneId);
 
     await sendToSession(request, tempHome, session.id, FAKE_AGENT_HUSH);
-    await waitForTaskStatus(request, tempHome, session.id, "responded");
+    await waitForAgentStatus(request, tempHome, session.id, "responded");
 
     const workspaceItem = window.locator(
       `[data-testid="workspace-item"][data-workspace-path="${agentWorkspacePath}"]`,

@@ -481,7 +481,7 @@ export function initApp(devTitle: string | null): void {
     if (process.platform === "darwin") {
       const iconPath = path.join(__dirname, "../build/dev-icon.png");
       if (fs.existsSync(iconPath)) {
-        app.dock.setIcon(nativeImage.createFromPath(iconPath));
+        app.dock?.setIcon(nativeImage.createFromPath(iconPath));
       }
     }
 

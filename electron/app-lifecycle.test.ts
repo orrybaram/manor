@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { handleStreamEvent } from "./app-lifecycle";
 import { AgentManager } from "./agent-persistence";
+import { PreferencesManager } from "./preferences";
 import type { AgentInfo } from "./agent-persistence";
 import type { StreamEvent } from "./terminal-host/types";
 
@@ -23,12 +24,14 @@ const createMockBrowserWindow = () => {
 describe("handleStreamEvent", () => {
   let tmpDir: string;
   let agentManager: AgentManager;
+  let preferencesManager: PreferencesManager;
   let mockWindow: any;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-test-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     agentManager = new AgentManager(tmpDir);
+    preferencesManager = new PreferencesManager(tmpDir);
     mockWindow = createMockBrowserWindow();
   });
 
@@ -69,7 +72,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -100,7 +103,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -125,7 +128,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -153,7 +156,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -178,7 +181,7 @@ describe("handleStreamEvent", () => {
         seq: 7,
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // The seq rides along so the renderer can drop output a warm-restore
       // snapshot already covers (ADR-159).
@@ -199,7 +202,7 @@ describe("handleStreamEvent", () => {
         data: "hello",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-output-${paneId}`,
@@ -214,9 +217,10 @@ describe("handleStreamEvent", () => {
       const event: StreamEvent = {
         type: "exit",
         sessionId: paneId,
+        exitCode: 0,
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-exit-${paneId}`,
@@ -232,7 +236,7 @@ describe("handleStreamEvent", () => {
         message: "test error",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-error-${paneId}`,
@@ -263,7 +267,7 @@ describe("handleStreamEvent", () => {
 
       // Should not throw
       expect(() => {
-        handleStreamEvent(event, mockWindow, agentManager);
+        handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
       }).not.toThrow();
 
       // Agent should still be updated
@@ -272,7 +276,7 @@ describe("handleStreamEvent", () => {
     });
 
     it("logs non-disposed errors", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       mockWindow.webContents.send = vi.fn(() => {
         throw new Error("Some other error");
@@ -285,7 +289,7 @@ describe("handleStreamEvent", () => {
         data: "test",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(errorSpy).toHaveBeenCalledWith(
         "Error in stream event handler:",
@@ -307,7 +311,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/nested/dir",
       };
 
-      handleStreamEvent(event, mockWindow, agentManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Wait for debounced save
       await new Promise((r) => setTimeout(r, 600));

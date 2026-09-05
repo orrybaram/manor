@@ -877,7 +877,7 @@ describe("createHookRelay — ADR-135 ticket-3: pending Stop + SessionEnd race",
 
     // maybeSendNotification must have been called with "responded"
     const respondedCall = maybeSendNotification.mock.calls.find(
-      (args: [AgentInfo, string | null, string]) => args[2] === "responded",
+      (args) => args[2] === "responded",
     );
     expect(respondedCall).toBeDefined();
 

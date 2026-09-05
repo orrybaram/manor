@@ -12,8 +12,15 @@ import { useDragOverlayStore } from "../store/drag-overlay-store";
 const ROW_GAP = 8;
 /** Fallback row height when an element never registered (never rendered). */
 const FALLBACK_HEIGHT = 36;
-/** Share of a folder header's height that reads as "drop into this folder". */
-const INTO_BAND = 0.5;
+/**
+ * Extra pixels above and below a folder header that still read as "drop into
+ * this folder". Rows shift out from under the pointer as it approaches, so
+ * the header's own box is a narrow target; the buffer makes it forgiving.
+ */
+const INTO_BUFFER = 8;
+/** Additional buffer while already targeting a folder, so the band does not
+ * flicker off when the pointer drifts a few pixels. */
+const INTO_STICKY = 10;
 /** Prefix for the `rowRefs` entry holding a folder's header element. */
 const HEADER_PREFIX = "header:";
 
@@ -22,7 +29,7 @@ export function headerRefKey(folderId: string): string {
   return `${HEADER_PREFIX}${folderId}`;
 }
 
-type HeaderRect = { folderId: string; top: number; height: number };
+type HeaderRect = { folderId: string; rowIndex: number; top: number; height: number };
 
 /**
  * The sidebar's single drag: one instance per project, keyed by `Row.key`
@@ -107,7 +114,12 @@ export function useSidebarDrag({
           rect &&
           row.key !== sourceParentId
         ) {
-          headers.push({ folderId: row.key, top: rect.top, height: rect.height });
+          headers.push({
+            folderId: row.key,
+            rowIndex: i,
+            top: rect.top,
+            height: rect.height,
+          });
         }
       });
       rowHeights.current = heights;
@@ -149,11 +161,31 @@ export function useSidebarDrag({
         // exact while `into` is active (it suppresses every shift, so headers
         // sit at their start rects) and only slightly generous on the way in,
         // where the band is at most one row height off.
+        // Into-detection. A header sits at its start rect while nothing has
+        // shifted, and one dragged-row height away once the slot search has
+        // moved it aside; the pointer may be over either, so the band is the
+        // union of both boxes plus a buffer. While a folder is already the
+        // target the rows are pinned (no shift) and the band grows a little
+        // more so it does not flicker off.
         let into: string | null = null;
+        const sourceH = heights[sourceIndex];
         for (const header of headerRects.current) {
-          const band = header.height * INTO_BAND;
-          const top = header.top + (header.height - band) / 2;
-          if (ev.clientY >= top && ev.clientY <= top + band) {
+          const i = header.rowIndex;
+          let shift = 0;
+          if (targetIdx > sourceIndex && i > sourceIndex && i <= targetIdx) {
+            shift = -sourceH;
+          } else if (targetIdx < sourceIndex && i < sourceIndex && i >= targetIdx) {
+            shift = sourceH;
+          }
+          const top = Math.min(header.top, header.top + shift);
+          const bottom = Math.max(
+            header.top + header.height,
+            header.top + header.height + shift,
+          );
+          const pad =
+            INTO_BUFFER +
+            (intoFolderIdRef.current === header.folderId ? INTO_STICKY : 0);
+          if (ev.clientY >= top - pad && ev.clientY <= bottom + pad) {
             into = header.folderId;
             break;
           }

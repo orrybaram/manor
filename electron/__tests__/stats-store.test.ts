@@ -43,8 +43,10 @@ describe("StatsStore", () => {
     it("round-trips counters and badges through disk", () => {
       const now = () => localMs(2026, 9, 5);
       const store = new StatsStore(tmpDir, { now });
+      // Deliberately not `agentsKilled`: that counter auto-awards `first-blood`
+      // (ADR-168 §4) and would collide with the manual award below.
       store.record("prompts", 3);
-      store.record("agentsKilled");
+      store.record("toolCalls", 2);
       store.recordMax("maxConcurrentAgents", 4);
       store.awardBadge("first-blood", "2026-09-05T00:00:00.000Z");
       store.flushNow();
@@ -53,7 +55,7 @@ describe("StatsStore", () => {
       const summary = reloaded.getSummary();
       expect(summary.today).toEqual({
         prompts: 3,
-        agentsKilled: 1,
+        toolCalls: 2,
         maxConcurrentAgents: 4,
       });
       expect(summary.badges).toEqual({ "first-blood": "2026-09-05T00:00:00.000Z" });
@@ -515,5 +517,55 @@ describe("StatsStore", () => {
     const summary = store.getSummary();
     summary.today.prompts = 999;
     expect(store.getSummary().today.prompts).toBe(2);
+  });
+
+  describe("badge evaluation (ADR-168 §4)", () => {
+    it("fires onBadge once with first-blood on the first agentsKilled", () => {
+      const onBadge = vi.fn();
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5), onBadge });
+
+      store.record("agentsKilled");
+
+      expect(onBadge).toHaveBeenCalledTimes(1);
+      expect(onBadge.mock.calls[0][0]).toMatchObject({ id: "first-blood" });
+      expect(store.getBadges()["first-blood"]).toBeTruthy();
+    });
+
+    it("does not fire again for the same badge on a later kill", () => {
+      const onBadge = vi.fn();
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5), onBadge });
+
+      store.record("agentsKilled");
+      store.record("agentsKilled");
+
+      expect(onBadge).toHaveBeenCalledTimes(1);
+    });
+
+    it("never fires while collection is disabled", () => {
+      const onBadge = vi.fn();
+      const store = new StatsStore(tmpDir, {
+        now: () => localMs(2026, 9, 5),
+        isEnabled: () => false,
+        onBadge,
+      });
+
+      store.record("agentsKilled");
+
+      expect(onBadge).not.toHaveBeenCalled();
+      expect(store.getBadges()).toEqual({});
+    });
+
+    it("a throwing onBadge does not break record", () => {
+      const store = new StatsStore(tmpDir, {
+        now: () => localMs(2026, 9, 5),
+        onBadge: () => {
+          throw new Error("boom");
+        },
+      });
+
+      expect(() => store.record("agentsKilled")).not.toThrow();
+      expect(store.getSummary().today.agentsKilled).toBe(1);
+      expect(store.getBadges()["first-blood"]).toBeTruthy();
+    });
   });
 });

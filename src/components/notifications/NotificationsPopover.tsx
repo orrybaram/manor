@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import Award from "lucide-react/dist/esm/icons/award";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import CheckCheck from "lucide-react/dist/esm/icons/check-check";
@@ -31,6 +32,7 @@ const ICON_FOR: Record<NotificationKind, typeof Bell> = {
   "pr-approved": CircleCheck,
   "pr-changes-requested": CircleX,
   "pr-checks-failed": CircleX,
+  "badge-unlocked": Award,
 };
 
 const TONE_FOR: Partial<Record<NotificationKind, string>> = {

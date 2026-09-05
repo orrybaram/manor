@@ -184,6 +184,18 @@ describe("NotificationStore", () => {
     expect(reloaded.getAll()).toEqual([record]);
   });
 
+  it("a badge-unlocked record survives a load round-trip (ADR-168)", () => {
+    const record = append({
+      kind: "badge-unlocked",
+      title: "Badge unlocked: First Blood",
+      body: "Killed your first agent mid-thought.",
+    });
+    store.flushNow();
+
+    const reloaded = new NotificationStore(tmpDir);
+    expect(reloaded.getById(record.id)).toEqual(record);
+  });
+
   it("migrates pre-rename { type: \"task\", taskId } targets on load (ADR-166)", () => {
     const record = append({ target: { type: "agent", agentId: "keep" } });
     const legacy = {

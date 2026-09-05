@@ -8,6 +8,7 @@ import {
   type SignalTrackerState,
   type StatDelta,
 } from "./stats-signals";
+import { evaluateBadges, type BadgeDef } from "./stats-badges";
 
 import type { AgentHookEvent } from "./agent-hook-events";
 import type { Effect } from "./hook-relay-transition";
@@ -101,6 +102,7 @@ export class StatsStore {
   private isEnabled: () => boolean;
   private now: () => number;
   private monoNow: () => number;
+  private onBadge: ((badge: BadgeDef) => void) | undefined;
   /** Per-session block bookkeeping for `observeHookEvent`. */
   private tracker: SignalTrackerState = createSignalTracker();
 
@@ -114,6 +116,8 @@ export class StatsStore {
        * imported from `hook-relay` to keep this module off that import cycle.
        */
       monoNow?: () => number;
+      /** Called once per newly-earned badge, after it has been persisted. */
+      onBadge?: (badge: BadgeDef) => void;
     },
   ) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -121,6 +125,7 @@ export class StatsStore {
     this.now = opts?.now ?? (() => Date.now());
     this.monoNow =
       opts?.monoNow ?? (() => Number(process.hrtime.bigint() / 1_000_000n));
+    this.onBadge = opts?.onBadge;
     const state = this.loadState();
     this.days = state.days;
     this.badges = state.badges;
@@ -241,11 +246,33 @@ export class StatsStore {
   /**
    * Single commit step for every mutation path: one debounced save and one
    * change emission, however many deltas were applied. A burst of tool calls
-   * must not turn into a burst of writes and broadcasts.
+   * must not turn into a burst of writes and broadcasts. Badge evaluation
+   * also runs here so every recording path is covered exactly once.
    */
   private commit(): void {
     this.saveState();
     this.emitChange();
+    this.maybeAwardBadges();
+  }
+
+  /**
+   * Awards any badge newly earned since the last commit. `awardBadge` does not
+   * itself re-run evaluation, so this cannot recurse. Never runs while
+   * collection is disabled — a call site invoking `commit()` should already
+   * guarantee this, but it is checked again here for safety.
+   */
+  private maybeAwardBadges(): void {
+    if (!this.isEnabled()) return;
+    const newlyEarned = evaluateBadges(this.getSummary(), this.badges);
+    for (const badge of newlyEarned) {
+      this.awardBadge(badge.id);
+      if (!this.onBadge) continue;
+      try {
+        this.onBadge(badge);
+      } catch (error) {
+        console.error("[stats-store] onBadge listener threw:", error);
+      }
+    }
   }
 
   /** Adds `n` to today's bucket. No-op when collection is disabled. */

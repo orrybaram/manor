@@ -20,7 +20,8 @@ export type NotificationKind =
   | "pr-comment"
   | "pr-approved"
   | "pr-changes-requested"
-  | "pr-checks-failed";
+  | "pr-checks-failed"
+  | "badge-unlocked";
 
 export type NotificationTarget =
   | { type: "agent"; agentId: string }

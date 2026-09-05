@@ -43,6 +43,7 @@ import {
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
   sendAgentUpdate,
+  sendNotificationsUpdate,
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
@@ -243,6 +244,15 @@ export function initApp(devTitle: string | null): void {
   const statsStore = new StatsStore(undefined, {
     isEnabled: () =>
       (preferencesManager.getAll() as unknown as Record<string, unknown>).statsEnabled !== false,
+    onBadge: (badge) => {
+      notificationStore.append({
+        kind: "badge-unlocked",
+        title: `Badge unlocked: ${badge.title}`,
+        body: badge.description,
+        target: null,
+      });
+      sendNotificationsUpdate(mainWindow);
+    },
   });
   setStatsStore(statsStore);
 

@@ -239,6 +239,9 @@ export function ProjectItem(props: ProjectItemProps) {
   const [confirmMergeWorktree, setConfirmMergeWorktree] =
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  // Folder chosen via its context menu's "New Workspace…"; the created
+  // workspace is placed inside it once the worktree exists.
+  const [newWorkspaceFolderId, setNewWorkspaceFolderId] = useState<string | null>(null);
   const [convertWorkspaceOpen, setConvertWorkspaceOpen] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   // Set when "New Folder…" is picked from a workspace's menu: the folder is
@@ -682,6 +685,10 @@ export function ProjectItem(props: ProjectItemProps) {
                   renameWorkspaceFolder(projectId, item.folder.id, name)
                 }
                 onDelete={() => deleteWorkspaceFolder(projectId, item.folder.id)}
+                onNewWorkspace={() => {
+                  setNewWorkspaceFolderId(item.folder.id);
+                  setNewWorkspaceOpen(true);
+                }}
                 onDragStart={(e) =>
                   handleDragStart(item.folder.id, "folder", e)
                 }
@@ -713,13 +720,31 @@ export function ProjectItem(props: ProjectItemProps) {
 
       <NewWorkspaceDialog
         open={newWorkspaceOpen}
-        onClose={() => setNewWorkspaceOpen(false)}
+        onClose={() => {
+          setNewWorkspaceOpen(false);
+          setNewWorkspaceFolderId(null);
+        }}
         projects={[project]}
         selectedProjectIndex={0}
         onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch) => {
           const result = await onCreateWorktree(name, branch, baseBranch, useExistingBranch);
           if (result) {
+            const targetFolderId = newWorkspaceFolderId;
             setNewWorkspaceOpen(false);
+            setNewWorkspaceFolderId(null);
+            if (targetFolderId) {
+              // Read the freshly updated project: the store has already
+              // merged the new worktree (and its normalized sidebarOrder).
+              const fresh = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === projectId);
+              if (fresh) {
+                await applySidebarChange(
+                  projectId,
+                  placeInFolder(buildSidebarItems(fresh), result, targetFolderId),
+                );
+              }
+            }
           }
           return !!result;
         }}

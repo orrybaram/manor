@@ -21,6 +21,8 @@ type FolderItemProps = {
   onToggleCollapsed: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  /** Opens the New Workspace dialog with this folder as the destination. */
+  onNewWorkspace: () => void;
   onDragStart: (e: React.PointerEvent) => void;
   /** Measured for folder drags (the whole block is one row). */
   registerBlock: (el: HTMLElement | null) => void;
@@ -53,6 +55,7 @@ export function FolderItem(props: FolderItemProps) {
     onToggleCollapsed,
     onRename,
     onDelete,
+    onNewWorkspace,
     onDragStart,
     registerBlock,
     registerHeader,
@@ -151,6 +154,13 @@ export function FolderItem(props: FolderItemProps) {
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content className={styles.contextMenu}>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => onNewWorkspace()}
+            >
+              New Workspace…
+            </ContextMenu.Item>
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => startRename()}

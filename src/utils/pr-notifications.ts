@@ -1,4 +1,4 @@
-import type { PrInfo } from "../store/project-store";
+import type { PrComment, PrInfo } from "../lib/pr-info";
 import type { AppPreferences } from "../electron.d";
 import { useToastStore } from "../store/toast-store";
 
@@ -12,6 +12,8 @@ export interface PrNotifyEvent {
   kind: PrNotifyEventKind;
   title: string; // e.g. "PR #123 approved"
   body: string; // the PR title
+  /** `comment` events only: what was said, when the fetcher knows (#177). */
+  comment?: PrComment;
 }
 
 /**
@@ -34,7 +36,13 @@ export function diffPrEvents(
     typeof prev.commentCount === "number" &&
     next.commentCount > prev.commentCount
   ) {
-    events.push({ kind: "comment", title: `PR #${n} — new comment`, body });
+    const event: PrNotifyEvent = {
+      kind: "comment",
+      title: `PR #${n} — new comment`,
+      body,
+    };
+    if (next.latestComment) event.comment = next.latestComment;
+    events.push(event);
   }
 
   if (
@@ -94,6 +102,7 @@ async function notifyPrEvent(
     title: event.title,
     body: event.body,
     url,
+    comment: event.comment,
   });
   if (shown) return;
 
@@ -123,6 +132,8 @@ export function deliverPrNotifications(
 ): void {
   if (!next) return;
   for (const event of diffPrEvents(prev, next)) {
-    if (prefs[PREF_FOR[event.kind]]) void notifyPrEvent(event, next.url);
+    if (!prefs[PREF_FOR[event.kind]]) continue;
+    // A comment notification leads to the comment, not the top of the PR.
+    void notifyPrEvent(event, event.comment?.url ?? next.url);
   }
 }

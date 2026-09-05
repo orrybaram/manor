@@ -60,7 +60,7 @@ export interface DeviceVerifier {
 
 /** One agent-status change, as the client's session list consumes it. */
 export interface RemoteStatusEvent {
-  taskId: string;
+  agentId: string;
   name: string | null;
   projectName: string | null;
   status: string | null;
@@ -305,8 +305,12 @@ export class RemoteControlServer {
     ];
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
+    // Filter by method *before* dispatch: `GET /agents` is on the surface but
+    // `POST /agents` (launch) is not, and the router would otherwise answer the
+    // latter with a 405 that reveals the row exists. With only same-method rows
+    // in the table, a missing write route falls through to the plain 404 below.
     const matched = await dispatch(
-      table,
+      table.filter((r) => r.method === method),
       ownedPrefixes,
       this.getDeps(),
       method,
@@ -322,7 +326,7 @@ export class RemoteControlServer {
   }
 
   /**
-   * Wrap the acting routes without touching `electron/routes/tasks.ts` — the
+   * Wrap the acting routes without touching `electron/routes/agents.ts` — the
    * local MCP path must keep working exactly as it does, so the confirmation
    * and the audit line are remote-only concerns and live here.
    *

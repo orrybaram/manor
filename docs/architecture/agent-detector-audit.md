@@ -60,7 +60,7 @@ and opencode.
 
 | Category | Reasoning |
 |----------|-----------|
-| Load-bearing | The OSC 0/2 title becomes `task.name` via `app-lifecycle.ts handleStreamEvent`. There is no hook-side equivalent that sends the human-readable task title (Claude Code emits the title via OSC 2; pi extension calls `ctx.ui.setTitle()`). The detector is the only path turning that into an `AgentState.title`. |
+| Load-bearing | The OSC 0/2 title becomes `agent.name` via `app-lifecycle.ts handleStreamEvent`. There is no hook-side equivalent that sends the human-readable agent title (Claude Code emits the title via OSC 2; pi extension calls `ctx.ui.setTitle()`). The detector is the only path turning that into an `AgentState.title`. |
 
 ### 3. `updateForegroundProcess()` — lines 99–178
 
@@ -82,7 +82,7 @@ to fire `notifyAgentDetectorGone(paneId)`, the bridge to the relay.
 
 This is the **only path** for kill -9 / agent-crash recovery. Hook-side
 `SessionEnd` does not fire on a SIGKILLed agent; without this branch a crashed
-agent leaves its task stuck "thinking".
+agent leaves its agent stuck "thinking".
 
 The three sub-branches (active→gone, complete→gone, other→gone) collapse to
 the same `transitionToGone()` call but log differently. They are all reachable
@@ -218,7 +218,7 @@ deliberate decision:
 
 ### Confirmed load-bearing — keep as-is
 
-- `setTitle()` and OSC 0/2 → task name pipeline (no hook-side equivalent)
+- `setTitle()` and OSC 0/2 → agent name pipeline (no hook-side equivalent)
 - `updateForegroundProcess(name | null)` for `kind` derivation and kill-9
   detection
 - `setFallbackStatus()` (load-bearing for codex/pi/opencode for

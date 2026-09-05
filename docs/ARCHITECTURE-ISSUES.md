@@ -42,7 +42,7 @@ Titles updated to match lowercase-slug / numbered convention. No `adr-session-re
 
 ### 4. `manorDataDir()` duplicated across seven files — ✅ Resolved
 
-**Locations:** `electron/persistence.ts:30`, `electron/task-persistence.ts:6`, `electron/preferences.ts:5`, `electron/keybindings.ts`, `electron/window.ts:14`, `electron/linear.ts`, `electron/shell.ts`
+**Locations:** `electron/persistence.ts:30`, `electron/agent-persistence.ts:6`, `electron/preferences.ts:5`, `electron/keybindings.ts`, `electron/window.ts:14`, `electron/linear.ts`, `electron/shell.ts`
 
 **Resolved:** via ADR-127. All duplicated definitions have been consolidated into `electron/paths.ts`, which is now the single source of truth for `manorDataDir()`, `manorHomeDir()`, and named file getters. All call sites import from this central module.
 
@@ -54,7 +54,7 @@ Manor stores app data in two different locations depending on who writes it:
 
 | Path | Used for | Platform-aware? |
 |---|---|---|
-| `manorDataDir()` → `~/Library/Application Support/Manor/` (macOS) | projects, tasks, prefs, keybindings, theme, window state | yes |
+| `manorDataDir()` → `~/Library/Application Support/Manor/` (macOS) | projects, agents, prefs, keybindings, theme, window state | yes |
 | `~/.manor/` (hardcoded) | daemon socket/pid/token, hook port, webview server port, worktrees, hook scripts | no |
 
 **Resolved:** via ADR-127. The split is now documented in `ARCHITECTURE.md` under "Filesystem layout". The intentional design — `~/.manor/` for external-tool discovery, `manorDataDir()` for internal-only state — is explained. See the "Rule for adding a new path" section for guidance on where new files should go.

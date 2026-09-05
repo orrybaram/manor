@@ -12,7 +12,7 @@ import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
-import type { TaskManager } from "../task-persistence";
+import type { AgentManager } from "../agent-persistence";
 import type { LocalBackend } from "../backend/local-backend";
 
 export interface ControlDeps {
@@ -20,7 +20,7 @@ export interface ControlDeps {
   githubManager: GitHubManager | null;
   linearManager: LinearManager | null;
   layoutPersistence: LayoutPersistence | null;
-  taskManager: TaskManager | null;
+  agentManager: AgentManager | null;
   backend: LocalBackend | null;
 }
 

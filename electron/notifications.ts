@@ -6,8 +6,9 @@ import type {
   NotificationStore,
   NotificationTarget,
 } from "./notification-store";
+import type { PrComment } from "../src/lib/pr-info";
 import type { PreferencesManager } from "./preferences";
-import type { TaskInfo } from "./task-persistence";
+import type { AgentInfo } from "./agent-persistence";
 import type { AgentStatus } from "./terminal-host/types";
 
 /** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
@@ -63,46 +64,46 @@ export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void 
 }
 
 /**
- * Mark every notification about `taskId` read and broadcast the result.
+ * Mark every notification about `agentId` read and broadcast the result.
  *
- * Paired with `tasks:markSeen`: the moment main accepts that the user is
- * looking at a task's pane, the log entries for that task stop counting as
+ * Paired with `agents:markSeen`: the moment main accepts that the user is
+ * looking at an agent's pane, the log entries for that agent stop counting as
  * unread. Without this the bell kept an indicator up for a session already on
  * screen — and it came back every time the user navigated away.
  */
-export function markTaskNotificationsRead(
-  taskId: string,
+export function markAgentNotificationsRead(
+  agentId: string,
   mainWindow: BrowserWindow | null,
 ): void {
   if (!notificationStore) return;
-  if (!notificationStore.markReadByTask(taskId)) return;
+  if (!notificationStore.markReadByAgent(agentId)) return;
   sendNotificationsUpdate(mainWindow);
 }
 
-export const unseenRespondedTasks = new Set<string>();
-export const unseenInputTasks = new Set<string>();
+export const unseenRespondedAgents = new Set<string>();
+export const unseenInputAgents = new Set<string>();
 
 /**
- * Per-task unseen flags as broadcast to the renderer alongside `task-updated`.
+ * Per-agent unseen flags as broadcast to the renderer alongside `agent-updated`.
  *
- * The renderer keeps two Sets (`unseenRespondedTaskIds`, `unseenInputTaskIds`)
+ * The renderer keeps two Sets (`unseenRespondedAgentIds`, `unseenInputAgentIds`)
  * as a *cache* of these flags — see ADR-136 §"Change 3". Always derive the flags
  * from main's Sets at the moment of the broadcast so the renderer never drifts.
  */
-export type TaskUnseenFlags = {
+export type AgentUnseenFlags = {
   responded: boolean;
   requires_input: boolean;
 };
 
-export function getUnseenFlagsForTask(taskId: string): TaskUnseenFlags {
+export function getUnseenFlagsForAgent(agentId: string): AgentUnseenFlags {
   return {
-    responded: unseenRespondedTasks.has(taskId),
-    requires_input: unseenInputTasks.has(taskId),
+    responded: unseenRespondedAgents.has(agentId),
+    requires_input: unseenInputAgents.has(agentId),
   };
 }
 
 /**
- * Snapshot of the full unseen state, used by `tasks:getUnseen` to prime the
+ * Snapshot of the full unseen state, used by `agents:getUnseen` to prime the
  * renderer cache on boot.
  */
 export function getUnseenSnapshot(): {
@@ -110,19 +111,19 @@ export function getUnseenSnapshot(): {
   requires_input: string[];
 } {
   return {
-    responded: Array.from(unseenRespondedTasks),
-    requires_input: Array.from(unseenInputTasks),
+    responded: Array.from(unseenRespondedAgents),
+    requires_input: Array.from(unseenInputAgents),
   };
 }
 
 /**
- * Broadcast a `task-updated` event to the renderer with the current unseen
+ * Broadcast a `agent-updated` event to the renderer with the current unseen
  * flags, then refresh the dock badge. This is the single send-site for
- * `task-updated`; do not call `webContents.send("task-updated", ...)` directly.
+ * `agent-updated`; do not call `webContents.send("agent-updated", ...)` directly.
  */
-export function sendTaskUpdate(
+export function sendAgentUpdate(
   mainWindow: BrowserWindow | null,
-  task: TaskInfo,
+  agent: AgentInfo,
   preferencesManager: PreferencesManager,
 ): void {
   if (
@@ -132,9 +133,9 @@ export function sendTaskUpdate(
   ) {
     try {
       mainWindow.webContents.send(
-        "task-updated",
-        task,
-        getUnseenFlagsForTask(task.id),
+        "agent-updated",
+        agent,
+        getUnseenFlagsForAgent(agent.id),
       );
     } catch {
       // Render frame disposed — safe to ignore
@@ -148,9 +149,9 @@ export function updateDockBadge(preferencesManager: PreferencesManager): void {
     app.dock?.setBadge("");
     return;
   }
-  if (unseenInputTasks.size > 0) {
-    app.dock?.setBadge(unseenInputTasks.size.toString());
-  } else if (unseenRespondedTasks.size > 0) {
+  if (unseenInputAgents.size > 0) {
+    app.dock?.setBadge(unseenInputAgents.size.toString());
+  } else if (unseenRespondedAgents.size > 0) {
     app.dock?.setBadge("•");
   } else {
     app.dock?.setBadge("");
@@ -181,7 +182,11 @@ function presentNotification(
   opts: {
     title: string;
     body: string;
-    record: { kind: NotificationKind; target: NotificationTarget | null };
+    record: {
+      kind: NotificationKind;
+      target: NotificationTarget | null;
+      comment?: PrComment;
+    };
   },
 ): boolean {
   // Record *before* the focus check. A notification suppressed because the
@@ -193,6 +198,7 @@ function presentNotification(
       title: opts.title,
       body: opts.body,
       target: opts.record.target,
+      comment: opts.record.comment,
     }) ?? null;
   sendNotificationsUpdate(mainWindow);
 
@@ -221,7 +227,7 @@ function presentNotification(
 }
 
 export function maybeSendNotification(
-  task: TaskInfo,
+  agent: AgentInfo,
   prevStatus: string | null | undefined,
   newStatus: AgentStatus,
   mainWindow: BrowserWindow | null,
@@ -249,8 +255,8 @@ export function maybeSendNotification(
 
   presentNotification(mainWindow, preferencesManager, {
     title,
-    body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
-    record: { kind, target: { type: "task", taskId: task.id } },
+    body: [agent.name || "Agent", agent.projectName].filter(Boolean).join(" — "),
+    record: { kind, target: { type: "agent", agentId: agent.id } },
   });
 }
 
@@ -260,7 +266,13 @@ export function maybeSendNotification(
  * means the calling window is focused and the renderer should toast instead.
  */
 export function showPrNotification(
-  payload: { kind: PrNotifyEventKind; title: string; body: string; url?: string },
+  payload: {
+    kind: PrNotifyEventKind;
+    title: string;
+    body: string;
+    url?: string;
+    comment?: PrComment;
+  },
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
 ): boolean {
@@ -270,6 +282,7 @@ export function showPrNotification(
     record: {
       kind: PR_KIND_TO_NOTIFICATION_KIND[payload.kind] ?? "pr-comment",
       target: payload.url ? { type: "url", url: payload.url } : null,
+      comment: payload.kind === "comment" ? payload.comment : undefined,
     },
   });
 }

@@ -111,7 +111,7 @@ describe("serveClientAsset", () => {
   });
 
   it("falls through for a path that is not a file", () => {
-    expect(serve("/tasks").handled).toBe(false);
+    expect(serve("/agents").handled).toBe(false);
     expect(serve("/sessions/send").handled).toBe(false);
   });
 

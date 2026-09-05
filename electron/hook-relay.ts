@@ -22,7 +22,7 @@
  * Two maps:
  * - paneRootSessionMap: Map<paneId, sessionId>
  *     The current root session on each pane. Used to ignore subagent
- *     SessionStart events and to resolve the pane's *current* task when a hook
+ *     SessionStart events and to resolve the pane's *current* agent when a hook
  *     event arrives without enough context.
  * - sessionStateMap: Map<sessionId, SessionState>
  *     Per-agent-session bookkeeping (active subagents, pendingStopAt, etc).
@@ -39,12 +39,12 @@
  *   `UserPromptSubmit` (legitimate next turn) or the lifecycle events
  *   `SessionStart` / `SessionEnd`. Hook delivery is independent HTTP, so a
  *   tool's `PostToolUse` can race in after `Stop` — without this guard the
- *   late event re-activates the task and the AgentDetector dot.
+ *   late event re-activates the agent and the AgentDetector dot.
  *   Enforced by the transition function's late-active guard.
  */
 
 import type { AgentStatus, AgentKind } from "./terminal-host/types";
-import type { TaskInfo } from "./task-persistence";
+import type { AgentInfo } from "./agent-persistence";
 import type { AgentHookEvent } from "./agent-hook-events";
 import {
   transitionSession,
@@ -84,19 +84,19 @@ export function defaultWallClock(): number {
   return Date.now();
 }
 
-/** Structural interface for the task persistence layer (allows fakes in tests). */
-export interface ITaskManager {
-  createTask(data: Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): TaskInfo;
-  updateTask(id: string, updates: Partial<TaskInfo>): TaskInfo | null;
-  getTaskBySessionId(sessionId: string): TaskInfo | null;
-  getTaskByPaneId(paneId: string): TaskInfo | null;
-  getActiveTasks(): TaskInfo[];
+/** Structural interface for the agent persistence layer (allows fakes in tests). */
+export interface IAgentManager {
+  createAgent(data: Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">): AgentInfo;
+  updateAgent(id: string, updates: Partial<AgentInfo>): AgentInfo | null;
+  getAgentBySessionId(sessionId: string): AgentInfo | null;
+  getAgentByPaneId(paneId: string): AgentInfo | null;
+  getActiveAgents(): AgentInfo[];
 }
 
 export interface HookRelayDeps {
   /** Relay the hook event to the daemon's AgentDetector state machine */
   relayAgentHook: (paneId: string, status: AgentStatus, kind: AgentKind) => void;
-  taskManager: ITaskManager;
+  agentManager: IAgentManager;
   /** Returns the current pane context (projectId, projectName, workspacePath, agentCommand) */
   getPaneContext: (paneId: string) => {
     projectId: string;
@@ -104,13 +104,13 @@ export interface HookRelayDeps {
     workspacePath: string;
     agentCommand: string | null;
   } | undefined;
-  unseenRespondedTasks: Set<string>;
-  unseenInputTasks: Set<string>;
-  /** Broadcast a task-updated event to the renderer and update the dock badge */
-  broadcastTask: (task: TaskInfo) => void;
+  unseenRespondedAgents: Set<string>;
+  unseenInputAgents: Set<string>;
+  /** Broadcast an agent-updated event to the renderer and update the dock badge */
+  broadcastAgent: (agent: AgentInfo) => void;
   /** Send an OS notification if needed */
   maybeSendNotification: (
-    task: TaskInfo,
+    agent: AgentInfo,
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ) => void;
@@ -134,7 +134,7 @@ const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
   "requires_input",
 ]);
 
-/** Statuses that indicate the task is "stuck active" and should be recovered by sweeps / replacement. */
+/** Statuses that indicate the agent is "stuck active" and should be recovered by sweeps / replacement. */
 const STUCK_ACTIVE: ReadonlySet<string> = new Set(["thinking", "working", "requires_input"]);
 function isStuckActive(status: string | null | undefined): boolean {
   return status != null && STUCK_ACTIVE.has(status);
@@ -155,18 +155,18 @@ export interface HookRelayContext {
 export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   const {
     relayAgentHook,
-    taskManager,
+    agentManager,
     getPaneContext,
-    unseenRespondedTasks,
-    unseenInputTasks,
-    broadcastTask,
+    unseenRespondedAgents,
+    unseenInputAgents,
+    broadcastAgent,
     maybeSendNotification,
     monoClock = defaultMonoClock,
     wallClock = defaultWallClock,
   } = deps;
 
   // Per-relay boot timestamps — captured in the factory closure (NOT module scope).
-  // Used by taskMonotonicAgeMs() to clamp wall-clock task ages by the relay's
+  // Used by agentMonotonicAgeMs() to clamp wall-clock agent ages by the relay's
   // actual monotonic run-time, defeating wall-clock jumps from suspend/resume.
   const RELAY_BOOT_MONO_MS = monoClock();
   const RELAY_BOOT_WALL_MS = wallClock();
@@ -176,17 +176,17 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   }
 
   /**
-   * Compute a task's age in milliseconds, clamped by the relay's monotonic run-time.
+   * Compute an agent's age in milliseconds, clamped by the relay's monotonic run-time.
    *
-   * `task.activatedAt` is a wall-clock ISO string (kept for display + cross-restart
+   * `agent.activatedAt` is a wall-clock ISO string (kept for display + cross-restart
    * durability). After a laptop suspend/resume the wall clock jumps forward but the
    * relay's monotonic clock does not, so wall-only math would force-complete every
-   * mid-session task on first wake. Clamping by the monotonic time the relay has
+   * mid-session agent on first wake. Clamping by the monotonic time the relay has
    * been running ensures we wait the full STALE_ACTIVE_MS of *real* run-time.
    */
-  function taskMonotonicAgeMs(task: TaskInfo): number {
-    if (!task.activatedAt) return 0;
-    const wallAge = wallClock() - Date.parse(task.activatedAt);
+  function agentMonotonicAgeMs(agent: AgentInfo): number {
+    if (!agent.activatedAt) return 0;
+    const wallAge = wallClock() - Date.parse(agent.activatedAt);
     if (Number.isNaN(wallAge) || wallAge < 0) return 0;
     const monoSinceBoot = nowMonoMs() - RELAY_BOOT_MONO_MS;
     const wallSinceBoot = wallClock() - RELAY_BOOT_WALL_MS;
@@ -253,17 +253,17 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
   }
 
   function applyStopForSession(sessionId: string): void {
-    const task = taskManager.getTaskBySessionId(sessionId);
-    if (!task) return;
-    const prevStatus = task.lastAgentStatus;
-    const updated = taskManager.updateTask(task.id, {
+    const agent = agentManager.getAgentBySessionId(sessionId);
+    if (!agent) return;
+    const prevStatus = agent.lastAgentStatus;
+    const updated = agentManager.updateAgent(agent.id, {
       lastAgentStatus: "responded",
       status: "active",
     });
     if (updated) {
-      unseenRespondedTasks.add(updated.id);
+      unseenRespondedAgents.add(updated.id);
       maybeSendNotification(updated, prevStatus, "responded");
-      broadcastTask(updated);
+      broadcastAgent(updated);
     }
   }
 
@@ -272,13 +272,13 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     const prevState: SessionState | null = sessionId
       ? sessionStateMap.get(sessionId) ?? null
       : null;
-    const existingTask = sessionId
-      ? taskManager.getTaskBySessionId(sessionId)
+    const existingAgent = sessionId
+      ? agentManager.getAgentBySessionId(sessionId)
       : null;
 
     const result = transitionSession(prevState, event, {
       paneRootSession: paneRootSessionMap.get(event.paneId) ?? null,
-      existingTask,
+      existingAgent,
       nowMs: nowMonoMs(),
     });
 
@@ -291,12 +291,12 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     }
 
     applyEffects(result.effects, {
-      taskManager,
+      agentManager,
       relayAgentHook,
       getPaneContext,
-      unseenRespondedTasks,
-      unseenInputTasks,
-      broadcastTask,
+      unseenRespondedAgents,
+      unseenInputAgents,
+      broadcastAgent,
       maybeSendNotification,
       paneRootSessionMap,
       sessionStateMap,
@@ -314,7 +314,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       // Branch 1 (ADR-130): Stop received but blocked by active subagents
       if (state.pendingStopAt !== null && idle > STALE_STOP_MS) {
         console.debug(
-          `[task-lifecycle] stale-stop sweep: forcing responded on ${sessionId} ` +
+          `[agent-lifecycle] stale-stop sweep: forcing responded on ${sessionId} ` +
             `(activeSubagents=${state.activeSubagents.size}, idle=${idle}ms)`,
         );
         state.activeSubagents.clear();
@@ -323,14 +323,14 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
         continue;
       }
 
-      // Branch 2 (ADR-131): Stop never arrived — force close if the task
+      // Branch 2 (ADR-131): Stop never arrived — force close if the agent
       // is still flagged active and the session has gone quiet.
       if (state.hasBeenActive && idle > STALE_ACTIVE_MS) {
-        const task = taskManager.getTaskBySessionId(sessionId);
-        if (task && isStuckActive(task.lastAgentStatus)) {
+        const agent = agentManager.getAgentBySessionId(sessionId);
+        if (agent && isStuckActive(agent.lastAgentStatus)) {
           console.debug(
-            `[task-lifecycle] stale-active sweep: forcing responded on ${sessionId} ` +
-              `(lastAgentStatus=${task.lastAgentStatus}, idle=${idle}ms)`,
+            `[agent-lifecycle] stale-active sweep: forcing responded on ${sessionId} ` +
+              `(lastAgentStatus=${agent.lastAgentStatus}, idle=${idle}ms)`,
           );
           state.activeSubagents.clear();
           applyStopForSession(sessionId);
@@ -338,38 +338,38 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       }
     }
 
-    // Branch 3 (ADR-132): task is active but its session state is gone.
+    // Branch 3 (ADR-132): agent is active but its session state is gone.
     // Catches orphans from SessionStart replacement, SessionEnd races, and
-    // main-process restarts that rehydrate tasks without their sessionState.
-    // Uses taskMonotonicAgeMs() to clamp the wall-clock activatedAt by the
+    // main-process restarts that rehydrate agents without their sessionState.
+    // Uses agentMonotonicAgeMs() to clamp the wall-clock activatedAt by the
     // relay's monotonic run-time so suspend/resume can't trip the threshold.
     const ORPHAN_TASK_MS = STALE_ACTIVE_MS; // share the 60s threshold
-    for (const task of taskManager.getActiveTasks()) {
-      if (!task.agentSessionId) continue;
-      if (sessionStateMap.has(task.agentSessionId)) continue;
-      if (!isStuckActive(task.lastAgentStatus)) continue;
+    for (const agent of agentManager.getActiveAgents()) {
+      if (!agent.agentSessionId) continue;
+      if (sessionStateMap.has(agent.agentSessionId)) continue;
+      if (!isStuckActive(agent.lastAgentStatus)) continue;
 
-      const age = taskMonotonicAgeMs(task);
+      const age = agentMonotonicAgeMs(agent);
       if (age < ORPHAN_TASK_MS) continue;
 
       console.debug(
-        `[task-lifecycle] orphan-task sweep: forcing responded on ${task.agentSessionId} ` +
-          `(task.id=${task.id}, lastAgentStatus=${task.lastAgentStatus}, age=${age}ms)`,
+        `[agent-lifecycle] orphan-agent sweep: forcing responded on ${agent.agentSessionId} ` +
+          `(agent.id=${agent.id}, lastAgentStatus=${agent.lastAgentStatus}, age=${age}ms)`,
       );
-      applyStopForSession(task.agentSessionId);
+      applyStopForSession(agent.agentSessionId);
     }
   }
 
   function notifyAgentDetectorGone(paneId: string): void {
     const rootSession = paneRootSessionMap.get(paneId);
     if (!rootSession) return;
-    const task = taskManager.getTaskBySessionId(rootSession);
-    if (!task) return;
-    if (!isStuckActive(task.lastAgentStatus)) {
+    const agent = agentManager.getAgentBySessionId(rootSession);
+    if (!agent) return;
+    if (!isStuckActive(agent.lastAgentStatus)) {
       return;
     }
     console.debug(
-      `[task-lifecycle] bridge: AgentDetector gone on pane ${paneId} → force-apply Stop on ${rootSession}`,
+      `[agent-lifecycle] bridge: AgentDetector gone on pane ${paneId} → force-apply Stop on ${rootSession}`,
     );
     const state = sessionStateMap.get(rootSession);
     if (state) {

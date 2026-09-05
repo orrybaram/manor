@@ -4,8 +4,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { handleStreamEvent } from "./app-lifecycle";
-import { TaskManager } from "./task-persistence";
-import type { TaskInfo } from "./task-persistence";
+import { AgentManager } from "./agent-persistence";
+import { PreferencesManager } from "./preferences";
+import type { AgentInfo } from "./agent-persistence";
 import type { StreamEvent } from "./terminal-host/types";
 
 // Mock BrowserWindow
@@ -22,13 +23,15 @@ const createMockBrowserWindow = () => {
 
 describe("handleStreamEvent", () => {
   let tmpDir: string;
-  let taskManager: TaskManager;
+  let agentManager: AgentManager;
+  let preferencesManager: PreferencesManager;
   let mockWindow: any;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-test-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
-    taskManager = new TaskManager(tmpDir);
+    agentManager = new AgentManager(tmpDir);
+    preferencesManager = new PreferencesManager(tmpDir);
     mockWindow = createMockBrowserWindow();
   });
 
@@ -37,12 +40,12 @@ describe("handleStreamEvent", () => {
     vi.clearAllMocks();
   });
 
-  function createTask(
-    overrides: Partial<Omit<TaskInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">> = {},
-  ): TaskInfo {
-    return taskManager.createTask({
+  function createAgent(
+    overrides: Partial<Omit<AgentInfo, "id" | "createdAt" | "updatedAt" | "activatedAt">> = {},
+  ): AgentInfo {
+    return agentManager.createAgent({
       agentSessionId: `session-${crypto.randomUUID()}`,
-      name: "Test task",
+      name: "Test agent",
       status: "active",
       completedAt: null,
       projectId: null,
@@ -59,9 +62,9 @@ describe("handleStreamEvent", () => {
   }
 
   describe("cwd event handling", () => {
-    it("updates task cwd when active task cwd differs from event cwd", () => {
-      const task = createTask({ cwd: "/project/main", status: "active" });
-      const paneId = task.paneId!;
+    it("updates agent cwd when active agent cwd differs from event cwd", () => {
+      const agent = createAgent({ cwd: "/project/main", status: "active" });
+      const paneId = agent.paneId!;
 
       const event: StreamEvent = {
         type: "cwd",
@@ -69,7 +72,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -77,22 +80,22 @@ describe("handleStreamEvent", () => {
         "/project/main/src",
       );
 
-      // Verify task was updated in taskManager
-      const updated = taskManager.getTaskByPaneId(paneId);
+      // Verify agent was updated in agentManager
+      const updated = agentManager.getAgentByPaneId(paneId);
       expect(updated).not.toBeNull();
       expect(updated!.cwd).toBe("/project/main/src");
 
-      // Verify task-updated broadcast was sent
-      const taskUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "task-updated",
+      // Verify agent-updated broadcast was sent
+      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
+        (call: any) => call[0] === "agent-updated",
       );
-      expect(taskUpdatedCalls.length).toBe(1);
-      expect(taskUpdatedCalls[0][1].cwd).toBe("/project/main/src");
+      expect(agentUpdatedCalls.length).toBe(1);
+      expect(agentUpdatedCalls[0][1].cwd).toBe("/project/main/src");
     });
 
-    it("does not update task when cwd matches existing task cwd", () => {
-      const task = createTask({ cwd: "/project/main", status: "active" });
-      const paneId = task.paneId!;
+    it("does not update agent when cwd matches existing agent cwd", () => {
+      const agent = createAgent({ cwd: "/project/main", status: "active" });
+      const paneId = agent.paneId!;
 
       const event: StreamEvent = {
         type: "cwd",
@@ -100,7 +103,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -108,16 +111,16 @@ describe("handleStreamEvent", () => {
         "/project/main",
       );
 
-      // Verify task-updated broadcast was NOT sent (no change)
-      const taskUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "task-updated",
+      // Verify agent-updated broadcast was NOT sent (no change)
+      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
+        (call: any) => call[0] === "agent-updated",
       );
-      expect(taskUpdatedCalls.length).toBe(0);
+      expect(agentUpdatedCalls.length).toBe(0);
     });
 
-    it("does not update a completed task", () => {
-      const task = createTask({ cwd: "/project/main", status: "completed" });
-      const paneId = task.paneId!;
+    it("does not update a completed agent", () => {
+      const agent = createAgent({ cwd: "/project/main", status: "completed" });
+      const paneId = agent.paneId!;
 
       const event: StreamEvent = {
         type: "cwd",
@@ -125,7 +128,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -133,18 +136,18 @@ describe("handleStreamEvent", () => {
         "/project/main/src",
       );
 
-      // Verify task was NOT updated
-      const updated = taskManager.getTaskByPaneId(paneId);
+      // Verify agent was NOT updated
+      const updated = agentManager.getAgentByPaneId(paneId);
       expect(updated!.cwd).toBe("/project/main");
 
-      // Verify task-updated broadcast was NOT sent
-      const taskUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "task-updated",
+      // Verify agent-updated broadcast was NOT sent
+      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
+        (call: any) => call[0] === "agent-updated",
       );
-      expect(taskUpdatedCalls.length).toBe(0);
+      expect(agentUpdatedCalls.length).toBe(0);
     });
 
-    it("does not update task when there is no task for the paneId", () => {
+    it("does not update agent when there is no agent for the paneId", () => {
       const nonExistentPaneId = `pane-${crypto.randomUUID()}`;
 
       const event: StreamEvent = {
@@ -153,7 +156,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Verify webContents.send was called with the cwd event to renderer
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
@@ -161,11 +164,11 @@ describe("handleStreamEvent", () => {
         "/project/main/src",
       );
 
-      // Verify task-updated broadcast was NOT sent
-      const taskUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
-        (call: any) => call[0] === "task-updated",
+      // Verify agent-updated broadcast was NOT sent
+      const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
+        (call: any) => call[0] === "agent-updated",
       );
-      expect(taskUpdatedCalls.length).toBe(0);
+      expect(agentUpdatedCalls.length).toBe(0);
     });
 
     it("forwards data events to renderer", () => {
@@ -178,7 +181,7 @@ describe("handleStreamEvent", () => {
         seq: 7,
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // The seq rides along so the renderer can drop output a warm-restore
       // snapshot already covers (ADR-159).
@@ -199,7 +202,7 @@ describe("handleStreamEvent", () => {
         data: "hello",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-output-${paneId}`,
@@ -214,9 +217,10 @@ describe("handleStreamEvent", () => {
       const event: StreamEvent = {
         type: "exit",
         sessionId: paneId,
+        exitCode: 0,
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-exit-${paneId}`,
@@ -232,7 +236,7 @@ describe("handleStreamEvent", () => {
         message: "test error",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         `pty-error-${paneId}`,
@@ -243,13 +247,13 @@ describe("handleStreamEvent", () => {
 
   describe("error handling", () => {
     it("handles errors from webContents.send gracefully", () => {
-      const task = createTask({ cwd: "/project/main", status: "active" });
-      const paneId = task.paneId!;
+      const agent = createAgent({ cwd: "/project/main", status: "active" });
+      const paneId = agent.paneId!;
 
       let callCount = 0;
       mockWindow.webContents.send = vi.fn(() => {
         callCount++;
-        // Only throw on the second call (task-updated broadcast), not on the pty-cwd broadcast
+        // Only throw on the second call (agent-updated broadcast), not on the pty-cwd broadcast
         if (callCount === 2) {
           throw new Error("Render frame was disposed");
         }
@@ -263,16 +267,16 @@ describe("handleStreamEvent", () => {
 
       // Should not throw
       expect(() => {
-        handleStreamEvent(event, mockWindow, taskManager);
+        handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
       }).not.toThrow();
 
-      // Task should still be updated
-      const updated = taskManager.getTaskByPaneId(paneId);
+      // Agent should still be updated
+      const updated = agentManager.getAgentByPaneId(paneId);
       expect(updated!.cwd).toBe("/project/main/src");
     });
 
     it("logs non-disposed errors", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       mockWindow.webContents.send = vi.fn(() => {
         throw new Error("Some other error");
@@ -285,7 +289,7 @@ describe("handleStreamEvent", () => {
         data: "test",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       expect(errorSpy).toHaveBeenCalledWith(
         "Error in stream event handler:",
@@ -296,10 +300,10 @@ describe("handleStreamEvent", () => {
     });
   });
 
-  describe("integration with taskManager updates", () => {
+  describe("integration with agentManager updates", () => {
     it("persists cwd change across save/load cycles", async () => {
-      const task = createTask({ cwd: "/project/main", status: "active" });
-      const paneId = task.paneId!;
+      const agent = createAgent({ cwd: "/project/main", status: "active" });
+      const paneId = agent.paneId!;
 
       const event: StreamEvent = {
         type: "cwd",
@@ -307,14 +311,14 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/nested/dir",
       };
 
-      handleStreamEvent(event, mockWindow, taskManager);
+      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
       // Wait for debounced save
       await new Promise((r) => setTimeout(r, 600));
 
       // Create fresh manager and verify persistence
-      const freshManager = new TaskManager(tmpDir);
-      const loaded = freshManager.getTaskByPaneId(paneId);
+      const freshManager = new AgentManager(tmpDir);
+      const loaded = freshManager.getAgentByPaneId(paneId);
       expect(loaded).not.toBeNull();
       expect(loaded!.cwd).toBe("/project/main/nested/dir");
     });

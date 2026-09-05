@@ -12,7 +12,7 @@ const PANE_TYPES = [
   { type: "terminal" as const, label: "Terminal", icon: SquareTerminal },
   { type: "browser" as const, label: "Browser", icon: Globe },
   { type: "diff" as const, label: "Diff", icon: GitCompareArrows },
-  { type: "task" as const, label: "Task", icon: Bot },
+  { type: "agent" as const, label: "Agent", icon: Bot },
 ];
 
 export function ConvertToSubmenu({ paneId }: { paneId: string }) {
@@ -32,7 +32,7 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
               key={type}
               className={styles.contextMenuItem}
               onSelect={() => {
-                if (type === "task") {
+                if (type === "agent") {
                   const command = getAgentCommand(useAppStore.getState().activeWorkspacePath);
                   if (currentType === "terminal") {
                     // Terminal already mounted — write directly

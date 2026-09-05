@@ -2,23 +2,23 @@
  * Effect applier for the hook relay state machine (ADR-139).
  *
  * Walks the ordered list of `Effect`s produced by `transitionSession` and
- * performs the actual side effects: taskManager mutations, broadcasts,
+ * performs the actual side effects: agentManager mutations, broadcasts,
  * notifications, paneRootSessionMap updates, and the kill-9 bridge into
  * `applyStopForSession`.
  *
  * Mutation order is load-bearing — the existing 100 integration tests in
  * electron/__tests__/relay-subagent-tracking.test.ts and agent-hooks.test.ts
- * pin specific call orderings (broadcastTask vs maybeSendNotification, unseen
- * Set timing, task field updates). This file replicates today's procedural
+ * pin specific call orderings (broadcastAgent vs maybeSendNotification, unseen
+ * Set timing, agent field updates). This file replicates today's procedural
  * order from the pre-ADR-139 `relay()` body.
  */
 
 import type { Effect } from "./hook-relay-transition";
-import type { ITaskManager, HookRelayDeps } from "./hook-relay";
-import type { TaskInfo } from "./task-persistence";
+import type { IAgentManager, HookRelayDeps } from "./hook-relay";
+import type { AgentInfo } from "./agent-persistence";
 
 /**
- * Status values that mean a task is currently "stuck" mid-turn (the agent
+ * Status values that mean an agent is currently "stuck" mid-turn (the agent
  * has not yet produced a Stop). Mirrors hook-relay.ts's STUCK_ACTIVE.
  */
 const STUCK_ACTIVE: ReadonlySet<string> = new Set([
@@ -32,12 +32,12 @@ function isStuckActive(status: string | null | undefined): boolean {
 }
 
 export interface EffectApplierDeps {
-  taskManager: ITaskManager;
+  agentManager: IAgentManager;
   relayAgentHook: HookRelayDeps["relayAgentHook"];
   getPaneContext: HookRelayDeps["getPaneContext"];
-  unseenRespondedTasks: Set<string>;
-  unseenInputTasks: Set<string>;
-  broadcastTask: HookRelayDeps["broadcastTask"];
+  unseenRespondedAgents: Set<string>;
+  unseenInputAgents: Set<string>;
+  broadcastAgent: HookRelayDeps["broadcastAgent"];
   maybeSendNotification: HookRelayDeps["maybeSendNotification"];
   paneRootSessionMap: Map<string, string>;
   /** Used as a hasBeenActive proxy when gating ForceCloseOldSession. */
@@ -65,15 +65,15 @@ export function applyEffects(
 
       case "ForceCloseOldSession": {
         // Replicates hook-relay.ts:257-281 gating: only force-close when the
-        // old session has a task, the task is stuck-active, and the old
+        // old session has an agent, the agent is stuck-active, and the old
         // session had been active (state-exists is the new-model proxy for
         // hasBeenActive — terminal events on a never-active session are
         // filtered by the transition function so state is null in that case).
-        const oldTask = deps.taskManager.getTaskBySessionId(effect.sessionId);
+        const oldAgent = deps.agentManager.getAgentBySessionId(effect.sessionId);
         if (
-          oldTask &&
+          oldAgent &&
           deps.sessionStateMap.has(effect.sessionId) &&
-          isStuckActive(oldTask.lastAgentStatus)
+          isStuckActive(oldAgent.lastAgentStatus)
         ) {
           deps.applyStopForSession(effect.sessionId);
         }
@@ -88,27 +88,27 @@ export function applyEffects(
         deps.sessionStateMap.delete(effect.sessionId);
         break;
 
-      case "CreateTask": {
+      case "CreateAgent": {
         // Mirror the pre-ADR-139 procedural code at hook-relay.ts:316-341.
-        // First, retire any prior task that owned this paneId. Nulling paneId
+        // First, retire any prior agent that owned this paneId. Nulling paneId
         // alone leaves the old record status:"active" which causes it to linger
         // as a duplicate in the sidebar (ADR-142). Mark it completed, clear its
         // unseen flags, and broadcast the retirement so the renderer drops the
         // stale row live.
-        const prevPaneTask = deps.taskManager.getTaskByPaneId(effect.paneId);
-        if (prevPaneTask) {
-          const retired = deps.taskManager.updateTask(prevPaneTask.id, {
+        const prevPaneAgent = deps.agentManager.getAgentByPaneId(effect.paneId);
+        if (prevPaneAgent) {
+          const retired = deps.agentManager.updateAgent(prevPaneAgent.id, {
             paneId: null,
             status: "completed",
             completedAt: new Date().toISOString(),
           });
-          deps.unseenRespondedTasks.delete(prevPaneTask.id);
-          deps.unseenInputTasks.delete(prevPaneTask.id);
-          if (retired) deps.broadcastTask(retired);
+          deps.unseenRespondedAgents.delete(prevPaneAgent.id);
+          deps.unseenInputAgents.delete(prevPaneAgent.id);
+          if (retired) deps.broadcastAgent(retired);
         }
 
         const paneContext = deps.getPaneContext(effect.paneId);
-        let task: TaskInfo | null = deps.taskManager.createTask({
+        let agent: AgentInfo | null = deps.agentManager.createAgent({
           agentSessionId: effect.sessionId,
           name: null,
           status: "active",
@@ -124,41 +124,41 @@ export function applyEffects(
           resumedAt: null,
         });
         const now = new Date().toISOString();
-        task = deps.taskManager.updateTask(task.id, { activatedAt: now });
-        if (task) {
+        agent = deps.agentManager.updateAgent(agent.id, { activatedAt: now });
+        if (agent) {
           if (effect.status === "requires_input") {
-            deps.unseenInputTasks.add(task.id);
+            deps.unseenInputAgents.add(agent.id);
           }
-          // A session whose very first task-creating event already needs input
+          // A session whose very first agent-creating event already needs input
           // — an agent that asks for permission before doing anything else —
           // notifies like any other transition into that state. Only this
-          // branch runs for it: there is no prior task for
-          // `UpdateTaskActiveStatus` to find, and skipping the call here meant
+          // branch runs for it: there is no prior agent for
+          // `UpdateAgentActiveStatus` to find, and skipping the call here meant
           // the pulse appeared with no banner and no entry in the log
           // (ADR-162).
-          deps.maybeSendNotification(task, null, effect.status);
-          deps.broadcastTask(task);
+          deps.maybeSendNotification(agent, null, effect.status);
+          deps.broadcastAgent(agent);
         }
         break;
       }
 
-      case "UpdateTaskActiveStatus": {
+      case "UpdateAgentActiveStatus": {
         // Mirror hook-relay.ts:343-354.
-        const existing = deps.taskManager.getTaskBySessionId(effect.sessionId);
+        const existing = deps.agentManager.getAgentBySessionId(effect.sessionId);
         if (!existing) break;
         const prevStatus = existing.lastAgentStatus;
         const now = new Date().toISOString();
-        const task = deps.taskManager.updateTask(existing.id, {
+        const agent = deps.agentManager.updateAgent(existing.id, {
           lastAgentStatus: effect.status,
           status: "active",
           ...(existing.activatedAt ? {} : { activatedAt: now }),
         });
-        if (task) {
+        if (agent) {
           if (effect.status === "requires_input") {
-            deps.unseenInputTasks.add(task.id);
+            deps.unseenInputAgents.add(agent.id);
           }
-          deps.maybeSendNotification(task, prevStatus, effect.status);
-          deps.broadcastTask(task);
+          deps.maybeSendNotification(agent, prevStatus, effect.status);
+          deps.broadcastAgent(agent);
         }
         break;
       }
@@ -169,38 +169,38 @@ export function applyEffects(
 
       case "MarkCompleted": {
         // Mirror hook-relay.ts:388-398.
-        const existing = deps.taskManager.getTaskBySessionId(effect.sessionId);
+        const existing = deps.agentManager.getAgentBySessionId(effect.sessionId);
         if (!existing) break;
-        const task = deps.taskManager.updateTask(existing.id, {
+        const agent = deps.agentManager.updateAgent(existing.id, {
           lastAgentStatus: "complete",
           status: "completed",
           completedAt: new Date().toISOString(),
         });
-        if (task) {
-          deps.unseenRespondedTasks.delete(task.id);
-          deps.unseenInputTasks.delete(task.id);
-          deps.broadcastTask(task);
+        if (agent) {
+          deps.unseenRespondedAgents.delete(agent.id);
+          deps.unseenInputAgents.delete(agent.id);
+          deps.broadcastAgent(agent);
         }
         break;
       }
 
       case "MarkError": {
         // Mirror hook-relay.ts:402-413.
-        const existing = deps.taskManager.getTaskBySessionId(effect.sessionId);
+        const existing = deps.agentManager.getAgentBySessionId(effect.sessionId);
         if (!existing) break;
         // The transition function does not surface the original error status
         // string today; preserve "error" as the lastAgentStatus, matching the
         // pre-ADR-139 code which wrote `status` (the AgentStatus) — for
         // StopFailure that value is the literal string "error".
-        const task = deps.taskManager.updateTask(existing.id, {
+        const agent = deps.agentManager.updateAgent(existing.id, {
           lastAgentStatus: "error",
           status: "error",
           completedAt: new Date().toISOString(),
         });
-        if (task) {
-          deps.unseenRespondedTasks.delete(task.id);
-          deps.unseenInputTasks.delete(task.id);
-          deps.broadcastTask(task);
+        if (agent) {
+          deps.unseenRespondedAgents.delete(agent.id);
+          deps.unseenInputAgents.delete(agent.id);
+          deps.broadcastAgent(agent);
         }
         break;
       }

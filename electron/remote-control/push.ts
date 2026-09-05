@@ -32,7 +32,7 @@ export interface VapidKeys {
 }
 
 export interface PushPayload {
-  taskId: string;
+  agentId: string;
   title: string;
   body: string;
 }
@@ -183,11 +183,11 @@ export class PushManager {
 /** The user-visible half of a push. No scrollback, ever. */
 export function pushPayloadFor(
   status: PushableStatus,
-  task: { id: string; name: string | null; projectName: string | null },
+  agent: { id: string; name: string | null; projectName: string | null },
 ): PushPayload {
   return {
-    taskId: task.id,
+    agentId: agent.id,
     title: status === "error" ? "Agent errored" : "Agent needs input",
-    body: [task.name || "Agent", task.projectName].filter(Boolean).join(" — "),
+    body: [agent.name || "Agent", agent.projectName].filter(Boolean).join(" — "),
   };
 }

@@ -28,8 +28,8 @@ const SUBSCRIPTION = {
   keys: { p256dh: "p256dh-value", auth: "auth-value" },
 };
 
-const TASK = {
-  id: "task-1",
+const AGENT = {
+  id: "agent-1",
   name: "fix the thing",
   projectName: "manor",
 };
@@ -105,20 +105,20 @@ describe("PushManager", () => {
   it("sends exactly one push per subscribed device", async () => {
     pairedWithPush("phone");
     pairedWithPush("tablet");
-    expect(await push.notify(pushPayloadFor("requires_input", TASK))).toBe(2);
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(2);
     expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("sends nothing to a device that never subscribed", async () => {
     devices.pair("silent", false);
-    expect(await push.notify(pushPayloadFor("requires_input", TASK))).toBe(0);
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
 
   it("sends nothing to a revoked device", async () => {
     const device = pairedWithPush();
     devices.revoke(device.id);
-    expect(await push.notify(pushPayloadFor("error", TASK))).toBe(0);
+    expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -131,12 +131,12 @@ describe("PushManager", () => {
     send.mockRejectedValueOnce(
       Object.assign(new Error("gone"), { statusCode: 410 }),
     );
-    expect(await push.notify(pushPayloadFor("requires_input", TASK))).toBe(0);
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(devices.pushTargets()).toEqual([]);
 
     // The next transition must not retry the dead endpoint.
     send.mockClear();
-    await push.notify(pushPayloadFor("requires_input", TASK));
+    await push.notify(pushPayloadFor("requires_input", AGENT));
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -146,7 +146,7 @@ describe("PushManager", () => {
     send.mockRejectedValueOnce(
       Object.assign(new Error("boom"), { statusCode: 500 }),
     );
-    expect(await push.notify(pushPayloadFor("requires_input", TASK))).toBe(0);
+    expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(devices.pushTargets()).toHaveLength(1);
     spy.mockRestore();
   });
@@ -160,19 +160,19 @@ describe("PushManager", () => {
       send as never,
       () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
     );
-    expect(await p.notify(pushPayloadFor("requires_input", TASK))).toBe(0);
+    expect(await p.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
 
   it("carries the session and project, and nothing else", async () => {
     pairedWithPush();
-    await push.notify(pushPayloadFor("requires_input", TASK));
+    await push.notify(pushPayloadFor("requires_input", AGENT));
     const payload = JSON.parse(send.mock.calls[0][1] as string) as Record<
       string,
       unknown
     >;
     expect(payload).toEqual({
-      taskId: "task-1",
+      agentId: "agent-1",
       title: "Agent needs input",
       body: "fix the thing — manor",
     });
@@ -203,8 +203,8 @@ describe("isPushable", () => {
 
 describe("pushPayloadFor", () => {
   it("titles an error differently from a block", () => {
-    expect(pushPayloadFor("error", TASK).title).toBe("Agent errored");
-    expect(pushPayloadFor("requires_input", TASK).title).toBe(
+    expect(pushPayloadFor("error", AGENT).title).toBe("Agent errored");
+    expect(pushPayloadFor("requires_input", AGENT).title).toBe(
       "Agent needs input",
     );
   });

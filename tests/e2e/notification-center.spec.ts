@@ -79,7 +79,13 @@ async function closeBell(window: Page): Promise<void> {
  */
 function showPrNotification(
   window: Page,
-  payload: { kind: string; title: string; body: string; url?: string },
+  payload: {
+    kind: string;
+    title: string;
+    body: string;
+    url?: string;
+    comment?: { author: string; body: string; url: string; createdAt: string };
+  },
 ): Promise<boolean> {
   return window.evaluate(
     (p) =>
@@ -167,7 +173,7 @@ test.describe("notification center", () => {
     await expect(row).toHaveAttribute("data-read", "false");
     await expect(row).toContainText("PR #7 approved");
     await expect(row).toContainText("Add the notification center");
-    // Grouped by day, through the same bucketing the task list uses.
+    // Grouped by day, through the same bucketing the agent list uses.
     await expect(popover(window)).toContainText("Today");
     await film.shot(window, "bell-unread-row");
 
@@ -232,6 +238,63 @@ test.describe("notification center", () => {
       .toEqual([]);
   });
 
+  test("resting on a comment row opens the comment beside the list", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const film = new Filmstrip("notification-comment-preview");
+    await captureExternalOpens(app);
+    await importSeededProject(app, window, tempHome);
+    await expect(bell(window)).toBeVisible({ timeout: 30_000 });
+
+    const comment = {
+      author: "alice",
+      body: "Nit: this helper already exists in relative-time.ts.\n\nOtherwise LGTM.",
+      url: "https://example.test/o/r/pull/9#issuecomment-42",
+      createdAt: new Date().toISOString(),
+    };
+    await showPrNotification(window, {
+      kind: "comment",
+      title: "PR #9 — new comment",
+      body: "Expand PR comment in notifications",
+      url: comment.url,
+      comment,
+    });
+
+    await openBell(window);
+    await expect(rows(window)).toHaveCount(1);
+    // The row names who commented, before the PR title.
+    await expect(rows(window).first().getByTestId("notification-author")).toHaveText(
+      "@alice",
+    );
+    const preview = window.getByTestId("notification-comment");
+
+    // Hover intent, not hover: a pass over the row shows nothing.
+    await rows(window).first().hover();
+    await expect(preview).toHaveCount(0);
+    await window.mouse.move(0, 0);
+
+    // Resting on it does. The row itself is unchanged.
+    await rows(window).first().hover();
+    await expect(preview).toBeVisible({ timeout: 5_000 });
+    await expect(preview).toContainText("@alice");
+    await expect(preview).toContainText("Nit: this helper already exists");
+    await expect(rows(window).first()).not.toContainText("Nit:");
+    await film.shot(window, "comment-preview-open");
+
+    // Leaving both the row and the preview closes it.
+    await window.mouse.move(0, 0);
+    await expect(preview).toHaveCount(0, { timeout: 5_000 });
+
+    // A click still goes to the comment, not the top of the PR.
+    await rows(window).first().click();
+    await expect(popover(window)).not.toBeVisible({ timeout: 5_000 });
+    await expect
+      .poll(() => openedUrls(app), { timeout: 10_000 })
+      .toContain(comment.url);
+  });
+
   /**
    * Launches its own app instances rather than taking the fixture's: the
    * fixture owns the shutdown of the app it created, and killing that one
@@ -282,12 +345,12 @@ test.describe("notification center", () => {
   });
 
   /**
-   * The agent path, end to end: a hook event moves a task's status, main
+   * The agent path, end to end: a hook event moves an agent's status, main
    * records what it would have banner-ed, and the row shows up under the bell.
    *
    * The fake agent parks in `requires_input` on startup, which is the case the
-   * relay's `CreateTask` effect owns — no prior task exists for
-   * `UpdateTaskActiveStatus` to find — and then answers each message with a
+   * relay's `CreateAgent` effect owns — no prior agent exists for
+   * `UpdateAgentActiveStatus` to find — and then answers each message with a
    * Stop. Both kinds of transition have to reach the log.
    */
   test("an agent's status changes land in the log while the window is focused", async ({
@@ -301,7 +364,7 @@ test.describe("notification center", () => {
 
     await awaitShellReady(window, tempHome, await activePaneId(window));
     // Typed rather than launched with Cmd+N: that consumes the prewarmed
-    // session, whose task row has no pane and no project. See the e2e README.
+    // session, whose agent row has no pane and no project. See the e2e README.
     await runInTerminal(window, `"${FAKE_AGENT}" notif-agent`);
     await expect(bell(window)).toBeVisible();
 
@@ -343,7 +406,7 @@ test.describe("notification center", () => {
     await expect(respondedRow).toHaveAttribute("data-kind", "agent-responded");
     await expect(respondedRow).toHaveAttribute("data-read", "true");
     await expect(respondedRow).toContainText("Agent responded");
-    // The body names the task and its project, exactly as the banner would.
+    // The body names the agent and its project, exactly as the banner would.
     await expect(respondedRow).toContainText("notif-agent");
     await expect(respondedRow).toContainText("test-project");
 

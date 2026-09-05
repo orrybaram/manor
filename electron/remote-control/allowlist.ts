@@ -22,10 +22,12 @@ import type { Route } from "../routes/types";
  * Read-only rows. Note what is *not* here: `POST /agents` launches a process
  * and `POST /tabs`/`POST /panes/split` mutate layout, so neither is a read
  * despite living under an otherwise-readable prefix. The session list the
- * mobile client renders is `GET /tasks`; there is no `GET /agents` route.
+ * mobile client renders is `GET /agents`, which shares its path with the
+ * launch route — the allowlist key is method + path, so only the read half
+ * is ever on the surface.
  */
 export const REMOTE_READ_ROUTES = [
-  "GET /tasks",
+  "GET /agents",
   "GET /context",
   "GET /panes",
   "POST /sessions/read",

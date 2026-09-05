@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import type { PrComment } from "../../src/lib/pr-info";
 import { assertString } from "../ipc-validate";
 import {
   playNotificationSound,
@@ -143,10 +144,17 @@ export function register(deps: IpcDeps): void {
         title: string;
         body: string;
         url?: string;
+        comment?: PrComment;
       },
     ): boolean => {
       assertString(payload.title, "title");
       assertString(payload.body, "body");
+      if (payload.comment !== undefined) {
+        assertString(payload.comment.author, "comment.author");
+        assertString(payload.comment.body, "comment.body");
+        assertString(payload.comment.url, "comment.url");
+        assertString(payload.comment.createdAt, "comment.createdAt");
+      }
       // Focus is judged against the window that asked, not the primary one:
       // the poller may live in a detached window (ADR-156).
       const callerWindow =

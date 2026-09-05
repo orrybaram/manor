@@ -224,7 +224,7 @@ All shortcuts are customizable via **Settings > Keybindings**.
 | ------------- | ------------------ |
 | `Cmd+K`       | Command palette    |
 | `Cmd+,`       | Settings           |
-| `Cmd+N`       | New task           |
+| `Cmd+N`       | New agent           |
 | `Cmd+Shift+N` | New workspace      |
 | `Cmd+Shift+B` | New browser window |
 | `Shift+Cmd+.` | Copy branch name   |

@@ -29,8 +29,8 @@ import { hasPaneId, type SplitDirection } from "../store/pane-tree";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
-/** Content types a pane may hold. "task" is a terminal that auto-runs a command. */
-const SPLIT_CONTENT_TYPES = ["terminal", "browser", "diff", "task"] as const;
+/** Content types a pane may hold. "agent" is a terminal that auto-runs a command. */
+const SPLIT_CONTENT_TYPES = ["terminal", "browser", "diff", "agent"] as const;
 type SplitContentType = (typeof SPLIT_CONTENT_TYPES)[number];
 
 /** Tabs can only be created as terminals or browsers (diff tabs have `addDiffTab`). */
@@ -180,7 +180,7 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
     throw new Error("url applies only to contentType 'browser'");
   }
   if (paneCommand && (contentType === "browser" || contentType === "diff")) {
-    throw new Error("command applies only to a terminal or task pane");
+    throw new Error("command applies only to a terminal or agent pane");
   }
 
   const paneId = state.splitPaneAt(target, direction, position, {

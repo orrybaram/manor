@@ -24,7 +24,7 @@ describe("NotificationStore", () => {
     return store.append({
       kind: "agent-responded",
       title: "Agent responded",
-      body: "Task finished",
+      body: "Agent finished",
       target: null,
       ...overrides,
     });
@@ -45,6 +45,24 @@ describe("NotificationStore", () => {
     expect(record.read).toBe(false);
     expect(() => new Date(record.timestamp).toISOString()).not.toThrow();
     expect(new Date(record.timestamp).toISOString()).toBe(record.timestamp);
+  });
+
+  it("append keeps a comment when given one and omits the key otherwise", () => {
+    const comment = {
+      author: "alice",
+      body: "One nit.",
+      url: "https://github.com/o/r/pull/1#issuecomment-1",
+      createdAt: "2026-09-05T10:00:00Z",
+    };
+    const withComment = append({ kind: "pr-comment", comment });
+    const without = append({ kind: "pr-comment" });
+    expect(withComment.comment).toEqual(comment);
+    expect("comment" in without).toBe(false);
+
+    // Persisted, not just held: a restart still knows what was said.
+    store.flushNow();
+    const reloaded = new NotificationStore(tmpDir);
+    expect(reloaded.getById(withComment.id)?.comment).toEqual(comment);
   });
 
   it("getById finds a record by id, null for unknown", () => {
@@ -78,25 +96,25 @@ describe("NotificationStore", () => {
     expect(store.getAll().every((n) => n.read)).toBe(true);
   });
 
-  it("markReadByTask reads only the records pointing at that task", () => {
-    const mine = append({ target: { type: "task", taskId: "t1" } });
-    const other = append({ target: { type: "task", taskId: "t2" } });
+  it("markReadByAgent reads only the records pointing at that agent", () => {
+    const mine = append({ target: { type: "agent", agentId: "t1" } });
+    const other = append({ target: { type: "agent", agentId: "t2" } });
     const urlRecord = append({
       target: { type: "url", url: "https://example.test/pull/1" },
     });
 
-    expect(store.markReadByTask("t1")).toBe(true);
+    expect(store.markReadByAgent("t1")).toBe(true);
     expect(store.getById(mine.id)?.read).toBe(true);
     expect(store.getById(other.id)?.read).toBe(false);
     expect(store.getById(urlRecord.id)?.read).toBe(false);
     expect(store.unreadCount()).toBe(2);
   });
 
-  it("markReadByTask reports no change when nothing is left unread", () => {
-    append({ target: { type: "task", taskId: "t1" } });
-    expect(store.markReadByTask("t1")).toBe(true);
-    expect(store.markReadByTask("t1")).toBe(false);
-    expect(store.markReadByTask("never-seen")).toBe(false);
+  it("markReadByAgent reports no change when nothing is left unread", () => {
+    append({ target: { type: "agent", agentId: "t1" } });
+    expect(store.markReadByAgent("t1")).toBe(true);
+    expect(store.markReadByAgent("t1")).toBe(false);
+    expect(store.markReadByAgent("never-seen")).toBe(false);
   });
 
   it("clear empties the store", () => {
@@ -164,6 +182,26 @@ describe("NotificationStore", () => {
 
     const reloaded = new NotificationStore(tmpDir);
     expect(reloaded.getAll()).toEqual([record]);
+  });
+
+  it("migrates pre-rename { type: \"task\", taskId } targets on load (ADR-166)", () => {
+    const record = append({ target: { type: "agent", agentId: "keep" } });
+    const legacy = {
+      ...record,
+      id: "legacy-id",
+      target: { type: "task", taskId: "t-legacy" },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, "notifications.json"),
+      JSON.stringify({ notifications: [record, legacy] }),
+    );
+
+    const reloaded = new NotificationStore(tmpDir);
+    expect(reloaded.getById("legacy-id")?.target).toEqual({
+      type: "agent",
+      agentId: "t-legacy",
+    });
+    expect(reloaded.markReadByAgent("t-legacy")).toBe(true);
   });
 
   it("a corrupt notifications.json yields an empty store instead of throwing", () => {

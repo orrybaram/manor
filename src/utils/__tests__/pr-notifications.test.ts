@@ -34,6 +34,35 @@ describe("diffPrEvents", () => {
     ]);
   });
 
+  it("attaches the latest comment to a comment event when the fetcher knows it", () => {
+    const latestComment = {
+      author: "alice",
+      body: "One nit.",
+      url: "https://github.com/o/r/pull/123#issuecomment-9",
+      createdAt: "2026-09-05T10:00:00Z",
+    };
+    const events = diffPrEvents(
+      makePr({ commentCount: 1 }),
+      makePr({ commentCount: 2, latestComment }),
+    );
+    expect(events).toEqual([
+      {
+        kind: "comment",
+        title: "PR #123 — new comment",
+        body: "Add feature",
+        comment: latestComment,
+      },
+    ]);
+  });
+
+  it("leaves `comment` off entirely when there is no latest comment", () => {
+    const [event] = diffPrEvents(
+      makePr({ commentCount: 1 }),
+      makePr({ commentCount: 2, latestComment: null }),
+    );
+    expect("comment" in event).toBe(false);
+  });
+
   it("does not emit a comment event when commentCount is unchanged", () => {
     const prev = makePr({ commentCount: 2 });
     const next = makePr({ commentCount: 2 });
@@ -155,6 +184,31 @@ describe("deliverPrNotifications", () => {
       url: "https://github.com/o/r/pull/123",
     });
     expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
+  it("sends the comment along and deep-links to it instead of the PR", async () => {
+    show.mockResolvedValue(true);
+    const latestComment = {
+      author: "alice",
+      body: "One nit.",
+      url: "https://github.com/o/r/pull/123#issuecomment-9",
+      createdAt: "2026-09-05T10:00:00Z",
+    };
+
+    deliverPrNotifications(
+      makePr({ commentCount: 1 }),
+      makePr({ commentCount: 2, latestComment }),
+      prefs,
+    );
+    await flush();
+
+    expect(show).toHaveBeenCalledWith({
+      kind: "comment",
+      title: "PR #123 — new comment",
+      body: "Add feature",
+      url: latestComment.url,
+      comment: latestComment,
+    });
   });
 
   it("falls back to a toast when main declines (window focused)", async () => {

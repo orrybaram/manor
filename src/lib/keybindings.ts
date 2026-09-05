@@ -113,8 +113,8 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     category: "app",
   },
   {
-    id: "new-task",
-    label: "New Task",
+    id: "new-agent",
+    label: "New Agent",
     defaultCombo: metaCombo("n"),
     category: "workspace",
   },

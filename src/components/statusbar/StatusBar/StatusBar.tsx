@@ -45,11 +45,11 @@ function LinkedIssueIcon(props: LinkedIssueIconProps) {
 
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
-  onNewTaskWithPrompt?: (prompt: string) => void;
+  onNewAgentWithPrompt?: (prompt: string) => void;
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { onNewWorkspace, onNewTaskWithPrompt } = props;
+  const { onNewWorkspace, onNewAgentWithPrompt } = props;
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -97,7 +97,7 @@ export function StatusBar(props: StatusBarProps) {
                   projectId={project.id}
                   workspacePath={workspace!.path}
                   onNewWorkspace={onNewWorkspace}
-                  onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                 >
                   <button
                     className={styles.linearSection}

@@ -103,9 +103,10 @@ describe("the remote table excludes", () => {
   });
 
   it("agent launching", () => {
-    expect(
-      paths.filter((p) => p === "/agents" || p.startsWith("/agents/")),
-    ).toEqual([]);
+    // `GET /agents` (the session list) shares its path with the launch route,
+    // so this is asserted by key, not by path.
+    expect(keys(remote).filter((k) => k === "POST /agents")).toEqual([]);
+    expect(paths.filter((p) => p.startsWith("/agents/"))).toEqual([]);
   });
 
   it("any DELETE", () => {

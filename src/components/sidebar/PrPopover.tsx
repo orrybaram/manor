@@ -12,6 +12,7 @@ import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import type { PrInfo } from "../../store/project-store";
+import { prReadiness } from "../../lib/pr-readiness";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import styles from "./PrPopover.module.css";
 
@@ -69,28 +70,17 @@ export function PrPopover(props: PrPopoverProps) {
         ? styles.prPopoverStateClosed
         : styles.prPopoverStateOpen;
 
-  const badgeClass =
-    pr.state === "merged"
-      ? styles.prMerged
-      : pr.state === "closed"
-        ? styles.prClosed
-        : styles.prOpen;
+  const readiness = prReadiness(pr);
+  const badgeClass = {
+    ready: styles.prReady,
+    blocked: styles.prBlocked,
+    pending: styles.prPending,
+    merged: styles.prMerged,
+    closed: styles.prClosed,
+  }[readiness];
 
-  // Status dot on badge
-  const hasUnresolved =
-    pr.unresolvedThreads != null && pr.unresolvedThreads > 0;
-  const allChecksPassing =
-    pr.checks != null && pr.checks.failing === 0 && pr.checks.pending === 0;
-  const isApproved = pr.reviewDecision === "APPROVED";
-  const isAllGreen =
-    pr.state === "open" && allChecksPassing && isApproved && !hasUnresolved;
-
-  let dotClass: string | null = null;
-  if (hasUnresolved) {
-    dotClass = styles.prBadgeDotWarning;
-  } else if (isAllGreen) {
-    dotClass = styles.prBadgeDotSuccess;
-  }
+  const showDraftOutline =
+    pr.isDraft && readiness !== "merged" && readiness !== "closed";
 
   // CI checks summary
   let checksElement: React.ReactNode = null;
@@ -173,7 +163,9 @@ export function PrPopover(props: PrPopoverProps) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <span
-          className={`${styles.prBadge} ${badgeClass}`}
+          className={`${styles.prBadge} ${badgeClass}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
+          data-readiness={readiness}
+          data-draft={pr.isDraft ? "true" : "false"}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onPointerDown={(e) => e.stopPropagation()}
@@ -183,7 +175,6 @@ export function PrPopover(props: PrPopoverProps) {
           }}
         >
           <PrIcon size={10} />#{pr.number}
-          {dotClass && <span className={dotClass} />}
         </span>
       </Popover.Trigger>
       <Popover.Portal>

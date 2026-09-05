@@ -87,8 +87,8 @@ describe("electron/paths", () => {
       expect(paths.projectsFile()).toBe(path.join(dataRoot(), "projects.json"));
     });
 
-    it("tasksFile", () => {
-      expect(paths.tasksFile()).toBe(path.join(dataRoot(), "tasks.json"));
+    it("agentsFile", () => {
+      expect(paths.agentsFile()).toBe(path.join(dataRoot(), "agents.json"));
     });
 
     it("preferencesFile", () => {
@@ -139,8 +139,8 @@ describe("electron/paths", () => {
       expect(paths.projectsFile()).toBe(path.join(dataRoot(), "projects.json"));
     });
 
-    it("tasksFile", () => {
-      expect(paths.tasksFile()).toBe(path.join(dataRoot(), "tasks.json"));
+    it("agentsFile", () => {
+      expect(paths.agentsFile()).toBe(path.join(dataRoot(), "agents.json"));
     });
 
     it("preferencesFile", () => {
@@ -292,7 +292,7 @@ describe("electron/paths", () => {
         paths.manorDataDir,
         paths.manorHomeDir,
         paths.projectsFile,
-        paths.tasksFile,
+        paths.agentsFile,
         paths.preferencesFile,
         paths.keybindingsFile,
         paths.windowBoundsFile,

@@ -5,12 +5,12 @@ import { SplitPanelLayout } from "./SplitPanelLayout";
 interface PanelLayoutProps {
   node: PanelNode;
   workspacePath: string;
-  onNewTask: () => void;
+  onNewAgent: () => void;
 }
 
-export function PanelLayout({ node, workspacePath, onNewTask }: PanelLayoutProps) {
+export function PanelLayout({ node, workspacePath, onNewAgent }: PanelLayoutProps) {
   if (node.type === "leaf") {
-    return <LeafPanel panelId={node.panelId} workspacePath={workspacePath} onNewTask={onNewTask} />;
+    return <LeafPanel panelId={node.panelId} workspacePath={workspacePath} onNewAgent={onNewAgent} />;
   }
   return (
     <SplitPanelLayout
@@ -19,7 +19,7 @@ export function PanelLayout({ node, workspacePath, onNewTask }: PanelLayoutProps
       first={node.first}
       second={node.second}
       workspacePath={workspacePath}
-      onNewTask={onNewTask}
+      onNewAgent={onNewAgent}
     />
   );
 }

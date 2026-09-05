@@ -9,7 +9,7 @@ import type { DiffWatcher } from "../diff-watcher";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
-import type { TaskManager } from "../task-persistence";
+import type { AgentManager } from "../agent-persistence";
 import type { NotificationStore } from "../notification-store";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
@@ -46,7 +46,7 @@ export interface IpcDeps {
   githubManager: GitHubManager;
   linearManager: LinearManager;
   agentHookServer: AgentHookServer;
-  taskManager: TaskManager;
+  agentManager: AgentManager;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
   preferencesManager: PreferencesManager;
@@ -55,8 +55,8 @@ export interface IpcDeps {
     string,
     { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
   >;
-  unseenRespondedTasks: Set<string>;
-  unseenInputTasks: Set<string>;
+  unseenRespondedAgents: Set<string>;
+  unseenInputAgents: Set<string>;
   webviewServer: WebviewServer;
   workspaceMeta: WorkspaceMeta[];
   prewarmManager: PrewarmManager;

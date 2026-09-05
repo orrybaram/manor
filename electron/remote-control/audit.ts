@@ -28,7 +28,7 @@ export interface RemoteAuditEntry {
   deviceId: string;
   deviceLabel: string;
   route: string;
-  /** The `target` the caller named — a task id, pane id, or branch. */
+  /** The `target` the caller named — an agent id, pane id, or branch. */
   target: string | null;
   textLength: number | null;
   textSha256: string | null;

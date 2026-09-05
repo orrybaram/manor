@@ -17,7 +17,7 @@ function entry(over: Partial<RemoteAuditEntry> = {}): RemoteAuditEntry {
     deviceId: "dev-1",
     deviceLabel: "phone",
     route: "POST /sessions/send",
-    target: "task-1",
+    target: "agent-1",
     textLength: 5,
     textSha256: hashText("hello"),
     interrupt: false,

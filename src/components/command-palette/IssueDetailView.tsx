@@ -17,14 +17,14 @@ type IssueDetailViewProps = {
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
-  onNewTaskWithPrompt?: (prompt: string) => void;
+  onNewAgentWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
   projectId?: string;
   workspacePath?: string;
 };
 
 export function IssueDetailView(props: IssueDetailViewProps) {
-  const { issueId, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
+  const { issueId, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -101,11 +101,11 @@ export function IssueDetailView(props: IssueDetailViewProps) {
     [onClose],
   );
 
-  const handleNewTask = useCallback(
+  const handleNewAgent = useCallback(
     (issue: LinearIssueDetail) => {
       const prompt =
         issue.title + "\n\n" + (issue.description ?? "");
-      onNewTaskWithPrompt?.(prompt);
+      onNewAgentWithPrompt?.(prompt);
       window.electronAPI.linear.startIssue(issue.id);
       onClose();
 
@@ -127,7 +127,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         );
       }
     },
-    [onNewTaskWithPrompt, onClose],
+    [onNewAgentWithPrompt, onClose],
   );
 
   const handleUnlink = useCallback(async () => {
@@ -157,11 +157,11 @@ export function IssueDetailView(props: IssueDetailViewProps) {
   const issueDetailRef = useRef(issueDetail);
   const handleCreateWorkspaceRef = useRef(handleCreateWorkspace);
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
-  const handleNewTaskRef = useRef(handleNewTask);
+  const handleNewAgentRef = useRef(handleNewAgent);
   issueDetailRef.current = issueDetail;
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
   handleOpenInBrowserRef.current = handleOpenInBrowser;
-  handleNewTaskRef.current = handleNewTask;
+  handleNewAgentRef.current = handleNewAgent;
 
   // The Enter keyup from the list selection can arrive after this effect
   // registers its listener, so we gate on a `ready` flag set after a frame.
@@ -177,7 +177,7 @@ export function IssueDetailView(props: IssueDetailViewProps) {
         handleCreateWorkspaceRef.current(issueDetailRef.current);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleNewTaskRef.current(issueDetailRef.current);
+        handleNewAgentRef.current(issueDetailRef.current);
       }
     };
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -303,10 +303,10 @@ export function IssueDetailView(props: IssueDetailViewProps) {
           <>
             <button
               className={styles.footerHint}
-              onClick={() => handleNewTask(issueDetail)}
+              onClick={() => handleNewAgent(issueDetail)}
             >
               <kbd className={styles.kbd}>Enter</kbd>
-              <span>New Task</span>
+              <span>New Agent</span>
             </button>
             <button
               className={styles.footerHint}

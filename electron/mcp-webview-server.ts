@@ -20,7 +20,7 @@ import { webviewModule } from "./mcp/tools-webview";
 import { projectsModule } from "./mcp/tools-projects";
 import { agentsModule } from "./mcp/tools-agents";
 import { panesModule } from "./mcp/tools-panes";
-import { tasksModule } from "./mcp/tools-tasks";
+import { sessionsModule } from "./mcp/tools-sessions";
 
 // ── Port discovery ──
 
@@ -126,7 +126,7 @@ const modules = [
   projectsModule,
   agentsModule,
   panesModule,
-  tasksModule,
+  sessionsModule,
 ];
 const TOOLS = modules.flatMap((m) => m.tools);
 const handlers = Object.assign({}, ...modules.map((m) => m.handlers));

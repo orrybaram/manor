@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { NotificationRecord, TaskInfo } from "../../electron.d";
+import type { NotificationRecord, AgentInfo } from "../../electron.d";
 
 // ── Mock electronAPI ──────────────────────────────────────────────────────────
-// Same pattern as task-store-unseen.test.ts: install the stub before importing
+// Same pattern as agent-store-unseen.test.ts: install the stub before importing
 // the store, so its eager init and its create-time subscriptions see it.
 
 let onChangedCallback: ((list: NotificationRecord[]) => void) | null = null;
@@ -24,7 +24,7 @@ const notificationsApi = {
   }),
 };
 
-const tasksApi = {
+const agentsApi = {
   onUpdate: vi.fn(() => () => {}),
   get: vi.fn().mockResolvedValue(null),
   getActive: vi.fn().mockResolvedValue([]),
@@ -37,28 +37,28 @@ const shellApi = { openExternal: vi.fn().mockResolvedValue(undefined) };
 
 (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
   ...((window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI ?? {}),
-  tasks: tasksApi,
+  agents: agentsApi,
   notifications: notificationsApi,
   shell: shellApi,
 };
 
-const navigateToTask = vi.fn();
-vi.mock("../../utils/task-navigation", () => ({
-  navigateToTask: (task: TaskInfo) => navigateToTask(task),
+const navigateToAgent = vi.fn();
+vi.mock("../../utils/agent-navigation", () => ({
+  navigateToAgent: (agent: AgentInfo) => navigateToAgent(agent),
 }));
 
 const { useNotificationStore } = await import("../notification-store");
 const { navigateToNotification } = await import(
   "../../utils/notification-navigation"
 );
-const { useTaskStore } = await import("../task-store");
+const { useAgentStore } = await import("../agent-store");
 
 function makeRecord(over: Partial<NotificationRecord> = {}): NotificationRecord {
   return {
     id: "n1",
     kind: "agent-responded",
     title: "Agent responded",
-    body: "Task — Project",
+    body: "Agent — Project",
     timestamp: "2024-01-15T00:00:00Z",
     read: false,
     target: null,
@@ -133,39 +133,39 @@ describe("navigateToNotification", () => {
     );
 
     expect(shellApi.openExternal).toHaveBeenCalledWith("https://x/pull/2");
-    expect(navigateToTask).not.toHaveBeenCalled();
+    expect(navigateToAgent).not.toHaveBeenCalled();
   });
 
-  it("resolves a task target from the task store", async () => {
-    const task = { id: "t1" } as TaskInfo;
-    useTaskStore.setState({ tasks: [task] });
+  it("resolves an agent target from the agent store", async () => {
+    const agent = { id: "t1" } as AgentInfo;
+    useAgentStore.setState({ agents: [agent] });
 
     await navigateToNotification(
-      makeRecord({ target: { type: "task", taskId: "t1" } }),
+      makeRecord({ target: { type: "agent", agentId: "t1" } }),
     );
 
-    expect(navigateToTask).toHaveBeenCalledWith(task);
-    expect(tasksApi.get).not.toHaveBeenCalled();
+    expect(navigateToAgent).toHaveBeenCalledWith(agent);
+    expect(agentsApi.get).not.toHaveBeenCalled();
   });
 
-  it("falls back to tasks.get when the task is not cached", async () => {
-    const task = { id: "t2" } as TaskInfo;
-    useTaskStore.setState({ tasks: [] });
-    tasksApi.get.mockResolvedValueOnce(task);
+  it("falls back to agents.get when the agent is not cached", async () => {
+    const agent = { id: "t2" } as AgentInfo;
+    useAgentStore.setState({ agents: [] });
+    agentsApi.get.mockResolvedValueOnce(agent);
 
     await navigateToNotification(
-      makeRecord({ target: { type: "task", taskId: "t2" } }),
+      makeRecord({ target: { type: "agent", agentId: "t2" } }),
     );
 
-    expect(tasksApi.get).toHaveBeenCalledWith("t2");
-    expect(navigateToTask).toHaveBeenCalledWith(task);
+    expect(agentsApi.get).toHaveBeenCalledWith("t2");
+    expect(navigateToAgent).toHaveBeenCalledWith(agent);
   });
 
   it("marks read and stops when the target is null", async () => {
     await navigateToNotification(makeRecord({ id: "n9", target: null }));
 
     expect(notificationsApi.markRead).toHaveBeenCalledWith("n9");
-    expect(navigateToTask).not.toHaveBeenCalled();
+    expect(navigateToAgent).not.toHaveBeenCalled();
     expect(shellApi.openExternal).not.toHaveBeenCalled();
   });
 

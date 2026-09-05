@@ -1,4 +1,4 @@
-import type { PrInfo } from "./lib/pr-info";
+import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
@@ -15,10 +15,10 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   diffOpensInNewPanel: boolean;
-  /** Days to retain non-active tasks. Set to 0 to disable pruning. */
-  taskRetentionDays: number;
+  /** Days to retain non-active agents. Set to 0 to disable pruning. */
+  agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
-  taskPruneNoticeShown: boolean;
+  agentPruneNoticeShown: boolean;
   /** Agent-agnostic harness Home auto-launches. */
   homeHarness: HarnessKind;
   /** Launch command used when `homeHarness === "custom"`. */
@@ -27,13 +27,13 @@ export interface AppPreferences {
   homeCustomInterrupt: string;
 }
 
-export type TaskStatus = "active" | "completed" | "error" | "abandoned";
+export type AgentLifecycleStatus = "active" | "completed" | "error" | "abandoned";
 
-export interface TaskInfo {
+export interface AgentInfo {
   id: string;
   agentSessionId: string;
   name: string | null;
-  status: TaskStatus;
+  status: AgentLifecycleStatus;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -46,7 +46,7 @@ export interface TaskInfo {
   agentCommand: string | null;
   paneId: string | null;
   lastAgentStatus: string | null;
-  /** ISO timestamp set when auto-resume fires for this task, to prevent double-launch */
+  /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
 }
 
@@ -64,7 +64,7 @@ export type NotificationKind =
   | "pr-checks-failed";
 
 export type NotificationTarget =
-  | { type: "task"; taskId: string }
+  | { type: "agent"; agentId: string }
   | { type: "url"; url: string };
 
 export interface NotificationRecord {
@@ -76,6 +76,8 @@ export interface NotificationRecord {
   timestamp: string;
   read: boolean;
   target: NotificationTarget | null;
+  /** `pr-comment` records only, and only when the fetcher knew it (#177). */
+  comment?: PrComment;
 }
 
 export interface LinearTeam {
@@ -636,32 +638,32 @@ export interface ElectronAPI {
     discoverAgents: () => Promise<Array<{ name: string; command: string }>>;
   };
 
-  tasks: {
+  agents: {
     getAll: (opts?: {
       projectId?: string;
       status?: string;
       limit?: number;
       offset?: number;
-    }) => Promise<TaskInfo[]>;
-    getActive: () => Promise<TaskInfo[]>;
-    getRecent: (opts?: { limit?: number }) => Promise<TaskInfo[]>;
+    }) => Promise<AgentInfo[]>;
+    getActive: () => Promise<AgentInfo[]>;
+    getRecent: (opts?: { limit?: number }) => Promise<AgentInfo[]>;
     /**
      * Returns main's full unseen-flag snapshot. Used by the renderer on boot
-     * to prime its `unseenRespondedTaskIds` / `unseenInputTaskIds` Sets so
+     * to prime its `unseenRespondedAgentIds` / `unseenInputAgentIds` Sets so
      * pulse-state matches main exactly. See ADR-136 §"Change 3".
      */
     getUnseen: () => Promise<{ responded: string[]; requires_input: string[] }>;
     /**
-     * Returns the number of tasks pruned during the most recent boot, exactly
+     * Returns the number of agents pruned during the most recent boot, exactly
      * once. Renderer should show a one-time notice if count > 0.
      */
     consumePruneNotice: () => Promise<number>;
-    get: (taskId: string) => Promise<TaskInfo | null>;
+    get: (agentId: string) => Promise<AgentInfo | null>;
     update: (
-      taskId: string,
+      agentId: string,
       updates: { name?: string | null },
-    ) => Promise<TaskInfo | null>;
-    delete: (taskId: string) => Promise<boolean>;
+    ) => Promise<AgentInfo | null>;
+    delete: (agentId: string) => Promise<boolean>;
     setPaneContext: (
       paneId: string,
       context: {
@@ -671,19 +673,19 @@ export interface ElectronAPI {
         agentCommand: string | null;
       },
     ) => Promise<void>;
-    markSeen: (taskId: string) => Promise<void>;
-    markResumed: (taskId: string) => Promise<TaskInfo | null>;
-    buildResumeCommand: (taskId: string) => Promise<string | null>;
+    markSeen: (agentId: string) => Promise<void>;
+    markResumed: (agentId: string) => Promise<AgentInfo | null>;
+    buildResumeCommand: (agentId: string) => Promise<string | null>;
     reconcileStale: () => Promise<void>;
     abandonForPane: (paneId: string, title?: string | null) => Promise<void>;
     /**
-     * Subscribe to live task updates. The second argument carries main's
-     * authoritative unseen flags for the broadcast task at the moment it
+     * Subscribe to live agent updates. The second argument carries main's
+     * authoritative unseen flags for the broadcast agent at the moment it
      * was sent. The renderer treats these flags as the source of truth.
      */
     onUpdate: (
       callback: (
-        task: TaskInfo,
+        agent: AgentInfo,
         unseen: { responded: boolean; requires_input: boolean },
       ) => void,
     ) => () => void;
@@ -720,6 +722,7 @@ export interface ElectronAPI {
       title: string;
       body: string;
       url?: string;
+      comment?: PrComment;
     }) => Promise<boolean>;
     /** Newest first. Main owns the list; the renderer only caches it. */
     getAll: () => Promise<NotificationRecord[]>;

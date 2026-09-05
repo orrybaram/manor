@@ -86,7 +86,7 @@ export function useCommands({
   }, [activeWs]);
 
   const splitWithContent = useCallback(
-    (contentType?: "terminal" | "browser" | "diff" | "task", paneCommand?: string) => {
+    (contentType?: "terminal" | "browser" | "diff" | "agent", paneCommand?: string) => {
       if (!focusedPaneId) return;
       const el = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
       const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
@@ -227,17 +227,17 @@ export function useCommands({
         },
       },
       {
-        id: "split-with-task",
-        label: "Split with Task",
+        id: "split-with-agent",
+        label: "Split with Agent",
         icon: <Bot size={14} />,
-        keywords: ["split", "task", "pane", "agent", "claude"],
+        keywords: ["split", "agent", "pane", "claude"],
         action: () => {
           const awp = useAppStore.getState().activeWorkspacePath;
           const proj = useProjectStore.getState().projects.find((p) =>
             p.workspaces.some((w) => w.path === awp),
           );
           const command = proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-          splitWithContent("task", command);
+          splitWithContent("agent", command);
           onClose();
         },
       },
@@ -272,10 +272,10 @@ export function useCommands({
         },
       },
       {
-        id: "convert-to-task",
-        label: "Convert to Task",
+        id: "convert-to-agent",
+        label: "Convert to Agent",
         icon: <Bot size={14} />,
-        keywords: ["convert", "task", "pane", "agent", "claude"],
+        keywords: ["convert", "agent", "pane", "claude"],
         action: () => {
           if (focusedPaneId) {
             const state = useAppStore.getState();

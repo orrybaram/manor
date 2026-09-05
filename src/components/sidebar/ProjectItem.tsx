@@ -28,7 +28,8 @@ import {
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
-import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
+import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -100,6 +101,7 @@ const WorkspaceItem = React.forwardRef<
   } = props;
 
   const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(ws.path);
+  const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
 
   return (
     <div
@@ -137,8 +139,8 @@ const WorkspaceItem = React.forwardRef<
       ) : (
         <>
           <span className={styles.workspaceIcon}>
-            {workspaceStatus ? (
-              <AgentDot status={workspaceStatus} size="sidebar" pulse={workspacePulse} />
+            {workspaceIndicator ? (
+              <WorkspaceIndicatorDot indicator={workspaceIndicator} />
             ) : ws.isMain ? (
               <GitBranch size={12} />
             ) : (
@@ -277,6 +279,7 @@ export function ProjectItem(props: ProjectItemProps) {
   const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
+  const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);
   const mainWorkspace = project.workspaces.find((ws) => ws.isMain);
   const hiddenWorkspaces = project.workspaces.filter((ws) => ws.hidden);
 
@@ -588,8 +591,8 @@ export function ProjectItem(props: ProjectItemProps) {
             <span className={styles.projectName} title={project.path}>
               {project.name}
             </span>
-            {collapsed && projectStatus && (
-              <AgentDot status={projectStatus} size="sidebar" pulse={projectPulse} />
+            {collapsed && projectIndicator && (
+              <WorkspaceIndicatorDot indicator={projectIndicator} />
             )}
           </div>
         </ContextMenu.Trigger>

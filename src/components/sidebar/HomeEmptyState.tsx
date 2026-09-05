@@ -10,7 +10,7 @@ import type { PaletteView } from "../command-palette/types";
 
 type HomeEmptyStateProps = {
   /** Boots the configured home harness in a fresh tab (⌘N). */
-  onNewTask: () => void;
+  onNewAgent: () => void;
   /** Opens the directory picker to add a new project. */
   onAddProject: () => void;
   /** Opens the command palette on a specific view (issue lists). */
@@ -19,7 +19,7 @@ type HomeEmptyStateProps = {
 
 /** Shown when the home surface has no tabs open. */
 export function HomeEmptyState(props: HomeEmptyStateProps) {
-  const { onNewTask, onAddProject, onOpenPaletteView } = props;
+  const { onNewAgent, onAddProject, onOpenPaletteView } = props;
 
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const addTab = useAppStore((s) => s.addTab);
@@ -35,9 +35,9 @@ export function HomeEmptyState(props: HomeEmptyStateProps) {
     },
     {
       icon: <Plus size={16} />,
-      label: "New Task",
+      label: "New Agent",
       keys: ["⌘", "N"],
-      action: onNewTask,
+      action: onNewAgent,
     },
     {
       icon: <Terminal size={16} />,

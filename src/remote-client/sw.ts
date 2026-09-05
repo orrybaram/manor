@@ -15,7 +15,7 @@
 declare const self: ServiceWorkerGlobalScope;
 
 interface PushPayload {
-  taskId: string;
+  agentId: string;
   title: string;
   body: string;
 }
@@ -42,17 +42,17 @@ self.addEventListener("push", (event) => {
       body: payload.body,
       // One notification per session: a session that flaps between blocked and
       // working must not stack up a column of them.
-      tag: `manor-${payload.taskId}`,
+      tag: `manor-${payload.agentId}`,
       renotify: true,
-      data: { taskId: payload.taskId },
+      data: { agentId: payload.agentId },
     } as NotificationOptions),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const taskId = (event.notification.data as { taskId?: string } | null)
-    ?.taskId;
+  const agentId = (event.notification.data as { agentId?: string } | null)
+    ?.agentId;
 
   event.waitUntil(
     (async () => {
@@ -62,13 +62,13 @@ self.addEventListener("notificationclick", (event) => {
       });
       for (const client of clients) {
         if ("focus" in client) {
-          if (taskId) client.postMessage({ type: "open-task", taskId });
+          if (agentId) client.postMessage({ type: "open-agent", agentId });
           await client.focus();
           return;
         }
       }
       await self.clients.openWindow(
-        taskId ? `./?task=${encodeURIComponent(taskId)}` : "./",
+        agentId ? `./?agent=${encodeURIComponent(agentId)}` : "./",
       );
     })(),
   );

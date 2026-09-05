@@ -56,7 +56,7 @@
   padding-bottom: 8px;
 }
 
-/* Duplicated in TasksList.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
+/* Duplicated in AgentsList.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
 .sectionHeader {
   display: flex;
   align-items: center;
@@ -91,7 +91,7 @@
   padding: 0;
 }
 
-/* Duplicated in TasksList.module.css — candidate for a shared <SectionHeader> UI component */
+/* Duplicated in AgentsList.module.css — candidate for a shared <SectionHeader> UI component */
 .action {
   border: none;
   background: transparent;

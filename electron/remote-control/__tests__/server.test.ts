@@ -41,7 +41,7 @@ const devices = {
 describe("RemoteControlServer", () => {
   let server: RemoteControlServer;
   let base: string;
-  let getTaskById: ReturnType<typeof vi.fn>;
+  let getAgentById: ReturnType<typeof vi.fn>;
   let deps: ControlDeps;
   let now: number;
   let auditDir: string;
@@ -63,20 +63,20 @@ describe("RemoteControlServer", () => {
     fs.writeFileSync(path.join(clientDir, "assets", "app.js"), "export {};");
     ptyWrite = vi.fn();
     subscribe = vi.fn(() => true);
-    getTaskById = vi.fn(() => null);
+    getAgentById = vi.fn(() => null);
     deps = {
       projectManager: null,
       githubManager: null,
       linearManager: null,
       layoutPersistence: null,
-      // Enough of a TaskManager for `GET /tasks` to answer and for the
+      // Enough of an AgentManager for `GET /agents` to answer and for the
       // "did a handler run?" assertions to have something to observe.
-      taskManager: {
-        getActiveTasks: () => [],
-        getAllTasks: () => [],
-        getTaskById,
-        getTaskByPaneId: () => null,
-      } as unknown as ControlDeps["taskManager"],
+      agentManager: {
+        getActiveAgents: () => [],
+        getAllAgents: () => [],
+        getAgentById,
+        getAgentByPaneId: () => null,
+      } as unknown as ControlDeps["agentManager"],
       backend: null,
     };
     server = new RemoteControlServer(() => deps, devices, {
@@ -100,15 +100,15 @@ describe("RemoteControlServer", () => {
 
   /** Give the deps a live session so a send can actually succeed. */
   function withLiveSession(): void {
-    const task = {
-      id: "task-1",
+    const agent = {
+      id: "agent-1",
       name: "fix the thing",
       paneId: "pane-1",
       agentKind: "claude",
       lastAgentStatus: "requires_input",
     };
-    getTaskById.mockImplementation((id: string) =>
-      id === "task-1" ? task : null,
+    getAgentById.mockImplementation((id: string) =>
+      id === "agent-1" ? agent : null,
     );
     deps.backend = {
       pty: { write: ptyWrite },
@@ -147,17 +147,17 @@ describe("RemoteControlServer", () => {
 
   describe("authentication", () => {
     it("401s a request with no Authorization header", async () => {
-      const res = await get("/tasks");
+      const res = await get("/agents");
       expect(res.status).toBe(401);
     });
 
     it("401s a wrong token", async () => {
-      const res = await get("/tasks", "not-a-real-token");
+      const res = await get("/agents", "not-a-real-token");
       expect(res.status).toBe(401);
     });
 
     it("401s a non-Bearer Authorization header", async () => {
-      const res = await get("/tasks", undefined, {
+      const res = await get("/agents", undefined, {
         Authorization: `Basic ${READ_TOKEN}`,
       });
       expect(res.status).toBe(401);
@@ -165,19 +165,19 @@ describe("RemoteControlServer", () => {
 
     it("rejects before any handler runs or any body is read", async () => {
       const res = await post("/sessions/read", undefined, {
-        target: "task-1",
+        target: "agent-1",
       });
       expect(res.status).toBe(401);
-      expect(getTaskById).not.toHaveBeenCalled();
+      expect(getAgentById).not.toHaveBeenCalled();
     });
 
     it("never echoes the presented token", async () => {
-      const res = await get("/tasks", "secret-guess");
+      const res = await get("/agents", "secret-guess");
       expect(await res.text()).not.toContain("secret-guess");
     });
 
     it("lets a valid token reach an allowlisted route", async () => {
-      const res = await get("/tasks", READ_TOKEN);
+      const res = await get("/agents", READ_TOKEN);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
     });
@@ -185,13 +185,13 @@ describe("RemoteControlServer", () => {
 
   describe("rate limiting", () => {
     it("429s a source that just failed, then lets it retry", async () => {
-      expect((await get("/tasks", "wrong")).status).toBe(401);
-      const blocked = await get("/tasks", "wrong-again");
+      expect((await get("/agents", "wrong")).status).toBe(401);
+      const blocked = await get("/agents", "wrong-again");
       expect(blocked.status).toBe(429);
       expect(blocked.headers.get("retry-after")).toBe("1");
 
       now += 1_000;
-      expect((await get("/tasks", "wrong-again")).status).toBe(401);
+      expect((await get("/agents", "wrong-again")).status).toBe(401);
     });
 
     // The reason verification runs before the backoff check. This listener is
@@ -203,10 +203,10 @@ describe("RemoteControlServer", () => {
     // feature exists for.
     it("serves a valid token while another caller is being backed off", async () => {
       for (let i = 0; i < 5; i++) {
-        await get("/tasks", `guess-${i}`);
+        await get("/agents", `guess-${i}`);
       }
       // Same source, deep into exponential backoff, and still served.
-      expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
+      expect((await get("/agents", READ_TOKEN)).status).toBe(200);
     });
 
     // The bug this covers: a phone loads the client, the browser asks for
@@ -214,17 +214,17 @@ describe("RemoteControlServer", () => {
     // call — with a perfectly good token — came back 429.
     it("does not back off a request that presented no token at all", async () => {
       expect((await get("/favicon.ico")).status).toBe(401);
-      expect((await get("/tasks")).status).toBe(401);
-      expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
+      expect((await get("/agents")).status).toBe(401);
+      expect((await get("/agents", READ_TOKEN)).status).toBe(200);
     });
 
     it("clears the backoff after a success", async () => {
-      expect((await get("/tasks", "wrong")).status).toBe(401);
-      expect((await get("/tasks", READ_TOKEN)).status).toBe(200);
+      expect((await get("/agents", "wrong")).status).toBe(401);
+      expect((await get("/agents", READ_TOKEN)).status).toBe(200);
       // The success wiped the history, so the next failure starts at 1s again
       // rather than resuming the doubling.
-      expect((await get("/tasks", "wrong")).status).toBe(401);
-      expect((await get("/tasks", "wrong")).headers.get("retry-after")).toBe(
+      expect((await get("/agents", "wrong")).status).toBe(401);
+      expect((await get("/agents", "wrong")).headers.get("retry-after")).toBe(
         "1",
       );
     });
@@ -275,7 +275,7 @@ describe("RemoteControlServer", () => {
     it("rejects a send that is not confirmed", async () => {
       withLiveSession();
       const res = await post("/sessions/send", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "hello",
       });
       expect(res.status).toBe(400);
@@ -285,7 +285,7 @@ describe("RemoteControlServer", () => {
     it("audits a rejected send", async () => {
       withLiveSession();
       await post("/sessions/send", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "hello",
       });
       const [entry, ...rest] = audit.read();
@@ -298,7 +298,7 @@ describe("RemoteControlServer", () => {
     it("sends when confirmed, and writes exactly one audit line", async () => {
       withLiveSession();
       const res = await post("/sessions/send", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "hello",
         confirmed: true,
       });
@@ -313,7 +313,7 @@ describe("RemoteControlServer", () => {
         deviceId: writer.id,
         deviceLabel: writer.label,
         route: "POST /sessions/send",
-        target: "task-1",
+        target: "agent-1",
         textLength: 5,
         interrupt: false,
       });
@@ -322,7 +322,7 @@ describe("RemoteControlServer", () => {
     it("never writes the sent text into the audit line", async () => {
       withLiveSession();
       await post("/sessions/send", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "sk-secret-value",
         confirmed: true,
       });
@@ -334,7 +334,7 @@ describe("RemoteControlServer", () => {
     it("treats an interrupt override as a write and records it", async () => {
       withLiveSession();
       await post("/sessions/send", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "stop",
         interrupt: "\u0003",
         confirmed: true,
@@ -345,7 +345,7 @@ describe("RemoteControlServer", () => {
     it("stops a session without saying anything to it", async () => {
       withLiveSession();
       const res = await post("/sessions/interrupt", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         confirmed: true,
       });
       expect(res.status).toBe(200);
@@ -358,7 +358,7 @@ describe("RemoteControlServer", () => {
         outcome: "sent",
         status: 200,
         route: "POST /sessions/interrupt",
-        target: "task-1",
+        target: "agent-1",
         interrupt: true,
         textLength: null,
         textSha256: null,
@@ -368,7 +368,7 @@ describe("RemoteControlServer", () => {
     it("rejects an interrupt that is not confirmed", async () => {
       withLiveSession();
       const res = await post("/sessions/interrupt", WRITE_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
       });
       expect(res.status).toBe(400);
       expect(ptyWrite).not.toHaveBeenCalled();
@@ -384,7 +384,7 @@ describe("RemoteControlServer", () => {
     it("keeps interrupt off a read-only device's surface entirely", async () => {
       withLiveSession();
       const res = await post("/sessions/interrupt", READ_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         confirmed: true,
       });
       expect(res.status).toBe(404);
@@ -395,7 +395,7 @@ describe("RemoteControlServer", () => {
     it("writes no audit line for a device that cannot send", async () => {
       withLiveSession();
       const res = await post("/sessions/send", READ_TOKEN, {
-        target: "task-1",
+        target: "agent-1",
         text: "hello",
         confirmed: true,
       });
@@ -422,14 +422,14 @@ describe("RemoteControlServer", () => {
     });
 
     it("403s a cross-origin request, as defence in depth", async () => {
-      const res = await get("/tasks", READ_TOKEN, {
+      const res = await get("/agents", READ_TOKEN, {
         Origin: "https://evil.example",
       });
       expect(res.status).toBe(403);
     });
 
     it("allows a same-origin request", async () => {
-      const res = await get("/tasks", READ_TOKEN, {
+      const res = await get("/agents", READ_TOKEN, {
         Origin: base,
       });
       expect(res.status).toBe(200);
@@ -470,9 +470,9 @@ describe("RemoteControlServer", () => {
     });
 
     it("never serves an API path as a file", async () => {
-      // `/tasks` is not a file, so it falls through to the authenticated
+      // `/agents` is not a file, so it falls through to the authenticated
       // pipeline and 401s rather than leaking anything.
-      expect((await fetch(`${base}/tasks`)).status).toBe(401);
+      expect((await fetch(`${base}/agents`)).status).toBe(401);
     });
   });
 
@@ -574,7 +574,7 @@ describe("RemoteControlServer", () => {
       await vi.waitFor(() => expect(server.listenerCount).toBe(1));
 
       server.publishStatus({
-        taskId: "t1",
+        agentId: "t1",
         name: "fix the thing",
         projectName: "manor",
         status: "requires_input",
@@ -587,7 +587,7 @@ describe("RemoteControlServer", () => {
         if (done) break;
         seen += decoder.decode(value, { stream: true });
       }
-      expect(seen).toContain('"taskId":"t1"');
+      expect(seen).toContain('"agentId":"t1"');
       expect(seen).toContain('"status":"requires_input"');
 
       controller.abort();

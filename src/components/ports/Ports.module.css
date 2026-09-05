@@ -34,7 +34,7 @@
   background: var(--accent);
 }
 
-/* Duplicated in Sidebar.module.css, TasksList.module.css — candidate for a shared <SectionHeader> UI component */
+/* Duplicated in Sidebar.module.css, AgentsList.module.css — candidate for a shared <SectionHeader> UI component */
 .sectionHeader {
   display: flex;
   align-items: center;

@@ -1,55 +1,34 @@
 import { useMemo } from "react";
 import { useAppStore } from "../store/app-store";
-import { useTaskStore } from "../store/task-store";
+import { useAgentStore } from "../store/agent-store";
 import { allPaneIds } from "../store/pane-tree";
-import { deriveStatus } from "./useTaskDisplay";
-import { STATUS_PRIORITY } from "./useTabAgentStatus";
+import { pickBestPaneStatus } from "./useTabAgentStatus";
 import type { AgentStatus } from "../electron.d";
 
 export function useWorkspaceAgentStatus(
   workspacePath: string,
 ): { status: AgentStatus | null; pulse: boolean } {
-  const tasks = useTaskStore((s) => s.tasks);
-  const unseenRespondedTaskIds = useTaskStore((s) => s.unseenRespondedTaskIds);
-  const unseenInputTaskIds = useTaskStore((s) => s.unseenInputTaskIds);
+  const agents = useAgentStore((s) => s.agents);
+  const unseenRespondedAgentIds = useAgentStore((s) => s.unseenRespondedAgentIds);
+  const unseenInputAgentIds = useAgentStore((s) => s.unseenInputAgentIds);
   const layout = useAppStore((s) => s.workspaceLayouts[workspacePath] ?? null);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
 
   return useMemo(() => {
     if (!layout) return { status: null, pulse: true };
 
-    let best: AgentStatus | null = null;
-    let bestPriority = 0;
-    let bestTaskId: string | null = null;
-
+    const paneIds: string[] = [];
     for (const panel of Object.values(layout.panels)) {
       for (const tab of panel.tabs) {
-        for (const paneId of allPaneIds(tab.rootNode)) {
-          const agent = paneAgentStatus[paneId] ?? null;
-          const task = tasks.find((t) => t.paneId === paneId) ?? null;
-
-          const status: AgentStatus | null = task
-            ? (deriveStatus(task, agent) ?? null)
-            : agent && agent.status !== "idle"
-              ? agent.status
-              : null;
-
-          if (!status) continue;
-          const p = STATUS_PRIORITY[status] ?? 0;
-          if (p > bestPriority) {
-            bestPriority = p;
-            best = status;
-            bestTaskId = task?.id ?? null;
-          }
-        }
+        paneIds.push(...allPaneIds(tab.rootNode));
       }
     }
 
-    // Pulse predicate (ADR-136 §"Change 3"): main owns unseen state.
-    const pulse = bestTaskId
-      ? (best === "responded" && unseenRespondedTaskIds.has(bestTaskId)) ||
-        (best === "requires_input" && unseenInputTaskIds.has(bestTaskId))
-      : true;
-    return { status: best, pulse };
-  }, [layout, paneAgentStatus, tasks, unseenRespondedTaskIds, unseenInputTaskIds]);
+    return pickBestPaneStatus(paneIds, {
+      paneAgentStatus,
+      agents,
+      unseenRespondedAgentIds,
+      unseenInputAgentIds,
+    });
+  }, [layout, paneAgentStatus, agents, unseenRespondedAgentIds, unseenInputAgentIds]);
 }

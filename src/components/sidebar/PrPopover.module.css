@@ -17,28 +17,24 @@
   margin-right: 2px;
 }
 
-.prBadgeDotWarning,
-.prBadgeDotSuccess {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  border: 1px solid var(--dim);
-}
-
-.prBadgeDotWarning {
-  background: var(--yellow, #eab308);
-}
-
-.prBadgeDotSuccess {
-  background: var(--green);
-}
-
-.prOpen {
+.prReady {
   color: var(--green);
   background: var(--green-a20);
+}
+
+.prBlocked {
+  color: var(--red);
+  background: var(--red-a20);
+}
+
+.prPending {
+  color: var(--text-dim);
+  background: var(--hover);
+}
+
+.prDraft {
+  outline: 1px dashed currentColor;
+  outline-offset: -1px;
 }
 
 .prMerged {
@@ -47,8 +43,8 @@
 }
 
 .prClosed {
-  color: var(--red);
-  background: var(--red-a20);
+  color: var(--text-dim);
+  background: none;
 }
 
 /* ── PR Popover ── */

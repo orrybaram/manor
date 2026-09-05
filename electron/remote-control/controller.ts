@@ -74,15 +74,15 @@ export class RemoteControlController {
    * listeners, and push returns early with no subscriptions.
    */
   onAgentStatus(
-    task: { id: string; name: string | null; projectName: string | null },
+    agent: { id: string; name: string | null; projectName: string | null },
     previousStatus: string | null | undefined,
     status: string,
     { notify }: { notify: boolean },
   ): void {
     const event: RemoteStatusEvent = {
-      taskId: task.id,
-      name: task.name,
-      projectName: task.projectName,
+      agentId: agent.id,
+      name: agent.name,
+      projectName: agent.projectName,
       status,
       previousStatus: previousStatus ?? null,
     };
@@ -90,7 +90,7 @@ export class RemoteControlController {
 
     if (!this.push || !notify) return;
     if (!isPushable(status) || status === previousStatus) return;
-    void this.push.notify(pushPayloadFor(status, task));
+    void this.push.notify(pushPayloadFor(status, agent));
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {

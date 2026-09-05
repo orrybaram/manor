@@ -5,9 +5,13 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
+import {
+  useCommandUsageStore,
+  rankCommandIds,
+} from "../../store/command-usage-store";
 import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
-import { useTaskCommands } from "./useTaskCommands";
+import { useAgentCommands } from "./useAgentCommands";
 import { useCustomCommands } from "./useCustomCommands";
 import { usePortsData } from "../ports/usePortsData";
 import { LinearIcon } from "./LinearIcon";
@@ -30,8 +34,11 @@ import styles from "./CommandPalette.module.css";
 
 const HIDDEN_STYLE = { display: "none" } as const;
 
+/** How many frequently used commands to pin at the top of the root view. */
+const FREQUENT_LIMIT = 5;
+
 export function CommandPalette(props: CommandPaletteProps) {
-  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeTask, onViewAllTasks, onNewTask, onNewTaskWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
+  const { open, onClose, onOpenSettings, onOpenFeedback, onNewWorkspace, onResumeAgent, onViewAllAgents, onNewAgent, onNewAgentWithPrompt, initialView, initialIssueId, initialGitHubIssueNumber } = props;
 
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -52,6 +59,8 @@ export function CommandPalette(props: CommandPaletteProps) {
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
+  const commandUsage = useCommandUsageStore((s) => s.usage);
+  const recordCommandUsage = useCommandUsageStore((s) => s.record);
 
   const { ports } = usePortsData();
   const activePorts = useMemo(
@@ -185,11 +194,11 @@ export function CommandPalette(props: CommandPaletteProps) {
     navigateToProcesses,
   });
 
-  const taskCommands = useTaskCommands({
-    onResumeTask,
-    onViewAllTasks,
+  const agentCommands = useAgentCommands({
+    onResumeAgent,
+    onViewAllAgents,
     onClose: handleClose,
-    onNewTask,
+    onNewAgent,
   });
 
   const customCommands = useCustomCommands({
@@ -286,7 +295,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     ];
 
     return [
-      { id: "tasks", heading: "Tasks", visible: true, items: taskCommands },
+      { id: "agents", heading: "Agents", visible: true, items: agentCommands },
       ...workspaceCategories,
       {
         id: "run",
@@ -309,7 +318,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       },
     ];
   }, [
-    taskCommands,
+    agentCommands,
     customCommands,
     workspaceGroups,
     commandCategories,
@@ -319,6 +328,38 @@ export function CommandPalette(props: CommandPaletteProps) {
     navigateToGitHubAll,
   ]);
 
+  // Pin the most-used commands above everything else while the search box is
+  // empty. Once the user types, cmdk's own scoring takes over and the pinned
+  // group is dropped so results aren't duplicated.
+  const frequentCategory = useMemo<CategoryConfig | null>(() => {
+    if (search) return null;
+    const byId = new Map<string, CommandItem>();
+    for (const cat of categories) {
+      if (!cat.visible) continue;
+      for (const item of cat.items) byId.set(item.id, item);
+    }
+    const items: CommandItem[] = [];
+    for (const id of rankCommandIds(commandUsage)) {
+      const item = byId.get(id);
+      // Skip commands that no longer exist (closed workspace, finished task)
+      // and no-ops like switching to the already-active workspace.
+      if (!item || item.isActive) continue;
+      items.push(item);
+      if (items.length >= FREQUENT_LIMIT) break;
+    }
+    if (items.length === 0) return null;
+    return {
+      id: "frequent",
+      heading: "Frequently Used",
+      visible: true,
+      items,
+    };
+  }, [search, categories, commandUsage]);
+
+  const rootCategories = useMemo(
+    () => (frequentCategory ? [frequentCategory, ...categories] : categories),
+    [frequentCategory, categories],
+  );
 
   return (
     <>
@@ -372,7 +413,7 @@ export function CommandPalette(props: CommandPaletteProps) {
               >
                 {view === "root" && (
                   <>
-                    {categories
+                    {rootCategories
                       .filter((c) => c.visible)
                       .sort((a, b) => {
                         if (!search) return 0;
@@ -403,7 +444,10 @@ export function CommandPalette(props: CommandPaletteProps) {
                               <Command.Item
                                 key={cmd.id}
                                 value={`${cat.heading} ${cmd.label} ${cmd.keywords?.join(" ") ?? ""}`}
-                                onSelect={cmd.action}
+                                onSelect={() => {
+                                  recordCommandUsage(cmd.id);
+                                  cmd.action();
+                                }}
                                 className={`${styles.item} ${cmd.isActive ? styles.itemActive : ""}`}
                                 keywords={cmd.keywords}
                               >
@@ -488,7 +532,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   onBack={navigateBackToList}
                   onClose={handleClose}
                   onNewWorkspace={onNewWorkspace}
-                  onNewTaskWithPrompt={onNewTaskWithPrompt}
+                  onNewAgentWithPrompt={onNewAgentWithPrompt}
                 />
               )}
               {view === "github-issue-detail" &&
@@ -500,7 +544,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     onBack={navigateBackToList}
                     onClose={handleClose}
                     onNewWorkspace={onNewWorkspace}
-                    onNewTaskWithPrompt={onNewTaskWithPrompt}
+                    onNewAgentWithPrompt={onNewAgentWithPrompt}
                   />
                 )}
             </Command>

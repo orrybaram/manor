@@ -429,22 +429,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("updater:error", callback),
   },
 
-  tasks: {
+  agents: {
     getAll: (opts?: {
       projectId?: string;
       status?: string;
       limit?: number;
       offset?: number;
-    }) => ipcRenderer.invoke("tasks:getAll", opts),
-    getActive: () => ipcRenderer.invoke("tasks:getActive"),
+    }) => ipcRenderer.invoke("agents:getAll", opts),
+    getActive: () => ipcRenderer.invoke("agents:getActive"),
     getRecent: (opts?: { limit?: number }) =>
-      ipcRenderer.invoke("tasks:getRecent", opts),
-    getUnseen: () => ipcRenderer.invoke("tasks:getUnseen"),
-    consumePruneNotice: () => ipcRenderer.invoke("tasks:consumePruneNotice"),
-    get: (taskId: string) => ipcRenderer.invoke("tasks:get", taskId),
-    update: (taskId: string, updates: { name?: string | null }) =>
-      ipcRenderer.invoke("tasks:update", taskId, updates),
-    delete: (taskId: string) => ipcRenderer.invoke("tasks:delete", taskId),
+      ipcRenderer.invoke("agents:getRecent", opts),
+    getUnseen: () => ipcRenderer.invoke("agents:getUnseen"),
+    consumePruneNotice: () => ipcRenderer.invoke("agents:consumePruneNotice"),
+    get: (agentId: string) => ipcRenderer.invoke("agents:get", agentId),
+    update: (agentId: string, updates: { name?: string | null }) =>
+      ipcRenderer.invoke("agents:update", agentId, updates),
+    delete: (agentId: string) => ipcRenderer.invoke("agents:delete", agentId),
     setPaneContext: (
       paneId: string,
       context: {
@@ -453,26 +453,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspacePath: string;
         agentCommand: string | null;
       },
-    ) => ipcRenderer.invoke("tasks:setPaneContext", paneId, context),
-    markSeen: (taskId: string) => ipcRenderer.invoke("tasks:markSeen", taskId),
-    markResumed: (taskId: string) => ipcRenderer.invoke("tasks:markResumed", taskId),
-    buildResumeCommand: (taskId: string) =>
-      ipcRenderer.invoke("tasks:buildResumeCommand", taskId),
-    reconcileStale: () => ipcRenderer.invoke("tasks:reconcileStale"),
-    abandonForPane: (paneId: string, title?: string | null) => ipcRenderer.invoke("tasks:abandonForPane", paneId, title),
+    ) => ipcRenderer.invoke("agents:setPaneContext", paneId, context),
+    markSeen: (agentId: string) => ipcRenderer.invoke("agents:markSeen", agentId),
+    markResumed: (agentId: string) => ipcRenderer.invoke("agents:markResumed", agentId),
+    buildResumeCommand: (agentId: string) =>
+      ipcRenderer.invoke("agents:buildResumeCommand", agentId),
+    reconcileStale: () => ipcRenderer.invoke("agents:reconcileStale"),
+    abandonForPane: (paneId: string, title?: string | null) => ipcRenderer.invoke("agents:abandonForPane", paneId, title),
     onUpdate: (
       callback: (
-        task: unknown,
+        agent: unknown,
         unseen: { responded: boolean; requires_input: boolean },
       ) => void,
     ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        task: unknown,
+        agent: unknown,
         unseen: { responded: boolean; requires_input: boolean },
-      ) => callback(task, unseen);
-      ipcRenderer.on("task-updated", listener);
-      return () => ipcRenderer.removeListener("task-updated", listener);
+      ) => callback(agent, unseen);
+      ipcRenderer.on("agent-updated", listener);
+      return () => ipcRenderer.removeListener("agent-updated", listener);
     },
   },
 
@@ -503,6 +503,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       title: string;
       body: string;
       url?: string;
+      comment?: { author: string; body: string; url: string; createdAt: string };
     }) => ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
     getAll: () => ipcRenderer.invoke("notifications:getAll"),
     markRead: (id: string) => ipcRenderer.invoke("notifications:markRead", id),

@@ -124,10 +124,37 @@ export async function launchApp(
   env.PATH = pathWithoutAgents(env.PATH ?? "");
 
   return _electron.launch({
-    args: [path.join(repoRoot, "dist-electron/main.js")],
+    args: [
+      path.join(repoRoot, "dist-electron/main.js"),
+      // Electron's userData — localStorage, IndexedDB, session storage —
+      // defaults to ~/Library/Application Support/Electron regardless of HOME.
+      // Left there, a run would see what the previous one persisted in the
+      // renderer, and the real installation's storage sits one directory over.
+      `--user-data-dir=${path.join(tempHome, "user-data")}`,
+    ],
     env: { ...env, HOME: tempHome },
     cwd: repoRoot,
+    recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });
+}
+
+/** Frame size for recorded videos; kept fixed so runs are comparable. */
+const VIDEO_SIZE = { width: 1280, height: 800 };
+
+/**
+ * Where to record a video of every window, or `undefined` to not record.
+ *
+ * Set `MANOR_E2E_VIDEO=1` to record into `tests/e2e/artifacts/video/`, or to a
+ * path to record there instead. Recording is off by default: it costs a
+ * screencast per window for the whole run, and only matters when a run needs
+ * to be reviewed afterwards.
+ */
+export function videoDir(): string | undefined {
+  const raw = process.env.MANOR_E2E_VIDEO;
+  if (!raw) return undefined;
+  return raw === "1"
+    ? path.join(__dirname, "artifacts", "video")
+    : path.resolve(raw);
 }
 
 /**
@@ -167,6 +194,17 @@ function pathWithoutAgents(currentPath: string): string {
  * So: destroy the piped stdio directly, then kill the process group.
  */
 export async function killApp(app: ElectronApplication): Promise<void> {
+  // A recording is only written out when its context closes. SIGKILL skips
+  // that, so when recording, give the context a moment to flush first. The
+  // race is because context.close() can hang for the same reason app.close()
+  // does; the kill below is what actually ends the process either way.
+  if (videoDir()) {
+    await Promise.race([
+      app.context().close().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+  }
+
   const electronProcess = app.process();
   const pid = electronProcess.pid;
 

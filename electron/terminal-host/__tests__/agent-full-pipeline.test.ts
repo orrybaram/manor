@@ -389,7 +389,7 @@ describe("Full Pipeline Integration — Fallback Detection", () => {
     expect(titleDetector.detect()).toBe("working");
 
     // Done marker → complete
-    titleDetector.setTitle("✻ task complete");
+    titleDetector.setTitle("✻ agent complete");
     expect(titleDetector.detect()).toBe("complete");
 
     // Each done marker works (including ✳)

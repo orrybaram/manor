@@ -18,14 +18,14 @@ type GitHubIssueDetailViewProps = {
   onBack: () => void;
   onClose: () => void;
   onNewWorkspace: CommandPaletteProps["onNewWorkspace"];
-  onNewTaskWithPrompt?: (prompt: string) => void;
+  onNewAgentWithPrompt?: (prompt: string) => void;
   linkedTo?: string;
   projectId?: string;
   workspacePath?: string;
 };
 
 /**
- * Assign the issue without blocking the caller — workspace creation and task
+ * Assign the issue without blocking the caller — workspace creation and agent
  * launch have already been kicked off and must not wait on `gh`.
  *
  * Deliberately not `.catch(() => {})`: the user asked to be assigned, so a
@@ -43,7 +43,7 @@ function assignIssueBestEffort(repoPath: string, issueNumber: number): void {
 }
 
 export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
-  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewTaskWithPrompt, linkedTo, projectId, workspacePath } = props;
+  const { repoPath, issueNumber, onBack, onClose, onNewWorkspace, onNewAgentWithPrompt, linkedTo, projectId, workspacePath } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const selectWorkspace = useProjectStore((s) => s.selectWorkspace);
@@ -108,10 +108,10 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
     onClose();
   }, [issueDetail, onClose]);
 
-  const handleNewTask = useCallback(() => {
+  const handleNewAgent = useCallback(() => {
     if (!issueDetail) return;
     const prompt = issueDetail.title + "\n\n" + (issueDetail.body ?? "");
-    onNewTaskWithPrompt?.(prompt);
+    onNewAgentWithPrompt?.(prompt);
     assignIssueBestEffort(repoPath, issueDetail.number);
     onClose();
 
@@ -132,7 +132,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         },
       );
     }
-  }, [issueDetail, onNewTaskWithPrompt, repoPath, onClose]);
+  }, [issueDetail, onNewAgentWithPrompt, repoPath, onClose]);
 
   const handleUnlink = useCallback(async () => {
     if (!projectId || !workspacePath) return;
@@ -190,8 +190,8 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
   handleCreateWorkspaceRef.current = handleCreateWorkspace;
   const handleOpenInBrowserRef = useRef(handleOpenInBrowser);
   handleOpenInBrowserRef.current = handleOpenInBrowser;
-  const handleNewTaskRef = useRef(handleNewTask);
-  handleNewTaskRef.current = handleNewTask;
+  const handleNewAgentRef = useRef(handleNewAgent);
+  handleNewAgentRef.current = handleNewAgent;
 
   useMountEffect(() => {
     let ready = false;
@@ -205,7 +205,7 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
         handleCreateWorkspaceRef.current();
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleNewTaskRef.current();
+        handleNewAgentRef.current();
       }
     };
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -313,9 +313,9 @@ export function GitHubIssueDetailView(props: GitHubIssueDetailViewProps) {
           </>
         ) : (
           <>
-            <button className={styles.footerHint} onClick={handleNewTask}>
+            <button className={styles.footerHint} onClick={handleNewAgent}>
               <kbd className={styles.kbd}>Enter</kbd>
-              <span>New Task</span>
+              <span>New Agent</span>
             </button>
             <button className={styles.footerHint} onClick={handleCreateWorkspace}>
               <kbd className={styles.kbd}>Shift+Enter</kbd>

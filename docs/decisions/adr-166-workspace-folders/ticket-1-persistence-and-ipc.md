@@ -1,6 +1,6 @@
 ---
 title: Persist workspace folders and expose them over IPC
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

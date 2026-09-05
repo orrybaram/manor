@@ -22,6 +22,7 @@ import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
+import { StatsStore } from "./stats-store";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
@@ -236,6 +237,12 @@ export function initApp(devTitle: string | null): void {
   // single recording site inside `presentNotification` can reach it.
   const notificationStore = new NotificationStore();
   setNotificationStore(notificationStore);
+  // ADR-168's usage stats. The `statsEnabled` preference does not exist yet
+  // (ticket 5 adds it), so read it defensively: absent means on.
+  const statsStore = new StatsStore(undefined, {
+    isEnabled: () =>
+      (preferencesManager.getAll() as Record<string, unknown>).statsEnabled !== false,
+  });
 
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
@@ -370,6 +377,7 @@ export function initApp(devTitle: string | null): void {
     agentHookServer,
     agentManager,
     notificationStore,
+    statsStore,
     preferencesManager,
     keybindingsManager,
     paneContextMap,
@@ -539,6 +547,8 @@ export function initApp(devTitle: string | null): void {
       unseenInputAgents,
       broadcastAgent,
       maybeSendNotification,
+      onHookEvent: (event, effects) =>
+        statsStore.observeHookEvent(event, effects, agentManager.getActiveAgents().length),
     });
 
     // Now that the hook relay is created, set the notifyAgentDetectorGone reference
@@ -584,5 +594,6 @@ export function initApp(devTitle: string | null): void {
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();
+    statsStore.flushNow();
   });
 }

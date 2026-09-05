@@ -11,6 +11,7 @@ import type { LinearManager } from "../linear";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentManager } from "../agent-persistence";
 import type { NotificationStore } from "../notification-store";
+import type { StatsStore } from "../stats-store";
 import type { PreferencesManager } from "../preferences";
 import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
@@ -49,6 +50,8 @@ export interface IpcDeps {
   agentManager: AgentManager;
   /** ADR-162's durable notification log. */
   notificationStore: NotificationStore;
+  /** ADR-168 usage stats. */
+  statsStore: StatsStore;
   preferencesManager: PreferencesManager;
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<

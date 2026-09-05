@@ -6,6 +6,8 @@ import * as crypto from "node:crypto";
 
 import { StatsStore } from "../stats-store";
 import type { PersistedStats } from "../stats-store";
+import type { AgentHookEvent } from "../agent-hook-events";
+import type { Effect } from "../hook-relay-transition";
 
 /** Local-time epoch ms, so day bucketing is exercised in the app's own timezone. */
 function localMs(
@@ -389,6 +391,120 @@ describe("StatsStore", () => {
       expect(() => store.record("prompts")).not.toThrow();
       expect(healthy).toHaveBeenCalledTimes(1);
       expect(store.getSummary().today).toEqual({ prompts: 1 });
+    });
+  });
+
+  describe("observeHookEvent", () => {
+    const prompt: AgentHookEvent = {
+      paneId: "pane-1",
+      sessionId: "sess-1",
+      agentKind: "claude",
+      type: "UserPromptSubmit",
+      status: "thinking",
+    };
+    const permission: AgentHookEvent = {
+      paneId: "pane-1",
+      sessionId: "sess-1",
+      agentKind: "claude",
+      type: "PermissionRequest",
+      status: "requires_input",
+    };
+    const sessionStart: AgentHookEvent = {
+      paneId: "pane-1",
+      sessionId: "sess-1",
+      agentKind: "claude",
+      type: "SessionStart",
+      status: "thinking",
+    };
+    const createAgent: Effect = {
+      kind: "CreateAgent",
+      sessionId: "sess-1",
+      paneId: "pane-1",
+      agentKind: "claude",
+      status: "thinking",
+    };
+
+    function build(monoValues: number[] = [0]) {
+      let index = 0;
+      return new StatsStore(tmpDir, {
+        now: () => localMs(2026, 9, 5),
+        monoNow: () => monoValues[Math.min(index++, monoValues.length - 1)],
+      });
+    }
+
+    it("applies the mapped deltas to today's bucket", () => {
+      const store = build();
+      store.observeHookEvent(sessionStart, [createAgent], 4);
+      expect(store.getSummary().today).toEqual({
+        agentSessions: 1,
+        maxConcurrentAgents: 4,
+      });
+    });
+
+    it("carries block latency across calls", () => {
+      const store = build([2_000, 5_000]);
+      store.observeHookEvent(permission, [], 1);
+      store.observeHookEvent(prompt, [], 1);
+      expect(store.getSummary().today).toEqual({
+        blocks: 1,
+        prompts: 1,
+        unblocks: 1,
+        unblockMsTotal: 3_000,
+        fastUnblocks: 1,
+      });
+    });
+
+    it("emits onChange exactly once per call, not once per delta", () => {
+      const store = build();
+      const onChange = vi.fn();
+      store.onChange(onChange);
+
+      store.observeHookEvent(sessionStart, [createAgent], 2);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(store.getSummary().today).toEqual({
+        agentSessions: 1,
+        maxConcurrentAgents: 2,
+      });
+    });
+
+    it("does not emit onChange for an event that maps to nothing", () => {
+      const store = build();
+      const onChange = vi.fn();
+      store.onChange(onChange);
+
+      store.observeHookEvent(sessionStart, [], 1);
+      expect(onChange).not.toHaveBeenCalled();
+      expect(store.getSummary().today).toEqual({});
+    });
+
+    it("debounces the save across a burst of events", () => {
+      vi.useFakeTimers();
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      const toolCall: AgentHookEvent = {
+        paneId: "pane-1",
+        sessionId: "sess-1",
+        agentKind: "claude",
+        type: "PreToolUse",
+        status: "working",
+      };
+      for (let i = 0; i < 20; i++) store.observeHookEvent(toolCall, [], 1);
+      expect(fs.existsSync(statsPath)).toBe(false);
+
+      vi.advanceTimersByTime(500);
+      expect(readFile().days["2026-09-05"]).toEqual({ toolCalls: 20 });
+    });
+
+    it("is a no-op when collection is disabled", () => {
+      const store = new StatsStore(tmpDir, {
+        now: () => localMs(2026, 9, 5),
+        isEnabled: () => false,
+      });
+      const onChange = vi.fn();
+      store.onChange(onChange);
+
+      store.observeHookEvent(prompt, [createAgent], 3);
+      expect(store.getSummary().today).toEqual({});
+      expect(onChange).not.toHaveBeenCalled();
     });
   });
 

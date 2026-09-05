@@ -2,6 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { manorDataDir } from "./paths";
+import {
+  createSignalTracker,
+  deltasForHookEvent,
+  type SignalTrackerState,
+  type StatDelta,
+} from "./stats-signals";
+
+import type { AgentHookEvent } from "./agent-hook-events";
+import type { Effect } from "./hook-relay-transition";
 
 /**
  * Usage-stats persistence model (ADR-168).
@@ -91,14 +100,27 @@ export class StatsStore {
   private listeners = new Set<() => void>();
   private isEnabled: () => boolean;
   private now: () => number;
+  private monoNow: () => number;
+  /** Per-session block bookkeeping for `observeHookEvent`. */
+  private tracker: SignalTrackerState = createSignalTracker();
 
   constructor(
     dataDir?: string,
-    opts?: { isEnabled?: () => boolean; now?: () => number },
+    opts?: {
+      isEnabled?: () => boolean;
+      now?: () => number;
+      /**
+       * Monotonic ms, used only for unblock latency. Inlined rather than
+       * imported from `hook-relay` to keep this module off that import cycle.
+       */
+      monoNow?: () => number;
+    },
   ) {
     this.dataDir = dataDir ?? manorDataDir();
     this.isEnabled = opts?.isEnabled ?? (() => true);
     this.now = opts?.now ?? (() => Date.now());
+    this.monoNow =
+      opts?.monoNow ?? (() => Number(process.hrtime.bigint() / 1_000_000n));
     const state = this.loadState();
     this.days = state.days;
     this.badges = state.badges;
@@ -203,25 +225,64 @@ export class StatsStore {
     return bucket;
   }
 
+  /** Mutates today's bucket without saving or notifying. */
+  private applyDelta(delta: StatDelta): void {
+    const bucket = this.currentBucket();
+    if ("counter" in delta) {
+      bucket[delta.counter] = (bucket[delta.counter] ?? 0) + delta.n;
+      return;
+    }
+    const previous = bucket[delta.gauge];
+    if (previous === undefined || delta.value > previous) {
+      bucket[delta.gauge] = delta.value;
+    }
+  }
+
+  /**
+   * Single commit step for every mutation path: one debounced save and one
+   * change emission, however many deltas were applied. A burst of tool calls
+   * must not turn into a burst of writes and broadcasts.
+   */
+  private commit(): void {
+    this.saveState();
+    this.emitChange();
+  }
+
   /** Adds `n` to today's bucket. No-op when collection is disabled. */
   record(counter: StatCounter, n = 1): void {
     if (!this.isEnabled()) return;
-    const bucket = this.currentBucket();
-    bucket[counter] = (bucket[counter] ?? 0) + n;
-    this.saveState();
-    this.emitChange();
+    this.applyDelta({ counter, n });
+    this.commit();
   }
 
   /** Keeps the max of `value` and today's recorded value for `gauge`. */
   recordMax(gauge: StatGauge, value: number): void {
     if (!this.isEnabled()) return;
-    const bucket = this.currentBucket();
-    const previous = bucket[gauge];
-    if (previous === undefined || value > previous) {
-      bucket[gauge] = value;
-    }
-    this.saveState();
-    this.emitChange();
+    this.applyDelta({ gauge, value });
+    this.commit();
+  }
+
+  /**
+   * The hook-relay tap (ADR-168 §2). Turns one hook event and the effects the
+   * relay derived from it into counter deltas, applying all of them under a
+   * single commit.
+   *
+   * `activeAgentCount` is sampled by the caller (`agentManager.getActiveAgents()`)
+   * because this store must not reach into agent persistence.
+   */
+  observeHookEvent(
+    event: AgentHookEvent,
+    effects: readonly Effect[],
+    activeAgentCount: number,
+  ): void {
+    if (!this.isEnabled()) return;
+    const deltas = deltasForHookEvent(event, effects, this.tracker, {
+      monoNow: this.monoNow(),
+      activeAgentCount,
+    });
+    if (deltas.length === 0) return;
+    for (const delta of deltas) this.applyDelta(delta);
+    this.commit();
   }
 
   getSummary(): StatsSummary {

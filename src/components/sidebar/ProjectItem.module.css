@@ -277,7 +277,21 @@
 .folder {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
+}
+
+/* Matches .workspaceDragging: a folder block drags as one row. */
+.folderDragging {
+  opacity: 0.7;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+/* A workspace is hovering this header and will drop into the folder. */
+.folderDropTarget {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--project-color, var(--accent));
+  border-radius: 4px;
 }
 
 .folderHeader {
@@ -340,4 +354,12 @@
 .folderBody {
   /* chevron (12px) + header gap (4px): member icons sit under the folder icon */
   padding-left: 16px;
+}
+
+/* Members repeat the 8px row rhythm of .workspaces without its margin. */
+.folderMembers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
 }

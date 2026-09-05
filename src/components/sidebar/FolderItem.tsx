@@ -14,10 +14,27 @@ type FolderItemProps = {
   collapsed: boolean;
   /** True when the project's selected workspace lives in this folder. */
   containsSelected: boolean;
+  /** True while a dragged workspace hovers this header: drop-into highlight. */
+  dropTarget: boolean;
+  /** True while this folder's own block is the thing being dragged. */
+  isDragging: boolean;
   onToggleCollapsed: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
-  /** The `WorkspaceList` for this folder's members; rendered when expanded. */
+  onDragStart: (e: React.PointerEvent) => void;
+  /** Measured for folder drags (the whole block is one row). */
+  registerBlock: (el: HTMLElement | null) => void;
+  /** Measured for workspace drags (the header alone is the row). */
+  registerHeader: (el: HTMLElement | null) => void;
+  /** Transform for the block, set while a folder drag shifts it. */
+  style?: React.CSSProperties;
+  /** Transform for the header alone, set while a workspace drag shifts it. */
+  headerStyle?: React.CSSProperties;
+  /** True for one frame after a drag, so the release doesn't toggle collapse. */
+  justDragged: React.RefObject<boolean>;
+  /** Lets the parent suspend dragging while this folder is being renamed. */
+  onEditingChange: (editing: boolean) => void;
+  /** The member rows for this folder; rendered when expanded. */
   children: React.ReactNode;
 };
 
@@ -31,9 +48,18 @@ export function FolderItem(props: FolderItemProps) {
     workspaces,
     collapsed,
     containsSelected,
+    dropTarget,
+    isDragging,
     onToggleCollapsed,
     onRename,
     onDelete,
+    onDragStart,
+    registerBlock,
+    registerHeader,
+    style,
+    headerStyle,
+    justDragged,
+    onEditingChange,
     children,
   } = props;
 
@@ -43,9 +69,14 @@ export function FolderItem(props: FolderItemProps) {
 
   const { status, pulse } = useWorkspacesAgentStatus(workspaces);
 
+  const setEditingState = (next: boolean) => {
+    setEditing(next);
+    onEditingChange(next);
+  };
+
   const startRename = () => {
     setEditValue(folder.name);
-    setEditing(true);
+    setEditingState(true);
     requestAnimationFrame(() => {
       editRef.current?.focus();
       editRef.current?.select();
@@ -54,24 +85,31 @@ export function FolderItem(props: FolderItemProps) {
 
   const commitRename = () => {
     if (!editing) return;
-    setEditing(false);
+    setEditingState(false);
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
   };
 
   return (
-    <div className={styles.folder}>
+    <div
+      ref={registerBlock}
+      className={`${styles.folder} ${isDragging ? styles.folderDragging : ""}`}
+      style={style}
+    >
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
-            className={`${styles.folderHeader} ${containsSelected && collapsed ? styles.folderActive : ""}`}
+            ref={registerHeader}
+            className={`${styles.folderHeader} ${containsSelected && collapsed ? styles.folderActive : ""} ${dropTarget ? styles.folderDropTarget : ""}`}
+            style={{ touchAction: "none", ...headerStyle }}
             onClick={() => {
-              if (!editing) onToggleCollapsed();
+              if (!justDragged.current && !editing) onToggleCollapsed();
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
               startRename();
             }}
+            onPointerDown={onDragStart}
           >
             <span
               className={`${styles.folderChevron} ${collapsed ? "" : styles.folderChevronOpen}`}
@@ -91,7 +129,7 @@ export function FolderItem(props: FolderItemProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") commitRename();
                   if (e.key === "Escape") {
-                    setEditing(false);
+                    setEditingState(false);
                     e.currentTarget.blur();
                   }
                 }}

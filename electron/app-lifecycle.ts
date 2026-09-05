@@ -241,7 +241,7 @@ export function initApp(devTitle: string | null): void {
   // (ticket 5 adds it), so read it defensively: absent means on.
   const statsStore = new StatsStore(undefined, {
     isEnabled: () =>
-      (preferencesManager.getAll() as Record<string, unknown>).statsEnabled !== false,
+      (preferencesManager.getAll() as unknown as Record<string, unknown>).statsEnabled !== false,
   });
 
   // ADR-161's remote-control surface. Constructed here so the status sink and

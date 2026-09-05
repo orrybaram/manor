@@ -26,6 +26,11 @@ export interface CustomCommand {
   command: string;
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -33,6 +38,7 @@ export interface WorkspaceInfo {
   name: string | null;
   linkedIssues?: LinkedIssue[];
   hidden?: boolean;
+  folderId?: string | null;
 }
 
 /** Pre-fetched issue data needed to create a workspace for it. */
@@ -76,6 +82,7 @@ export interface ProjectInfo {
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
   backendType?: "local" | "remote";
+  folders: WorkspaceFolder[];
 }
 
 export type ProjectUpdatableFields = Partial<
@@ -113,6 +120,8 @@ interface PersistedProject {
   workspaceOrder?: string[];
   workspaceIssues?: Record<string, LinkedIssue[]>;
   workspaceHidden?: Record<string, boolean>;
+  workspaceFolders?: WorkspaceFolder[];
+  workspaceFolderIds?: Record<string, string>;
   color?: string | null;
   agentCommand?: string | null;
   commands?: CustomCommand[];
@@ -343,6 +352,7 @@ export class ProjectManager {
       themeName: null,
       setupComplete: false,
       portlessEnabled: true,
+      folders: [],
     };
   }
 
@@ -401,6 +411,68 @@ export class ProjectManager {
     this.saveState();
   }
 
+  createWorkspaceFolder(projectId: string, name: string): WorkspaceFolder | null {
+    const project = this.findProject(projectId);
+    if (!project) return null;
+    const trimmed = name.trim();
+    if (trimmed === "") return null;
+    const folder: WorkspaceFolder = { id: crypto.randomUUID(), name: trimmed };
+    if (!project.workspaceFolders) project.workspaceFolders = [];
+    project.workspaceFolders.push(folder);
+    this.saveState();
+    return folder;
+  }
+
+  renameWorkspaceFolder(
+    projectId: string,
+    folderId: string,
+    name: string,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    const folder = project.workspaceFolders?.find((f) => f.id === folderId);
+    if (!folder) return;
+    folder.name = trimmed;
+    this.saveState();
+  }
+
+  deleteWorkspaceFolder(projectId: string, folderId: string): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (project.workspaceFolders) {
+      project.workspaceFolders = project.workspaceFolders.filter(
+        (f) => f.id !== folderId,
+      );
+    }
+    if (project.workspaceFolderIds) {
+      for (const [path, id] of Object.entries(project.workspaceFolderIds)) {
+        if (id === folderId) delete project.workspaceFolderIds[path];
+      }
+    }
+    this.saveState();
+  }
+
+  setWorkspaceFolder(
+    projectId: string,
+    workspacePath: string,
+    folderId: string | null,
+  ): void {
+    const project = this.findProject(projectId);
+    if (!project) return;
+    if (!project.workspaceFolderIds) project.workspaceFolderIds = {};
+    const exists =
+      folderId != null &&
+      (project.workspaceFolders?.some((f) => f.id === folderId) ?? false);
+    if (exists) {
+      project.workspaceFolderIds[workspacePath] = folderId as string;
+    } else {
+      delete project.workspaceFolderIds[workspacePath];
+    }
+    this.saveState();
+  }
+
   async updateProject(
     projectId: string,
     updates: ProjectUpdatableFields,
@@ -432,12 +504,22 @@ export class ProjectManager {
     const names = p.workspaceNames ?? {};
     const issues = p.workspaceIssues ?? {};
     const hiddenMap = p.workspaceHidden ?? {};
-    const workspaces = rawWorkspaces.map((ws) => ({
-      ...ws,
-      name: names[ws.path] ?? null,
-      linkedIssues: issues[ws.path] ?? [],
-      hidden: hiddenMap[ws.path] ?? false,
-    }));
+    const folders = p.workspaceFolders ?? [];
+    const folderIds = p.workspaceFolderIds ?? {};
+    const folderIdSet = new Set(folders.map((f) => f.id));
+    const workspaces = rawWorkspaces.map((ws) => {
+      const mappedFolderId = folderIds[ws.path];
+      return {
+        ...ws,
+        name: names[ws.path] ?? null,
+        linkedIssues: issues[ws.path] ?? [],
+        hidden: hiddenMap[ws.path] ?? false,
+        folderId:
+          mappedFolderId && folderIdSet.has(mappedFolderId)
+            ? mappedFolderId
+            : null,
+      };
+    });
     return {
       id: p.id,
       name: p.name,
@@ -457,6 +539,7 @@ export class ProjectManager {
       setupComplete: p.setupComplete ?? true,
       portlessEnabled: p.portlessEnabled ?? true,
       backendType: p.backendType ?? "local",
+      folders,
     };
   }
 
@@ -607,6 +690,7 @@ export class ProjectManager {
     if (project.workspaceIssues) {
       delete project.workspaceIssues[worktreePath];
     }
+    delete project.workspaceFolderIds?.[worktreePath];
     this.saveState();
 
     if (deleteBranch && branchName) {

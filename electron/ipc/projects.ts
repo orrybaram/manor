@@ -105,6 +105,41 @@ export function register(deps: IpcDeps): void {
   );
 
   ipcMain.handle(
+    "projects:createWorkspaceFolder",
+    (_event, projectId: string, name: string) => {
+      assertString(name, "name");
+      return projectManager.createWorkspaceFolder(projectId, name);
+    },
+  );
+
+  ipcMain.handle(
+    "projects:renameWorkspaceFolder",
+    (_event, projectId: string, folderId: string, name: string) => {
+      assertString(name, "name");
+      projectManager.renameWorkspaceFolder(projectId, folderId, name);
+    },
+  );
+
+  ipcMain.handle(
+    "projects:deleteWorkspaceFolder",
+    (_event, projectId: string, folderId: string) => {
+      projectManager.deleteWorkspaceFolder(projectId, folderId);
+    },
+  );
+
+  ipcMain.handle(
+    "projects:setWorkspaceFolder",
+    (
+      _event,
+      projectId: string,
+      workspacePath: string,
+      folderId: string | null,
+    ) => {
+      projectManager.setWorkspaceFolder(projectId, workspacePath, folderId);
+    },
+  );
+
+  ipcMain.handle(
     "projects:reorderWorkspaces",
     (_event, projectId: string, orderedPaths: string[]) => {
       projectManager.reorderWorkspaces(projectId, orderedPaths);

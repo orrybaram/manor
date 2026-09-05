@@ -289,6 +289,187 @@ describe("ProjectManager", () => {
     });
   });
 
+  describe("workspace folders", () => {
+    function readState() {
+      return JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
+      );
+    }
+
+    describe("createWorkspaceFolder", () => {
+      it("creates a folder and persists it with a trimmed name", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+
+        const folder = manager.createWorkspaceFolder(project.id, "  Backend  ");
+
+        expect(folder).not.toBeNull();
+        expect(folder!.id).toBeTruthy();
+        expect(folder!.name).toBe("Backend");
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders).toEqual([
+          { id: folder!.id, name: "Backend" },
+        ]);
+      });
+
+      it("returns null and persists nothing for an empty or whitespace name", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+
+        expect(manager.createWorkspaceFolder(project.id, "")).toBeNull();
+        expect(manager.createWorkspaceFolder(project.id, "   ")).toBeNull();
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders ?? []).toHaveLength(0);
+      });
+
+      it("returns null for an unknown project id", () => {
+        expect(manager.createWorkspaceFolder("nonexistent", "Backend")).toBeNull();
+      });
+    });
+
+    describe("renameWorkspaceFolder", () => {
+      it("updates the folder name", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+
+        manager.renameWorkspaceFolder(project.id, folder.id, "  Backend v2  ");
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[0].name).toBe("Backend v2");
+      });
+
+      it("is a no-op when the new name is empty", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+
+        manager.renameWorkspaceFolder(project.id, folder.id, "   ");
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[0].name).toBe("Backend");
+      });
+
+      it("is a no-op for an unknown folder id", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        manager.createWorkspaceFolder(project.id, "Backend");
+
+        manager.renameWorkspaceFolder(project.id, "nonexistent", "New Name");
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[0].name).toBe("Backend");
+      });
+    });
+
+    describe("setWorkspaceFolder", () => {
+      it("sets the membership for a workspace path", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", folder.id);
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolderIds["/tmp/proj"]).toBe(
+          folder.id,
+        );
+      });
+
+      it("removes the membership when set to null", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", folder.id);
+
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", null);
+
+        const state = readState();
+        expect(
+          state.projects[0].workspaceFolderIds["/tmp/proj"],
+        ).toBeUndefined();
+      });
+
+      it("removes the membership when given an unknown folder id", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", folder.id);
+
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", "nonexistent");
+
+        const state = readState();
+        expect(
+          state.projects[0].workspaceFolderIds["/tmp/proj"],
+        ).toBeUndefined();
+      });
+    });
+
+    describe("deleteWorkspaceFolder", () => {
+      it("removes the folder and every membership pointing at it", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", folder.id);
+
+        manager.deleteWorkspaceFolder(project.id, folder.id);
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders).toEqual([]);
+        expect(
+          state.projects[0].workspaceFolderIds["/tmp/proj"],
+        ).toBeUndefined();
+      });
+    });
+
+    describe("buildProjectInfo folder resolution", () => {
+      let gitMock: GitBackend;
+
+      beforeEach(() => {
+        gitMock = {
+          exec: vi.fn().mockResolvedValue(""),
+          worktreeAdd: vi.fn().mockResolvedValue(undefined),
+          worktreeList: vi.fn().mockResolvedValue([
+            { path: "/tmp/proj", branch: "main", isMain: true },
+            { path: "/tmp/proj-2", branch: "feature", isMain: false },
+          ]),
+          stage: vi.fn(),
+          unstage: vi.fn(),
+          discard: vi.fn(),
+          commit: vi.fn(),
+          stash: vi.fn(),
+          getFullDiff: vi.fn(),
+          getLocalDiff: vi.fn(),
+          getStagedFiles: vi.fn(),
+          worktreeRemove: vi.fn(),
+        } as unknown as GitBackend;
+        manager = new ProjectManager(gitMock, tmpDir);
+      });
+
+      it("resolves folderId for workspaces mapped to an existing folder", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Backend")!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj-2", folder.id);
+
+        const [info] = await manager.getProjects();
+        expect(info.folders).toEqual([folder]);
+        const ws2 = info.workspaces.find((w) => w.path === "/tmp/proj-2")!;
+        expect(ws2.folderId).toBe(folder.id);
+        const ws1 = info.workspaces.find((w) => w.path === "/tmp/proj")!;
+        expect(ws1.folderId).toBeNull();
+      });
+
+      it("resolves a stale folder id to null", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const state = readState();
+        state.projects[0].workspaceFolderIds = { "/tmp/proj-2": "stale-id" };
+        fs.writeFileSync(
+          path.join(tmpDir, "projects.json"),
+          JSON.stringify(state),
+        );
+
+        const reloaded = new ProjectManager(gitMock, tmpDir);
+        const [info] = await reloaded.getProjects();
+        const ws2 = info.workspaces.find((w) => w.path === "/tmp/proj-2")!;
+        expect(ws2.folderId).toBeNull();
+        void project;
+      });
+    });
+  });
+
   describe("createWorktree", () => {
     let gitMock: GitBackend;
 

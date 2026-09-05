@@ -181,6 +181,32 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspacePath,
         hidden,
       ),
+    createWorkspaceFolder: (projectId: string, name: string) =>
+      ipcRenderer.invoke("projects:createWorkspaceFolder", projectId, name),
+    renameWorkspaceFolder: (
+      projectId: string,
+      folderId: string,
+      name: string,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:renameWorkspaceFolder",
+        projectId,
+        folderId,
+        name,
+      ),
+    deleteWorkspaceFolder: (projectId: string, folderId: string) =>
+      ipcRenderer.invoke("projects:deleteWorkspaceFolder", projectId, folderId),
+    setWorkspaceFolder: (
+      projectId: string,
+      workspacePath: string,
+      folderId: string | null,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:setWorkspaceFolder",
+        projectId,
+        workspacePath,
+        folderId,
+      ),
     reorderWorkspaces: (projectId: string, orderedPaths: string[]) =>
       ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedPaths),
     reorder: (orderedIds: string[]) =>

@@ -209,6 +209,7 @@ export interface WorkspaceInfo {
   diffStats?: DiffStats | null;
   pr?: PrInfo | null;
   linkedIssues?: LinkedIssue[];
+  folderId?: string | null;
 }
 
 export interface LinkedIssue {
@@ -243,6 +244,7 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
+  folders: { id: string; name: string }[];
 }
 
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";

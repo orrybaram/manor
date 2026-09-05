@@ -397,6 +397,24 @@ export interface ElectronAPI {
       workspacePath: string,
       hidden: boolean,
     ) => Promise<void>;
+    createWorkspaceFolder: (
+      projectId: string,
+      name: string,
+    ) => Promise<{ id: string; name: string } | null>;
+    renameWorkspaceFolder: (
+      projectId: string,
+      folderId: string,
+      name: string,
+    ) => Promise<void>;
+    deleteWorkspaceFolder: (
+      projectId: string,
+      folderId: string,
+    ) => Promise<void>;
+    setWorkspaceFolder: (
+      projectId: string,
+      workspacePath: string,
+      folderId: string | null,
+    ) => Promise<void>;
     reorderWorkspaces: (
       projectId: string,
       orderedPaths: string[],

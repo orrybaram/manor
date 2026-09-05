@@ -29,6 +29,7 @@ Useful environment variables:
 | `MANOR_E2E_LOG=1`          | Forward the launched app's stdout/stderr into the test output. The app is a separate process, so this is the only way to see what main logged. |
 | `MANOR_E2E_HEADED=1`       | Show the browser that plays the phone. The Electron window is always visible.                                                                  |
 | `MANOR_E2E_HOLD=<seconds>` | Pause the remote-control test at the point where a phone is paired and live, so you can drive both by hand.                                    |
+| `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                 |
 
 `pnpm e2e:remote:watch` is those last two together.
 
@@ -43,6 +44,11 @@ custom fixture provides:
   `<tempHome>/test-project`. Everything the app writes — `manorDataDir()`,
   `~/.manor`, the daemon socket, worktrees — resolves inside it, so runs cannot
   see each other or the real installation.
+
+The app's Electron `userData` (localStorage, session storage) is pointed at
+`<tempHome>/user-data` too. Electron would otherwise put it in
+`~/Library/Application Support/Electron` regardless of `HOME`, where one run
+sees what the last one persisted.
 
 The launched app's environment is scrubbed of `MANOR_*` and `ZDOTDIR`. A run
 started from a terminal _inside_ Manor would otherwise inherit that app's

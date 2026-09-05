@@ -58,6 +58,7 @@ import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as agentsIpc from "./ipc/agents";
 import * as notificationsIpc from "./ipc/notifications";
+import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
@@ -239,11 +240,9 @@ export function initApp(devTitle: string | null): void {
   // single recording site inside `presentNotification` can reach it.
   const notificationStore = new NotificationStore();
   setNotificationStore(notificationStore);
-  // ADR-168's usage stats. The `statsEnabled` preference does not exist yet
-  // (ticket 5 adds it), so read it defensively: absent means on.
+  // ADR-168's usage stats.
   const statsStore = new StatsStore(undefined, {
-    isEnabled: () =>
-      (preferencesManager.getAll() as unknown as Record<string, unknown>).statsEnabled !== false,
+    isEnabled: () => preferencesManager.get("statsEnabled"),
     onBadge: (badge) => {
       notificationStore.append({
         kind: "badge-unlocked",
@@ -411,6 +410,7 @@ export function initApp(devTitle: string | null): void {
   webviewIpc.register(ipcDeps);
   agentsIpc.register(ipcDeps);
   notificationsIpc.register(ipcDeps);
+  statsIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);

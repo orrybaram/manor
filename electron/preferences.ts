@@ -31,6 +31,8 @@ export interface AppPreferences {
   homeCustomCommand: string;
   /** Interrupt sequence used when `homeHarness === "custom"`. */
   homeCustomInterrupt: string;
+  /** ADR-168's usage-stats collection kill switch. `record`/`recordMax` are no-ops when false. */
+  statsEnabled: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -49,6 +51,7 @@ const DEFAULTS: AppPreferences = {
   homeHarness: "claude",
   homeCustomCommand: "",
   homeCustomInterrupt: "",
+  statsEnabled: true,
 };
 
 export class PreferencesManager {

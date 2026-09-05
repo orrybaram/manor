@@ -25,6 +25,8 @@ export interface AppPreferences {
   homeCustomCommand: string;
   /** Interrupt sequence used when `homeHarness === "custom"`. */
   homeCustomInterrupt: string;
+  /** ADR-168's usage-stats collection kill switch. */
+  statsEnabled: boolean;
 }
 
 export type AgentLifecycleStatus = "active" | "completed" | "error" | "abandoned";
@@ -79,6 +81,44 @@ export interface NotificationRecord {
   target: NotificationTarget | null;
   /** `pr-comment` records only, and only when the fetcher knew it (#177). */
   comment?: PrComment;
+}
+
+/**
+ * ADR-168's usage stats. Mirrors the corresponding types in
+ * `electron/stats-store.ts`; declared here rather than imported so the
+ * renderer's declaration surface stays self-contained.
+ */
+export type StatCounter =
+  | "prompts"
+  | "toolCalls"
+  | "agentSessions"
+  | "subagents"
+  | "agentsResponded"
+  | "agentsKilled"
+  | "blocks"
+  | "unblocks"
+  | "unblockMsTotal"
+  | "fastUnblocks"
+  | "worktreesCreated"
+  | "worktreesRemoved"
+  | "worktreesMerged"
+  | "prApproved"
+  | "prChangesRequested"
+  | "prChecksFailed";
+
+/** Gauges aggregate with max(), not sum(). */
+export type StatGauge = "maxConcurrentAgents";
+
+export type DayBucket = Partial<Record<StatCounter | StatGauge, number>>;
+
+export interface StatsSummary {
+  today: DayBucket;
+  last7Days: DayBucket;
+  allTime: DayBucket;
+  streakDays: number;
+  /** badgeId -> ISO awarded-at. */
+  badges: Record<string, string>;
+  enabled: boolean;
 }
 
 export interface LinearTeam {
@@ -717,6 +757,15 @@ export interface ElectronAPI {
     ) => () => void;
     /** A native banner was clicked; the payload is the record id. */
     onNavigate: (callback: (id: string) => void) => () => void;
+  };
+
+  stats: {
+    /** Main owns the counters; the renderer only caches this snapshot. */
+    getSummary: () => Promise<StatsSummary>;
+    /** Wipes the stats file and in-memory state. */
+    reset: () => Promise<void>;
+    /** Fires with the full summary after a burst of recording settles (ADR-168 §5). */
+    onChanged: (callback: (summary: StatsSummary) => void) => () => void;
   };
 
   clipboard: {

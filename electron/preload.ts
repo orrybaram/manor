@@ -490,6 +490,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("notifications:navigate", callback),
   },
 
+  stats: {
+    getSummary: () => ipcRenderer.invoke("stats:getSummary"),
+    reset: () => ipcRenderer.invoke("stats:reset"),
+    /** Main re-broadcasts the full summary after every settled burst (ADR-168 §5). */
+    onChanged: (callback: (summary: unknown) => void) =>
+      onChannel("stats:changed", callback),
+  },
+
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
   },

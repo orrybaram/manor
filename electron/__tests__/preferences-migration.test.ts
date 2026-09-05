@@ -43,3 +43,27 @@ describe("PreferencesManager tasks → agents key migration (ADR-166)", () => {
     expect(prefs.get("agentRetentionDays")).toBe(30);
   });
 });
+
+describe("PreferencesManager statsEnabled default (ADR-168)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `manor-prefs-test-${crypto.randomUUID()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("defaults statsEnabled to true for a legacy file lacking the key", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "preferences.json"),
+      JSON.stringify({ dockBadgeEnabled: false }),
+    );
+
+    const prefs = new PreferencesManager(tmpDir);
+
+    expect(prefs.get("statsEnabled")).toBe(true);
+  });
+});

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+import type { PrComment } from "../src/lib/pr-info";
 import { manorDataDir } from "./paths";
 
 /**
@@ -33,6 +34,12 @@ export interface NotificationRecord {
   timestamp: string; // ISO
   read: boolean;
   target: NotificationTarget | null;
+  /**
+   * `pr-comment` records only: the comment itself, so the row can expand to
+   * show what was said (#177). Absent on records written before it existed
+   * and whenever the fetcher could not name a latest comment.
+   */
+  comment?: PrComment;
 }
 
 interface PersistedState {
@@ -123,6 +130,7 @@ export class NotificationStore {
     title: string;
     body: string;
     target: NotificationTarget | null;
+    comment?: PrComment;
   }): NotificationRecord {
     const record: NotificationRecord = {
       id: crypto.randomUUID(),
@@ -133,6 +141,7 @@ export class NotificationStore {
       read: false,
       target: input.target,
     };
+    if (input.comment) record.comment = input.comment;
     this.notifications.unshift(record);
     this.prune();
     this.saveState();

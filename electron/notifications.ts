@@ -6,6 +6,7 @@ import type {
   NotificationStore,
   NotificationTarget,
 } from "./notification-store";
+import type { PrComment } from "../src/lib/pr-info";
 import type { PreferencesManager } from "./preferences";
 import type { TaskInfo } from "./task-persistence";
 import type { AgentStatus } from "./terminal-host/types";
@@ -181,7 +182,11 @@ function presentNotification(
   opts: {
     title: string;
     body: string;
-    record: { kind: NotificationKind; target: NotificationTarget | null };
+    record: {
+      kind: NotificationKind;
+      target: NotificationTarget | null;
+      comment?: PrComment;
+    };
   },
 ): boolean {
   // Record *before* the focus check. A notification suppressed because the
@@ -193,6 +198,7 @@ function presentNotification(
       title: opts.title,
       body: opts.body,
       target: opts.record.target,
+      comment: opts.record.comment,
     }) ?? null;
   sendNotificationsUpdate(mainWindow);
 
@@ -260,7 +266,13 @@ export function maybeSendNotification(
  * means the calling window is focused and the renderer should toast instead.
  */
 export function showPrNotification(
-  payload: { kind: PrNotifyEventKind; title: string; body: string; url?: string },
+  payload: {
+    kind: PrNotifyEventKind;
+    title: string;
+    body: string;
+    url?: string;
+    comment?: PrComment;
+  },
   mainWindow: BrowserWindow | null,
   preferencesManager: PreferencesManager,
 ): boolean {
@@ -270,6 +282,7 @@ export function showPrNotification(
     record: {
       kind: PR_KIND_TO_NOTIFICATION_KIND[payload.kind] ?? "pr-comment",
       target: payload.url ? { type: "url", url: payload.url } : null,
+      comment: payload.kind === "comment" ? payload.comment : undefined,
     },
   });
 }

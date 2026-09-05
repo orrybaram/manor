@@ -10,6 +10,22 @@ export interface ChecksSummary {
   pending: number;
 }
 
+/**
+ * The most recent conversation entry on a pull request — an issue comment or
+ * a submitted review, whichever landed last. What a "new comment"
+ * notification is actually about (#177).
+ */
+export interface PrComment {
+  /** GitHub login; empty when the author account is gone. */
+  author: string;
+  /** Raw markdown, exactly as GitHub holds it. Empty for a bodiless review. */
+  body: string;
+  /** Deep link to the comment itself, not the PR. */
+  url: string;
+  /** ISO timestamp. */
+  createdAt: string;
+}
+
 export interface PrInfo {
   number: number;
   state: string;
@@ -22,4 +38,6 @@ export interface PrInfo {
   checks?: ChecksSummary | null;
   unresolvedThreads?: number;
   commentCount?: number;
+  /** Null when the PR has no comments or reviews yet; absent when unknown. */
+  latestComment?: PrComment | null;
 }

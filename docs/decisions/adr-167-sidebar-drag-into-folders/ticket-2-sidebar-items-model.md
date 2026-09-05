@@ -1,6 +1,6 @@
 ---
 title: Pure sidebar item model, drop resolution, and store wiring
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

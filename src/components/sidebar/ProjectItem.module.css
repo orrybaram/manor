@@ -338,5 +338,6 @@
 }
 
 .folderBody {
-  padding-left: 12px;
+  /* chevron (12px) + header gap (4px): member icons sit under the folder icon */
+  padding-left: 16px;
 }

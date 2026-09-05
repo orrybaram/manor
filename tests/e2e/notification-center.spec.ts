@@ -264,6 +264,10 @@ test.describe("notification center", () => {
 
     await openBell(window);
     await expect(rows(window)).toHaveCount(1);
+    // The row names who commented, before the PR title.
+    await expect(rows(window).first().getByTestId("notification-author")).toHaveText(
+      "@alice",
+    );
     const preview = window.getByTestId("notification-comment");
 
     // Hover intent, not hover: a pass over the row shows nothing.

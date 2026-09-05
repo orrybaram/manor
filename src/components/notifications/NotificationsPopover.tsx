@@ -303,7 +303,17 @@ export function NotificationsPopover() {
                         />
                         <div className={styles.rowText}>
                           <div className={styles.rowTitle}>{record.title}</div>
-                          <div className={styles.rowBody}>{record.body}</div>
+                          <div className={styles.rowBody}>
+                            {record.comment?.author && (
+                              <span
+                                className={styles.rowAuthor}
+                                data-testid="notification-author"
+                              >
+                                @{record.comment.author}
+                              </span>
+                            )}
+                            {record.body}
+                          </div>
                         </div>
                         <span className={styles.rowTime}>
                           {relativeShortThenDate(Date.parse(record.timestamp))}

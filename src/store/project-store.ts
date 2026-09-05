@@ -7,6 +7,7 @@ import type { ChecksSummary, PrInfo } from "../lib/pr-info";
 export type { ChecksSummary, PrInfo } from "../lib/pr-info";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
+const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
 const PORTS_HEIGHT_KEY = "manor:portsHeight";
 const DEFAULT_SIDEBAR_WIDTH = 220;
@@ -57,6 +58,25 @@ function loadCollapsedIds(): Set<string> {
 
 function saveCollapsedIds(ids: Set<string>): void {
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+}
+
+/** Key used in `collapsedFolderKeys` for a given project/folder pair. */
+export function folderCollapseKey(projectId: string, folderId: string): string {
+  return `${projectId}/${folderId}`;
+}
+
+function loadCollapsedFolderKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_FOLDER_KEYS_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function saveCollapsedFolderKeys(keys: Set<string>): void {
+  localStorage.setItem(COLLAPSED_FOLDER_KEYS_KEY, JSON.stringify([...keys]));
 }
 
 /**
@@ -200,6 +220,11 @@ function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
   );
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+}
+
 export interface WorkspaceInfo {
   path: string;
   branch: string;
@@ -244,7 +269,7 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  folders: { id: string; name: string }[];
+  folders: WorkspaceFolder[];
 }
 
 export type SetupStep = "prune" | "fetch" | "create-worktree" | "persist" | "switch" | "setup-script";
@@ -278,6 +303,7 @@ interface ProjectState {
   loading: boolean;
   initialLoadDone: boolean;
   collapsedProjectIds: Set<string>;
+  collapsedFolderKeys: Set<string>;
 
   // Actions
   loadProjects: () => Promise<void>;
@@ -318,6 +344,24 @@ interface ProjectState {
     workspacePath: string,
     hidden: boolean,
   ) => Promise<void>;
+  createWorkspaceFolder: (
+    projectId: string,
+    name: string,
+  ) => Promise<WorkspaceFolder | null>;
+  renameWorkspaceFolder: (
+    projectId: string,
+    folderId: string,
+    name: string,
+  ) => Promise<void>;
+  deleteWorkspaceFolder: (
+    projectId: string,
+    folderId: string,
+  ) => Promise<void>;
+  setWorkspaceFolder: (
+    projectId: string,
+    workspacePath: string,
+    folderId: string | null,
+  ) => Promise<void>;
   convertMainToWorktree: (projectId: string, name: string, branch: string) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   reorderWorkspaces: (
@@ -344,6 +388,8 @@ interface ProjectState {
   setPortsHeight: (height: number) => void;
   toggleProjectCollapsed: (projectId: string) => void;
   setProjectExpanded: (projectId: string) => void;
+  toggleFolderCollapsed: (projectId: string, folderId: string) => void;
+  setFolderExpanded: (projectId: string, folderId: string) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -355,6 +401,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loading: false,
   initialLoadDone: false,
   collapsedProjectIds: loadCollapsedIds(),
+  collapsedFolderKeys: loadCollapsedFolderKeys(),
 
   loadProjects: async () => {
     set({ loading: true });
@@ -420,6 +467,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const ws = project?.workspaces[workspaceIndex];
     if (ws) {
       useAppStore.getState().setActiveWorkspace(ws.path);
+      if (ws.folderId) {
+        get().setFolderExpanded(projectId, ws.folderId);
+      }
     }
   },
 
@@ -694,6 +744,98 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
 
+  createWorkspaceFolder: async (projectId: string, name: string) => {
+    const folder = await window.electronAPI.projects.createWorkspaceFolder(
+      projectId,
+      name,
+    );
+    if (folder) {
+      set((s) => ({
+        projects: s.projects.map((p) =>
+          p.id === projectId
+            ? { ...p, folders: [...p.folders, folder] }
+            : p,
+        ),
+      }));
+    }
+    return folder;
+  },
+
+  renameWorkspaceFolder: async (
+    projectId: string,
+    folderId: string,
+    name: string,
+  ) => {
+    const trimmed = name.trim();
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              folders: p.folders.map((f) =>
+                f.id === folderId ? { ...f, name: trimmed } : f,
+              ),
+            }
+          : p,
+      ),
+    }));
+    await window.electronAPI.projects.renameWorkspaceFolder(
+      projectId,
+      folderId,
+      name,
+    );
+  },
+
+  deleteWorkspaceFolder: async (projectId: string, folderId: string) => {
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              folders: p.folders.filter((f) => f.id !== folderId),
+              workspaces: p.workspaces.map((ws) =>
+                ws.folderId === folderId ? { ...ws, folderId: null } : ws,
+              ),
+            }
+          : p,
+      ),
+      collapsedFolderKeys: (() => {
+        const next = new Set(s.collapsedFolderKeys);
+        next.delete(folderCollapseKey(projectId, folderId));
+        saveCollapsedFolderKeys(next);
+        return next;
+      })(),
+    }));
+    await window.electronAPI.projects.deleteWorkspaceFolder(
+      projectId,
+      folderId,
+    );
+  },
+
+  setWorkspaceFolder: async (
+    projectId: string,
+    workspacePath: string,
+    folderId: string | null,
+  ) => {
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              workspaces: p.workspaces.map((ws) =>
+                ws.path === workspacePath ? { ...ws, folderId } : ws,
+              ),
+            }
+          : p,
+      ),
+    }));
+    await window.electronAPI.projects.setWorkspaceFolder(
+      projectId,
+      workspacePath,
+      folderId,
+    );
+  },
+
   updateProject: async (projectId: string, updates: ProjectUpdatableFields) => {
     // Optimistic update: apply changes immediately for instant UI feedback
     set((s) => ({
@@ -800,5 +942,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       next.delete(projectId);
       saveCollapsedIds(next);
       return { collapsedProjectIds: next };
+    }),
+
+  toggleFolderCollapsed: (projectId: string, folderId: string) =>
+    set((s) => {
+      const key = folderCollapseKey(projectId, folderId);
+      const next = new Set(s.collapsedFolderKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveCollapsedFolderKeys(next);
+      return { collapsedFolderKeys: next };
+    }),
+
+  setFolderExpanded: (projectId: string, folderId: string) =>
+    set((s) => {
+      const key = folderCollapseKey(projectId, folderId);
+      if (!s.collapsedFolderKeys.has(key)) return s;
+      const next = new Set(s.collapsedFolderKeys);
+      next.delete(key);
+      saveCollapsedFolderKeys(next);
+      return { collapsedFolderKeys: next };
     }),
 }));

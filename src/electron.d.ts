@@ -400,7 +400,7 @@ export interface ElectronAPI {
     createWorkspaceFolder: (
       projectId: string,
       name: string,
-    ) => Promise<{ id: string; name: string } | null>;
+    ) => Promise<import("./store/project-store").WorkspaceFolder | null>;
     renameWorkspaceFolder: (
       projectId: string,
       folderId: string,

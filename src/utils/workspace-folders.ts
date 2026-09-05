@@ -10,7 +10,7 @@
 
 import type { ProjectInfo, WorkspaceFolder, WorkspaceInfo } from "../store/project-store";
 
-export interface FolderGroup {
+interface FolderGroup {
   folder: WorkspaceFolder;
   workspaces: WorkspaceInfo[];
 }

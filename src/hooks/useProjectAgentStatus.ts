@@ -4,11 +4,15 @@ import { useTaskStore } from "../store/task-store";
 import { allPaneIds } from "../store/pane-tree";
 import { deriveStatus } from "./useTaskDisplay";
 import { STATUS_PRIORITY } from "./useTabAgentStatus";
-import type { ProjectInfo } from "../store/project-store";
+import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { AgentStatus } from "../electron.d";
 
-export function useProjectAgentStatus(
-  project: ProjectInfo,
+/**
+ * Aggregate agent status across an arbitrary set of workspaces — the whole
+ * project (see `useProjectAgentStatus`) or one folder's members.
+ */
+export function useWorkspacesAgentStatus(
+  workspaces: WorkspaceInfo[],
 ): { status: AgentStatus | null; pulse: boolean } {
   const tasks = useTaskStore((s) => s.tasks);
   const unseenRespondedTaskIds = useTaskStore((s) => s.unseenRespondedTaskIds);
@@ -21,7 +25,7 @@ export function useProjectAgentStatus(
     let bestPriority = 0;
     let bestTaskId: string | null = null;
 
-    for (const ws of project.workspaces) {
+    for (const ws of workspaces) {
       const layout = workspaceLayouts[ws.path];
       if (!layout) continue;
 
@@ -49,18 +53,23 @@ export function useProjectAgentStatus(
       }
     }
 
-    // Pulse predicate (ADR-136 §"Change 3"): main owns unseen state.
     const pulse = bestTaskId
       ? (best === "responded" && unseenRespondedTaskIds.has(bestTaskId)) ||
         (best === "requires_input" && unseenInputTaskIds.has(bestTaskId))
       : true;
     return { status: best, pulse };
   }, [
-    project.workspaces,
+    workspaces,
     workspaceLayouts,
     paneAgentStatus,
     tasks,
     unseenRespondedTaskIds,
     unseenInputTaskIds,
   ]);
+}
+
+export function useProjectAgentStatus(
+  project: ProjectInfo,
+): { status: AgentStatus | null; pulse: boolean } {
+  return useWorkspacesAgentStatus(project.workspaces);
 }

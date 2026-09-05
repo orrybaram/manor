@@ -4,7 +4,7 @@ import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import type { ChecksSummary, PrInfo } from "../src/lib/pr-info";
+import type { ChecksSummary, PrComment, PrInfo } from "../src/lib/pr-info";
 
 const execFileAsync = promisify(execFile);
 
@@ -122,7 +122,7 @@ export class GitHubManager {
         };
       }
 
-      const { unresolvedThreads, commentCount } =
+      const { unresolvedThreads, commentCount, latestComment } =
         await this.getPrConversationState(pr.url, pr.number);
 
       return {
@@ -137,6 +137,7 @@ export class GitHubManager {
         checks,
         unresolvedThreads,
         commentCount,
+        latestComment,
       };
     } catch {
       return null;
@@ -146,12 +147,14 @@ export class GitHubManager {
   private async getPrConversationState(
     prUrl: string,
     prNumber: number,
-  ): Promise<{ unresolvedThreads?: number; commentCount?: number }> {
+  ): Promise<PrConversationState> {
     try {
       const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
       if (!match) return {};
       const [, owner, repo] = match;
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } comments { totalCount } reviews { totalCount } } } }`;
+      // `last: 1` on both connections: the newest entry of each, so a "new
+      // comment" notification can carry what was said (#177).
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } comments(last: 1) { totalCount nodes { author { login } body url createdAt } } reviews(last: 1) { totalCount nodes { author { login } body url submittedAt } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -161,21 +164,7 @@ export class GitHubManager {
         },
       );
       const data = JSON.parse(stdout);
-      const pullRequest = data?.data?.repository?.pullRequest;
-      const threads = pullRequest?.reviewThreads?.nodes;
-      const unresolvedThreads = Array.isArray(threads)
-        ? threads.filter((t: { isResolved: boolean }) => !t.isResolved)
-            .length
-        : undefined;
-
-      const commentsTotal = pullRequest?.comments?.totalCount;
-      const reviewsTotal = pullRequest?.reviews?.totalCount;
-      const commentCount =
-        typeof commentsTotal === "number" && typeof reviewsTotal === "number"
-          ? commentsTotal + reviewsTotal
-          : undefined;
-
-      return { unresolvedThreads, commentCount };
+      return parsePrConversationState(data?.data?.repository?.pullRequest);
     } catch {
       return {};
     }
@@ -413,4 +402,74 @@ export class GitHubManager {
       return { installed: false, authenticated: false };
     }
   }
+}
+
+interface PrConversationState {
+  unresolvedThreads?: number;
+  commentCount?: number;
+  latestComment?: PrComment | null;
+}
+
+interface RawConversationNode {
+  author?: { login?: string } | null;
+  body?: string;
+  url?: string;
+  createdAt?: string;
+  submittedAt?: string;
+}
+
+/**
+ * Reduce the `pullRequest` object of the conversation query to what the UI
+ * keeps. Exported for tests; the network half above is not worth mocking.
+ *
+ * `commentCount` is issue comments plus reviews — one number for "did anyone
+ * say anything" — so `latestComment` is drawn from the same two connections:
+ * whichever of the newest comment and the newest review is more recent.
+ */
+export function parsePrConversationState(
+  pullRequest: unknown,
+): PrConversationState {
+  if (!pullRequest || typeof pullRequest !== "object") return {};
+  const pr = pullRequest as {
+    reviewThreads?: { nodes?: { isResolved: boolean }[] };
+    comments?: { totalCount?: number; nodes?: RawConversationNode[] };
+    reviews?: { totalCount?: number; nodes?: RawConversationNode[] };
+  };
+
+  const threads = pr.reviewThreads?.nodes;
+  const unresolvedThreads = Array.isArray(threads)
+    ? threads.filter((t) => !t.isResolved).length
+    : undefined;
+
+  const commentsTotal = pr.comments?.totalCount;
+  const reviewsTotal = pr.reviews?.totalCount;
+  const commentCount =
+    typeof commentsTotal === "number" && typeof reviewsTotal === "number"
+      ? commentsTotal + reviewsTotal
+      : undefined;
+
+  const candidates = [
+    toPrComment(pr.comments?.nodes?.[0]),
+    toPrComment(pr.reviews?.nodes?.[0]),
+  ].filter((c): c is PrComment => c !== null);
+  const latestComment =
+    commentCount === undefined
+      ? undefined
+      : candidates.sort(
+          (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+        )[0] ?? null;
+
+  return { unresolvedThreads, commentCount, latestComment };
+}
+
+function toPrComment(node: RawConversationNode | undefined): PrComment | null {
+  if (!node || typeof node.url !== "string") return null;
+  const createdAt = node.createdAt ?? node.submittedAt;
+  if (typeof createdAt !== "string") return null;
+  return {
+    author: node.author?.login ?? "",
+    body: typeof node.body === "string" ? node.body : "",
+    url: node.url,
+    createdAt,
+  };
 }

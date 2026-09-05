@@ -47,6 +47,24 @@ describe("NotificationStore", () => {
     expect(new Date(record.timestamp).toISOString()).toBe(record.timestamp);
   });
 
+  it("append keeps a comment when given one and omits the key otherwise", () => {
+    const comment = {
+      author: "alice",
+      body: "One nit.",
+      url: "https://github.com/o/r/pull/1#issuecomment-1",
+      createdAt: "2026-09-05T10:00:00Z",
+    };
+    const withComment = append({ kind: "pr-comment", comment });
+    const without = append({ kind: "pr-comment" });
+    expect(withComment.comment).toEqual(comment);
+    expect("comment" in without).toBe(false);
+
+    // Persisted, not just held: a restart still knows what was said.
+    store.flushNow();
+    const reloaded = new NotificationStore(tmpDir);
+    expect(reloaded.getById(withComment.id)?.comment).toEqual(comment);
+  });
+
   it("getById finds a record by id, null for unknown", () => {
     const record = append();
     expect(store.getById(record.id)).toEqual(record);

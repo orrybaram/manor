@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
@@ -10,6 +10,7 @@ import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { NotificationKind, NotificationRecord } from "../../electron.d";
+import type { PrComment } from "../../lib/pr-info";
 import { useNotificationStore } from "../../store/notification-store";
 import { navigateToNotification } from "../../utils/notification-navigation";
 import {
@@ -17,7 +18,7 @@ import {
   getDateBucket,
   type DateBucket,
 } from "../../utils/date-buckets";
-import { relativeShortThenDate } from "../../utils/relative-time";
+import { relativeShort, relativeShortThenDate } from "../../utils/relative-time";
 import { Button } from "../ui/Button/Button";
 import { ToggleGroup } from "../ui/ToggleGroup/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -70,6 +71,101 @@ function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
   if (filter === "all") return true;
   const isAgent = kind.startsWith("agent-");
   return filter === "agent" ? isAgent : !isAgent;
+}
+
+/**
+ * How long the pointer must rest on a row before the comment opens (#177).
+ * Long enough that sweeping down the list to click a row never opens one.
+ */
+const COMMENT_HOVER_DELAY = 1000;
+/** Grace period to cross the gap from the row into the preview. */
+const COMMENT_CLOSE_DELAY = 150;
+
+/**
+ * Wraps a `pr-comment` row so resting on it opens the comment beside the
+ * list. Hover-intent, not click: a click is already "go there" (ADR-162 §4).
+ *
+ * `Popover.Anchor` rather than `Popover.Trigger` — the trigger would toggle
+ * on click and fight the row's own handler.
+ */
+function CommentPreview(props: {
+  comment: PrComment;
+  children: ReactNode;
+}) {
+  const { comment, children } = props;
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const scheduleOpen = useCallback(() => {
+    clearTimer();
+    timerRef.current = setTimeout(() => setOpen(true), COMMENT_HOVER_DELAY);
+  }, [clearTimer]);
+
+  const scheduleClose = useCallback(() => {
+    clearTimer();
+    timerRef.current = setTimeout(() => setOpen(false), COMMENT_CLOSE_DELAY);
+  }, [clearTimer]);
+
+  // Entering the preview itself cancels the pending close from leaving the row.
+  const holdOpen = useCallback(() => clearTimer(), [clearTimer]);
+
+  // The list can close (Escape, outside click) with a timer still pending.
+  useEffect(() => clearTimer, [clearTimer]);
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Anchor asChild>
+        <div
+          className={styles.commentAnchor}
+          onMouseEnter={scheduleOpen}
+          onMouseLeave={scheduleClose}
+          onFocus={scheduleOpen}
+          onBlur={scheduleClose}
+          // Clicking the row navigates away and closes the whole list; a
+          // preview left pending would open over nothing.
+          onClick={clearTimer}
+        >
+          {children}
+        </div>
+      </Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
+          className={styles.commentPopover}
+          data-testid="notification-comment"
+          side="left"
+          align="start"
+          sideOffset={8}
+          collisionPadding={8}
+          onMouseEnter={holdOpen}
+          onMouseLeave={scheduleClose}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <div className={styles.commentHeader}>
+            <MessageSquare size={12} className={styles.rowIcon} />
+            <span className={styles.commentAuthor}>
+              {comment.author ? `@${comment.author}` : "Unknown author"}
+            </span>
+            <span className={styles.commentTime}>
+              {relativeShort(Date.parse(comment.createdAt))}
+            </span>
+          </div>
+          {comment.body.trim() ? (
+            <div className={styles.commentBody}>{comment.body}</div>
+          ) : (
+            <div className={styles.commentEmpty}>No comment text.</div>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }
 
 /**
@@ -184,7 +280,7 @@ export function NotificationsPopover() {
                   {records.map((record) => {
                     const Icon = ICON_FOR[record.kind] ?? Bell;
                     const tone = TONE_FOR[record.kind];
-                    return (
+                    const row = (
                       <div
                         key={record.id}
                         className={`${styles.row} ${record.read ? styles.rowRead : ""}`}
@@ -207,7 +303,17 @@ export function NotificationsPopover() {
                         />
                         <div className={styles.rowText}>
                           <div className={styles.rowTitle}>{record.title}</div>
-                          <div className={styles.rowBody}>{record.body}</div>
+                          <div className={styles.rowBody}>
+                            {record.comment?.author && (
+                              <span
+                                className={styles.rowAuthor}
+                                data-testid="notification-author"
+                              >
+                                @{record.comment.author}
+                              </span>
+                            )}
+                            {record.body}
+                          </div>
                         </div>
                         <span className={styles.rowTime}>
                           {relativeShortThenDate(Date.parse(record.timestamp))}
@@ -215,6 +321,14 @@ export function NotificationsPopover() {
                         {!record.read && <span className={styles.unreadDot} />}
                       </div>
                     );
+                    if (record.kind === "pr-comment" && record.comment) {
+                      return (
+                        <CommentPreview key={record.id} comment={record.comment}>
+                          {row}
+                        </CommentPreview>
+                      );
+                    }
+                    return row;
                   })}
                 </div>
               );

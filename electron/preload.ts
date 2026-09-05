@@ -476,6 +476,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       title: string;
       body: string;
       url?: string;
+      comment?: { author: string; body: string; url: string; createdAt: string };
     }) => ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
     getAll: () => ipcRenderer.invoke("notifications:getAll"),
     markRead: (id: string) => ipcRenderer.invoke("notifications:markRead", id),

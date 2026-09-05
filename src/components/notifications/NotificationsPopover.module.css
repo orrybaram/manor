@@ -165,6 +165,23 @@
   margin-top: 1px;
 }
 
+/* Who commented, ahead of which PR — the name is the part you scan for. */
+.rowAuthor {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rowRead .rowAuthor {
+  color: inherit;
+  font-weight: 400;
+}
+
+.rowAuthor::after {
+  content: " · ";
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
 .rowTime {
   flex-shrink: 0;
   color: var(--text-dim);
@@ -180,4 +197,84 @@
   border-radius: 50%;
   background: var(--accent, var(--blue, #3b82f6));
   margin-top: 5px;
+}
+
+/* ── Comment preview (#177) ── */
+
+/*
+ * Wraps a pr-comment row so hover intent has something to anchor to. The
+ * row's own layout is untouched: block wrapper, no padding, no border.
+ */
+.commentAnchor {
+  display: block;
+}
+
+.commentPopover {
+  width: 280px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  /* Above the list it hangs off, which is itself at 100. */
+  z-index: 101;
+  animation: commentFadeIn 120ms ease-out;
+}
+
+.commentHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.commentAuthor {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.commentTime {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Raw markdown, as GitHub holds it. `pre-wrap` keeps the author's line
+ * breaks and list markers legible without a renderer; `overflow-wrap` stops
+ * a long URL from widening the card.
+ */
+.commentBody {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.commentEmpty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+@keyframes commentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }

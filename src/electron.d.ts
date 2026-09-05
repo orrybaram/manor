@@ -1,4 +1,4 @@
-import type { PrInfo } from "./lib/pr-info";
+import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
@@ -76,6 +76,8 @@ export interface NotificationRecord {
   timestamp: string;
   read: boolean;
   target: NotificationTarget | null;
+  /** `pr-comment` records only, and only when the fetcher knew it (#177). */
+  comment?: PrComment;
 }
 
 export interface LinearTeam {
@@ -701,6 +703,7 @@ export interface ElectronAPI {
       title: string;
       body: string;
       url?: string;
+      comment?: PrComment;
     }) => Promise<boolean>;
     /** Newest first. Main owns the list; the renderer only caches it. */
     getAll: () => Promise<NotificationRecord[]>;

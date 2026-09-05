@@ -652,12 +652,14 @@ export function ProjectItem(props: ProjectItemProps) {
               }
               onDelete={() => deleteWorkspaceFolder(project.id, folder.id)}
             >
-              <WorkspaceList
-                workspaces={workspaces}
-                editingPath={editingPath}
-                onReorder={handleSectionReorder}
-                renderWorkspace={renderWorkspace}
-              />
+              {workspaces.length > 0 && (
+                <WorkspaceList
+                  workspaces={workspaces}
+                  editingPath={editingPath}
+                  onReorder={handleSectionReorder}
+                  renderWorkspace={renderWorkspace}
+                />
+              )}
             </FolderItem>
           ))}
         </>

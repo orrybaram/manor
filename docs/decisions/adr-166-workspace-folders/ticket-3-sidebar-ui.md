@@ -1,6 +1,6 @@
 ---
 title: Sidebar folder rows, move-to-folder menus, and per-section drag
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

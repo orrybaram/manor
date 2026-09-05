@@ -277,6 +277,7 @@
 .folder {
   display: flex;
   flex-direction: column;
+  margin-top: 8px;
 }
 
 .folderHeader {
@@ -338,5 +339,4 @@
 
 .folderBody {
   padding-left: 12px;
-  margin-top: 6px;
 }

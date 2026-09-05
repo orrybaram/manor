@@ -129,7 +129,9 @@ export function FolderItem(props: FolderItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
-      {!collapsed && <div className={styles.folderBody}>{children}</div>}
+      {!collapsed && children && (
+        <div className={styles.folderBody}>{children}</div>
+      )}
     </div>
   );
 }

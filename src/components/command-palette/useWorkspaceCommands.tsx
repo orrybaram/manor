@@ -34,7 +34,7 @@ export function useWorkspaceCommands({
         const isActive = workspace.path === activeWorkspacePath;
         const displayName = workspace.name || workspace.branch || "main";
         cmds.push({
-          id: `ws-${project.id}-${wi}`,
+          id: `ws-${project.id}-${workspace.path}`,
           label: displayName,
           icon: workspace.isMain ? (
             <House size={14} />

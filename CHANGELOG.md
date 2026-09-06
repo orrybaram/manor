@@ -8,6 +8,12 @@
 
 
 
+
+## [0.10.2] - 2026-09-06
+
+### Fixes
+- Manor now recovers gracefully if the terminal-host daemon crashes or is lost, instead of leaving sessions broken
+
 ## [0.10.1] - 2026-09-06
 
 **Features**

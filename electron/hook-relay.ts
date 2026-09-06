@@ -50,6 +50,7 @@ import {
   transitionSession,
   type SessionState as TransitionSessionState,
   type SessionPhase,
+  type Effect,
 } from "./hook-relay-transition";
 import { applyEffects } from "./hook-relay-effects";
 
@@ -114,6 +115,12 @@ export interface HookRelayDeps {
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ) => void;
+  /**
+   * Fire-and-forget observer of every relayed event, called after its effects
+   * have been applied (ADR-168 §2). Used by the stats tap; must never influence
+   * relay behaviour, so throws are logged and swallowed.
+   */
+  onHookEvent?: (event: AgentHookEvent, effects: readonly Effect[]) => void;
   /** Optional monotonic clock injection for tests. Defaults to process.hrtime.bigint() / 1e6. */
   monoClock?: () => number;
   /** Optional wall clock injection for tests. Defaults to Date.now(). */
@@ -161,6 +168,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     unseenInputAgents,
     broadcastAgent,
     maybeSendNotification,
+    onHookEvent,
     monoClock = defaultMonoClock,
     wallClock = defaultWallClock,
   } = deps;
@@ -302,6 +310,16 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       sessionStateMap,
       applyStopForSession,
     });
+
+    // Observers run last and cannot change what the relay did. A broken
+    // observer is a stats bug, never an agent-lifecycle bug.
+    if (onHookEvent) {
+      try {
+        onHookEvent(event, result.effects);
+      } catch (error) {
+        console.error("[agent-lifecycle] onHookEvent observer threw:", error);
+      }
+    }
   }
 
   function sweepStaleSessions(): void {

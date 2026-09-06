@@ -7,6 +7,7 @@ import {
   sendAgentUpdate,
   updateDockBadge,
 } from "../notifications";
+import { isKill } from "../stats-signals";
 import { cleanAgentTitle } from "../title-utils";
 import type { IpcDeps } from "./types";
 
@@ -33,6 +34,7 @@ export function register(deps: IpcDeps): void {
     unseenInputAgents,
     preferencesManager,
     backend,
+    statsStore,
   } = deps;
 
   ipcMain.handle(
@@ -160,6 +162,7 @@ export function register(deps: IpcDeps): void {
     assertString(paneId, "paneId");
     const agent = agentManager.getAgentByPaneId(paneId);
     if (!agent || agent.status !== "active") return;
+    if (isKill(agent)) statsStore.record("agentsKilled");
     const nameUpdate = !agent.name && title ? cleanAgentTitle(title) : null;
     const updated = agentManager.updateAgent(agent.id, {
       status: "abandoned",

@@ -42,6 +42,13 @@ if (typeof globalThis.window === "undefined") {
         onNavigate: vi.fn(() => vi.fn()),
         show: vi.fn().mockResolvedValue(true),
       },
+      // stats-store.ts fetches the summary and subscribes to onChanged at
+      // module-init time (ADR-168 §5).
+      stats: {
+        getSummary: vi.fn().mockResolvedValue(null),
+        reset: vi.fn().mockResolvedValue(undefined),
+        onChanged: vi.fn(() => vi.fn()),
+      },
       // preferences-store.ts and keybindings-store.ts both read their state and
       // subscribe to changes at module-init time, so anything importing them
       // needs these surfaces.

@@ -21,6 +21,7 @@ import { GitHubIssuesView } from "./GitHubIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
+import { StatsView, ResetStatsFooter } from "./StatsView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type {
@@ -149,6 +150,11 @@ export function CommandPalette(props: CommandPaletteProps) {
     setView("processes");
   }, []);
 
+  const navigateToStats = useCallback(() => {
+    setSearch("");
+    setView("stats");
+  }, []);
+
   const navigateToRoot = useCallback(() => {
     setSearch("");
     setSelectedIssueId(null);
@@ -192,6 +198,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     openOrFocusDiff,
     openDiffInNewPanel,
     navigateToProcesses,
+    navigateToStats,
   });
 
   const agentCommands = useAgentCommands({
@@ -259,7 +266,8 @@ export function CommandPalette(props: CommandPaletteProps) {
   const isIssueListView =
     view === "linear-all" ||
     view === "github-all" ||
-    view === "processes";
+    view === "processes" ||
+    view === "stats";
   const isDetailView =
     view === "issue-detail" || view === "github-issue-detail";
 
@@ -386,6 +394,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                     {view === "linear-all" && "Linear — Issues"}
                     {view === "github-all" && "GitHub — Issues"}
                     {view === "processes" && "Processes"}
+                    {view === "stats" && "Stats"}
                   </span>
                 </Row>
               )}
@@ -401,7 +410,10 @@ export function CommandPalette(props: CommandPaletteProps) {
                   listRef.current?.scrollTo(0, 0);
                 }}
                 style={
-                  isDetailView || view === "processes" || (isIssueListView && issueListEmpty)
+                  isDetailView ||
+                  view === "processes" ||
+                  view === "stats" ||
+                  (isIssueListView && issueListEmpty)
                     ? { position: "absolute", opacity: 0, pointerEvents: "none", height: 0, padding: 0, border: "none" }
                     : undefined
                 }
@@ -518,6 +530,8 @@ export function CommandPalette(props: CommandPaletteProps) {
                 )}
 
                 {view === "processes" && <ProcessesView />}
+
+                {view === "stats" && <StatsView />}
               </Command.List>
               {view === "processes" && (
                 <KillAllFooter
@@ -526,6 +540,7 @@ export function CommandPalette(props: CommandPaletteProps) {
                   }}
                 />
               )}
+              {view === "stats" && <ResetStatsFooter />}
               {view === "issue-detail" && selectedIssueId && (
                 <IssueDetailView
                   issueId={selectedIssueId}

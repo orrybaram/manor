@@ -97,6 +97,10 @@ describe("electron/paths", () => {
       );
     });
 
+    it("statsFile", () => {
+      expect(paths.statsFile()).toBe(path.join(dataRoot(), "stats.json"));
+    });
+
     it("keybindingsFile", () => {
       expect(paths.keybindingsFile()).toBe(
         path.join(dataRoot(), "keybindings.json"),
@@ -147,6 +151,10 @@ describe("electron/paths", () => {
       expect(paths.preferencesFile()).toBe(
         path.join(dataRoot(), "preferences.json"),
       );
+    });
+
+    it("statsFile", () => {
+      expect(paths.statsFile()).toBe(path.join(dataRoot(), "stats.json"));
     });
 
     it("keybindingsFile", () => {
@@ -294,6 +302,7 @@ describe("electron/paths", () => {
         paths.projectsFile,
         paths.agentsFile,
         paths.preferencesFile,
+        paths.statsFile,
         paths.keybindingsFile,
         paths.windowBoundsFile,
         paths.zoomLevelFile,

@@ -5,7 +5,7 @@ import type { LinkedIssue } from "../linear";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
-  const { projectManager } = deps;
+  const { projectManager, statsStore } = deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -42,8 +42,8 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "projects:removeWorktree",
-    (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
-      return projectManager.removeWorktree(
+    async (event, projectId: string, worktreePath: string, deleteBranch?: boolean) => {
+      const result = await projectManager.removeWorktree(
         projectId,
         worktreePath,
         deleteBranch,
@@ -51,6 +51,8 @@ export function register(deps: IpcDeps): void {
           event.sender.send("projects:removeWorktree:progress", step);
         },
       );
+      statsStore.record("worktreesRemoved");
+      return result;
     },
   );
 
@@ -63,15 +65,19 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "projects:quickMergeWorktree",
-    (_event, projectId: string, worktreePath: string) => {
-      return projectManager.quickMergeWorktree(projectId, worktreePath);
+    async (_event, projectId: string, worktreePath: string) => {
+      const result = await projectManager.quickMergeWorktree(projectId, worktreePath);
+      statsStore.record("worktreesMerged");
+      return result;
     },
   );
 
   ipcMain.handle(
     "projects:createWorktree",
-    (_event, projectId: string, name: string, branch?: string, linkedIssue?: LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
-      return projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
+    async (_event, projectId: string, name: string, branch?: string, linkedIssue?: LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
+      const result = await projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
+      statsStore.record("worktreesCreated");
+      return result;
     },
   );
 

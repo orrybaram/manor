@@ -1,12 +1,16 @@
+import { useState } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import { isTerminalEditor } from "../../lib/editor";
 import { Input } from "../ui/Input";
 import { Switch } from "../ui/Switch/Switch";
+import { Button } from "../ui/Button/Button";
+import { ResetStatsDialog } from "../command-palette/ResetStatsDialog";
 import { Stack } from "../ui/Layout/Layout";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function GeneralSettingsPage() {
   const { preferences, set } = usePreferencesStore();
+  const [resetStatsOpen, setResetStatsOpen] = useState(false);
 
   const handleEditorChange = (value: string) => {
     set("defaultEditor", value);
@@ -54,6 +58,33 @@ export function GeneralSettingsPage() {
           of a tab in the current panel.
         </div>
       </Stack>
+      <Stack gap="xs">
+        <div className={styles.sectionTitle}>Usage Stats</div>
+        <label className={styles.notifRow}>
+          <span>Collect usage stats</span>
+          <Switch
+            checked={preferences.statsEnabled}
+            onCheckedChange={(checked) => set("statsEnabled", checked)}
+          />
+        </label>
+        <div className={styles.fieldHint}>
+          Counts prompts, tool calls, worktrees and agents killed. Never stores
+          text. Stays on this Mac.
+        </div>
+        <div>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setResetStatsOpen(true)}
+          >
+            Reset stats
+          </Button>
+        </div>
+      </Stack>
+      <ResetStatsDialog
+        open={resetStatsOpen}
+        onOpenChange={setResetStatsOpen}
+      />
     </Stack>
   );
 }

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
+import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -50,6 +51,7 @@ interface UseCommandsParams {
   openOrFocusDiff: () => void;
   openDiffInNewPanel: () => void;
   navigateToProcesses: () => void;
+  navigateToStats: () => void;
 }
 
 export function useCommands({
@@ -73,6 +75,7 @@ export function useCommands({
   openOrFocusDiff,
   openDiffInNewPanel,
   navigateToProcesses,
+  navigateToStats,
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
@@ -483,6 +486,16 @@ export function useCommands({
         },
       },
       {
+        id: "show-stats",
+        label: "Show Stats",
+        icon: <BarChart3 size={14} />,
+        suffix: <ChevronRight size={14} />,
+        keywords: ["stats", "statistics", "streak", "badges", "usage", "counters"],
+        action: () => {
+          navigateToStats();
+        },
+      },
+      {
         id: "submit-feedback",
         label: "Submit Feedback",
         icon: <MessageSquare size={14} />,
@@ -586,5 +599,6 @@ export function useCommands({
     activePorts,
     openOrFocusDiff,
     navigateToProcesses,
+    navigateToStats,
   ]);
 }

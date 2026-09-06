@@ -137,3 +137,21 @@
 .remoteBadgeFailed {
   background: var(--danger, #c74e39);
 }
+
+/* ── Usage stats segment (ADR-168) ── */
+
+/* Doubled selector so these win over the Button `link` variant's colour and
+   underline without an !important. */
+.statsSegment.statsSegment {
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--text-dim);
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: 0.8;
+  transition: opacity 150ms;
+}
+
+.statsSegment.statsSegment:hover {
+  opacity: 1;
+}

@@ -228,6 +228,11 @@ function App() {
     [],
   );
 
+  const handleOpenStats = useCallback(
+    () => handleOpenPaletteView("stats"),
+    [handleOpenPaletteView],
+  );
+
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
@@ -579,6 +584,7 @@ function App() {
             <StatusBar
               onNewWorkspace={handleNewWorkspace}
               onNewAgentWithPrompt={handleNewAgentWithPrompt}
+              onOpenStats={handleOpenStats}
             />
           </div>
         </PaneDragProvider>

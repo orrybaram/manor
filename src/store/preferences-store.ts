@@ -27,6 +27,7 @@ const defaultPreferences: AppPreferences = {
   homeHarness: "claude",
   homeCustomCommand: "",
   homeCustomInterrupt: "",
+  statsEnabled: true,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

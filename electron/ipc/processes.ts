@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { ipcMain } from "electron";
 import { portlessManager } from "../portless";
 import { assertString } from "../ipc-validate";
+import { isKill } from "../stats-signals";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -31,7 +32,7 @@ function isDaemonAlive(pid: number): boolean {
 }
 
 export function register(deps: IpcDeps): void {
-  const { backend, portScanner, agentHookServer, webviewServer } = deps;
+  const { backend, portScanner, agentHookServer, webviewServer, agentManager, statsStore } = deps;
 
   ipcMain.handle("processes:list", async () => {
     const pid = readDaemonPid();
@@ -78,6 +79,8 @@ export function register(deps: IpcDeps): void {
     "processes:killSession",
     async (_event, sessionId: string) => {
       assertString(sessionId, "sessionId");
+      const agent = agentManager.getAgentByPaneId(sessionId);
+      if (agent && isKill(agent)) statsStore.record("agentsKilled");
       try {
         await backend.pty.kill(sessionId);
       } catch {
@@ -118,6 +121,8 @@ export function register(deps: IpcDeps): void {
     try {
       const sessions = await backend.pty.listSessions();
       for (const session of sessions) {
+        const agent = agentManager.getAgentByPaneId(session.sessionId);
+        if (agent && isKill(agent)) statsStore.record("agentsKilled");
         try {
           await backend.pty.kill(session.sessionId);
         } catch {

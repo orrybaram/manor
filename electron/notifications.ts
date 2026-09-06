@@ -10,6 +10,7 @@ import type { PrComment } from "../src/lib/pr-info";
 import type { PreferencesManager } from "./preferences";
 import type { AgentInfo } from "./agent-persistence";
 import type { AgentStatus } from "./terminal-host/types";
+import type { StatCounter, StatsStore } from "./stats-store";
 
 /** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
 export type PrNotifyEventKind =
@@ -26,6 +27,17 @@ const PR_KIND_TO_NOTIFICATION_KIND: Record<PrNotifyEventKind, NotificationKind> 
 };
 
 /**
+ * Which `NotificationKind`s are PR outcomes worth counting (ADR-168 §2).
+ * `pr-comment` is deliberately absent — it is noise, not an outcome — as are
+ * the `agent-*` kinds this same append site also handles.
+ */
+const NOTIFICATION_KIND_TO_STAT: Partial<Record<NotificationKind, StatCounter>> = {
+  "pr-approved": "prApproved",
+  "pr-changes-requested": "prChangesRequested",
+  "pr-checks-failed": "prChecksFailed",
+};
+
+/**
  * The durable notification log (ADR-162). Set once from app-lifecycle; absent
  * in tests and in any context that never boots the app, where recording is
  * simply skipped.
@@ -34,6 +46,16 @@ let notificationStore: NotificationStore | null = null;
 
 export function setNotificationStore(store: NotificationStore | null): void {
   notificationStore = store;
+}
+
+/**
+ * ADR-168's usage-stats store. Set once from app-lifecycle, absent in tests;
+ * recording is skipped when unset.
+ */
+let statsStore: StatsStore | null = null;
+
+export function setStatsStore(store: StatsStore | null): void {
+  statsStore = store;
 }
 
 /**
@@ -200,6 +222,8 @@ function presentNotification(
       target: opts.record.target,
       comment: opts.record.comment,
     }) ?? null;
+  const stat = NOTIFICATION_KIND_TO_STAT[opts.record.kind];
+  if (stat) statsStore?.record(stat);
   sendNotificationsUpdate(mainWindow);
 
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {

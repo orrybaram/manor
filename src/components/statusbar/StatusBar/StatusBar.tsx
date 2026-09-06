@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAppStore, selectWebviewFocusVisible } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 
@@ -8,6 +8,9 @@ import { AboutModal } from "../AboutModal/AboutModal";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
 import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
+import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { useStatsStore, formatUnblockLatency } from "../../../store/stats-store";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
 import type { LinkedIssue } from "../../../store/project-store";
@@ -46,10 +49,57 @@ function LinkedIssueIcon(props: LinkedIssueIconProps) {
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
   onNewAgentWithPrompt?: (prompt: string) => void;
+  /** Opens the command palette on the stats view (ADR-168 §6). */
+  onOpenStats?: () => void;
+}
+
+interface StatsSegmentProps {
+  onOpenStats?: () => void;
+}
+
+/**
+ * Compact usage-stats readout (ADR-168 §6). Hidden while collection is off or
+ * before anything worth showing has been recorded, so a fresh install never
+ * sees a row of zeroes.
+ */
+function StatsSegment(props: StatsSegmentProps) {
+  const { onOpenStats } = props;
+  const summary = useStatsStore((s) => s.summary);
+
+  const tooltip = useMemo(() => {
+    if (!summary) return "";
+    const { today } = summary;
+    const parts = [
+      `${today.prompts ?? 0} prompts`,
+      `${today.toolCalls ?? 0} tool calls`,
+      `${today.agentsKilled ?? 0} agents killed`,
+    ];
+    const latency = formatUnblockLatency(today);
+    if (latency) parts.push(`${latency} to unblock`);
+    return `Today — ${parts.join(", ")}`;
+  }, [summary]);
+
+  if (!summary || !summary.enabled) return null;
+  const hasHistory =
+    (summary.allTime.prompts ?? 0) > 0 || (summary.allTime.agentsKilled ?? 0) > 0;
+  if (!hasHistory) return null;
+
+  return (
+    <Tooltip label={tooltip} side="top">
+      <Button
+        variant="link"
+        className={styles.statsSegment}
+        onClick={() => onOpenStats?.()}
+        aria-label="Show stats"
+      >
+        {`🔥 ${summary.streakDays} · ${summary.today.prompts ?? 0} prompts · ☠ ${summary.today.agentsKilled ?? 0}`}
+      </Button>
+    </Tooltip>
+  );
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { onNewWorkspace, onNewAgentWithPrompt } = props;
+  const { onNewWorkspace, onNewAgentWithPrompt, onOpenStats } = props;
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -124,6 +174,7 @@ export function StatusBar(props: StatusBarProps) {
       </div>
       <div className={styles.right}>
         <RemoteExposureIndicator />
+        <StatsSegment onOpenStats={onOpenStats} />
         <button
           className={styles.logoButton}
           onClick={() => setFeedbackOpen(true)}

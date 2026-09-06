@@ -22,6 +22,7 @@ import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
 import { ensureWebviewCli } from "./webview-cli-script";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
+import { StatsStore } from "./stats-store";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
@@ -42,7 +43,9 @@ import {
   updateDockBadge as _updateDockBadge,
   maybeSendNotification as _maybeSendNotification,
   sendAgentUpdate,
+  sendNotificationsUpdate,
   setNotificationStore,
+  setStatsStore,
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
@@ -55,6 +58,7 @@ import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as agentsIpc from "./ipc/agents";
 import * as notificationsIpc from "./ipc/notifications";
+import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
@@ -236,6 +240,20 @@ export function initApp(devTitle: string | null): void {
   // single recording site inside `presentNotification` can reach it.
   const notificationStore = new NotificationStore();
   setNotificationStore(notificationStore);
+  // ADR-168's usage stats.
+  const statsStore = new StatsStore(undefined, {
+    isEnabled: () => preferencesManager.get("statsEnabled"),
+    onBadge: (badge) => {
+      notificationStore.append({
+        kind: "badge-unlocked",
+        title: `Badge unlocked: ${badge.title}`,
+        body: badge.description,
+        target: null,
+      });
+      sendNotificationsUpdate(mainWindow);
+    },
+  });
+  setStatsStore(statsStore);
 
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is
@@ -370,6 +388,7 @@ export function initApp(devTitle: string | null): void {
     agentHookServer,
     agentManager,
     notificationStore,
+    statsStore,
     preferencesManager,
     keybindingsManager,
     paneContextMap,
@@ -391,6 +410,7 @@ export function initApp(devTitle: string | null): void {
   webviewIpc.register(ipcDeps);
   agentsIpc.register(ipcDeps);
   notificationsIpc.register(ipcDeps);
+  statsIpc.register(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
@@ -539,6 +559,8 @@ export function initApp(devTitle: string | null): void {
       unseenInputAgents,
       broadcastAgent,
       maybeSendNotification,
+      onHookEvent: (event, effects) =>
+        statsStore.observeHookEvent(event, effects, agentManager.getActiveAgents().length),
     });
 
     // Now that the hook relay is created, set the notifyAgentDetectorGone reference
@@ -584,5 +606,6 @@ export function initApp(devTitle: string | null): void {
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();
+    statsStore.flushNow();
   });
 }

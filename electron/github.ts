@@ -4,7 +4,13 @@ import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import type { ChecksSummary, PrComment, PrInfo } from "../src/lib/pr-info";
+import type {
+  ChecksSummary,
+  PrCheckRun,
+  PrCheckStatus,
+  PrComment,
+  PrInfo,
+} from "../src/lib/pr-info";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,37 +98,11 @@ export class GitHubManager {
 
       const pr = prs[0];
 
-      let checks: ChecksSummary | null = null;
-      if (
-        Array.isArray(pr.statusCheckRollup) &&
-        pr.statusCheckRollup.length > 0
-      ) {
-        let passing = 0;
-        let failing = 0;
-        let pending = 0;
-        for (const check of pr.statusCheckRollup) {
-          const conclusion = check.conclusion as string | null;
-          if (conclusion === "SUCCESS") {
-            passing++;
-          } else if (
-            conclusion === "FAILURE" ||
-            conclusion === "CANCELLED" ||
-            conclusion === "TIMED_OUT"
-          ) {
-            failing++;
-          } else {
-            pending++;
-          }
-        }
-        checks = {
-          total: pr.statusCheckRollup.length,
-          passing,
-          failing,
-          pending,
-        };
-      }
+      const { checks, checkRuns } = parseStatusCheckRollup(
+        pr.statusCheckRollup,
+      );
 
-      const { unresolvedThreads, commentCount, latestComment } =
+      const { unresolvedThreads, commentCount, latestComment, recentComments } =
         await this.getPrConversationState(pr.url, pr.number);
 
       return {
@@ -138,6 +118,8 @@ export class GitHubManager {
         unresolvedThreads,
         commentCount,
         latestComment,
+        recentComments,
+        checkRuns,
       };
     } catch {
       return null;
@@ -152,9 +134,10 @@ export class GitHubManager {
       const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
       if (!match) return {};
       const [, owner, repo] = match;
-      // `last: 1` on both connections: the newest entry of each, so a "new
-      // comment" notification can carry what was said (#177).
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved } } comments(last: 1) { totalCount nodes { author { login } body url createdAt } } reviews(last: 1) { totalCount nodes { author { login } body url submittedAt } } } } }`;
+      // The newest entries of all three conversation surfaces: enough for the
+      // PR popover's comment list, and the newest of them is what a "new
+      // comment" notification carries (#177).
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -408,6 +391,7 @@ interface PrConversationState {
   unresolvedThreads?: number;
   commentCount?: number;
   latestComment?: PrComment | null;
+  recentComments?: PrComment[];
 }
 
 interface RawConversationNode {
@@ -416,6 +400,91 @@ interface RawConversationNode {
   url?: string;
   createdAt?: string;
   submittedAt?: string;
+  state?: string;
+}
+
+interface RawReviewThread {
+  isResolved?: boolean;
+  path?: string;
+  comments?: { nodes?: RawConversationNode[] };
+}
+
+/** How many comments and reviews to ask GitHub for. */
+const RECENT_COMMENT_FETCH = 20;
+
+/** How many conversation entries the popover keeps after interleaving. */
+const RECENT_COMMENT_LIMIT = 12;
+
+/**
+ * `gh pr list --json statusCheckRollup` returns a union: check runs carry
+ * `name`/`conclusion`/`detailsUrl`, legacy status contexts carry
+ * `context`/`state`/`targetUrl`. Both shapes are flattened here.
+ */
+interface RawStatusCheck {
+  name?: string;
+  context?: string;
+  conclusion?: string | null;
+  state?: string | null;
+  detailsUrl?: string;
+  targetUrl?: string;
+  workflowName?: string;
+}
+
+const FAILING_CONCLUSIONS = new Set([
+  "FAILURE",
+  "CANCELLED",
+  "TIMED_OUT",
+  "STARTUP_FAILURE",
+  "ACTION_REQUIRED",
+  "ERROR",
+]);
+
+function checkStatusOf(check: RawStatusCheck): PrCheckStatus {
+  const verdict = (check.conclusion || check.state || "").toUpperCase();
+  if (verdict === "SUCCESS") return "passing";
+  if (FAILING_CONCLUSIONS.has(verdict)) return "failing";
+  return "pending";
+}
+
+/**
+ * Exported for tests. Returns both the counts the badge reads and the named
+ * runs the popover lists, ordered failing → pending → passing so the UI can
+ * truncate from the end and still show what matters.
+ */
+export function parseStatusCheckRollup(rollup: unknown): {
+  checks: ChecksSummary | null;
+  checkRuns?: PrCheckRun[];
+} {
+  if (!Array.isArray(rollup) || rollup.length === 0) {
+    return { checks: null };
+  }
+
+  const rank: Record<PrCheckStatus, number> = {
+    failing: 0,
+    pending: 1,
+    passing: 2,
+  };
+  const counts: ChecksSummary = {
+    total: rollup.length,
+    passing: 0,
+    failing: 0,
+    pending: 0,
+  };
+  const runs: PrCheckRun[] = [];
+
+  for (const raw of rollup as RawStatusCheck[]) {
+    const status = checkStatusOf(raw);
+    counts[status]++;
+    runs.push({
+      name: raw.name || raw.context || "check",
+      status,
+      url: raw.detailsUrl || raw.targetUrl || null,
+      workflow: raw.workflowName || null,
+    });
+  }
+
+  runs.sort((a, b) => rank[a.status] - rank[b.status]);
+  return { checks: counts, checkRuns: runs };
 }
 
 /**
@@ -431,7 +500,7 @@ export function parsePrConversationState(
 ): PrConversationState {
   if (!pullRequest || typeof pullRequest !== "object") return {};
   const pr = pullRequest as {
-    reviewThreads?: { nodes?: { isResolved: boolean }[] };
+    reviewThreads?: { nodes?: RawReviewThread[] };
     comments?: { totalCount?: number; nodes?: RawConversationNode[] };
     reviews?: { totalCount?: number; nodes?: RawConversationNode[] };
   };
@@ -448,9 +517,13 @@ export function parsePrConversationState(
       ? commentsTotal + reviewsTotal
       : undefined;
 
+  const comments = pr.comments?.nodes ?? [];
+  const reviews = pr.reviews?.nodes ?? [];
+  const newest = <T,>(nodes: T[]): T | undefined => nodes[nodes.length - 1];
+
   const candidates = [
-    toPrComment(pr.comments?.nodes?.[0]),
-    toPrComment(pr.reviews?.nodes?.[0]),
+    toPrComment(newest(comments)),
+    toPrComment(newest(reviews)),
   ].filter((c): c is PrComment => c !== null);
   const latestComment =
     commentCount === undefined
@@ -459,7 +532,52 @@ export function parsePrConversationState(
           (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
         )[0] ?? null;
 
-  return { unresolvedThreads, commentCount, latestComment };
+  const recentComments = collectRecentComments(comments, reviews, threads);
+
+  return { unresolvedThreads, commentCount, latestComment, recentComments };
+}
+
+/**
+ * Interleave the three places a human can say something on a PR — issue
+ * comments, submitted reviews, and inline review threads — newest first.
+ *
+ * A review with no body and no verdict is the empty wrapper GitHub creates
+ * around inline comments; it is dropped so the list is not half blanks.
+ */
+function collectRecentComments(
+  comments: RawConversationNode[],
+  reviews: RawConversationNode[],
+  threads: RawReviewThread[] | undefined,
+): PrComment[] {
+  const entries: PrComment[] = [];
+
+  for (const node of comments) {
+    const c = toPrComment(node);
+    if (c) entries.push({ ...c, kind: "comment" });
+  }
+
+  for (const node of reviews) {
+    const c = toPrComment(node);
+    if (!c) continue;
+    const state = typeof node.state === "string" ? node.state : null;
+    if (!c.body.trim() && (state === null || state === "COMMENTED")) continue;
+    entries.push({ ...c, kind: "review", reviewState: state });
+  }
+
+  for (const thread of threads ?? []) {
+    const c = toPrComment(thread.comments?.nodes?.[0]);
+    if (!c) continue;
+    entries.push({
+      ...c,
+      kind: "thread",
+      path: thread.path ?? null,
+      isResolved: thread.isResolved === true,
+    });
+  }
+
+  return entries
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, RECENT_COMMENT_LIMIT);
 }
 
 function toPrComment(node: RawConversationNode | undefined): PrComment | null {

@@ -24,6 +24,36 @@ export interface PrComment {
   url: string;
   /** ISO timestamp. */
   createdAt: string;
+  /**
+   * Where the entry came from: a top-level issue comment, a submitted review,
+   * or an inline review thread. Absent on `latestComment`, which predates the
+   * distinction.
+   */
+  kind?: PrCommentKind;
+  /** Reviews only: APPROVED | CHANGES_REQUESTED | COMMENTED. */
+  reviewState?: string | null;
+  /** Review threads only: the file the thread hangs off. */
+  path?: string | null;
+  /** Review threads only. */
+  isResolved?: boolean;
+}
+
+export type PrCommentKind = "comment" | "review" | "thread";
+
+export type PrCheckStatus = "passing" | "failing" | "pending";
+
+/**
+ * One entry of the status check rollup, named. The counts in `ChecksSummary`
+ * answer "can this ship?"; this answers "what broke?" — so the popover can
+ * name the failing job instead of saying "1 failing".
+ */
+export interface PrCheckRun {
+  name: string;
+  status: PrCheckStatus;
+  /** The run's page on GitHub (or the status context's target). */
+  url?: string | null;
+  /** Workflow the check run belongs to; absent for plain status contexts. */
+  workflow?: string | null;
 }
 
 export interface PrInfo {
@@ -40,4 +70,11 @@ export interface PrInfo {
   commentCount?: number;
   /** Null when the PR has no comments or reviews yet; absent when unknown. */
   latestComment?: PrComment | null;
+  /**
+   * Newest first, capped — comments, reviews and unresolved review threads
+   * interleaved. What the PR popover lists.
+   */
+  recentComments?: PrComment[];
+  /** Individual checks behind `checks`, failing first. */
+  checkRuns?: PrCheckRun[];
 }

@@ -10,9 +10,19 @@ import {
   serializeOrder,
   type SidebarItem,
 } from "../utils/sidebar-items";
-import type { ChecksSummary, PrInfo } from "../lib/pr-info";
+import type {
+  ChecksSummary,
+  PrCheckRun,
+  PrComment,
+  PrInfo,
+} from "../lib/pr-info";
 
-export type { ChecksSummary, PrInfo } from "../lib/pr-info";
+export type {
+  ChecksSummary,
+  PrCheckRun,
+  PrComment,
+  PrInfo,
+} from "../lib/pr-info";
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
@@ -271,8 +281,22 @@ function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
     a.commentCount === b.commentCount &&
     a.latestComment?.url === b.latestComment?.url &&
     a.latestComment?.body === b.latestComment?.body &&
+    commentsEqual(a.recentComments, b.recentComments) &&
+    checkRunsEqual(a.checkRuns, b.checkRuns) &&
     checksEqual(a.checks, b.checks)
   );
+}
+
+function commentsEqual(a?: PrComment[], b?: PrComment[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((c, i) => c.url === b[i].url && c.body === b[i].body);
+}
+
+function checkRunsEqual(a?: PrCheckRun[], b?: PrCheckRun[]): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((c, i) => c.name === b[i].name && c.status === b[i].status);
 }
 
 export interface WorkspaceFolder {

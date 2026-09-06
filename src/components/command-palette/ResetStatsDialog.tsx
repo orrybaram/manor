@@ -8,10 +8,7 @@ interface ResetStatsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/**
- * Confirm-then-wipe dialog for usage stats (ADR-168 §6). Lives in its own file
- * so the palette footer and the General settings page share one copy.
- */
+/** Confirm-then-wipe dialog for usage stats (ADR-168 §6). */
 export function ResetStatsDialog(props: ResetStatsDialogProps) {
   const { open, onOpenChange } = props;
 
@@ -24,8 +21,8 @@ export function ResetStatsDialog(props: ResetStatsDialogProps) {
             Reset Stats
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            This deletes every counter, streak and badge stored on this Mac. It
-            cannot be undone.
+            This deletes every counter, streak and badge stored on this device.
+            It cannot be undone.
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>

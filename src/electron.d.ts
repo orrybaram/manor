@@ -111,11 +111,20 @@ export type StatGauge = "maxConcurrentAgents";
 
 export type DayBucket = Partial<Record<StatCounter | StatGauge, number>>;
 
+/** One retained day's prompt count, for the contribution graph. */
+export interface DailyPrompts {
+  /** Local YYYY-MM-DD. */
+  day: string;
+  count: number;
+}
+
 export interface StatsSummary {
   today: DayBucket;
   last7Days: DayBucket;
   allTime: DayBucket;
   streakDays: number;
+  /** Prompt count per local day, oldest first, for days that recorded one. */
+  dailyPrompts: DailyPrompts[];
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
   enabled: boolean;

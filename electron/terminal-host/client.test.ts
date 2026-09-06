@@ -778,6 +778,135 @@ describe("TerminalHostClient", () => {
     });
   });
 
+  describe("daemon loss (ADR-169)", () => {
+    /** Wait until `pred()` holds, or fail after `timeoutMs`. */
+    async function waitFor(
+      pred: () => boolean,
+      label: string,
+      timeoutMs = 3_000,
+    ): Promise<void> {
+      const start = Date.now();
+      while (!pred()) {
+        if (Date.now() - start > timeoutMs)
+          throw new Error(`timed out waiting for: ${label}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
+
+    /** A client that retries fast enough for a test to wait on. */
+    function fastReconnectClient(): TerminalHostClient {
+      const client = createTestClient(daemon);
+      (client as any).reconnectDelaysMs = [30, 60, 120];
+      return client;
+    }
+
+    /** Kill the client's sockets from our side, as if the daemon had dropped them. */
+    function dropSockets(client: TerminalHostClient): void {
+      (client as any).controlSocket?.destroy();
+      (client as any).streamSocket?.destroy();
+    }
+
+    it("reports a session as exited when the daemon comes back without it", async () => {
+      const client = fastReconnectClient();
+      const events: any[] = [];
+      client.onEvent((e) => events.push(e));
+      await client.connect();
+      await client.createOrAttach("lost-1", "/tmp", 80, 24);
+
+      // The daemon dies (sessions and all) and a fresh one takes its place on
+      // the same socket — what a crash + respawn, or "Kill daemon", looks like.
+      await daemon.stop();
+      await daemon.start();
+
+      await waitFor(
+        () => events.some((e) => e.type === "exit" && e.sessionId === "lost-1"),
+        "exit for lost-1",
+      );
+      const exits = events.filter((e) => e.type === "exit" && e.sessionId === "lost-1");
+      expect(exits).toHaveLength(1);
+      expect(exits[0].exitCode).toBe(-1);
+
+      // And the client is usable again without anyone calling connect().
+      expect(await client.ping()).toBe(true);
+      client.disconnect();
+    });
+
+    it("re-subscribes to a session that survived a dropped connection", async () => {
+      const client = fastReconnectClient();
+      const events: any[] = [];
+      client.onEvent((e) => events.push(e));
+      await client.connect();
+      await client.createOrAttach("kept-1", "/tmp", 80, 24);
+      // Let the create path's fire-and-forget subscribe land before counting.
+      await new Promise((r) => setTimeout(r, 50));
+      const subscribes = () => daemon.seen.filter((e) => e === "stream:subscribe").length;
+      const before = subscribes();
+
+      dropSockets(client);
+      await waitFor(() => (client as any).connected === true, "reconnect");
+      // The reconcile re-subscribes on the new stream socket.
+      await waitFor(() => subscribes() > before, "re-subscribe");
+      expect(daemon.seen).toContain("control:listSessions");
+
+      const session = (daemon.getHost() as any).sessions.get("kept-1");
+      (session as any).decoder.push(encodeFrame(MSG.DATA, "still here"));
+      await waitFor(
+        () =>
+          events.some(
+            (e) => e.type === "data" && e.sessionId === "kept-1" && e.data === "still here",
+          ),
+        "data from kept-1",
+      );
+
+      expect(events.some((e) => e.type === "exit")).toBe(false);
+      client.disconnect();
+    });
+
+    it("does not report a session the app closed itself", async () => {
+      const client = fastReconnectClient();
+      const events: any[] = [];
+      client.onEvent((e) => events.push(e));
+      await client.connect();
+      await client.createOrAttach("closed-1", "/tmp", 80, 24);
+      await client.kill("closed-1");
+
+      dropSockets(client);
+      await waitFor(() => (client as any).connected === true, "reconnect");
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(events.some((e) => e.type === "exit" && e.sessionId === "closed-1")).toBe(false);
+      client.disconnect();
+    });
+
+    it("reports every wanted session as exited when the daemon never comes back", async () => {
+      const client = fastReconnectClient();
+      const events: any[] = [];
+      client.onEvent((e) => events.push(e));
+      await client.connect();
+      await client.createOrAttach("gone-1", "/tmp", 80, 24);
+      await client.createOrAttach("gone-2", "/tmp", 80, 24);
+
+      // Nothing to reconnect to: the daemon is down and cannot be respawned.
+      await daemon.stop();
+      (client as any).connectControlSocket = () =>
+        Promise.reject(new Error("connection refused"));
+
+      await waitFor(
+        () =>
+          ["gone-1", "gone-2"].every((id) =>
+            events.some((e) => e.type === "exit" && e.sessionId === id),
+          ),
+        "exit for gone-1 and gone-2",
+      );
+      expect((client as any).wanted.size).toBe(0);
+      expect((client as any).connected).toBe(false);
+
+      // afterEach stops the daemon; it is already stopped, so restart it to
+      // keep that teardown symmetric.
+      await daemon.start();
+    });
+  });
+
   describe("daemonDir (ADR-116)", () => {
     it("uses a fixed path independent of app version", () => {
       const clientA = new TerminalHostClient("1.0.0");

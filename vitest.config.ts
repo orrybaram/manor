@@ -7,6 +7,10 @@ export default defineConfig({
       "electron/**/*.test.ts",
       "tests/e2e/helpers/**/*.test.ts",
     ],
-    setupFiles: ["src/store/__tests__/setup.ts"],
+    setupFiles: [
+      // Must run first: redirects $HOME to a temp dir (ADR-169).
+      "electron/__tests__/setup-isolated-home.ts",
+      "src/store/__tests__/setup.ts",
+    ],
   },
 });

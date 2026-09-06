@@ -76,11 +76,24 @@ export interface PersistedStats {
   badges: Record<string, string>;
 }
 
+/** One retained day's prompt count, for the contribution graph. */
+export interface DailyPrompts {
+  /** Local YYYY-MM-DD. */
+  day: string;
+  count: number;
+}
+
 export interface StatsSummary {
   today: DayBucket;
   last7Days: DayBucket;
   allTime: DayBucket;
   streakDays: number;
+  /**
+   * Prompt count per local day, oldest first, for days that recorded at least
+   * one. Sparse on purpose — the renderer fills the grid's gaps, so an idle
+   * install ships a near-empty array instead of 400 zeroes.
+   */
+  dailyPrompts: DailyPrompts[];
   badges: Record<string, string>;
   enabled: boolean;
 }
@@ -319,9 +332,18 @@ export class StatsStore {
       last7Days: aggregate(this.windowBuckets(WINDOW_DAYS)),
       allTime: aggregate(Object.values(this.days)),
       streakDays: this.streakDays(),
+      dailyPrompts: this.dailyPrompts(),
       badges: this.getBadges(),
       enabled: this.isEnabled(),
     };
+  }
+
+  /** Prompt counts for every retained day that recorded one, oldest first. */
+  private dailyPrompts(): DailyPrompts[] {
+    return Object.entries(this.days)
+      .map(([day, bucket]) => ({ day, count: bucket.prompts ?? 0 }))
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) => a.day.localeCompare(b.day));
   }
 
   /** Buckets for today and the previous `count - 1` local days. */

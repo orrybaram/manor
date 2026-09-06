@@ -3,6 +3,7 @@ import { useAppStore, selectWebviewFocusVisible } from "../../../store/app-store
 import { useProjectStore } from "../../../store/project-store";
 
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
+import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
@@ -92,7 +93,7 @@ function StatsSegment(props: StatsSegmentProps) {
         onClick={() => onOpenStats?.()}
         aria-label="Show stats"
       >
-        {`🔥 ${summary.streakDays} · ${summary.today.prompts ?? 0} prompts · ☠ ${summary.today.agentsKilled ?? 0}`}
+        <BarChart3 size={12} />
       </Button>
     </Tooltip>
   );

@@ -143,6 +143,8 @@
 /* Doubled selector so these win over the Button `link` variant's colour and
    underline without an !important. */
 .statsSegment.statsSegment {
+  display: flex;
+  align-items: center;
   font-size: inherit;
   font-family: inherit;
   color: var(--text-dim);

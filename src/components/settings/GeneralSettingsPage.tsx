@@ -69,11 +69,11 @@ export function GeneralSettingsPage() {
         </label>
         <div className={styles.fieldHint}>
           Counts prompts, tool calls, worktrees and agents killed. Never stores
-          text. Stays on this Mac.
+          text. Stays on this device.
         </div>
-        <div>
+        <div className={styles.fieldAction}>
           <Button
-            variant="danger"
+            variant="secondary"
             size="sm"
             onClick={() => setResetStatsOpen(true)}
           >

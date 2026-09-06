@@ -216,6 +216,45 @@ describe("StatsStore", () => {
     });
   });
 
+  describe("dailyPrompts", () => {
+    it("is empty for a fresh store", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      expect(store.getSummary().dailyPrompts).toEqual([]);
+    });
+
+    it("returns prompt days oldest first, skipping days with none", () => {
+      fs.writeFileSync(
+        statsPath,
+        JSON.stringify({
+          version: 1,
+          days: {
+            "2026-09-03": { prompts: 4 },
+            "2026-09-01": { prompts: 2 },
+            // Recorded activity, but no prompts — not a graph day.
+            "2026-09-02": { toolCalls: 9 },
+          },
+          badges: {},
+        }),
+      );
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+
+      expect(store.getSummary().dailyPrompts).toEqual([
+        { day: "2026-09-01", count: 2 },
+        { day: "2026-09-03", count: 4 },
+      ]);
+    });
+
+    it("picks up prompts recorded in this session", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      store.record("prompts");
+      store.record("prompts");
+
+      expect(store.getSummary().dailyPrompts).toEqual([
+        { day: "2026-09-05", count: 2 },
+      ]);
+    });
+  });
+
   describe("streakDays", () => {
     function storeWithPromptDays(offsets: number[], nowMs: number): StatsStore {
       const days: Record<string, { prompts: number }> = {};

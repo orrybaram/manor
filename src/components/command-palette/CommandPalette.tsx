@@ -21,7 +21,7 @@ import { GitHubIssuesView } from "./GitHubIssuesView";
 import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
-import { StatsView, ResetStatsFooter } from "./StatsView";
+import { StatsView } from "./StatsView";
 import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type {
@@ -375,7 +375,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         <Dialog.Portal>
           <Dialog.Overlay className={styles.overlay} />
           <Dialog.Content
-            className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""}`}
+            className={`${styles.palette} ${isDetailView ? styles.paletteWide : ""} ${view === "stats" ? styles.paletteStats : ""}`}
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}
             onEscapeKeyDown={handleEscapeKeyDown}
@@ -540,7 +540,6 @@ export function CommandPalette(props: CommandPaletteProps) {
                   }}
                 />
               )}
-              {view === "stats" && <ResetStatsFooter />}
               {view === "issue-detail" && selectedIssueId && (
                 <IssueDetailView
                   issueId={selectedIssueId}

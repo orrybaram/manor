@@ -249,6 +249,11 @@
   margin-top: 4px;
 }
 
+/* Spacing for an action button that follows a hint paragraph. */
+.fieldAction {
+  margin-top: 12px;
+}
+
 .fieldStatic {
   font-size: 13px;
   color: var(--text-primary);

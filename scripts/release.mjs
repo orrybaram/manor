@@ -198,7 +198,7 @@ console.log("Updated CHANGELOG.md");
 // Step 5 — Bump version
 // ---------------------------------------------------------------------------
 
-run(`pnpm pkg set version=${version}`);
+run(`npm pkg set version=${version}`);
 console.log(`Bumped version to ${version}`);
 
 // ---------------------------------------------------------------------------

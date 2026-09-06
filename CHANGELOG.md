@@ -6,6 +6,25 @@
 
 
 
+
+## [0.10.0] - 2026-09-06
+
+## Features
+
+- Workspace folders — group workspaces in the sidebar, collapse them, and move workspaces in or out
+- Create a new workspace directly inside a folder from its context menu
+- Drag workspaces into folders anywhere in the sidebar with a wider, steadier drop target
+- Stats tracking with a stats palette view, status bar segment, and a settings toggle to turn it on or off
+- Badges that unlock as you work, with a notification when you earn one
+- Frequently used commands now pinned to the top of the command palette
+- PR comments expand on hover in notifications, and the row names who commented
+
+## Improvements
+
+- Sidebar workspace indicator dots redesigned — PR badges are now colored by readiness and the corner dot is gone
+- "Tasks" renamed to "Agents" throughout the app
+- Tighter folder spacing, aligned folder member icons, and empty folders no longer take up space
+
 ## [0.9.0] - 2026-08-25
 
 **Features**

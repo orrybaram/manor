@@ -92,6 +92,20 @@ export class TerminalHostClient {
    */
   private daemonProtocol = 0;
   private _migratedOldDaemons = false;
+  /**
+   * Sessions the app wants a stream subscription for. Filled by
+   * `createOrAttach`, emptied by `kill`/`detach`. Deliberately survives
+   * `cleanup()`: after the daemon goes away this is the list of terminals the
+   * renderer still believes are alive, and `reconcileSubscriptions` turns it
+   * into re-subscribes or synthetic `exit` events (ADR-169).
+   */
+  private wanted = new Set<string>();
+  /** True while `reconnectAfterLoss` is running, so a second socket close
+   *  during the retry loop does not start a competing loop. */
+  private reconnecting = false;
+  /** Backoff between reconnect attempts after an unexpected disconnect.
+   *  Overridable so tests do not have to wait it out. */
+  private reconnectDelaysMs: number[] = [250, 1_000, 2_000];
 
   constructor(version?: string) {
     this.clientVersion = version;
@@ -132,6 +146,100 @@ export class TerminalHostClient {
       await this.connectPromise;
     } finally {
       this.connectPromise = null;
+    }
+
+    // Every (re)connect ends by squaring the daemon's session table with what
+    // the app thinks it has. Lives here rather than in `doConnect()` so it
+    // also covers the stale-daemon respawn inside `doConnect()` and any
+    // alternative connect path.
+    await this.reconcileSubscriptions();
+  }
+
+  /**
+   * After a (re)connect: re-subscribe to every wanted session the daemon
+   * still has, and emit a synthetic `exit` for every one it does not.
+   *
+   * Before ADR-169 a lost daemon left the client silent — no reconnect, no
+   * events — and the renderer kept showing terminals whose PTYs were gone.
+   * The `exit` here is what turns that freeze into the same closed-pane state
+   * a shell exit produces, which the renderer already knows how to handle.
+   */
+  private async reconcileSubscriptions(): Promise<void> {
+    if (this.wanted.size === 0) return;
+    let alive: Set<string>;
+    try {
+      alive = new Set((await this.listSessions()).map((s) => s.sessionId));
+    } catch (err) {
+      // The connection died again mid-reconcile. The wanted set is intact, so
+      // the next successful connect will pick this up.
+      console.warn(
+        `[terminal-host] could not list sessions after reconnect: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+    for (const sessionId of [...this.wanted]) {
+      if (alive.has(sessionId)) {
+        this.streamWrite({ type: "subscribe", sessionId });
+      } else {
+        this.wanted.delete(sessionId);
+        this.emitSyntheticExit(sessionId);
+      }
+    }
+  }
+
+  /** Tell the app a session is gone, on the same channel a real exit uses. */
+  private emitSyntheticExit(sessionId: string): void {
+    const handler = this.eventHandler;
+    if (!handler) return;
+    // Deliver off the current stack so a throwing handler cannot unwind a
+    // connect() or reconnect loop that is still in progress.
+    queueMicrotask(() => {
+      try {
+        handler({ type: "exit", sessionId, exitCode: -1 });
+      } catch (err) {
+        console.error("[terminal-host] exit handler threw:", err);
+      }
+    });
+  }
+
+  /**
+   * The daemon dropped both sockets under us. Get a daemon back — spawning
+   * one if the old one is gone — and let `connect()` reconcile sessions. If
+   * that keeps failing, the sessions are unreachable for good as far as this
+   * client can tell, so report every wanted one as exited rather than leaving
+   * the renderer waiting on output that will never come.
+   */
+  private async reconnectAfterLoss(): Promise<void> {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    try {
+      for (let attempt = 0; attempt < this.reconnectDelaysMs.length; attempt++) {
+        await new Promise<void>((r) => setTimeout(r, this.reconnectDelaysMs[attempt]));
+        try {
+          await this.connect();
+          console.warn(
+            `[terminal-host] reconnected to daemon after unexpected disconnect (attempt ${attempt + 1})`,
+          );
+          return;
+        } catch (err) {
+          console.warn(
+            `[terminal-host] reconnect attempt ${attempt + 1} failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      console.error(
+        `[terminal-host] giving up on the daemon; reporting ${this.wanted.size} session(s) as exited`,
+      );
+      for (const sessionId of [...this.wanted]) {
+        this.wanted.delete(sessionId);
+        this.emitSyntheticExit(sessionId);
+      }
+    } finally {
+      this.reconnecting = false;
     }
   }
 
@@ -218,8 +326,13 @@ export class TerminalHostClient {
     this.connected = true;
   }
 
-  /** Disconnect from the daemon */
+  /**
+   * Disconnect from the daemon on purpose. The caller is walking away from
+   * its subscriptions too — it will `createOrAttach` again if it wants them —
+   * so a later connect must not re-subscribe or report them as exited.
+   */
   disconnect(): void {
+    this.wanted.clear();
     this.cleanup();
   }
 
@@ -265,6 +378,7 @@ export class TerminalHostClient {
       // sessions, and `attach` would add the *control* socket to the session's
       // broadcast list and corrupt the control protocol.
       await this.request({ type: "resize", sessionId, cols, rows });
+      this.wanted.add(sessionId);
       this.streamWrite({ type: "subscribe", sessionId });
 
       const snapshotResp = await this.request({
@@ -317,6 +431,7 @@ export class TerminalHostClient {
       }
 
       // Subscribe for stream events immediately (no control socket attach needed)
+      this.wanted.add(sessionId);
       this.streamWrite({ type: "subscribe", sessionId });
 
       return { session: createResp.session, snapshot: null };
@@ -364,7 +479,13 @@ export class TerminalHostClient {
     return resp.session;
   }
 
-  /** Write terminal input — fire-and-forget via stream socket */
+  /**
+   * Write terminal input — fire-and-forget via stream socket.
+   *
+   * While the daemon is gone the bytes are dropped. There is nothing to
+   * deliver them to: the PTY died with the daemon, and `reconnectAfterLoss`
+   * is already on its way to reporting the session as exited.
+   */
   writeNoAck(sessionId: string, data: string): void {
     this.streamWrite({ type: "write", sessionId, data });
   }
@@ -403,6 +524,9 @@ export class TerminalHostClient {
 
   /** Kill a session */
   async kill(sessionId: string): Promise<void> {
+    // Forget it before connecting: a reconnect inside ensureConnected must not
+    // report a session the app is closing on purpose as unexpectedly exited.
+    this.wanted.delete(sessionId);
     await this.ensureConnected();
     this.streamWrite({ type: "unsubscribe", sessionId });
     await this.request({ type: "kill", sessionId });
@@ -410,6 +534,7 @@ export class TerminalHostClient {
 
   /** Detach from a session (keep it alive in daemon) */
   async detach(sessionId: string): Promise<void> {
+    this.wanted.delete(sessionId);
     await this.ensureConnected();
     this.streamWrite({ type: "unsubscribe", sessionId });
     await this.request({ type: "detach", sessionId });
@@ -677,9 +802,16 @@ export class TerminalHostClient {
     }
   }
 
+  /**
+   * A socket closed while we were connected — the daemon exited, crashed, or
+   * was killed. `disconnect()` never lands here: it clears `connected` before
+   * destroying the sockets, so their close events return at the guard.
+   */
   private handleDisconnect(): void {
     if (!this.connected) return;
     this.cleanup();
+    console.warn("[terminal-host] lost connection to daemon; reconnecting");
+    void this.reconnectAfterLoss();
   }
 
   /** Shared teardown for both intentional disconnect and unexpected connection loss */

@@ -7,6 +7,12 @@
 
 
 
+
+## [0.10.1] - 2026-09-06
+
+**Features**
+- Stats view now includes a contribution graph and an achievements rack
+
 ## [0.10.0] - 2026-09-06
 
 ## Features

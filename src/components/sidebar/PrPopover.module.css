@@ -1,5 +1,3 @@
-/* ── PR Badge ── */
-
 .prBadge {
   flex-shrink: 0;
   margin-left: auto;
@@ -22,9 +20,14 @@
   background: var(--green-a20);
 }
 
+/*
+ * Yellow, not red: "blocked" here means a human left a comment or CI is
+ * unhappy — something to look at, not something broken. Red read as an error
+ * the PR had not actually hit.
+ */
 .prBlocked {
-  color: var(--red);
-  background: var(--red-a20);
+  color: var(--yellow, #eab308);
+  background: var(--yellow-a20, rgba(249, 226, 175, 0.13));
 }
 
 .prPending {
@@ -47,20 +50,21 @@
   background: none;
 }
 
-/* ── PR Popover ── */
+/* ── Popover shell ── */
 
 .prPopover {
   background: var(--dim);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px 12px;
-  width: 220px;
+  padding: 12px;
+  width: 380px;
+  max-height: min(520px, calc(100vh - 32px));
   font-size: 11px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   animation: popoverFadeIn 150ms ease-out;
 }
 
@@ -71,13 +75,48 @@
   color: var(--text-primary);
 }
 
+/* A ghost Button reflowed into a left-aligned, wrapping title link. */
 .prPopoverTitle {
+  display: block;
+  width: 100%;
+  padding: 2px 0;
+  text-align: left;
+  font-size: 12px;
   color: var(--text-selected);
   line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  border-radius: 4px;
+}
+
+.prPopoverTitle:hover:not(:disabled) {
+  background: none;
+  color: var(--accent);
+}
+
+.prPopoverDiffStat {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prPopoverAdditions {
+  color: var(--green);
+}
+
+.prPopoverDeletions {
+  color: var(--red);
+}
+
+/* ── Summary verdicts ── */
+
+.prPopoverSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
 }
 
 .prPopoverRow {
@@ -86,12 +125,146 @@
   gap: 6px;
 }
 
-.prPopoverFooterButton {
-  display: block;
-  width: 100%;
-  padding: 4px 0;
-  margin-top: 2px;
+.toneGood {
+  color: var(--green);
 }
+
+.toneWarn {
+  color: var(--yellow, #eab308);
+}
+
+.toneBad {
+  color: var(--red);
+}
+
+/* ── Scrolling detail ── */
+
+.prPopoverScroll {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-right: -6px;
+  padding-right: 6px;
+}
+
+.prPopoverSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prPopoverSectionLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.prPopoverMore {
+  color: var(--text-dim);
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+/* ── Check rows ── */
+
+.prPopoverCheck {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  text-align: left;
+  color: var(--text-primary);
+  border-radius: 4px;
+}
+
+.prPopoverCheck:disabled {
+  opacity: 1;
+}
+
+.prPopoverCheckName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prPopoverCheckWorkflow {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* ── Comment rows ── */
+
+.prPopoverComment {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 5px 6px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-primary);
+  border-radius: 4px;
+}
+
+.prPopoverCommentHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.prPopoverCommentAuthor {
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.prPopoverCommentTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.prPopoverTag {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* Three lines of the comment: enough to know whether it needs answering. */
+.prPopoverCommentBody {
+  color: var(--text-primary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.prPopoverCommentEmpty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── State chips ── */
 
 .prPopoverStateOpen {
   color: var(--green);

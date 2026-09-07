@@ -1,12 +1,18 @@
-import React, { useRef, useCallback, useState } from "react";
+import React, { useRef, useCallback, useLayoutEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "../ui/Button/Button";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitPullRequestClosed from "lucide-react/dist/esm/icons/git-pull-request-closed";
 import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
 import CircleX from "lucide-react/dist/esm/icons/circle-x";
 import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
+import CircleMinus from "lucide-react/dist/esm/icons/circle-minus";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
+import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Clock from "lucide-react/dist/esm/icons/clock";
 import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
@@ -26,11 +32,11 @@ type PrPopoverProps = {
 const HOVER_DELAY = 300;
 
 /**
- * Passing checks are listed too, but only after the ones that need attention —
- * and only enough of them to show the run names, since "which checks are
- * failing" is the question the list exists to answer.
+ * Checks are ordered failing → pending → passing → skipped by the fetcher, so
+ * collapsing to the first few keeps every check that needs attention visible
+ * and hides only the green (and grey) tail.
  */
-const MAX_PASSING_SHOWN = 4;
+const MAX_CHECKS_COLLAPSED = 10;
 
 /** Comments are the tallest rows; past this the popover stops being a popover. */
 const MAX_COMMENTS_SHOWN = 6;
@@ -131,6 +137,12 @@ export function PrPopover(props: PrPopoverProps) {
           collisionPadding={8}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
+          // The portal still bubbles React events to the workspace row: its
+          // drag handler captures the pointer and eats every click in here,
+          // a click would select the workspace, a double-click would rename it.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
@@ -167,8 +179,8 @@ export function PrPopover(props: PrPopoverProps) {
           <SummaryRows pr={pr} />
 
           <div className={styles.prPopoverScroll}>
-            <ChecksSection pr={pr} />
             <CommentsSection pr={pr} />
+            <ChecksSection pr={pr} />
           </div>
         </Popover.Content>
       </Popover.Portal>
@@ -183,6 +195,7 @@ function SummaryRows(props: { pr: PrInfo }) {
   let checksElement: React.ReactNode = null;
   if (pr.checks) {
     const { total, passing, failing, pending } = pr.checks;
+    const skipped = pr.checks.skipped ?? 0;
     let checksText: string;
     let toneClass: string;
     let ChecksIcon: typeof CircleCheck;
@@ -196,10 +209,11 @@ function SummaryRows(props: { pr: PrInfo }) {
       toneClass = styles.toneWarn;
       ChecksIcon = Clock;
     } else {
-      checksText = `${passing}/${total} passing`;
+      checksText = `${passing}/${total - skipped} passing`;
       toneClass = styles.toneGood;
       ChecksIcon = CircleCheck;
     }
+    if (skipped > 0) checksText += `, ${skipped} skipped`;
 
     checksElement = (
       <div className={`${styles.prPopoverRow} ${toneClass}`}>
@@ -263,47 +277,57 @@ function SummaryRows(props: { pr: PrInfo }) {
 }
 
 /**
- * The named checks, failing first. Passing runs are trimmed to a handful and
- * then summarised — nobody hovers a badge to read the names of green jobs.
+ * The named checks, failing first. Collapsed to the first few — which, given
+ * the fetcher's ordering, is every check that needs attention plus as many
+ * green ones as fit — with a row to unfold the rest.
  */
 function ChecksSection(props: { pr: PrInfo }) {
   const runs = props.pr.checkRuns;
+  const [expanded, setExpanded] = useState(false);
   if (!runs || runs.length === 0) return null;
 
-  const attention = runs.filter((r) => r.status !== "passing");
-  const passing = runs.filter((r) => r.status === "passing");
-  const shownPassing = passing.slice(0, MAX_PASSING_SHOWN);
-  const hiddenPassing = passing.length - shownPassing.length;
+  const shown = expanded ? runs : runs.slice(0, MAX_CHECKS_COLLAPSED);
+  const hidden = runs.length - MAX_CHECKS_COLLAPSED;
 
   return (
     <section className={styles.prPopoverSection}>
       <div className={styles.prPopoverSectionLabel}>Checks</div>
-      {[...attention, ...shownPassing].map((run, i) => (
+      {shown.map((run, i) => (
         <CheckRow key={`${run.name}-${i}`} run={run} />
       ))}
-      {hiddenPassing > 0 && (
-        <div className={styles.prPopoverMore}>
-          +{hiddenPassing} more passing
-        </div>
+      {hidden > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.prPopoverMore}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? "Show fewer" : `+${hidden} more`}
+        </Button>
       )}
     </section>
   );
 }
 
+const CHECK_ICON: Record<PrCheckRun["status"], typeof CircleCheck> = {
+  failing: CircleX,
+  pending: CircleDot,
+  passing: CircleCheck,
+  skipped: CircleMinus,
+};
+
 function CheckRow(props: { run: PrCheckRun }) {
   const { run } = props;
-  const Icon =
-    run.status === "failing"
-      ? CircleX
-      : run.status === "pending"
-        ? CircleDot
-        : CircleCheck;
-  const toneClass =
-    run.status === "failing"
-      ? styles.toneBad
-      : run.status === "pending"
-        ? styles.toneWarn
-        : styles.toneGood;
+  const Icon = CHECK_ICON[run.status];
+  const toneClass = {
+    failing: styles.toneBad,
+    pending: styles.toneWarn,
+    passing: styles.toneGood,
+    skipped: styles.toneMuted,
+  }[run.status];
 
   return (
     <Button
@@ -318,10 +342,18 @@ function CheckRow(props: { run: PrCheckRun }) {
       }}
     >
       <Icon size={11} className={toneClass} />
-      <span className={styles.prPopoverCheckName}>{run.name}</span>
-      {run.workflow && run.workflow !== run.name && (
-        <span className={styles.prPopoverCheckWorkflow}>{run.workflow}</span>
-      )}
+      <span
+        className={`${styles.prPopoverCheckName}${run.status === "skipped" ? ` ${styles.toneMuted}` : ""}`}
+      >
+        {run.name}
+      </span>
+      <span className={styles.prPopoverCheckWorkflow}>
+        {run.status === "skipped"
+          ? "skipped"
+          : run.workflow && run.workflow !== run.name
+            ? run.workflow
+            : null}
+      </span>
     </Button>
   );
 }
@@ -329,54 +361,171 @@ function CheckRow(props: { run: PrCheckRun }) {
 /** Who said what, newest first, across comments, reviews and inline threads. */
 function CommentsSection(props: { pr: PrInfo }) {
   const comments = props.pr.recentComments;
+  const [expanded, setExpanded] = useState(false);
   if (!comments || comments.length === 0) return null;
 
-  const shown = comments.slice(0, MAX_COMMENTS_SHOWN);
-  const hidden = comments.length - shown.length;
+  const shown = expanded ? comments : comments.slice(0, MAX_COMMENTS_SHOWN);
+  const hidden = comments.length - MAX_COMMENTS_SHOWN;
 
   return (
-    <section className={styles.prPopoverSection}>
+    <section className={`${styles.prPopoverSection} ${styles.prPopoverComments}`}>
       <div className={styles.prPopoverSectionLabel}>Comments</div>
       {shown.map((comment) => (
         <CommentRow key={comment.url} comment={comment} />
       ))}
       {hidden > 0 && (
-        <div className={styles.prPopoverMore}>+{hidden} more</div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.prPopoverMore}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? "Show fewer" : `+${hidden} more`}
+        </Button>
       )}
     </section>
   );
 }
 
+/**
+ * Collapsed, a comment is a three-line preview; clicking it unfolds the whole
+ * body. Bodies that already fit are not toggles at all. A resolved thread
+ * collapses further — to just its head — since it is done with. The GitHub
+ * link lives beside the timestamp so the row itself can be the expand toggle
+ * without two buttons nesting.
+ */
 function CommentRow(props: { comment: PrComment }) {
   const { comment } = props;
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const body = comment.body.trim();
 
+  const unresolved = comment.kind === "thread" && comment.isResolved === false;
+  const resolved = comment.kind === "thread" && comment.isResolved === true;
+  const bodyHidden = resolved && !expanded;
+
+  // Measured while clamped: does the clamp actually hide anything? Once
+  // expanded the clamp is gone, so keep the last clamped measurement.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (expanded || !el) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [body, expanded]);
+
+  const canExpand = resolved ? body.length > 0 : overflows || expanded;
+
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className={styles.prPopoverComment}
-      title="Open this comment on GitHub"
-      onClick={(e) => {
-        e.stopPropagation();
-        openExternal(comment.url);
+    <div
+      className={`${styles.prPopoverCommentItem}${unresolved ? ` ${styles.prPopoverCommentUnresolved}` : ""}`}
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.prPopoverComment}
+        disabled={!canExpand}
+        title={
+          !canExpand
+            ? undefined
+            : expanded
+              ? "Collapse this comment"
+              : "Expand this comment"
+        }
+        aria-expanded={canExpand ? expanded : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+      >
+        <div className={styles.prPopoverCommentHead}>
+          <ChevronDown
+            size={11}
+            aria-hidden={!canExpand}
+            className={`${styles.prPopoverCommentChevron}${expanded ? ` ${styles.prPopoverCommentChevronOpen}` : ""}${canExpand ? "" : ` ${styles.prPopoverCommentChevronHidden}`}`}
+          />
+          <span className={styles.prPopoverCommentAuthor}>
+            {comment.author ? `@${comment.author}` : "unknown"}
+          </span>
+          <CommentTag comment={comment} />
+          <CommentTime iso={comment.createdAt} />
+        </div>
+        {bodyHidden ? null : body ? (
+          <div
+            ref={bodyRef}
+            className={`${styles.prPopoverCommentBody}${expanded ? "" : ` ${styles.prPopoverCommentBodyClamped}`}`}
+          >
+            <CommentMarkdown source={body} />
+          </div>
+        ) : (
+          <div className={styles.prPopoverCommentEmpty}>No comment text.</div>
+        )}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.prPopoverCommentLink}
+        title="Open this comment on GitHub"
+        aria-label="Open this comment on GitHub"
+        onClick={(e) => {
+          e.stopPropagation();
+          openExternal(comment.url);
+        }}
+      >
+        <ExternalLink size={11} />
+      </Button>
+    </div>
+  );
+}
+
+/** "2d ago" in the row; the full local date and time on hover. */
+function CommentTime(props: { iso: string }) {
+  const ms = Date.parse(props.iso);
+  const exact = new Date(ms).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  return (
+    <Tooltip label={exact} side="top">
+      <span className={styles.prPopoverCommentTime}>
+        {relativeShortThenDate(ms)}
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
+ * GitHub-flavoured markdown, rendered to React nodes — never raw HTML.
+ * Links open in the browser rather than navigating the window; images are
+ * reduced to their alt text since the popover cannot load remote content.
+ */
+function CommentMarkdown(props: { source: string }) {
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            title={href}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (href) openExternal(href);
+            }}
+          >
+            {children}
+          </a>
+        ),
+        img: ({ alt }) => (
+          <span className={styles.prPopoverTag}>{alt || "image"}</span>
+        ),
       }}
     >
-      <div className={styles.prPopoverCommentHead}>
-        <span className={styles.prPopoverCommentAuthor}>
-          {comment.author ? `@${comment.author}` : "unknown"}
-        </span>
-        <CommentTag comment={comment} />
-        <span className={styles.prPopoverCommentTime}>
-          {relativeShortThenDate(Date.parse(comment.createdAt))}
-        </span>
-      </div>
-      {body ? (
-        <div className={styles.prPopoverCommentBody}>{body}</div>
-      ) : (
-        <div className={styles.prPopoverCommentEmpty}>No comment text.</div>
-      )}
-    </Button>
+      {props.source}
+    </Markdown>
   );
 }
 
@@ -405,13 +554,22 @@ function CommentTag(props: { comment: PrComment }) {
   if (comment.kind === "thread") {
     const file = comment.path?.split("/").pop();
     return (
-      <span
-        className={`${styles.prPopoverTag}${comment.isResolved ? "" : ` ${styles.toneWarn}`}`}
-        title={comment.path ?? undefined}
-      >
-        {file ?? "inline"}
-        {comment.isResolved ? "" : " · unresolved"}
-      </span>
+      <>
+        <span
+          className={`${styles.prPopoverTag} ${styles.prPopoverTagFile}`}
+          title={comment.path ?? undefined}
+        >
+          {file ?? "inline"}
+        </span>
+        {comment.isResolved === false && (
+          <span className={`${styles.prPopoverTag} ${styles.toneWarn}`}>
+            unresolved
+          </span>
+        )}
+        {comment.isResolved === true && (
+          <span className={styles.prPopoverTag}>resolved</span>
+        )}
+      </>
     );
   }
 

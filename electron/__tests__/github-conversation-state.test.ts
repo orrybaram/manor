@@ -181,7 +181,13 @@ describe("parseStatusCheckRollup", () => {
       },
     ]);
 
-    expect(checks).toEqual({ total: 3, passing: 1, failing: 1, pending: 1 });
+    expect(checks).toEqual({
+      total: 3,
+      passing: 1,
+      failing: 1,
+      pending: 1,
+      skipped: 0,
+    });
     expect(checkRuns?.map((r) => [r.name, r.status])).toEqual([
       ["lint", "failing"],
       ["build", "pending"],
@@ -189,6 +195,29 @@ describe("parseStatusCheckRollup", () => {
     ]);
     expect(checkRuns?.[0].url).toBe("https://github.com/o/r/runs/3");
     expect(checkRuns?.[0].workflow).toBe("CI");
+  });
+
+  it("keeps skipped and neutral runs out of pending, listed last", () => {
+    const { checks, checkRuns } = parseStatusCheckRollup([
+      { name: "deploy", conclusion: "SKIPPED" },
+      { name: "unit", conclusion: "SUCCESS" },
+      { name: "codecov", conclusion: "NEUTRAL" },
+      { name: "build", conclusion: null, status: "QUEUED" },
+    ]);
+
+    expect(checks).toEqual({
+      total: 4,
+      passing: 1,
+      failing: 0,
+      pending: 1,
+      skipped: 2,
+    });
+    expect(checkRuns?.map((r) => [r.name, r.status])).toEqual([
+      ["build", "pending"],
+      ["unit", "passing"],
+      ["deploy", "skipped"],
+      ["codecov", "skipped"],
+    ]);
   });
 
   it("reads legacy status contexts, which carry state and a target url", () => {

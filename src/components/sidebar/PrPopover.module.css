@@ -137,13 +137,17 @@
   color: var(--red);
 }
 
+.toneMuted {
+  color: var(--text-dim);
+}
+
 /* ── Scrolling detail ── */
 
 .prPopoverScroll {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 26px;
   margin-right: -6px;
   padding-right: 6px;
 }
@@ -152,6 +156,10 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.prPopoverComments {
+  gap: 8px;
 }
 
 .prPopoverSectionLabel {
@@ -163,9 +171,16 @@
 }
 
 .prPopoverMore {
+  display: inline-flex;
+  align-self: flex-start;
   color: var(--text-dim);
   font-size: 10px;
   padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.prPopoverMore:hover:not(:disabled) {
+  color: var(--text-primary);
 }
 
 /* ── Check rows ── */
@@ -202,6 +217,19 @@
 
 /* ── Comment rows ── */
 
+/* A comment row is two siblings: the expand toggle and, over its top-right
+   corner, the GitHub link. Siblings rather than nesting because a button
+   cannot contain a button. */
+.prPopoverCommentItem {
+  position: relative;
+}
+
+.prPopoverCommentUnresolved {
+  background: var(--yellow-a20, rgba(249, 226, 175, 0.13));
+  box-shadow: inset 2px 0 0 var(--yellow, #eab308);
+  border-radius: 4px;
+}
+
 .prPopoverComment {
   display: flex;
   width: 100%;
@@ -213,6 +241,14 @@
   font-size: 11px;
   color: var(--text-primary);
   border-radius: 4px;
+  height: auto;
+  white-space: normal;
+}
+
+/* A body that already fits is not a toggle: no hover, no hand, full colour. */
+.prPopoverComment:disabled {
+  opacity: 1;
+  cursor: default;
 }
 
 .prPopoverCommentHead {
@@ -220,9 +256,53 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  /* Room for the link button that floats over the corner. */
+  padding-right: 22px;
+}
+
+.prPopoverCommentChevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 120ms ease;
+  transform: rotate(-90deg);
+}
+
+.prPopoverCommentChevronOpen {
+  transform: rotate(0deg);
+}
+
+.prPopoverCommentChevronHidden {
+  visibility: hidden;
+}
+
+.prPopoverCommentLink {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-dim);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.prPopoverCommentItem:hover .prPopoverCommentLink,
+.prPopoverCommentLink:focus-visible {
+  opacity: 1;
+}
+
+.prPopoverCommentLink:hover:not(:disabled) {
+  color: var(--accent);
 }
 
 .prPopoverCommentAuthor {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-weight: 600;
   color: var(--text-selected);
 }
@@ -235,10 +315,7 @@
 }
 
 .prPopoverTag {
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   white-space: nowrap;
   font-size: 9px;
   color: var(--text-dim);
@@ -248,11 +325,106 @@
 }
 
 /* Three lines of the comment: enough to know whether it needs answering. */
+/* The only head element allowed to give way: a long file name truncates so
+   the author and timestamp never wrap. */
+.prPopoverTagFile {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .prPopoverCommentBody {
   color: var(--text-primary);
   line-height: 1.45;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* ── Markdown inside a comment body ── */
+
+.prPopoverCommentBody p,
+.prPopoverCommentBody ul,
+.prPopoverCommentBody ol,
+.prPopoverCommentBody pre,
+.prPopoverCommentBody blockquote,
+.prPopoverCommentBody table,
+.prPopoverCommentBody h1,
+.prPopoverCommentBody h2,
+.prPopoverCommentBody h3,
+.prPopoverCommentBody h4 {
+  margin: 0;
+}
+
+.prPopoverCommentBody > * + * {
+  margin-top: 5px;
+}
+
+.prPopoverCommentBody h1,
+.prPopoverCommentBody h2,
+.prPopoverCommentBody h3,
+.prPopoverCommentBody h4 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.prPopoverCommentBody ul,
+.prPopoverCommentBody ol {
+  padding-left: 16px;
+}
+
+.prPopoverCommentBody code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  /* --bg sits between the popover's --dim and the row's --surface hover, so
+     it reads as a block in both states. */
+  background: var(--bg);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.prPopoverCommentBody pre {
+  background: var(--bg);
+  padding: 5px 6px;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.prPopoverCommentBody pre code {
+  background: none;
+  padding: 0;
+}
+
+.prPopoverCommentBody blockquote {
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--text-dim);
+}
+
+.prPopoverCommentBody a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.prPopoverCommentBody table {
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.prPopoverCommentBody th,
+.prPopoverCommentBody td {
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  text-align: left;
+}
+
+.prPopoverCommentBody input[type="checkbox"] {
+  margin: 0 4px 0 0;
+  vertical-align: middle;
+}
+
+.prPopoverCommentBodyClamped {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;

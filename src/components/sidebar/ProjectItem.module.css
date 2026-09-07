@@ -204,12 +204,15 @@
 
 .diffStatsClickable {
   cursor: pointer;
+  /* Grow leftwards into the free space: the parent clips overflow, and the
+     badge sits flush against its right edge. */
+  transform-origin: right center;
   transition: transform 150ms ease, background 150ms ease;
 }
 
 .diffStatsClickable:hover {
   background: var(--hover);
-  transform: scale(1.2);
+  transform: scale(1.08);
 }
 
 /* ── Context Menu (duplicated in Ports.module.css — candidate for a shared <ContextMenu> UI component) ── */

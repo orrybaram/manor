@@ -57,6 +57,11 @@ export function register(deps: IpcDeps): void {
     return shell.openExternal(url);
   });
 
+  ipcMain.handle("shell:showItemInFolder", (_event, p: string) => {
+    assertString(p, "path");
+    shell.showItemInFolder(p);
+  });
+
   ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
     assertString(dirPath, "dirPath");
     const editor = preferencesManager.get("defaultEditor");
@@ -91,7 +96,11 @@ export function register(deps: IpcDeps): void {
     "shell:discoverAgents",
     async (): Promise<Array<{ name: string; command: string }>> => {
       const agents = [
-        { name: "Claude Code", bin: "claude", command: "claude --dangerously-skip-permissions" },
+        {
+          name: "Claude Code",
+          bin: "claude",
+          command: "claude --dangerously-skip-permissions",
+        },
         { name: "Codex", bin: "codex", command: "codex --yolo" },
         { name: "OpenCode", bin: "opencode", command: "opencode" },
       ];
@@ -99,7 +108,8 @@ export function register(deps: IpcDeps): void {
       await Promise.all(
         agents.map(async (agent) => {
           const result = await backend.shell.which(agent.bin);
-          if (result !== null) found.push({ name: agent.name, command: agent.command });
+          if (result !== null)
+            found.push({ name: agent.name, command: agent.command });
         }),
       );
       return found;
@@ -165,11 +175,7 @@ export function register(deps: IpcDeps): void {
 
   preferencesManager.onChange((prefs) => {
     const mw = getMainWindow();
-    if (
-      mw &&
-      !mw.isDestroyed() &&
-      !mw.webContents.isDestroyed()
-    ) {
+    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
       try {
         mw.webContents.send("preferences-changed", prefs);
       } catch {
@@ -203,11 +209,7 @@ export function register(deps: IpcDeps): void {
 
   keybindingsManager.onChange((overrides) => {
     const mw = getMainWindow();
-    if (
-      mw &&
-      !mw.isDestroyed() &&
-      !mw.webContents.isDestroyed()
-    ) {
+    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
       try {
         mw.webContents.send("keybindings-changed", overrides);
       } catch {

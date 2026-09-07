@@ -26,7 +26,12 @@ const path = require("node:path");
  * Returns the raw string (possibly empty).
  */
 function readInput(argv, stdin) {
-  if (argv && argv.length >= 3 && typeof argv[2] === "string" && argv[2].length > 0) {
+  if (
+    argv &&
+    argv.length >= 3 &&
+    typeof argv[2] === "string" &&
+    argv[2].length > 0
+  ) {
     return Promise.resolve(argv[2]);
   }
   return new Promise((resolve) => {
@@ -94,7 +99,8 @@ function resolvePort(env, homeDir) {
  */
 function extractNotificationKind(payload) {
   if (!payload || typeof payload !== "object") return null;
-  const notification = /** @type {Record<string,unknown>} */ (payload).notification;
+  const notification = /** @type {Record<string,unknown>} */ (payload)
+    .notification;
   if (!notification || typeof notification !== "object") return null;
   const n = /** @type {Record<string,unknown>} */ (notification);
   for (const key of ["type", "kind", "category"]) {
@@ -102,6 +108,20 @@ function extractNotificationKind(payload) {
   }
   return null;
 }
+
+/**
+ * SessionStart hint advertising the `manor` CLI, printed to stdout so
+ * Claude Code folds it into the session's additional context. Only ever
+ * emitted for Claude Code's SessionStart event — other agent kinds and
+ * other events have different (or no) hook stdout semantics.
+ */
+const SESSION_START_HINT = {
+  hookSpecificOutput: {
+    hookEventName: "SessionStart",
+    additionalContext:
+      "This terminal runs inside Manor. The `manor` CLI is on PATH: run `manor --help` for commands that manage projects, workspaces, panes, agents, and browser panes. Prefer it over the mcp__manor__* tools; they do the same thing but load a large tool roster into context.",
+  },
+};
 
 /**
  * Build the URL with whichever fields are present.
@@ -115,7 +135,8 @@ function buildUrl(port, params) {
   url.searchParams.set("kind", params.kind || "claude");
   if (params.sessionId) url.searchParams.set("sessionId", params.sessionId);
   if (params.toolUseId) url.searchParams.set("toolUseId", params.toolUseId);
-  if (params.notificationKind) url.searchParams.set("notificationKind", params.notificationKind);
+  if (params.notificationKind)
+    url.searchParams.set("notificationKind", params.notificationKind);
   return url.toString();
 }
 
@@ -132,6 +153,7 @@ async function main(opts) {
   const homeDir = opts.homeDir || os.homedir();
   const fetchFn = opts.fetch || globalThis.fetch;
   const stderr = opts.stderr || process.stderr;
+  const stdout = opts.stdout || process.stdout;
 
   let raw;
   try {
@@ -155,46 +177,73 @@ async function main(opts) {
   }
 
   const paneId = env.MANOR_PANE_ID;
-  if (!paneId) {
-    // Hook fired outside a Manor-managed pane — nothing to do.
-    return;
-  }
-
-  const port = resolvePort(env, homeDir);
-  if (!port) {
-    stderr.write("[manor-hook] no hook port available (no port file, no env)\n");
-    return;
-  }
-
   const eventType =
-    typeof payload.hook_event_name === "string" ? payload.hook_event_name : null;
-  if (!eventType) return;
-
-  const sessionId =
-    typeof payload.session_id === "string" ? payload.session_id : null;
-  const toolUseId =
-    typeof payload.tool_use_id === "string" ? payload.tool_use_id : null;
+    typeof payload.hook_event_name === "string"
+      ? payload.hook_event_name
+      : null;
   const kind = env.MANOR_AGENT_KIND || "claude";
 
-  // For Notification events, extract the kind discriminator so the server can
-  // decide whether to flip status (only permission-style notifications should).
-  const notificationKind =
-    eventType === "Notification" ? extractNotificationKind(payload) : null;
-
-  const url = buildUrl(port, { paneId, eventType, kind, sessionId, toolUseId, notificationKind });
-  if (!url) return;
-
   try {
-    await fetchFn(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(2000),
+    if (!paneId) {
+      // Hook fired outside a Manor-managed pane — nothing to do.
+      return;
+    }
+
+    const port = resolvePort(env, homeDir);
+    if (!port) {
+      stderr.write(
+        "[manor-hook] no hook port available (no port file, no env)\n",
+      );
+      return;
+    }
+
+    if (!eventType) return;
+
+    const sessionId =
+      typeof payload.session_id === "string" ? payload.session_id : null;
+    const toolUseId =
+      typeof payload.tool_use_id === "string" ? payload.tool_use_id : null;
+
+    // For Notification events, extract the kind discriminator so the server can
+    // decide whether to flip status (only permission-style notifications should).
+    const notificationKind =
+      eventType === "Notification" ? extractNotificationKind(payload) : null;
+
+    const url = buildUrl(port, {
+      paneId,
+      eventType,
+      kind,
+      sessionId,
+      toolUseId,
+      notificationKind,
     });
-  } catch (err) {
-    stderr.write(`[manor-hook] request failed: ${String(err)}\n`);
+    if (!url) return;
+
+    try {
+      await fetchFn(url, {
+        method: "GET",
+        signal: AbortSignal.timeout(2000),
+      });
+    } catch (err) {
+      stderr.write(`[manor-hook] request failed: ${String(err)}\n`);
+    }
+  } finally {
+    // Advertise the `manor` CLI to Claude Code at session start. This runs
+    // regardless of whether forwarding above succeeded, failed, or was
+    // skipped, so the hint is never lost to an unrelated failure.
+    if (paneId && eventType === "SessionStart" && kind === "claude") {
+      stdout.write(`${JSON.stringify(SESSION_START_HINT)}\n`);
+    }
   }
 }
 
-module.exports = { main, readInput, resolvePort, buildUrl, extractNotificationKind };
+module.exports = {
+  main,
+  readInput,
+  resolvePort,
+  buildUrl,
+  extractNotificationKind,
+};
 
 // Run as a CLI when invoked directly (not when imported by tests).
 if (require.main === module) {

@@ -105,6 +105,33 @@ manor/
 │   │   ├── local-git.ts      shells out to `git`
 │   │   ├── local-ports.ts    portless integration
 │   │   └── local-shell.ts    zdotdir + env handoff
+│   ├── routes/               HTTP control-server routes
+│   │   ├── projects.ts       folder, workspace, worktree, issue, branch operations
+│   │   ├── folders.ts        workspace folder CRUD
+│   │   ├── agents.ts         agent lifecycle (rename, delete, mark-seen, resume)
+│   │   ├── panes.ts          pane/tab selection, closing, splitting, dragging
+│   │   ├── git.ts            stage, unstage, commit, push, diff
+│   │   ├── system.ts         notifications, processes, ports, preferences, theme, stats, updater, remote control
+│   │   ├── integrations.ts   Linear and GitHub operations
+│   │   ├── index.ts          route registration
+│   │   ├── types.ts          shared route types
+│   │   ├── context.ts        helper to resolve projectId/workspacePath from request context
+│   │   └── router.ts         HTTP router
+│   ├── mcp/                  MCP tool definitions
+│   │   ├── modules.ts        tool module registry
+│   │   ├── cli.ts            CLI generation from tool schemas
+│   │   ├── types.ts          shared types
+│   │   ├── context.ts        resolveContext helper for --project-id defaults
+│   │   ├── tools-projects.ts workspace and project tools
+│   │   ├── tools-panes.ts    pane and tab tools
+│   │   ├── tools-agents.ts   agent session tools
+│   │   ├── tools-sessions.ts agent session read tools
+│   │   ├── tools-webview.ts  webview inspection and control
+│   │   ├── tools-git.ts      git operation tools
+│   │   ├── tools-system.ts   system and integration tools
+│   │   └── http-client.ts    typed HTTP client for route calls
+│   ├── process-control.ts    listProcesses, cleanupDeadProcesses, killDaemon, restartPortless
+│   ├── editor.ts             openInEditor, resolveEditor
 │   └── terminal-host/        long-lived daemon
 │       ├── index.ts          daemon entry (sockets, auth token, supervision)
 │       ├── client.ts         main-process client (TerminalHostClient)

@@ -9,6 +9,15 @@
 
 
 
+
+## [0.10.3] - 2026-09-06
+
+### Features
+- PR popover now shows recent comments, review threads, and named check runs
+
+### Improvements
+- Unread notifications use a yellow dot, badge rows open the stats view, and the stats view has more room
+
 ## [0.10.2] - 2026-09-06
 
 ### Fixes

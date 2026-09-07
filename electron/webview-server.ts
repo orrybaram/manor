@@ -297,6 +297,9 @@ export class WebviewServer {
           portScanner: null,
           remoteControl: null,
           agentHookServer: null,
+          // Always us: the server answering the request is the one
+          // `GET /processes` has to report a port for.
+          webviewServer: this,
           getRendererWindows: null,
           ...this.controlDeps,
         },
@@ -600,6 +603,76 @@ export class WebviewServer {
           return;
         }
         await wc.loadURL(navUrl);
+        json(200, { ok: true });
+        return;
+      }
+
+      // ── POST /webview/:id/zoom-in | zoom-out | zoom-reset ──
+      //
+      // Same clamps as the `webview:zoom-*` IPC handlers: Chromium's zoom
+      // level is logarithmic, so +/-0.5 is one notch and the bounds are the
+      // ones the zoom menu enforces.
+      if (method === "POST" && action === "zoom-in") {
+        wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      if (method === "POST" && action === "zoom-out") {
+        wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      if (method === "POST" && action === "zoom-reset") {
+        wc.setZoomLevel(0);
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      // ── POST /webview/:id/find ──
+      //
+      // Fire-and-forget, like the IPC handler: `findInPage` reports matches
+      // through a `found-in-page` event on the webview, which the renderer's
+      // find bar owns. This only drives the search.
+      if (method === "POST" && action === "find") {
+        const body = await readBody();
+        const query = body.query;
+        if (typeof query !== "string" || !query) {
+          json(400, { error: "Missing 'query' string in request body" });
+          return;
+        }
+        const options: Electron.FindInPageOptions = {};
+        if (typeof body.forward === "boolean") options.forward = body.forward;
+        if (typeof body.findNext === "boolean")
+          options.findNext = body.findNext;
+        wc.findInPage(query, options);
+        json(200, { ok: true });
+        return;
+      }
+
+      // ── POST /webview/:id/stop-find ──
+      if (method === "POST" && action === "stop-find") {
+        wc.stopFindInPage("clearSelection");
+        json(200, { ok: true });
+        return;
+      }
+
+      // ── POST /webview/:id/mute ──
+      if (method === "POST" && action === "mute") {
+        const body = await readBody();
+        if (typeof body.muted !== "boolean") {
+          json(400, { error: "Missing 'muted' boolean in request body" });
+          return;
+        }
+        wc.setAudioMuted(body.muted);
+        json(200, { muted: body.muted });
+        return;
+      }
+
+      // ── POST /webview/:id/stop ──
+      if (method === "POST" && action === "stop") {
+        wc.stop();
         json(200, { ok: true });
         return;
       }

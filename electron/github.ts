@@ -305,21 +305,32 @@ export class GitHubManager {
     });
   }
 
+  /**
+   * Create an issue. With no `repoPath` this targets Manor's own repo — the
+   * in-app feedback form, its original and only renderer caller. `repoPath`
+   * (passed by `POST /projects/:projectId/issues`, ADR-171) instead runs `gh`
+   * inside that checkout, so the issue lands on whatever repo the project is.
+   */
   async createIssue(
     title: string,
     body: string,
     labels: string[],
+    repoPath?: string,
   ): Promise<{ url: string } | null> {
     const baseArgs = [
       "issue",
       "create",
-      "--repo",
-      "orrybaram/manor",
+      ...(repoPath ? [] : ["--repo", "orrybaram/manor"]),
       "--title",
       title,
       "--body",
       body,
     ];
+    const execOptions = {
+      cwd: repoPath,
+      encoding: "utf-8" as const,
+      timeout: 15000,
+    };
 
     // Try with labels first, fall back to without if labels don't exist
     const labelArgs: string[] = [];
@@ -331,16 +342,13 @@ export class GitHubManager {
       const { stdout } = await execFileAsync(
         "gh",
         [...baseArgs, ...labelArgs],
-        { encoding: "utf-8", timeout: 15000 },
+        execOptions,
       );
       return { url: stdout.trim() };
     } catch {
       // Labels may not exist — retry without them
       try {
-        const { stdout } = await execFileAsync("gh", baseArgs, {
-          encoding: "utf-8",
-          timeout: 15000,
-        });
+        const { stdout } = await execFileAsync("gh", baseArgs, execOptions);
         return { url: stdout.trim() };
       } catch {
         return null;
@@ -388,15 +396,7 @@ export class GitHubManager {
       try {
         await execFileAsync(
           "gh",
-          [
-            "release",
-            "upload",
-            TAG,
-            filePath,
-            "--repo",
-            REPO,
-            "--clobber",
-          ],
+          ["release", "upload", TAG, filePath, "--repo", REPO, "--clobber"],
           { encoding: "utf-8", timeout: 30000 },
         );
         urls.push(
@@ -581,7 +581,7 @@ export function parsePrConversationState(
 
   const comments = pr.comments?.nodes ?? [];
   const reviews = pr.reviews?.nodes ?? [];
-  const newest = <T,>(nodes: T[]): T | undefined => nodes[nodes.length - 1];
+  const newest = <T>(nodes: T[]): T | undefined => nodes[nodes.length - 1];
 
   const candidates = [
     toPrComment(newest(comments)),
@@ -590,9 +590,9 @@ export function parsePrConversationState(
   const latestComment =
     commentCount === undefined
       ? undefined
-      : candidates.sort(
+      : (candidates.sort(
           (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
-        )[0] ?? null;
+        )[0] ?? null);
 
   const recentComments = collectRecentComments(comments, reviews, threads);
 

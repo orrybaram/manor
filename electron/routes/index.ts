@@ -22,6 +22,8 @@ import { folderRoutes } from "./folders";
 import { projectRoutes } from "./projects";
 import { issueRoutes } from "./issues";
 import { gitRoutes } from "./git";
+import { integrationRoutes } from "./integrations";
+import { systemRoutes } from "./system";
 
 /**
  * Every route this module serves, in match order. See `router.ts`'s header
@@ -37,6 +39,8 @@ export const routes: readonly Route[] = [
   ...projectRoutes,
   ...issueRoutes,
   ...gitRoutes,
+  ...integrationRoutes,
+  ...systemRoutes,
 ];
 
 /**

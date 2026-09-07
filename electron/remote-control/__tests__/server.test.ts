@@ -85,6 +85,7 @@ describe("RemoteControlServer", () => {
       portScanner: null,
       remoteControl: null,
       agentHookServer: null,
+      webviewServer: null,
       getRendererWindows: null,
     };
     server = new RemoteControlServer(() => deps, devices, {

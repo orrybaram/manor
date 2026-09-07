@@ -282,6 +282,7 @@ export function initApp(devTitle: string | null): void {
       portScanner,
       remoteControl,
       agentHookServer,
+      webviewServer,
       getRendererWindows,
     }),
     remoteDeviceStore,

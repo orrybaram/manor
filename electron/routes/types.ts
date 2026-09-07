@@ -37,6 +37,13 @@ export interface ControlDeps {
   portScanner: PortScanner | null;
   remoteControl: RemoteControlController | null;
   agentHookServer: AgentHookServer | null;
+  /**
+   * The HTTP server serving this very request, reported by `GET /processes`
+   * alongside the other internal servers. Structural rather than the
+   * `WebviewServer` class so `routes/` keeps no import edge back to its own
+   * host module.
+   */
+  webviewServer: { serverPort: number | null } | null;
   getRendererWindows: (() => BrowserWindow[]) | null;
 }
 

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import ListChecks from "lucide-react/dist/esm/icons/list-checks";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
@@ -8,23 +9,80 @@ import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
+import { useInlineRename } from "../../hooks/useInlineRename";
 import styles from "./AgentsList.module.css";
+import menuStyles from "./ProjectItem.module.css";
 
-function AgentRow({ agent, shouldPulse, onClose, onClick }: {
+function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   agent: AgentInfo;
   shouldPulse: boolean;
   onClose: () => void;
   onClick: () => void;
+  onRename: (name: string) => void;
 }) {
   const { title, status } = useAgentDisplay(agent);
+  const rename = useInlineRename(title, onRename);
   return (
-    <button className={styles.agentItem} onClick={onClick}>
-      <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
-      <span className={styles.agentName}>{title}</span>
-      <span className={styles.agentClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close agent">
-        <X size={12} />
-      </span>
-    </button>
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div
+          role="button"
+          tabIndex={0}
+          className={styles.agentItem}
+          data-testid="sidebar-agent-row"
+          data-agent-id={agent.id}
+          onClick={() => {
+            if (!rename.editing) onClick();
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            rename.start();
+          }}
+          onKeyDown={(e) => {
+            if (rename.editing) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+        >
+          <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
+          {rename.editing ? (
+            <input
+              className={menuStyles.workspaceNameInput}
+              aria-label="Agent name"
+              data-testid="agent-name-input"
+              {...rename.inputProps}
+            />
+          ) : (
+            <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
+          )}
+          <span className={styles.agentClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close agent">
+            <X size={12} />
+          </span>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          className={menuStyles.contextMenu}
+          {...rename.menuContentProps}
+        >
+          <ContextMenu.Item
+            className={menuStyles.contextMenuItem}
+            onSelect={() => rename.start()}
+          >
+            Rename Agent
+          </ContextMenu.Item>
+          <ContextMenu.Separator className={menuStyles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={`${menuStyles.contextMenuItem} ${menuStyles.contextMenuItemDanger}`}
+            onSelect={onClose}
+          >
+            Close Agent
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
 
@@ -103,7 +161,7 @@ export function AgentsList(props: AgentsListProps) {
     <div className={styles.agentsSection}>
       <div className={styles.sectionHeader}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <ListChecks size={12} />
+          <Bot size={12} />
           Agents
         </span>
         {onShowAll && (
@@ -111,6 +169,7 @@ export function AgentsList(props: AgentsListProps) {
             className={styles.action}
             onClick={onShowAll}
             title="View all agents"
+            data-testid="sidebar-agents-view-all"
             style={{ fontSize: 10, opacity: 0.6 }}
           >
             View All
@@ -138,6 +197,9 @@ export function AgentsList(props: AgentsListProps) {
                   agent={agent}
                   shouldPulse={shouldPulse}
                   onClick={() => navigateToAgent(agent)}
+                  onRename={(name) =>
+                    useAgentStore.getState().renameAgent(agent.id, name)
+                  }
                   onClose={() => {
                     if (agent.paneId) {
                       useAppStore.getState().closePaneById(agent.paneId);

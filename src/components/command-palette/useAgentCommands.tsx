@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useAgentStore } from "../../store/agent-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { useAppStore } from "../../store/app-store";
 import { formatCombo } from "../../lib/keybindings";
-import { deriveStatus, cleanLiveTitle } from "../../hooks/useAgentDisplay";
+import { deriveStatus, resolveAgentTitle } from "../../hooks/useAgentDisplay";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import type { AgentInfo } from "../../electron.d";
 import type { CommandItem } from "./types";
@@ -53,7 +53,7 @@ export function useAgentCommands({
         const liveAgent = agent.paneId ? paneAgentStatus[agent.paneId] ?? null : null;
         const agentStatus = deriveStatus(agent, liveAgent);
         const liveTitle = agent.paneId ? paneTitle[agent.paneId] ?? null : null;
-        const label = cleanLiveTitle(liveTitle) ?? agent.name ?? "Agent";
+        const label = resolveAgentTitle(agent, liveTitle);
         return {
           id: `agent-${agent.id}`,
           label,
@@ -71,7 +71,7 @@ export function useAgentCommands({
     items.push({
       id: "view-all-agents",
       label: "View All Agents...",
-      icon: <ListTodo size={14} />,
+      icon: <Bot size={14} />,
       action: () => {
         onClose();
         onViewAllAgents();

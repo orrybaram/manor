@@ -1,4 +1,5 @@
 import { useAppStore } from "../store/app-store";
+import { useAgentStore } from "../store/agent-store";
 
 export function useTabTitle(tabId: string): string {
   const focusedPaneId = useAppStore((s) => {
@@ -25,9 +26,22 @@ export function useTabTitle(tabId: string): string {
   const paneUrl = useAppStore((s) =>
     focusedPaneId ? (s.paneUrl[focusedPaneId] ?? null) : null,
   );
+  // A user-pinned agent name (rename in the Agents list) labels the tab too,
+  // so the sidebar and tab bar never disagree about what a pane is called.
+  const pinnedAgentName = useAgentStore((s) => {
+    if (!focusedPaneId) return null;
+    const agent = s.agents.find(
+      (a) => a.paneId === focusedPaneId && a.namePinned && a.name,
+    );
+    return agent?.name ?? null;
+  });
 
   if (contentType === "diff") {
     return "Diff";
+  }
+
+  if (pinnedAgentName && contentType !== "browser") {
+    return pinnedAgentName;
   }
 
   // For browser panes, prefer the page title; fall back to URL

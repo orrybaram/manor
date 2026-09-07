@@ -1,14 +1,18 @@
 import { useState, useCallback, useEffect, useRef, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import X from "lucide-react/dist/esm/icons/x";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentStore } from "../../../store/agent-store";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
+import { useInlineRename } from "../../../hooks/useInlineRename";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { BUCKET_ORDER, getDateBucket, type DateBucket } from "../../../utils/date-buckets";
 import styles from "./AgentsView.module.css";
+import menuStyles from "../ProjectItem.module.css";
 
 // ── Helpers ──
 
@@ -32,41 +36,96 @@ type AgentViewRowProps = {
   agent: AgentInfo;
   onResumeAgent: (agent: AgentInfo) => void;
   onRemoveAgent: (agentId: string) => void;
+  onRenameAgent: (agentId: string, name: string) => void;
 };
 
 const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
-  const { agent, onResumeAgent, onRemoveAgent } = props;
+  const { agent, onResumeAgent, onRemoveAgent, onRenameAgent } = props;
 
   const { title, status } = useAgentDisplay(agent);
+  const rename = useInlineRename(title, (name) => onRenameAgent(agent.id, name));
 
   return (
-    <button className={styles.agentRow} onClick={() => onResumeAgent(agent)}>
-      <AgentDot status={status} size="sidebar" />
-      <span className={styles.agentName}>{title}</span>
-      <span className={styles.agentProject}>
-        {agent.projectName || "No Project"}
-      </span>
-      <span className={styles.agentTime}>
-        {relativeShortThenDate(new Date(agent.updatedAt).getTime())}
-      </span>
-      <span
-        role="button"
-        tabIndex={0}
-        className={styles.removeButton}
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemoveAgent(agent.id);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+        <div
+          role="button"
+          tabIndex={0}
+          className={styles.agentRow}
+          data-testid="agents-modal-row"
+          data-agent-id={agent.id}
+          onClick={() => {
+            if (!rename.editing) onResumeAgent(agent);
+          }}
+          onDoubleClick={(e) => {
             e.stopPropagation();
-            onRemoveAgent(agent.id);
-          }
-        }}
-      >
-        <Trash2 size={12} />
-      </span>
-    </button>
+            rename.start();
+          }}
+          onKeyDown={(e) => {
+            if (rename.editing) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onResumeAgent(agent);
+            }
+          }}
+        >
+          <AgentDot status={status} size="sidebar" />
+          {rename.editing ? (
+            <input
+              className={`${menuStyles.workspaceNameInput} ${styles.agentNameInput}`}
+              aria-label="Agent name"
+              data-testid="agent-name-input"
+              {...rename.inputProps}
+            />
+          ) : (
+            <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
+          )}
+          <span className={styles.agentProject}>
+            {agent.projectName || "No Project"}
+          </span>
+          <span className={styles.agentTime}>
+            {relativeShortThenDate(new Date(agent.updatedAt).getTime())}
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            className={styles.removeButton}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveAgent(agent.id);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                onRemoveAgent(agent.id);
+              }
+            }}
+          >
+            <Trash2 size={12} />
+          </span>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          className={`${menuStyles.contextMenu} ${styles.rowMenu}`}
+          {...rename.menuContentProps}
+        >
+          <ContextMenu.Item
+            className={menuStyles.contextMenuItem}
+            onSelect={() => rename.start()}
+          >
+            Rename Agent
+          </ContextMenu.Item>
+          <ContextMenu.Separator className={menuStyles.contextMenuSeparator} />
+          <ContextMenu.Item
+            className={`${menuStyles.contextMenuItem} ${menuStyles.contextMenuItemDanger}`}
+            onSelect={() => onRemoveAgent(agent.id)}
+          >
+            Remove Agent
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 });
 
@@ -88,6 +147,7 @@ export function AgentsModal(props: AgentsModalProps) {
     hasMore,
     loadingMore,
     removeAgent,
+    renameAgent,
     loadMoreAgents,
   } = useAgentStore();
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -159,6 +219,7 @@ export function AgentsModal(props: AgentsModalProps) {
         <Dialog.Overlay className={styles.overlay} />
         <Dialog.Content
           className={styles.modal}
+          data-testid="agents-modal"
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
@@ -168,7 +229,10 @@ export function AgentsModal(props: AgentsModalProps) {
           }}
         >
           <div className={styles.header}>
-            <Dialog.Title className={styles.title}>Agents</Dialog.Title>
+            <Dialog.Title className={styles.title}>
+              <Bot size={16} />
+              Agents
+            </Dialog.Title>
             <div className={styles.filterTabs}>
               {(["all", "active", "completed"] as const).map((f) => (
                 <button
@@ -219,6 +283,7 @@ export function AgentsModal(props: AgentsModalProps) {
                             agent={agent}
                             onResumeAgent={handleResume}
                             onRemoveAgent={removeAgent}
+                            onRenameAgent={renameAgent}
                           />
                         ))}
                       </div>

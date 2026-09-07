@@ -129,6 +129,7 @@ const WorkspaceItem = React.forwardRef<
         <input
           ref={editRef}
           className={styles.workspaceNameInput}
+          data-testid="workspace-name-input"
           value={editValue}
           onChange={onEditChange}
           onBlur={onEditBlur}
@@ -149,7 +150,7 @@ const WorkspaceItem = React.forwardRef<
           </span>
           <div className={styles.workspaceLabel}>
             <div className={styles.workspaceNameRow}>
-              <span className={styles.workspaceName}>{displayName}</span>
+              <span className={styles.workspaceName} data-testid="workspace-name">{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
                   <span
@@ -325,7 +326,13 @@ export function ProjectItem(props: ProjectItemProps) {
     else rowRefs.current.delete(key);
   };
 
+  // Escape cancels by blurring the input, and that blur must not commit.
+  // The blur handler's `editingPath` is still the old value at that point
+  // (state has not re-rendered yet), so the cancel is flagged in a ref.
+  const renameCancelled = useRef(false);
+
   const startRename = useCallback((ws: WorkspaceInfo) => {
+    renameCancelled.current = false;
     setEditingPath(ws.path);
     setEditValue(ws.name || ws.branch || "");
     requestAnimationFrame(() => {
@@ -375,11 +382,16 @@ export function ProjectItem(props: ProjectItemProps) {
         onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
         onEditChange={(e) => setEditValue(e.target.value)}
         onEditBlur={() => {
+          if (renameCancelled.current) {
+            renameCancelled.current = false;
+            return;
+          }
           if (editingPath) commitRename(ws);
         }}
         onEditKeyDown={(e) => {
           if (e.key === "Enter") commitRename(ws);
           if (e.key === "Escape") {
+            renameCancelled.current = true;
             setEditingPath(null);
             e.currentTarget.blur();
           }

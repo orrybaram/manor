@@ -3,6 +3,7 @@ import { AgentInfo } from "../electron.d";
 import { useToastStore } from "./toast-store";
 import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToAgent } from "../utils/agent-navigation";
+import { cleanAgentTitle } from "../utils/agent-title";
 
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
@@ -32,6 +33,12 @@ interface AgentStoreState {
   }) => Promise<void>;
   loadMoreAgents: (offset: number) => Promise<void>;
   removeAgent: (agentId: string) => Promise<void>;
+  /**
+   * Give an agent a user-chosen name. A non-empty name is pinned so the
+   * live-title sync in main leaves it alone; an empty name unpins and lets
+   * the terminal title take over again.
+   */
+  renameAgent: (agentId: string, name: string) => Promise<void>;
   receiveAgentUpdate: (
     agent: AgentInfo,
     unseen?: { responded: boolean; requires_input: boolean },
@@ -200,6 +207,31 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         set((s) => ({
           agents: s.agents.filter((t) => t.id !== agentId),
         }));
+      }
+    },
+
+    renameAgent: async (agentId: string, name: string) => {
+      const trimmed = name.trim();
+      // Clearing hands naming back to the terminal. Main only re-syncs the
+      // name on the next status change, so restore it from the live agent
+      // title now rather than showing a generic label until then.
+      const agent = get().agents.find((t) => t.id === agentId);
+      const liveTitle = agent?.paneId
+        ? useAppStore.getState().paneAgentStatus[agent.paneId]?.title ?? null
+        : null;
+      const updates = trimmed
+        ? { name: trimmed, namePinned: true }
+        : { name: cleanAgentTitle(liveTitle), namePinned: false };
+      // Optimistic local update; main re-broadcasts the persisted record.
+      set((s) => ({
+        agents: s.agents.map((t) =>
+          t.id === agentId ? { ...t, ...updates } : t,
+        ),
+      }));
+      try {
+        await window.electronAPI?.agents.update(agentId, updates);
+      } catch {
+        // Main rejected the write; the next broadcast will reconcile.
       }
     },
 

@@ -50,6 +50,11 @@ export interface AgentInfo {
   lastAgentStatus: string | null;
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
+  /**
+   * True when the user renamed this agent by hand. A pinned `name` wins over
+   * the live terminal title and is never overwritten by the title sync.
+   */
+  namePinned?: boolean;
 }
 
 /**
@@ -712,7 +717,7 @@ export interface ElectronAPI {
     get: (agentId: string) => Promise<AgentInfo | null>;
     update: (
       agentId: string,
-      updates: { name?: string | null },
+      updates: { name?: string | null; namePinned?: boolean },
     ) => Promise<AgentInfo | null>;
     delete: (agentId: string) => Promise<boolean>;
     setPaneContext: (

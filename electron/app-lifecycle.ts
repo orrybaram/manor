@@ -114,11 +114,12 @@ export function handleStreamEvent(
           `pty-agent-status-${event.sessionId}`,
           event.agent,
         );
-        // Update persisted agent name from agent title
+        // Update persisted agent name from agent title — unless the user
+        // pinned a name of their own, which the title sync must not clobber.
         const cleaned = cleanAgentTitle(event.agent.title);
         if (cleaned) {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && agent.name !== cleaned) {
+          if (agent && !agent.namePinned && agent.name !== cleaned) {
             const updated = agentManager.updateAgent(agent.id, { name: cleaned });
             if (updated) {
               sendAgentUpdate(window, updated, preferencesManager);

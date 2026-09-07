@@ -129,7 +129,7 @@ export function TabButton(props: TabButtonProps) {
           ) : (
             <Globe size={12} className={styles.tabIcon} />
           ))}
-          <span className={styles.tabTitle}>
+          <span className={styles.tabTitle} data-testid="tab-title">
             {isPinned ? shortenTitle(title) : title}
           </span>
           {(audioPlaying || audioMuted) && (

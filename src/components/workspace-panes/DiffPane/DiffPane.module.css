@@ -4,6 +4,9 @@
   overflow: auto;
   background: var(--bg);
   position: relative;
+  /* Contain the sticky header and file-header z-indexes so they never
+     paint over body-portaled popovers and context menus. */
+  isolation: isolate;
   container-type: size;
 }
 

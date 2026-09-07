@@ -33,14 +33,52 @@
   transform: rotate(90deg);
 }
 
-.fileListItem {
+.tree {
+  padding: 4px 0;
+}
+
+.dirRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+}
+
+.dirRow:hover {
+  background: var(--hover);
+}
+
+.dirChevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.dirName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.fileListItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+  min-width: 0;
 }
 
 .fileListItem:hover {
@@ -51,42 +89,41 @@
   flex-shrink: 0;
   color: var(--green);
   fill: var(--green);
-  margin-top: 4px;
 }
 
 .unstagedIcon {
   flex-shrink: 0;
   color: var(--text-dim);
   fill: var(--text-dim);
-  margin-top: 4px;
 }
 
-.fileListName {
-  display: flex;
-  gap: 2px;
-  min-width: 0;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.fileListName:hover .fileName {
-  text-decoration: underline;
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
 }
 
 .fileName {
   font-family: var(--font-mono);
   color: var(--text);
-  flex-shrink: 0;
-}
-
-.fileDir {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
+}
+
+.fileName:hover {
+  text-decoration: underline;
+}
+
+.rowStats {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .fileStats {
@@ -144,25 +181,35 @@
 }
 
 .fileActions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: 2px;
-  flex-shrink: 0;
-  margin-left: 8px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 150ms ease;
 }
 
 .fileListItem:hover .fileActions,
 .fileListItemSelected .fileActions {
   opacity: 1;
+  pointer-events: auto;
+}
+
+/* Actions sit over the stats column; hide the numbers while they show. */
+.fileListItem:hover .rowStats,
+.fileListItemSelected .rowStats {
+  visibility: hidden;
 }
 
 .actionButton {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border: none;
   border-radius: 4px;
   background: transparent;

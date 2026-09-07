@@ -1,21 +1,27 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
+import CodeXml from "lucide-react/dist/esm/icons/code-xml";
 import Circle from "lucide-react/dist/esm/icons/circle";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Minus from "lucide-react/dist/esm/icons/minus";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { DiffFile, DiffMode } from "../types";
+import {
+  buildFileTree,
+  flattenFileTree,
+  type FileTreeNode,
+} from "../file-tree";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import { useToastStore } from "../../../../store/toast-store";
 import { openInEditor } from "../../../../lib/editor";
 import styles from "./FileList.module.css";
-import { Row, Stack } from "../../../ui/Layout/Layout";
 
 type FileListProps = {
   files: DiffFile[];
@@ -50,6 +56,17 @@ export function FileList(props: FileListProps) {
   const totalRemoved = files.reduce((s, f) => s + f.removed, 0);
   const lastClickedIndex = useRef<number>(0);
   const [collapsed, setCollapsed] = useState(false);
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const tree = useMemo(() => buildFileTree(files), [files]);
+  const orderedFiles = useMemo(() => flattenFileTree(tree), [tree]);
+  const toggleDir = useCallback((path: string) => {
+    setCollapsedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [actionInProgress, setActionInProgress] = useState(false);
   const isLocal = diffMode === "local";
@@ -74,7 +91,7 @@ export function FileList(props: FileListProps) {
         const end = Math.max(lastClickedIndex.current, index);
         const next = new Set(selectedFiles);
         for (let i = start; i <= end; i++) {
-          next.add(files[i].path);
+          next.add(orderedFiles[i].path);
         }
         onSelectionChange(next);
       } else if (e.metaKey || e.ctrlKey) {
@@ -91,7 +108,7 @@ export function FileList(props: FileListProps) {
         lastClickedIndex.current = index;
       }
     },
-    [files, selectedFiles, onSelectionChange],
+    [orderedFiles, selectedFiles, onSelectionChange],
   );
 
   const handleFileNameClick = useCallback(
@@ -295,6 +312,180 @@ export function FileList(props: FileListProps) {
     }
   }, [confirmAction, workspacePath, addToast]);
 
+  const renderFile = (file: DiffFile, name: string, depth: number) => {
+    const index = orderedFiles.indexOf(file);
+    const isStaged = stagedFiles.has(file.path);
+    return (
+      <ContextMenu.Root key={file.path}>
+        <ContextMenu.Trigger asChild>
+          <div
+            className={[
+              styles.fileListItem,
+              selectedFiles.has(file.path)
+                ? styles.fileListItemSelected
+                : undefined,
+              animationState.get(file.path) === "new"
+                ? styles.fileListItemNew
+                : undefined,
+              animationState.get(file.path) === "updated"
+                ? styles.fileListItemUpdated
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            style={{ paddingLeft: 12 + depth * 16 }}
+            onClick={(e) => handleRowClick(e, file, index)}
+            onContextMenu={() => handleContextMenu(file)}
+          >
+            {isLocal && (
+              <Circle
+                size={6}
+                className={isStaged ? styles.stagedIcon : styles.unstagedIcon}
+              />
+            )}
+            <CodeXml size={12} className={styles.fileIcon} />
+            <span
+              onClick={(e) => handleFileNameClick(e, file)}
+              className={styles.fileName}
+              title={file.path}
+            >
+              {name}
+            </span>
+            <span className={styles.rowStats}>
+              <span className={styles.statAdded}>+{file.added}</span>
+              <span className={styles.statRemoved}>-{file.removed}</span>
+            </span>
+            {isLocal && workspacePath && (
+              <span className={styles.fileActions}>
+                {isStaged ? (
+                  <Tooltip label="Unstage">
+                    <button
+                      className={styles.actionButton}
+                      disabled={actionInProgress}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleUnstage(file.path);
+                      }}
+                    >
+                      <Minus size={14} />
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <>
+                    <Tooltip label="Stage">
+                      <button
+                        className={styles.actionButton}
+                        disabled={actionInProgress}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStage(file.path);
+                        }}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Discard">
+                      <button
+                        className={[
+                          styles.actionButton,
+                          styles.actionButtonDestructive,
+                        ].join(" ")}
+                        disabled={actionInProgress}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDiscard(file.path);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </Tooltip>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className={styles.contextMenu}>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={handleOpenInEditor}
+            >
+              <ExternalLink size={14} />
+              Open in Editor
+            </ContextMenu.Item>
+            {isLocal && workspacePath && (
+              <>
+                <ContextMenu.Separator
+                  className={styles.contextMenuSeparator}
+                />
+                {isStaged ? (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    disabled={actionInProgress}
+                    onSelect={() => handleUnstage(file.path)}
+                  >
+                    <Minus size={14} />
+                    Unstage
+                  </ContextMenu.Item>
+                ) : (
+                  <>
+                    <ContextMenu.Item
+                      className={styles.contextMenuItem}
+                      disabled={actionInProgress}
+                      onSelect={() => handleStage(file.path)}
+                    >
+                      <Plus size={14} />
+                      Stage
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator
+                      className={styles.contextMenuSeparator}
+                    />
+                    <ContextMenu.Item
+                      className={[
+                        styles.contextMenuItem,
+                        styles.contextMenuItemDestructive,
+                      ].join(" ")}
+                      disabled={actionInProgress}
+                      onSelect={() => handleDiscard(file.path)}
+                    >
+                      <Trash2 size={14} />
+                      Discard
+                    </ContextMenu.Item>
+                  </>
+                )}
+              </>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    );
+  };
+
+  const renderNodes = (nodes: FileTreeNode[], depth: number): React.ReactNode =>
+    nodes.map((node) => {
+      if (node.kind === "file") return renderFile(node.file, node.name, depth);
+      const isCollapsed = collapsedDirs.has(node.path);
+      return (
+        <div key={`dir:${node.path}`}>
+          <button
+            type="button"
+            className={styles.dirRow}
+            style={{ paddingLeft: 12 + depth * 16 }}
+            onClick={() => toggleDir(node.path)}
+          >
+            {isCollapsed ? (
+              <ChevronRight size={12} className={styles.dirChevron} />
+            ) : (
+              <ChevronDown size={12} className={styles.dirChevron} />
+            )}
+            <span className={styles.dirName}>{node.name}</span>
+          </button>
+          {!isCollapsed && renderNodes(node.children, depth + 1)}
+        </div>
+      );
+    });
+
   return (
     <>
       <div className={styles.fileList}>
@@ -329,165 +520,9 @@ export function FileList(props: FileListProps) {
             )}
           </span>
         </button>
-        {!collapsed &&
-          files.map((file, index) => {
-            const lastSlash = file.path.lastIndexOf("/");
-            const fileName =
-              lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
-            const fileDir =
-              lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);
-            const isStaged = stagedFiles.has(file.path);
-            return (
-              <ContextMenu.Root key={file.path}>
-                <ContextMenu.Trigger asChild>
-                  <div
-                    className={[
-                      styles.fileListItem,
-                      selectedFiles.has(file.path)
-                        ? styles.fileListItemSelected
-                        : undefined,
-                      animationState.get(file.path) === "new"
-                        ? styles.fileListItemNew
-                        : undefined,
-                      animationState.get(file.path) === "updated"
-                        ? styles.fileListItemUpdated
-                        : undefined,
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={(e) => handleRowClick(e, file, index)}
-                    onContextMenu={() => handleContextMenu(file)}
-                  >
-                    <Row gap="sm">
-                      {isLocal && (
-                        <Circle
-                          size={6}
-                          className={
-                            isStaged ? styles.stagedIcon : styles.unstagedIcon
-                          }
-                        />
-                      )}
-                      <Stack className={styles.fileListName}>
-                        <Row gap="sm" align="center">
-
-                          <span
-                            onClick={(e) => handleFileNameClick(e, file)}
-                            className={styles.fileName}
-                          >
-                            {fileName}
-                          </span>
-                        </Row>
-                        {fileDir && (
-                          <span className={styles.fileDir}>{fileDir}</span>
-                        )}
-                      </Stack>
-                    </Row>
-                    {isLocal && workspacePath && (
-                      <span className={styles.fileActions}>
-                        {isStaged ? (
-                          <Tooltip label="Unstage">
-                            <button
-                              className={styles.actionButton}
-                              disabled={actionInProgress}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleUnstage(file.path);
-                              }}
-                            >
-                              <Minus size={14} />
-                            </button>
-                          </Tooltip>
-                        ) : (
-                          <>
-                            <Tooltip label="Stage">
-                              <button
-                                className={styles.actionButton}
-                                disabled={actionInProgress}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStage(file.path);
-                                }}
-                              >
-                                <Plus size={14} />
-                              </button>
-                            </Tooltip>
-                            <Tooltip label="Discard">
-                              <button
-                                className={[
-                                  styles.actionButton,
-                                  styles.actionButtonDestructive,
-                                ].join(" ")}
-                                disabled={actionInProgress}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDiscard(file.path);
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </Tooltip>
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </ContextMenu.Trigger>
-                <ContextMenu.Portal>
-                  <ContextMenu.Content className={styles.contextMenu}>
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={handleOpenInEditor}
-                    >
-                      <ExternalLink size={14} />
-                      Open in Editor
-                    </ContextMenu.Item>
-                    {isLocal && workspacePath && (
-                      <>
-                        <ContextMenu.Separator
-                          className={styles.contextMenuSeparator}
-                        />
-                        {isStaged ? (
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            disabled={actionInProgress}
-                            onSelect={() => handleUnstage(file.path)}
-                          >
-                            <Minus size={14} />
-                            Unstage
-                          </ContextMenu.Item>
-                        ) : (
-                          <>
-                            <ContextMenu.Item
-                              className={styles.contextMenuItem}
-                              disabled={actionInProgress}
-                              onSelect={() => handleStage(file.path)}
-                            >
-                              <Plus size={14} />
-                              Stage
-                            </ContextMenu.Item>
-                            <ContextMenu.Separator
-                              className={styles.contextMenuSeparator}
-                            />
-                            <ContextMenu.Item
-                              className={[
-                                styles.contextMenuItem,
-                                styles.contextMenuItemDestructive,
-                              ].join(" ")}
-                              disabled={actionInProgress}
-                              onSelect={() => handleDiscard(file.path)}
-                            >
-                              <Trash2 size={14} />
-                              Discard
-                            </ContextMenu.Item>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </ContextMenu.Content>
-                </ContextMenu.Portal>
-              </ContextMenu.Root>
-            );
-          })}
+        {!collapsed && (
+          <div className={styles.tree}>{renderNodes(tree, 0)}</div>
+        )}
       </div>
 
       <Dialog.Root

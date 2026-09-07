@@ -27,6 +27,7 @@ import type { LinearManager } from "./linear";
 import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 import type { AgentManager } from "./agent-persistence";
 import type { LocalBackend } from "./backend/local-backend";
+import type { ControlDeps } from "./routes/types";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -81,6 +82,14 @@ export class WebviewServer {
   private backend: LocalBackend | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
+  /**
+   * The full manager bag routes need (ADR-171), set once via
+   * `setControlDeps` after `app-lifecycle.ts` assembles `ipcDeps`. Merged
+   * over the six positional constructor fallbacks below in
+   * `handleControlRequest` so unit tests that construct a bare
+   * `WebviewServer` (no setter call) keep working.
+   */
+  private controlDeps: Partial<ControlDeps> = {};
 
   constructor(
     registry: Map<string, number>,
@@ -102,6 +111,15 @@ export class WebviewServer {
 
   get serverPort(): number {
     return this.port;
+  }
+
+  /**
+   * Give control routes the full manager bag. Called once from
+   * `app-lifecycle.ts` right after `ipcDeps` is assembled; every field is
+   * optional so tests can pass a partial bag or skip the call entirely.
+   */
+  setControlDeps(deps: Partial<ControlDeps>): void {
+    this.controlDeps = deps;
   }
 
   /** Start the HTTP server on a random port */
@@ -259,6 +277,10 @@ export class WebviewServer {
     };
 
     // ── Manor-control routes (/projects…, /agents) ──
+    //
+    // The six constructor fields are the fallback; `this.controlDeps` (set
+    // via `setControlDeps`) wins where both are present, and carries the
+    // fields the constructor never took.
     if (
       await handleControlRequest(
         {
@@ -268,6 +290,18 @@ export class WebviewServer {
           layoutPersistence: this.layoutPersistence,
           agentManager: this.agentManager,
           backend: this.backend,
+          notificationStore: null,
+          statsStore: null,
+          preferencesManager: null,
+          themeManager: null,
+          portScanner: null,
+          remoteControl: null,
+          agentHookServer: null,
+          // Always us: the server answering the request is the one
+          // `GET /processes` has to report a port for.
+          webviewServer: this,
+          getRendererWindows: null,
+          ...this.controlDeps,
         },
         method,
         url,
@@ -330,8 +364,7 @@ export class WebviewServer {
       // ── POST /webview/:id/record/start ──
       if (method === "POST" && action === "record/start") {
         const body = await readBody();
-        const savePath =
-          typeof body.path === "string" ? body.path : undefined;
+        const savePath = typeof body.path === "string" ? body.path : undefined;
         const maxDurationSec =
           typeof body.maxDurationSec === "number"
             ? body.maxDurationSec
@@ -358,10 +391,14 @@ export class WebviewServer {
             maxDurationSec,
             keyframeIntervalSec,
             capture: () =>
-              wc.capturePage().then((image) => image.toPNG().toString("base64")),
+              wc
+                .capturePage()
+                .then((image) => image.toPNG().toString("base64")),
           });
         } catch (err) {
-          json(409, { error: String(err instanceof Error ? err.message : err) });
+          json(409, {
+            error: String(err instanceof Error ? err.message : err),
+          });
           return;
         }
 
@@ -570,6 +607,76 @@ export class WebviewServer {
         return;
       }
 
+      // ── POST /webview/:id/zoom-in | zoom-out | zoom-reset ──
+      //
+      // Same clamps as the `webview:zoom-*` IPC handlers: Chromium's zoom
+      // level is logarithmic, so +/-0.5 is one notch and the bounds are the
+      // ones the zoom menu enforces.
+      if (method === "POST" && action === "zoom-in") {
+        wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      if (method === "POST" && action === "zoom-out") {
+        wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      if (method === "POST" && action === "zoom-reset") {
+        wc.setZoomLevel(0);
+        json(200, { zoomLevel: wc.getZoomLevel() });
+        return;
+      }
+
+      // ── POST /webview/:id/find ──
+      //
+      // Fire-and-forget, like the IPC handler: `findInPage` reports matches
+      // through a `found-in-page` event on the webview, which the renderer's
+      // find bar owns. This only drives the search.
+      if (method === "POST" && action === "find") {
+        const body = await readBody();
+        const query = body.query;
+        if (typeof query !== "string" || !query) {
+          json(400, { error: "Missing 'query' string in request body" });
+          return;
+        }
+        const options: Electron.FindInPageOptions = {};
+        if (typeof body.forward === "boolean") options.forward = body.forward;
+        if (typeof body.findNext === "boolean")
+          options.findNext = body.findNext;
+        wc.findInPage(query, options);
+        json(200, { ok: true });
+        return;
+      }
+
+      // ── POST /webview/:id/stop-find ──
+      if (method === "POST" && action === "stop-find") {
+        wc.stopFindInPage("clearSelection");
+        json(200, { ok: true });
+        return;
+      }
+
+      // ── POST /webview/:id/mute ──
+      if (method === "POST" && action === "mute") {
+        const body = await readBody();
+        if (typeof body.muted !== "boolean") {
+          json(400, { error: "Missing 'muted' boolean in request body" });
+          return;
+        }
+        wc.setAudioMuted(body.muted);
+        json(200, { muted: body.muted });
+        return;
+      }
+
+      // ── POST /webview/:id/stop ──
+      if (method === "POST" && action === "stop") {
+        wc.stop();
+        json(200, { ok: true });
+        return;
+      }
+
       // ── GET /webview/:id/console-logs ──
       if (method === "GET" && action === "console-logs") {
         const entries = this.consoleLogs.get(paneId) ?? [];
@@ -664,7 +771,10 @@ export class WebviewServer {
           return;
         }
 
-        const extractScript = SYMBOLICATION_SCRIPT + '\n' + `(async function() {
+        const extractScript =
+          SYMBOLICATION_SCRIPT +
+          "\n" +
+          `(async function() {
           var el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return null;
 
@@ -844,7 +954,10 @@ export class WebviewServer {
           if (metadata === null) {
             json(404, { error: "Element not found for selector" });
           } else {
-            const screenshot = await captureElementRegion(wc, metadata.boundingBox);
+            const screenshot = await captureElementRegion(
+              wc,
+              metadata.boundingBox,
+            );
             json(200, { ...metadata, screenshot });
           }
         } catch (err) {

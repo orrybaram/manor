@@ -93,12 +93,16 @@ export function formatElementContext(
 
   const bb = ctx.boundingBox;
   lines.push("## Bounding Box");
-  lines.push(`x: ${bb.x}, y: ${bb.y}, width: ${bb.width}, height: ${bb.height}`);
+  lines.push(
+    `x: ${bb.x}, y: ${bb.y}, width: ${bb.width}, height: ${bb.height}`,
+  );
   lines.push("");
 
   lines.push("## Accessibility");
   const a11y = Object.entries(ctx.accessibility);
-  lines.push(a11y.length > 0 ? a11y.map(([k, v]) => `${k}: ${v}`).join(", ") : "(none)");
+  lines.push(
+    a11y.length > 0 ? a11y.map(([k, v]) => `${k}: ${v}`).join(", ") : "(none)",
+  );
 
   if (ctx.reactComponents && ctx.reactComponents.length > 0) {
     lines.push("");
@@ -315,7 +319,8 @@ const tools: ToolDef[] = [
         },
         keyframeIntervalSec: {
           type: "number",
-          description: "Interval in seconds between sampled keyframe images. Default 2.",
+          description:
+            "Interval in seconds between sampled keyframe images. Default 2.",
         },
       },
     },
@@ -331,17 +336,128 @@ const tools: ToolDef[] = [
       properties: {
         recordingId: {
           type: "string",
-          description: "Recording ID returned by start_recording. Omit if only one recording is active for the pane.",
+          description:
+            "Recording ID returned by start_recording. Omit if only one recording is active for the pane.",
         },
       },
     },
   },
   {
     name: "list_recordings",
-    description: "List currently active recordings and how long each has been running.",
+    description:
+      "List currently active recordings and how long each has been running.",
     inputSchema: {
       type: "object" as const,
       properties: {},
+    },
+  },
+  {
+    name: "zoom_in",
+    description: "Zoom a webview pane in one step.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
+    },
+  },
+  {
+    name: "zoom_out",
+    description: "Zoom a webview pane out one step.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
+    },
+  },
+  {
+    name: "zoom_reset",
+    description: "Reset a webview pane's zoom to 100%.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
+    },
+  },
+  {
+    name: "find_in_page",
+    description:
+      "Search the webview page for text, highlighting matches in Manor's UI. Match counts are reported to the pane's find bar, not returned here — use get_dom if you need to know what was found.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        query: { type: "string", description: "Text to search for." },
+        forward: {
+          type: "boolean",
+          description: "Search forwards. Defaults to true.",
+        },
+        findNext: {
+          type: "boolean",
+          description:
+            "Advance to the next match of the same query instead of starting a new search.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "stop_find",
+    description: "End the current find_in_page search and clear its selection.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
+    },
+  },
+  {
+    name: "set_audio_muted",
+    description: "Mute or unmute a webview pane's audio.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+        muted: {
+          type: "boolean",
+          description: "True to mute, false to unmute.",
+        },
+      },
+      required: ["muted"],
+    },
+  },
+  {
+    name: "stop_loading",
+    description:
+      "Stop the webview's in-flight page load, like the browser stop button.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: {
+          type: "string",
+          description: "Pane ID. Omit if only one webview is open.",
+        },
+      },
     },
   },
 ];
@@ -387,7 +503,9 @@ const handlers: ToolModule["handlers"] = {
 
   async get_dom(args, http) {
     const id = await resolvePaneId(http, args.paneId as string | undefined);
-    const result = (await http.post(`/webview/${encodeURIComponent(id)}/dom`)) as {
+    const result = (await http.post(
+      `/webview/${encodeURIComponent(id)}/dom`,
+    )) as {
       html: string;
     };
     return text(result.html);
@@ -447,7 +565,9 @@ const handlers: ToolModule["handlers"] = {
 
   async get_url(args, http) {
     const id = await resolvePaneId(http, args.paneId as string | undefined);
-    const result = (await http.get(`/webview/${encodeURIComponent(id)}/url`)) as {
+    const result = (await http.get(
+      `/webview/${encodeURIComponent(id)}/url`,
+    )) as {
       url: string;
     };
     return text(result.url);
@@ -471,7 +591,11 @@ const handlers: ToolModule["handlers"] = {
       mimeType?: string;
     }> = [{ type: "text", text: formatElementContext(id, ctx) }];
     if (ctx.screenshot) {
-      content.push({ type: "image", data: ctx.screenshot, mimeType: "image/png" });
+      content.push({
+        type: "image",
+        data: ctx.screenshot,
+        mimeType: "image/png",
+      });
     }
     return { content };
   },
@@ -489,7 +613,11 @@ const handlers: ToolModule["handlers"] = {
       mimeType?: string;
     }> = [{ type: "text", text: formatElementContext(id, result) }];
     if (result.screenshot) {
-      ctxContent.push({ type: "image", data: result.screenshot, mimeType: "image/png" });
+      ctxContent.push({
+        type: "image",
+        data: result.screenshot,
+        mimeType: "image/png",
+      });
     }
     return { content: ctxContent };
   },
@@ -498,7 +626,8 @@ const handlers: ToolModule["handlers"] = {
     const id = await resolvePaneId(http, args.paneId as string | undefined);
     const body: Record<string, unknown> = {};
     if (args.path !== undefined) body.path = args.path;
-    if (args.maxDurationSec !== undefined) body.maxDurationSec = args.maxDurationSec;
+    if (args.maxDurationSec !== undefined)
+      body.maxDurationSec = args.maxDurationSec;
     if (args.keyframeIntervalSec !== undefined)
       body.keyframeIntervalSec = args.keyframeIntervalSec;
 
@@ -565,6 +694,57 @@ const handlers: ToolModule["handlers"] = {
       )
       .join("\n");
     return text(formatted);
+  },
+
+  async zoom_in(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    const result = (await http.post(
+      `/webview/${encodeURIComponent(id)}/zoom-in`,
+    )) as { zoomLevel: number };
+    return text(`Zoom level: ${result.zoomLevel}`);
+  },
+
+  async zoom_out(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    const result = (await http.post(
+      `/webview/${encodeURIComponent(id)}/zoom-out`,
+    )) as { zoomLevel: number };
+    return text(`Zoom level: ${result.zoomLevel}`);
+  },
+
+  async zoom_reset(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    await http.post(`/webview/${encodeURIComponent(id)}/zoom-reset`);
+    return text("Zoom reset to 100%.");
+  },
+
+  async find_in_page(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    const body: Record<string, unknown> = { query: args.query };
+    if (args.forward !== undefined) body.forward = args.forward;
+    if (args.findNext !== undefined) body.findNext = args.findNext;
+    await http.post(`/webview/${encodeURIComponent(id)}/find`, body);
+    return text(`Searching for "${args.query as string}".`);
+  },
+
+  async stop_find(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    await http.post(`/webview/${encodeURIComponent(id)}/stop-find`);
+    return text("Find stopped.");
+  },
+
+  async set_audio_muted(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    await http.post(`/webview/${encodeURIComponent(id)}/mute`, {
+      muted: args.muted,
+    });
+    return text(args.muted ? "Audio muted." : "Audio unmuted.");
+  },
+
+  async stop_loading(args, http) {
+    const id = await resolvePaneId(http, args.paneId as string | undefined);
+    await http.post(`/webview/${encodeURIComponent(id)}/stop`);
+    return text("Loading stopped.");
   },
 };
 

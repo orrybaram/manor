@@ -1,5 +1,6 @@
 /**
- * MCP tools for GitHub issues and agent launching.
+ * MCP tools for GitHub issues, agent launching, and agent record management
+ * (rename/delete/mark-seen/resume-command — the `/agents/:agentId/*` routes).
  */
 
 import { resolveProjectId } from "./context";
@@ -10,6 +11,7 @@ import type { McpIssue, McpIssueDetail } from "../issue-sources";
 // `routes/projects.ts` (and its `electron`/`renderer-bridge` imports) into
 // the MCP process at runtime — only the shape is shared.
 import type { BatchResultEntry } from "../routes/projects";
+import type { AgentSummary } from "../routes/agents";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
@@ -24,6 +26,12 @@ const ISSUE_SOURCE_PROP = {
   type: "string",
   enum: ["github", "linear"],
   description: "Issue source: 'github' (default) or 'linear'.",
+} as const;
+
+/** Shared by every `/agents/:agentId/*` management tool. */
+const AGENT_ID_PROP = {
+  type: "string",
+  description: "Agent id, as returned by list_agents. A raw paneId also works.",
 } as const;
 
 // ── Tool definitions ──
@@ -80,7 +88,8 @@ const tools: ToolDef[] = [
         projectId: PROJECT_ID_PROP,
         workspacePath: {
           type: "string",
-          description: "Filesystem path of the workspace to launch the agent in.",
+          description:
+            "Filesystem path of the workspace to launch the agent in.",
         },
         prompt: {
           type: "string",
@@ -128,6 +137,58 @@ const tools: ToolDef[] = [
         },
       },
       required: ["issues"],
+    },
+  },
+  {
+    name: "rename_agent",
+    description:
+      "Set or clear an agent's display name in Manor's session list. A non-empty name pins it — the live pty title stops overwriting it. An empty name un-pins it, handing naming back to the terminal's own title on its next status change.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: AGENT_ID_PROP,
+        name: {
+          type: "string",
+          description: "New display name, or '' to clear and un-pin.",
+        },
+      },
+      required: ["agentId", "name"],
+    },
+  },
+  {
+    name: "delete_agent",
+    description:
+      "Destructive: permanently remove an agent's record from Manor's session list. Does not touch the running process, its pane, or the workspace's files — it only forgets that Manor was tracking the session, so it stops appearing in list_agents.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: AGENT_ID_PROP,
+      },
+      required: ["agentId"],
+    },
+  },
+  {
+    name: "mark_agent_seen",
+    description:
+      "Clear an agent's unseen indicators (the sidebar pulse and dock badge) without touching the session itself — the read-state equivalent of a human looking at the pane.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: AGENT_ID_PROP,
+      },
+      required: ["agentId"],
+    },
+  },
+  {
+    name: "get_resume_command",
+    description:
+      "Look up the shell command that would resume an agent's session in its own harness (e.g. `claude --resume <sessionId>`). Read-only — does not run anything or touch the agent.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        agentId: AGENT_ID_PROP,
+      },
+      required: ["agentId"],
     },
   },
 ];
@@ -183,7 +244,9 @@ const handlers: ToolModule["handlers"] = {
     }
     lines.push(`URL: ${detail.url}`);
     lines.push("");
-    lines.push(detail.body && detail.body.length > 0 ? detail.body : "(no description)");
+    lines.push(
+      detail.body && detail.body.length > 0 ? detail.body : "(no description)",
+    );
     return text(lines.join("\n"));
   },
 
@@ -238,6 +301,43 @@ const handlers: ToolModule["handlers"] = {
       })
       .join("\n");
     return text(listing);
+  },
+
+  async rename_agent(args, http) {
+    const agentId = args.agentId as string;
+    const res = (await http.post(
+      `/agents/${encodeURIComponent(agentId)}/rename`,
+      { name: args.name },
+    )) as AgentSummary;
+    return text(
+      res.name
+        ? `Renamed agent ${res.id} to "${res.name}".`
+        : `Cleared the pinned name for agent ${res.id}.`,
+    );
+  },
+
+  async delete_agent(args, http) {
+    const agentId = args.agentId as string;
+    await http.del(`/agents/${encodeURIComponent(agentId)}`);
+    return text(`Deleted agent ${agentId}.`);
+  },
+
+  async mark_agent_seen(args, http) {
+    const agentId = args.agentId as string;
+    await http.post(`/agents/${encodeURIComponent(agentId)}/seen`);
+    return text(`Marked agent ${agentId} as seen.`);
+  },
+
+  async get_resume_command(args, http) {
+    const agentId = args.agentId as string;
+    const res = (await http.get(
+      `/agents/${encodeURIComponent(agentId)}/resume-command`,
+    )) as { command: string | null };
+    return res.command
+      ? text(res.command)
+      : text(
+          `Agent ${agentId} has a recorded command but its harness doesn't support resume.`,
+        );
   },
 };
 

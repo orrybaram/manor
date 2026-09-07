@@ -54,6 +54,21 @@ const DEFAULTS: AppPreferences = {
   statsEnabled: true,
 };
 
+/**
+ * Every key `AppPreferences` defines, derived from `DEFAULTS` so it can never
+ * drift from the interface. Used by `POST /preferences` (`routes/system.ts`)
+ * to reject an unknown key with a 400 instead of writing a field nothing
+ * reads back.
+ */
+export const PREFERENCE_KEYS = Object.keys(DEFAULTS) as Array<
+  keyof AppPreferences
+>;
+
+/** Type guard for `PREFERENCE_KEYS`, so a validated key narrows for `set`. */
+export function isPreferenceKey(key: string): key is keyof AppPreferences {
+  return (PREFERENCE_KEYS as string[]).includes(key);
+}
+
 export class PreferencesManager {
   private dataDir: string;
   private prefs: AppPreferences;

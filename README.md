@@ -2,7 +2,6 @@
   <img width="128" height="128" alt="manor-icon" src="https://github.com/user-attachments/assets/a23b5707-f742-4463-9157-0d425ae4d5ac" />
 </p>
 
-
 <h1 align="center">Manor</h1>
 
 <p align="center">
@@ -20,7 +19,6 @@
 <br />
 
 ---
-
 
 ## Highlights
 
@@ -42,7 +40,6 @@ Organize repos into projects. Manage git worktrees as workspaces. Switch context
 </tr>
 <tr>
 <td width="50%">
-
 
 <!-- Replace with actual GIF -->
 <img src="https://github.com/user-attachments/assets/36d9745e-8f5b-47d2-9509-0b0b2516361b" alt="Pane splitting demo" width="400" />
@@ -69,7 +66,6 @@ PR status badges appear next to branches. Browse your Linear issues and jump str
 <!-- Replace with actual GIF -->
 <img width="1172" height="1014" alt="CleanShot 2026-04-04 at 11 11 00@2x" src="https://github.com/user-attachments/assets/a113145e-d865-4abe-aec7-ad574db1c91d" />
 
-
 </td>
 </tr>
 <tr>
@@ -86,7 +82,6 @@ See when Claude Code or other agents are active in a terminal — no more wonder
 </tr>
 
 <tr>
-
 
 <td width="50%">
 
@@ -153,12 +148,14 @@ pnpm dev
 Every Manor terminal has the `manor` command on `PATH`, generated from the same tool definitions that power the MCP server. Agents running inside Manor should prefer the CLI to avoid loading the tool roster into context.
 
 ```bash
-manor --help                    # List all commands
-manor list-projects             # Show projects and workspace counts
-manor screenshot-webview --path shot.png  # Capture the open webview pane
+manor --help
+manor list-projects
+manor create-folder --name Backlog
+manor set-workspace-folder --workspace-path <path> --folder-id <id>
+manor git-diff
 ```
 
-See [ADR-170](docs/decisions/adr-170-manor-cli) for the generation rule and architecture.
+See [ADR-170](docs/decisions/adr-170-manor-cli) and [ADR-171](docs/decisions/adr-171-complete-control-surface) for architecture.
 
 <br />
 
@@ -238,7 +235,7 @@ All shortcuts are customizable via **Settings > Keybindings**.
 | ------------- | ------------------ |
 | `Cmd+K`       | Command palette    |
 | `Cmd+,`       | Settings           |
-| `Cmd+N`       | New agent           |
+| `Cmd+N`       | New agent          |
 | `Cmd+Shift+N` | New workspace      |
 | `Cmd+Shift+B` | New browser window |
 | `Shift+Cmd+.` | Copy branch name   |

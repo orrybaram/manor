@@ -271,6 +271,12 @@ export function parseArgs(
           );
         }
         args[prop] = inline === "true";
+      } else if (
+        !negated &&
+        (argv[i + 1] === "true" || argv[i + 1] === "false")
+      ) {
+        // `--hidden true` reads naturally next to `--hidden <boolean>` in help.
+        args[prop] = argv[++i] === "true";
       } else {
         args[prop] = !negated;
       }

@@ -8,9 +8,17 @@
  * unlike the pane/tab routes there is no renderer round-trip here.
  */
 
+import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
+import { getConnector } from "../agent-connectors";
 import { startAgent } from "../renderer-bridge";
 import { interruptSequenceFor } from "../harness-interrupt";
+import {
+  getUnseenFlagsForAgent,
+  markAgentNotificationsRead,
+  unseenInputAgents,
+  unseenRespondedAgents,
+} from "../notifications";
 import { stripAnsi } from "../terminal-host/output-pattern-matcher";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import type { ControlDeps, Route } from "./types";
@@ -60,7 +68,7 @@ function toSummary(agent: AgentInfo): AgentSummary {
  * that scan only ever considers *active* agents — steering a completed session
  * is meaningless and would surprise the caller.
  */
-function resolveTarget(
+export function resolveTarget(
   agentManager: AgentManager,
   target: string,
 ): AgentInfo | null {
@@ -98,6 +106,28 @@ function resolveTarget(
 
   // 5. Human-readable agent name, as a last resort.
   return active.find((t) => t.name === target) ?? null;
+}
+
+/**
+ * Broadcast an `agent-updated` event to the renderer, mirroring the main
+ * send-site in `../notifications.ts` (`sendAgentUpdate`). `ControlDeps` has no
+ * `preferencesManager`, so the dock-badge refresh that function also does is
+ * skipped here — the renderer still gets the authoritative unseen flags in
+ * the broadcast itself, which is what every consumer (sidebar, palette,
+ * toasts) actually reads.
+ */
+function broadcastAgentUpdate(agent: AgentInfo): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  try {
+    win.webContents.send(
+      "agent-updated",
+      agent,
+      getUnseenFlagsForAgent(agent.id),
+    );
+  } catch {
+    // Render frame disposed — safe to ignore
+  }
 }
 
 /**
@@ -188,6 +218,32 @@ function prepareWrite(
       target: { id: agent.id, paneId, lastAgentStatus: agent.lastAgentStatus },
     },
   };
+}
+
+type ResolvedAgent =
+  | { ok: false; status: number; error: string }
+  | { ok: true; agentManager: AgentManager; agent: AgentInfo };
+
+/**
+ * Shared preamble for the `/agents/:agentId/*` management routes: no manager
+ * is a capability gap (503), and `:agentId` resolves the same forgiving way
+ * `/sessions/read` resolves `target` (`resolveTarget`, above) — an agent id,
+ * or a raw paneId — so a caller holding either handle can reach the same
+ * agent. Not found is the caller's mistake (404).
+ */
+function resolveAgentParam(deps: ControlDeps, agentId: string): ResolvedAgent {
+  if (!deps.agentManager) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Agent management is not available",
+    };
+  }
+  const agent = resolveTarget(deps.agentManager, agentId);
+  if (!agent) {
+    return { ok: false, status: 404, error: `No agent matches '${agentId}'` };
+  }
+  return { ok: true, agentManager: deps.agentManager, agent };
 }
 
 export const agentRoutes: Route[] = [
@@ -295,6 +351,61 @@ export const agentRoutes: Route[] = [
 
       ready.write(ready.interrupt);
       json(200, ready.result);
+    },
+  },
+
+  {
+    // Destructive: end a session outright by killing its pty process, not
+    // just its current turn. `/sessions/interrupt` leaves the process alive
+    // and idle; this does not — there is nothing left to resume, and any
+    // in-flight work is lost. Distinct from `DELETE /agents/:agentId`, which
+    // only forgets Manor's record of a session (dead or alive) and never
+    // touches the process: ending marks the record 'abandoned' so it still
+    // reflects reality, deleting removes the record entirely.
+    method: "POST",
+    path: "/sessions/end",
+    async handler({ deps, json, readBody }) {
+      if (!deps.agentManager) {
+        json(503, { error: "Agent management is not available" });
+        return;
+      }
+      if (!deps.backend) {
+        json(503, { error: "Session backend is not available" });
+        return;
+      }
+
+      const body = await readBody();
+      const target = body.target;
+      if (typeof target !== "string" || target.length === 0) {
+        json(400, { error: "Missing 'target' string in request body" });
+        return;
+      }
+
+      const agent = resolveTarget(deps.agentManager, target);
+      if (!agent) {
+        json(404, { error: `No session matches target '${target}'` });
+        return;
+      }
+      const { paneId } = agent;
+      if (!paneId) {
+        json(409, { error: `Session '${agent.id}' has no live pane to end` });
+        return;
+      }
+
+      await deps.backend.pty.kill(paneId);
+
+      // Mirrors `agents:abandonForPane` (`../ipc/agents.ts`): only an
+      // *active* session's record moves to 'abandoned' — a session that had
+      // already completed or errored keeps that outcome.
+      if (agent.status === "active") {
+        const updated = deps.agentManager.updateAgent(agent.id, {
+          status: "abandoned",
+          completedAt: new Date().toISOString(),
+        });
+        if (updated) broadcastAgentUpdate(updated);
+      }
+
+      json(200, { ok: true, target: { id: agent.id, paneId } });
     },
   },
 
@@ -413,6 +524,129 @@ export const agentRoutes: Route[] = [
         lineCount,
         truncated,
       });
+    },
+  },
+
+  {
+    // Mirrors `agents:update` (`../ipc/agents.ts`), the IPC handler the
+    // renderer's `renameAgent` invokes: a non-empty `name` pins it, an empty
+    // one un-pins and clears it. `renameAgent` also restores the live pty
+    // title on clear — renderer-only state (`paneAgentStatus`) this route has
+    // no path to, so a clear here lands as `null` and waits for the next
+    // status change to resync, same as any other pinned-name clear main
+    // doesn't hear about immediately.
+    method: "POST",
+    path: "/agents/:agentId/rename",
+    async handler({ deps, params, json, readBody }) {
+      const resolved = resolveAgentParam(deps, params.agentId);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
+        return;
+      }
+
+      const body = await readBody();
+      const name = body.name;
+      if (typeof name !== "string") {
+        json(400, { error: "Missing 'name' string in request body" });
+        return;
+      }
+
+      const trimmed = name.trim();
+      const updates = trimmed
+        ? { name: trimmed, namePinned: true }
+        : { name: null, namePinned: false };
+
+      const updated = resolved.agentManager.updateAgent(
+        resolved.agent.id,
+        updates,
+      );
+      if (!updated) {
+        json(404, { error: `No agent matches '${params.agentId}'` });
+        return;
+      }
+      broadcastAgentUpdate(updated);
+      json(200, toSummary(updated));
+    },
+  },
+
+  {
+    // Destructive: permanently removes the agent record (not the workspace or
+    // its files — just Manor's memory of the session). Mirrors `agents:delete`
+    // (`../ipc/agents.ts`), including clearing the unseen-flag sets so a
+    // deleted agent can't keep the dock badge lit.
+    method: "DELETE",
+    path: "/agents/:agentId",
+    async handler({ deps, params, json }) {
+      const resolved = resolveAgentParam(deps, params.agentId);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
+        return;
+      }
+
+      unseenRespondedAgents.delete(resolved.agent.id);
+      unseenInputAgents.delete(resolved.agent.id);
+      const ok = resolved.agentManager.deleteAgent(resolved.agent.id);
+      // `updateDockBadge` (called here in `agents:delete`) needs
+      // `preferencesManager`, which `ControlDeps` doesn't carry — skipped;
+      // the unseen sets above are still cleared, so the badge is only stale
+      // until the next agent event recomputes it.
+      json(200, { ok });
+    },
+  },
+
+  {
+    // Mirrors `agents:markSeen` (`../ipc/agents.ts`): clears both unseen sets
+    // for this agent, marks its notification-log entries read, and
+    // re-broadcasts so the renderer's cache drops the pulse without a reload.
+    method: "POST",
+    path: "/agents/:agentId/seen",
+    async handler({ deps, params, json }) {
+      const resolved = resolveAgentParam(deps, params.agentId);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
+        return;
+      }
+
+      unseenRespondedAgents.delete(resolved.agent.id);
+      unseenInputAgents.delete(resolved.agent.id);
+      markAgentNotificationsRead(
+        resolved.agent.id,
+        BrowserWindow.getAllWindows()[0] ?? null,
+      );
+
+      const fresh = resolved.agentManager.getAgentById(resolved.agent.id);
+      if (fresh) broadcastAgentUpdate(fresh);
+      json(200, { ok: true });
+    },
+  },
+
+  {
+    // Mirrors `agents:buildResumeCommand` (`../ipc/agents.ts`): the shell
+    // command that would resume this agent's session in its harness, or
+    // `409` if the agent never recorded one (e.g. it was never launched from
+    // a resumable command).
+    method: "GET",
+    path: "/agents/:agentId/resume-command",
+    async handler({ deps, params, json }) {
+      const resolved = resolveAgentParam(deps, params.agentId);
+      if (!resolved.ok) {
+        json(resolved.status, { error: resolved.error });
+        return;
+      }
+
+      const { agent } = resolved;
+      if (!agent.agentCommand) {
+        json(409, {
+          error: `Agent '${agent.id}' has no agentCommand to resume`,
+        });
+        return;
+      }
+
+      const command = getConnector(agent.agentKind).getResumeCommand(
+        agent.agentCommand,
+        agent.agentSessionId,
+      );
+      json(200, { command });
     },
   },
 ];

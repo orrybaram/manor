@@ -9,6 +9,8 @@ import { projectsModule } from "./tools-projects";
 import { agentsModule } from "./tools-agents";
 import { panesModule } from "./tools-panes";
 import { sessionsModule } from "./tools-sessions";
+import { gitModule } from "./tools-git";
+import { systemModule } from "./tools-system";
 
 export const modules = [
   webviewModule,
@@ -16,6 +18,8 @@ export const modules = [
   agentsModule,
   panesModule,
   sessionsModule,
+  gitModule,
+  systemModule,
 ];
 
 export const moduleLabels = [
@@ -24,4 +28,6 @@ export const moduleLabels = [
   "agents",
   "panes",
   "sessions",
+  "git",
+  "system",
 ] as const;

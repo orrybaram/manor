@@ -7,6 +7,9 @@ import * as path from "node:path";
 
 // ── Mock electron ──
 
+/** Backs `getZoomLevel`/`setZoomLevel` so the zoom routes can be read back. */
+let zoomLevel = 0;
+
 const mockWebContents: Record<string, unknown> = {
   getURL: vi.fn(() => "https://example.com"),
   getTitle: vi.fn(() => "Example Page"),
@@ -19,6 +22,14 @@ const mockWebContents: Record<string, unknown> = {
   isFocused: vi.fn(() => true),
   on: vi.fn(),
   off: vi.fn(),
+  setZoomLevel: vi.fn((level: number) => {
+    zoomLevel = level;
+  }),
+  getZoomLevel: vi.fn(() => zoomLevel),
+  findInPage: vi.fn(),
+  stopFindInPage: vi.fn(),
+  setAudioMuted: vi.fn(),
+  stop: vi.fn(),
 };
 
 vi.mock("electron", () => ({
@@ -106,6 +117,7 @@ describe("WebviewServer", () => {
   let registry: Map<string, number>;
 
   beforeEach(async () => {
+    zoomLevel = 0;
     registry = new Map<string, number>();
     registry.set("pane-1", 101);
     registry.set("pane-2", 102);
@@ -140,9 +152,9 @@ describe("WebviewServer", () => {
     (
       mockWebContents.executeJavaScript as ReturnType<typeof vi.fn>
     ).mockResolvedValue("result");
-    (mockWebContents.getMediaSourceId as ReturnType<typeof vi.fn>).mockReturnValue(
-      "media-source-1",
-    );
+    (
+      mockWebContents.getMediaSourceId as ReturnType<typeof vi.fn>
+    ).mockReturnValue("media-source-1");
     (mockWebContents.isFocused as ReturnType<typeof vi.fn>).mockReturnValue(
       true,
     );
@@ -150,7 +162,9 @@ describe("WebviewServer", () => {
       undefined,
     );
 
-    (startRendererRecording as Mock).mockReset().mockResolvedValue({ ok: true });
+    (startRendererRecording as Mock)
+      .mockReset()
+      .mockResolvedValue({ ok: true });
     (stopRecording as Mock).mockReset();
     (getPaneRendererWebContents as Mock)
       .mockReset()
@@ -553,6 +567,104 @@ describe("WebviewServer", () => {
       expect(res.status).toBe(400);
       const data = JSON.parse(res.body);
       expect(data.error).toContain("url");
+    });
+  });
+
+  // ── Zoom, find, mute, stop ──
+
+  describe("POST /webview/:id/zoom-in | zoom-out | zoom-reset", () => {
+    it("steps the zoom level and reports where it landed", async () => {
+      const inRes = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/zoom-in",
+      );
+      expect(inRes.status).toBe(200);
+      expect(JSON.parse(inRes.body).zoomLevel).toBe(0.5);
+
+      const outRes = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/zoom-out",
+      );
+      expect(JSON.parse(outRes.body).zoomLevel).toBe(0);
+    });
+
+    it("clamps zoom-in at 5 and zoom-out at -3", async () => {
+      zoomLevel = 5;
+      const inRes = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/zoom-in",
+      );
+      expect(JSON.parse(inRes.body).zoomLevel).toBe(5);
+
+      zoomLevel = -3;
+      const outRes = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/zoom-out",
+      );
+      expect(JSON.parse(outRes.body).zoomLevel).toBe(-3);
+    });
+
+    it("resets to 0", async () => {
+      zoomLevel = 2;
+      const res = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/zoom-reset",
+      );
+      expect(JSON.parse(res.body).zoomLevel).toBe(0);
+    });
+  });
+
+  describe("POST /webview/:id/find and stop-find", () => {
+    it("passes the query and its options to findInPage", async () => {
+      const res = await httpPost(server.serverPort, "/webview/pane-1/find", {
+        query: "needle",
+        findNext: true,
+      });
+      expect(res.status).toBe(200);
+      expect(mockWebContents.findInPage).toHaveBeenCalledWith("needle", {
+        findNext: true,
+      });
+    });
+
+    it("returns 400 for a missing query", async () => {
+      const res = await httpPost(server.serverPort, "/webview/pane-1/find", {});
+      expect(res.status).toBe(400);
+      expect(mockWebContents.findInPage).not.toHaveBeenCalled();
+    });
+
+    it("clears the selection on stop-find", async () => {
+      const res = await httpPost(
+        server.serverPort,
+        "/webview/pane-1/stop-find",
+      );
+      expect(res.status).toBe(200);
+      expect(mockWebContents.stopFindInPage).toHaveBeenCalledWith(
+        "clearSelection",
+      );
+    });
+  });
+
+  describe("POST /webview/:id/mute", () => {
+    it("mutes on a boolean", async () => {
+      const res = await httpPost(server.serverPort, "/webview/pane-1/mute", {
+        muted: true,
+      });
+      expect(res.status).toBe(200);
+      expect(mockWebContents.setAudioMuted).toHaveBeenCalledWith(true);
+    });
+
+    it("returns 400 without one", async () => {
+      const res = await httpPost(server.serverPort, "/webview/pane-1/mute", {});
+      expect(res.status).toBe(400);
+      expect(mockWebContents.setAudioMuted).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /webview/:id/stop", () => {
+    it("stops the in-flight load", async () => {
+      const res = await httpPost(server.serverPort, "/webview/pane-1/stop");
+      expect(res.status).toBe(200);
+      expect(mockWebContents.stop).toHaveBeenCalled();
     });
   });
 

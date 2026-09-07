@@ -12,7 +12,7 @@ interface Bounds {
 }
 
 /** A drop-target window as seen by a renderer performing a tab drag. */
-interface WindowInfo {
+export interface WindowInfo {
   /** webContents id — stable handle for `window:transferTab`. */
   id: number;
   bounds: Bounds;
@@ -35,34 +35,61 @@ function closeWindowSoon(win: BrowserWindow | null | undefined): void {
   });
 }
 
+// Electron exposes no z-order, so we approximate "topmost" with focus recency:
+// webContents ids, most-recently-focused first. Used to pick a single drop
+// target when a drop point falls inside more than one window's bounds.
+//
+// Module-level rather than per-`register` closure state: `register` runs once
+// per process, and `listWindows` below is also called from `GET /windows`
+// (`../routes/system.ts`), which has no closure to reach into.
+const focusOrder: number[] = [];
+const focusTracked = new Set<number>();
+
+function trackFocusOrder(win: BrowserWindow): void {
+  const id = win.webContents.id;
+  if (focusTracked.has(id)) return;
+  focusTracked.add(id);
+  const bump = () => {
+    const i = focusOrder.indexOf(id);
+    if (i !== -1) focusOrder.splice(i, 1);
+    focusOrder.unshift(id);
+  };
+  // Seed: a window first seen while focused is topmost; anything else goes to
+  // the back until it is actually focused.
+  if (win.isFocused()) bump();
+  else focusOrder.push(id);
+  win.on("focus", bump);
+  win.on("closed", () => {
+    focusTracked.delete(id);
+    const i = focusOrder.indexOf(id);
+    if (i !== -1) focusOrder.splice(i, 1);
+  });
+}
+
+/**
+ * Visible manor windows a dragged tab could be dropped into, topmost-first.
+ *
+ * Shared by `window:listWindows` — which excludes the calling window, since a
+ * renderer cannot drop a tab into itself — and `GET /windows`, which passes no
+ * exclusion and so lists them all.
+ */
+export function listWindows(
+  wins: BrowserWindow[],
+  excludeWebContentsId?: number,
+): WindowInfo[] {
+  wins.forEach(trackFocusOrder);
+  const rank = (win: BrowserWindow): number => {
+    const i = focusOrder.indexOf(win.webContents.id);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return wins
+    .filter((win) => win.webContents.id !== excludeWebContentsId)
+    .filter((win) => win.isVisible() && !win.isMinimized())
+    .sort((a, b) => rank(a) - rank(b))
+    .map((win) => ({ id: win.webContents.id, bounds: win.getBounds() }));
+}
+
 export function register(deps: IpcDeps): void {
-  // Electron exposes no z-order, so we approximate "topmost" with focus recency:
-  // webContents ids, most-recently-focused first. Used to pick a single drop
-  // target when a drop point falls inside more than one window's bounds.
-  const focusOrder: number[] = [];
-  const focusTracked = new Set<number>();
-
-  function trackFocusOrder(win: BrowserWindow): void {
-    const id = win.webContents.id;
-    if (focusTracked.has(id)) return;
-    focusTracked.add(id);
-    const bump = () => {
-      const i = focusOrder.indexOf(id);
-      if (i !== -1) focusOrder.splice(i, 1);
-      focusOrder.unshift(id);
-    };
-    // Seed: a window first seen while focused is topmost; anything else goes to
-    // the back until it is actually focused.
-    if (win.isFocused()) bump();
-    else focusOrder.push(id);
-    win.on("focus", bump);
-    win.on("closed", () => {
-      focusTracked.delete(id);
-      const i = focusOrder.indexOf(id);
-      if (i !== -1) focusOrder.splice(i, 1);
-    });
-  }
-
   // One-shot handoff payloads, keyed by the detached window's stable windowId.
   // The detached renderer pulls its payload once on boot via
   // `window:getDetachPayload` (state can't ride through `loadFile`).
@@ -153,19 +180,9 @@ export function register(deps: IpcDeps): void {
   // Every OTHER manor window a dragged tab could be dropped into, topmost-first.
   // Fetched once when a drag starts; the renderer hit-tests the release point
   // against these bounds locally rather than round-tripping on every move.
-  ipcMain.handle("window:listWindows", (event): WindowInfo[] => {
-    const wins = deps.getRendererWindows();
-    wins.forEach(trackFocusOrder);
-    const rank = (win: BrowserWindow): number => {
-      const i = focusOrder.indexOf(win.webContents.id);
-      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
-    };
-    return wins
-      .filter((win) => win.webContents.id !== event.sender.id)
-      .filter((win) => win.isVisible() && !win.isMinimized())
-      .sort((a, b) => rank(a) - rank(b))
-      .map((win) => ({ id: win.webContents.id, bounds: win.getBounds() }));
-  });
+  ipcMain.handle("window:listWindows", (event): WindowInfo[] =>
+    listWindows(deps.getRendererWindows(), event.sender.id),
+  );
 
   // Hand a tab to another existing window (drag-and-drop between windows).
   // Resolves false when the target is gone, so the caller can fall back to

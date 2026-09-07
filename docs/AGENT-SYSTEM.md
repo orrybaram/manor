@@ -543,9 +543,9 @@ abandons any active agent whose `agentSessionId` is not in the live set
 > against the daemon's pane-keyed `sessionId` (which is `paneId`). These
 > are different namespaces. The first agent ever created on a pane happens
 > to have `agentSessionId === paneId` only because the first SessionStart's
-> session_id is what we got. Subsequent sessions on the same pane get a
+> session*id is what we got. Subsequent sessions on the same pane get a
 > new agent session_id but the daemon session_id (paneId) is unchanged.
-> The reconcile will incorrectly mark _every_ post-first agent as
+> The reconcile will incorrectly mark \_every* post-first agent as
 > abandoned. **Likely real bug.** Worth tracing through manually.
 
 ---
@@ -623,10 +623,168 @@ run simultaneously.
   tools to avoid loading the tool roster into context; the MCP tools remain
   for inline screenshots and typed multi-line arguments. The legacy
   `manor-webview` (ADR-053) was removed and is deleted from disk on startup.
+  **ADR-171** completed the surface with six route modules (folders, git, system,
+  integrations, agents, panes) plus git and system tool definitions, growing the
+  roster from 35 to 124 commands.
 
 - On `SessionStart`, the agent hook (`electron/scripts/agent-hook.js`) prints a one-line
   `additionalContext` hint to Claude Code pointing at `manor --help`, so agents discover the
-  CLI without any per-project `CLAUDE.md` entry (ticket 7).
+  CLI without any per-project `CLAUDE.md` entry.
+
+    <details>
+    <summary>Full command list</summary>
+
+  ```text
+  manor — Manor's control surface as a shell command.
+  ```
+
+Usage: manor <command> [flags]
+manor <command> --help
+manor api <GET|POST|DELETE> <path> [--body '<json>']
+Flag values: - reads stdin, @file reads a file.
+
+webview:
+list-webviews List all open webview panes in Manor with their id, url, and title.
+screenshot-webview Take a screenshot of a webview pane.
+get-dom Get a simplified DOM snapshot of the webview page.
+execute-js Execute JavaScript code in the webview and return the result.
+click-element Click an element in the webview by CSS selector or coordinates.
+type-text Type text into an element in the webview.
+navigate Navigate the webview to a URL.
+get-console-logs Get console log entries from the webview.
+get-url Get the current URL of the webview.
+pick-element Activate element picker in a webview — the user selects an element and its context is returned.
+get-element-context Get detailed context for a DOM element by CSS selector, without requiring user interaction.
+start-recording Start recording a webview pane to a .webm file on disk.
+stop-recording Stop a recording started with start_recording.
+list-recordings List currently active recordings and how long each has been running.
+zoom-in Zoom a webview pane in one step.
+zoom-out Zoom a webview pane out one step.
+zoom-reset Reset a webview pane's zoom to 100%.
+find-in-page Search the webview page for text, highlighting matches in Manor's UI.
+stop-find End the current find_in_page search and clear its selection.
+set-audio-muted Mute or unmute a webview pane's audio.
+stop-loading Stop the webview's in-flight page load, like the browser stop button.
+
+projects:
+list-projects List all projects in Manor with their IDs, names, paths, and workspace counts.
+get-project Get full details for a project including all of its workspaces.
+add-project Add a new project to Manor by name and directory path.
+create-workspace Create a new workspace (git worktree) in a project.
+list-workspaces List all workspaces (git worktrees) for a project.
+remove-workspace Remove a workspace (git worktree) from a project.
+current-workspace Identify the Manor project and workspace this agent is running in, and which issue sources are available.
+list-folders List the sidebar folders defined in a project.
+create-folder Create a new sidebar folder in a project.
+rename-folder Rename a sidebar folder.
+delete-folder Destructive: permanently deletes a sidebar folder.
+set-workspace-folder Move a workspace into a sidebar folder, or out of one.
+rename-workspace Rename a workspace's display name in the sidebar (does not rename its branch or directory).
+set-workspace-hidden Show or hide a workspace in the sidebar.
+reorder-workspaces Persist the sidebar order for a project's workspaces and folders.
+convert-main-to-worktree Convert the main workspace's current branch into its own worktree, checking the main workspace back out onto the project's default branch.
+can-quick-merge Check whether a workspace can be fast-forward merged into the project's default branch without conflicts.
+quick-merge-workspace Destructive: fast-forward merges a workspace's branch into the project's default branch, then removes the workspace and its branch.
+list-workspace-issues List the issues linked to a workspace.
+link-issue Link an issue to a workspace.
+unlink-issue Unlink an issue from a workspace.
+list-branches List a project's local or remote git branches, most recently created first.
+update-project Update a project's settings.
+remove-project Destructive: removes a project from Manor's project list.
+reorder-projects Persist the sidebar order for all projects.
+resync-default-branches Re-detect the default branch (main/master/etc.) for every project from its git remote.
+
+agents:
+list-issues List a project's issues from GitHub (default) or Linear.
+get-issue-detail Read a single issue's full detail, including its description body.
+start-agent Launch an agent session in a workspace, optionally with an initial prompt.
+batch-create-workspaces Create one workspace per GitHub issue and (by default) launch an agent in each — fan a backlog out into parallel agent workspaces.
+rename-agent Set or clear an agent's display name in Manor's session list.
+delete-agent Destructive: permanently remove an agent's record from Manor's session list.
+mark-agent-seen Clear an agent's unseen indicators (the sidebar pulse and dock badge) without touching the session itself — the read-state equivalent of a human looking at the pane.
+get-resume-command Look up the shell command that would resume an agent's session in its own harness (e.g.
+
+panes:
+list-panes List every tab and pane in the active workspace as an indented tree, marking the active tab and the focused pane.
+split-pane Split an existing pane in two.
+new-terminal Open a new terminal tab, optionally in a specific workspace and running a command.
+new-browser Open a new browser tab pointed at 'url', optionally in a specific workspace.
+focus-pane Focus a pane by its paneId.
+close-pane Close a pane by its paneId.
+select-tab Select a tab by its tabId, switching to it in its panel.
+next-tab Select the next tab in the active panel, wrapping around from the last tab to the first.
+prev-tab Select the previous tab in the active panel, wrapping around from the first tab to the last.
+close-tab Close a tab by its tabId, terminating every pane inside it.
+close-other-tabs Close every other unpinned tab in the same panel as tabId, leaving it and any pinned tabs open.
+close-tabs-to-right Close every unpinned tab positioned after tabId in its panel.
+pin-tab Toggle whether a tab is pinned.
+duplicate-tab Duplicate a tab, including its full pane split layout.
+reorder-tabs Reorder the tabs in the active panel.
+open-diff Open the active workspace's diff tab, or focus it if one is already open.
+set-pane-title Set a custom title for a pane, overriding the one derived from its content (shell command, page title, etc).
+clear-pane-title Clear a pane's custom title, reverting to the one derived from its content.
+move-pane Move a pane out of its current split and into a new split next to another pane.
+extract-pane-to-tab Pull a pane out of its current split and into its own new tab.
+reopen-closed-pane Reopen the most recently closed pane or tab in the active workspace.
+focus-next-pane Focus the next pane in the active tab, cycling through its panes.
+focus-prev-pane Focus the previous pane in the active tab, cycling through its panes.
+set-active-workspace Switch the app's active workspace by filesystem path.
+
+sessions:
+list-agents See every agent session Manor knows about — across every project and workspace, not just the one this agent is running in.
+send-to-session Steer another running agent session: gracefully interrupt its current turn, then inject a new prompt.
+interrupt-session Stop a running agent without saying anything to it: gracefully ends its current turn, leaving the process alive and idle.
+end-session Destructive: kill a running agent's process outright, ending the session for good — not just its current turn.
+read-session Read any terminal pane's rendered output — an agent session's conversation/transcript, or a plain terminal's scrollback.
+
+git:
+git-stage Stage files for commit.
+git-unstage Unstage files, leaving their changes in the working tree.
+git-discard Destructive: permanently discards uncommitted changes to the given files.
+git-stash Stash uncommitted changes to the given files.
+git-commit Commit staged changes.
+git-push Push commits to a remote.
+git-staged-files List files currently staged for commit.
+git-diff Show a diff: 'local' (default) for uncommitted changes, 'full' for everything different from the project's default branch.
+
+system:
+list-notifications List Manor's notification log, newest last.
+mark-notification-read Mark one notification as read.
+mark-all-notifications-read Mark every notification as read.
+clear-notifications Destructive: deletes the entire notification log.
+list-processes Show Manor's terminal daemon, internal servers, live sessions, and the ports they hold.
+cleanup-dead-processes Dispose terminal sessions whose processes have already exited.
+kill-daemon Destructive: kills Manor's terminal daemon, ending every terminal session in every workspace.
+kill-all-processes Destructive: kills every terminal session, every workspace dev server, and the daemon itself.
+restart-portless Restart the portless proxy that serves workspace dev servers on named hostnames.
+scan-ports List listening ports Manor can see, with the process holding each.
+kill-port Destructive: kills the process holding a port.
+get-preferences Show every Manor preference and its current value.
+set-preference Set one Manor preference.
+get-theme Show the selected theme's name and its resolved colors.
+list-themes List every theme Manor can load, with each one's background color.
+set-theme Switch Manor to a theme by name.
+get-stats Show Manor's usage stats: today, the last 7 days, all time, and badges.
+reset-stats Destructive: deletes every recorded usage stat and earned badge.
+remote-control-status Show whether remote control is on, which devices are paired, and the tunnel's state.
+set-remote-control-enabled Turn remote control's local listener on or off.
+start-tunnel Expose the remote-control listener through a tunnel.
+stop-tunnel Stop the running tunnel, leaving the remote-control listener up on loopback.
+open-in-editor Open a directory in the editor configured in Manor's preferences, or the system default.
+open-external Open a URL in the user's default browser.
+list-windows List Manor's visible windows with their screen bounds, most-recently-focused first.
+check-for-updates Ask Manor to check for an update.
+quit-and-install Destructive: quits Manor immediately to install a downloaded update.
+start-linear-issue Move a Linear issue to started and assign it to you.
+close-linear-issue Move a Linear issue to its team's completed state.
+github-status Report whether the gh CLI is installed and authenticated.
+create-github-issue Create a GitHub issue on a project's repository.
+
+api Send a raw request to Manor's control server and print the JSON reply.
+
+```
+
+</details>
 
 ---
 
@@ -693,3 +851,4 @@ Severity is my judgment, not the team's.
 5. ✅ Tighten `agents:update` to an allowlist — resolved by ADR-136 T1.
 6. Decide whether `agentSessionId` is "agent's session id" or "Manor's agent key" and split the two if both are needed.
 7. Rest of the list is cleanup / sturdiness work.
+```

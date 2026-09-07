@@ -1,6 +1,6 @@
 ---
 title: Extract the shared HTTP client from the MCP entry
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

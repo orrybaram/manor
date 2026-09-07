@@ -1,6 +1,6 @@
 ---
 title: CLI core — argv parser, help, and result printer generated from ToolDef
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

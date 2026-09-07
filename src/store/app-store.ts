@@ -1480,7 +1480,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const sourceRootAfterRemove = removePane(sourceTab.rootNode, sourcePaneId);
       const newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, sourcePaneId, position);
 
-      let newPanels = { ...layout.panels };
+      const newPanels = { ...layout.panels };
       let newPanelTree = layout.panelTree;
 
       // Update target panel
@@ -1577,7 +1577,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Cross-panel
-      let newPanels = { ...layout.panels };
+      const newPanels = { ...layout.panels };
       let newPanelTree = layout.panelTree;
 
       // Update target panel
@@ -1645,7 +1645,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (sourcePanel.id === destPanelId) return state;
         // Use moveTabToPanel logic
         const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
-        let newPanels = { ...layout.panels };
+        const newPanels = { ...layout.panels };
         let newPanelTree = layout.panelTree;
 
         newPanels[destPanelId] = {
@@ -1706,7 +1706,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Cross-panel — update source panel's tab, add new tab to destination panel
-      let newPanels = { ...layout.panels };
+      const newPanels = { ...layout.panels };
       newPanels[sourcePanel.id] = {
         ...sourcePanel,
         tabs: sourcePanel.tabs.map((t) =>
@@ -2687,7 +2687,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Cross-panel
-      let newPanels = { ...layout.panels };
+      const newPanels = { ...layout.panels };
       let newPanelTree = layout.panelTree;
 
       newPanels[targetPanel.id] = {

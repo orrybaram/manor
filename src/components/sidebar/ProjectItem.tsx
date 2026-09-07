@@ -1,6 +1,5 @@
 import React, {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -256,15 +255,20 @@ export function ProjectItem(props: ProjectItemProps) {
 
   // Keep a path dimmed until the workspace is actually gone. Only prune paths
   // that no longer exist — a workspaces refresh mid-deletion (e.g. git status
-  // poll) must not un-dim an item whose deletion is still in flight.
-  useEffect(() => {
-    setDeletingPaths((prev) => {
-      if (prev.size === 0) return prev;
+  // poll) must not un-dim an item whose deletion is still in flight. Pruned
+  // during render (React's "adjust state when props change") so a deleted row
+  // never renders dimmed for a frame after it comes back.
+  const [prunedFor, setPrunedFor] = useState(project.workspaces);
+  if (prunedFor !== project.workspaces) {
+    setPrunedFor(project.workspaces);
+    if (deletingPaths.size > 0) {
       const existing = new Set(project.workspaces.map((ws) => ws.path));
-      const next = new Set([...prev].filter((path) => existing.has(path)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [project.workspaces]);
+      const next = new Set(
+        [...deletingPaths].filter((path) => existing.has(path)),
+      );
+      if (next.size !== deletingPaths.size) setDeletingPaths(next);
+    }
+  }
 
   const [mergeState, setMergeState] = useState<{
     canMerge: boolean;

@@ -10,7 +10,7 @@
  * directly; nothing else needs to know how `eventType` maps to status.
  */
 
-import type { AgentStatus, AgentKind } from "./terminal-host/types";
+import type { AgentKind } from "./terminal-host/types";
 import { getAllAgentKinds } from "./agent-connectors";
 
 interface EventBase {

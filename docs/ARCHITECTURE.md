@@ -80,7 +80,8 @@ manor/
 │   ├── prewarm-manager.ts    pre-spawns a PTY for faster pane creation
 │   ├── updater.ts            electron-updater wrapper
 │   ├── webview-server.ts     in-app HTTP server backing the MCP webview tools
-│   ├── webview-cli-script.ts installable CLI bridge for external agents
+│   ├── manor-cli.ts          standalone CLI entry for manor command
+│   ├── manor-cli-install.ts  installs manor CLI to ~/.manor/bin
 │   ├── picker-script.ts      JS injected into webviews for element picking
 │   ├── mcp-webview-server.ts standalone MCP server (external process)
 │   ├── sourcemap-symbolication.ts  resolves renderer stack traces in prod
@@ -104,6 +105,33 @@ manor/
 │   │   ├── local-git.ts      shells out to `git`
 │   │   ├── local-ports.ts    portless integration
 │   │   └── local-shell.ts    zdotdir + env handoff
+│   ├── routes/               HTTP control-server routes
+│   │   ├── projects.ts       folder, workspace, worktree, issue, branch operations
+│   │   ├── folders.ts        workspace folder CRUD
+│   │   ├── agents.ts         agent lifecycle (rename, delete, mark-seen, resume)
+│   │   ├── panes.ts          pane/tab selection, closing, splitting, dragging
+│   │   ├── git.ts            stage, unstage, commit, push, diff
+│   │   ├── system.ts         notifications, processes, ports, preferences, theme, stats, updater, remote control
+│   │   ├── integrations.ts   Linear and GitHub operations
+│   │   ├── index.ts          route registration
+│   │   ├── types.ts          shared route types
+│   │   ├── context.ts        helper to resolve projectId/workspacePath from request context
+│   │   └── router.ts         HTTP router
+│   ├── mcp/                  MCP tool definitions
+│   │   ├── modules.ts        tool module registry
+│   │   ├── cli.ts            CLI generation from tool schemas
+│   │   ├── types.ts          shared types
+│   │   ├── context.ts        resolveContext helper for --project-id defaults
+│   │   ├── tools-projects.ts workspace and project tools
+│   │   ├── tools-panes.ts    pane and tab tools
+│   │   ├── tools-agents.ts   agent session tools
+│   │   ├── tools-sessions.ts agent session read tools
+│   │   ├── tools-webview.ts  webview inspection and control
+│   │   ├── tools-git.ts      git operation tools
+│   │   ├── tools-system.ts   system and integration tools
+│   │   └── http-client.ts    typed HTTP client for route calls
+│   ├── process-control.ts    listProcesses, cleanupDeadProcesses, killDaemon, restartPortless
+│   ├── editor.ts             openInEditor, resolveEditor
 │   └── terminal-host/        long-lived daemon
 │       ├── index.ts          daemon entry (sockets, auth token, supervision)
 │       ├── client.ts         main-process client (TerminalHostClient)
@@ -195,10 +223,12 @@ manor/
 Manor has no database. All persistence is JSON files on disk.
 
 **Platform-aware data dir** (`manorDataDir()`):
+
 - macOS: `~/Library/Application Support/Manor/`
 - Other: `~/.local/share/Manor/`
 
 Files under the data dir:
+
 - `projects.json` — projects, workspaces, linked issues, setup scripts, custom commands (`ProjectManager`)
 - `agents.json` — agent agents across panes (`AgentManager`); pruned on boot per `agentRetentionDays` (default 90)
 - `preferences.json` — app prefs (`PreferencesManager`)
@@ -207,6 +237,7 @@ Files under the data dir:
 - `window-bounds.json`, `zoom-level.json` — window state
 
 **Fixed `~/.manor/` dir** (used for resources that must have a stable path for external tools to discover):
+
 - `daemon/terminal-host.sock`, `daemon/terminal-host.token` — daemon connection
 - `hook-port` — port of the agent-hook HTTP server
 - `webview-server-port` — port of the webview HTTP server (read by MCP)
@@ -221,29 +252,29 @@ Manor writes to two root directories. The split is intentional and enforced by `
 
 **`manorDataDir()`** — `~/Library/Application Support/Manor/` on macOS, `~/.local/share/Manor/` on Linux. Everything here is Electron-main-only state:
 
-| File | Purpose |
-|---|---|
-| `projects.json` | Project + workspace registry |
-| `agents.json` | Agent persistence |
-| `preferences.json` | App preferences |
-| `keybindings.json` | User keybinding overrides |
-| `window-bounds.json` | Window position/size |
-| `zoom-level.json` | Renderer zoom factor |
-| `linear-token.enc` | Encrypted Linear API key |
-| `sessions/` | Zsh history files (one per pane) |
-| `zdotdir/` | Zsh dotfiles shim for history tracking |
+| File                 | Purpose                                |
+| -------------------- | -------------------------------------- |
+| `projects.json`      | Project + workspace registry           |
+| `agents.json`        | Agent persistence                      |
+| `preferences.json`   | App preferences                        |
+| `keybindings.json`   | User keybinding overrides              |
+| `window-bounds.json` | Window position/size                   |
+| `zoom-level.json`    | Renderer zoom factor                   |
+| `linear-token.enc`   | Encrypted Linear API key               |
+| `sessions/`          | Zsh history files (one per pane)       |
+| `zdotdir/`           | Zsh dotfiles shim for history tracking |
 
-**`manorHomeDir()`** — `~/.manor/`. A stable, well-known path for anything an *external* process needs to find:
+**`manorHomeDir()`** — `~/.manor/`. A stable, well-known path for anything an _external_ process needs to find:
 
-| Path | Consumer |
-|---|---|
-| `daemon/terminal-host.{sock,pid,token}` | Detached daemon process |
-| `hook-port`, `hooks/notify.sh` | Shell-level agent hooks (Claude Code, etc.) |
-| `webview-server-port` | Standalone MCP webview server |
-| `portless-proxy-port` | External tools discovering the portless proxy |
-| `sessions/` | Daemon's terminal scrollback (distinct from data-dir `sessions/`) |
-| `layout.json` | Daemon's layout persistence |
-| `worktrees/` | Default base for `git worktree` — user-facing, visible in IDEs |
+| Path                                    | Consumer                                                          |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `daemon/terminal-host.{sock,pid,token}` | Detached daemon process                                           |
+| `hook-port`, `hooks/notify.sh`          | Shell-level agent hooks (Claude Code, etc.)                       |
+| `webview-server-port`                   | Standalone MCP webview server                                     |
+| `portless-proxy-port`                   | External tools discovering the portless proxy                     |
+| `sessions/`                             | Daemon's terminal scrollback (distinct from data-dir `sessions/`) |
+| `layout.json`                           | Daemon's layout persistence                                       |
+| `worktrees/`                            | Default base for `git worktree` — user-facing, visible in IDEs    |
 
 **Rule for adding a new path:** if a file is read only by Electron main, put it under `manorDataDir()`. If anything outside Electron main needs to find it (another process, a shell script, git, the user's file manager), put it under `manorHomeDir()`.
 
@@ -253,14 +284,14 @@ Manor writes to two root directories. The split is intentional and enforced by `
 
 **Vite** (`vite.config.ts`) runs the renderer plus five Electron-side builds via `vite-plugin-electron`:
 
-| Target | Entry | Output | Externals |
-|---|---|---|---|
-| Renderer | `src/main.tsx` (via `index.html`) | `dist/` | — |
-| Main | `electron/main.ts` | `dist-electron/main.js` | node-pty, tree-kill |
-| Preload | `electron/preload.ts` | `dist-electron/preload.js` | — |
-| Daemon | `electron/terminal-host/index.ts` | `dist-electron/terminal-host-index.js` | node-pty, tree-kill, @xterm/headless, @xterm/addon-serialize |
-| PTY subprocess | `electron/terminal-host/pty-subprocess.ts` | `dist-electron/pty-subprocess.js` | node-pty, tree-kill |
-| MCP webview server | `electron/mcp-webview-server.ts` | `dist-electron/mcp-webview-server.js` | @modelcontextprotocol/sdk |
+| Target             | Entry                                      | Output                                 | Externals                                                    |
+| ------------------ | ------------------------------------------ | -------------------------------------- | ------------------------------------------------------------ |
+| Renderer           | `src/main.tsx` (via `index.html`)          | `dist/`                                | —                                                            |
+| Main               | `electron/main.ts`                         | `dist-electron/main.js`                | node-pty, tree-kill                                          |
+| Preload            | `electron/preload.ts`                      | `dist-electron/preload.js`             | —                                                            |
+| Daemon             | `electron/terminal-host/index.ts`          | `dist-electron/terminal-host-index.js` | node-pty, tree-kill, @xterm/headless, @xterm/addon-serialize |
+| PTY subprocess     | `electron/terminal-host/pty-subprocess.ts` | `dist-electron/pty-subprocess.js`      | node-pty, tree-kill                                          |
+| MCP webview server | `electron/mcp-webview-server.ts`           | `dist-electron/mcp-webview-server.js`  | @modelcontextprotocol/sdk                                    |
 
 All Electron-side outputs are CommonJS. Native modules stay external and are rebuilt for Electron via the `postinstall: electron-rebuild` step.
 
@@ -278,26 +309,30 @@ All Electron-side outputs are CommonJS. Native modules stay external and are reb
 ## Cross-cutting concerns
 
 ### Security boundaries
+
 - Renderer has `contextIsolation: true` and talks to main only through the allowlist in `preload.ts`. No `nodeIntegration`.
 - External URL opening is restricted to an explicit protocol list (`https:`, `http:`, `mailto:`, `x-apple.systempreferences:`). See `electron/ipc/misc.ts`.
 - The terminal-host daemon authenticates clients with a token stored at `~/.manor/daemon/terminal-host.token`.
 - The webview and MCP HTTP servers bind to localhost only.
 
 ### Agent detection invariants
+
 - **Agent status is derived, never set**. Renderer and agent system read agent state from the daemon, which reads it from the PTY. There is no "set status" path. New states must come from detection, not UI.
 - The daemon, not main, is the source of truth for session liveness. Stale agent reconciliation (`agents:reconcileStale`) exists to rebuild renderer view after a daemon-only restart.
 
 ### Testing
+
 - **Vitest** (`vitest.config.ts`). Co-located `*.test.ts` in `electron/` and `src/store/__tests__/`. Daemon integration and e2e tests live in `electron/terminal-host/` and are heavier.
 - Helper harnesses under `scripts/` (`test-daemon-e2e.mjs`, `test-full-lifecycle.mjs`) exercise full daemon/session flows outside the test runner.
 - There is no end-to-end UI test framework (no Playwright/WDIO). UI correctness is manual.
 
 ### Decision records
+
 All non-trivial changes flow through the ADR workflow (see `.claude/rules/adr-workflow.md` and `.claude/skills/adr-workflow/`). Rationale and historical context live in `docs/decisions/adr-<NNN>-<slug>/` — prefer reading the ADR over inferring intent from diffs.
 
 ## Architectural invariants
 
-Invariants are stated as absences — what the codebase deliberately does *not* do.
+Invariants are stated as absences — what the codebase deliberately does _not_ do.
 
 - **The main process does not own PTYs.** All PTY state lives in the daemon so it can outlive the app window. Anything that looks like "spawn a PTY from main" is wrong.
 - **The daemon is not killed on app quit.** It is the persistence layer for sessions. Only explicit user action (`pnpm kill`, settings UI) kills it.

@@ -146,6 +146,10 @@ export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }
 
+export function manorBinDir(): string {
+  return path.join(manorHomeDir(), "bin");
+}
+
 // The cwd the Home surface's harness runs in. The Home sentinel workspace
 // path resolves here via resolveSpawnCwd. Created once at app startup (see
 // initApp).

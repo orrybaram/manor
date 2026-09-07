@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type MockedFunction } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { LinearManager } from "./linear";
 
 // Mock electron safeStorage

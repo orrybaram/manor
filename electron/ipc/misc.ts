@@ -1,5 +1,4 @@
 import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { PrComment } from "../../src/lib/pr-info";
@@ -10,6 +9,7 @@ import {
   type PrNotifyEventKind,
 } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
+import { openInEditor } from "../editor";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -64,15 +64,7 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
     assertString(dirPath, "dirPath");
-    const editor = preferencesManager.get("defaultEditor");
-    if (!editor) {
-      return shell.openPath(dirPath);
-    }
-    return new Promise<string>((resolve) => {
-      execFile(editor, [dirPath], (err) => {
-        resolve(err ? err.message : "");
-      });
-    });
+    return openInEditor(preferencesManager, dirPath);
   });
 
   ipcMain.handle(

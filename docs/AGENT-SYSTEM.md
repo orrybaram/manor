@@ -9,14 +9,14 @@ Pi) running inside a pane's PTY session. Flaws are flagged inline as
 
 ## 1. Vocabulary
 
-| Term | Definition |
-|------|------------|
-| **Pane** | A leaf in the workspace's pane-tree layout. 1:1 with a PTY session. Identified by `paneId`. |
-| **PTY session** | A forked subprocess (`pty-subprocess.js`) running a user shell, owned by the daemon. `sessionId === paneId`. |
+| Term              | Definition                                                                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pane**          | A leaf in the workspace's pane-tree layout. 1:1 with a PTY session. Identified by `paneId`.                                                                                            |
+| **PTY session**   | A forked subprocess (`pty-subprocess.js`) running a user shell, owned by the daemon. `sessionId === paneId`.                                                                           |
 | **Agent process** | A CLI process running inside the pane's shell (e.g. `claude --dangerously-skip-permissions`). Detected by `AgentDetector` and via hook callbacks. Has no persistent record of its own. |
-| **Agent session** | Logical conversation state inside the agent CLI (Claude Code's `session_id`, Codex's session, etc.). Sent by the agent in every hook payload as `session_id`. |
-| **Agent** | The persisted lifecycle record stored by Manor that pins an agent session to a pane and project. Identified by a UUID `agent.id`, keyed internally by `agentSessionId`. |
-| **Connector** | Per-agent integration adapter (`ClaudeConnector`, `CodexConnector`, `PiConnector`) that knows how to register hooks/MCP and build resume/prompt commands. |
+| **Agent session** | Logical conversation state inside the agent CLI (Claude Code's `session_id`, Codex's session, etc.). Sent by the agent in every hook payload as `session_id`.                          |
+| **Agent**         | The persisted lifecycle record stored by Manor that pins an agent session to a pane and project. Identified by a UUID `agent.id`, keyed internally by `agentSessionId`.                |
+| **Connector**     | Per-agent integration adapter (`ClaudeConnector`, `CodexConnector`, `PiConnector`) that knows how to register hooks/MCP and build resume/prompt commands.                              |
 
 An **agent** record is therefore a metadata wrapper around a (pane × agent
 session) pairing. The live process state (`AgentState`) is never persisted;
@@ -31,44 +31,44 @@ only its kind + last status are recorded on the agent record.
 
 ### Main process (`/electron`)
 
-| File | Lines | Role |
-|------|-------|------|
-| `agent-persistence.ts` | 210 | `AgentManager` — JSON store at `~/.manor/agents.json`, in-memory `Map<agentSessionId, AgentInfo>`. |
-| `hook-relay.ts` | 385 | Pure-function factory that builds the hook → agent lifecycle state machine. |
-| `agent-hooks.ts` | 221 | HTTP server (random port) that receives curl callbacks from agent hook scripts. Owns the embedded bash hook script. |
-| `agent-connectors.ts` | 551 | Connector classes per agent kind. Writes hooks into `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.pi/agent/extensions/manor-hooks.ts`. |
-| `app-lifecycle.ts` | 383 | App boot orchestration: spawn daemon, start hook server, wire relay, register IPC, start sweep interval. |
-| `prewarm-manager.ts` | 134 | Single-slot prewarm of a blank PTY session, with command pre-injection. |
-| `ipc/agents.ts` | 146 | IPC handlers for `agents:*`. |
-| `ipc/pty.ts` | ~182 | IPC handlers for `pty:*`. |
-| `terminal-host/agent-detector.ts` | 395 | Per-session state machine for live agent status (heuristic detection from stdout / OSC titles / process names). |
-| `terminal-host/session.ts` | ~600 | PTY session: spawns subprocess, runs headless xterm, emits stream events. |
+| File                              | Lines | Role                                                                                                                                           |
+| --------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-persistence.ts`            | 210   | `AgentManager` — JSON store at `~/.manor/agents.json`, in-memory `Map<agentSessionId, AgentInfo>`.                                             |
+| `hook-relay.ts`                   | 385   | Pure-function factory that builds the hook → agent lifecycle state machine.                                                                    |
+| `agent-hooks.ts`                  | 221   | HTTP server (random port) that receives curl callbacks from agent hook scripts. Owns the embedded bash hook script.                            |
+| `agent-connectors.ts`             | 551   | Connector classes per agent kind. Writes hooks into `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.pi/agent/extensions/manor-hooks.ts`. |
+| `app-lifecycle.ts`                | 383   | App boot orchestration: spawn daemon, start hook server, wire relay, register IPC, start sweep interval.                                       |
+| `prewarm-manager.ts`              | 134   | Single-slot prewarm of a blank PTY session, with command pre-injection.                                                                        |
+| `ipc/agents.ts`                   | 146   | IPC handlers for `agents:*`.                                                                                                                   |
+| `ipc/pty.ts`                      | ~182  | IPC handlers for `pty:*`.                                                                                                                      |
+| `terminal-host/agent-detector.ts` | 395   | Per-session state machine for live agent status (heuristic detection from stdout / OSC titles / process names).                                |
+| `terminal-host/session.ts`        | ~600  | PTY session: spawns subprocess, runs headless xterm, emits stream events.                                                                      |
 
 ### Renderer (`/src`)
 
-| File | Role |
-|------|------|
-| `store/agent-store.ts` | Zustand store holding paginated `agents[]` + `unseenRespondedAgentIds` / `unseenInputAgentIds` caches. Subscribes to `agent-updated` IPC; primes from `agents:getUnseen` on boot. |
-| `store/app-store.ts` | Massive Zustand store (2k+ lines) holding layout, panes, terminals, agent statuses, project selection. |
-| `components/sidebar/AgentsList.tsx` | Sidebar list (active + recent). |
-| `components/sidebar/AgentsView/AgentsView.tsx` | Modal: full history grouped by date. |
-| `components/ui/AgentDot/AgentDot.tsx` | Visual indicator (color + pulse animation per status). |
-| `components/CloseAgentPaneDialog.tsx` | Confirm-on-close-with-active-agent. |
-| `hooks/useTerminalLifecycle.ts` | Auto-resume side-effect (uses `agent.resumedAt` to dedupe). |
-| `utils/agent-navigation.ts` | Navigate to an agent: select project → workspace → tab → focus pane → mark seen. |
+| File                                           | Role                                                                                                                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `store/agent-store.ts`                         | Zustand store holding paginated `agents[]` + `unseenRespondedAgentIds` / `unseenInputAgentIds` caches. Subscribes to `agent-updated` IPC; primes from `agents:getUnseen` on boot. |
+| `store/app-store.ts`                           | Massive Zustand store (2k+ lines) holding layout, panes, terminals, agent statuses, project selection.                                                                            |
+| `components/sidebar/AgentsList.tsx`            | Sidebar list (active + recent).                                                                                                                                                   |
+| `components/sidebar/AgentsView/AgentsView.tsx` | Modal: full history grouped by date.                                                                                                                                              |
+| `components/ui/AgentDot/AgentDot.tsx`          | Visual indicator (color + pulse animation per status).                                                                                                                            |
+| `components/CloseAgentPaneDialog.tsx`          | Confirm-on-close-with-active-agent.                                                                                                                                               |
+| `hooks/useTerminalLifecycle.ts`                | Auto-resume side-effect (uses `agent.resumedAt` to dedupe).                                                                                                                       |
+| `utils/agent-navigation.ts`                    | Navigate to an agent: select project → workspace → tab → focus pane → mark seen.                                                                                                  |
 
 ### On-disk
 
-| Path | Format | Owner |
-|------|--------|-------|
-| `~/.manor/agents.json` | `{ agents: AgentInfo[] }` | `AgentManager` |
-| `~/.manor/hook-port` | Decimal int | `AgentHookServer` |
-| `~/.manor/manor-agent-hook.sh` | Bash | `ensureHookScript()` |
-| `~/.claude/settings.json` (mutated) | JSON | `ClaudeConnector.registerHooks` |
-| `~/.claude.json` (mutated) | JSON | `ClaudeConnector.registerMcp` |
-| `~/.codex/hooks.json` (mutated) | JSON | `CodexConnector.registerHooks` |
-| `~/.codex/config.toml` (mutated) | TOML (text-edited) | `CodexConnector` |
-| `~/.pi/agent/extensions/manor-hooks.ts` (written) | TS source | `PiConnector.registerHooks` |
+| Path                                              | Format                    | Owner                           |
+| ------------------------------------------------- | ------------------------- | ------------------------------- |
+| `~/.manor/agents.json`                            | `{ agents: AgentInfo[] }` | `AgentManager`                  |
+| `~/.manor/hook-port`                              | Decimal int               | `AgentHookServer`               |
+| `~/.manor/manor-agent-hook.sh`                    | Bash                      | `ensureHookScript()`            |
+| `~/.claude/settings.json` (mutated)               | JSON                      | `ClaudeConnector.registerHooks` |
+| `~/.claude.json` (mutated)                        | JSON                      | `ClaudeConnector.registerMcp`   |
+| `~/.codex/hooks.json` (mutated)                   | JSON                      | `CodexConnector.registerHooks`  |
+| `~/.codex/config.toml` (mutated)                  | TOML (text-edited)        | `CodexConnector`                |
+| `~/.pi/agent/extensions/manor-hooks.ts` (written) | TS source                 | `PiConnector.registerHooks`     |
 
 ---
 
@@ -78,31 +78,31 @@ only its kind + last status are recorded on the agent record.
 
 ```ts
 interface AgentInfo {
-  id: string;                                            // UUID, stable identity
-  agentSessionId: string;                                // Map key. Equals paneId for the *first* SessionStart of that pane (see flaw)
-  name: string | null;                                   // Cleaned title from OSC 0/2; null until something usable arrives
+  id: string; // UUID, stable identity
+  agentSessionId: string; // Map key. Equals paneId for the *first* SessionStart of that pane (see flaw)
+  name: string | null; // Cleaned title from OSC 0/2; null until something usable arrives
   status: "active" | "completed" | "error" | "abandoned";
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  activatedAt: string | null;                            // First time status reached an ACTIVE_STATUS
+  activatedAt: string | null; // First time status reached an ACTIVE_STATUS
   projectId: string | null;
   projectName: string | null;
   workspacePath: string | null;
-  cwd: string;                                           // Snapshot at agent creation; not updated when CWD changes
+  cwd: string; // Snapshot at agent creation; not updated when CWD changes
   agentKind: "claude" | "opencode" | "codex" | "pi";
   agentCommand: string | null;
-  paneId: string | null;                                 // Nullable — orphaned agents have null
-  lastAgentStatus: string | null;                        // Last AgentStatus the relay applied (string, not typed enum)
-  resumedAt: string | null;                              // ISO timestamp; consumed by useTerminalLifecycle to dedupe auto-resume
+  paneId: string | null; // Nullable — orphaned agents have null
+  lastAgentStatus: string | null; // Last AgentStatus the relay applied (string, not typed enum)
+  resumedAt: string | null; // ISO timestamp; consumed by useTerminalLifecycle to dedupe auto-resume
 }
 ```
 
 > **🚩 Flaw — `agentSessionId` ambiguity.** The field name implies "the agent's
 > session ID" (e.g. Claude's `session_id`), but the relay also accepts hook
 > events whose `session_id` is null and never creates an agent in that case
-> (`hook-relay.ts:138-143`). Worse, the field is *also* used as the Map key,
-> so when an agent issues a SessionStart with a *different* `session_id` on
+> (`hook-relay.ts:138-143`). Worse, the field is _also_ used as the Map key,
+> so when an agent issues a SessionStart with a _different_ `session_id` on
 > the same pane (e.g. `/clear` or `--resume`), a new agent is created and the
 > old one is left dangling unless its lastAgentStatus was thinking/working
 > (handled at `hook-relay.ts:145-172`). This conflates two identities and is
@@ -112,16 +112,16 @@ interface AgentInfo {
 
 ```ts
 interface AgentState {
-  kind: AgentKind | null;     // null until detected
-  status: AgentStatus;        // idle | thinking | working | complete | requires_input | error | responded
+  kind: AgentKind | null; // null until detected
+  status: AgentStatus; // idle | thinking | working | complete | requires_input | error | responded
   processName: string | null;
   since: number;
-  title: string | null;       // From OSC 0/2 escape sequences
+  title: string | null; // From OSC 0/2 escape sequences
 }
 ```
 
 `AgentState` is **per-session live state**, not persisted. The daemon's
-`AgentDetector` owns it. Hook events are *relayed into* the detector via
+`AgentDetector` owns it. Hook events are _relayed into_ the detector via
 `backend.pty.relayAgentHook(...)` in addition to driving agent persistence —
 so the two state machines run in parallel and can disagree, see flaws below.
 
@@ -131,10 +131,10 @@ In-memory only, lives in the relay closure:
 
 ```ts
 interface SessionState {
-  activeSubagents: Set<string>;   // toolUseIds of currently running subagents
-  hasBeenActive: boolean;         // Has the session ever reached an active status?
-  pendingStopAt: number | null;   // Set when Stop is received but blocked by subagents
-  lastHookEventAt: number;        // For idle sweep
+  activeSubagents: Set<string>; // toolUseIds of currently running subagents
+  hasBeenActive: boolean; // Has the session ever reached an active status?
+  pendingStopAt: number | null; // Set when Stop is received but blocked by subagents
+  lastHookEventAt: number; // For idle sweep
 }
 ```
 
@@ -143,7 +143,7 @@ Used to ignore subagent SessionStart events that happen on the same pane.
 
 > **🚩 Flaw — `SessionState` is not persisted.** On main-process restart,
 > `sessionStateMap` is empty. The orphan-agent sweep (Branch 3, ADR-132) is
-> the only thing that recovers, but it waits 60s after `activatedAt` *and*
+> the only thing that recovers, but it waits 60s after `activatedAt` _and_
 > only looks at lastAgentStatus thinking/working. An agent last seen in
 > `requires_input` will sit in that state forever after restart, with no UI
 > cue, no notification re-fire, no abandonment.
@@ -193,7 +193,7 @@ calls `agents:setPaneContext` (`ipc/agents.ts:62-75`) to register
 
 1. Reads JSON from stdin (or `$1`).
 2. Reads the port from `~/.manor/hook-port` (preferred) or `$MANOR_HOOK_PORT`.
-3. Extracts `hook_event_name`, `session_id`, `tool_use_id` via *grep + tr*.
+3. Extracts `hook_event_name`, `session_id`, `tool_use_id` via _grep + tr_.
 4. Sends `GET http://127.0.0.1:$PORT/hook/event?paneId=...&eventType=...&kind=...&sessionId=...&toolUseId=...`.
 
 > **🚩 Flaw — bash regex parsing of JSON.** Lines 168, 174, 177 use
@@ -217,15 +217,15 @@ status via `mapEventToStatus` (`agent-hooks.ts:23-46`), and calls the relay.
 
 `mapEventToStatus`:
 
-| Event | Status |
-|-------|--------|
-| `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `thinking` |
-| `PreToolUse`, `SubagentStart` | `working` |
-| `PermissionRequest`, `Notification` | `requires_input` |
-| `Stop` | `responded` |
-| `StopFailure` | `error` |
-| `SessionEnd` | `idle` |
-| (anything else) | `null` (event dropped) |
+| Event                                                                                   | Status                 |
+| --------------------------------------------------------------------------------------- | ---------------------- |
+| `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | `thinking`             |
+| `PreToolUse`, `SubagentStart`                                                           | `working`              |
+| `PermissionRequest`, `Notification`                                                     | `requires_input`       |
+| `Stop`                                                                                  | `responded`            |
+| `StopFailure`                                                                           | `error`                |
+| `SessionEnd`                                                                            | `idle`                 |
+| (anything else)                                                                         | `null` (event dropped) |
 
 > **🚩 Flaw — `Notification` matcher is generic.** Claude Code's Notification
 > hook fires for many reasons (auto-compact, generic info messages, idle
@@ -268,14 +268,14 @@ into being. It is also where multiple flaws live:
 
 > **🚩 Flaw — orphaning prior pane agent.** When a new ACTIVE event arrives
 > with a sessionId not yet seen, the relay calls
-> `agentManager.getAgentByPaneId(paneId)` and, if found, *unlinks* its paneId
+> `agentManager.getAgentByPaneId(paneId)` and, if found, _unlinks_ its paneId
 > (`hook-relay.ts:207-210`) — but does **not** mark it abandoned, completed,
 > or anything else. The previous agent simply loses its pane and stays in
 > whatever status it had. If it was `thinking`/`working` it will be caught
 > by the orphan sweep after 60s; if it was `requires_input` or `responded`
 > it will sit in the agent list, paneless, forever.
 
-> **🚩 Flaw — incomplete SessionStart replacement.** When a *new* SessionStart
+> **🚩 Flaw — incomplete SessionStart replacement.** When a _new_ SessionStart
 > arrives on a pane that already had a root session, the old session is only
 > force-closed if its `lastAgentStatus` was `thinking` or `working`
 > (`hook-relay.ts:153-154`). If it was `requires_input`, the old agent stays
@@ -318,11 +318,11 @@ exits, not after a single response — but it has a quirk:
 Every 10s the relay walks state and forces progress on stuck sessions.
 Three independent branches:
 
-| Branch | Predicate | Action | ADR |
-|--------|-----------|--------|-----|
-| 1 | `pendingStopAt !== null && idle > 15s` | Force-apply Stop on session | ADR-130 |
-| 2 | `hasBeenActive && idle > 60s` & lastStatus ∈ {thinking,working} | Force-apply Stop | ADR-131 |
-| 3 | agent is active, has no `sessionState`, lastStatus ∈ {thinking,working}, age > 60s | Force-apply Stop | ADR-132 |
+| Branch | Predicate                                                                          | Action                      | ADR     |
+| ------ | ---------------------------------------------------------------------------------- | --------------------------- | ------- |
+| 1      | `pendingStopAt !== null && idle > 15s`                                             | Force-apply Stop on session | ADR-130 |
+| 2      | `hasBeenActive && idle > 60s` & lastStatus ∈ {thinking,working}                    | Force-apply Stop            | ADR-131 |
+| 3      | agent is active, has no `sessionState`, lastStatus ∈ {thinking,working}, age > 60s | Force-apply Stop            | ADR-132 |
 
 > **🚩 Flaw — sweeps never recover `requires_input` orphans.** All three
 > branches hard-code `thinking | working`. An agent that ended up in
@@ -345,7 +345,7 @@ process went away" and force-applies Stop on the root session.
 
 > **🚩 Flaw — two-way coupling between AgentDetector and relay.** The
 > AgentDetector lives in the daemon and runs heuristic detection on the
-> session's stdout. Its `idle/null` signal is *also* driven by hook events
+> session's stdout. Its `idle/null` signal is _also_ driven by hook events
 > (via `relayAgentHook`). So the detector can flip to idle because of a
 > hook, then the stream handler treats that as "agent gone" and the relay
 > double-fires. There is a guard at `hook-relay.ts:367-371` (only force if
@@ -433,7 +433,7 @@ Completed-incl-error+abandoned). Resume → navigate; delete → IPC
 
 ### 6.3 Navigation atomicity
 
-`navigateToAgent` (`utils/agent-navigation.ts:8-88`) does a *sequence* of
+`navigateToAgent` (`utils/agent-navigation.ts:8-88`) does a _sequence_ of
 Zustand mutations: select project → select workspace → select tab → focus
 pane → mark seen. Comments suggest atomicity, but it's actually four
 discrete `setState` calls. Each triggers a render.
@@ -460,21 +460,21 @@ broadcast. The two paths are independent.
 
 ### 7.1 `agents:*` (renderer → main)
 
-| Channel | Purpose |
-|---------|---------|
-| `agents:getAll(opts?)` | Read with optional `{projectId,status,limit,offset}` |
-| `agents:getActive()` | Fast path: just active agents, no sort/slice (ADR-136 T2) |
-| `agents:getRecent({limit})` | Top-N most recent (ADR-136 T2; defensively exposed, not yet consumed) |
-| `agents:getUnseen()` | `{responded: string[], requires_input: string[]}` — primes renderer cache (ADR-136 T3) |
-| `agents:get(agentId)` | Single agent lookup (linear scan) |
-| `agents:update(agentId, {name?})` | Renderer-writable allowlist (ADR-136 T1). Lifecycle fields rejected. |
-| `agents:markResumed(agentId)` | Sets `resumedAt` from main; replaces renderer-side write (ADR-136 T1 follow-up) |
-| `agents:delete(agentId)` | Remove + clear unseen flags + update dock |
-| `agents:markSeen(agentId)` | Clear unseen flags, update dock, re-broadcast `agent-updated` (ADR-136 T3) |
-| `agents:consumePruneNotice()` | One-shot read of last prune count, gated by `agentPruneNoticeShown` preference (ADR-136 T2) |
-| `agents:setPaneContext(paneId, ctx)` | Register projectId/name/workspacePath/agentCommand for a pane |
-| `agents:abandonForPane(paneId, title?)` | Called on pane close — flip active agent to `abandoned` |
-| `agents:reconcileStale()` | Diff `getActiveAgents()` against `backend.pty.listSessions()`; abandon orphans whose `lastAgentStatus !== "responded"` |
+| Channel                                 | Purpose                                                                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `agents:getAll(opts?)`                  | Read with optional `{projectId,status,limit,offset}`                                                                   |
+| `agents:getActive()`                    | Fast path: just active agents, no sort/slice (ADR-136 T2)                                                              |
+| `agents:getRecent({limit})`             | Top-N most recent (ADR-136 T2; defensively exposed, not yet consumed)                                                  |
+| `agents:getUnseen()`                    | `{responded: string[], requires_input: string[]}` — primes renderer cache (ADR-136 T3)                                 |
+| `agents:get(agentId)`                   | Single agent lookup (linear scan)                                                                                      |
+| `agents:update(agentId, {name?})`       | Renderer-writable allowlist (ADR-136 T1). Lifecycle fields rejected.                                                   |
+| `agents:markResumed(agentId)`           | Sets `resumedAt` from main; replaces renderer-side write (ADR-136 T1 follow-up)                                        |
+| `agents:delete(agentId)`                | Remove + clear unseen flags + update dock                                                                              |
+| `agents:markSeen(agentId)`              | Clear unseen flags, update dock, re-broadcast `agent-updated` (ADR-136 T3)                                             |
+| `agents:consumePruneNotice()`           | One-shot read of last prune count, gated by `agentPruneNoticeShown` preference (ADR-136 T2)                            |
+| `agents:setPaneContext(paneId, ctx)`    | Register projectId/name/workspacePath/agentCommand for a pane                                                          |
+| `agents:abandonForPane(paneId, title?)` | Called on pane close — flip active agent to `abandoned`                                                                |
+| `agents:reconcileStale()`               | Diff `getActiveAgents()` against `backend.pty.listSessions()`; abandon orphans whose `lastAgentStatus !== "responded"` |
 
 ### 7.2 `agents:update` allowlist (ADR-136 T1)
 
@@ -543,9 +543,9 @@ abandons any active agent whose `agentSessionId` is not in the live set
 > against the daemon's pane-keyed `sessionId` (which is `paneId`). These
 > are different namespaces. The first agent ever created on a pane happens
 > to have `agentSessionId === paneId` only because the first SessionStart's
-> session_id is what we got. Subsequent sessions on the same pane get a
+> session*id is what we got. Subsequent sessions on the same pane get a
 > new agent session_id but the daemon session_id (paneId) is unchanged.
-> The reconcile will incorrectly mark *every* post-first agent as
+> The reconcile will incorrectly mark \_every* post-first agent as
 > abandoned. **Likely real bug.** Worth tracing through manually.
 
 ---
@@ -594,7 +594,7 @@ run simultaneously.
 - `BranchWatcher` and `DiffWatcher` exist (`app-lifecycle.ts:67-68`) but
   are not joined to agents.
 
-### 10.4 MCP server
+### 10.4 MCP server and `manor` CLI
 
 - The `manor` MCP server is registered with each connector
   (`agent-connectors.ts` `registerMcp` for Claude/Codex). Allows agents to
@@ -608,17 +608,194 @@ run simultaneously.
   (`GET /projects/:id/issues`, `POST /agents`,
   `POST /projects/:id/workspaces/batch`).
 - Lives outside the agent lifecycle; no agent field references it.
+- **ADR-170 added the `manor` CLI:** `~/.manor/bin/manor` is installed on
+  startup by `ensureManorCli` (`electron/manor-cli-install.ts`) and
+  `~/.manor/bin` is prepended to `PATH` in every Manor terminal
+  (`electron/terminal-host/session.ts`). Subcommands are generated from the
+  same `ToolModule` definitions the MCP server serves (`electron/mcp/cli.ts`):
+  `list_projects` → `manor list-projects`, `projectId` → `--project-id`.
+  `manor --help` lists them; `manor <cmd> --help` shows flags.
+  `manor api <METHOD> <path> [--body json]` hits the control server directly.
+  Enum flags reject values outside the schema's list, and any non-boolean
+  flag value of exactly `-` reads stdin or `@<path>` reads a file (e.g.
+  `manor execute-js --code @snippet.js`). Agents running inside a Manor
+  terminal should prefer the CLI over the MCP
+  tools to avoid loading the tool roster into context; the MCP tools remain
+  for inline screenshots and typed multi-line arguments. The legacy
+  `manor-webview` (ADR-053) was removed and is deleted from disk on startup.
+  **ADR-171** completed the surface with six route modules (folders, git, system,
+  integrations, agents, panes) plus git and system tool definitions, growing the
+  roster from 35 to 124 commands.
+
+- On `SessionStart`, the agent hook (`electron/scripts/agent-hook.js`) prints a one-line
+  `additionalContext` hint to Claude Code pointing at `manor --help`, so agents discover the
+  CLI without any per-project `CLAUDE.md` entry.
+
+    <details>
+    <summary>Full command list</summary>
+
+  ```text
+  manor — Manor's control surface as a shell command.
+  ```
+
+Usage: manor <command> [flags]
+manor <command> --help
+manor api <GET|POST|DELETE> <path> [--body '<json>']
+Flag values: - reads stdin, @file reads a file.
+
+webview:
+list-webviews List all open webview panes in Manor with their id, url, and title.
+screenshot-webview Take a screenshot of a webview pane.
+get-dom Get a simplified DOM snapshot of the webview page.
+execute-js Execute JavaScript code in the webview and return the result.
+click-element Click an element in the webview by CSS selector or coordinates.
+type-text Type text into an element in the webview.
+navigate Navigate the webview to a URL.
+get-console-logs Get console log entries from the webview.
+get-url Get the current URL of the webview.
+pick-element Activate element picker in a webview — the user selects an element and its context is returned.
+get-element-context Get detailed context for a DOM element by CSS selector, without requiring user interaction.
+start-recording Start recording a webview pane to a .webm file on disk.
+stop-recording Stop a recording started with start_recording.
+list-recordings List currently active recordings and how long each has been running.
+zoom-in Zoom a webview pane in one step.
+zoom-out Zoom a webview pane out one step.
+zoom-reset Reset a webview pane's zoom to 100%.
+find-in-page Search the webview page for text, highlighting matches in Manor's UI.
+stop-find End the current find_in_page search and clear its selection.
+set-audio-muted Mute or unmute a webview pane's audio.
+stop-loading Stop the webview's in-flight page load, like the browser stop button.
+
+projects:
+list-projects List all projects in Manor with their IDs, names, paths, and workspace counts.
+get-project Get full details for a project including all of its workspaces.
+add-project Add a new project to Manor by name and directory path.
+create-workspace Create a new workspace (git worktree) in a project.
+list-workspaces List all workspaces (git worktrees) for a project.
+remove-workspace Remove a workspace (git worktree) from a project.
+current-workspace Identify the Manor project and workspace this agent is running in, and which issue sources are available.
+list-folders List the sidebar folders defined in a project.
+create-folder Create a new sidebar folder in a project.
+rename-folder Rename a sidebar folder.
+delete-folder Destructive: permanently deletes a sidebar folder.
+set-workspace-folder Move a workspace into a sidebar folder, or out of one.
+rename-workspace Rename a workspace's display name in the sidebar (does not rename its branch or directory).
+set-workspace-hidden Show or hide a workspace in the sidebar.
+reorder-workspaces Persist the sidebar order for a project's workspaces and folders.
+convert-main-to-worktree Convert the main workspace's current branch into its own worktree, checking the main workspace back out onto the project's default branch.
+can-quick-merge Check whether a workspace can be fast-forward merged into the project's default branch without conflicts.
+quick-merge-workspace Destructive: fast-forward merges a workspace's branch into the project's default branch, then removes the workspace and its branch.
+list-workspace-issues List the issues linked to a workspace.
+link-issue Link an issue to a workspace.
+unlink-issue Unlink an issue from a workspace.
+list-branches List a project's local or remote git branches, most recently created first.
+update-project Update a project's settings.
+remove-project Destructive: removes a project from Manor's project list.
+reorder-projects Persist the sidebar order for all projects.
+resync-default-branches Re-detect the default branch (main/master/etc.) for every project from its git remote.
+
+agents:
+list-issues List a project's issues from GitHub (default) or Linear.
+get-issue-detail Read a single issue's full detail, including its description body.
+start-agent Launch an agent session in a workspace, optionally with an initial prompt.
+batch-create-workspaces Create one workspace per GitHub issue and (by default) launch an agent in each — fan a backlog out into parallel agent workspaces.
+rename-agent Set or clear an agent's display name in Manor's session list.
+delete-agent Destructive: permanently remove an agent's record from Manor's session list.
+mark-agent-seen Clear an agent's unseen indicators (the sidebar pulse and dock badge) without touching the session itself — the read-state equivalent of a human looking at the pane.
+get-resume-command Look up the shell command that would resume an agent's session in its own harness (e.g.
+
+panes:
+list-panes List every tab and pane in the active workspace as an indented tree, marking the active tab and the focused pane.
+split-pane Split an existing pane in two.
+new-terminal Open a new terminal tab, optionally in a specific workspace and running a command.
+new-browser Open a new browser tab pointed at 'url', optionally in a specific workspace.
+focus-pane Focus a pane by its paneId.
+close-pane Close a pane by its paneId.
+select-tab Select a tab by its tabId, switching to it in its panel.
+next-tab Select the next tab in the active panel, wrapping around from the last tab to the first.
+prev-tab Select the previous tab in the active panel, wrapping around from the first tab to the last.
+close-tab Close a tab by its tabId, terminating every pane inside it.
+close-other-tabs Close every other unpinned tab in the same panel as tabId, leaving it and any pinned tabs open.
+close-tabs-to-right Close every unpinned tab positioned after tabId in its panel.
+pin-tab Toggle whether a tab is pinned.
+duplicate-tab Duplicate a tab, including its full pane split layout.
+reorder-tabs Reorder the tabs in the active panel.
+open-diff Open the active workspace's diff tab, or focus it if one is already open.
+set-pane-title Set a custom title for a pane, overriding the one derived from its content (shell command, page title, etc).
+clear-pane-title Clear a pane's custom title, reverting to the one derived from its content.
+move-pane Move a pane out of its current split and into a new split next to another pane.
+extract-pane-to-tab Pull a pane out of its current split and into its own new tab.
+reopen-closed-pane Reopen the most recently closed pane or tab in the active workspace.
+focus-next-pane Focus the next pane in the active tab, cycling through its panes.
+focus-prev-pane Focus the previous pane in the active tab, cycling through its panes.
+set-active-workspace Switch the app's active workspace by filesystem path.
+
+sessions:
+list-agents See every agent session Manor knows about — across every project and workspace, not just the one this agent is running in.
+send-to-session Steer another running agent session: gracefully interrupt its current turn, then inject a new prompt.
+interrupt-session Stop a running agent without saying anything to it: gracefully ends its current turn, leaving the process alive and idle.
+end-session Destructive: kill a running agent's process outright, ending the session for good — not just its current turn.
+read-session Read any terminal pane's rendered output — an agent session's conversation/transcript, or a plain terminal's scrollback.
+
+git:
+git-stage Stage files for commit.
+git-unstage Unstage files, leaving their changes in the working tree.
+git-discard Destructive: permanently discards uncommitted changes to the given files.
+git-stash Stash uncommitted changes to the given files.
+git-commit Commit staged changes.
+git-push Push commits to a remote.
+git-staged-files List files currently staged for commit.
+git-diff Show a diff: 'local' (default) for uncommitted changes, 'full' for everything different from the project's default branch.
+
+system:
+list-notifications List Manor's notification log, newest last.
+mark-notification-read Mark one notification as read.
+mark-all-notifications-read Mark every notification as read.
+clear-notifications Destructive: deletes the entire notification log.
+list-processes Show Manor's terminal daemon, internal servers, live sessions, and the ports they hold.
+cleanup-dead-processes Dispose terminal sessions whose processes have already exited.
+kill-daemon Destructive: kills Manor's terminal daemon, ending every terminal session in every workspace.
+kill-all-processes Destructive: kills every terminal session, every workspace dev server, and the daemon itself.
+restart-portless Restart the portless proxy that serves workspace dev servers on named hostnames.
+scan-ports List listening ports Manor can see, with the process holding each.
+kill-port Destructive: kills the process holding a port.
+get-preferences Show every Manor preference and its current value.
+set-preference Set one Manor preference.
+get-theme Show the selected theme's name and its resolved colors.
+list-themes List every theme Manor can load, with each one's background color.
+set-theme Switch Manor to a theme by name.
+get-stats Show Manor's usage stats: today, the last 7 days, all time, and badges.
+reset-stats Destructive: deletes every recorded usage stat and earned badge.
+remote-control-status Show whether remote control is on, which devices are paired, and the tunnel's state.
+set-remote-control-enabled Turn remote control's local listener on or off.
+start-tunnel Expose the remote-control listener through a tunnel.
+stop-tunnel Stop the running tunnel, leaving the remote-control listener up on loopback.
+open-in-editor Open a directory in the editor configured in Manor's preferences, or the system default.
+open-external Open a URL in the user's default browser.
+list-windows List Manor's visible windows with their screen bounds, most-recently-focused first.
+check-for-updates Ask Manor to check for an update.
+quit-and-install Destructive: quits Manor immediately to install a downloaded update.
+start-linear-issue Move a Linear issue to started and assign it to you.
+close-linear-issue Move a Linear issue to its team's completed state.
+github-status Report whether the gh CLI is installed and authenticated.
+create-github-issue Create a GitHub issue on a project's repository.
+
+api Send a raw request to Manor's control server and print the JSON reply.
+
+```
+
+</details>
 
 ---
 
 ## 11. Dead / Suspect Code
 
-| Site | Concern |
-|------|---------|
-| `agent-persistence.ts:195-208` | `unlinkPane(paneId)` — defined, never called. The only place that wants this behavior (relay's "agent-by-pane already exists" branch) inlines its own `updateAgent` call. |
-| `agent-persistence.ts:46-64` | `claudeSessionId` → `agentSessionId` migration. Live as long as users have legacy state; eventually pure cruft. |
-| `agent-connectors.ts:495-501` | `PiConnector.registerMcp` is empty save for a comment. Fine — but quietly skipped. |
-| `agent-detector.ts` | 395 lines of heuristic detection that runs *in addition to* hook events. With hook-driven status now authoritative, much of the heuristic detection (process polling, banner matching) duplicates the hook signal. Audit candidate. |
+| Site                           | Concern                                                                                                                                                                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-persistence.ts:195-208` | `unlinkPane(paneId)` — defined, never called. The only place that wants this behavior (relay's "agent-by-pane already exists" branch) inlines its own `updateAgent` call.                                                           |
+| `agent-persistence.ts:46-64`   | `claudeSessionId` → `agentSessionId` migration. Live as long as users have legacy state; eventually pure cruft.                                                                                                                     |
+| `agent-connectors.ts:495-501`  | `PiConnector.registerMcp` is empty save for a comment. Fine — but quietly skipped.                                                                                                                                                  |
+| `agent-detector.ts`            | 395 lines of heuristic detection that runs _in addition to_ hook events. With hook-driven status now authoritative, much of the heuristic detection (process polling, banner matching) duplicates the hook signal. Audit candidate. |
 
 ---
 
@@ -674,3 +851,4 @@ Severity is my judgment, not the team's.
 5. ✅ Tighten `agents:update` to an allowlist — resolved by ADR-136 T1.
 6. Decide whether `agentSessionId` is "agent's session id" or "Manor's agent key" and split the two if both are needed.
 7. Rest of the list is cleanup / sturdiness work.
+```

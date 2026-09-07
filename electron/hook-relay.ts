@@ -135,12 +135,6 @@ export const STALE_STOP_MS = 15_000;
 export const STALE_ACTIVE_MS = 60_000;
 export const SWEEP_INTERVAL_MS = 10_000;
 
-const ACTIVE_STATUSES: Set<AgentStatus> = new Set([
-  "thinking",
-  "working",
-  "requires_input",
-]);
-
 /** Statuses that indicate the agent is "stuck active" and should be recovered by sweeps / replacement. */
 const STUCK_ACTIVE: ReadonlySet<string> = new Set(["thinking", "working", "requires_input"]);
 function isStuckActive(status: string | null | undefined): boolean {

@@ -67,7 +67,7 @@ export class LocalGitBackend implements GitBackend {
     try {
       await this.execGit(cwd, args, { timeout: 120000 });
     } catch (err: unknown) {
-      throw new Error(parseCommitError(err));
+      throw new Error(parseCommitError(err), { cause: err });
     }
   }
 

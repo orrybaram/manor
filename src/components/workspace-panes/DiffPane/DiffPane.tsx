@@ -43,12 +43,13 @@ type DiffPaneProps = {
   workspacePath?: string;
 };
 
+/** Shared empty set so a workspace with no staged files keeps a stable identity. */
+const NO_STAGED_FILES: Set<string> = new Set();
+
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
     const { paneId, workspacePath } = props;
     const [raw, setRaw] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [diffMode, setDiffMode] = useState<DiffMode>("local");
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
     const [showBackToTop, setShowBackToTop] = useState(false);
@@ -160,6 +161,18 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 
+    // Each fetch is keyed by workspace + mode + branch. `settled` records the
+    // outcome of the last completed fetch together with the key it ran for, so
+    // `loading` and `error` derive during render instead of being reset by the
+    // effect every time the key changes.
+    const fetchKey = `${workspacePath ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
+    const [settled, setSettled] = useState<{
+      key: string;
+      error: string | null;
+    } | null>(null);
+    const loading = settled?.key !== fetchKey;
+    const error = settled?.key === fetchKey ? settled.error : null;
+
     useEffect(() => {
       if (!workspacePath) return;
 
@@ -180,10 +193,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             const scrollTop = containerRef.current?.scrollTop ?? 0;
             if (!result || result.trim() === "") {
               setRaw(null);
-              setError("No changes found");
+              setSettled({ key: fetchKey, error: "No changes found" });
             } else {
               setRaw(result);
-              setError(null);
+              setSettled({ key: fetchKey, error: null });
             }
             requestAnimationFrame(() => {
               if (containerRef.current) {
@@ -193,17 +206,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           })
           .catch((err) => {
             if (cancelled) return;
-            setError(
-              err instanceof Error ? err.message : "Failed to load diff",
-            );
-          })
-          .finally(() => {
-            if (!cancelled) setLoading(false);
+            setSettled({
+              key: fetchKey,
+              error:
+                err instanceof Error ? err.message : "Failed to load diff",
+            });
           });
       };
 
-      setLoading(true);
-      setError(null);
       fetchDiff();
 
       const timer = setInterval(fetchDiff, 5000);
@@ -212,21 +222,32 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         cancelled = true;
         clearInterval(timer);
       };
-    }, [workspacePath, defaultBranch, diffMode]);
+    }, [workspacePath, defaultBranch, diffMode, fetchKey]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
-    // Fetch staged file list for local mode
-    const [stagedFiles, setStagedFiles] = useState<Set<string>>(new Set());
+    // Fetch staged file list for local mode. Tagged with the workspace it was
+    // fetched for so any other workspace (or full-diff mode) reads as empty
+    // without an effect having to clear it.
+    const stagedKey =
+      workspacePath && diffMode === "local" ? workspacePath : null;
+    const [stagedResult, setStagedResult] = useState<{
+      key: string;
+      files: Set<string>;
+    } | null>(null);
+    const stagedFiles =
+      stagedKey !== null && stagedResult?.key === stagedKey
+        ? stagedResult.files
+        : NO_STAGED_FILES;
+
     useEffect(() => {
-      if (!workspacePath || diffMode !== "local") {
-        setStagedFiles(new Set());
-        return;
-      }
+      if (stagedKey === null) return;
       let cancelled = false;
       const fetchStaged = () => {
-        window.electronAPI.diffs.getStagedFiles(workspacePath).then((files) => {
-          if (!cancelled) setStagedFiles(new Set(files));
+        window.electronAPI.diffs.getStagedFiles(stagedKey).then((files) => {
+          if (!cancelled) {
+            setStagedResult({ key: stagedKey, files: new Set(files) });
+          }
         });
       };
       fetchStaged();
@@ -235,23 +256,41 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         cancelled = true;
         clearInterval(timer);
       };
-    }, [workspacePath, diffMode]);
+    }, [stagedKey]);
+
+    // Optimistic stage/unstage from the file list, applied against the set for
+    // the current key so a stale result can never be mutated into place.
+    const updateStagedFiles = useCallback(
+      (updater: (prev: Set<string>) => Set<string>) => {
+        if (stagedKey === null) return;
+        setStagedResult((prev) => ({
+          key: stagedKey,
+          files: updater(prev?.key === stagedKey ? prev.files : NO_STAGED_FILES),
+        }));
+      },
+      [stagedKey],
+    );
 
     // ── Animation tracking ──
-    const previousFiles = useRef<Map<string, number> | null>(null);
+    // Compared against the previously rendered file set during render (React's
+    // "adjust state when props change") so a file animates in the same commit
+    // that reveals it rather than one paint later.
+    const [tracked, setTracked] = useState<{
+      files: typeof files;
+      hashes: Map<string, number>;
+    } | null>(null);
     const [animationState, setAnimationState] = useState<
       Map<string, "new" | "updated">
     >(new Map());
 
-    useEffect(() => {
-      const currentHash = new Map<string, number>(
+    if (tracked?.files !== files) {
+      const hashes = new Map<string, number>(
         files.map((f) => [f.path, f.added * 1000 + f.removed + f.lines.length]),
       );
-
-      if (previousFiles.current !== null) {
+      if (tracked !== null) {
         const newAnimations = new Map<string, "new" | "updated">();
-        for (const [path, hash] of currentHash) {
-          const prevHash = previousFiles.current.get(path);
+        for (const [path, hash] of hashes) {
+          const prevHash = tracked.hashes.get(path);
           if (prevHash === undefined) {
             newAnimations.set(path, "new");
           } else if (prevHash !== hash) {
@@ -262,9 +301,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           setAnimationState(newAnimations);
         }
       }
-
-      previousFiles.current = currentHash;
-    }, [files]);
+      setTracked({ files, hashes });
+    }
 
     useEffect(() => {
       if (animationState.size === 0) return;
@@ -579,7 +617,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               selectedFiles={selectedFiles}
               onSelectionChange={setSelectedFiles}
               stagedFiles={stagedFiles}
-              onStagedFilesChange={(updater) => setStagedFiles(updater)}
+              onStagedFilesChange={updateStagedFiles}
             />
           </div>
           <Stack gap="lg" className={styles.fileStack}>

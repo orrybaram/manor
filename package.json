@@ -123,7 +123,8 @@
     ],
     "asarUnpack": [
       "dist-electron/mcp-webview-server.js",
-      "dist-electron/agent-hook.js"
+      "dist-electron/agent-hook.js",
+      "dist-electron/manor-cli.js"
     ]
   },
   "pnpm": {

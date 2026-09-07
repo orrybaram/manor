@@ -357,18 +357,6 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
             });
           }
         }
-
-        if (nextStatus === "complete") {
-          if (!isAlreadyVisible) {
-            const toastId = `agent-complete-${agent.id}`;
-            useToastStore.getState().addToast({
-              id: toastId,
-              message: "Agent completed",
-              detail: agent.name || "Agent",
-              status: "success",
-            });
-          }
-        }
       }
 
       set((s) => {

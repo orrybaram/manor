@@ -153,8 +153,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ),
     onRemoveWorktreeProgress: (callback: (step: string) => void) =>
       onChannel<string>("projects:removeWorktree:progress", callback),
-    onWorktreeSetupProgress: (callback: (event: any) => void) => {
-      const handler = (_event: any, data: any) => callback(data);
+    onWorktreeSetupProgress: (callback: (event: unknown) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
+        callback(data);
       ipcRenderer.on("worktree:setup-progress", handler);
       return () =>
         ipcRenderer.removeListener("worktree:setup-progress", handler);

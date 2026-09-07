@@ -1,7 +1,9 @@
 /**
  * MCP tools for session state (ADR-153): `list_agents` lets the orchestrator
- * *see* every session Manor knows about — `send_to_session` (ticket 3) will
- * live in this same module and let it *steer* one.
+ * *see* every session Manor knows about, `send_to_session`/`read_session` let
+ * it *steer* and *read* one, and `interrupt_session`/`end_session` (ADR-171)
+ * cover the two ways to stop one — pausing its current turn versus killing
+ * the process outright.
  */
 
 // Type-only: `routes/agents.ts` is pure data shaping over `AgentManager`, and the
@@ -15,6 +17,12 @@ import { text } from "./types";
 interface SendResult {
   ok: boolean;
   target: { id: string; paneId: string; lastAgentStatus: string | null };
+}
+
+/** The wire shape `POST /sessions/end` returns. */
+interface EndResult {
+  ok: boolean;
+  target: { id: string; paneId: string };
 }
 
 /** The wire shape `POST /sessions/read` returns. */
@@ -84,6 +92,43 @@ const tools: ToolDef[] = [
         },
       },
       required: ["target", "text"],
+    },
+  },
+  {
+    name: "interrupt_session",
+    description:
+      "Stop a running agent without saying anything to it: gracefully ends its current turn, leaving the process alive and idle. Less disruptive than end_session — the agent can still be resumed or steered with send_to_session — but may still discard in-flight work if it was mid-turn. Check the target's status with list_agents first; the response reports the target's status as it was just before the interrupt.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          description:
+            "Which session to stop. Accepts an agent id (from list_agents), a raw pane id, '#<issue>', or a workspace branch.",
+        },
+        interrupt: {
+          type: "string",
+          description:
+            "Optional override for the interrupt key sequence, for custom harnesses. Omit to use the harness default.",
+        },
+      },
+      required: ["target"],
+    },
+  },
+  {
+    name: "end_session",
+    description:
+      "Destructive: kill a running agent's process outright, ending the session for good — not just its current turn. Unlike interrupt_session, the process does not survive this and any in-flight work is lost; there is nothing left to resume. The agent's Manor record is marked abandoned, not removed — use delete_agent afterward to also drop it from list_agents.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          description:
+            "Which session to end. Accepts an agent id (from list_agents), a raw pane id, '#<issue>', or a workspace branch.",
+        },
+      },
+      required: ["target"],
     },
   },
   {
@@ -160,6 +205,26 @@ const handlers: ToolModule["handlers"] = {
     const status = res.target.lastAgentStatus ?? "unknown";
     return text(
       `Interrupted session ${res.target.id} (was ${status}) and sent the new prompt.`,
+    );
+  },
+
+  async interrupt_session(args, http) {
+    const res = (await http.post("/sessions/interrupt", {
+      target: args.target,
+      interrupt: args.interrupt,
+    })) as SendResult;
+
+    const status = res.target.lastAgentStatus ?? "unknown";
+    return text(`Interrupted session ${res.target.id} (was ${status}).`);
+  },
+
+  async end_session(args, http) {
+    const res = (await http.post("/sessions/end", {
+      target: args.target,
+    })) as EndResult;
+
+    return text(
+      `Ended session ${res.target.id} (pane ${res.target.paneId}) — process killed.`,
     );
   },
 

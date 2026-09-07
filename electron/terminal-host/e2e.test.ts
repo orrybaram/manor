@@ -43,7 +43,6 @@ import {
 import {
   LayoutPersistence,
   type PersistedWorkspace,
-  type PersistedPanel,
   type PersistedTab,
 } from "./layout-persistence";
 

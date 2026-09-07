@@ -18,8 +18,12 @@ import type { ControlDeps, Json, ReadBody, Route } from "./types";
 import { agentRoutes } from "./agents";
 import { contextRoutes } from "./context";
 import { paneRoutes, tabRoutes } from "./panes";
+import { folderRoutes } from "./folders";
 import { projectRoutes } from "./projects";
 import { issueRoutes } from "./issues";
+import { gitRoutes } from "./git";
+import { integrationRoutes } from "./integrations";
+import { systemRoutes } from "./system";
 
 /**
  * Every route this module serves, in match order. See `router.ts`'s header
@@ -31,8 +35,12 @@ export const routes: readonly Route[] = [
   ...contextRoutes,
   ...paneRoutes,
   ...tabRoutes,
+  ...folderRoutes,
   ...projectRoutes,
   ...issueRoutes,
+  ...gitRoutes,
+  ...integrationRoutes,
+  ...systemRoutes,
 ];
 
 /**

@@ -11,6 +11,8 @@ import type {
   ProjectInfo,
   IssueSeed,
   WorkspaceFromIssue,
+  LinkedIssue,
+  ProjectUpdatableFields,
 } from "../persistence";
 import { isIssueSource } from "../issue-sources";
 import {
@@ -18,7 +20,7 @@ import {
   runSetupScript,
   startAgent,
 } from "../renderer-bridge";
-import type { Route, RouteContext } from "./types";
+import type { Json, Route, RouteContext } from "./types";
 
 /**
  * Guard the routes that need a ProjectManager but no particular project —
@@ -43,6 +45,28 @@ function withProjectManager(
  * (404). Resolving the project here means it is fetched exactly once per
  * request, as before.
  */
+/** 404 unless `folderId` names one of the project's folders. */
+export function requireFolder(
+  project: ProjectInfo,
+  folderId: string,
+  json: Json,
+): boolean {
+  if (project.folders.some((f) => f.id === folderId)) return true;
+  json(404, { error: `Folder not found: ${folderId}` });
+  return false;
+}
+
+/** 404 unless `workspacePath` is one of the project's workspaces. */
+export function requireWorkspace(
+  project: ProjectInfo,
+  workspacePath: string,
+  json: Json,
+): boolean {
+  if (project.workspaces.some((w) => w.path === workspacePath)) return true;
+  json(404, { error: `Workspace not found: ${workspacePath}` });
+  return false;
+}
+
 export function withProject(
   handler: (
     ctx: RouteContext,
@@ -81,6 +105,42 @@ export interface BatchResultEntry {
    */
   launchError?: string;
 }
+
+/** Validate a `LinkedIssue` payload off a request body, or `null` if malformed. */
+function parseLinkedIssue(value: unknown): LinkedIssue | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.id !== "string" ||
+    typeof v.identifier !== "string" ||
+    typeof v.title !== "string" ||
+    typeof v.url !== "string"
+  ) {
+    return null;
+  }
+  return { id: v.id, identifier: v.identifier, title: v.title, url: v.url };
+}
+
+/**
+ * `ProjectUpdatableFields`' keys, kept in sync by the `satisfies` check —
+ * `POST /projects/:projectId/update` copies only these off the body, so an
+ * unrelated field (or a typo) is silently ignored rather than smuggled into
+ * `Object.assign`.
+ */
+const UPDATABLE_PROJECT_FIELDS = [
+  "name",
+  "defaultRunCommand",
+  "worktreePath",
+  "worktreeStartScript",
+  "worktreeTeardownScript",
+  "linearAssociations",
+  "color",
+  "agentCommand",
+  "commands",
+  "themeName",
+  "setupComplete",
+  "portlessEnabled",
+] as const satisfies readonly (keyof ProjectUpdatableFields)[];
 
 /** Render the launch prompt for an issue-backed workspace. */
 function renderPrompt(
@@ -169,7 +229,7 @@ async function batchCreateWorkspaces(
 
   // 2. Create worktrees sequentially in the canonical layer.
   const seeds: IssueSeed[] = details.flatMap((d) =>
-    "detail" in d
+    "detail" in d && d.detail
       ? [
           {
             number: d.number,
@@ -332,6 +392,254 @@ export const projectRoutes: Route[] = [
       const deleteBranch =
         typeof body.deleteBranch === "boolean" ? body.deleteBranch : undefined;
       await pm.removeWorktree(params.projectId, worktreePath, deleteBranch);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/rename",
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      const name = body.name;
+      if (typeof workspacePath !== "string" || typeof name !== "string") {
+        json(400, {
+          error: "Missing 'workspacePath' or 'name' string in request body",
+        });
+        return;
+      }
+      if (!requireWorkspace(project, workspacePath, json)) return;
+      pm.renameWorkspace(params.projectId, workspacePath, name);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/hidden",
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      const hidden = body.hidden;
+      if (typeof workspacePath !== "string" || typeof hidden !== "boolean") {
+        json(400, {
+          error:
+            "Missing 'workspacePath' string or 'hidden' boolean in request body",
+        });
+        return;
+      }
+      if (!requireWorkspace(project, workspacePath, json)) return;
+      pm.setWorkspaceHidden(params.projectId, workspacePath, hidden);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/reorder",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const orderedKeys = body.orderedKeys;
+      if (
+        !Array.isArray(orderedKeys) ||
+        !orderedKeys.every((k) => typeof k === "string")
+      ) {
+        json(400, {
+          error: "Missing 'orderedKeys' array of strings in request body",
+        });
+        return;
+      }
+      pm.reorderWorkspaces(params.projectId, orderedKeys);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/convert-main",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const name = body.name;
+      if (typeof name !== "string" || !name.trim()) {
+        json(400, { error: "Missing 'name' string in request body" });
+        return;
+      }
+      const updated = await pm.convertMainToWorktree(params.projectId, name);
+      if (!updated) {
+        json(404, { error: "Project not found" });
+        return;
+      }
+      notifyProjectsChanged();
+      json(200, updated);
+    }),
+  },
+
+  {
+    method: "GET",
+    path: "/projects/:projectId/workspaces/quick-merge",
+    handler: withProject(async ({ params, url, json }, pm) => {
+      const workspacePath = url.searchParams.get("workspacePath");
+      if (!workspacePath) {
+        json(400, { error: "Missing 'workspacePath' query parameter" });
+        return;
+      }
+      json(200, await pm.canQuickMerge(params.projectId, workspacePath));
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/quick-merge",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      if (typeof workspacePath !== "string") {
+        json(400, { error: "Missing 'workspacePath' string in request body" });
+        return;
+      }
+      await pm.quickMergeWorktree(params.projectId, workspacePath);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "GET",
+    path: "/projects/:projectId/workspaces/issues",
+    handler: withProject(async ({ params, url, json }, pm) => {
+      const workspacePath = url.searchParams.get("workspacePath");
+      if (!workspacePath) {
+        json(400, { error: "Missing 'workspacePath' query parameter" });
+        return;
+      }
+      json(200, pm.getWorkspaceIssues(params.projectId, workspacePath));
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/workspaces/issues",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      if (typeof workspacePath !== "string") {
+        json(400, { error: "Missing 'workspacePath' string in request body" });
+        return;
+      }
+      const issue = parseLinkedIssue(body.issue);
+      if (!issue) {
+        json(400, {
+          error:
+            "Missing 'issue' object with 'id', 'identifier', 'title', and 'url' strings",
+        });
+        return;
+      }
+      pm.linkIssueToWorkspace(params.projectId, workspacePath, issue);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "DELETE",
+    path: "/projects/:projectId/workspaces/issues",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const workspacePath = body.workspacePath;
+      const issueId = body.issueId;
+      if (typeof workspacePath !== "string" || typeof issueId !== "string") {
+        json(400, {
+          error: "Missing 'workspacePath' or 'issueId' string in request body",
+        });
+        return;
+      }
+      pm.unlinkIssueFromWorkspace(params.projectId, workspacePath, issueId);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "GET",
+    path: "/projects/:projectId/branches",
+    handler: withProject(async ({ params, url, json }, pm) => {
+      const scope = url.searchParams.get("scope") ?? "local";
+      if (scope !== "local" && scope !== "remote") {
+        json(400, { error: "Query param 'scope' must be 'local' or 'remote'" });
+        return;
+      }
+      const branches =
+        scope === "local"
+          ? await pm.listLocalBranches(params.projectId)
+          : await pm.listRemoteBranches(params.projectId);
+      json(200, branches);
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/update",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      const body = await readBody();
+      const updates: ProjectUpdatableFields = {};
+      for (const key of UPDATABLE_PROJECT_FIELDS) {
+        if (key in body) {
+          (updates as Record<string, unknown>)[key] = body[key];
+        }
+      }
+      const updated = await pm.updateProject(params.projectId, updates);
+      if (!updated) {
+        json(404, { error: "Project not found" });
+        return;
+      }
+      notifyProjectsChanged();
+      json(200, updated);
+    }),
+  },
+
+  {
+    method: "DELETE",
+    path: "/projects/:projectId",
+    handler: withProject(async ({ params, json, readBody }, pm) => {
+      await readBody();
+      pm.removeProject(params.projectId);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/reorder",
+    handler: withProjectManager(async ({ json, readBody }, pm) => {
+      const body = await readBody();
+      const orderedIds = body.orderedIds;
+      if (
+        !Array.isArray(orderedIds) ||
+        !orderedIds.every((id) => typeof id === "string")
+      ) {
+        json(400, {
+          error: "Missing 'orderedIds' array of strings in request body",
+        });
+        return;
+      }
+      pm.reorderProjects(orderedIds);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/resync-default-branches",
+    handler: withProjectManager(async ({ json, readBody }, pm) => {
+      await readBody();
+      await pm.resyncDefaultBranches();
       notifyProjectsChanged();
       json(200, { ok: true });
     }),

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PassThrough } from "node:stream";
 import { MSG, encodeFrame, encodeJsonFrame } from "./pty-subprocess-ipc";
 
@@ -19,7 +19,9 @@ vi.mock("../shell", () => ({
   },
 }));
 
-import { Session, buildShellEnv } from "./session";
+import os from "node:os";
+import { Session, buildShellEnv, prependManorBinDir } from "./session";
+import { manorBinDir } from "../paths";
 import type { StreamEvent } from "./types";
 
 function pushDataFrame(session: Session, data: string): void {
@@ -523,5 +525,39 @@ describe("buildShellEnv", () => {
     const result = buildShellEnv({}, { TERM: "xterm-256color" });
     expect(result).not.toHaveProperty("NODE_ENV");
     expect(result.TERM).toBe("xterm-256color");
+  });
+});
+
+describe("prependManorBinDir", () => {
+  let homedirSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    homedirSpy = vi.spyOn(os, "homedir").mockReturnValue("/Users/test");
+  });
+
+  afterEach(() => {
+    homedirSpy.mockRestore();
+  });
+
+  it("prepends ~/.manor/bin to PATH", () => {
+    const result = prependManorBinDir("/usr/bin:/usr/local/bin");
+    expect(result).toBe(`${manorBinDir()}:/usr/bin:/usr/local/bin`);
+  });
+
+  it("does not duplicate the bin dir if already present in PATH", () => {
+    const already = `/usr/bin:${manorBinDir()}:/usr/local/bin`;
+    const result = prependManorBinDir(already);
+    expect(result).toBe(already);
+    expect(result.split(":").filter((p) => p === manorBinDir())).toHaveLength(1);
+  });
+
+  it("handles an undefined base PATH", () => {
+    const result = prependManorBinDir(undefined);
+    expect(result).toBe(manorBinDir());
+  });
+
+  it("handles an empty base PATH", () => {
+    const result = prependManorBinDir("");
+    expect(result).toBe(manorBinDir());
   });
 });

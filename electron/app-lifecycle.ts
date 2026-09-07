@@ -19,7 +19,7 @@ import {
   registerAllAgents,
 } from "./agent-hooks";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
-import { ensureWebviewCli } from "./webview-cli-script";
+import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
@@ -36,6 +36,7 @@ import { RemoteControlServer } from "./remote-control/server";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
+import type { ControlDeps } from "./routes/types";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import {
@@ -273,13 +274,22 @@ export function initApp(devTitle: string | null): void {
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   const remoteControlServer = new RemoteControlServer(
-    () => ({
+    (): ControlDeps => ({
       projectManager,
       githubManager,
       linearManager,
       layoutPersistence,
       agentManager,
       backend,
+      notificationStore,
+      statsStore,
+      preferencesManager,
+      themeManager,
+      portScanner,
+      remoteControl,
+      agentHookServer,
+      webviewServer,
+      getRendererWindows,
     }),
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
@@ -338,7 +348,7 @@ export function initApp(devTitle: string | null): void {
   // Ensure shell integration and agent hooks are set up
   ShellManager.setupZdotdir();
   ensureHookScript();
-  ensureWebviewCli();
+  ensureManorCli();
   registerAllAgents();
   // The Home surface's harness runs in ~/.manor/home. Create it once here
   // instead of on every new session's launch command.
@@ -413,6 +423,24 @@ export function initApp(devTitle: string | null): void {
       return appMenu;
     },
   };
+
+  // Give control routes (ADR-171) the same manager bag IPC handlers have.
+  webviewServer.setControlDeps({
+    projectManager: ipcDeps.projectManager,
+    githubManager: ipcDeps.githubManager,
+    linearManager: ipcDeps.linearManager,
+    layoutPersistence: ipcDeps.layoutPersistence,
+    agentManager: ipcDeps.agentManager,
+    backend: ipcDeps.backend,
+    notificationStore: ipcDeps.notificationStore,
+    statsStore: ipcDeps.statsStore,
+    preferencesManager: ipcDeps.preferencesManager,
+    themeManager: ipcDeps.themeManager,
+    portScanner: ipcDeps.portScanner,
+    remoteControl: ipcDeps.remoteControl,
+    agentHookServer: ipcDeps.agentHookServer,
+    getRendererWindows: ipcDeps.getRendererWindows,
+  });
 
   ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);

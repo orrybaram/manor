@@ -355,17 +355,6 @@ export class CodexConnector implements AgentConnector {
 
 // ── Pi Connector ──
 
-const PI_HOOK_EVENTS = [
-  "SessionStart",
-  "UserPromptSubmit",
-  "PreToolUse",
-  "PostToolUse",
-  "PostToolUseFailure",
-  "Stop",
-  "StopFailure",
-  "SessionEnd",
-];
-
 export class PiConnector implements AgentConnector {
   readonly kind: AgentKind = "pi";
   readonly defaultCommand = "pi";
@@ -388,7 +377,7 @@ export class PiConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
-  registerHooks(hookScriptPath: string): void {
+  registerHooks(_hookScriptPath: string): void {
     // Pi uses extensions for hooks, not config files.
     // The manor-hooks extension is installed separately.
     // We create a simple shell hook script that pi's extension will call.
@@ -514,22 +503,7 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  registerMcp(mcpServerScriptPath: string): void {
-    // Pi uses settings.json for MCP configuration
-    const settingsPath = path.join(
-      process.env.HOME || "/tmp",
-      ".pi",
-      "agent",
-      "settings.json",
-    );
-
-    let settings: Record<string, unknown> = {};
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    } catch {
-      // File doesn't exist or invalid JSON
-    }
-
+  registerMcp(_mcpServerScriptPath: string): void {
     // Pi doesn't have built-in MCP support — it's added via extensions.
     // For now, we skip MCP registration for pi.
     // Users can install an MCP extension package if needed.

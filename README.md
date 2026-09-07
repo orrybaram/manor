@@ -143,6 +143,22 @@ pnpm dev
 
 <br />
 
+## Agent CLI
+
+Every Manor terminal has the `manor` command on `PATH`, generated from the same tool definitions that power the MCP server. Agents running inside Manor should prefer the CLI to avoid loading the tool roster into context.
+
+```bash
+manor --help
+manor list-projects
+manor create-folder --name Backlog
+manor set-workspace-folder --workspace-path <path> --folder-id <id>
+manor git-diff
+```
+
+See [ADR-170](docs/decisions/adr-170-manor-cli) and [ADR-171](docs/decisions/adr-171-complete-control-surface) for architecture.
+
+<br />
+
 ## Distribution
 
 `pnpm package` produces a signed, notarized `.dmg`/`.zip` for release. It requires Apple Developer credentials — **most contributors only need `pnpm dev`.**

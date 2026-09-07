@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import Search from "lucide-react/dist/esm/icons/search";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -113,29 +113,24 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   const setupState = setupKey ? worktreeSetupState[setupKey] : null;
   const setupActive = !!(setupState && !setupState.completed && setupKey);
 
-  // Track transition phase: "setup" | "transitioning" | "done"
-  const [phase, setPhase] = useState<"setup" | "transitioning" | "done">(
-    setupActive ? "setup" : "done",
-  );
-
-  // When setup becomes active, switch to setup phase
-  useEffect(() => {
-    if (setupActive && phase === "done") {
-      setPhase("setup");
-    }
-  }, [setupActive, phase]);
+  // Only the fade-out half of the transition is state; the setup phase itself
+  // is derived from the store so a newly active setup enters it in the same
+  // render rather than a follow-up effect.
+  const [fade, setFade] = useState<"transitioning" | "done">("done");
+  const phase: "setup" | "transitioning" | "done" =
+    fade === "done" && setupActive ? "setup" : fade;
 
   const handleSetupComplete = useCallback(() => {
     // The orchestrator (startSetupScript in project-store) owns the success
     // toast now so it fires even when this view is unmounted. Here we only
     // drive the fade-out transition.
-    setPhase("transitioning");
+    setFade("transitioning");
   }, []);
 
   const handleFadeInEnd = useCallback(() => {
     if (phase === "transitioning" && setupKey) {
       clearWorktreeSetup(setupKey);
-      setPhase("done");
+      setFade("done");
     }
   }, [phase, setupKey, clearWorktreeSetup]);
 

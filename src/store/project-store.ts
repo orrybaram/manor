@@ -255,7 +255,8 @@ function checksEqual(a?: ChecksSummary | null, b?: ChecksSummary | null): boolea
     a.total === b.total &&
     a.passing === b.passing &&
     a.failing === b.failing &&
-    a.pending === b.pending
+    a.pending === b.pending &&
+    (a.skipped ?? 0) === (b.skipped ?? 0)
   );
 }
 

@@ -8,6 +8,11 @@ export interface ChecksSummary {
   passing: number;
   failing: number;
   pending: number;
+  /**
+   * Runs GitHub reports as SKIPPED or NEUTRAL. They neither pass nor block,
+   * so they are kept out of the other three counts. Absent on older payloads.
+   */
+  skipped?: number;
 }
 
 /**
@@ -40,7 +45,7 @@ export interface PrComment {
 
 export type PrCommentKind = "comment" | "review" | "thread";
 
-export type PrCheckStatus = "passing" | "failing" | "pending";
+export type PrCheckStatus = "passing" | "failing" | "pending" | "skipped";
 
 /**
  * One entry of the status check rollup, named. The counts in `ChecksSummary`

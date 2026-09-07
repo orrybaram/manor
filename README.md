@@ -155,7 +155,7 @@ Every Manor terminal has the `manor` command on `PATH`, generated from the same 
 ```bash
 manor --help                    # List all commands
 manor list-projects             # Show projects and workspace counts
-manor screenshot-webview --id 1 # Capture a webview pane
+manor screenshot-webview --path shot.png  # Capture the open webview pane
 ```
 
 See [ADR-170](docs/decisions/adr-170-manor-cli) for the generation rule and architecture.

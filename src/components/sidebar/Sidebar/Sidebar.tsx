@@ -28,6 +28,7 @@ import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
   removeWorktreeWithToast,
   quickMergeWorktreeWithToast,
+  hideWorkspaceAndNavigate,
 } from "../../../store/workspace-actions";
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
@@ -371,17 +372,8 @@ export function Sidebar(props: SidebarProps) {
                         onRenameWorkspace={(ws, newName) =>
                           renameWorkspace(project.id, ws.path, newName)
                         }
-                        onHideWorkspace={(ws, wsIdx) => {
-                          const wasSelected =
-                            wsIdx === project.selectedWorkspaceIndex;
-                          setWorkspaceHidden(project.id, ws.path, true);
-                          if (wasSelected) {
-                            const mainIndex = project.workspaces.findIndex(
-                              (w) => w.isMain,
-                            );
-                            if (mainIndex >= 0)
-                              selectWorkspace(project.id, mainIndex);
-                          }
+                        onHideWorkspace={(ws) => {
+                          hideWorkspaceAndNavigate(project.id, ws.path);
                         }}
                         onUnhideWorkspace={(ws) =>
                           setWorkspaceHidden(project.id, ws.path, false)

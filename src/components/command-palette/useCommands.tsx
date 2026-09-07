@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
@@ -22,11 +22,15 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
-import { DEFAULT_AGENT_COMMAND, getAgentCommand } from "../../agent-defaults";
+import { getAgentCommand } from "../../agent-defaults";
 import { openInEditor } from "../../lib/editor";
+import {
+  convertFocusedPaneTo,
+  splitFocusedPaneWith,
+} from "../../lib/pane-actions";
 import type { ActivePort } from "../../electron.d.ts";
 import styles from "./CommandPalette.module.css";
 
@@ -79,24 +83,6 @@ export function useCommands({
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  const splitPaneAt = useAppStore((s) => s.splitPaneAt);
-  const setPaneContentType = useAppStore((s) => s.setPaneContentType);
-  const activeWs = useAppStore(selectActiveWorkspace);
-  const focusedPaneId = useMemo(() => {
-    if (!activeWs) return null;
-    const tab = activeWs.tabs.find((s) => s.id === activeWs.selectedTabId);
-    return tab?.focusedPaneId ?? null;
-  }, [activeWs]);
-
-  const splitWithContent = useCallback(
-    (contentType?: "terminal" | "browser" | "diff" | "agent", paneCommand?: string) => {
-      if (!focusedPaneId) return;
-      const el = document.querySelector<HTMLElement>(`[data-pane-id="${focusedPaneId}"]`);
-      const direction = el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
-      splitPaneAt(focusedPaneId, direction, "second", { contentType, paneCommand });
-    },
-    [focusedPaneId, splitPaneAt],
-  );
 
   return useMemo(() => {
     const fmt = (id: string) =>
@@ -205,7 +191,7 @@ export function useCommands({
         icon: <SquareTerminal size={14} />,
         keywords: ["split", "terminal", "pane"],
         action: () => {
-          splitWithContent();
+          splitFocusedPaneWith();
           onClose();
         },
       },
@@ -215,7 +201,7 @@ export function useCommands({
         icon: <Globe size={14} />,
         keywords: ["split", "browser", "pane", "web", "preview"],
         action: () => {
-          splitWithContent("browser");
+          splitFocusedPaneWith("browser");
           onClose();
         },
       },
@@ -225,7 +211,7 @@ export function useCommands({
         icon: <GitCompareArrows size={14} />,
         keywords: ["split", "diff", "pane", "git", "changes"],
         action: () => {
-          splitWithContent("diff");
+          splitFocusedPaneWith("diff");
           onClose();
         },
       },
@@ -236,11 +222,7 @@ export function useCommands({
         keywords: ["split", "agent", "pane", "claude"],
         action: () => {
           const awp = useAppStore.getState().activeWorkspacePath;
-          const proj = useProjectStore.getState().projects.find((p) =>
-            p.workspaces.some((w) => w.path === awp),
-          );
-          const command = proj?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-          splitWithContent("agent", command);
+          splitFocusedPaneWith("agent", getAgentCommand(awp));
           onClose();
         },
       },
@@ -250,7 +232,7 @@ export function useCommands({
         icon: <SquareTerminal size={14} />,
         keywords: ["convert", "terminal", "pane"],
         action: () => {
-          if (focusedPaneId) setPaneContentType(focusedPaneId, "terminal");
+          convertFocusedPaneTo("terminal");
           onClose();
         },
       },
@@ -260,7 +242,7 @@ export function useCommands({
         icon: <Globe size={14} />,
         keywords: ["convert", "browser", "pane", "web", "preview"],
         action: () => {
-          if (focusedPaneId) setPaneContentType(focusedPaneId, "browser");
+          convertFocusedPaneTo("browser");
           onClose();
         },
       },
@@ -270,7 +252,7 @@ export function useCommands({
         icon: <GitCompareArrows size={14} />,
         keywords: ["convert", "diff", "pane", "git", "changes"],
         action: () => {
-          if (focusedPaneId) setPaneContentType(focusedPaneId, "diff");
+          convertFocusedPaneTo("diff");
           onClose();
         },
       },
@@ -280,19 +262,7 @@ export function useCommands({
         icon: <Bot size={14} />,
         keywords: ["convert", "agent", "pane", "claude"],
         action: () => {
-          if (focusedPaneId) {
-            const state = useAppStore.getState();
-            const command = getAgentCommand(state.activeWorkspacePath);
-            const currentType = state.paneContentType[focusedPaneId] ?? "terminal";
-            if (currentType === "terminal") {
-              window.electronAPI.pty.write(focusedPaneId, command + "\n");
-            } else {
-              setPaneContentType(focusedPaneId, "terminal");
-              useAppStore.setState((s) => ({
-                pendingPaneCommands: { ...s.pendingPaneCommands, [focusedPaneId]: command },
-              }));
-            }
-          }
+          convertFocusedPaneTo("agent");
           onClose();
         },
       },
@@ -582,7 +552,6 @@ export function useCommands({
     closePane,
     closeTab,
     splitPane,
-    splitWithContent,
     selectNextTab,
     selectPrevTab,
     focusNextPane,

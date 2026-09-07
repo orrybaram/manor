@@ -92,6 +92,21 @@ export default defineConfig({
         },
       },
       {
+        // manor CLI — runs as a standalone Node.js process (ADR-170)
+        entry: "electron/manor-cli.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron",
+            rollupOptions: {
+              output: {
+                format: "cjs",
+                entryFileNames: "manor-cli.js",
+              },
+            },
+          },
+        },
+      },
+      {
         // Agent hook — standalone Node script invoked by agent CLIs (Claude
         // Code etc.) via the bash wrapper at ~/.manor/hooks/notify.sh.
         // Bundled to dist-electron so it can be copied to the user's

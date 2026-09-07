@@ -41,6 +41,43 @@ export function isKill(agent: {
   );
 }
 
+/**
+ * The subset of kills that interrupt an agent mid-thought: it still had work in
+ * flight or was waiting on the user when the trigger was pulled. Tracked as a
+ * separate counter (`agentsKilledMidThought`) alongside the broader kill count.
+ */
+export const MID_THOUGHT_STATUSES: ReadonlySet<string> = new Set([
+  "working",
+  "thinking",
+  "requires_input",
+]);
+
+export function isMidThoughtKill(agent: {
+  status: string;
+  lastAgentStatus: string | null;
+}): boolean {
+  return (
+    isKill(agent) &&
+    agent.lastAgentStatus != null &&
+    MID_THOUGHT_STATUSES.has(agent.lastAgentStatus)
+  );
+}
+
+/**
+ * Every counter a termination of this agent should bump. Empty when it is not
+ * a kill at all. Call sites loop over this so the two kill counters can never
+ * drift apart.
+ */
+export function killCounters(agent: {
+  status: string;
+  lastAgentStatus: string | null;
+}): StatCounter[] {
+  if (!isKill(agent)) return [];
+  return isMidThoughtKill(agent)
+    ? ["agentsKilled", "agentsKilledMidThought"]
+    : ["agentsKilled"];
+}
+
 // ── Hook-event → counter deltas (ADR-168 §2, first table row) ──
 
 /**

@@ -90,7 +90,7 @@ Command-palette usage (`src/store/command-usage-store.ts`) stays a renderer-only
 
 ### 3. "Agents killed" definition
 
-An agent is *killed* when its pty session is terminated by a user action **while it is active and has any last known status** (`working`, `thinking`, `requires_input`, `responded`, `idle`). Finished agents count too: the session was still live and promptable. Only an agent that never reported a status is exempt. (Amended 2026-09-07; originally `responded`/`idle` were excluded.)
+An agent is *killed* when its pty session is terminated by a user action **while it is active and has any last known status** (`working`, `thinking`, `requires_input`, `responded`, `idle`). Finished agents count too: the session was still live and promptable. Only an agent that never reported a status is exempt. (Amended 2026-09-07; originally `responded`/`idle` were excluded.) A second counter, `agentsKilledMidThought`, keeps the original narrower rule: kills where the last status was `working`, `thinking`, or `requires_input`.
 
 Taps, all in main so the renderer cannot forget one:
 

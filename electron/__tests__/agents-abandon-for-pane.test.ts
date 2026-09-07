@@ -164,8 +164,9 @@ describe("agents:abandonForPane handler", () => {
         const handler = handlers.get("agents:abandonForPane")!;
         handler({} as never, "pane-1");
 
-        expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+        expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
         expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+        expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
       },
     );
 
@@ -179,6 +180,7 @@ describe("agents:abandonForPane handler", () => {
       const handler = handlers.get("agents:abandonForPane")!;
       handler({} as never, "pane-1");
 
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
     });
 

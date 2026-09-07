@@ -101,6 +101,7 @@ export type StatCounter =
   | "subagents"
   | "agentsResponded"
   | "agentsKilled"
+  | "agentsKilledMidThought"
   | "blocks"
   | "unblocks"
   | "unblockMsTotal"

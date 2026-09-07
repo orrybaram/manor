@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   createSignalTracker,
   deltasForHookEvent,
-  isKill,
+  isKill, killCounters,
   KILL_STATUSES,
   type SignalTrackerState,
   type StatDelta,
@@ -52,6 +52,28 @@ describe("stats-signals", () => {
 
     it("ignores an unknown last status", () => {
       expect(isKill({ status: "active", lastAgentStatus: "daydreaming" })).toBe(false);
+    });
+  });
+
+  describe("killCounters", () => {
+    it("bumps both counters for a mid-thought kill", () => {
+      for (const lastAgentStatus of ["working", "thinking", "requires_input"]) {
+        expect(killCounters({ status: "active", lastAgentStatus })).toEqual([
+          "agentsKilled",
+          "agentsKilledMidThought",
+        ]);
+      }
+    });
+
+    it("bumps only the broad counter for a finished agent", () => {
+      for (const lastAgentStatus of ["responded", "idle"]) {
+        expect(killCounters({ status: "active", lastAgentStatus })).toEqual(["agentsKilled"]);
+      }
+    });
+
+    it("bumps nothing when it is not a kill", () => {
+      expect(killCounters({ status: "active", lastAgentStatus: null })).toEqual([]);
+      expect(killCounters({ status: "completed", lastAgentStatus: "working" })).toEqual([]);
     });
   });
 });

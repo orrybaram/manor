@@ -55,6 +55,7 @@ const STAT_GROUPS: readonly StatGroup[] = [
       { kind: "counter", counter: "subagents" },
       { kind: "counter", counter: "agentsResponded" },
       { kind: "counter", counter: "agentsKilled" },
+      { kind: "counter", counter: "agentsKilledMidThought" },
     ],
   },
   {

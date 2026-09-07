@@ -80,6 +80,8 @@ export function counterDescription(counter: StatCounter): string {
       return "Times an agent finished a turn and handed control back to you.";
     case "agentsKilled":
       return "Live agents you terminated by closing their pane or killing the session.";
+    case "agentsKilledMidThought":
+      return "Train of thought derailed: kills where the agent was still working, thinking, or waiting on your input.";
     case "blocks":
       return "Times an agent stopped to wait on you: a permission prompt or a question.";
     case "unblocks":
@@ -122,6 +124,8 @@ export function humanCounterLabel(counter: StatCounter): string {
       return "Agents responded";
     case "agentsKilled":
       return "Agents killed";
+    case "agentsKilledMidThought":
+      return "Derailed";
     case "blocks":
       return "Times blocked";
     case "unblocks":

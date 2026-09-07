@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { ipcMain } from "electron";
 import { portlessManager } from "../portless";
 import { assertString } from "../ipc-validate";
-import { isKill } from "../stats-signals";
+import { killCounters } from "../stats-signals";
 import type { IpcDeps } from "./types";
 import type { ActivePort } from "../backend/types";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -80,7 +80,7 @@ export function register(deps: IpcDeps): void {
     async (_event, sessionId: string) => {
       assertString(sessionId, "sessionId");
       const agent = agentManager.getAgentByPaneId(sessionId);
-      if (agent && isKill(agent)) statsStore.record("agentsKilled");
+      if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
       try {
         await backend.pty.kill(sessionId);
       } catch {
@@ -122,7 +122,7 @@ export function register(deps: IpcDeps): void {
       const sessions = await backend.pty.listSessions();
       for (const session of sessions) {
         const agent = agentManager.getAgentByPaneId(session.sessionId);
-        if (agent && isKill(agent)) statsStore.record("agentsKilled");
+        if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
         try {
           await backend.pty.kill(session.sessionId);
         } catch {

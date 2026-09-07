@@ -110,8 +110,9 @@ describe("processes:killSession / processes:killAll stats", () => {
       const handler = handlers.get("processes:killSession")!;
       await handler({} as never, "session-1");
 
-      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
       expect(deps.backend.pty.kill).toHaveBeenCalledWith("session-1");
     });
 
@@ -134,6 +135,7 @@ describe("processes:killSession / processes:killAll stats", () => {
       const handler = handlers.get("processes:killSession")!;
       await handler({} as never, "session-1");
 
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
     });
   });
@@ -155,8 +157,9 @@ describe("processes:killSession / processes:killAll stats", () => {
       const handler = handlers.get("processes:killAll")!;
       await handler({} as never);
 
-      expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(3);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
       expect(deps.backend.pty.kill).toHaveBeenCalledTimes(3);
     });
   });

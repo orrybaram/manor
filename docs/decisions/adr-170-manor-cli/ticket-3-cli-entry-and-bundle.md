@@ -1,6 +1,6 @@
 ---
 title: Standalone manor-cli entry, Vite bundle, knip and asarUnpack wiring
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 2]

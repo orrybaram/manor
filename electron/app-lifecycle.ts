@@ -19,7 +19,7 @@ import {
   registerAllAgents,
 } from "./agent-hooks";
 import { createHookRelay, SWEEP_INTERVAL_MS } from "./hook-relay";
-import { ensureWebviewCli } from "./webview-cli-script";
+import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
@@ -328,7 +328,7 @@ export function initApp(devTitle: string | null): void {
   // Ensure shell integration and agent hooks are set up
   ShellManager.setupZdotdir();
   ensureHookScript();
-  ensureWebviewCli();
+  ensureManorCli();
   registerAllAgents();
   // The Home surface's harness runs in ~/.manor/home. Create it once here
   // instead of on every new session's launch command.

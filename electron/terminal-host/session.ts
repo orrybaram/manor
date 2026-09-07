@@ -22,6 +22,7 @@ import {
   encodeJsonFrame,
 } from "./pty-subprocess-ipc";
 import { ShellManager } from "../shell";
+import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
 import { AgentDetector } from "./agent-detector";
 import { OutputPatternMatcher } from "./output-pattern-matcher";
@@ -63,6 +64,21 @@ export function buildShellEnv(
     env[key] = value;
   }
   return { ...env, ...overrides };
+}
+
+/**
+ * Prepend `~/.manor/bin` to PATH so `manor` (ADR-170) is reachable from every
+ * Manor terminal. Skips the prepend if it's already present — the daemon's
+ * own `process.env.PATH` may already contain it (e.g. inherited from a
+ * parent process that put it there), and re-prepending on every session
+ * spawn would otherwise grow PATH with a duplicate entry each time the
+ * daemon restarts.
+ */
+export function prependManorBinDir(basePath: string | undefined): string {
+  const existing = basePath ?? "";
+  const binDir = manorBinDir();
+  if (existing.split(":").includes(binDir)) return existing;
+  return existing ? `${binDir}:${existing}` : binDir;
 }
 
 /** How long to wait for the pty subprocess to confirm a resize before giving up. */
@@ -276,6 +292,7 @@ export class Session {
             TERM: "xterm-256color",
             ZDOTDIR: zdotdir,
             REAL_ZDOTDIR: ShellManager.realZdotdir(),
+            PATH: prependManorBinDir(process.env.PATH),
             ...this.envOverrides,
           }),
         };

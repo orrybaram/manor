@@ -262,6 +262,10 @@ describe("electron/paths", () => {
       expect(paths.homeWorkspaceDir()).toBe(path.join(homeRoot(), "home"));
     });
 
+    it("manorBinDir", () => {
+      expect(paths.manorBinDir()).toBe(path.join(homeRoot(), "bin"));
+    });
+
     it("home-dir getters work identically on linux", () => {
       mockPlatform("linux");
       expect(paths.daemonSocketFile()).toBe(
@@ -322,6 +326,7 @@ describe("electron/paths", () => {
         paths.layoutFile,
         paths.worktreesDir,
         paths.homeWorkspaceDir,
+        paths.manorBinDir,
       ];
       for (const getter of getters) {
         expect(path.isAbsolute(getter())).toBe(true);

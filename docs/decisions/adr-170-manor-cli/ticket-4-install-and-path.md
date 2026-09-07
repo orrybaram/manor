@@ -1,6 +1,6 @@
 ---
 title: Install ~/.manor/bin/manor on startup, retire manor-webview, add bin dir to PATH
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

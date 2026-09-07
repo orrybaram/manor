@@ -12,22 +12,22 @@ Renderer-owned layout state. Read `src/lib/app-commands.ts` top to bottom first:
 
 ## Renderer handlers (`src/lib/app-commands.ts`, add to `appCommandHandlers`)
 
-| Command | Args | Store action |
-|---|---|---|
-| `select-tab` | `tabId` | `selectTab` |
-| `next-tab` / `prev-tab` | — | `selectNextTab` / `selectPrevTab` |
-| `close-tab` | `tabId` | `closeTab` (not `requestCloseTab`; no confirm dialog over HTTP — say so in the tool description) |
-| `close-other-tabs` / `close-tabs-to-right` | `tabId` | same-named actions |
-| `pin-tab` | `tabId` | `togglePinTab` (return the new pinned state) |
-| `duplicate-tab` | `tabId` | `duplicateTab` (return new tab id) |
-| `reorder-tabs` | `tabIds: string[]` | `reorderTabs` (validate same set as current) |
-| `open-diff` | — | `openOrFocusDiff` (return tab id) |
-| `set-pane-title` / `clear-pane-title` | `paneId`, `title` | `setPaneTitle` / `clearPaneTitle` |
-| `move-pane` | per `movePaneToTarget` signature | `movePaneToTarget` |
-| `extract-pane-to-tab` | `paneId`, `targetPanelId?` | `extractPaneToTab` |
-| `reopen-closed-pane` | — | `reopenClosedPane` (error if nothing to reopen) |
-| `focus-next-pane` / `focus-prev-pane` | — | same-named |
-| `set-active-workspace` | `workspacePath` | `setActiveWorkspace` (validate the path is a known workspace via `useProjectStore`) |
+| Command                                    | Args                             | Store action                                                                                     |
+| ------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `select-tab`                               | `tabId`                          | `selectTab`                                                                                      |
+| `next-tab` / `prev-tab`                    | —                                | `selectNextTab` / `selectPrevTab`                                                                |
+| `close-tab`                                | `tabId`                          | `closeTab` (not `requestCloseTab`; no confirm dialog over HTTP — say so in the tool description) |
+| `close-other-tabs` / `close-tabs-to-right` | `tabId`                          | same-named actions                                                                               |
+| `pin-tab`                                  | `tabId`                          | `togglePinTab` (return the new pinned state)                                                     |
+| `duplicate-tab`                            | `tabId`                          | `duplicateTab` (return new tab id)                                                               |
+| `reorder-tabs`                             | `tabIds: string[]`               | `reorderTabs` (validate same set as current)                                                     |
+| `open-diff`                                | —                                | `openOrFocusDiff` (return tab id)                                                                |
+| `set-pane-title` / `clear-pane-title`      | `paneId`, `title`                | `setPaneTitle` / `clearPaneTitle`                                                                |
+| `move-pane`                                | per `movePaneToTarget` signature | `movePaneToTarget`                                                                               |
+| `extract-pane-to-tab`                      | `paneId`, `targetPanelId?`       | `extractPaneToTab`                                                                               |
+| `reopen-closed-pane`                       | —                                | `reopenClosedPane` (error if nothing to reopen)                                                  |
+| `focus-next-pane` / `focus-prev-pane`      | —                                | same-named                                                                                       |
+| `set-active-workspace`                     | `workspacePath`                  | `setActiveWorkspace` (validate the path is a known workspace via `useProjectStore`)              |
 
 Every handler validates ids exist (`hasPaneId`, tab lookup) and throws with a message naming the id.
 
@@ -40,10 +40,12 @@ Every handler validates ids exist (`hasPaneId`, tab lookup) and throws with a me
 One per command, `select_tab`, `close_tab`, … `set_active_workspace`. `workspacePath` defaults via `resolveWorkspacePath`.
 
 ## Tests
+
 - `src/lib/__tests__/app-commands.test.ts`: extend with select/close/pin/reorder/set-pane-title/set-active-workspace, including the throw paths.
 - `electron/routes/router.test.ts` passes.
 
 ## Files to touch
+
 - `src/lib/app-commands.ts`
 - `src/lib/__tests__/app-commands.test.ts`
 - `electron/routes/panes.ts`

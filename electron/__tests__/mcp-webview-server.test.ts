@@ -340,7 +340,9 @@ describe("WebviewServer project/workspace routes", () => {
     };
     // Every mutating route broadcasts to the renderer; tests that care about the
     // broadcast swap in a window with a spied `send`.
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+      [],
+    );
 
     // The route handler only uses these four methods of ProjectManager.
     server = new WebviewServer(
@@ -362,10 +364,9 @@ describe("WebviewServer project/workspace routes", () => {
   });
 
   it("GET /projects/:id returns the project", async () => {
-    const project = (await mcpHttpGet(
-      baseUrl,
-      "/projects/proj-1",
-    )) as { name: string };
+    const project = (await mcpHttpGet(baseUrl, "/projects/proj-1")) as {
+      name: string;
+    };
     expect(project.name).toBe("demo");
   });
 
@@ -399,11 +400,10 @@ describe("WebviewServer project/workspace routes", () => {
   });
 
   it("POST /projects/:id/workspaces creates a workspace", async () => {
-    const project = (await mcpHttpPost(
-      baseUrl,
-      "/projects/proj-1/workspaces",
-      { name: "feature", baseBranch: "origin/main" },
-    )) as { workspaces: unknown[] };
+    const project = (await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
+      name: "feature",
+      baseBranch: "origin/main",
+    })) as { workspaces: unknown[] };
     expect(project.workspaces).toHaveLength(2);
     expect(pm.createWorktree).toHaveBeenCalledWith(
       "proj-1",
@@ -440,15 +440,20 @@ describe("WebviewServer project/workspace routes", () => {
 
   it("POST /projects/:id/workspaces runs the project's setup script in the new workspace", async () => {
     const send = vi.fn();
-    (
-      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-    ).mockReturnValue([{ webContents: { send } }]);
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
     pm.createWorktree.mockResolvedValueOnce({
       ...PROJECT,
       worktreeStartScript: "npm install",
       workspaces: [
         ...PROJECT.workspaces,
-        { path: "/repos/demo-ws", branch: "feature", isMain: false, name: null },
+        {
+          path: "/repos/demo-ws",
+          branch: "feature",
+          isMain: false,
+          name: null,
+        },
       ],
     });
 
@@ -465,9 +470,9 @@ describe("WebviewServer project/workspace routes", () => {
 
   it("POST /projects/:id/workspaces skips the setup script when the project has none", async () => {
     const send = vi.fn();
-    (
-      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-    ).mockReturnValue([{ webContents: { send } }]);
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
 
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
@@ -478,9 +483,9 @@ describe("WebviewServer project/workspace routes", () => {
 
   it("POST /projects/:id/workspaces tells the renderer its project list is stale", async () => {
     const send = vi.fn();
-    (
-      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-    ).mockReturnValue([{ webContents: { send } }]);
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
 
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
@@ -491,9 +496,9 @@ describe("WebviewServer project/workspace routes", () => {
 
   it("DELETE /projects/:id/workspaces tells the renderer its project list is stale", async () => {
     const send = vi.fn();
-    (
-      BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-    ).mockReturnValue([{ webContents: { send } }]);
+    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+      { webContents: { send } },
+    ]);
 
     await mcpHttpDelete(baseUrl, "/projects/proj-1/workspaces", {
       worktreePath: "/repos/demo-ws",
@@ -654,7 +659,9 @@ describe("WebviewServer agent orchestration routes", () => {
       new Map<string, number>(),
       pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
       github as unknown as ConstructorParameters<typeof WebviewServer>[2],
-      linearManager as unknown as ConstructorParameters<typeof WebviewServer>[3],
+      linearManager as unknown as ConstructorParameters<
+        typeof WebviewServer
+      >[3],
     );
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
@@ -905,9 +912,9 @@ describe("WebviewServer agent orchestration routes", () => {
   describe("POST /agents", () => {
     it("dispatches an app-command and returns ok", async () => {
       const send = vi.fn();
-      (
-        BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-      ).mockReturnValue([{ webContents: { send } }]);
+      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+        [{ webContents: { send } }],
+      );
 
       const result = await mcpHttpPost(baseUrl, "/agents", {
         workspacePath: "/repos/demo-ws",
@@ -923,9 +930,9 @@ describe("WebviewServer agent orchestration routes", () => {
     });
 
     it("returns 503 when no Manor window is open", async () => {
-      (
-        BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-      ).mockReturnValue([]);
+      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+        [],
+      );
 
       await expect(
         mcpHttpPost(baseUrl, "/agents", { workspacePath: "/repos/demo-ws" }),
@@ -1082,9 +1089,9 @@ describe("WebviewServer agent orchestration routes", () => {
     // workspace already exists on disk — it must land on `launchError`, not
     // `error`, which is reserved for "no workspace was created at all".
     it("reports launchError (not error) on a created workspace whose agent failed to start", async () => {
-      (
-        BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
-      ).mockReturnValue([]);
+      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+        [],
+      );
 
       const result = (await mcpHttpPost(
         baseUrl,
@@ -1373,9 +1380,9 @@ describe("WebviewServer pane routes", () => {
   it("returns 400 when a renderer handler throws", async () => {
     respondWithError("Unknown paneId: pane-404");
 
-    await expect(
-      mcpHttpDelete(baseUrl, "/panes/pane-404"),
-    ).rejects.toThrow("HTTP 400");
+    await expect(mcpHttpDelete(baseUrl, "/panes/pane-404")).rejects.toThrow(
+      "HTTP 400",
+    );
   });
 
   it("returns 405 for GET /tabs", async () => {
@@ -1394,18 +1401,14 @@ describe("WebviewServer pane routes", () => {
     await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
   });
 
-  it(
-    "returns 503 on renderer timeout",
-    async () => {
-      // `send` never replies — the renderer is unresponsive. This exercises
-      // the real (5s) `requestRenderer` timeout end-to-end over HTTP; faking
-      // timers here would also have to fake the real socket I/O `fetch`
-      // depends on, which the `requestRenderer` describe block below already
-      // covers directly and more precisely.
-      await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
-    },
-    7000,
-  );
+  it("returns 503 on renderer timeout", async () => {
+    // `send` never replies — the renderer is unresponsive. This exercises
+    // the real (5s) `requestRenderer` timeout end-to-end over HTTP; faking
+    // timers here would also have to fake the real socket I/O `fetch`
+    // depends on, which the `requestRenderer` describe block below already
+    // covers directly and more precisely.
+    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+  }, 7000);
 });
 
 // ── Correlated main→renderer request/response (ADR-149 §1) ──
@@ -1467,7 +1470,11 @@ describe("requestRenderer", () => {
     expect(command.args).toEqual({ direction: "horizontal" });
     expect(typeof command.requestId).toBe("string");
 
-    reply({ requestId: command.requestId!, ok: true, data: { paneId: "pane-1" } });
+    reply({
+      requestId: command.requestId!,
+      ok: true,
+      data: { paneId: "pane-1" },
+    });
 
     await expect(pending).resolves.toEqual({
       ok: true,
@@ -1565,7 +1572,9 @@ describe("requestRenderer", () => {
 
     // A late reply for the abandoned request must not throw or double-resolve.
     const staleId = sentCommand(0).requestId!;
-    expect(() => reply({ requestId: staleId, ok: true, data: 1 })).not.toThrow();
+    expect(() =>
+      reply({ requestId: staleId, ok: true, data: 1 }),
+    ).not.toThrow();
 
     // A subsequent request still works — the map is not wedged.
     const next = requestRenderer("list-panes", undefined, 1000);
@@ -1593,7 +1602,14 @@ describe("MCP tools composition and parity", () => {
     expect(new Set(toolNames).size).toBe(expectedCount);
 
     // Assert the six new pane tools are present
-    const newPaneTools = ["list_panes", "split_pane", "new_terminal", "new_browser", "focus_pane", "close_pane"];
+    const newPaneTools = [
+      "list_panes",
+      "split_pane",
+      "new_terminal",
+      "new_browser",
+      "focus_pane",
+      "close_pane",
+    ];
     for (const toolName of newPaneTools) {
       expect(toolNames).toContain(toolName);
     }
@@ -1732,8 +1748,12 @@ describe("GET /context", () => {
       new Map<string, number>(),
       pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
       github as unknown as ConstructorParameters<typeof WebviewServer>[2],
-      linearManager as unknown as ConstructorParameters<typeof WebviewServer>[3],
-      layoutPersistence as unknown as ConstructorParameters<typeof WebviewServer>[4],
+      linearManager as unknown as ConstructorParameters<
+        typeof WebviewServer
+      >[3],
+      layoutPersistence as unknown as ConstructorParameters<
+        typeof WebviewServer
+      >[4],
     );
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
@@ -1844,9 +1864,7 @@ describe("GET /context", () => {
   });
 
   it("returns 405 for POST /context", async () => {
-    await expect(mcpHttpPost(baseUrl, "/context")).rejects.toThrow(
-      "HTTP 405",
-    );
+    await expect(mcpHttpPost(baseUrl, "/context")).rejects.toThrow("HTTP 405");
   });
 
   it("returns 503 when there is no projectManager", async () => {
@@ -1854,9 +1872,9 @@ describe("GET /context", () => {
     await bare.start();
     const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
 
-    await expect(
-      mcpHttpGet(bareUrl, "/context?cwd=/repo"),
-    ).rejects.toThrow("HTTP 503");
+    await expect(mcpHttpGet(bareUrl, "/context?cwd=/repo")).rejects.toThrow(
+      "HTTP 503",
+    );
     bare.stop();
   });
 });
@@ -1910,7 +1928,11 @@ describe("GET /context sources computation", () => {
     const linear = {
       isConnected: vi.fn(() => true),
     } as unknown as ConstructorParameters<typeof WebviewServer>[3];
-    const { server, baseUrl } = await serverWithSources(GITHUB_STUB, linear, []);
+    const { server, baseUrl } = await serverWithSources(
+      GITHUB_STUB,
+      linear,
+      [],
+    );
 
     const { body } = await getContext(baseUrl, "?cwd=/repo");
     expect(body.sources).toEqual(["github"]);

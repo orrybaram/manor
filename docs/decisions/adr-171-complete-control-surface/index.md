@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -27,14 +27,14 @@ is one `ToolDef` away from being a subcommand. The gap is now on the other side:
 server exposes 35 operations, while the app itself has roughly 120. Everything below already
 has a main-process implementation and is only missing a route and a tool definition:
 
-| Area | Exposed | Missing (examples) |
-|---|---|---|
-| Projects / workspaces / folders | 7 | create/rename/delete folder, move workspace into a folder, rename/hide/reorder workspace, update project, remove project, convert-main-to-worktree, quick-merge, link/unlink issue, list branches |
-| Tabs / panes | 6 | select/close/pin/duplicate/reorder tabs, set pane title, move/extract pane, reopen closed pane, open diff tab, set active workspace, webview zoom/find/mute/stop |
-| Agents / sessions | 7 | rename/delete/mark-seen agent, resume command, and tools for the two orphan routes `/sessions/interrupt` and `/sessions/end` |
-| Git | 0 | stage, unstage, discard, stash, commit, push, staged files, local/full diff |
-| Integrations | 2 | Linear start/close issue, GitHub status/create issue |
-| System | 0 | notifications, processes, ports, preferences, theme, stats, remote control, open-in-editor, windows, updater |
+| Area                            | Exposed | Missing (examples)                                                                                                                                                                                |
+| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Projects / workspaces / folders | 7       | create/rename/delete folder, move workspace into a folder, rename/hide/reorder workspace, update project, remove project, convert-main-to-worktree, quick-merge, link/unlink issue, list branches |
+| Tabs / panes                    | 6       | select/close/pin/duplicate/reorder tabs, set pane title, move/extract pane, reopen closed pane, open diff tab, set active workspace, webview zoom/find/mute/stop                                  |
+| Agents / sessions               | 7       | rename/delete/mark-seen agent, resume command, and tools for the two orphan routes `/sessions/interrupt` and `/sessions/end`                                                                      |
+| Git                             | 0       | stage, unstage, discard, stash, commit, push, staged files, local/full diff                                                                                                                       |
+| Integrations                    | 2       | Linear start/close issue, GitHub status/create issue                                                                                                                                              |
+| System                          | 0       | notifications, processes, ports, preferences, theme, stats, remote control, open-in-editor, windows, updater                                                                                      |
 
 Three structural facts shape the approach:
 

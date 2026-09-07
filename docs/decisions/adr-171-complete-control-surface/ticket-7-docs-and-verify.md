@@ -1,6 +1,6 @@
 ---
 title: Docs and integration check for the completed control surface
-status: in-progress
+status: done
 priority: low
 assignee: haiku
 blocked_by: [2, 3, 4, 5, 6]
@@ -15,6 +15,7 @@ blocked_by: [2, 3, 4, 5, 6]
 5. Run `pnpm test`, `pnpm lint`, `pnpm build`; report counts.
 
 ## Files to touch
+
 - `docs/AGENT-SYSTEM.md`
 - `README.md`
 - `docs/ARCHITECTURE.md`

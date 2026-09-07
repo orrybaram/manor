@@ -22,15 +22,17 @@ Give routes the same dependencies IPC handlers have, and pull the logic some IPC
 4. New `electron/process-control.ts` exporting pure functions that take what they need explicitly (no `IpcDeps`):
    - `listProcesses({ backend, agentHookServer, webviewServer, portlessManager })` — move the body of `processes:list` from `electron/ipc/processes.ts` verbatim.
    - `cleanupDeadProcesses(backend)`, `killDaemon()`, `restartPortless()`, `killAllProcesses({...})` — same treatment for the other four handlers.
-   `electron/ipc/processes.ts` becomes `ipcMain.handle("processes:list", () => listProcesses({...}))` etc.
+     `electron/ipc/processes.ts` becomes `ipcMain.handle("processes:list", () => listProcesses({...}))` etc.
 5. New `electron/editor.ts` exporting `openInEditor(preferencesManager, dirPath): Promise<string | void>` with the body of `shell:openInEditor` from `electron/ipc/misc.ts`; the IPC handler calls it.
 6. Nothing else moves. Notification broadcasting already has a single send-site (`sendNotificationsUpdate` in `electron/notifications.ts`); routes will import it directly.
 
 ## Tests
+
 - `electron/routes/router.test.ts` and `electron/__tests__/webview-server.test.ts` must still pass unchanged.
 - New `electron/process-control.test.ts`: `listProcesses` with a fake backend whose `listSessions` returns two sessions, one not in the active layout set → that one is `orphaned: true`. Mock `LayoutPersistence` the way other tests in `electron/__tests__/` do.
 
 ## Files to touch
+
 - `electron/routes/types.ts` — widen `ControlDeps`
 - `electron/webview-server.ts` — `setControlDeps`, merge into `handleControlRequest` call
 - `electron/app-lifecycle.ts` — call the setter after `ipcDeps`

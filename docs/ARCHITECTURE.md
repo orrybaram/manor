@@ -80,7 +80,8 @@ manor/
 │   ├── prewarm-manager.ts    pre-spawns a PTY for faster pane creation
 │   ├── updater.ts            electron-updater wrapper
 │   ├── webview-server.ts     in-app HTTP server backing the MCP webview tools
-│   ├── webview-cli-script.ts installable CLI bridge for external agents
+│   ├── manor-cli.ts          standalone CLI entry for manor command
+│   ├── manor-cli-install.ts  installs manor CLI to ~/.manor/bin
 │   ├── picker-script.ts      JS injected into webviews for element picking
 │   ├── mcp-webview-server.ts standalone MCP server (external process)
 │   ├── sourcemap-symbolication.ts  resolves renderer stack traces in prod

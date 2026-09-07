@@ -594,7 +594,7 @@ run simultaneously.
 - `BranchWatcher` and `DiffWatcher` exist (`app-lifecycle.ts:67-68`) but
   are not joined to agents.
 
-### 10.4 MCP server
+### 10.4 MCP server and `manor` CLI
 
 - The `manor` MCP server is registered with each connector
   (`agent-connectors.ts` `registerMcp` for Claude/Codex). Allows agents to
@@ -608,6 +608,18 @@ run simultaneously.
   (`GET /projects/:id/issues`, `POST /agents`,
   `POST /projects/:id/workspaces/batch`).
 - Lives outside the agent lifecycle; no agent field references it.
+- **ADR-170 added the `manor` CLI:** `~/.manor/bin/manor` is installed on
+  startup by `ensureManorCli` (`electron/manor-cli-install.ts`) and
+  `~/.manor/bin` is prepended to `PATH` in every Manor terminal
+  (`electron/terminal-host/session.ts`). Subcommands are generated from the
+  same `ToolModule` definitions the MCP server serves (`electron/mcp/cli.ts`):
+  `list_projects` → `manor list-projects`, `projectId` → `--project-id`.
+  `manor --help` lists them; `manor <cmd> --help` shows flags.
+  `manor api <METHOD> <path> [--body json]` hits the control server directly.
+  Agents running inside a Manor terminal should prefer the CLI over the MCP
+  tools to avoid loading the tool roster into context; the MCP tools remain
+  for inline screenshots and typed multi-line arguments. The legacy
+  `manor-webview` (ADR-053) was removed and is deleted from disk on startup.
 
 ---
 

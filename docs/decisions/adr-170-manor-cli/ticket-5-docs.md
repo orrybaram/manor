@@ -1,6 +1,6 @@
 ---
 title: Document the manor CLI in AGENT-SYSTEM.md and README
-status: todo
+status: in-progress
 priority: medium
 assignee: haiku
 blocked_by: [4]

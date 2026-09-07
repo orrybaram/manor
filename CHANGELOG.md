@@ -1,31 +1,39 @@
 # Changelog
 
+## [Unreleased]
 
+### Features
 
+- Native macOS application menu with File, Edit, View, Workspace, Pane, Agents, Window, and Help menus
+- Settings… now appears in the app menu
+- Keyboard shortcuts are displayed live in the menu and update immediately when rebinding in Settings › Keybindings
+- New shortcuts for workspace navigation: `Ctrl+Cmd+↓` (Next workspace) and `Ctrl+Cmd+↑` (Previous workspace)
 
+### Improvements
 
-
-
-
-
-
+- Zoom now applies to the focused window instead of always zooming the main window
+- Reload and Force Reload removed from packaged builds to reduce accidental data loss
 
 ## [0.10.3] - 2026-09-06
 
 ### Features
+
 - PR popover now shows recent comments, review threads, and named check runs
 
 ### Improvements
+
 - Unread notifications use a yellow dot, badge rows open the stats view, and the stats view has more room
 
 ## [0.10.2] - 2026-09-06
 
 ### Fixes
+
 - Manor now recovers gracefully if the terminal-host daemon crashes or is lost, instead of leaving sessions broken
 
 ## [0.10.1] - 2026-09-06
 
 **Features**
+
 - Stats view now includes a contribution graph and an achievements rack
 
 ## [0.10.0] - 2026-09-06
@@ -49,15 +57,18 @@
 ## [0.9.0] - 2026-08-25
 
 **Features**
+
 - Notification badges, icon actions, and filtering by notification kind
 
 **Fixes**
+
 - Terminal panes now size correctly on first paint — font loads before measuring
 - Smoother pane resizing with no visual flicker
 
 ## [0.8.0] - 2026-08-23
 
 **Features**
+
 - Remote control: pair your phone and monitor sessions live from a mobile web client, with push notifications when an agent needs input or errors
 - Stop a running agent or answer a prompt from your phone in a single tap
 - Remote-control settings page to enable access, pair devices, review exposure, and start a Tailscale or cloudflared tunnel on demand
@@ -65,6 +76,7 @@
 - Notification center: a bell in the sidebar titlebar with full notification history behind it, persisted across restarts
 
 **Fixes**
+
 - Sessions that already need input when opened now notify you
 - Read state now reflects what's actually on screen, not just clicking a task
 - Popout windows no longer tear down mid-drag
@@ -72,6 +84,7 @@
 - Tightened remote-control auth: tokens verified before backoff, rate limiting only on authenticated requests, session IDs constrained to a single path segment
 
 **Improvements**
+
 - Consolidated remote-control routing, writes, and status ownership behind a single path
 - Unified relative-time formatting across the app
 
@@ -92,23 +105,28 @@
 ## [0.6.5] - 2026-07-27
 
 **Features**
+
 - Record terminal sessions with a live recording indicator on the pane
 - Start, stop, and list recordings from MCP tools
 
 **Fixes**
+
 - Sidebar: clicking to add a tab no longer misbehaves
 
 ## [0.6.4] - 2026-07-25
 
 ## Features
+
 - Pop a pane out into its own window from the context menu
 
 ## Fixes
+
 - Keyboard shortcuts now work in popped-out windows
 
 ## [0.6.3] - 2026-07-25
 
 **Features**
+
 - Toggle named preview URLs per project
 - Home surface (renamed from Orchestrator) with a real working directory and prewarming
 - Navigation history: back/forward through views with Cmd+Ctrl+[ and Cmd+Ctrl+], plus titlebar buttons
@@ -121,12 +139,14 @@
 - `screenshot_webview` can now save a PNG to disk
 
 **Fixes**
+
 - PR notifications no longer get dropped while a webview has focus
 - Home is restored as the active surface after relaunch
 - Detached windows no longer open empty or refuse to move
 - Empty-workspace views are recorded and replayed correctly in history
 
 **Improvements**
+
 - Status bar drops back/forward buttons in favor of a Home label
 - Load-more control in tasks no longer looks like a button
 

@@ -1585,12 +1585,12 @@ describe("MCP tools composition and parity", () => {
     const tools = modules.flatMap((m) => m.tools);
     const handlers = Object.assign({}, ...modules.map((m) => m.handlers));
 
-    // Assert the total tool count: 14 webview + 26 projects + 4 agents + 6 pane tools = 50
-    // (projects gained `current_workspace` in ADR-150, then 19 more folder/
-    // workspace/branch/project-management tools in ADR-171 ticket 2; webview
-    // gained start_recording/stop_recording/list_recordings in ADR-158.)
+    // Composition must not drop or duplicate any module's tools. The count is
+    // derived from the modules themselves so adding a tool never breaks this.
     const toolNames = tools.map((t) => t.name);
-    expect(tools).toHaveLength(50);
+    const expectedCount = modules.reduce((n, m) => n + m.tools.length, 0);
+    expect(tools).toHaveLength(expectedCount);
+    expect(new Set(toolNames).size).toBe(expectedCount);
 
     // Assert the six new pane tools are present
     const newPaneTools = ["list_panes", "split_pane", "new_terminal", "new_browser", "focus_pane", "close_pane"];

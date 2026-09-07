@@ -1,6 +1,6 @@
 ---
 title: Project, workspace, and folder routes and tools
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

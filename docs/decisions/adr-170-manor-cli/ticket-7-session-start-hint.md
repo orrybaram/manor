@@ -1,6 +1,6 @@
 ---
 title: Advertise the manor CLI to Claude Code at SessionStart
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

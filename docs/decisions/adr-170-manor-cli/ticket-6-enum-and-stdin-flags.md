@@ -1,6 +1,6 @@
 ---
 title: Enum validation and stdin/file flag values in the CLI parser
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

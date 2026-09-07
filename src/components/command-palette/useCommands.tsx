@@ -31,6 +31,7 @@ import {
   convertFocusedPaneTo,
   splitFocusedPaneWith,
 } from "../../lib/pane-actions";
+import { requestUi } from "../../utils/ui-request";
 import type { ActivePort } from "../../electron.d.ts";
 import styles from "./CommandPalette.module.css";
 
@@ -50,7 +51,6 @@ interface UseCommandsParams {
   onOpenFeedback?: () => void;
   tabs: { id: string }[];
   selectedTabId: string | null;
-  setShowGhosts: (show: boolean) => void;
   activePorts: ActivePort[];
   openOrFocusDiff: () => void;
   openDiffInNewPanel: () => void;
@@ -74,7 +74,6 @@ export function useCommands({
   onOpenFeedback,
   tabs,
   selectedTabId,
-  setShowGhosts,
   activePorts,
   openOrFocusDiff,
   openDiffInNewPanel,
@@ -481,8 +480,7 @@ export function useCommands({
         icon: <span>👻</span>,
         action: () => {
           onClose();
-          setShowGhosts(true);
-          setTimeout(() => setShowGhosts(false), 5000);
+          requestUi({ type: "ghosts" });
         },
       },
     ];
@@ -562,7 +560,6 @@ export function useCommands({
     onOpenFeedback,
     tabs,
     selectedTabId,
-    setShowGhosts,
     bindings,
     activeWorkspacePath,
     activePorts,

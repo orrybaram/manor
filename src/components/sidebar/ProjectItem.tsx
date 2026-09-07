@@ -39,6 +39,7 @@ import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { FolderItem } from "./FolderItem";
 import { openInEditor } from "../../lib/editor";
+import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -348,6 +349,44 @@ export function ProjectItem(props: ProjectItemProps) {
     },
     [editValue, onRenameWorkspace],
   );
+
+  // Menu-driven actions (ADR-170 §8) arrive via the UI request bus rather
+  // than props. The subscription must survive re-renders without
+  // resubscribing, so the handler lives in a ref and the effect below
+  // subscribes exactly once.
+  const handleUiRequestRef = useRef<(request: UiRequest) => void>(() => {});
+  handleUiRequestRef.current = (request: UiRequest) => {
+    if (request.type === "remove-project") {
+      if (request.projectId === projectId) setConfirmRemove(true);
+      return;
+    }
+    if (
+      request.type !== "rename-workspace" &&
+      request.type !== "merge-worktree" &&
+      request.type !== "delete-worktree"
+    ) {
+      return;
+    }
+    if (request.projectId !== projectId) return;
+    const ws = project.workspaces.find((w) => w.path === request.path);
+    if (!ws) return;
+    switch (request.type) {
+      case "rename-workspace":
+        if (collapsed) onToggleCollapsed();
+        startRename(ws);
+        break;
+      case "merge-worktree":
+        setConfirmMergeWorktree(ws);
+        break;
+      case "delete-worktree":
+        setConfirmDeleteWorktree(ws);
+        break;
+    }
+  };
+
+  useEffect(() => {
+    return onUiRequest((request) => handleUiRequestRef.current(request));
+  }, []);
 
   const renderWorkspace = (ws: WorkspaceInfo) => {
     // Every callback below the sidebar takes the index into

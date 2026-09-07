@@ -22,7 +22,6 @@ import { IssueDetailView } from "./IssueDetailView";
 import { GitHubIssueDetailView } from "./GitHubIssueDetailView";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { StatsView } from "./StatsView";
-import { GhostOverlay } from "./GhostOverlay";
 import { wordPrefixFilter } from "./utils";
 import type {
   CommandPaletteProps,
@@ -79,7 +78,6 @@ export function CommandPalette(props: CommandPaletteProps) {
   >(null);
   const [issueListOrigin, setIssueListOrigin] = useState<PaletteView>("linear-all");
   const [issueListEmpty, setIssueListEmpty] = useState(false);
-  const [showGhosts, setShowGhosts] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Derive the active project from the active workspace; on surfaces with no
@@ -193,7 +191,6 @@ export function CommandPalette(props: CommandPaletteProps) {
     onOpenFeedback,
     tabs,
     selectedTabId,
-    setShowGhosts,
     activePorts,
     openOrFocusDiff,
     openDiffInNewPanel,
@@ -565,7 +562,6 @@ export function CommandPalette(props: CommandPaletteProps) {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      {showGhosts && <GhostOverlay />}
     </>
   );
 }

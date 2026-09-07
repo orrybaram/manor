@@ -5,6 +5,8 @@ import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { onPaletteViewRequest } from "./utils/palette-request";
+import { onUiRequest } from "./utils/ui-request";
+import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
@@ -122,9 +124,14 @@ function App() {
         ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
-  // The ghosts overlay still renders inside the command palette; this state is
-  // what the menu's "Ghosts!?" item drives once the overlay moves up here.
-  const [_showGhosts, setShowGhosts] = useState(false);
+  // Help > "Ghosts!?" easter egg (ADR-170 §8). Owned here rather than the
+  // palette so it stays visible with the palette closed, and so both the
+  // palette and the native menu can trigger the same overlay.
+  const [showGhosts, setShowGhosts] = useState(false);
+  const triggerGhosts = useCallback(() => {
+    setShowGhosts(true);
+    setTimeout(() => setShowGhosts(false), 5000);
+  }, []);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -243,6 +250,16 @@ function App() {
   useEffect(
     () => onPaletteViewRequest(handleOpenPaletteView),
     [handleOpenPaletteView],
+  );
+
+  // The palette's "Ghosts!?" item requests the overlay through the same bus
+  // the native menu uses, so both paths share this one trigger.
+  useEffect(
+    () =>
+      onUiRequest((request) => {
+        if (request.type === "ghosts") triggerGhosts();
+      }),
+    [triggerGhosts],
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
@@ -436,10 +453,7 @@ function App() {
         .agents.find((a) => a.id === agentId);
       if (agent) void handleResumeAgent(agent);
     },
-    showGhosts: () => {
-      setShowGhosts(true);
-      setTimeout(() => setShowGhosts(false), 5000);
-    },
+    showGhosts: triggerGhosts,
   });
 
   useMountEffect(() => {
@@ -715,6 +729,7 @@ function App() {
         }}
       />
       <ToastContainer />
+      {showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>
   );

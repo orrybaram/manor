@@ -35,7 +35,11 @@ const agentHook = require("../scripts/agent-hook.js") as {
 };
 
 type FakeStderr = { write: (chunk: string) => boolean; lines: string[] };
-type FakeFetch = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean }>;
+type FakeStdout = { write: (chunk: string) => boolean; lines: string[] };
+type FakeFetch = (
+  url: string,
+  init?: { signal?: AbortSignal },
+) => Promise<{ ok: boolean }>;
 type MainOpts = {
   argv?: string[];
   stdin?: NodeJS.ReadableStream;
@@ -43,6 +47,7 @@ type MainOpts = {
   homeDir?: string;
   fetch?: FakeFetch;
   stderr?: FakeStderr;
+  stdout?: FakeStdout;
 };
 
 function makeStdin(payload: string): NodeJS.ReadableStream {
@@ -51,6 +56,17 @@ function makeStdin(payload: string): NodeJS.ReadableStream {
 }
 
 function makeStderr(): FakeStderr {
+  const lines: string[] = [];
+  return {
+    lines,
+    write(chunk: string) {
+      lines.push(chunk);
+      return true;
+    },
+  };
+}
+
+function makeStdout(): FakeStdout {
   const lines: string[] = [];
   return {
     lines,
@@ -326,7 +342,8 @@ describe("agent-hook.js — main()", () => {
     fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "4040");
 
     const stderr = makeStderr();
-    const fetchFn: FakeFetch = () => Promise.reject(new Error("connect refused"));
+    const fetchFn: FakeFetch = () =>
+      Promise.reject(new Error("connect refused"));
 
     await expect(
       agentHook.main({
@@ -364,13 +381,15 @@ describe("agent-hook.js — resolvePort()", () => {
   it("ignores invalid (non-numeric) file content", () => {
     fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "not-a-number");
-    expect(
-      agentHook.resolvePort({ MANOR_HOOK_PORT: "9000" }, tmpDir),
-    ).toBe(9000);
+    expect(agentHook.resolvePort({ MANOR_HOOK_PORT: "9000" }, tmpDir)).toBe(
+      9000,
+    );
   });
 
   it("ignores invalid env value when no file present", () => {
-    expect(agentHook.resolvePort({ MANOR_HOOK_PORT: "garbage" }, tmpDir)).toBeNull();
+    expect(
+      agentHook.resolvePort({ MANOR_HOOK_PORT: "garbage" }, tmpDir),
+    ).toBeNull();
   });
 });
 
@@ -407,7 +426,9 @@ describe("agent-hook.js — buildUrl()", () => {
     });
     expect(url).toBeTruthy();
     const parsed = new URL(url!);
-    expect(parsed.searchParams.get("notificationKind")).toBe("permission_prompt");
+    expect(parsed.searchParams.get("notificationKind")).toBe(
+      "permission_prompt",
+    );
   });
 
   it("omits notificationKind when null", () => {
@@ -433,7 +454,9 @@ describe("agent-hook.js — extractNotificationKind()", () => {
   });
 
   it("returns null when no notification sub-object", () => {
-    expect(agentHook.extractNotificationKind({ hook_event_name: "Notification" })).toBeNull();
+    expect(
+      agentHook.extractNotificationKind({ hook_event_name: "Notification" }),
+    ).toBeNull();
   });
 
   it("returns null when notification sub-object has no known discriminator", () => {
@@ -599,5 +622,102 @@ describe("agent-hook.js — Notification event: notificationKind forwarding", ()
     const url = new URL(calls[0]!.url);
     expect(url.searchParams.get("eventType")).toBe("Stop");
     expect(url.searchParams.has("notificationKind")).toBe(false);
+  });
+});
+
+describe("agent-hook.js — SessionStart manor CLI hint", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(
+      os.tmpdir(),
+      `manor-hook-session-start-test-${crypto.randomUUID()}`,
+    );
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "8080");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("prints the manor CLI hint on SessionStart for claude", async () => {
+    const { fn: fetchFn } = makeFetch();
+    const stdout = makeStdout();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "SessionStart" })),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+      stdout,
+    });
+
+    expect(stdout.lines).toHaveLength(1);
+    const line = stdout.lines[0]!.trimEnd();
+    const parsed = JSON.parse(line);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(
+      "manor --help",
+    );
+  });
+
+  it("does not print the hint for other agent kinds", async () => {
+    const { fn: fetchFn } = makeFetch();
+    const stdout = makeStdout();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "SessionStart" })),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "codex" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+      stdout,
+    });
+
+    expect(stdout.lines).toHaveLength(0);
+  });
+
+  it("does not print the hint for other events", async () => {
+    const { fn: fetchFn } = makeFetch();
+    const stdout = makeStdout();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "UserPromptSubmit" })),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+      stdout,
+    });
+
+    expect(stdout.lines).toHaveLength(0);
+  });
+
+  it("still prints the hint when the forwarding fetch rejects", async () => {
+    const stdout = makeStdout();
+    const stderr = makeStderr();
+    const fetchFn: FakeFetch = () =>
+      Promise.reject(new Error("connect refused"));
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "SessionStart" })),
+      env: { MANOR_PANE_ID: "pane-1", MANOR_AGENT_KIND: "claude" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr,
+      stdout,
+    });
+
+    expect(stdout.lines).toHaveLength(1);
+    const parsed = JSON.parse(stdout.lines[0]!.trimEnd());
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(stderr.lines.join("")).toContain("request failed");
   });
 });

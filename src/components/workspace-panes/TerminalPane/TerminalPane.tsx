@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import "@xterm/xterm/css/xterm.css";
@@ -18,6 +18,7 @@ import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearchBar } from "./TerminalSearchBar";
+import { onUiRequest } from "../../../utils/ui-request";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -39,6 +40,16 @@ export function TerminalPane(props: TerminalPaneProps) {
     setSearchOpen(true);
     setSearchNonce((n) => n + 1);
   }, []);
+
+  // Edit › Find… (ADR-170) targets whichever pane is focused; open our own
+  // search UI when the request names this pane.
+  useEffect(() => {
+    return onUiRequest((request) => {
+      if (request.type === "pane-search" && request.paneId === paneId) {
+        openSearch();
+      }
+    });
+  }, [paneId, openSearch]);
 
   const { ptyError, term, searchAddon, write, reset } = useTerminalLifecycle(
     containerRef,

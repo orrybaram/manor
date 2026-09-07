@@ -621,7 +621,7 @@ export function LeafPane(props: LeafPaneProps) {
       <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            <DiffPane ref={diffRef} workspacePath={workspacePath} />
+            <DiffPane ref={diffRef} paneId={paneId} workspacePath={workspacePath} />
           </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>

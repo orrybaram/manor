@@ -32,18 +32,20 @@ import { Button } from "../../ui/Button/Button";
 import { openInEditor } from "../../../lib/editor";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
 import { useToastStore } from "../../../store/toast-store";
+import { onUiRequest } from "../../../utils/ui-request";
 
 export type DiffPaneRef = {
   toggleSearch: () => void;
 };
 
 type DiffPaneProps = {
+  paneId?: string;
   workspacePath?: string;
 };
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
-    const { workspacePath } = props;
+    const { paneId, workspacePath } = props;
     const [raw, setRaw] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -119,6 +121,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       });
     }, []);
 
+    const openSearch = useCallback(() => {
+      setSearchOpen(true);
+    }, []);
+
     // Cmd+F to open search
     useMountEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -129,12 +135,23 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           )
             return;
           e.preventDefault();
-          setSearchOpen(true);
+          openSearch();
         }
       };
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
     });
+
+    // Edit › Find… (ADR-170) targets whichever pane is focused; open our own
+    // search UI when the request names this pane.
+    useEffect(() => {
+      if (!paneId) return;
+      return onUiRequest((request) => {
+        if (request.type === "pane-search" && request.paneId === paneId) {
+          openSearch();
+        }
+      });
+    }, [paneId, openSearch]);
 
     const project = useProjectStore((s) =>
       s.projects.find((p) =>

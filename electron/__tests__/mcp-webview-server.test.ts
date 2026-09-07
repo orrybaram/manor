@@ -1577,7 +1577,7 @@ describe("requestRenderer", () => {
 // ── TOOLS/handlers parity test (ADR-149) ──
 
 describe("MCP tools composition and parity", () => {
-  it("composes exactly 31 tools with matching handlers", () => {
+  it("composes exactly 50 tools with matching handlers", () => {
     // Compose the modules the same way mcp-webview-server.ts does
     // (we import directly rather than from mcp-webview-server.ts because
     // that module calls main() at load time).
@@ -1585,11 +1585,12 @@ describe("MCP tools composition and parity", () => {
     const tools = modules.flatMap((m) => m.tools);
     const handlers = Object.assign({}, ...modules.map((m) => m.handlers));
 
-    // Assert the total tool count: 14 webview + 7 projects + 4 agents + 6 pane tools = 31
-    // (projects gained `current_workspace` in ADR-150; webview gained
-    // start_recording/stop_recording/list_recordings in ADR-158.)
+    // Assert the total tool count: 14 webview + 26 projects + 4 agents + 6 pane tools = 50
+    // (projects gained `current_workspace` in ADR-150, then 19 more folder/
+    // workspace/branch/project-management tools in ADR-171 ticket 2; webview
+    // gained start_recording/stop_recording/list_recordings in ADR-158.)
     const toolNames = tools.map((t) => t.name);
-    expect(tools).toHaveLength(31);
+    expect(tools).toHaveLength(50);
 
     // Assert the six new pane tools are present
     const newPaneTools = ["list_panes", "split_pane", "new_terminal", "new_browser", "focus_pane", "close_pane"];

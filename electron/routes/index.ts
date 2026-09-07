@@ -18,6 +18,7 @@ import type { ControlDeps, Json, ReadBody, Route } from "./types";
 import { agentRoutes } from "./agents";
 import { contextRoutes } from "./context";
 import { paneRoutes, tabRoutes } from "./panes";
+import { folderRoutes } from "./folders";
 import { projectRoutes } from "./projects";
 import { issueRoutes } from "./issues";
 
@@ -31,6 +32,7 @@ export const routes: readonly Route[] = [
   ...contextRoutes,
   ...paneRoutes,
   ...tabRoutes,
+  ...folderRoutes,
   ...projectRoutes,
   ...issueRoutes,
 ];

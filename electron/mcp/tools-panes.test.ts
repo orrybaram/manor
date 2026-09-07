@@ -83,9 +83,17 @@ describe("formatLayoutSnapshot", () => {
 
 /** A ~6-line fake `Http` that records every call and returns canned responses. */
 function fakeHttp(overrides: Partial<Http> = {}): Http & {
-  calls: Array<{ method: string; path: string; body?: Record<string, unknown> }>;
+  calls: Array<{
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+  }>;
 } {
-  const calls: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+  const calls: Array<{
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+  }> = [];
   return {
     calls,
     get: async (path) => {
@@ -176,7 +184,10 @@ describe("new_terminal / new_browser caller-workspace defaulting", () => {
     const http = fakeHttp({
       get: async () => ({ workspacePath: "/resolved/ws" }),
     });
-    await panesModule.handlers.new_browser({ url: "https://example.com" }, http);
+    await panesModule.handlers.new_browser(
+      { url: "https://example.com" },
+      http,
+    );
     expect(http.calls[0]).toMatchObject({ method: "GET" });
     expect(http.calls[1]).toMatchObject({
       method: "POST",
@@ -212,11 +223,106 @@ describe("new_terminal / new_browser caller-workspace defaulting", () => {
         );
       },
     });
-    await expect(
-      panesModule.handlers.new_terminal({}, http),
-    ).rejects.toThrow(/No project found for cwd/);
+    await expect(panesModule.handlers.new_terminal({}, http)).rejects.toThrow(
+      /No project found for cwd/,
+    );
     // The tool call fails outright rather than silently posting to /tabs
     // against the user's active workspace.
     expect(http.calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+});
+
+// ── ADR-171 ticket 3: tab and pane control surface ──
+
+describe("pin_tab", () => {
+  it("POSTs to the tab's pin endpoint and reports the returned state", async () => {
+    const http = fakeHttp({
+      post: async () => ({ tabId: "tab-1", pinned: true }),
+    });
+
+    const result = await panesModule.handlers.pin_tab({ tabId: "tab-1" }, http);
+
+    expect(http.calls[0]).toMatchObject({
+      method: "POST",
+      path: "/tabs/tab-1/pin",
+    });
+    expect(result.content[0].text).toMatch(/tab-1 is now pinned/);
+  });
+
+  it("encodes the tabId into the path", async () => {
+    const http = fakeHttp({
+      post: async () => ({ tabId: "a/b", pinned: false }),
+    });
+
+    await panesModule.handlers.pin_tab({ tabId: "a/b" }, http);
+
+    expect(http.calls[0].path).toBe("/tabs/a%2Fb/pin");
+  });
+});
+
+describe("move_pane", () => {
+  it("sends targetPaneId and direction, omitting position when unset", async () => {
+    const http = fakeHttp();
+
+    await panesModule.handlers.move_pane(
+      { paneId: "pane-1", targetPaneId: "pane-2", direction: "horizontal" },
+      http,
+    );
+
+    expect(http.calls[0]).toMatchObject({
+      method: "POST",
+      path: "/panes/pane-1/move",
+      body: { targetPaneId: "pane-2", direction: "horizontal" },
+    });
+    expect(http.calls[0].body).not.toHaveProperty("position");
+  });
+
+  it("includes position when the caller supplies it", async () => {
+    const http = fakeHttp();
+
+    await panesModule.handlers.move_pane(
+      {
+        paneId: "pane-1",
+        targetPaneId: "pane-2",
+        direction: "vertical",
+        position: "first",
+      },
+      http,
+    );
+
+    expect(http.calls[0].body).toMatchObject({ position: "first" });
+  });
+});
+
+describe("set_active_workspace caller-workspace defaulting", () => {
+  it("resolves the caller's workspace via GET /context when omitted", async () => {
+    const http = fakeHttp({
+      get: async () => ({ workspacePath: "/resolved/ws" }),
+    });
+
+    await panesModule.handlers.set_active_workspace({}, http);
+
+    expect(http.calls[0]).toMatchObject({ method: "GET" });
+    expect(http.calls[1]).toMatchObject({
+      method: "POST",
+      path: "/workspaces/active",
+      body: { workspacePath: "/resolved/ws" },
+    });
+  });
+
+  it("an explicit args.workspacePath wins and /context is not called", async () => {
+    const http = fakeHttp();
+
+    await panesModule.handlers.set_active_workspace(
+      { workspacePath: "/explicit/ws" },
+      http,
+    );
+
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]).toMatchObject({
+      method: "POST",
+      path: "/workspaces/active",
+      body: { workspacePath: "/explicit/ws" },
+    });
   });
 });

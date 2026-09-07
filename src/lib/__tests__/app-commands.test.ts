@@ -32,6 +32,33 @@ function singlePaneTab(): Tab {
   };
 }
 
+function tabWithId(id: string, paneId: string): Tab {
+  return {
+    id,
+    title: "Terminal",
+    rootNode: { type: "leaf", paneId },
+    focusedPaneId: paneId,
+  };
+}
+
+/** A single-panel layout with an arbitrary number of tabs, for tab commands. */
+function makeLayoutWithTabs(
+  tabs: Tab[],
+  selectedTabId: string = tabs[0].id,
+): WorkspaceLayout {
+  const panel: Panel = {
+    id: "panel-1",
+    tabs,
+    selectedTabId,
+    pinnedTabIds: [],
+  };
+  return {
+    panelTree: { type: "leaf", panelId: panel.id },
+    panels: { [panel.id]: panel },
+    activePanelId: panel.id,
+  };
+}
+
 function twoPaneTab(): Tab {
   return {
     id: "tab-1",
@@ -270,7 +297,10 @@ describe("split-pane", () => {
 
   it("throws on an invalid contentType", () => {
     expect(() =>
-      run("split-pane", { direction: "horizontal", contentType: "spreadsheet" }),
+      run("split-pane", {
+        direction: "horizontal",
+        contentType: "spreadsheet",
+      }),
     ).toThrow(/contentType must be one of/);
   });
 
@@ -375,9 +405,9 @@ describe("new-tab", () => {
     expect(hasPaneId(tab!.rootNode, paneId)).toBe(true);
 
     const oldLayout = state.workspaceLayouts[WS_PATH];
-    expect(
-      Object.values(oldLayout.panels).flatMap((p) => p.tabs),
-    ).toHaveLength(1);
+    expect(Object.values(oldLayout.panels).flatMap((p) => p.tabs)).toHaveLength(
+      1,
+    );
   });
 
   it("returns the tabId/paneId of the tab created in the target workspace", () => {
@@ -413,7 +443,9 @@ describe("new-tab", () => {
 
     expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
     // No tab should have been created in the target workspace either.
-    expect(useAppStore.getState().workspaceLayouts[OTHER_WS_PATH]).toBeUndefined();
+    expect(
+      useAppStore.getState().workspaceLayouts[OTHER_WS_PATH],
+    ).toBeUndefined();
   });
 
   it("throws on an unknown workspacePath", () => {
@@ -477,13 +509,436 @@ describe("close-pane", () => {
   });
 });
 
+describe("select-tab", () => {
+  it("selects an existing tab in the active panel", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(run("select-tab", { tabId: "tab-2" })).toEqual({ tabId: "tab-2" });
+    expect(
+      useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"]
+        .selectedTabId,
+    ).toBe("tab-2");
+  });
+
+  it("throws on an unknown tabId", () => {
+    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
+
+    expect(() => run("select-tab", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+  });
+
+  it("throws when tabId is missing", () => {
+    expect(() => run("select-tab", {})).toThrow(/Missing required string/);
+  });
+});
+
+describe("next-tab / prev-tab", () => {
+  it("selects the next tab, wrapping around", () => {
+    setupStore(
+      makeLayoutWithTabs(
+        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
+        "tab-2",
+      ),
+    );
+
+    expect(run("next-tab")).toEqual({ tabId: "tab-1" });
+  });
+
+  it("selects the previous tab", () => {
+    setupStore(
+      makeLayoutWithTabs(
+        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
+        "tab-2",
+      ),
+    );
+
+    expect(run("prev-tab")).toEqual({ tabId: "tab-1" });
+  });
+
+  it("throws when there is no active workspace", () => {
+    useAppStore.setState({ activeWorkspacePath: null });
+    expect(() => run("next-tab")).toThrow(/No active workspace/);
+    expect(() => run("prev-tab")).toThrow(/No active workspace/);
+  });
+});
+
+describe("close-tab", () => {
+  it("closes an existing tab", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(run("close-tab", { tabId: "tab-1" })).toEqual({ ok: true });
+    expect(
+      useAppStore
+        .getState()
+        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
+    ).toEqual(["tab-2"]);
+  });
+
+  it("throws on an unknown tabId", () => {
+    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
+
+    expect(() => run("close-tab", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+  });
+});
+
+describe("close-other-tabs / close-tabs-to-right", () => {
+  beforeEach(() => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+        tabWithId("tab-3", "pane-3"),
+      ]),
+    );
+  });
+
+  it("closes every other tab", () => {
+    expect(run("close-other-tabs", { tabId: "tab-2" })).toEqual({ ok: true });
+    expect(
+      useAppStore
+        .getState()
+        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
+    ).toEqual(["tab-2"]);
+  });
+
+  it("closes every tab to the right", () => {
+    expect(run("close-tabs-to-right", { tabId: "tab-1" })).toEqual({
+      ok: true,
+    });
+    expect(
+      useAppStore
+        .getState()
+        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
+    ).toEqual(["tab-1"]);
+  });
+
+  it("throws on an unknown tabId", () => {
+    expect(() => run("close-other-tabs", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+    expect(() => run("close-tabs-to-right", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+  });
+});
+
+describe("pin-tab", () => {
+  it("pins then unpins a tab, returning the new state", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(run("pin-tab", { tabId: "tab-1" })).toEqual({
+      tabId: "tab-1",
+      pinned: true,
+    });
+    expect(run("pin-tab", { tabId: "tab-1" })).toEqual({
+      tabId: "tab-1",
+      pinned: false,
+    });
+  });
+
+  it("throws on an unknown tabId", () => {
+    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
+
+    expect(() => run("pin-tab", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+  });
+});
+
+describe("duplicate-tab", () => {
+  it("duplicates a tab and returns the new tabId", () => {
+    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
+
+    const result = run("duplicate-tab", { tabId: "tab-1" }) as {
+      tabId: string;
+    };
+
+    expect(result.tabId).not.toBe("tab-1");
+    expect(
+      useAppStore
+        .getState()
+        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
+    ).toEqual(["tab-1", result.tabId]);
+  });
+
+  it("throws on an unknown tabId", () => {
+    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
+
+    expect(() => run("duplicate-tab", { tabId: "tab-nope" })).toThrow(
+      /Unknown tabId: tab-nope/,
+    );
+  });
+});
+
+describe("reorder-tabs", () => {
+  it("reorders the active panel's tabs", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(run("reorder-tabs", { tabIds: ["tab-2", "tab-1"] })).toEqual({
+      ok: true,
+    });
+    expect(
+      useAppStore
+        .getState()
+        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
+    ).toEqual(["tab-2", "tab-1"]);
+  });
+
+  it("throws when tabIds omits a current tab", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(() => run("reorder-tabs", { tabIds: ["tab-1"] })).toThrow(
+      /reorder-tabs/,
+    );
+  });
+
+  it("throws when tabIds has a duplicate", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(() => run("reorder-tabs", { tabIds: ["tab-1", "tab-1"] })).toThrow(
+      /reorder-tabs/,
+    );
+  });
+
+  it("throws when tabIds names a tab that does not exist", () => {
+    setupStore(
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
+    );
+
+    expect(() =>
+      run("reorder-tabs", { tabIds: ["tab-1", "tab-nope"] }),
+    ).toThrow(/reorder-tabs/);
+  });
+});
+
+describe("open-diff", () => {
+  it("creates and focuses a diff tab", () => {
+    const result = run("open-diff") as { tabId: string };
+
+    const panel =
+      useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"];
+    expect(panel.selectedTabId).toBe(result.tabId);
+    const diffTab = panel.tabs[panel.tabs.length - 1];
+    expect(useAppStore.getState().paneContentType[diffTab.focusedPaneId]).toBe(
+      "diff",
+    );
+  });
+});
+
+describe("set-pane-title / clear-pane-title", () => {
+  it("sets then clears a pane's title", () => {
+    expect(
+      run("set-pane-title", { paneId: "pane-1", title: "My Title" }),
+    ).toEqual({ paneId: "pane-1", title: "My Title" });
+    expect(useAppStore.getState().paneTitle["pane-1"]).toBe("My Title");
+
+    expect(run("clear-pane-title", { paneId: "pane-1" })).toEqual({
+      paneId: "pane-1",
+    });
+    expect(useAppStore.getState().paneTitle["pane-1"]).toBeUndefined();
+  });
+
+  it("throws on an unknown paneId", () => {
+    expect(() =>
+      run("set-pane-title", { paneId: "pane-nope", title: "x" }),
+    ).toThrow(/Unknown paneId: pane-nope/);
+    expect(() => run("clear-pane-title", { paneId: "pane-nope" })).toThrow(
+      /Unknown paneId: pane-nope/,
+    );
+  });
+});
+
+describe("move-pane", () => {
+  it("moves a pane next to another pane, keeping its paneId", () => {
+    setupStore(makeMultiPanelLayout());
+
+    const result = run("move-pane", {
+      paneId: "pane-9",
+      targetPaneId: "pane-1",
+      direction: "horizontal",
+    }) as { paneId: string };
+
+    expect(result).toEqual({ paneId: "pane-9" });
+    expect(tabHolding("pane-9")).toBeDefined();
+  });
+
+  it("throws on an unknown source paneId", () => {
+    setupStore(makeMultiPanelLayout());
+
+    expect(() =>
+      run("move-pane", {
+        paneId: "pane-nope",
+        targetPaneId: "pane-1",
+        direction: "horizontal",
+      }),
+    ).toThrow(/Unknown paneId: pane-nope/);
+  });
+
+  it("throws on an unknown target paneId", () => {
+    setupStore(makeMultiPanelLayout());
+
+    expect(() =>
+      run("move-pane", {
+        paneId: "pane-9",
+        targetPaneId: "pane-nope",
+        direction: "horizontal",
+      }),
+    ).toThrow(/Unknown paneId: pane-nope/);
+  });
+});
+
+describe("extract-pane-to-tab", () => {
+  it("extracts a pane into its own tab", () => {
+    setupStore(makeLayout(twoPaneTab()));
+
+    const result = run("extract-pane-to-tab", { paneId: "pane-2" }) as {
+      tabId: string;
+    };
+
+    expect(tabHolding("pane-2")?.id).toBe(result.tabId);
+  });
+
+  it("throws on an unknown paneId", () => {
+    expect(() => run("extract-pane-to-tab", { paneId: "pane-nope" })).toThrow(
+      /Unknown paneId: pane-nope/,
+    );
+  });
+
+  it("throws on an unknown targetPanelId", () => {
+    setupStore(makeLayout(twoPaneTab()));
+
+    expect(() =>
+      run("extract-pane-to-tab", {
+        paneId: "pane-2",
+        targetPanelId: "panel-nope",
+      }),
+    ).toThrow(/Unknown panelId: panel-nope/);
+  });
+});
+
+describe("reopen-closed-pane", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: {
+        ...(window as unknown as { electronAPI: Record<string, unknown> })
+          .electronAPI,
+        agents: { abandonForPane: vi.fn().mockResolvedValue(undefined) },
+      },
+    });
+  });
+
+  it("throws when there is nothing to reopen", () => {
+    expect(() => run("reopen-closed-pane")).toThrow(/Nothing to reopen/);
+  });
+
+  it("reopens the most recently closed pane", () => {
+    setupStore(makeLayout(twoPaneTab()));
+    run("close-pane", { paneId: "pane-1" });
+
+    expect(tabHolding("pane-1")).toBeUndefined();
+    expect(run("reopen-closed-pane")).toEqual({ ok: true });
+    expect(tabHolding("pane-1")).toBeDefined();
+  });
+});
+
+describe("focus-next-pane / focus-prev-pane", () => {
+  it("cycles focus forward and back through the panes in the active tab", () => {
+    setupStore(makeLayout(twoPaneTab())); // focusedPaneId starts at pane-2
+
+    expect(run("focus-next-pane")).toEqual({ paneId: "pane-1" });
+    expect(run("focus-prev-pane")).toEqual({ paneId: "pane-2" });
+  });
+});
+
+describe("set-active-workspace", () => {
+  it("switches to a known workspace", () => {
+    useProjectStore.setState({
+      projects: [
+        {
+          id: "p1",
+          name: "manor",
+          path: "/repo",
+          workspaces: [{ path: OTHER_WS_PATH }],
+        },
+      ] as unknown as ProjectInfo[],
+      selectedProjectIndex: 0,
+    });
+
+    expect(
+      run("set-active-workspace", { workspacePath: OTHER_WS_PATH }),
+    ).toEqual({ workspacePath: OTHER_WS_PATH });
+    expect(useAppStore.getState().activeWorkspacePath).toBe(OTHER_WS_PATH);
+  });
+
+  it("throws on an unknown workspace", () => {
+    expect(() =>
+      run("set-active-workspace", { workspacePath: "/nope" }),
+    ).toThrow(/Unknown workspace: \/nope/);
+  });
+});
+
 describe("dispatch table", () => {
   it("exposes exactly the correlated commands", () => {
     expect(Object.keys(appCommandHandlers).sort()).toEqual([
+      "clear-pane-title",
+      "close-other-tabs",
       "close-pane",
+      "close-tab",
+      "close-tabs-to-right",
+      "duplicate-tab",
+      "extract-pane-to-tab",
+      "focus-next-pane",
       "focus-pane",
+      "focus-prev-pane",
       "list-panes",
+      "move-pane",
       "new-tab",
+      "next-tab",
+      "open-diff",
+      "pin-tab",
+      "prev-tab",
+      "reopen-closed-pane",
+      "reorder-tabs",
+      "select-tab",
+      "set-active-workspace",
+      "set-pane-title",
       "split-pane",
     ]);
   });

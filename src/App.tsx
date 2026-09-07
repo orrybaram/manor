@@ -5,6 +5,8 @@ import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
 import { onPaletteViewRequest } from "./utils/palette-request";
+import { onUiRequest } from "./utils/ui-request";
+import { GhostsOverlay } from "./components/GhostsOverlay/GhostsOverlay";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
@@ -28,14 +30,17 @@ import {
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
+import { dispatchKeybinding, startNewAgent } from "./lib/keybinding-commands";
 import {
-  createSharedKeybindingHandlers,
-  dispatchKeybinding,
-  startNewAgent,
-} from "./lib/keybinding-commands";
+  createMenuHandlers,
+  dispatchMenuCommand,
+  type MenuHandler,
+} from "./lib/menu-handlers";
 import { useThemeStore } from "./store/theme-store";
+import { useAgentStore } from "./store/agent-store";
 import { usePreferencesStore } from "./store/preferences-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
 import {
   useNavigationHistory,
@@ -119,6 +124,14 @@ function App() {
         ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
+  // Help > "Ghosts!?" easter egg (ADR-170 §8). Owned here rather than the
+  // palette so it stays visible with the palette closed, and so both the
+  // palette and the native menu can trigger the same overlay.
+  const [showGhosts, setShowGhosts] = useState(false);
+  const triggerGhosts = useCallback(() => {
+    setShowGhosts(true);
+    setTimeout(() => setShowGhosts(false), 5000);
+  }, []);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -239,17 +252,25 @@ function App() {
     [handleOpenPaletteView],
   );
 
+  // The palette's "Ghosts!?" item requests the overlay through the same bus
+  // the native menu uses, so both paths share this one trigger.
+  useEffect(
+    () =>
+      onUiRequest((request) => {
+        if (request.type === "ghosts") triggerGhosts();
+      }),
+    [triggerGhosts],
+  );
+
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
-  const selectedTabId = ws?.selectedTabId ?? null;
 
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
   const closePaneById = useAppStore((s) => s.closePaneById);
-  const requestCloseTab = useAppStore((s) => s.requestCloseTab);
   const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
   const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
   const projects = useProjectStore((s) => s.projects);
@@ -271,9 +292,7 @@ function App() {
     applyProjectTheme(effectiveThemeName);
   }
   const sidebarVisible = useProjectStore((s) => s.sidebarVisible);
-  const toggleSidebar = useProjectStore((s) => s.toggleSidebar);
 
-  const activeTab = ws?.tabs.find((s) => s.id === selectedTabId);
   const hasProjects = projects.length > 0;
   const hasTabs = (ws?.tabs.length ?? 0) > 0;
 
@@ -399,41 +418,62 @@ function App() {
   }, [loadProjects, setActiveWorkspace]);
 
   // Keybindings
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-  const wsRef = useRef(ws);
-  wsRef.current = ws;
   const handleNewAgentRef = useRef<() => void>(() => {});
   const handleNewAgentWithPromptRef = useRef<(prompt: string) => void>(() => {});
 
-  // Handler map: command ID → action. The window-agnostic half is shared with
-  // the detached-window renderer (see `keybinding-commands`); only the commands
-  // that need this window's chrome (modals, sidebar, navigation history) live
-  // here. The primary window is the one that owns the prewarmed session, so it
-  // is also the only window that consumes it for a new agent.
-  const handlersRef = useRef<Record<string, () => void>>({});
-  handlersRef.current = {
-    ...createSharedKeybindingHandlers({ prewarmNewAgent: true }),
-    settings: () => setSettingsOpen((v) => !v),
-    "command-palette": () => setPaletteOpen((v) => !v),
-    "close-tab": () => {
-      const tab = activeTabRef.current;
-      if (tab) requestCloseTab(tab.id);
+  // One command ID → action map for BOTH the keyboard and the native menu
+  // (ADR-170). The window-agnostic half is shared with the detached-window
+  // renderer (see `keybinding-commands`); the rest either needs this window's
+  // chrome — the callbacks below — or is menu-only. The primary window is the
+  // one that owns the prewarmed session, so it is also the only window that
+  // consumes it for a new agent.
+  const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
+  menuHandlersRef.current = createMenuHandlers({
+    openSettings: (page) => {
+      // Deep links open the page they name; the bare command (⌘, and the app
+      // menu's Settings… item) keeps toggling, as the keybinding always did.
+      if (page) {
+        handleOpenSettings(page);
+        return;
+      }
+      setSettingsPage(null);
+      setSettingsOpen((v) => !v);
     },
-    "toggle-sidebar": () => toggleSidebar(),
-    "history-back": () => navigateBack(),
-    "history-forward": () => navigateForward(),
-    "new-workspace": () => setNewWorkspaceOpen(true),
-  };
+    togglePalette: () => setPaletteOpen((v) => !v),
+    openPaletteView: handleOpenPaletteView,
+    openNewWorkspace: () => setNewWorkspaceOpen(true),
+    addProject: () => void handleAddProject(),
+    openFeedback: handleOpenFeedback,
+    openAgents: () => setAgentsOpen(true),
+    openProjectSettings: handleOpenProjectSettings,
+    resumeAgent: (agentId) => {
+      // The menu only carries the id; resuming needs the whole record.
+      const agent = useAgentStore
+        .getState()
+        .agents.find((a) => a.id === agentId);
+      if (agent) void handleResumeAgent(agent);
+    },
+    showGhosts: triggerGhosts,
+  });
 
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      dispatchKeybinding(e, handlersRef.current);
+      dispatchKeybinding(e, menuHandlersRef.current);
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
+
+  // Native menu clicks land on the same map. Main has already routed the
+  // command here, so nothing is filtered on this side.
+  useMountEffect(() =>
+    window.electronAPI.menu.onMenuCommand((payload) =>
+      dispatchMenuCommand(payload, menuHandlersRef.current),
+    ),
+  );
+
+  useMenuContextSync();
 
   // Mouse back/forward buttons (button 3/4). Skipped while a webview pane has
   // DOM focus — the guest page (and Chromium itself) already handles its own
@@ -689,6 +729,7 @@ function App() {
         }}
       />
       <ToastContainer />
+      {showGhosts && <GhostsOverlay />}
     </div>
     </TooltipProvider>
   );

@@ -2,6 +2,7 @@ import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
+import type { MenuCommandPayload, MenuContext } from "./lib/menu-commands";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -29,7 +30,11 @@ export interface AppPreferences {
   statsEnabled: boolean;
 }
 
-export type AgentLifecycleStatus = "active" | "completed" | "error" | "abandoned";
+export type AgentLifecycleStatus =
+  | "active"
+  | "completed"
+  | "error"
+  | "abandoned";
 
 export interface AgentInfo {
   id: string;
@@ -101,6 +106,7 @@ export type StatCounter =
   | "subagents"
   | "agentsResponded"
   | "agentsKilled"
+  | "agentsKilledMidThought"
   | "blocks"
   | "unblocks"
   | "unblockMsTotal"
@@ -692,6 +698,7 @@ export interface ElectronAPI {
     openInEditor: (path: string) => Promise<string>;
     resolveFilePath: (filePath: string, cwd: string) => Promise<string | null>;
     discoverAgents: () => Promise<Array<{ name: string; command: string }>>;
+    showItemInFolder: (path: string) => Promise<void>;
   };
 
   agents: {
@@ -767,6 +774,15 @@ export interface ElectronAPI {
     ) => () => void;
   };
 
+  menu: {
+    /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
+    setContext: (context: MenuContext) => void;
+    /** A native menu item was clicked; fire-and-forget, like a keybinding. */
+    onMenuCommand: (
+      callback: (payload: MenuCommandPayload) => void,
+    ) => () => void;
+  };
+
   notifications: {
     /**
      * Resolves `true` when a native notification was presented, `false` when
@@ -786,9 +802,7 @@ export interface ElectronAPI {
     markAllRead: () => Promise<void>;
     clear: () => Promise<void>;
     /** Fires with the full list after every mutation (ADR-162 §3). */
-    onChanged: (
-      callback: (list: NotificationRecord[]) => void,
-    ) => () => void;
+    onChanged: (callback: (list: NotificationRecord[]) => void) => () => void;
     /** A native banner was clicked; the payload is the record id. */
     onNavigate: (callback: (id: string) => void) => () => void;
   };

@@ -14,6 +14,7 @@ import type { NotificationKind, NotificationRecord } from "../../electron.d";
 import type { PrComment } from "../../lib/pr-info";
 import { useNotificationStore } from "../../store/notification-store";
 import { navigateToNotification } from "../../utils/notification-navigation";
+import { onUiRequest } from "../../utils/ui-request";
 import {
   BUCKET_ORDER,
   getDateBucket,
@@ -197,6 +198,12 @@ export function NotificationsPopover() {
     setOpen(false);
     void navigateToNotification(record);
   };
+
+  useEffect(() => {
+    return onUiRequest((request) => {
+      if (request.type === "open-notifications") setOpen(true);
+    });
+  }, []);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>

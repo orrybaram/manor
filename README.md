@@ -196,7 +196,7 @@ Runs a full `vite build` first; expect 30–60s per run. See `tests/e2e/README.m
 
 ## Keyboard Shortcuts
 
-All shortcuts are customizable via **Settings > Keybindings**.
+All shortcuts are customizable via **Settings > Keybindings**. Every shortcut also appears next to its item in the menu bar, and Help › Search finds any menu item by name.
 
 ### Tabs
 
@@ -239,6 +239,8 @@ All shortcuts are customizable via **Settings > Keybindings**.
 | `Cmd+Shift+N` | New workspace      |
 | `Cmd+Shift+B` | New browser window |
 | `Shift+Cmd+.` | Copy branch name   |
+| `Ctrl+Cmd+↓`  | Next workspace     |
+| `Ctrl+Cmd+↑`  | Previous workspace |
 
 ### Zoom
 

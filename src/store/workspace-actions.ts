@@ -127,3 +127,30 @@ export function quickMergeWorktreeWithToast(
       });
     });
 }
+
+/**
+ * Hide a workspace from the sidebar, and — when it was the one selected —
+ * fall back to the project's main workspace so the user is never left on a
+ * surface that is no longer listed.
+ *
+ * Shared by the sidebar's context menu and the Workspace › Hide Workspace menu
+ * item (ADR-170).
+ */
+export function hideWorkspaceAndNavigate(
+  projectId: string,
+  path: string,
+): void {
+  const projectStore = useProjectStore.getState();
+  const project = projectStore.projects.find((p) => p.id === projectId);
+  if (!project) return;
+
+  const wsIdx = project.workspaces.findIndex((w) => w.path === path);
+  if (wsIdx < 0) return;
+  const wasSelected = wsIdx === project.selectedWorkspaceIndex;
+
+  projectStore.setWorkspaceHidden(projectId, path, true);
+
+  if (!wasSelected) return;
+  const mainIndex = project.workspaces.findIndex((w) => w.isMain);
+  if (mainIndex >= 0) projectStore.selectWorkspace(projectId, mainIndex);
+}

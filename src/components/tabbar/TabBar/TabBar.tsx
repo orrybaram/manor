@@ -8,7 +8,10 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
-import { trackHandoff } from "../../../lib/window-handoff";
+import {
+  detachTabToNewWindow,
+  trackHandoff,
+} from "../../../lib/window-handoff";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
 
@@ -305,17 +308,12 @@ export function TabBar(props: TabBarProps) {
       // Commit the new-window tear-off NOW.
       tearOffCommitted.current = true;
       const grab = dragGrabOffset.current;
-      const store = useAppStore.getState();
-      const payload = store.serializeTabForDetach(tabId);
-      store.removeDetachedTabLocally(tabId);
-      void trackHandoff(
-        window.electronAPI.window.detachTab(payload, {
-          x: Math.round(sx - grab.x),
-          y: Math.round(sy - grab.y),
-          width: 900,
-          height: 600,
-        }),
-      ).catch((err) => console.error("Failed to tear tab into new window", err));
+      void detachTabToNewWindow(tabId, {
+        x: Math.round(sx - grab.x),
+        y: Math.round(sy - grab.y),
+        width: 900,
+        height: 600,
+      });
 
       clearDragIndicators();
       setDragIndex(null);
@@ -508,21 +506,22 @@ export function TabBar(props: TabBarProps) {
         return;
       }
 
-      const store = useAppStore.getState();
-      const payload = store.serializeTabForDetach(tabId);
       const spawnBounds = {
         x: Math.round(sx - grab.x),
         y: Math.round(sy - grab.y),
         width: 900,
         height: 600,
       };
-      // Remove the tab from THIS window synchronously so the origin updates in
-      // the same frame — no snap-back of a tab that is on its way out. Then fire
-      // the destination-window IPC without awaiting, so the new window appears
-      // immediately rather than after the drag's return animation. (Serialize
-      // first: removeDetachedTabLocally releases the panes it references.)
-      store.removeDetachedTabLocally(tabId);
+      // Both branches remove the tab from THIS window synchronously so the
+      // origin updates in the same frame — no snap-back of a tab that is on its
+      // way out — then fire the destination-window IPC without awaiting, so the
+      // new window appears immediately rather than after the drag's return
+      // animation. (Serialize first: removeDetachedTabLocally releases the
+      // panes the payload references.)
       if (target) {
+        const store = useAppStore.getState();
+        const payload = store.serializeTabForDetach(tabId);
+        store.removeDetachedTabLocally(tabId);
         void trackHandoff(
           window.electronAPI.window
             .transferTab(target.id, payload)
@@ -535,11 +534,7 @@ export function TabBar(props: TabBarProps) {
           console.error("Failed to move tab out of this window", err),
         );
       } else {
-        void trackHandoff(
-          window.electronAPI.window.detachTab(payload, spawnBounds),
-        ).catch((err) =>
-          console.error("Failed to move tab out of this window", err),
-        );
+        void detachTabToNewWindow(tabId, spawnBounds);
       }
       // A detached window that just gave away its last tab has nothing left to
       // show, and `DetachedApp`'s store subscription closes it — after the

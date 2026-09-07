@@ -8,6 +8,7 @@ import {
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
+import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import type { ProjectInfo } from "../../store/project-store";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 
@@ -138,6 +139,14 @@ describe("createSharedKeybindingHandlers", () => {
     ]) {
       expect(handlers[id], id).toBeUndefined();
     }
+  });
+
+  // Main routes a menu command to the focused window only when that window can
+  // service it, and it reads `SHARED_WINDOW_COMMANDS` (a DOM-free copy) to know.
+  // If the two drift, menu items silently no-op in a popout.
+  it("matches SHARED_WINDOW_COMMANDS exactly", () => {
+    const ids = new Set(Object.keys(createSharedKeybindingHandlers()));
+    expect([...ids].sort()).toEqual([...SHARED_WINDOW_COMMANDS].sort());
   });
 
   it("new-browser opens a browser tab in the active panel", () => {

@@ -17,6 +17,7 @@ import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
 import type { PrewarmManager } from "../prewarm-manager";
 import type { RemoteControlController } from "../remote-control/controller";
+import type { AppMenuController } from "../app-menu";
 
 export interface WorkspaceMeta {
   path: string;
@@ -56,7 +57,12 @@ export interface IpcDeps {
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<
     string,
-    { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null }
+    {
+      projectId: string;
+      projectName: string;
+      workspacePath: string;
+      agentCommand: string | null;
+    }
   >;
   unseenRespondedAgents: Set<string>;
   unseenInputAgents: Set<string>;
@@ -65,4 +71,6 @@ export interface IpcDeps {
   prewarmManager: PrewarmManager;
   /** ADR-161. Off until the user enables it; see the controller header. */
   remoteControl: RemoteControlController;
+  /** ADR-170. The native application menu controller. */
+  appMenu: AppMenuController;
 }

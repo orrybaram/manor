@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import { portlessManager } from "./portless";
-import { isKill } from "./stats-signals";
+import { killCounters } from "./stats-signals";
 import type { LocalBackend } from "./backend/local-backend";
 import type { ActivePort } from "./backend/types";
 import type { AgentManager } from "./agent-persistence";
@@ -172,7 +172,7 @@ export async function killAllProcesses({
     const sessions = await backend.pty.listSessions();
     for (const session of sessions) {
       const agent = agentManager.getAgentByPaneId(session.sessionId);
-      if (agent && isKill(agent)) statsStore.record("agentsKilled");
+      if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
       try {
         await backend.pty.kill(session.sessionId);
       } catch {

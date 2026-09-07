@@ -50,7 +50,7 @@ type StatCounter =
   | "blocks"             // status entered requires_input
   | "unblocks"           // requires_input -> UserPromptSubmit
   | "unblockMsTotal"     // sum of unblock latencies (ms)
-  | "fastUnblocks"       // unblock latency < 10 s
+  | "fastUnblocks"       // unblock latency < 60 s (raised from 10 s, 2026-09-07)
   | "worktreesCreated"
   | "worktreesRemoved"
   | "worktreesMerged"    // projects:quickMergeWorktree success
@@ -90,7 +90,7 @@ Command-palette usage (`src/store/command-usage-store.ts`) stays a renderer-only
 
 ### 3. "Agents killed" definition
 
-An agent is *killed* when its pty session is terminated by a user action **while its last known status is one of `working`, `thinking`, `requires_input`**. `responded` and `idle` agents that get closed are not kills; they were done.
+An agent is *killed* when its pty session is terminated by a user action **while it is active and has any last known status** (`working`, `thinking`, `requires_input`, `responded`, `idle`). Finished agents count too: the session was still live and promptable. Only an agent that never reported a status is exempt. (Amended 2026-09-07; originally `responded`/`idle` were excluded.) A second counter, `agentsKilledMidThought`, keeps the original narrower rule: kills where the last status was `working`, `thinking`, or `requires_input`.
 
 Taps, all in main so the renderer cannot forget one:
 

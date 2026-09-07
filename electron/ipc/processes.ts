@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
-import { isKill } from "../stats-signals";
+import { killCounters } from "../stats-signals";
 import type { IpcDeps } from "./types";
 import {
   listProcesses,
@@ -27,7 +27,7 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle("processes:killSession", async (_event, sessionId: string) => {
     assertString(sessionId, "sessionId");
     const agent = agentManager.getAgentByPaneId(sessionId);
-    if (agent && isKill(agent)) statsStore.record("agentsKilled");
+    if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
     try {
       await backend.pty.kill(sessionId);
     } catch {

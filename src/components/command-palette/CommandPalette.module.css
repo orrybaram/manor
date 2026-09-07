@@ -715,40 +715,6 @@
   }
 }
 
-/* ── Ghosts!? Easter Egg ── */
-
-.ghostOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.ghost {
-  position: absolute;
-  bottom: -60px;
-  animation: ghostFloat linear forwards;
-  opacity: 0;
-}
-
-@keyframes ghostFloat {
-  0% {
-    opacity: 0;
-    transform: translateY(0) rotate(0deg);
-  }
-  15% {
-    opacity: var(--ghost-peak, 0.6);
-  }
-  70% {
-    opacity: var(--ghost-peak, 0.6);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-110vh) rotate(var(--ghost-rotate, 20deg));
-  }
-}
-
 /* ── Process view ── */
 
 /* ── Section descriptions ── */
@@ -1153,8 +1119,10 @@
   padding-top: 8px;
 }
 
-/* Leader dots run from the label to the first column: the text sits in a span
-   that ends the run, and the cell clips whatever overflows. */
+/* Leader dots run from the label to the first column. The label span is a
+   flex row: the text, then a dot run that grows to fill whatever width is
+   left and clips its own overflow — so every row's dots end at the same x
+   regardless of label length. */
 .statsRowLabel {
   text-align: left;
   font-weight: 400;
@@ -1166,8 +1134,22 @@
   overflow: hidden;
 }
 
+.statsRowLabelText {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.statsRowLabelName {
+  cursor: default;
+}
+
 .statsRowLabelText::after {
-  content: " ································································";
+  content: "································································································································";
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: 1ch;
   color: var(--text-dim);
   opacity: 0.3;
 }

@@ -89,6 +89,49 @@ export async function movePaneToNewWindow(paneId: string): Promise<void> {
   }
 }
 
+/** Bounds a torn-off tab's new window opens with. */
+export interface SpawnBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const POPOUT_SIZE = { width: 900, height: 600 };
+
+/**
+ * Tear a tab into a fresh popout window — the drag tear-off in `TabBar` and
+ * Window › Move Tab to New Window share this one sequence.
+ *
+ * `spawnBounds` is where the drag released the tab; without it (the menu path)
+ * the new window is offset from this one. Serialize BEFORE removing —
+ * `removeDetachedTabLocally` releases the panes the payload references — and
+ * remove synchronously so the origin window updates in the same frame instead
+ * of showing the tab snap back. The handoff itself is registered with
+ * `trackHandoff` so a popout that just gave away its last tab waits for the
+ * payload to leave before closing itself.
+ */
+export async function detachTabToNewWindow(
+  tabId: string,
+  spawnBounds?: SpawnBounds,
+): Promise<void> {
+  try {
+    let bounds: SpawnBounds;
+    if (spawnBounds) {
+      bounds = spawnBounds;
+    } else {
+      const own = await window.electronAPI.window.getBounds();
+      bounds = { x: own.x + 40, y: own.y + 40, ...POPOUT_SIZE };
+    }
+    const store = useAppStore.getState();
+    const payload = store.serializeTabForDetach(tabId);
+    store.removeDetachedTabLocally(tabId);
+    await trackHandoff(window.electronAPI.window.detachTab(payload, bounds));
+  } catch (err) {
+    console.error("Failed to move tab to a new window", err);
+  }
+}
+
 /**
  * Send a pane from a popout back to the primary window. Releases the pane here
  * BEFORE the handoff so this window's `beforeunload` can't kill a session the

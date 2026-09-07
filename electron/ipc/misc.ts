@@ -57,6 +57,11 @@ export function register(deps: IpcDeps): void {
     return shell.openExternal(url);
   });
 
+  ipcMain.handle("shell:showItemInFolder", (_event, p: string) => {
+    assertString(p, "path");
+    shell.showItemInFolder(p);
+  });
+
   ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
     assertString(dirPath, "dirPath");
     return openInEditor(preferencesManager, dirPath);

@@ -3,6 +3,7 @@ import {
   countPanesInWindow,
   movePaneToNewWindow,
   movePaneToMainWindow,
+  detachTabToNewWindow,
   trackHandoff,
   whenHandoffsIdle,
 } from "../window-handoff";
@@ -131,6 +132,69 @@ describe("movePaneToNewWindow", () => {
     await movePaneToNewWindow("pane-2");
 
     expect(tabHolding("pane-2")).toBeDefined();
+    err.mockRestore();
+  });
+});
+
+describe("detachTabToNewWindow", () => {
+  it("hands the tab to a new window, drops it from this one, and tracks the handoff", async () => {
+    let releaseDetach!: (id: string) => void;
+    detachTab.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseDetach = resolve;
+        }),
+    );
+
+    const call = detachTabToNewWindow("tab-1", {
+      x: 10,
+      y: 20,
+      width: 900,
+      height: 600,
+    });
+
+    // The serialize + remove prefix runs synchronously ahead of the IPC await.
+    await Promise.resolve();
+    expect(tabHolding("pane-1")).toBeUndefined();
+
+    let idle = false;
+    void whenHandoffsIdle().then(() => {
+      idle = true;
+    });
+    await Promise.resolve();
+    // Still pending on the unresolved detachTab call: trackHandoff is engaged.
+    expect(idle).toBe(false);
+
+    releaseDetach("detached-1");
+    await call;
+    await whenHandoffsIdle();
+    expect(idle).toBe(true);
+
+    expect(detachTab).toHaveBeenCalledTimes(1);
+    const [payload, spawnBounds] = detachTab.mock.calls[0];
+    expect(payload.tab.id).toBe("tab-1");
+    expect(hasPaneId(payload.tab.rootNode, "pane-1")).toBe(true);
+    expect(spawnBounds).toEqual({ x: 10, y: 20, width: 900, height: 600 });
+  });
+
+  it("falls back to this window's own bounds when no spawn bounds are given", async () => {
+    await detachTabToNewWindow("tab-1");
+
+    const [, spawnBounds] = detachTab.mock.calls[0];
+    // Offset from this window's bounds so the popout doesn't land exactly on it.
+    expect(spawnBounds).toMatchObject({ x: 140, y: 240 });
+  });
+
+  it("logs rather than throwing when the handoff fails", async () => {
+    // Unlike movePaneToNewWindow, the tab is removed from this window BEFORE
+    // the IPC settles (see the docstring on detachTabToNewWindow) so a failed
+    // handoff cannot restore it here — it only avoids an unhandled rejection.
+    detachTab.mockRejectedValueOnce(new Error("no window"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(detachTabToNewWindow("tab-1")).resolves.toBeUndefined();
+
+    expect(err).toHaveBeenCalled();
     err.mockRestore();
   });
 });

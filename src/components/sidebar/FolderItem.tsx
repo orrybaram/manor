@@ -69,6 +69,9 @@ export function FolderItem(props: FolderItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(folder.name);
   const editRef = useRef<HTMLInputElement>(null);
+  // Escape cancels by blurring the input; the blur handler still sees
+  // `editing === true` (no re-render yet), so the cancel is flagged in a ref.
+  const renameCancelled = useRef(false);
 
   const { status, pulse } = useWorkspacesAgentStatus(workspaces);
 
@@ -78,6 +81,7 @@ export function FolderItem(props: FolderItemProps) {
   };
 
   const startRename = () => {
+    renameCancelled.current = false;
     setEditValue(folder.name);
     setEditingState(true);
     requestAnimationFrame(() => {
@@ -87,6 +91,10 @@ export function FolderItem(props: FolderItemProps) {
   };
 
   const commitRename = () => {
+    if (renameCancelled.current) {
+      renameCancelled.current = false;
+      return;
+    }
     if (!editing) return;
     setEditingState(false);
     const trimmed = editValue.trim();
@@ -132,6 +140,7 @@ export function FolderItem(props: FolderItemProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") commitRename();
                   if (e.key === "Escape") {
+                    renameCancelled.current = true;
                     setEditingState(false);
                     e.currentTarget.blur();
                   }

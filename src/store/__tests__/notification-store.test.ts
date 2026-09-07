@@ -52,6 +52,7 @@ const { navigateToNotification } = await import(
   "../../utils/notification-navigation"
 );
 const { useAgentStore } = await import("../agent-store");
+const { onPaletteViewRequest } = await import("../../utils/palette-request");
 
 function makeRecord(over: Partial<NotificationRecord> = {}): NotificationRecord {
   return {
@@ -159,6 +160,27 @@ describe("navigateToNotification", () => {
 
     expect(agentsApi.get).toHaveBeenCalledWith("t2");
     expect(navigateToAgent).toHaveBeenCalledWith(agent);
+  });
+
+  it("opens the stats palette view for a stats target", async () => {
+    const seen: string[] = [];
+    const off = onPaletteViewRequest((view) => seen.push(view));
+    await navigateToNotification(makeRecord({ target: { type: "stats" } }));
+    off();
+
+    expect(seen).toEqual(["stats"]);
+    expect(navigateToAgent).not.toHaveBeenCalled();
+  });
+
+  it("opens the stats palette view for a legacy null-target badge record", async () => {
+    const seen: string[] = [];
+    const off = onPaletteViewRequest((view) => seen.push(view));
+    await navigateToNotification(
+      makeRecord({ kind: "badge-unlocked", target: null }),
+    );
+    off();
+
+    expect(seen).toEqual(["stats"]);
   });
 
   it("marks read and stops when the target is null", async () => {

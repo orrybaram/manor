@@ -2,6 +2,7 @@ import type { NotificationRecord } from "../electron.d";
 import { useNotificationStore } from "../store/notification-store";
 import { useAgentStore } from "../store/agent-store";
 import { navigateToAgent } from "./agent-navigation";
+import { requestPaletteView } from "./palette-request";
 
 /**
  * Resolve a notification to wherever it points. The single destination for
@@ -17,6 +18,11 @@ export async function navigateToNotification(
   }
 
   const target = record.target;
+  // Records written before badges pointed anywhere carry a null target.
+  if (target?.type === "stats" || (!target && record.kind === "badge-unlocked")) {
+    requestPaletteView("stats");
+    return;
+  }
   if (!target) return;
 
   if (target.type === "url") {

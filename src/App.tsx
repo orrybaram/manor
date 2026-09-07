@@ -4,6 +4,7 @@ import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
 import type { PaletteView } from "./components/command-palette/types";
+import { onPaletteViewRequest } from "./utils/palette-request";
 import { WorkspaceEmptyState } from "./components/sidebar/WorkspaceEmptyState";
 import { WelcomeEmptyState } from "./components/sidebar/WelcomeEmptyState/WelcomeEmptyState";
 import { HomeEmptyState } from "./components/sidebar/HomeEmptyState";
@@ -230,6 +231,11 @@ function App() {
 
   const handleOpenStats = useCallback(
     () => handleOpenPaletteView("stats"),
+    [handleOpenPaletteView],
+  );
+
+  useEffect(
+    () => onPaletteViewRequest(handleOpenPaletteView),
     [handleOpenPaletteView],
   );
 

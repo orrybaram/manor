@@ -25,7 +25,8 @@ export type NotificationKind =
 
 export type NotificationTarget =
   | { type: "agent"; agentId: string }
-  | { type: "url"; url: string };
+  | { type: "url"; url: string }
+  | { type: "stats" };
 
 export interface NotificationRecord {
   id: string;

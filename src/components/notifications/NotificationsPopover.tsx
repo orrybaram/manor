@@ -225,6 +225,9 @@ export function NotificationsPopover() {
           sideOffset={6}
           collisionPadding={8}
           onOpenAutoFocus={(e) => e.preventDefault()}
+          // A row click closes the list and navigates away; focus returning to
+          // the bell would open its tooltip over whatever just opened.
+          onCloseAutoFocus={(e) => e.preventDefault()}
         >
           <div className={styles.header}>
             <span className={styles.headerTitle}>Notifications</span>

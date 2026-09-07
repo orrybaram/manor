@@ -248,7 +248,7 @@ export function initApp(devTitle: string | null): void {
         kind: "badge-unlocked",
         title: `Badge unlocked: ${badge.title}`,
         body: badge.description,
-        target: null,
+        target: { type: "stats" },
       });
       sendNotificationsUpdate(mainWindow);
     },

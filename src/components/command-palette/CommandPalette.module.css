@@ -893,10 +893,10 @@
 /* ── Stats view (ADR-168) ── */
 
 .statsView {
-  padding: 8px 12px 12px;
+  padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 24px;
   min-width: 0;
 }
 
@@ -923,7 +923,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 12px 14px;
   /* Matches the palette shell so the 1px grid gap reads as the only divider. */
   background: var(--dim);
   min-width: 0;
@@ -969,7 +969,7 @@
 .graph {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .graphHeader {
@@ -1146,7 +1146,7 @@
 }
 
 .statsGroupLabel {
-  padding: 12px 0 4px;
+  padding: 16px 0 6px;
 }
 
 .statsTable tbody:first-of-type .statsGroupLabel {
@@ -1196,8 +1196,9 @@
 .achievements {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
+  gap: 12px;
+  padding-top: 32px;
+  margin-top: 12px;
   border-top: 1px solid var(--surface);
 }
 
@@ -1258,13 +1259,13 @@
 .achievementsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 
 .achievement {
   display: flex;
   gap: 8px;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   min-width: 0;

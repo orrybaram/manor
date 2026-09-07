@@ -1,6 +1,6 @@
 ---
 title: Tab and pane commands over the app-command bridge
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

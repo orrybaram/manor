@@ -28,8 +28,33 @@ export interface GitHubIssueDetail extends GitHubIssue {
   milestone: { title: string } | null;
 }
 
+/**
+ * How stale an open PR's cached conversation may get before it is re-fetched
+ * even though the PR's `updatedAt` has not moved. Resolving a review thread
+ * does not bump `updatedAt`, so this bounds how long a fixed thread keeps the
+ * badge blocked.
+ */
+const CONVERSATION_MAX_AGE_MS = 5 * 60_000;
+
+interface ConversationCacheEntry {
+  updatedAt: string | undefined;
+  fetchedAt: number;
+  /** Merged and closed PRs never change again: fetched once, kept forever. */
+  final: boolean;
+  state: PrConversationState;
+}
+
 export class GitHubManager {
   private readyPromise: Promise<boolean> | null = null;
+
+  /**
+   * Keyed by PR URL. The conversation query is the expensive half of a poll —
+   * one GraphQL call per branch, every tick — and it doubled the load that
+   * pushed the account past GitHub's 5,000/hour limit with eight worktrees
+   * and two app instances (see the popover ADR-167 follow-ups). Now it runs
+   * only when the PR reports a change, or after `CONVERSATION_MAX_AGE_MS`.
+   */
+  private conversationCache = new Map<string, ConversationCacheEntry>();
 
   /**
    * Memoized: is `gh` installed and authenticated? `checkStatus()` shells out,
@@ -86,7 +111,7 @@ export class GitHubManager {
           "--state",
           "all",
           "--json",
-          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup",
+          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt",
           "--limit",
           "1",
         ],
@@ -103,7 +128,7 @@ export class GitHubManager {
       );
 
       const { unresolvedThreads, commentCount, latestComment, recentComments } =
-        await this.getPrConversationState(pr.url, pr.number);
+        await this.conversationFor(pr);
 
       return {
         number: pr.number,
@@ -126,10 +151,41 @@ export class GitHubManager {
     }
   }
 
+  private async conversationFor(pr: {
+    url: string;
+    number: number;
+    state: string;
+    updatedAt?: string;
+  }): Promise<PrConversationState> {
+    const final = String(pr.state).toUpperCase() !== "OPEN";
+    const cached = this.conversationCache.get(pr.url);
+    if (cached) {
+      const fresh =
+        cached.updatedAt === pr.updatedAt &&
+        Date.now() - cached.fetchedAt < CONVERSATION_MAX_AGE_MS;
+      if (cached.final || fresh) return cached.state;
+    }
+
+    const state = await this.getPrConversationState(pr.url, pr.number);
+    // A failed query (rate limit, network) is not worth remembering: the next
+    // poll should try again rather than serve "no comments" for five minutes
+    // — or, for a merged PR, forever.
+    if (state === null) return cached?.state ?? {};
+
+    this.conversationCache.set(pr.url, {
+      updatedAt: pr.updatedAt,
+      fetchedAt: Date.now(),
+      final,
+      state,
+    });
+    return state;
+  }
+
+  /** Null when the query itself failed, as opposed to a PR with no comments. */
   private async getPrConversationState(
     prUrl: string,
     prNumber: number,
-  ): Promise<PrConversationState> {
+  ): Promise<PrConversationState | null> {
     try {
       const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\//);
       if (!match) return {};
@@ -149,7 +205,7 @@ export class GitHubManager {
       const data = JSON.parse(stdout);
       return parsePrConversationState(data?.data?.repository?.pullRequest);
     } catch {
-      return {};
+      return null;
     }
   }
 
@@ -439,17 +495,21 @@ const FAILING_CONCLUSIONS = new Set([
   "ERROR",
 ]);
 
+/** Conclusions that mean "this run had nothing to say" — never a blocker. */
+const SKIPPED_CONCLUSIONS = new Set(["SKIPPED", "NEUTRAL"]);
+
 function checkStatusOf(check: RawStatusCheck): PrCheckStatus {
   const verdict = (check.conclusion || check.state || "").toUpperCase();
   if (verdict === "SUCCESS") return "passing";
   if (FAILING_CONCLUSIONS.has(verdict)) return "failing";
+  if (SKIPPED_CONCLUSIONS.has(verdict)) return "skipped";
   return "pending";
 }
 
 /**
  * Exported for tests. Returns both the counts the badge reads and the named
- * runs the popover lists, ordered failing → pending → passing so the UI can
- * truncate from the end and still show what matters.
+ * runs the popover lists, ordered failing → pending → passing → skipped so
+ * the UI can truncate from the end and still show what matters.
  */
 export function parseStatusCheckRollup(rollup: unknown): {
   checks: ChecksSummary | null;
@@ -463,12 +523,14 @@ export function parseStatusCheckRollup(rollup: unknown): {
     failing: 0,
     pending: 1,
     passing: 2,
+    skipped: 3,
   };
-  const counts: ChecksSummary = {
+  const counts: Required<ChecksSummary> = {
     total: rollup.length,
     passing: 0,
     failing: 0,
     pending: 0,
+    skipped: 0,
   };
   const runs: PrCheckRun[] = [];
 

@@ -177,6 +177,7 @@ describe("GitHubManager", () => {
         passing: 2,
         failing: 1,
         pending: 0,
+        skipped: 0,
       });
       expect(result!.unresolvedThreads).toBe(1);
       expect(result!.reviewDecision).toBe("APPROVED");
@@ -237,6 +238,7 @@ describe("GitHubManager", () => {
         passing: 1,
         failing: 3,
         pending: 2,
+        skipped: 0,
       });
     });
 
@@ -308,6 +310,95 @@ describe("GitHubManager", () => {
   // -------------------------------------------------------------------------
   // getPrsForBranches
   // -------------------------------------------------------------------------
+  describe("conversation cache", () => {
+    const pr = (over: Record<string, unknown>) =>
+      JSON.stringify([
+        {
+          number: 9,
+          state: "OPEN",
+          title: "Cached",
+          url: "https://github.com/owner/repo/pull/9",
+          isDraft: false,
+          additions: 0,
+          deletions: 0,
+          reviewDecision: null,
+          statusCheckRollup: [],
+          updatedAt: "2026-09-06T10:00:00Z",
+          ...over,
+        },
+      ]);
+    const graphql = (unresolved: number) =>
+      JSON.stringify({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: Array.from({ length: unresolved }, () => ({
+                  isResolved: false,
+                })),
+              },
+            },
+          },
+        },
+      });
+
+    it("skips the conversation query while updatedAt is unchanged", async () => {
+      setupExecFileCalls([
+        success(pr({})), // poll 1: pr list
+        success(graphql(2)), // poll 1: graphql
+        success(pr({})), // poll 2: pr list only
+      ]);
+
+      const first = await manager.getPrForBranch("/repo", "b");
+      const second = await manager.getPrForBranch("/repo", "b");
+      expect(first!.unresolvedThreads).toBe(2);
+      expect(second!.unresolvedThreads).toBe(2);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("re-queries when updatedAt moves", async () => {
+      setupExecFileCalls([
+        success(pr({})),
+        success(graphql(2)),
+        success(pr({ updatedAt: "2026-09-06T11:00:00Z" })),
+        success(graphql(0)),
+      ]);
+
+      await manager.getPrForBranch("/repo", "b");
+      const second = await manager.getPrForBranch("/repo", "b");
+      expect(second!.unresolvedThreads).toBe(0);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("never re-queries a merged PR, even after updatedAt moves", async () => {
+      setupExecFileCalls([
+        success(pr({ state: "MERGED" })),
+        success(graphql(1)),
+        success(pr({ state: "MERGED", updatedAt: "2026-09-07T00:00:00Z" })),
+      ]);
+
+      await manager.getPrForBranch("/repo", "b");
+      const second = await manager.getPrForBranch("/repo", "b");
+      expect(second!.unresolvedThreads).toBe(1);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("does not cache a failed conversation query", async () => {
+      setupExecFileCalls([
+        success(pr({ state: "MERGED" })),
+        failure("GraphQL: API rate limit already exceeded"),
+        success(pr({ state: "MERGED" })),
+        success(graphql(1)),
+      ]);
+
+      const first = await manager.getPrForBranch("/repo", "b");
+      expect(first!.unresolvedThreads).toBeUndefined();
+      const second = await manager.getPrForBranch("/repo", "b");
+      expect(second!.unresolvedThreads).toBe(1);
+      expect(mockState.queue).toHaveLength(0);
+    });
+  });
+
   describe("getPrsForBranches", () => {
     it("calls getPrForBranchInner for each branch and returns results", async () => {
       const emptyGraphql = JSON.stringify({

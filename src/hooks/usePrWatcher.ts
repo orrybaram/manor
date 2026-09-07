@@ -4,7 +4,13 @@ import { deliverPrNotifications } from "../utils/pr-notifications";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useMountEffect } from "./useMountEffect";
 
-const PR_POLL_INTERVAL = 15_000;
+/**
+ * Window focus and badge hover already refresh immediately, so the timer only
+ * has to catch changes that happen while the app is idle. Every tick is at
+ * least one GitHub call per worktree; at 15s eight worktrees came within
+ * sight of the hourly limit on their own.
+ */
+const PR_POLL_INTERVAL = 60_000;
 
 function computeFingerprint() {
   const projects = useProjectStore.getState().projects;

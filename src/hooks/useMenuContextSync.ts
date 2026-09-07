@@ -28,7 +28,10 @@ const DEBOUNCE_MS = 100;
 /** The slice of the app store the menu context is derived from. */
 export type MenuAppState = Pick<
   AppState,
-  "activeWorkspacePath" | "workspaceLayouts" | "paneContentType"
+  | "activeWorkspacePath"
+  | "workspaceLayouts"
+  | "paneContentType"
+  | "paneAgentStatus"
 >;
 
 /** A project's visible workspaces, folder members flattened, in sidebar order. */
@@ -47,6 +50,15 @@ function workspaceLabel(ws: { name: string | null; branch: string }): string {
  * Fold the renderer stores into the snapshot main needs. Pure: no store reads,
  * no IPC — everything it uses is an argument.
  */
+function focusedContentType(
+  app: MenuAppState,
+  paneId: string,
+): "terminal" | "browser" | "diff" | "agent" {
+  const stored = app.paneContentType[paneId] ?? "terminal";
+  if (stored !== "terminal") return stored;
+  return app.paneAgentStatus[paneId]?.kind ? "agent" : "terminal";
+}
+
 export function deriveMenuContext(
   app: MenuAppState,
   projects: ProjectInfo[],
@@ -113,11 +125,12 @@ export function deriveMenuContext(
           : null,
       })),
     // The store has no "agent" content type — an agent pane is a terminal
-    // running an agent command — so a focused pane reports terminal for those.
+    // running an agent command — so a terminal with a detected agent reports
+    // "agent" here, which is what Pane › Convert To radio-checks.
     focusedPane: focusedPaneId
       ? {
           id: focusedPaneId,
-          contentType: app.paneContentType[focusedPaneId] ?? "terminal",
+          contentType: focusedContentType(app, focusedPaneId),
         }
       : null,
     activeTab:

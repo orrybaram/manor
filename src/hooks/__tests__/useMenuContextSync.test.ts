@@ -68,6 +68,7 @@ function makeAppState(overrides: Partial<MenuAppState> = {}): MenuAppState {
       },
     },
     paneContentType: { "pane-1": "diff" },
+    paneAgentStatus: {},
     ...overrides,
   };
 }
@@ -167,6 +168,27 @@ describe("deriveMenuContext", () => {
       PREFS,
     );
     expect(context.focusedPane).toEqual({ id: "pane-1", contentType: "diff" });
+  });
+
+  it("reports a terminal pane with a detected agent as an agent pane", () => {
+    const context = deriveMenuContext(
+      makeAppState({
+        paneContentType: { "pane-1": "terminal" },
+        paneAgentStatus: {
+          "pane-1": {
+            kind: "claude",
+            status: "working",
+            processName: "claude",
+            since: 0,
+            title: null,
+          },
+        },
+      }),
+      [makeProject()],
+      [],
+      PREFS,
+    );
+    expect(context.focusedPane).toEqual({ id: "pane-1", contentType: "agent" });
     expect(context.activeTab).toEqual({ id: "tab-1", pinned: true });
     expect(context.panelCount).toBe(1);
   });

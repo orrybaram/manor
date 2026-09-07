@@ -1,6 +1,6 @@
 ---
 title: Widen ControlDeps to the full manager bag and extract inline IPC logic
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

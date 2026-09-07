@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,12 +25,13 @@ function fakeHttp(impl: Partial<Http> = {}) {
   };
 }
 
-function captureIo() {
+function captureIo(stdinText?: string) {
   const out: string[] = [];
   const err: string[] = [];
   const io: CliIo = {
     stdout: { write: (s: string) => out.push(s) },
     stderr: { write: (s: string) => err.push(s) },
+    ...(stdinText !== undefined ? { stdin: { read: () => stdinText } } : {}),
   };
   return {
     io,
@@ -165,6 +167,20 @@ describe("help", () => {
     const io = captureIo();
     expect(await runCli(["get-project", "-h"], fakeHttp(), io.io)).toBe(0);
     expect(io.stdout).toContain("Usage: manor get-project");
+  });
+
+  it("renders an enum flag as --flag <a|b|c> instead of <string>", async () => {
+    const io = captureIo();
+    expect(await runCli(["split-pane", "--help"], fakeHttp(), io.io)).toBe(0);
+    expect(io.stdout).toContain("--direction <horizontal|vertical>");
+  });
+
+  it("mentions the stdin/file flag convention under Usage", async () => {
+    const io = captureIo();
+    await runCli(["--help"], fakeHttp(), io.io);
+    expect(io.stdout).toContain(
+      "Flag values: - reads stdin, @file reads a file.",
+    );
   });
 
   it("rejects an unknown command with exit 2", async () => {
@@ -323,6 +339,28 @@ describe("dispatch", () => {
     expect(http.get).not.toHaveBeenCalled();
   });
 
+  it("rejects an enum flag value outside the schema's list, naming the allowed values", async () => {
+    const io = captureIo();
+    const http = fakeHttp();
+    expect(
+      await runCli(["split-pane", "--direction", "diagonal"], http, io.io),
+    ).toBe(2);
+    expect(io.stderr).toContain("horizontal, vertical");
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it("passes a valid enum flag value through to the handler", async () => {
+    const io = captureIo();
+    const http = fakeHttp({ post: async () => ({ paneId: "p2" }) });
+    expect(
+      await runCli(["split-pane", "--direction", "vertical"], http, io.io),
+    ).toBe(0);
+    expect(http.post).toHaveBeenCalledWith(
+      "/panes/split",
+      expect.objectContaining({ direction: "vertical" }),
+    );
+  });
+
   it("writes image content to a png under tmpdir and prints only the path", async () => {
     const png = Buffer.from("not-really-a-png");
     const io = captureIo();
@@ -367,6 +405,75 @@ describe("dispatch", () => {
     });
     expect(await runCli(["screenshot-webview"], http, io.io)).toBe(1);
     expect(io.stderr).toBe("No webviews are currently open in Manor.\n");
+  });
+});
+
+// ── stdin and file flag values ──
+
+describe("stdin and file flag values", () => {
+  it("reads a flag value from stdin when given -", async () => {
+    const io = captureIo("console.log(1)");
+    const http = fakeHttp({ post: async () => ({ result: null }) });
+    expect(
+      await runCli(
+        ["execute-js", "--pane-id", "p1", "--code", "-"],
+        http,
+        io.io,
+      ),
+    ).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/webview/p1/execute-js", {
+      code: "console.log(1)",
+    });
+  });
+
+  it("rejects - with exit 2 when no stdin reader is available", async () => {
+    const io = captureIo();
+    const http = fakeHttp();
+    expect(
+      await runCli(
+        ["execute-js", "--pane-id", "p1", "--code", "-"],
+        http,
+        io.io,
+      ),
+    ).toBe(2);
+    expect(io.stderr).toContain("--code");
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it("reads a flag value from a file with @path", async () => {
+    const file = path.join(
+      os.tmpdir(),
+      `manor-cli-stdin-test-${Date.now()}.js`,
+    );
+    fs.writeFileSync(file, "console.log(2)");
+    writtenFiles.push(file);
+
+    const io = captureIo();
+    const http = fakeHttp({ post: async () => ({ result: null }) });
+    expect(
+      await runCli(
+        ["execute-js", "--pane-id", "p1", "--code", `@${file}`],
+        http,
+        io.io,
+      ),
+    ).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/webview/p1/execute-js", {
+      code: "console.log(2)",
+    });
+  });
+
+  it("rejects @<missing file> with exit 2", async () => {
+    const io = captureIo();
+    const http = fakeHttp();
+    expect(
+      await runCli(
+        ["execute-js", "--pane-id", "p1", "--code", "@/no/such/file"],
+        http,
+        io.io,
+      ),
+    ).toBe(2);
+    expect(io.stderr).toContain("--code");
+    expect(http.post).not.toHaveBeenCalled();
   });
 });
 

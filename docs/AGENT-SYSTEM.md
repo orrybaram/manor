@@ -616,7 +616,10 @@ run simultaneously.
   `list_projects` → `manor list-projects`, `projectId` → `--project-id`.
   `manor --help` lists them; `manor <cmd> --help` shows flags.
   `manor api <METHOD> <path> [--body json]` hits the control server directly.
-  Agents running inside a Manor terminal should prefer the CLI over the MCP
+  Enum flags reject values outside the schema's list, and any non-boolean
+  flag value of exactly `-` reads stdin or `@<path>` reads a file (e.g.
+  `manor execute-js --code @snippet.js`). Agents running inside a Manor
+  terminal should prefer the CLI over the MCP
   tools to avoid loading the tool roster into context; the MCP tools remain
   for inline screenshots and typed multi-line arguments. The legacy
   `manor-webview` (ADR-053) was removed and is deleted from disk on startup.

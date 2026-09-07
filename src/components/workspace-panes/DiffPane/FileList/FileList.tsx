@@ -4,7 +4,6 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
-import CodeXml from "lucide-react/dist/esm/icons/code-xml";
 import Circle from "lucide-react/dist/esm/icons/circle";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
@@ -16,6 +15,7 @@ import {
   flattenFileTree,
   type FileTreeNode,
 } from "../file-tree";
+import { fileIconFor } from "../file-icon";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
@@ -315,6 +315,7 @@ export function FileList(props: FileListProps) {
   const renderFile = (file: DiffFile, name: string, depth: number) => {
     const index = orderedFiles.indexOf(file);
     const isStaged = stagedFiles.has(file.path);
+    const Icon = fileIconFor(file.path);
     return (
       <ContextMenu.Root key={file.path}>
         <ContextMenu.Trigger asChild>
@@ -343,7 +344,7 @@ export function FileList(props: FileListProps) {
                 className={isStaged ? styles.stagedIcon : styles.unstagedIcon}
               />
             )}
-            <CodeXml size={12} className={styles.fileIcon} />
+            <Icon size={12} className={styles.fileIcon} />
             <span
               onClick={(e) => handleFileNameClick(e, file)}
               className={styles.fileName}

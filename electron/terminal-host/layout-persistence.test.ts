@@ -9,8 +9,6 @@ import {
   type PersistedLayout,
   type PersistedLayoutV1,
   type PersistedWorkspace,
-  type PersistedWorkspaceV1,
-  type PersistedPanel,
   type PersistedTab,
 } from "./layout-persistence";
 

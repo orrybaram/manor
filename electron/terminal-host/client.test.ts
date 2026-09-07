@@ -956,7 +956,6 @@ describe("TerminalHostClient", () => {
         (client as any).migrateOldDaemonsDir = legacyRoot;
 
         // Monkey-patch migrateOldDaemons to use our temp dir
-        const origMigrate = (client as any).migrateOldDaemons.bind(client);
         (client as any).migrateOldDaemons = async () => {
           if ((client as any)._migratedOldDaemons) return;
           (client as any)._migratedOldDaemons = true;

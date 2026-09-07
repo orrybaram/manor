@@ -7,10 +7,6 @@ import type { IpcDeps } from "./types";
 export function register(deps: IpcDeps): void {
   const { projectManager, statsStore } = deps;
 
-  function getMainWindow() {
-    return deps.mainWindow;
-  }
-
   ipcMain.handle("projects:getAll", () => {
     return projectManager.getProjects();
   });

@@ -17,7 +17,7 @@ import { useAppStore } from "../store/app-store";
  *   src/components/App.tsx:100:15
  */
 const FILE_PATH_RE =
-  /((?:\.{0,2}\/)?[\w@.+\-][\w@.+\-/]*\.\w+)(?::(\d+)(?::(\d+))?)?/g;
+  /((?:\.{0,2}\/)?[\w@.+-][\w@.+\-/]*\.\w+)(?::(\d+)(?::(\d+))?)?/g;
 
 export function createFileLinkProvider(
   terminal: Terminal,

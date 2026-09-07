@@ -7,10 +7,18 @@
  * Discovery: reads port from ~/.manor/webview-server-port
  */
 
+import * as fs from "node:fs";
+
 import { createHttp } from "./mcp/http-client";
 import { runCli } from "./mcp/cli";
 
-runCli(process.argv.slice(2), createHttp(), process)
+const io = {
+  stdout: process.stdout,
+  stderr: process.stderr,
+  stdin: { read: () => fs.readFileSync(0, "utf-8") },
+};
+
+runCli(process.argv.slice(2), createHttp(), io)
   .then((code) => process.exit(code))
   .catch((err) => {
     console.error(err instanceof Error ? err.message : String(err));

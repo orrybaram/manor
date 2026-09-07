@@ -22,6 +22,8 @@ import { HttpError } from "./types";
 export interface CliIo {
   stdout: { write(s: string): unknown };
   stderr: { write(s: string): unknown };
+  /** Present when the process has a real stdin to read from `-` flag values. */
+  stdin?: { read(): string };
 }
 
 /** The JSON-Schema subset the tool modules actually use. */
@@ -29,6 +31,7 @@ interface PropSchema {
   type?: string;
   description?: string;
   items?: { type?: string };
+  enum?: string[];
 }
 
 /** Merged exactly the way the MCP entry merges them. */
@@ -101,6 +104,7 @@ function renderGlobalHelp(): string {
     "Usage: manor <command> [flags]",
     "       manor <command> --help",
     `       ${API_USAGE}`,
+    "Flag values: - reads stdin, @file reads a file.",
   ];
 
   const width = Math.max(
@@ -131,7 +135,7 @@ function renderCommandHelp(command: string, tool: ToolDef): string {
     const labels = new Map(
       entries.map(([prop, schema]) => [
         prop,
-        `--${toFlagName(prop)} <${schema.type ?? "string"}>`,
+        `--${toFlagName(prop)} <${schema.enum ? schema.enum.join("|") : (schema.type ?? "string")}>`,
       ]),
     );
     const width = Math.max(...Array.from(labels.values(), (l) => l.length));
@@ -172,6 +176,32 @@ function coerceNumber(value: string, flag: string): number {
 }
 
 /**
+ * A flag value of exactly `-` reads all of stdin (UTF-8); `@<path>` reads that
+ * file, relative to `cwd`. Applies to every non-boolean flag on the generated
+ * command surface. Booleans are excluded because they never take a value
+ * token.
+ */
+function resolveValue(value: string, flag: string, io?: CliIo): string {
+  if (value === "-") {
+    if (!io?.stdin) {
+      throw new UsageError(
+        `${flag} was given "-" to read stdin, but no stdin is available here.`,
+      );
+    }
+    return io.stdin.read();
+  }
+  if (value.startsWith("@")) {
+    const file = value.slice(1);
+    try {
+      return fs.readFileSync(path.resolve(file), "utf-8");
+    } catch {
+      throw new UsageError(`${flag}: cannot read file "${file}".`);
+    }
+  }
+  return value;
+}
+
+/**
  * Hand-rolled so the CLI carries no dependency. `--flag value` and
  * `--flag=value` are equivalent; booleans take no value and accept a `--no-`
  * form; arrays repeat.
@@ -180,6 +210,7 @@ export function parseArgs(
   command: string,
   tool: ToolDef,
   argv: string[],
+  io?: CliIo,
 ): Record<string, unknown> {
   const props = properties(tool);
   const propNames = Object.keys(props);
@@ -246,10 +277,11 @@ export function parseArgs(
       continue;
     }
 
-    const value = inline ?? argv[++i];
-    if (value === undefined) {
+    const raw = inline ?? argv[++i];
+    if (raw === undefined) {
       throw new UsageError(`${flag} expects a value.`);
     }
+    const value = resolveValue(raw, flag, io);
 
     if (schema.type === "number") {
       args[prop] = coerceNumber(value, flag);
@@ -266,6 +298,11 @@ export function parseArgs(
         throw new UsageError(`${flag} expects JSON, got "${value}".`);
       }
     } else {
+      if (schema.enum && !schema.enum.includes(value)) {
+        throw new UsageError(
+          `${flag} must be one of: ${schema.enum.join(", ")}. Got "${value}".`,
+        );
+      }
       args[prop] = value;
     }
   }
@@ -420,7 +457,7 @@ export async function runCli(
 
   let args: Record<string, unknown>;
   try {
-    args = parseArgs(command, tool, rest);
+    args = parseArgs(command, tool, rest, io);
   } catch (err) {
     if (err instanceof UsageError) {
       io.stderr.write(`${err.message}\n`);

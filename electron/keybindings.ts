@@ -7,8 +7,9 @@ export class KeybindingsManager {
   private dataDir: string;
   private overrides: Record<string, string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private changeCallback: ((overrides: Record<string, string>) => void) | null =
-    null;
+  private changeListeners = new Set<
+    (overrides: Record<string, string>) => void
+  >();
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -43,6 +44,12 @@ export class KeybindingsManager {
     }, 500);
   }
 
+  private notifyListeners(): void {
+    for (const listener of this.changeListeners) {
+      listener({ ...this.overrides });
+    }
+  }
+
   getAll(): Record<string, string> {
     return { ...this.overrides };
   }
@@ -50,28 +57,31 @@ export class KeybindingsManager {
   set(commandId: string, combo: string): void {
     this.overrides[commandId] = combo;
     this.saveState();
-    if (this.changeCallback) {
-      this.changeCallback({ ...this.overrides });
-    }
+    this.notifyListeners();
   }
 
   reset(commandId: string): void {
     delete this.overrides[commandId];
     this.saveState();
-    if (this.changeCallback) {
-      this.changeCallback({ ...this.overrides });
-    }
+    this.notifyListeners();
   }
 
   resetAll(): void {
     this.overrides = {};
     this.saveState();
-    if (this.changeCallback) {
-      this.changeCallback({ ...this.overrides });
-    }
+    this.notifyListeners();
   }
 
-  onChange(callback: (overrides: Record<string, string>) => void): void {
-    this.changeCallback = callback;
+  /**
+   * Registers a listener invoked with the full overrides map whenever
+   * `set`, `reset`, or `resetAll` runs. Multiple listeners may be
+   * registered at once (e.g. the IPC bridge to the renderer and the
+   * native menu rebuild). Returns a function that unsubscribes it.
+   */
+  onChange(callback: (overrides: Record<string, string>) => void): () => void {
+    this.changeListeners.add(callback);
+    return () => {
+      this.changeListeners.delete(callback);
+    };
   }
 }

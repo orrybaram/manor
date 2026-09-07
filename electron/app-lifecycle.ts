@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, safeStorage } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -37,6 +37,7 @@ import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import { createWindow, saveZoomLevel } from "./window";
+import { installAppMenu, type AppMenuController } from "./app-menu";
 import {
   unseenRespondedAgents,
   unseenInputAgents,
@@ -63,6 +64,7 @@ import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
+import * as menuIpc from "./ipc/menu";
 
 // Extract stream event handler for testability
 export function handleStreamEvent(
@@ -99,7 +101,9 @@ export function handleStreamEvent(
         {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
           if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
-            const updated = agentManager.updateAgent(agent.id, { cwd: event.cwd });
+            const updated = agentManager.updateAgent(agent.id, {
+              cwd: event.cwd,
+            });
             if (updated) {
               sendAgentUpdate(window, updated, preferencesManager);
             }
@@ -120,7 +124,9 @@ export function handleStreamEvent(
         if (cleaned) {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
           if (agent && !agent.namePinned && agent.name !== cleaned) {
-            const updated = agentManager.updateAgent(agent.id, { name: cleaned });
+            const updated = agentManager.updateAgent(agent.id, {
+              name: cleaned,
+            });
             if (updated) {
               sendAgentUpdate(window, updated, preferencesManager);
             }
@@ -146,6 +152,10 @@ export function initApp(devTitle: string | null): void {
   // `mainWindow` is the PRIMARY renderer window. The `get mainWindow()` getter
   // on ipcDeps keeps returning it, so every existing handler is unaffected.
   let mainWindow: BrowserWindow | null = null;
+  // Installed inside `app.whenReady()` below; `ipcDeps.appMenu` reads this
+  // through a getter so the IPC modules can be registered before then, as
+  // they are today (ADR-170 §4).
+  let appMenu: AppMenuController;
 
   // ── Window registry ────────────────────────────────────────────────────
   // All live renderer windows (primary + any detached popup windows) are
@@ -399,6 +409,9 @@ export function initApp(devTitle: string | null): void {
     workspaceMeta: [],
     prewarmManager,
     remoteControl,
+    get appMenu() {
+      return appMenu;
+    },
   };
 
   ptyIpc.register(ipcDeps);
@@ -416,87 +429,20 @@ export function initApp(devTitle: string | null): void {
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
   remoteControlIpc.register(ipcDeps);
+  menuIpc.register(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
-    // Custom menu: remove default Back (Cmd+[) / Forward (Cmd+]) so they reach the renderer
-    const menu = Menu.buildFromTemplate([
-      {
-        label: app.name,
-        submenu: [
-          { role: "about" },
-          ...(app.isPackaged
-            ? [
-                { type: "separator" as const },
-                {
-                  label: "Check for Updates…",
-                  click: () => checkForUpdates(),
-                },
-              ]
-            : []),
-          { type: "separator" as const },
-          { role: "services" as const },
-          { type: "separator" as const },
-          { role: "hide" as const },
-          { role: "hideOthers" as const },
-          { role: "unhide" as const },
-          { type: "separator" as const },
-          { role: "quit" as const },
-        ],
-      },
-      { role: "editMenu" },
-      {
-        label: "View",
-        submenu: [
-          { role: "reload" },
-          { role: "forceReload" },
-          { role: "toggleDevTools" },
-          { type: "separator" },
-          {
-            label: "Actual Size",
-            accelerator: "CmdOrCtrl+0",
-            click: () => {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.setZoomFactor(1);
-                saveZoomLevel(1);
-              }
-            },
-          },
-          {
-            label: "Zoom In",
-            accelerator: "CmdOrCtrl+=",
-            click: () => {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                const next = Math.min(
-                  mainWindow.webContents.getZoomFactor() + 0.1,
-                  3,
-                );
-                mainWindow.webContents.setZoomFactor(next);
-                saveZoomLevel(next);
-              }
-            },
-          },
-          {
-            label: "Zoom Out",
-            accelerator: "CmdOrCtrl+-",
-            click: () => {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                const next = Math.max(
-                  mainWindow.webContents.getZoomFactor() - 0.1,
-                  0.3,
-                );
-                mainWindow.webContents.setZoomFactor(next);
-                saveZoomLevel(next);
-              }
-            },
-          },
-          { type: "separator" },
-          { role: "togglefullscreen" },
-        ],
-      },
-      { role: "windowMenu" },
-    ]);
-    Menu.setApplicationMenu(menu);
+    // Native application menu (ADR-170). Must run after `whenReady()` (Menu
+    // isn't available before then) and before the primary window opens so the
+    // menu is in place the instant the window can take focus.
+    appMenu = installAppMenu({
+      getMainWindow: () => mainWindow,
+      getRendererWindows,
+      keybindingsManager,
+      checkForUpdates,
+      saveZoomLevel,
+    });
 
     // Set Dock icon on macOS
     if (process.platform === "darwin") {
@@ -561,7 +507,11 @@ export function initApp(devTitle: string | null): void {
       broadcastAgent,
       maybeSendNotification,
       onHookEvent: (event, effects) =>
-        statsStore.observeHookEvent(event, effects, agentManager.getActiveAgents().length),
+        statsStore.observeHookEvent(
+          event,
+          effects,
+          agentManager.getActiveAgents().length,
+        ),
     });
 
     // Now that the hook relay is created, set the notifyAgentDetectorGone reference

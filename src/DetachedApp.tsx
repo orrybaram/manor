@@ -13,6 +13,7 @@ import {
   dispatchKeybinding,
   startNewAgent,
 } from "./lib/keybinding-commands";
+import { dispatchMenuCommand } from "./lib/menu-handlers";
 import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { allPaneIds } from "./store/pane-tree";
@@ -148,7 +149,17 @@ export default function DetachedApp() {
     }
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Menu commands land here too. Main only routes a command to a focused
+    // popout when `SHARED_WINDOW_COMMANDS` says it can service it, which is
+    // exactly the set this map implements (ADR-170); anything else it sends to
+    // the primary window, so unknown ids should never arrive.
+    const unsubscribeMenu = window.electronAPI.menu.onMenuCommand((payload) =>
+      dispatchMenuCommand(payload, handlers),
+    );
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      unsubscribeMenu();
+    };
   });
 
   // A tab dragged out of another window and dropped onto this one. If this

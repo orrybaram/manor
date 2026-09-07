@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import styles from "./CommandPalette.module.css";
+import styles from "./GhostsOverlay.module.css";
 
 function generateGhostStyles() {
   return Array.from({ length: 50 }, () => ({
@@ -13,7 +13,12 @@ function generateGhostStyles() {
   }));
 }
 
-export function GhostOverlay() {
+/**
+ * Help > "Ghosts!?" easter egg (ADR-170 §8). Owned by `App` so it can be
+ * driven by both the palette (via `requestUi({ type: "ghosts" })`) and the
+ * native menu, and stays visible with the palette closed.
+ */
+export function GhostsOverlay() {
   const ghosts = useMemo(() => generateGhostStyles(), []);
 
   return (

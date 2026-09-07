@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
 import type { DetachedTabPayload } from "../src/store/detach-types";
+import type { MenuCommandPayload, MenuContext } from "../src/lib/menu-commands";
 
 interface WindowBounds {
   x: number;
@@ -59,8 +60,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   detachedWindowId,
 
   pty: {
-    create: (paneId: string, cwd: string | null, cols: number, rows: number, agentKind?: string | null) =>
-      ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
+    create: (
+      paneId: string,
+      cwd: string | null,
+      cols: number,
+      rows: number,
+      agentKind?: string | null,
+    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
     write: (paneId: string, data: string) =>
       ipcRenderer.invoke("pty:write", paneId, data),
     resize: (paneId: string, cols: number, rows: number) =>
@@ -70,7 +76,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
     detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
     consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
-    updatePrewarmCwd: (cwd: string, agentCommand?: string | null, agentKind?: string | null) => ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
+    updatePrewarmCwd: (
+      cwd: string,
+      agentCommand?: string | null,
+      agentKind?: string | null,
+    ) =>
+      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
     // Output carries its position in the session's stream (ADR-159) so the
     // renderer can drop what a warm-restore snapshot already covers. It is
     // undefined when an older daemon is on the other end.
@@ -145,14 +156,39 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onWorktreeSetupProgress: (callback: (event: any) => void) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("worktree:setup-progress", handler);
-      return () => ipcRenderer.removeListener("worktree:setup-progress", handler);
+      return () =>
+        ipcRenderer.removeListener("worktree:setup-progress", handler);
     },
     canQuickMerge: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>
-      ipcRenderer.invoke("projects:quickMergeWorktree", projectId, worktreePath),
-    createWorktree: (projectId: string, name: string, branch?: string, linkedIssue?: { id: string; identifier: string; title: string; url: string }, baseBranch?: string, useExistingBranch?: boolean) =>
-      ipcRenderer.invoke("projects:createWorktree", projectId, name, branch, linkedIssue, baseBranch, useExistingBranch),
+      ipcRenderer.invoke(
+        "projects:quickMergeWorktree",
+        projectId,
+        worktreePath,
+      ),
+    createWorktree: (
+      projectId: string,
+      name: string,
+      branch?: string,
+      linkedIssue?: {
+        id: string;
+        identifier: string;
+        title: string;
+        url: string;
+      },
+      baseBranch?: string,
+      useExistingBranch?: boolean,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:createWorktree",
+        projectId,
+        name,
+        branch,
+        linkedIssue,
+        baseBranch,
+        useExistingBranch,
+      ),
     convertMainToWorktree: (projectId: string, name: string) =>
       ipcRenderer.invoke("projects:convertMainToWorktree", projectId, name),
     listRemoteBranches: (projectId: string) =>
@@ -324,10 +360,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getPrsForBranches: (repoPath: string, branches: string[]) =>
       ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
     checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
-    getMyIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") =>
-      ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
-    getAllIssues: (repoPath: string, limit?: number, state?: "open" | "closed" | "all") =>
-      ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
+    getMyIssues: (
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+    ) => ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
+    getAllIssues: (
+      repoPath: string,
+      limit?: number,
+      state?: "open" | "closed" | "all",
+    ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
     getIssueDetail: (repoPath: string, issueNumber: number) =>
       ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
     assignIssue: (repoPath: string, issueNumber: number) =>
@@ -356,8 +398,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       teamIds: string[],
       options?: { stateTypes?: string[]; limit?: number },
     ) => ipcRenderer.invoke("linear:getAllIssues", teamIds, options),
-    proxyImage: (url: string) =>
-      ipcRenderer.invoke("linear:proxyImage", url),
+    proxyImage: (url: string) => ipcRenderer.invoke("linear:proxyImage", url),
     autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
     startIssue: (issueId: string) =>
       ipcRenderer.invoke("linear:startIssue", issueId),
@@ -404,6 +445,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("shell:discoverAgents") as Promise<
         Array<{ name: string; command: string }>
       >,
+    showItemInFolder: (path: string) =>
+      ipcRenderer.invoke("shell:showItemInFolder", path) as Promise<void>,
   },
 
   updater: {
@@ -415,8 +458,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("updater:update-available", callback),
     onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
       onChannel("updater:update-downloaded", callback),
-    onUpdateNotAvailable: (callback: (info: { version: string; manual: boolean }) => void) =>
-      onChannel("updater:update-not-available", callback),
+    onUpdateNotAvailable: (
+      callback: (info: { version: string; manual: boolean }) => void,
+    ) => onChannel("updater:update-not-available", callback),
     onDownloadProgress: (
       callback: (progress: {
         percent: number;
@@ -425,8 +469,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
         total: number;
       }) => void,
     ) => onChannel("updater:download-progress", callback),
-    onError: (callback: (payload: { message: string; manual: boolean }) => void) =>
-      onChannel("updater:error", callback),
+    onError: (
+      callback: (payload: { message: string; manual: boolean }) => void,
+    ) => onChannel("updater:error", callback),
   },
 
   agents: {
@@ -442,8 +487,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getUnseen: () => ipcRenderer.invoke("agents:getUnseen"),
     consumePruneNotice: () => ipcRenderer.invoke("agents:consumePruneNotice"),
     get: (agentId: string) => ipcRenderer.invoke("agents:get", agentId),
-    update: (agentId: string, updates: { name?: string | null; namePinned?: boolean }) =>
-      ipcRenderer.invoke("agents:update", agentId, updates),
+    update: (
+      agentId: string,
+      updates: { name?: string | null; namePinned?: boolean },
+    ) => ipcRenderer.invoke("agents:update", agentId, updates),
     delete: (agentId: string) => ipcRenderer.invoke("agents:delete", agentId),
     setPaneContext: (
       paneId: string,
@@ -454,12 +501,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
         agentCommand: string | null;
       },
     ) => ipcRenderer.invoke("agents:setPaneContext", paneId, context),
-    markSeen: (agentId: string) => ipcRenderer.invoke("agents:markSeen", agentId),
-    markResumed: (agentId: string) => ipcRenderer.invoke("agents:markResumed", agentId),
+    markSeen: (agentId: string) =>
+      ipcRenderer.invoke("agents:markSeen", agentId),
+    markResumed: (agentId: string) =>
+      ipcRenderer.invoke("agents:markResumed", agentId),
     buildResumeCommand: (agentId: string) =>
       ipcRenderer.invoke("agents:buildResumeCommand", agentId),
     reconcileStale: () => ipcRenderer.invoke("agents:reconcileStale"),
-    abandonForPane: (paneId: string, title?: string | null) => ipcRenderer.invoke("agents:abandonForPane", paneId, title),
+    abandonForPane: (paneId: string, title?: string | null) =>
+      ipcRenderer.invoke("agents:abandonForPane", paneId, title),
     onUpdate: (
       callback: (
         agent: unknown,
@@ -497,13 +547,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel("keybindings-changed", callback),
   },
 
+  menu: {
+    /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
+    setContext: (context: MenuContext) =>
+      ipcRenderer.send("menu:setContext", context),
+    /** A native menu item was clicked; fire-and-forget, like a keybinding. */
+    onMenuCommand: (callback: (payload: MenuCommandPayload) => void) =>
+      onChannel("menu-command", callback),
+  },
+
   notifications: {
     show: (payload: {
       kind: "comment" | "approved" | "changes-requested" | "checks-failed";
       title: string;
       body: string;
       url?: string;
-      comment?: { author: string; body: string; url: string; createdAt: string };
+      comment?: {
+        author: string;
+        body: string;
+        url: string;
+        createdAt: string;
+      };
     }) => ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
     getAll: () => ipcRenderer.invoke("notifications:getAll"),
     markRead: (id: string) => ipcRenderer.invoke("notifications:markRead", id),
@@ -526,11 +590,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   clipboard: {
-    writeText: (text: string) => ipcRenderer.invoke("clipboard:writeText", text),
+    writeText: (text: string) =>
+      ipcRenderer.invoke("clipboard:writeText", text),
   },
 
   /** Main mutated the project list out-of-band (MCP, CLI) — refetch it. */
-  onProjectsChanged: (callback: () => void) => onChannel("projects-changed", callback),
+  onProjectsChanged: (callback: () => void) =>
+    onChannel("projects-changed", callback),
 
   onAppCommand: (callback: (payload: AppCommand) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AppCommand) =>
@@ -557,13 +623,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     cancelPicker: (paneId: string) =>
       ipcRenderer.invoke("webview:cancel-picker", paneId),
     zoomIn: (paneId: string) => ipcRenderer.invoke("webview:zoom-in", paneId),
-    zoomOut: (paneId: string) =>
-      ipcRenderer.invoke("webview:zoom-out", paneId),
+    zoomOut: (paneId: string) => ipcRenderer.invoke("webview:zoom-out", paneId),
     zoomReset: (paneId: string) =>
       ipcRenderer.invoke("webview:zoom-reset", paneId),
-    onPickerResult: (
-      callback: (paneId: string, result: unknown) => void,
-    ) => {
+    onPickerResult: (callback: (paneId: string, result: unknown) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
@@ -574,20 +637,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
         ipcRenderer.removeListener("webview:picker-result", listener);
     },
     onPickerCancel: (callback: (paneId: string) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-      ) => callback(paneId);
+      const listener = (_event: Electron.IpcRendererEvent, paneId: string) =>
+        callback(paneId);
       ipcRenderer.on("webview:picker-cancel", listener);
       return () =>
         ipcRenderer.removeListener("webview:picker-cancel", listener);
     },
     onEscape: (callback: (paneId: string) => void) =>
-      onChannel('webview:escape', callback),
+      onChannel("webview:escape", callback),
     onFocusUrl: (callback: (paneId: string) => void) =>
-      onChannel('webview:focus-url', callback),
+      onChannel("webview:focus-url", callback),
     onNewWindow: (
-      callback: (paneId: string, url: string, opts?: { background?: boolean }) => void,
+      callback: (
+        paneId: string,
+        url: string,
+        opts?: { background?: boolean },
+      ) => void,
     ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
@@ -596,47 +661,68 @@ contextBridge.exposeInMainWorld("electronAPI", {
         opts?: { background?: boolean },
       ) => callback(paneId, url, opts);
       ipcRenderer.on("webview:new-window", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:new-window", listener);
+      return () => ipcRenderer.removeListener("webview:new-window", listener);
     },
     stop: (paneId: string) => ipcRenderer.invoke("webview:stop", paneId),
-    findInPage: (paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) =>
-      ipcRenderer.invoke("webview:find-in-page", paneId, query, options),
+    findInPage: (
+      paneId: string,
+      query: string,
+      options?: { forward?: boolean; findNext?: boolean },
+    ) => ipcRenderer.invoke("webview:find-in-page", paneId, query, options),
     stopFindInPage: (paneId: string) =>
       ipcRenderer.invoke("webview:stop-find-in-page", paneId),
-    onLoadingChanged: (callback: (paneId: string, isLoading: boolean) => void) => {
+    onLoadingChanged: (
+      callback: (paneId: string, isLoading: boolean) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
         isLoading: boolean,
       ) => callback(paneId, isLoading);
       ipcRenderer.on("webview:loading-changed", listener);
-      return () => ipcRenderer.removeListener("webview:loading-changed", listener);
+      return () =>
+        ipcRenderer.removeListener("webview:loading-changed", listener);
     },
-    onFaviconUpdated: (callback: (paneId: string, faviconUrl: string) => void) => {
+    onFaviconUpdated: (
+      callback: (paneId: string, faviconUrl: string) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
         faviconUrl: string,
       ) => callback(paneId, faviconUrl);
       ipcRenderer.on("webview:favicon-updated", listener);
-      return () => ipcRenderer.removeListener("webview:favicon-updated", listener);
+      return () =>
+        ipcRenderer.removeListener("webview:favicon-updated", listener);
     },
-    onFindResult: (callback: (paneId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) => {
+    onFindResult: (
+      callback: (
+        paneId: string,
+        result: {
+          activeMatchOrdinal: number;
+          matches: number;
+          finalUpdate: boolean;
+        },
+      ) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
-        result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean },
+        result: {
+          activeMatchOrdinal: number;
+          matches: number;
+          finalUpdate: boolean;
+        },
       ) => callback(paneId, result);
       ipcRenderer.on("webview:find-result", listener);
       return () => ipcRenderer.removeListener("webview:find-result", listener);
     },
     onFind: (callback: (paneId: string) => void) =>
-      onChannel('webview:find', callback),
+      onChannel("webview:find", callback),
     onGoBack: (callback: (paneId: string) => void) =>
-      onChannel('webview:go-back', callback),
+      onChannel("webview:go-back", callback),
     onGoForward: (callback: (paneId: string) => void) =>
-      onChannel('webview:go-forward', callback),
+      onChannel("webview:go-forward", callback),
     setAudioMuted: (paneId: string, muted: boolean) =>
       ipcRenderer.invoke("webview:set-audio-muted", paneId, muted),
     /**
@@ -650,19 +736,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     notifyRecordingStopped: (recordingId: string, error?: string) =>
       ipcRenderer.invoke("webview:recording-stopped", recordingId, error),
     /** Main-initiated start/stop of a pane recording. */
-    onRecordingCommand: (callback: (command: WebviewRecordingCommand) => void) =>
-      onChannel("webview:recording-command", callback),
+    onRecordingCommand: (
+      callback: (command: WebviewRecordingCommand) => void,
+    ) => onChannel("webview:recording-command", callback),
     /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
     stopRecording: (paneId: string) =>
       ipcRenderer.invoke("webview:stop-recording", paneId) as Promise<void>,
-    onAudioStateChanged: (callback: (paneId: string, audible: boolean) => void) => {
+    onAudioStateChanged: (
+      callback: (paneId: string, audible: boolean) => void,
+    ) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
         paneId: string,
         audible: boolean,
       ) => callback(paneId, audible);
       ipcRenderer.on("webview:audio-state-changed", listener);
-      return () => ipcRenderer.removeListener("webview:audio-state-changed", listener);
+      return () =>
+        ipcRenderer.removeListener("webview:audio-state-changed", listener);
     },
   },
 
@@ -670,7 +760,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // call that returns a raw token, and it is returned once and never re-fetched.
   remoteControl: {
     getStatus: () => ipcRenderer.invoke("remoteControl:getStatus"),
-    refreshDetection: () => ipcRenderer.invoke("remoteControl:refreshDetection"),
+    refreshDetection: () =>
+      ipcRenderer.invoke("remoteControl:refreshDetection"),
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke("remoteControl:setEnabled", enabled),
     pair: (label: string, canSend: boolean) =>
@@ -687,9 +778,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // the global `window`, which is untouched here.
   window: {
     detachTab: (payload: DetachedTabPayload, spawnBounds: WindowBounds) =>
-      ipcRenderer.invoke("window:detachTab", payload, spawnBounds) as Promise<string>,
+      ipcRenderer.invoke(
+        "window:detachTab",
+        payload,
+        spawnBounds,
+      ) as Promise<string>,
     getDetachPayload: () =>
-      ipcRenderer.invoke("window:getDetachPayload") as Promise<DetachedTabPayload | null>,
+      ipcRenderer.invoke(
+        "window:getDetachPayload",
+      ) as Promise<DetachedTabPayload | null>,
     getBounds: () =>
       ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
     setPosition: (x: number, y: number) =>

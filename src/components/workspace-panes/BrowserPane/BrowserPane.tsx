@@ -1,10 +1,11 @@
-import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useToastStore } from "../../../store/toast-store";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
+import { onUiRequest } from "../../../utils/ui-request";
 
 import styles from "./BrowserPane.module.css";
 
@@ -272,6 +273,20 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       navigateTo(entry.url);
     }, [navigateTo]);
 
+    // Shared by the webview's own ⌘F (relayed as `webview:find`) and Edit ›
+    // Find… (ADR-170) targeting this pane by id.
+    const openFindBar = useCallback(() => {
+      fireNavStateChange({ findBarOpen: true });
+    }, [fireNavStateChange]);
+
+    useEffect(() => {
+      return onUiRequest((request) => {
+        if (request.type === "pane-search" && request.paneId === paneId) {
+          openFindBar();
+        }
+      });
+    }, [paneId, openFindBar]);
+
     useImperativeHandle(ref, () => ({
       goBack() {
         webviewRef.current?.goBack();
@@ -325,7 +340,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           window.electronAPI.webview.stopFindInPage(paneId);
           fireNavStateChange({ findBarOpen: false, findQuery: "", findActiveMatch: 0, findTotalMatches: 0 });
         } else {
-          fireNavStateChange({ findBarOpen: true });
+          openFindBar();
         }
       },
       toggleMute() {
@@ -347,7 +362,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         onFocus: handleUrlFocus,
       },
       onSuggestionMouseDown: handleSuggestionMouseDown,
-    }), [paneId, navigateTo, fireNavStateChange, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
+    }), [paneId, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
     useMountEffect(() => {
       const wv = webviewRef.current;
@@ -490,7 +505,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const unsubFind = window.electronAPI.webview.onFind(
         (findPaneId: string) => {
           if (findPaneId !== paneId) return;
-          fireNavStateChange({ findBarOpen: true });
+          openFindBar();
         },
       );
 

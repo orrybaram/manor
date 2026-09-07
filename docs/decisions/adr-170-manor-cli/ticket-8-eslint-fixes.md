@@ -1,6 +1,6 @@
 ---
 title: Clear the 29 pre-existing eslint errors
-status: in-progress
+status: done
 priority: low
 assignee: opus
 blocked_by: []

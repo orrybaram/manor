@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0] - 2026-09-07
 
 ### Features
 
@@ -8,11 +8,27 @@
 - Settings… now appears in the app menu
 - Keyboard shortcuts are displayed live in the menu and update immediately when rebinding in Settings › Keybindings
 - New shortcuts for workspace navigation: `Ctrl+Cmd+↓` (Next workspace) and `Ctrl+Cmd+↑` (Previous workspace)
+- New `manor` CLI installed to `~/.manor/bin` (replaces `manor-webview`), generated from the MCP tool modules and advertised to Claude Code at session start
+- Control surface: HTTP routes and MCP tools for projects, workspaces, folders, tabs, panes, agents, git, system, and integrations
+- Diff editor renders changed files as a nested folder tree with per-extension icons
+- Agents can be renamed inline; a custom name is kept over the synced title
+- Stats track mid-thought kills as a separate "Derailed" counter
+- PR popover shows skipped checks, renders markdown comments, and has collapsible sections
+
+### Fixes
+
+- PR polling no longer burns through the GitHub GraphQL rate limit
+- Escape cancels a workspace or folder rename instead of committing it
+- Diff pane sticky header no longer renders above popovers
+- Control routes return 404 for unknown folder or workspace ids; CLI accepts literal `true`/`false` after boolean flags
+- Removed the "Agent completed" toast
 
 ### Improvements
 
 - Zoom now applies to the focused window instead of always zooming the main window
 - Reload and Force Reload removed from packaged builds to reduce accidental data loss
+- Stats view: aligned dot leaders, label tooltips, wider kill rule, and 1-minute fast unblocks
+- Stats icon in the status bar rests at the same opacity as its neighbours
 
 ## [0.10.3] - 2026-09-06
 

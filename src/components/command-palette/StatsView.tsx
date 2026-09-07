@@ -8,9 +8,11 @@ import type {
 } from "../../electron.d";
 import {
   useStatsStore,
+  counterDescription,
   formatUnblockLatency,
   humanCounterLabel,
 } from "../../store/stats-store";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   BADGE_META,
   TIER_LABEL,
@@ -29,8 +31,8 @@ const EMPTY_CELL = "–";
 
 type StatRow =
   | { kind: "counter"; counter: StatCounter }
-  | { kind: "gauge"; gauge: StatGauge; label: string }
-  | { kind: "latency"; label: string };
+  | { kind: "gauge"; gauge: StatGauge; label: string; description: string }
+  | { kind: "latency"; label: string; description: string };
 
 interface StatGroup {
   /** Rendered as a `// comment` divider above the group's rows. */
@@ -60,12 +62,17 @@ const STAT_GROUPS: readonly StatGroup[] = [
     rows: [
       { kind: "counter", counter: "blocks" },
       { kind: "counter", counter: "unblocks" },
-      { kind: "latency", label: "Unblock time" },
+      {
+        kind: "latency",
+        label: "Unblock time",
+        description: "Average time a waiting agent sat before you replied.",
+      },
       { kind: "counter", counter: "fastUnblocks" },
       {
         kind: "gauge",
         gauge: "maxConcurrentAgents",
         label: "Max concurrent agents",
+        description: "Most agents active at the same time.",
       },
     ],
   },
@@ -89,6 +96,12 @@ const STAT_GROUPS: readonly StatGroup[] = [
 
 function rowLabel(row: StatRow): string {
   return row.kind === "counter" ? humanCounterLabel(row.counter) : row.label;
+}
+
+function rowDescription(row: StatRow): string {
+  return row.kind === "counter"
+    ? counterDescription(row.counter)
+    : row.description;
 }
 
 function rowValue(row: StatRow, bucket: DayBucket): string {
@@ -480,7 +493,11 @@ export function StatsView() {
               <tr key={rowLabel(row)} className={styles.statsRow}>
                 <th className={styles.statsRowLabel} scope="row">
                   <span className={styles.statsRowLabelText}>
-                    {rowLabel(row)}
+                    <Tooltip label={rowDescription(row)} side="top">
+                      <span className={styles.statsRowLabelName}>
+                        {rowLabel(row)}
+                      </span>
+                    </Tooltip>
                   </span>
                 </th>
                 {columns.map((col) => {

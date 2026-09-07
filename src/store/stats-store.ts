@@ -62,6 +62,51 @@ export function formatUnblockLatency(bucket: DayBucket): string | null {
   return `${minutes}m ${seconds}s`;
 }
 
+/**
+ * One-line explanation of what a counter measures, shown as a tooltip on the
+ * stats table label. Exhaustive so a new counter fails typecheck.
+ */
+export function counterDescription(counter: StatCounter): string {
+  switch (counter) {
+    case "prompts":
+      return "Messages you sent to an agent.";
+    case "toolCalls":
+      return "Tools an agent ran: file reads, edits, shell commands and so on.";
+    case "agentSessions":
+      return "Agent sessions started in a terminal.";
+    case "subagents":
+      return "Subagents spawned by an agent to work in parallel.";
+    case "agentsResponded":
+      return "Times an agent finished a turn and handed control back to you.";
+    case "agentsKilled":
+      return "Live agents you terminated by closing their pane or killing the session.";
+    case "blocks":
+      return "Times an agent stopped to wait on you: a permission prompt or a question.";
+    case "unblocks":
+      return "Times you replied to a waiting agent.";
+    case "unblockMsTotal":
+      return "Total time agents spent waiting on you.";
+    case "fastUnblocks":
+      return "Unblocks where you replied in under a minute.";
+    case "worktreesCreated":
+      return "Git worktrees created for a workspace.";
+    case "worktreesRemoved":
+      return "Git worktrees removed.";
+    case "worktreesMerged":
+      return "Worktrees merged back into the base branch with quick merge.";
+    case "prApproved":
+      return "Pull requests of yours that received an approval.";
+    case "prChangesRequested":
+      return "Pull requests of yours where a reviewer requested changes.";
+    case "prChecksFailed":
+      return "Pull requests of yours where a CI check failed.";
+    default: {
+      const _exhaustive: never = counter;
+      return _exhaustive;
+    }
+  }
+}
+
 /** Human label for a counter row. Exhaustive so a new counter fails typecheck. */
 export function humanCounterLabel(counter: StatCounter): string {
   switch (counter) {

@@ -31,6 +31,7 @@ export type StatCounter =
   | "subagents"
   | "agentsResponded"
   | "agentsKilled"
+  | "agentsKilledMidThought"
   | "blocks"
   | "unblocks"
   | "unblockMsTotal"
@@ -52,6 +53,7 @@ export const STAT_COUNTERS: readonly StatCounter[] = [
   "subagents",
   "agentsResponded",
   "agentsKilled",
+  "agentsKilledMidThought",
   "blocks",
   "unblocks",
   "unblockMsTotal",

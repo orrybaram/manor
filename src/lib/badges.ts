@@ -97,7 +97,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
   {
     id: "quick-draw",
     title: "Quick Draw",
-    description: "Unblocked a waiting agent in under 10 seconds, 25 times.",
+    description: "Unblocked a waiting agent in under a minute, 25 times.",
     icon: "⚡",
     color: "240 200 64",
     tier: "silver",

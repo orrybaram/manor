@@ -3,6 +3,7 @@
   border: 1px solid var(--text-dim);
   border-radius: 6px;
   padding: 4px 8px;
+  max-width: 280px;
   font-size: 11px;
   color: var(--text);
   z-index: 200;

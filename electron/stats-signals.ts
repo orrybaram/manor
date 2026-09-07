@@ -12,14 +12,17 @@ import type { Effect } from "./hook-relay-transition";
 import type { StatCounter, StatGauge } from "./stats-store";
 
 /**
- * Agent statuses that make a termination a *kill*: the agent still had work in
- * flight or was waiting on the user when the trigger was pulled. `responded`
- * and `idle` agents were done, so closing them is not a kill (ADR-168 §3).
+ * Agent statuses that make a termination a *kill*: any live agent that has
+ * reported a status. Finished (`responded`, `idle`) agents count too — closing
+ * a session the user could still have prompted is a kill. Only an agent that
+ * never reported anything (`lastAgentStatus == null`) is exempt (ADR-168 §3).
  */
 export const KILL_STATUSES: ReadonlySet<string> = new Set([
   "working",
   "thinking",
   "requires_input",
+  "responded",
+  "idle",
 ]);
 
 /**
@@ -38,13 +41,50 @@ export function isKill(agent: {
   );
 }
 
+/**
+ * The subset of kills that interrupt an agent mid-thought: it still had work in
+ * flight or was waiting on the user when the trigger was pulled. Tracked as a
+ * separate counter (`agentsKilledMidThought`) alongside the broader kill count.
+ */
+export const MID_THOUGHT_STATUSES: ReadonlySet<string> = new Set([
+  "working",
+  "thinking",
+  "requires_input",
+]);
+
+export function isMidThoughtKill(agent: {
+  status: string;
+  lastAgentStatus: string | null;
+}): boolean {
+  return (
+    isKill(agent) &&
+    agent.lastAgentStatus != null &&
+    MID_THOUGHT_STATUSES.has(agent.lastAgentStatus)
+  );
+}
+
+/**
+ * Every counter a termination of this agent should bump. Empty when it is not
+ * a kill at all. Call sites loop over this so the two kill counters can never
+ * drift apart.
+ */
+export function killCounters(agent: {
+  status: string;
+  lastAgentStatus: string | null;
+}): StatCounter[] {
+  if (!isKill(agent)) return [];
+  return isMidThoughtKill(agent)
+    ? ["agentsKilled", "agentsKilledMidThought"]
+    : ["agentsKilled"];
+}
+
 // ── Hook-event → counter deltas (ADR-168 §2, first table row) ──
 
 /**
  * Unblock latencies strictly below this are "fast". Exactly at the threshold is
  * not fast — the boundary belongs to the slow side so the badge stays honest.
  */
-const FAST_UNBLOCK_MS = 10_000;
+const FAST_UNBLOCK_MS = 60_000;
 
 export type StatDelta =
   | { counter: StatCounter; n: number }

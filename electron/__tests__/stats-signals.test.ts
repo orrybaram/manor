@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   createSignalTracker,
   deltasForHookEvent,
-  isKill,
+  isKill, killCounters,
   KILL_STATUSES,
   type SignalTrackerState,
   type StatDelta,
@@ -13,9 +13,11 @@ import type { Effect } from "../hook-relay-transition";
 
 describe("stats-signals", () => {
   describe("KILL_STATUSES", () => {
-    it("covers exactly the in-flight and waiting statuses", () => {
+    it("covers every reported status, finished ones included", () => {
       expect([...KILL_STATUSES].sort()).toEqual([
+        "idle",
         "requires_input",
+        "responded",
         "thinking",
         "working",
       ]);
@@ -31,9 +33,10 @@ describe("stats-signals", () => {
       { status: "active", lastAgentStatus: "working", expected: true },
       { status: "active", lastAgentStatus: "thinking", expected: true },
       { status: "active", lastAgentStatus: "requires_input", expected: true },
-      // Done means done — closing a finished agent is not a kill.
-      { status: "active", lastAgentStatus: "responded", expected: false },
-      { status: "active", lastAgentStatus: "idle", expected: false },
+      // Finished agents count too — the session was still live and promptable.
+      { status: "active", lastAgentStatus: "responded", expected: true },
+      { status: "active", lastAgentStatus: "idle", expected: true },
+      // Never reported a status: nothing to kill.
       { status: "active", lastAgentStatus: null, expected: false },
       // Only live agents can be killed.
       { status: "completed", lastAgentStatus: "working", expected: false },
@@ -49,6 +52,28 @@ describe("stats-signals", () => {
 
     it("ignores an unknown last status", () => {
       expect(isKill({ status: "active", lastAgentStatus: "daydreaming" })).toBe(false);
+    });
+  });
+
+  describe("killCounters", () => {
+    it("bumps both counters for a mid-thought kill", () => {
+      for (const lastAgentStatus of ["working", "thinking", "requires_input"]) {
+        expect(killCounters({ status: "active", lastAgentStatus })).toEqual([
+          "agentsKilled",
+          "agentsKilledMidThought",
+        ]);
+      }
+    });
+
+    it("bumps only the broad counter for a finished agent", () => {
+      for (const lastAgentStatus of ["responded", "idle"]) {
+        expect(killCounters({ status: "active", lastAgentStatus })).toEqual(["agentsKilled"]);
+      }
+    });
+
+    it("bumps nothing when it is not a kill", () => {
+      expect(killCounters({ status: "active", lastAgentStatus: null })).toEqual([]);
+      expect(killCounters({ status: "completed", lastAgentStatus: "working" })).toEqual([]);
     });
   });
 });
@@ -155,12 +180,12 @@ describe("deltasForHookEvent", () => {
       ]);
     });
 
-    it("does not call exactly 10 000 ms fast", () => {
+    it("does not call exactly 60 000 ms fast", () => {
       run(makeEvent("Notification"), { monoNow: 0 });
-      expect(run(makeEvent("UserPromptSubmit"), { monoNow: 10_000 })).toEqual([
+      expect(run(makeEvent("UserPromptSubmit"), { monoNow: 60_000 })).toEqual([
         { counter: "prompts", n: 1 },
         { counter: "unblocks", n: 1 },
-        { counter: "unblockMsTotal", n: 10_000 },
+        { counter: "unblockMsTotal", n: 60_000 },
       ]);
     });
 
@@ -173,13 +198,13 @@ describe("deltasForHookEvent", () => {
     });
 
     it("keeps the first timestamp when a session blocks again mid-wait", () => {
-      run(makeEvent("Notification"), { monoNow: 1_000 });
-      run(makeEvent("Notification"), { monoNow: 9_000 });
-      run(makeEvent("PermissionRequest"), { monoNow: 11_000 });
-      expect(run(makeEvent("UserPromptSubmit"), { monoNow: 21_000 })).toEqual([
+      run(makeEvent("Notification"), { monoNow: 10_000 });
+      run(makeEvent("Notification"), { monoNow: 90_000 });
+      run(makeEvent("PermissionRequest"), { monoNow: 110_000 });
+      expect(run(makeEvent("UserPromptSubmit"), { monoNow: 210_000 })).toEqual([
         { counter: "prompts", n: 1 },
         { counter: "unblocks", n: 1 },
-        { counter: "unblockMsTotal", n: 20_000 },
+        { counter: "unblockMsTotal", n: 200_000 },
       ]);
     });
 

@@ -110,8 +110,9 @@ describe("processes:killSession / processes:killAll stats", () => {
       const handler = handlers.get("processes:killSession")!;
       await handler({} as never, "session-1");
 
-      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
       expect(deps.backend.pty.kill).toHaveBeenCalledWith("session-1");
     });
 
@@ -124,7 +125,7 @@ describe("processes:killSession / processes:killAll stats", () => {
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
 
-    it("does not record a kill for an agent that already responded", async () => {
+    it("records a kill for an agent that already responded", async () => {
       deps.agentManager.getAgentByPaneId.mockReturnValue({
         id: "t1",
         status: "active",
@@ -134,7 +135,8 @@ describe("processes:killSession / processes:killAll stats", () => {
       const handler = handlers.get("processes:killSession")!;
       await handler({} as never, "session-1");
 
-      expect(deps.statsStore.record).not.toHaveBeenCalled();
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
     });
   });
 
@@ -148,14 +150,16 @@ describe("processes:killSession / processes:killAll stats", () => {
       deps.agentManager.getAgentByPaneId.mockImplementation((paneId: string) => {
         if (paneId === "s1") return { id: "a1", status: "active", lastAgentStatus: "working" };
         if (paneId === "s2") return { id: "a2", status: "active", lastAgentStatus: "responded" };
+        if (paneId === "s3") return { id: "a3", status: "active", lastAgentStatus: null };
         return null;
       });
 
       const handler = handlers.get("processes:killAll")!;
       await handler({} as never);
 
-      expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
+      expect(deps.statsStore.record).toHaveBeenCalledTimes(3);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
       expect(deps.backend.pty.kill).toHaveBeenCalledTimes(3);
     });
   });

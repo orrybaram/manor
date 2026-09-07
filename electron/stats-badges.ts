@@ -50,7 +50,7 @@ export const BADGES: readonly BadgeDef[] = [
   {
     id: "quick-draw",
     title: "Quick Draw",
-    description: "Unblocked a waiting agent in under 10 seconds, 25 times.",
+    description: "Unblocked a waiting agent in under a minute, 25 times.",
     earned: (s) => (s.allTime.fastUnblocks ?? 0) >= 25,
   },
   {

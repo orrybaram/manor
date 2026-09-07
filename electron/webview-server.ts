@@ -27,6 +27,7 @@ import type { LinearManager } from "./linear";
 import type { LayoutPersistence } from "./terminal-host/layout-persistence";
 import type { AgentManager } from "./agent-persistence";
 import type { LocalBackend } from "./backend/local-backend";
+import type { ControlDeps } from "./routes/types";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -81,6 +82,14 @@ export class WebviewServer {
   private backend: LocalBackend | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
+  /**
+   * The full manager bag routes need (ADR-171), set once via
+   * `setControlDeps` after `app-lifecycle.ts` assembles `ipcDeps`. Merged
+   * over the six positional constructor fallbacks below in
+   * `handleControlRequest` so unit tests that construct a bare
+   * `WebviewServer` (no setter call) keep working.
+   */
+  private controlDeps: Partial<ControlDeps> = {};
 
   constructor(
     registry: Map<string, number>,
@@ -102,6 +111,15 @@ export class WebviewServer {
 
   get serverPort(): number {
     return this.port;
+  }
+
+  /**
+   * Give control routes the full manager bag. Called once from
+   * `app-lifecycle.ts` right after `ipcDeps` is assembled; every field is
+   * optional so tests can pass a partial bag or skip the call entirely.
+   */
+  setControlDeps(deps: Partial<ControlDeps>): void {
+    this.controlDeps = deps;
   }
 
   /** Start the HTTP server on a random port */
@@ -259,6 +277,10 @@ export class WebviewServer {
     };
 
     // ── Manor-control routes (/projects…, /agents) ──
+    //
+    // The six constructor fields are the fallback; `this.controlDeps` (set
+    // via `setControlDeps`) wins where both are present, and carries the
+    // fields the constructor never took.
     if (
       await handleControlRequest(
         {
@@ -268,6 +290,15 @@ export class WebviewServer {
           layoutPersistence: this.layoutPersistence,
           agentManager: this.agentManager,
           backend: this.backend,
+          notificationStore: null,
+          statsStore: null,
+          preferencesManager: null,
+          themeManager: null,
+          portScanner: null,
+          remoteControl: null,
+          agentHookServer: null,
+          getRendererWindows: null,
+          ...this.controlDeps,
         },
         method,
         url,
@@ -330,8 +361,7 @@ export class WebviewServer {
       // ── POST /webview/:id/record/start ──
       if (method === "POST" && action === "record/start") {
         const body = await readBody();
-        const savePath =
-          typeof body.path === "string" ? body.path : undefined;
+        const savePath = typeof body.path === "string" ? body.path : undefined;
         const maxDurationSec =
           typeof body.maxDurationSec === "number"
             ? body.maxDurationSec
@@ -358,10 +388,14 @@ export class WebviewServer {
             maxDurationSec,
             keyframeIntervalSec,
             capture: () =>
-              wc.capturePage().then((image) => image.toPNG().toString("base64")),
+              wc
+                .capturePage()
+                .then((image) => image.toPNG().toString("base64")),
           });
         } catch (err) {
-          json(409, { error: String(err instanceof Error ? err.message : err) });
+          json(409, {
+            error: String(err instanceof Error ? err.message : err),
+          });
           return;
         }
 
@@ -664,7 +698,10 @@ export class WebviewServer {
           return;
         }
 
-        const extractScript = SYMBOLICATION_SCRIPT + '\n' + `(async function() {
+        const extractScript =
+          SYMBOLICATION_SCRIPT +
+          "\n" +
+          `(async function() {
           var el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return null;
 
@@ -844,7 +881,10 @@ export class WebviewServer {
           if (metadata === null) {
             json(404, { error: "Element not found for selector" });
           } else {
-            const screenshot = await captureElementRegion(wc, metadata.boundingBox);
+            const screenshot = await captureElementRegion(
+              wc,
+              metadata.boundingBox,
+            );
             json(200, { ...metadata, screenshot });
           }
         } catch (err) {

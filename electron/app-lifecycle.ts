@@ -36,6 +36,7 @@ import { RemoteControlServer } from "./remote-control/server";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
+import type { ControlDeps } from "./routes/types";
 import { createWindow, saveZoomLevel } from "./window";
 import {
   unseenRespondedAgents,
@@ -99,7 +100,9 @@ export function handleStreamEvent(
         {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
           if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
-            const updated = agentManager.updateAgent(agent.id, { cwd: event.cwd });
+            const updated = agentManager.updateAgent(agent.id, {
+              cwd: event.cwd,
+            });
             if (updated) {
               sendAgentUpdate(window, updated, preferencesManager);
             }
@@ -120,7 +123,9 @@ export function handleStreamEvent(
         if (cleaned) {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
           if (agent && !agent.namePinned && agent.name !== cleaned) {
-            const updated = agentManager.updateAgent(agent.id, { name: cleaned });
+            const updated = agentManager.updateAgent(agent.id, {
+              name: cleaned,
+            });
             if (updated) {
               sendAgentUpdate(window, updated, preferencesManager);
             }
@@ -263,13 +268,21 @@ export function initApp(devTitle: string | null): void {
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   const remoteControlServer = new RemoteControlServer(
-    () => ({
+    (): ControlDeps => ({
       projectManager,
       githubManager,
       linearManager,
       layoutPersistence,
       agentManager,
       backend,
+      notificationStore,
+      statsStore,
+      preferencesManager,
+      themeManager,
+      portScanner,
+      remoteControl,
+      agentHookServer,
+      getRendererWindows,
     }),
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
@@ -400,6 +413,24 @@ export function initApp(devTitle: string | null): void {
     prewarmManager,
     remoteControl,
   };
+
+  // Give control routes (ADR-171) the same manager bag IPC handlers have.
+  webviewServer.setControlDeps({
+    projectManager: ipcDeps.projectManager,
+    githubManager: ipcDeps.githubManager,
+    linearManager: ipcDeps.linearManager,
+    layoutPersistence: ipcDeps.layoutPersistence,
+    agentManager: ipcDeps.agentManager,
+    backend: ipcDeps.backend,
+    notificationStore: ipcDeps.notificationStore,
+    statsStore: ipcDeps.statsStore,
+    preferencesManager: ipcDeps.preferencesManager,
+    themeManager: ipcDeps.themeManager,
+    portScanner: ipcDeps.portScanner,
+    remoteControl: ipcDeps.remoteControl,
+    agentHookServer: ipcDeps.agentHookServer,
+    getRendererWindows: ipcDeps.getRendererWindows,
+  });
 
   ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);
@@ -561,7 +592,11 @@ export function initApp(devTitle: string | null): void {
       broadcastAgent,
       maybeSendNotification,
       onHookEvent: (event, effects) =>
-        statsStore.observeHookEvent(event, effects, agentManager.getActiveAgents().length),
+        statsStore.observeHookEvent(
+          event,
+          effects,
+          agentManager.getActiveAgents().length,
+        ),
     });
 
     // Now that the hook relay is created, set the notifyAgentDetectorGone reference

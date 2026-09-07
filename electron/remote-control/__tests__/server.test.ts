@@ -78,6 +78,14 @@ describe("RemoteControlServer", () => {
         getAgentByPaneId: () => null,
       } as unknown as ControlDeps["agentManager"],
       backend: null,
+      notificationStore: null,
+      statsStore: null,
+      preferencesManager: null,
+      themeManager: null,
+      portScanner: null,
+      remoteControl: null,
+      agentHookServer: null,
+      getRendererWindows: null,
     };
     server = new RemoteControlServer(() => deps, devices, {
       limiter: new AuthRateLimiter(() => now),

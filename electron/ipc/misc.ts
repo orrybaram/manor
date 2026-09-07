@@ -1,5 +1,4 @@
 import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { PrComment } from "../../src/lib/pr-info";
@@ -10,6 +9,7 @@ import {
   type PrNotifyEventKind,
 } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
+import { openInEditor } from "../editor";
 import type { IpcDeps } from "./types";
 
 export function register(deps: IpcDeps): void {
@@ -59,15 +59,7 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle("shell:openInEditor", async (_event, dirPath: string) => {
     assertString(dirPath, "dirPath");
-    const editor = preferencesManager.get("defaultEditor");
-    if (!editor) {
-      return shell.openPath(dirPath);
-    }
-    return new Promise<string>((resolve) => {
-      execFile(editor, [dirPath], (err) => {
-        resolve(err ? err.message : "");
-      });
-    });
+    return openInEditor(preferencesManager, dirPath);
   });
 
   ipcMain.handle(
@@ -91,7 +83,11 @@ export function register(deps: IpcDeps): void {
     "shell:discoverAgents",
     async (): Promise<Array<{ name: string; command: string }>> => {
       const agents = [
-        { name: "Claude Code", bin: "claude", command: "claude --dangerously-skip-permissions" },
+        {
+          name: "Claude Code",
+          bin: "claude",
+          command: "claude --dangerously-skip-permissions",
+        },
         { name: "Codex", bin: "codex", command: "codex --yolo" },
         { name: "OpenCode", bin: "opencode", command: "opencode" },
       ];
@@ -99,7 +95,8 @@ export function register(deps: IpcDeps): void {
       await Promise.all(
         agents.map(async (agent) => {
           const result = await backend.shell.which(agent.bin);
-          if (result !== null) found.push({ name: agent.name, command: agent.command });
+          if (result !== null)
+            found.push({ name: agent.name, command: agent.command });
         }),
       );
       return found;
@@ -165,11 +162,7 @@ export function register(deps: IpcDeps): void {
 
   preferencesManager.onChange((prefs) => {
     const mw = getMainWindow();
-    if (
-      mw &&
-      !mw.isDestroyed() &&
-      !mw.webContents.isDestroyed()
-    ) {
+    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
       try {
         mw.webContents.send("preferences-changed", prefs);
       } catch {
@@ -203,11 +196,7 @@ export function register(deps: IpcDeps): void {
 
   keybindingsManager.onChange((overrides) => {
     const mw = getMainWindow();
-    if (
-      mw &&
-      !mw.isDestroyed() &&
-      !mw.webContents.isDestroyed()
-    ) {
+    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
       try {
         mw.webContents.send("keybindings-changed", overrides);
       } catch {

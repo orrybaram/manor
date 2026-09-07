@@ -8,12 +8,20 @@
  * back from `./index.ts` — the shared declarations live here instead.
  */
 
+import type { BrowserWindow } from "electron";
 import type { ProjectManager } from "../persistence";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { AgentManager } from "../agent-persistence";
 import type { LocalBackend } from "../backend/local-backend";
+import type { NotificationStore } from "../notification-store";
+import type { StatsStore } from "../stats-store";
+import type { PreferencesManager } from "../preferences";
+import type { ThemeManager } from "../theme";
+import type { PortScanner } from "../ports";
+import type { RemoteControlController } from "../remote-control/controller";
+import type { AgentHookServer } from "../agent-hooks";
 
 export interface ControlDeps {
   projectManager: ProjectManager | null;
@@ -22,6 +30,14 @@ export interface ControlDeps {
   layoutPersistence: LayoutPersistence | null;
   agentManager: AgentManager | null;
   backend: LocalBackend | null;
+  notificationStore: NotificationStore | null;
+  statsStore: StatsStore | null;
+  preferencesManager: PreferencesManager | null;
+  themeManager: ThemeManager | null;
+  portScanner: PortScanner | null;
+  remoteControl: RemoteControlController | null;
+  agentHookServer: AgentHookServer | null;
+  getRendererWindows: (() => BrowserWindow[]) | null;
 }
 
 export type Json = (status: number, body: unknown) => void;

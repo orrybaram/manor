@@ -1,6 +1,6 @@
 ---
 title: Document the menu and new shortcuts
-status: todo
+status: done
 priority: low
 assignee: haiku
 blocked_by: [5, 6]

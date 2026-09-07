@@ -1,6 +1,6 @@
 ---
 title: Menu controller, menu IPC channels, preload API, and app-lifecycle wiring
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [2]

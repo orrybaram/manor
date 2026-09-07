@@ -1,6 +1,6 @@
 ---
 title: DOM-free keybinding registry with accelerator conversion and multi-listener KeybindingsManager
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

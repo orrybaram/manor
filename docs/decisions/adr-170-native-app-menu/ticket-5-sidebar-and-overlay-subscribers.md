@@ -1,6 +1,6 @@
 ---
 title: Sidebar, notifications, and ghosts respond to UI requests from the menu
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

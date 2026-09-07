@@ -1,6 +1,6 @@
 ---
 title: Menu command catalog, MenuContext type, and pure menu template builder with tests
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

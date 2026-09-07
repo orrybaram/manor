@@ -1,6 +1,6 @@
 ---
 title: Renderer menu dispatch, menu context sync, and UI request bus
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3]

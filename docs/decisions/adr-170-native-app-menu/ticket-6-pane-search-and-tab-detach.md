@@ -1,6 +1,6 @@
 ---
 title: Pane search responds to Edit › Find, and TabBar uses the shared detachTabToNewWindow
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

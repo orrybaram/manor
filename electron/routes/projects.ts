@@ -207,7 +207,7 @@ async function batchCreateWorkspaces(
 
   // 2. Create worktrees sequentially in the canonical layer.
   const seeds: IssueSeed[] = details.flatMap((d) =>
-    "detail" in d
+    "detail" in d && d.detail
       ? [
           {
             number: d.number,

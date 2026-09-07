@@ -1,6 +1,6 @@
 ---
 title: Docs and integration check for the completed control surface
-status: todo
+status: in-progress
 priority: low
 assignee: haiku
 blocked_by: [2, 3, 4, 5, 6]

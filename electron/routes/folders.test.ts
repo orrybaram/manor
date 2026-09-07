@@ -30,7 +30,9 @@ function makeProjectManager(projectId = "p1") {
           name: "Test Project",
           path: "/repo",
           defaultBranch: "main",
-          workspaces: [],
+          workspaces: [
+            { path: "/repo/ws-a", branch: "ws-a", isMain: false, name: null },
+          ] as ProjectInfo["workspaces"],
           selectedWorkspaceIndex: 0,
           defaultRunCommand: null,
           worktreePath: null,
@@ -136,20 +138,20 @@ describe("folder routes", () => {
       route("POST", "/projects/:projectId/workspaces/folder"),
       d,
       { projectId: "p1" },
-      { workspacePath: "/repo/ws-1", folderId: folder.id },
+      { workspacePath: "/repo/ws-a", folderId: folder.id },
     );
     expect(assigned).toEqual({ status: 200, body: { ok: true } });
-    expect(pm._workspaceFolderIds["/repo/ws-1"]).toBe(folder.id);
+    expect(pm._workspaceFolderIds["/repo/ws-a"]).toBe(folder.id);
     expect(notifyProjectsChanged).toHaveBeenCalledTimes(3);
 
     const unassigned = await call(
       route("POST", "/projects/:projectId/workspaces/folder"),
       d,
       { projectId: "p1" },
-      { workspacePath: "/repo/ws-1", folderId: null },
+      { workspacePath: "/repo/ws-a", folderId: null },
     );
     expect(unassigned).toEqual({ status: 200, body: { ok: true } });
-    expect(pm._workspaceFolderIds["/repo/ws-1"]).toBeNull();
+    expect(pm._workspaceFolderIds["/repo/ws-a"]).toBeNull();
 
     const deleted = await call(
       route("DELETE", "/projects/:projectId/folders/:folderId"),
@@ -197,5 +199,51 @@ describe("folder routes", () => {
       { projectId: "p1" },
     );
     expect(res.status).toBe(503);
+  });
+});
+
+describe("folder routes reject unknown ids instead of silently no-oping", () => {
+  it("404s a rename of a folder that does not exist", async () => {
+    const pm = makeProjectManager();
+    const res = await call(
+      route("POST", "/projects/:projectId/folders/:folderId/rename"),
+      deps(pm),
+      { projectId: "p1", folderId: "nope" },
+      { name: "x" },
+    );
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Folder not found: nope" });
+  });
+
+  it("404s a delete of a folder that does not exist", async () => {
+    const pm = makeProjectManager();
+    const res = await call(
+      route("DELETE", "/projects/:projectId/folders/:folderId"),
+      deps(pm),
+      { projectId: "p1", folderId: "nope" },
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("404s assigning an unknown workspace or an unknown folder", async () => {
+    const pm = makeProjectManager();
+    pm.createWorkspaceFolder("p1", "Real");
+    const r = route("POST", "/projects/:projectId/workspaces/folder");
+    const badWs = await call(
+      r,
+      deps(pm),
+      { projectId: "p1" },
+      { workspacePath: "/nope", folderId: "f1" },
+    );
+    expect(badWs.status).toBe(404);
+    expect(badWs.body).toEqual({ error: "Workspace not found: /nope" });
+    const badFolder = await call(
+      r,
+      deps(pm),
+      { projectId: "p1" },
+      { workspacePath: "/repo/ws-a", folderId: "nope" },
+    );
+    expect(badFolder.status).toBe(404);
+    expect(pm._workspaceFolderIds["/repo/ws-a"]).toBeUndefined();
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import { notifyProjectsChanged } from "../renderer-bridge";
-import { withProject } from "./projects";
+import { requireFolder, requireWorkspace, withProject } from "./projects";
 import type { Route } from "./types";
 
 export const folderRoutes: Route[] = [
@@ -41,13 +41,14 @@ export const folderRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/folders/:folderId/rename",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
       const body = await readBody();
       const name = body.name;
       if (typeof name !== "string" || !name.trim()) {
         json(400, { error: "Missing 'name' string in request body" });
         return;
       }
+      if (!requireFolder(project, params.folderId, json)) return;
       pm.renameWorkspaceFolder(params.projectId, params.folderId, name);
       notifyProjectsChanged();
       json(200, { ok: true });
@@ -57,8 +58,9 @@ export const folderRoutes: Route[] = [
   {
     method: "DELETE",
     path: "/projects/:projectId/folders/:folderId",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
       await readBody();
+      if (!requireFolder(project, params.folderId, json)) return;
       pm.deleteWorkspaceFolder(params.projectId, params.folderId);
       notifyProjectsChanged();
       json(200, { ok: true });
@@ -68,7 +70,7 @@ export const folderRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/folder",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
@@ -80,6 +82,8 @@ export const folderRoutes: Route[] = [
         json(400, { error: "'folderId' must be a string or null" });
         return;
       }
+      if (!requireWorkspace(project, workspacePath, json)) return;
+      if (folderId !== null && !requireFolder(project, folderId, json)) return;
       pm.setWorkspaceFolder(params.projectId, workspacePath, folderId);
       notifyProjectsChanged();
       json(200, { ok: true });

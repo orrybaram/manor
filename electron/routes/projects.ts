@@ -20,7 +20,7 @@ import {
   runSetupScript,
   startAgent,
 } from "../renderer-bridge";
-import type { Route, RouteContext } from "./types";
+import type { Json, Route, RouteContext } from "./types";
 
 /**
  * Guard the routes that need a ProjectManager but no particular project —
@@ -45,6 +45,28 @@ function withProjectManager(
  * (404). Resolving the project here means it is fetched exactly once per
  * request, as before.
  */
+/** 404 unless `folderId` names one of the project's folders. */
+export function requireFolder(
+  project: ProjectInfo,
+  folderId: string,
+  json: Json,
+): boolean {
+  if (project.folders.some((f) => f.id === folderId)) return true;
+  json(404, { error: `Folder not found: ${folderId}` });
+  return false;
+}
+
+/** 404 unless `workspacePath` is one of the project's workspaces. */
+export function requireWorkspace(
+  project: ProjectInfo,
+  workspacePath: string,
+  json: Json,
+): boolean {
+  if (project.workspaces.some((w) => w.path === workspacePath)) return true;
+  json(404, { error: `Workspace not found: ${workspacePath}` });
+  return false;
+}
+
 export function withProject(
   handler: (
     ctx: RouteContext,
@@ -378,7 +400,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/rename",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       const name = body.name;
@@ -388,6 +410,7 @@ export const projectRoutes: Route[] = [
         });
         return;
       }
+      if (!requireWorkspace(project, workspacePath, json)) return;
       pm.renameWorkspace(params.projectId, workspacePath, name);
       notifyProjectsChanged();
       json(200, { ok: true });
@@ -397,7 +420,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/hidden",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       const hidden = body.hidden;
@@ -408,6 +431,7 @@ export const projectRoutes: Route[] = [
         });
         return;
       }
+      if (!requireWorkspace(project, workspacePath, json)) return;
       pm.setWorkspaceHidden(params.projectId, workspacePath, hidden);
       notifyProjectsChanged();
       json(200, { ok: true });

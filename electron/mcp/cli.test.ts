@@ -319,6 +319,45 @@ describe("dispatch", () => {
     });
   });
 
+  it("accepts a literal true/false after a boolean flag", async () => {
+    const io = captureIo();
+    const http = fakeHttp();
+    await runCli(
+      [
+        "remove-workspace",
+        "--project-id",
+        "abc",
+        "--worktree-path",
+        "/ws",
+        "--delete-branch",
+        "false",
+      ],
+      http,
+      io.io,
+    );
+    expect(http.del).toHaveBeenCalledWith("/projects/abc/workspaces", {
+      worktreePath: "/ws",
+      deleteBranch: false,
+    });
+    await runCli(
+      [
+        "remove-workspace",
+        "--project-id",
+        "abc",
+        "--worktree-path",
+        "/ws",
+        "--delete-branch",
+        "true",
+      ],
+      http,
+      io.io,
+    );
+    expect(http.del).toHaveBeenLastCalledWith("/projects/abc/workspaces", {
+      worktreePath: "/ws",
+      deleteBranch: true,
+    });
+  });
+
   it("lists every missing required flag in one usage error and never calls http", async () => {
     const io = captureIo();
     const http = fakeHttp();

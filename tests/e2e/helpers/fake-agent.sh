@@ -29,8 +29,13 @@ hook() {
 }
 
 # The window title becomes the agent name (see app-lifecycle.ts), which is what
-# the session list on the phone shows.
-printf '\033]0;%s\007' "${1:-fake agent}"
+# the session list on the phone shows. A real agent CLI re-sets its title on
+# every turn, and the detector forgets the title at the start of one, so the
+# fake does the same — otherwise the second turn onwards reports no title at
+# all, which no real agent does.
+title="${1:-fake agent}"
+retitle() { printf '\033]0;%s\007' "$title"; }
+retitle
 
 # Read like an agent TUI does, not like a shell script. Manor sends input as
 # the harness interrupt (ESC) followed by the text and a bare CR, which is what
@@ -59,6 +64,7 @@ while IFS= read -r -n 1 char; do
   if [ -z "$char" ] || [ "$char" = $'\r' ]; then
     [ -n "$line" ] || continue
     hook UserPromptSubmit
+    retitle
     printf 'received: %s\n' "$line"
     # A long reply on demand, so a test can check what a full screen of output
     # does to the reader's scroll position.

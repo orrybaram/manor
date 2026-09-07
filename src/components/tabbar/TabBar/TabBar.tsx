@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -666,7 +666,7 @@ export function TabBar(props: TabBarProps) {
                       setAddMenuOpen(false);
                     }}
                   >
-                    <ListTodo size={14} />
+                    <Bot size={14} />
                     Agent
                   </button>
                 </Popover.Content>

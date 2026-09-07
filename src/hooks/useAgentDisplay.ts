@@ -15,6 +15,18 @@ export function cleanLiveTitle(raw: string | null): string | null {
 }
 
 /**
+ * Resolve the title shown for an agent. A user-pinned name always wins;
+ * otherwise the live terminal title, then the auto-synced persisted name.
+ */
+export function resolveAgentTitle(
+  agent: AgentInfo,
+  liveTitle: string | null,
+): string {
+  if (agent.namePinned && agent.name) return agent.name;
+  return cleanLiveTitle(liveTitle) ?? agent.name ?? "Agent";
+}
+
+/**
  * Derive a single AgentStatus for an agent by preferring live pane data,
  * then the persisted lastAgentStatus, then a static mapping from AgentLifecycleStatus.
  */
@@ -66,7 +78,7 @@ export function useAgentDisplay(
     agent.paneId ? s.paneTitle[agent.paneId] ?? null : null,
   );
 
-  const title = cleanLiveTitle(liveTitle) ?? agent.name ?? "Agent";
+  const title = resolveAgentTitle(agent, liveTitle);
   const status = deriveStatus(agent, liveAgent);
 
   return { title, status };

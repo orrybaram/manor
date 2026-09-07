@@ -79,6 +79,40 @@ describe("agents:update allowlist", () => {
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", { name: null });
   });
 
+  it("accepts { name, namePinned: true } for a user rename and broadcasts", async () => {
+    const handler = handlers.get("agents:update")!;
+    await handler({} as never, "agent-1", { name: "Fix login", namePinned: true });
+
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", {
+      name: "Fix login",
+      namePinned: true,
+    });
+    const { sendAgentUpdate } = await import("../notifications");
+    expect(sendAgentUpdate).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ id: "agent-1", name: "Fix login", namePinned: true }),
+      deps.preferencesManager,
+    );
+  });
+
+  it("throws when namePinned is not a boolean", () => {
+    const handler = handlers.get("agents:update")!;
+
+    expect(() => handler({} as never, "agent-1", { namePinned: "yes" })).toThrow(
+      "agents:update: namePinned must be a boolean",
+    );
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("throws when name is not a string or null", () => {
+    const handler = handlers.get("agents:update")!;
+
+    expect(() => handler({} as never, "agent-1", { name: 42 })).toThrow(
+      "agents:update: name must be a string or null",
+    );
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+  });
+
   it("throws when updates contains status field", () => {
     const handler = handlers.get("agents:update")!;
 

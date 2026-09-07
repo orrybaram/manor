@@ -49,6 +49,9 @@
 }
 
 .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-selected);
@@ -161,6 +164,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agentNameInput {
+  flex: 1;
+  font-family: inherit;
+}
+
+/* The row's context menu portals to <body>; it has to sit above the dialog
+   overlay (z-index 100) or the overlay swallows every click on it. Radix
+   copies the content's z-index onto its popper wrapper. */
+.rowMenu {
+  z-index: 102;
 }
 
 .agentProject {

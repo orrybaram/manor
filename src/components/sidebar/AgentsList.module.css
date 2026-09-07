@@ -76,6 +76,11 @@
   background: var(--surface);
 }
 
+.agentItem:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .agentName {
   flex: 1;
   overflow: hidden;

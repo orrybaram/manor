@@ -50,6 +50,11 @@ export interface AgentInfo {
   lastAgentStatus: string | null;
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
+  /**
+   * True when the user renamed this agent by hand. A pinned `name` must not be
+   * overwritten by the live-title sync in app-lifecycle.
+   */
+  namePinned?: boolean;
 }
 
 interface PersistedState {

@@ -442,7 +442,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getUnseen: () => ipcRenderer.invoke("agents:getUnseen"),
     consumePruneNotice: () => ipcRenderer.invoke("agents:consumePruneNotice"),
     get: (agentId: string) => ipcRenderer.invoke("agents:get", agentId),
-    update: (agentId: string, updates: { name?: string | null }) =>
+    update: (agentId: string, updates: { name?: string | null; namePinned?: boolean }) =>
       ipcRenderer.invoke("agents:update", agentId, updates),
     delete: (agentId: string) => ipcRenderer.invoke("agents:delete", agentId),
     setPaneContext: (

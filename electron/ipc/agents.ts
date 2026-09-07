@@ -13,6 +13,7 @@ import type { IpcDeps } from "./types";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",
+  "namePinned",
 ]);
 
 function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<string, unknown> {
@@ -23,6 +24,13 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
     if (!ALLOWED_RENDERER_TASK_FIELDS.has(key)) {
       throw new Error(`agents:update: field "${key}" is not writable from renderer`);
     }
+  }
+  const u = updates as Record<string, unknown>;
+  if ("name" in u && u.name !== null && typeof u.name !== "string") {
+    throw new Error("agents:update: name must be a string or null");
+  }
+  if ("namePinned" in u && typeof u.namePinned !== "boolean") {
+    throw new Error("agents:update: namePinned must be a boolean");
   }
 }
 
@@ -93,7 +101,13 @@ export function register(deps: IpcDeps): void {
     (_event, agentId: string, updates: unknown) => {
       assertString(agentId, "agentId");
       assertRendererAgentUpdate(updates);
-      return agentManager.updateAgent(agentId, updates);
+      const updated = agentManager.updateAgent(agentId, updates);
+      // Broadcast so every consumer of the agent list (sidebar, palette,
+      // toasts) sees the new name without a reload.
+      if (updated) {
+        sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
+      }
+      return updated;
     },
   );
 

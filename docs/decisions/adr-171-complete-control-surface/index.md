@@ -90,8 +90,8 @@ the existing workspace routes do. Renderer-state routes are one-line `proxyToRen
   `extract-pane-to-tab`, `reopen-closed-pane`, `focus-next-pane`/`focus-prev-pane`,
   `set-active-workspace`. Each renderer handler validates before writing, per the file's rule.
 - **Agents/sessions** (`routes/agents.ts`): `POST /agents/:id/rename`, `DELETE /agents/:id`,
-  `POST /agents/:id/seen`, `GET /agents/:id/resume-command`, plus tools for the already
-  existing `POST /sessions/interrupt` and `POST /sessions/end`.
+  `POST /agents/:id/seen`, `GET /agents/:id/resume-command`, plus a new `POST /sessions/end` (kills the pane pty, marks the agent abandoned) and tools for the
+  existing `POST /sessions/interrupt`.
 - **Git** (new `routes/git.ts`, prefix `/git`): thin wrappers over `backend.git` —
   `stage`, `unstage`, `discard`, `stash`, `commit`, `push` (drains `pushStream` and returns
   the collected lines and exit code), `staged-files`, `diff` (`local` or `full` against the

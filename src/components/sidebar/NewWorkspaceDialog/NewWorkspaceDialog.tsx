@@ -4,6 +4,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Box from "lucide-react/dist/esm/icons/box";
+import Folder from "lucide-react/dist/esm/icons/folder";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
 import { Input } from "../../ui/Input";
@@ -25,12 +26,16 @@ type NewWorkspaceDialogProps = {
     branchName: string,
     baseBranch: string,
     useExistingBranch?: boolean,
+    /** Sidebar folder to file the new workspace under; null for none. */
+    folderId?: string | null,
   ) => Promise<boolean>;
   projects: ProjectInfo[];
   selectedProjectIndex: number;
   preselectedProjectId?: string | null;
   initialName?: string;
   initialBranch?: string;
+  /** Folder preselected when the dialog opens from a folder's own menu. */
+  initialFolderId?: string | null;
 };
 
 export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
@@ -43,6 +48,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     preselectedProjectId,
     initialName = "",
     initialBranch = "",
+    initialFolderId = null,
   } = props;
 
   const [mode, setMode] = useState<Mode>("new");
@@ -52,6 +58,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const [baseBranch, setBaseBranch] = useState("");
   const [existingBranch, setExistingBranch] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [folderId, setFolderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -128,6 +135,18 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [projects],
   );
 
+  const folders = useMemo(() => activeProject?.folders ?? [], [activeProject]);
+  const folderOptions = useMemo(
+    () => [
+      { value: "", label: "No folder" },
+      ...folders.map((f) => ({ value: f.id, label: f.name })),
+    ],
+    [folders],
+  );
+  // A folder belongs to one project; a stale pick would silently vanish.
+  const activeFolderId =
+    folderId && folders.some((f) => f.id === folderId) ? folderId : null;
+
   const handleOpenAutoFocus = useCallback(
     (e: Event) => {
       e.preventDefault();
@@ -143,6 +162,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setBaseBranch(proj?.defaultBranch ?? "main");
       setExistingBranch("");
       setSelectedProjectId(defaultProjectId);
+      setFolderId(initialFolderId);
       setError(null);
       setIsCreating(false);
       // Defer focus to the next frame: the setState calls above re-render the
@@ -154,6 +174,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [
       defaultProjectId,
       initialBranch,
+      initialFolderId,
       initialName,
       preselectedProjectId,
       projects,
@@ -186,6 +207,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           existingBranch,
           "",
           true,
+          activeFolderId,
         );
         if (!success) setIsCreating(false);
         return;
@@ -212,12 +234,14 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         trimmedName,
         finalBranch,
         baseBranch,
+        false,
+        activeFolderId,
       );
       if (!success) {
         setIsCreating(false);
       }
     },
-    [name, branchName, baseBranch, existingBranch, mode, activeProjectId, onSubmit, isCreating],
+    [name, branchName, baseBranch, existingBranch, mode, activeProjectId, activeFolderId, onSubmit, isCreating],
   );
 
   return (
@@ -329,11 +353,25 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     {projects.length > 1 && (
                       <SearchableSelect
                         value={activeProjectId}
-                        onChange={setSelectedProjectId}
+                        onChange={(id) => {
+                          setSelectedProjectId(id);
+                          setFolderId(null);
+                        }}
                         options={projectOptions}
                         icon={<Box size={12} />}
                         maxWidth={160}
                         data-testid="new-workspace-project-select"
+                      />
+                    )}
+                    {folders.length > 0 && (
+                      <SearchableSelect
+                        value={activeFolderId ?? ""}
+                        onChange={(id) => setFolderId(id || null)}
+                        options={folderOptions}
+                        icon={<Folder size={12} />}
+                        maxWidth={140}
+                        placeholder="No folder"
+                        data-testid="new-workspace-folder-select"
                       />
                     )}
                     {mode === "new" && (

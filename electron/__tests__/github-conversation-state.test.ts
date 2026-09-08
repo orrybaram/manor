@@ -68,6 +68,12 @@ describe("parsePrConversationState", () => {
     expect(parsePrConversationState({}).latestComment).toBeUndefined();
   });
 
+  it("reads the merge-queue flag, leaving it undefined when absent", () => {
+    expect(parsePrConversationState({ isInMergeQueue: true }).isInMergeQueue).toBe(true);
+    expect(parsePrConversationState({ isInMergeQueue: false }).isInMergeQueue).toBe(false);
+    expect(parsePrConversationState({}).isInMergeQueue).toBeUndefined();
+  });
+
   it("tolerates a deleted author and a bodiless review", () => {
     const state = parsePrConversationState({
       comments: { totalCount: 0, nodes: [] },
@@ -119,7 +125,7 @@ describe("recentComments", () => {
         nodes: [
           {
             author: { login: "bob" },
-            body: "",
+            body: "Ship it.",
             url: "https://github.com/o/r/pull/1#pullrequestreview-2",
             submittedAt: "2026-09-05T11:00:00Z",
             state: "APPROVED",
@@ -136,6 +142,46 @@ describe("recentComments", () => {
     expect(state.recentComments?.[0].path).toBe("src/app.ts");
     expect(state.recentComments?.[0].isResolved).toBe(false);
     expect(state.recentComments?.[1].reviewState).toBe("APPROVED");
+  });
+
+  it("drops every entry without text: bare approvals, empty comments, empty thread heads", () => {
+    const state = parsePrConversationState({
+      reviewThreads: {
+        nodes: [
+          {
+            isResolved: false,
+            path: "src/app.ts",
+            comments: {
+              nodes: [
+                {
+                  author: { login: "carol" },
+                  body: "",
+                  url: "https://github.com/o/r/pull/1#discussion_r1",
+                  createdAt: "2026-09-05T12:00:00Z",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      comments: {
+        totalCount: 1,
+        nodes: [{ ...comment, body: " \n " }],
+      },
+      reviews: {
+        totalCount: 1,
+        nodes: [
+          {
+            author: { login: "bob" },
+            body: "",
+            url: "https://github.com/o/r/pull/1#pullrequestreview-2",
+            submittedAt: "2026-09-05T11:00:00Z",
+            state: "APPROVED",
+          },
+        ],
+      },
+    });
+    expect(state.recentComments).toEqual([]);
   });
 
   it("drops the empty review GitHub wraps around inline comments", () => {

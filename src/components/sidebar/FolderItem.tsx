@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
@@ -72,6 +72,24 @@ export function FolderItem(props: FolderItemProps) {
   // Escape cancels by blurring the input; the blur handler still sees
   // `editing === true` (no re-render yet), so the cancel is flagged in a ref.
   const renameCancelled = useRef(false);
+  const blockRef = useRef<HTMLDivElement | null>(null);
+  const wasCollapsed = useRef(collapsed);
+
+  // Expanding a folder near the bottom of the sidebar otherwise reveals its
+  // members below the fold, where nothing looks like it happened. Once the
+  // body has rendered, bring the whole block into view — "nearest" leaves an
+  // already-visible folder alone and scrolls just enough for one that isn't.
+  useEffect(() => {
+    const expanded = wasCollapsed.current && !collapsed;
+    wasCollapsed.current = collapsed;
+    if (!expanded) return;
+    const el = blockRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [collapsed]);
 
   const { status, pulse } = useWorkspacesAgentStatus(workspaces);
 
@@ -103,7 +121,10 @@ export function FolderItem(props: FolderItemProps) {
 
   return (
     <div
-      ref={registerBlock}
+      ref={(el) => {
+        blockRef.current = el;
+        registerBlock(el);
+      }}
       className={`${styles.folder} ${isDragging ? styles.folderDragging : ""}`}
       style={style}
     >

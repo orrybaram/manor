@@ -38,6 +38,7 @@ import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { FolderItem } from "./FolderItem";
+import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import styles from "./ProjectItem.module.css";
@@ -182,6 +183,7 @@ const WorkspaceItem = React.forwardRef<
               {ws.pr && (
                 <PrPopover
                   pr={ws.pr}
+                  workspacePath={ws.path}
                   onOpen={() =>
                     window.electronAPI.shell.openExternal(ws.pr!.url)
                   }
@@ -785,24 +787,14 @@ export function ProjectItem(props: ProjectItemProps) {
         }}
         projects={[project]}
         selectedProjectIndex={0}
-        onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch) => {
+        initialFolderId={newWorkspaceFolderId}
+        onSubmit={async (_projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
           const result = await onCreateWorktree(name, branch, baseBranch, useExistingBranch);
           if (result) {
-            const targetFolderId = newWorkspaceFolderId;
             setNewWorkspaceOpen(false);
             setNewWorkspaceFolderId(null);
-            if (targetFolderId) {
-              // Read the freshly updated project: the store has already
-              // merged the new worktree (and its normalized sidebarOrder).
-              const fresh = useProjectStore
-                .getState()
-                .projects.find((p) => p.id === projectId);
-              if (fresh) {
-                await applySidebarChange(
-                  projectId,
-                  placeInFolder(buildSidebarItems(fresh), result, targetFolderId),
-                );
-              }
+            if (folderId) {
+              await placeNewWorkspaceInFolder(projectId, result, folderId);
             }
           }
           return !!result;

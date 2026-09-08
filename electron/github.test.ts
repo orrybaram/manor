@@ -180,6 +180,51 @@ describe("GitHubManager", () => {
       });
       expect(result!.unresolvedThreads).toBe(1);
       expect(result!.reviewDecision).toBe("APPROVED");
+      expect(result!.queuedToMerge).toBe(false);
+    });
+
+    it("flags a PR as queued to merge when auto-merge is armed", async () => {
+      const prData = [
+        {
+          number: 43,
+          state: "OPEN",
+          title: "Auto",
+          url: "https://github.com/owner/repo/pull/43",
+          autoMergeRequest: { enabledAt: "2026-09-08T00:00:00Z" },
+          statusCheckRollup: [],
+        },
+      ];
+      setupExecFileCalls([
+        success(JSON.stringify(prData)),
+        success(JSON.stringify({ data: { repository: { pullRequest: {} } } })),
+      ]);
+
+      const result = await manager.getPrForBranch("/repo", "feat/auto");
+      expect(result!.queuedToMerge).toBe(true);
+    });
+
+    it("flags a PR as queued to merge when it sits in the merge queue", async () => {
+      const prData = [
+        {
+          number: 44,
+          state: "OPEN",
+          title: "Queued",
+          url: "https://github.com/owner/repo/pull/44",
+          autoMergeRequest: null,
+          statusCheckRollup: [],
+        },
+      ];
+      setupExecFileCalls([
+        success(JSON.stringify(prData)),
+        success(
+          JSON.stringify({
+            data: { repository: { pullRequest: { isInMergeQueue: true } } },
+          }),
+        ),
+      ]);
+
+      const result = await manager.getPrForBranch("/repo", "feat/queued");
+      expect(result!.queuedToMerge).toBe(true);
     });
 
     it("returns null when gh pr list returns empty array", async () => {

@@ -1,0 +1,10 @@
+api-auth created inside folder Backend via dialog folder select: yes
+badge readiness: {"#101":"queued","#102":"blocked","#103":"blocked"}
+badge #101 computed: {"color":"rgb(166, 227, 161)","background":"color(srgb 0.537255 0.705882 0.980392 / 0.2)"}
+badge #102 computed: {"color":"rgb(249, 226, 175)","background":"rgba(249, 226, 175, 0.2)"}
+badge #103 computed: {"color":"rgb(243, 139, 168)","background":"rgba(249, 226, 175, 0.2)"}
+popover comment authors (bodiless dropped): ["@reviewer-jane","@reviewer-jane","@reviewer-sam"]
+agent pane scrollback line: %                                                                                                                               orrybaram@Mac ui-fix % eecho AGENT_PROMPT "Address this unresolved review comment on \`src/auth/session.ts\` from @reviewer-jane   on PR #102 (Sidebar: folder polish): Please hash with <code>bcrypt</code> here, not MD5.<br><details><summary>Why</summary>MD5   has been broken since 2004.</details><img src=\"https://example.invalid/s.png\" alt=\"screenshot\"> Comment: https://github.co mm/acme/app/pull/102#discussion_r1"
+notification 'Checks failed on #103' read after ~3.5s hover: yes; still unread at 1.5s: yes
+diff file-tree rowStats font-size: 9px (was 11px)
+after expanding Frontend at 420px window, ui-fix in sidebar viewport: {"inView":true,"member":[278.1875,319.78125],"scroller":[32,420]}

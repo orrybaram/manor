@@ -230,10 +230,16 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   expect(readinessByText["#102"]).toBe("blocked");
   expect(readinessByText["#103"]).toBe("blocked");
 
+  // The number is neutral at every readiness; the icon is the coloured part.
   const colorOf = async (n: number) =>
     badges.nth(n).evaluate((el) => {
       const cs = getComputedStyle(el);
-      return { color: cs.color, background: cs.backgroundColor };
+      const icon = el.querySelector("svg");
+      return {
+        text: cs.color,
+        icon: icon ? getComputedStyle(icon).color : null,
+        background: cs.backgroundColor,
+      };
     });
   for (let i = 0; i < 3; i++) {
     const text = ((await badges.nth(i).textContent()) ?? "").trim();

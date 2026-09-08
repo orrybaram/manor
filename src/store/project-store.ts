@@ -278,6 +278,7 @@ function prEqual(a?: PrInfo | null, b?: PrInfo | null): boolean {
     a.additions === b.additions &&
     a.deletions === b.deletions &&
     a.reviewDecision === b.reviewDecision &&
+    a.queuedToMerge === b.queuedToMerge &&
     a.unresolvedThreads === b.unresolvedThreads &&
     a.commentCount === b.commentCount &&
     a.latestComment?.url === b.latestComment?.url &&

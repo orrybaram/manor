@@ -13,11 +13,27 @@
   position: relative;
   margin-top: 2px;
   margin-right: 2px;
+  /*
+   * The number stays neutral at every readiness. Colouring it too made the
+   * sidebar read as a wall of green and yellow; the badge carries its state
+   * in the background tint and the icon instead.
+   */
+  color: var(--text-dim);
 }
 
+/* The one coloured element. Falls back to the row's own colour if unset. */
+.prBadgeIcon {
+  display: inline-flex;
+  color: var(--pr-badge-icon, currentColor);
+}
+
+/*
+ * Readiness — "can this ship?" — is the background tint, and sets the icon
+ * colour that CI overrides below when there is CI to report.
+ */
 .prReady {
-  color: var(--green);
   background: var(--green-a20);
+  --pr-badge-icon: var(--green);
 }
 
 /*
@@ -26,13 +42,13 @@
  * the PR had not actually hit.
  */
 .prBlocked {
-  color: var(--yellow, #eab308);
   background: var(--yellow-a20, rgba(249, 226, 175, 0.13));
+  --pr-badge-icon: var(--yellow, #eab308);
 }
 
 .prPending {
-  color: var(--text-dim);
   background: var(--hover);
+  --pr-badge-icon: var(--text-dim);
 }
 
 .prDraft {
@@ -41,31 +57,35 @@
 }
 
 .prMerged {
-  color: var(--magenta, #a855f7);
   background: var(--magenta-a20);
+  --pr-badge-icon: var(--magenta, #a855f7);
 }
 
 .prClosed {
-  color: var(--text-dim);
   background: none;
+  --pr-badge-icon: var(--text-dim);
 }
 
 .prQueued {
-  color: var(--accent);
   background: color-mix(in srgb, var(--accent) 20%, transparent);
+  --pr-badge-icon: var(--accent);
 }
 
-/* Text follows CI: declared after the readiness classes so it wins the tie. */
+/*
+ * The icon follows CI — green all passed, red something failed, yellow still
+ * running — declared after the readiness classes so it wins the tie. Merged
+ * and closed PRs keep their own colour: CI on them is history.
+ */
 .prChecksGood {
-  color: var(--green);
+  --pr-badge-icon: var(--green);
 }
 
 .prChecksWarn {
-  color: var(--yellow, #eab308);
+  --pr-badge-icon: var(--yellow, #eab308);
 }
 
 .prChecksBad {
-  color: var(--red);
+  --pr-badge-icon: var(--red);
 }
 
 /* ── Popover shell ── */

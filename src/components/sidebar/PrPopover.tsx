@@ -118,13 +118,16 @@ export function PrPopover(props: PrPopoverProps) {
     closed: styles.prClosed,
   }[readiness];
 
-  // The background answers "can this ship?" (readiness); the text answers
-  // "how is CI doing?" — green all passed, red something failed, yellow
-  // still running. Merged and closed PRs keep their own colour: CI on them
-  // is history.
   const isLive = readiness !== "merged" && readiness !== "closed";
+
+  // The background answers "can this ship?" (readiness); the icon answers
+  // "how is CI doing?" — green all passed, red something failed, yellow
+  // still running. The number itself stays neutral. Merged and closed PRs
+  // keep their own colour (CI on them is history), and so does a queued one:
+  // "it will merge itself" outranks a CI run nobody is waiting on.
+  const iconFollowsChecks = isLive && readiness !== "queued";
   const checksClass =
-    isLive && pr.checks
+    iconFollowsChecks && pr.checks
       ? pr.checks.failing > 0
         ? styles.prChecksBad
         : pr.checks.pending > 0
@@ -159,7 +162,7 @@ export function PrPopover(props: PrPopoverProps) {
             onOpen();
           }}
         >
-          <PrIcon size={10} />#{pr.number}
+          <PrIcon size={10} className={styles.prBadgeIcon} />#{pr.number}
         </span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -420,7 +423,9 @@ function CommentsSection(props: {
   const hidden = comments.length - MAX_COMMENTS_SHOWN;
 
   return (
-    <section className={`${styles.prPopoverSection} ${styles.prPopoverComments}`}>
+    <section
+      className={`${styles.prPopoverSection} ${styles.prPopoverComments}`}
+    >
       <div className={styles.prPopoverSectionLabel}>Comments</div>
       {shown.map((comment) => (
         <CommentRow

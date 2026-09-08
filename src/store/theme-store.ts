@@ -34,8 +34,21 @@ interface ThemeState {
   applyProjectTheme: (themeName: string | null) => Promise<void>;
 }
 
+/**
+ * Which way the OS should paint the chrome it owns and CSS cannot reach —
+ * native scrollbars above all. Themes come from terminal colour schemes, so
+ * "dark" is not a given: read it off the background's lightness.
+ */
+export function themeColorScheme(theme: Theme): "dark" | "light" {
+  const [, , lightness] = hexToHsl(theme.background);
+  return lightness < 50 ? "dark" : "light";
+}
+
 export function applyCssVars(theme: Theme) {
   const root = document.documentElement;
+  // Without this the renderer is a light-mode document wearing a dark palette,
+  // and macOS paints its light scrollbars over every dark panel.
+  root.style.colorScheme = themeColorScheme(theme);
   root.style.setProperty("--bg", theme.background);
   root.style.setProperty("--fg", theme.foreground);
   root.style.setProperty("--dim", adjustBrightness(theme.background, 0.02));

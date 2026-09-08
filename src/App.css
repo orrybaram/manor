@@ -27,6 +27,10 @@
 }
 
 :root {
+  /* The palette below is dark; say so before a theme loads and overrides it,
+     so the native scrollbars start dark instead of flashing light. */
+  color-scheme: dark;
+
   --bg: #1e1e2e;
   --fg: #cdd6f4;
   --dim: #181825;

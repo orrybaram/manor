@@ -1,5 +1,16 @@
 # Changelog
 
+
+## [0.11.1] - 2026-09-08
+
+### Features
+- Send content from the sidebar directly to an agent
+- Select folders directly from the sidebar
+
+### Improvements
+- PR badges now show queue state and colour-coded CI status
+- HTML comments render correctly in the sidebar
+
 ## [0.11.0] - 2026-09-07
 
 ### Features

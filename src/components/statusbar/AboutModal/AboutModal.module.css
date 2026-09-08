@@ -21,7 +21,8 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 201;
-  width: 320px;
+  width: 520px;
+  max-height: calc(100vh - 96px);
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -107,7 +108,7 @@
   margin: 16px 0;
 }
 
-.inspiredLabel {
+.changelogLabel {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -116,44 +117,119 @@
   margin-bottom: 8px;
 }
 
-.links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 10px;
-}
-
-.link {
+/*
+ * The dialog centres everything above it; prose has to go back to reading
+ * left to right. min-height: 0 lets this shrink inside the flex column so
+ * the overflow lands here rather than on the dialog.
+ */
+.changelog {
+  width: 100%;
+  /* Capped so a long history does not stretch the modal down a tall screen;
+     min-height: 0 lets it shrink further on a short one, keeping the overflow
+     here rather than on the dialog. */
+  max-height: 340px;
+  min-height: 0;
+  overflow-y: auto;
+  text-align: left;
   font-size: 12px;
+  line-height: 1.55;
   color: var(--text-primary);
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: var(--font-mono);
-  transition: color 150ms;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--bg);
 }
 
-.link:hover {
+/* Version headings: the one place the list needs a hard break. */
+.changelog :global(h2) {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
   color: var(--text-selected);
+  margin: 18px 0 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.changelog :global(h2:first-child) {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Features / Fixes / Improvements. */
+.changelog :global(h3) {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin: 12px 0 4px;
+}
+
+.changelog :global(ul),
+.changelog :global(ol) {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.changelog :global(li) {
+  margin: 2px 0;
+}
+
+.changelog :global(p) {
+  margin: 6px 0;
+}
+
+.changelog :global(code) {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.changelog :global(a) {
+  color: var(--accent);
+  cursor: pointer;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 @keyframes scaleOut {
-  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
 }

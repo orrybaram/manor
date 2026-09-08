@@ -83,6 +83,92 @@ function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
 const COMMENT_HOVER_DELAY = 1000;
 /** Grace period to cross the gap from the row into the preview. */
 const COMMENT_CLOSE_DELAY = 150;
+/**
+ * How long the pointer must rest on an unread row before it counts as read.
+ * Reading the title and body takes about this long; passing over the row on
+ * the way somewhere else takes far less.
+ */
+const READ_HOVER_DELAY = 3000;
+
+/**
+ * Marks an unread notification read once the pointer has rested on its row
+ * for `READ_HOVER_DELAY`. Returns the handlers to spread on the row; leaving
+ * early cancels, and a row that is already read arms nothing.
+ */
+function useHoverMarksRead(record: NotificationRecord) {
+  const markRead = useNotificationStore((s) => s.markRead);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancel = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const arm = useCallback(() => {
+    cancel();
+    if (record.read) return;
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      void markRead(record.id);
+    }, READ_HOVER_DELAY);
+  }, [cancel, markRead, record.id, record.read]);
+
+  useEffect(() => cancel, [cancel]);
+
+  return { onMouseEnter: arm, onMouseLeave: cancel };
+}
+
+/** One notification row; its own component so the hover-to-read timer has a home. */
+function NotificationRow(props: {
+  record: NotificationRecord;
+  onClick: (record: NotificationRecord) => void;
+}) {
+  const { record, onClick } = props;
+  const hover = useHoverMarksRead(record);
+  const Icon = ICON_FOR[record.kind] ?? Bell;
+  const tone = TONE_FOR[record.kind];
+
+  return (
+    <div
+      className={`${styles.row} ${record.read ? styles.rowRead : ""}`}
+      data-testid="notification-row"
+      data-kind={record.kind}
+      data-read={record.read ? "true" : "false"}
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(record)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick(record);
+        }
+      }}
+      {...hover}
+    >
+      <Icon size={13} className={`${styles.rowIcon} ${tone ?? ""}`} />
+      <div className={styles.rowText}>
+        <div className={styles.rowTitle}>{record.title}</div>
+        <div className={styles.rowBody}>
+          {record.comment?.author && (
+            <span
+              className={styles.rowAuthor}
+              data-testid="notification-author"
+            >
+              @{record.comment.author}
+            </span>
+          )}
+          {record.body}
+        </div>
+      </div>
+      <span className={styles.rowTime}>
+        {relativeShortThenDate(Date.parse(record.timestamp))}
+      </span>
+      {!record.read && <span className={styles.unreadDot} />}
+    </div>
+  );
+}
 
 /**
  * Wraps a `pr-comment` row so resting on it opens the comment beside the
@@ -290,48 +376,12 @@ export function NotificationsPopover() {
                 <div key={bucket} className={styles.dateGroup}>
                   <div className={styles.dateGroupHeader}>{bucket}</div>
                   {records.map((record) => {
-                    const Icon = ICON_FOR[record.kind] ?? Bell;
-                    const tone = TONE_FOR[record.kind];
                     const row = (
-                      <div
+                      <NotificationRow
                         key={record.id}
-                        className={`${styles.row} ${record.read ? styles.rowRead : ""}`}
-                        data-testid="notification-row"
-                        data-kind={record.kind}
-                        data-read={record.read ? "true" : "false"}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => handleRowClick(record)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleRowClick(record);
-                          }
-                        }}
-                      >
-                        <Icon
-                          size={13}
-                          className={`${styles.rowIcon} ${tone ?? ""}`}
-                        />
-                        <div className={styles.rowText}>
-                          <div className={styles.rowTitle}>{record.title}</div>
-                          <div className={styles.rowBody}>
-                            {record.comment?.author && (
-                              <span
-                                className={styles.rowAuthor}
-                                data-testid="notification-author"
-                              >
-                                @{record.comment.author}
-                              </span>
-                            )}
-                            {record.body}
-                          </div>
-                        </div>
-                        <span className={styles.rowTime}>
-                          {relativeShortThenDate(Date.parse(record.timestamp))}
-                        </span>
-                        {!record.read && <span className={styles.unreadDot} />}
-                      </div>
+                        record={record}
+                        onClick={handleRowClick}
+                      />
                     );
                     if (record.kind === "pr-comment" && record.comment) {
                       return (

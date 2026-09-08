@@ -31,6 +31,7 @@ import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store"
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import { dispatchKeybinding, startNewAgent } from "./lib/keybinding-commands";
+import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -670,7 +671,7 @@ function App() {
           preselectedProjectId={preselectedProjectId}
           initialName={initialName}
           initialBranch={initialBranch}
-          onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch) => {
+          onSubmit={async (projectId, name, branch, baseBranch, useExistingBranch, folderId) => {
             let agentCommand: string | undefined;
             const prompt = agentPromptRef.current;
             if (prompt) {
@@ -695,6 +696,9 @@ function App() {
               useExistingBranch,
             );
             if (result) {
+              if (folderId) {
+                await placeNewWorkspaceInFolder(projectId, result, folderId);
+              }
               // Ensure the project is selected so the new workspace is visible
               const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
               if (projIdx >= 0) selectProject(projIdx);

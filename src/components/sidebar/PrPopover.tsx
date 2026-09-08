@@ -2,6 +2,8 @@ import React, { useRef, useCallback, useLayoutEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
@@ -18,8 +20,10 @@ import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import type { PrCheckRun, PrComment, PrInfo } from "../../store/project-store";
 import { prReadiness } from "../../lib/pr-readiness";
+import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { relativeShortThenDate } from "../../utils/relative-time";
 import styles from "./PrPopover.module.css";
@@ -27,6 +31,12 @@ import styles from "./PrPopover.module.css";
 type PrPopoverProps = {
   pr: PrInfo;
   onOpen: () => void;
+  /**
+   * The workspace this PR belongs to. When given, an unresolved review
+   * thread offers "Send to agent", which starts an agent there with the
+   * comment as its prompt.
+   */
+  workspacePath?: string;
 };
 
 const HOVER_DELAY = 300;
@@ -52,7 +62,7 @@ function openExternal(url: string) {
  * already does that.
  */
 export function PrPopover(props: PrPopoverProps) {
-  const { pr, onOpen } = props;
+  const { pr, onOpen, workspacePath } = props;
 
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,19 +112,43 @@ export function PrPopover(props: PrPopoverProps) {
   const badgeClass = {
     ready: styles.prReady,
     blocked: styles.prBlocked,
+    queued: styles.prQueued,
     pending: styles.prPending,
     merged: styles.prMerged,
     closed: styles.prClosed,
   }[readiness];
 
-  const showDraftOutline =
-    pr.isDraft && readiness !== "merged" && readiness !== "closed";
+  // The background answers "can this ship?" (readiness); the text answers
+  // "how is CI doing?" — green all passed, red something failed, yellow
+  // still running. Merged and closed PRs keep their own colour: CI on them
+  // is history.
+  const isLive = readiness !== "merged" && readiness !== "closed";
+  const checksClass =
+    isLive && pr.checks
+      ? pr.checks.failing > 0
+        ? styles.prChecksBad
+        : pr.checks.pending > 0
+          ? styles.prChecksWarn
+          : styles.prChecksGood
+      : "";
+
+  const showDraftOutline = pr.isDraft && isLive;
+
+  const handleSendToAgent = useCallback(
+    (comment: PrComment) => {
+      if (!workspacePath) return;
+      clearHoverTimeout();
+      setOpen(false);
+      startAgentWithPrompt(workspacePath, reviewCommentPrompt(pr, comment));
+    },
+    [workspacePath, pr, clearHoverTimeout],
+  );
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <span
-          className={`${styles.prBadge} ${badgeClass}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
+          className={`${styles.prBadge} ${badgeClass}${checksClass ? ` ${checksClass}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
           data-readiness={readiness}
           data-draft={pr.isDraft ? "true" : "false"}
           onMouseEnter={handleMouseEnter}
@@ -179,7 +213,10 @@ export function PrPopover(props: PrPopoverProps) {
           <SummaryRows pr={pr} />
 
           <div className={styles.prPopoverScroll}>
-            <CommentsSection pr={pr} />
+            <CommentsSection
+              pr={pr}
+              onSendToAgent={workspacePath ? handleSendToAgent : undefined}
+            />
             <ChecksSection pr={pr} />
           </div>
         </Popover.Content>
@@ -265,10 +302,22 @@ function SummaryRows(props: { pr: PrInfo }) {
     );
   }
 
-  if (!checksElement && !reviewElement && !commentsElement) return null;
+  let queuedElement: React.ReactNode = null;
+  if (pr.queuedToMerge && pr.state === "open") {
+    queuedElement = (
+      <div className={`${styles.prPopoverRow} ${styles.toneQueued}`}>
+        <GitMerge size={12} />
+        <span>Queued to merge</span>
+      </div>
+    );
+  }
+
+  if (!checksElement && !reviewElement && !commentsElement && !queuedElement)
+    return null;
 
   return (
     <div className={styles.prPopoverSummary}>
+      {queuedElement}
       {checksElement}
       {reviewElement}
       {commentsElement}
@@ -359,7 +408,10 @@ function CheckRow(props: { run: PrCheckRun }) {
 }
 
 /** Who said what, newest first, across comments, reviews and inline threads. */
-function CommentsSection(props: { pr: PrInfo }) {
+function CommentsSection(props: {
+  pr: PrInfo;
+  onSendToAgent?: (comment: PrComment) => void;
+}) {
   const comments = props.pr.recentComments;
   const [expanded, setExpanded] = useState(false);
   if (!comments || comments.length === 0) return null;
@@ -371,7 +423,11 @@ function CommentsSection(props: { pr: PrInfo }) {
     <section className={`${styles.prPopoverSection} ${styles.prPopoverComments}`}>
       <div className={styles.prPopoverSectionLabel}>Comments</div>
       {shown.map((comment) => (
-        <CommentRow key={comment.url} comment={comment} />
+        <CommentRow
+          key={comment.url}
+          comment={comment}
+          onSendToAgent={props.onSendToAgent}
+        />
       ))}
       {hidden > 0 && (
         <Button
@@ -397,8 +453,11 @@ function CommentsSection(props: { pr: PrInfo }) {
  * link lives beside the timestamp so the row itself can be the expand toggle
  * without two buttons nesting.
  */
-function CommentRow(props: { comment: PrComment }) {
-  const { comment } = props;
+function CommentRow(props: {
+  comment: PrComment;
+  onSendToAgent?: (comment: PrComment) => void;
+}) {
+  const { comment, onSendToAgent } = props;
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -407,6 +466,7 @@ function CommentRow(props: { comment: PrComment }) {
   const unresolved = comment.kind === "thread" && comment.isResolved === false;
   const resolved = comment.kind === "thread" && comment.isResolved === true;
   const bodyHidden = resolved && !expanded;
+  const canSendToAgent = unresolved && onSendToAgent !== undefined;
 
   // Measured while clamped: does the clamp actually hide anything? Once
   // expanded the clamp is gone, so keep the last clamped measurement.
@@ -440,7 +500,9 @@ function CommentRow(props: { comment: PrComment }) {
           setExpanded((v) => !v);
         }}
       >
-        <div className={styles.prPopoverCommentHead}>
+        <div
+          className={`${styles.prPopoverCommentHead}${canSendToAgent ? ` ${styles.prPopoverCommentHeadWide}` : ""}`}
+        >
           <ChevronDown
             size={11}
             aria-hidden={!canExpand}
@@ -463,21 +525,53 @@ function CommentRow(props: { comment: PrComment }) {
           <div className={styles.prPopoverCommentEmpty}>No comment text.</div>
         )}
       </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className={styles.prPopoverCommentLink}
-        title="Open this comment on GitHub"
-        aria-label="Open this comment on GitHub"
-        onClick={(e) => {
-          e.stopPropagation();
-          openExternal(comment.url);
-        }}
-      >
-        <ExternalLink size={11} />
-      </Button>
+      <span className={styles.prPopoverCommentActions}>
+        {canSendToAgent && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.prPopoverCommentAction}
+            title="Send this comment to a new agent in this workspace"
+            aria-label="Send this comment to an agent"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSendToAgent(comment);
+            }}
+          >
+            <Bot size={11} />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.prPopoverCommentAction}
+          title="Open this comment on GitHub"
+          aria-label="Open this comment on GitHub"
+          onClick={(e) => {
+            e.stopPropagation();
+            openExternal(comment.url);
+          }}
+        >
+          <ExternalLink size={11} />
+        </Button>
+      </span>
     </div>
   );
+}
+
+/**
+ * The first message for an agent asked to deal with a review thread: the
+ * comment, where it hangs, who left it, and the link back — enough that the
+ * agent can find the code and report where it answered.
+ */
+function reviewCommentPrompt(pr: PrInfo, comment: PrComment): string {
+  const where = comment.path ? ` on \`${comment.path}\`` : "";
+  const who = comment.author ? `@${comment.author}` : "a reviewer";
+  return [
+    `Address this unresolved review comment${where} from ${who} on PR #${pr.number} (${pr.title}):`,
+    comment.body.trim(),
+    `Comment: ${comment.url}`,
+  ].join(" ");
 }
 
 /** "2d ago" in the row; the full local date and time on hover. */
@@ -497,14 +591,18 @@ function CommentTime(props: { iso: string }) {
 }
 
 /**
- * GitHub-flavoured markdown, rendered to React nodes — never raw HTML.
- * Links open in the browser rather than navigating the window; images are
- * reduced to their alt text since the popover cannot load remote content.
+ * GitHub-flavoured markdown, rendered to React nodes. Inline HTML — the
+ * `<details>`, `<img>` and `<sub>` GitHub comments are full of — is parsed
+ * too, then run through the GitHub-style sanitiser so scripts, handlers and
+ * unknown tags never reach the DOM. Links open in the browser rather than
+ * navigating the window; images are reduced to their alt text since the
+ * popover cannot load remote content.
  */
 function CommentMarkdown(props: { source: string }) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
       components={{
         a: ({ href, children }) => (
           <a

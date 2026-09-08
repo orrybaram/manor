@@ -89,6 +89,28 @@ describe("prReadiness", () => {
     expect(prReadiness(pr)).toBe("blocked");
   });
 
+  it("returns queued when auto-merge is armed or the PR is in the merge queue", () => {
+    expect(prReadiness(basePr({ queuedToMerge: true }))).toBe("queued");
+    expect(
+      prReadiness(
+        basePr({
+          queuedToMerge: true,
+          isDraft: false,
+          checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+          reviewDecision: "APPROVED",
+        }),
+      ),
+    ).toBe("queued");
+  });
+
+  it("returns blocked over queued: a failing check keeps a queued PR from merging", () => {
+    const pr = basePr({
+      queuedToMerge: true,
+      checks: { total: 2, passing: 1, failing: 1, pending: 0 },
+    });
+    expect(prReadiness(pr)).toBe("blocked");
+  });
+
   it("returns merged even when there are unresolved threads (order matters)", () => {
     const pr = basePr({ state: "merged", unresolvedThreads: 3 });
     expect(prReadiness(pr)).toBe("merged");

@@ -111,7 +111,7 @@ export class GitHubManager {
           "--state",
           "all",
           "--json",
-          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt",
+          "number,state,title,url,isDraft,additions,deletions,reviewDecision,statusCheckRollup,updatedAt,autoMergeRequest",
           "--limit",
           "1",
         ],
@@ -127,8 +127,20 @@ export class GitHubManager {
         pr.statusCheckRollup,
       );
 
-      const { unresolvedThreads, commentCount, latestComment, recentComments } =
-        await this.conversationFor(pr);
+      const {
+        unresolvedThreads,
+        commentCount,
+        latestComment,
+        recentComments,
+        isInMergeQueue,
+      } = await this.conversationFor(pr);
+
+      // "Queued to merge" covers both of GitHub's flavours: auto-merge armed
+      // on the PR (merges itself once requirements pass) and a merge-queue
+      // entry (the repo's queue will merge it). Either way, nobody needs to
+      // press the button — which is what the badge exists to say.
+      const queuedToMerge =
+        pr.autoMergeRequest != null || isInMergeQueue === true;
 
       return {
         number: pr.number,
@@ -145,6 +157,7 @@ export class GitHubManager {
         latestComment,
         recentComments,
         checkRuns,
+        queuedToMerge,
       };
     } catch {
       return null;
@@ -193,7 +206,7 @@ export class GitHubManager {
       // The newest entries of all three conversation surfaces: enough for the
       // PR popover's comment list, and the newest of them is what a "new
       // comment" notification carries (#177).
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { reviewThreads(first: 100) { nodes { isResolved path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -448,6 +461,8 @@ interface PrConversationState {
   commentCount?: number;
   latestComment?: PrComment | null;
   recentComments?: PrComment[];
+  /** Sits in the repository's merge queue. Absent when the query failed. */
+  isInMergeQueue?: boolean;
 }
 
 interface RawConversationNode {
@@ -562,6 +577,7 @@ export function parsePrConversationState(
 ): PrConversationState {
   if (!pullRequest || typeof pullRequest !== "object") return {};
   const pr = pullRequest as {
+    isInMergeQueue?: boolean;
     reviewThreads?: { nodes?: RawReviewThread[] };
     comments?: { totalCount?: number; nodes?: RawConversationNode[] };
     reviews?: { totalCount?: number; nodes?: RawConversationNode[] };
@@ -595,16 +611,26 @@ export function parsePrConversationState(
         )[0] ?? null);
 
   const recentComments = collectRecentComments(comments, reviews, threads);
+  const isInMergeQueue =
+    typeof pr.isInMergeQueue === "boolean" ? pr.isInMergeQueue : undefined;
 
-  return { unresolvedThreads, commentCount, latestComment, recentComments };
+  return {
+    unresolvedThreads,
+    commentCount,
+    latestComment,
+    recentComments,
+    isInMergeQueue,
+  };
 }
 
 /**
  * Interleave the three places a human can say something on a PR — issue
  * comments, submitted reviews, and inline review threads — newest first.
  *
- * A review with no body and no verdict is the empty wrapper GitHub creates
- * around inline comments; it is dropped so the list is not half blanks.
+ * Anything without text is dropped: a bodiless review is the empty wrapper
+ * GitHub creates around inline comments (and a bare approval is already the
+ * "Approved" summary row), and a bodiless comment or thread head has nothing
+ * to read. Without this the list is half "No comment text." rows.
  */
 function collectRecentComments(
   comments: RawConversationNode[],
@@ -615,20 +641,20 @@ function collectRecentComments(
 
   for (const node of comments) {
     const c = toPrComment(node);
-    if (c) entries.push({ ...c, kind: "comment" });
+    if (!c || !c.body.trim()) continue;
+    entries.push({ ...c, kind: "comment" });
   }
 
   for (const node of reviews) {
     const c = toPrComment(node);
-    if (!c) continue;
+    if (!c || !c.body.trim()) continue;
     const state = typeof node.state === "string" ? node.state : null;
-    if (!c.body.trim() && (state === null || state === "COMMENTED")) continue;
     entries.push({ ...c, kind: "review", reviewState: state });
   }
 
   for (const thread of threads ?? []) {
     const c = toPrComment(thread.comments?.nodes?.[0]);
-    if (!c) continue;
+    if (!c || !c.body.trim()) continue;
     entries.push({
       ...c,
       kind: "thread",

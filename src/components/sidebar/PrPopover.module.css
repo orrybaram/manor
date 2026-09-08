@@ -50,6 +50,24 @@
   background: none;
 }
 
+.prQueued {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* Text follows CI: declared after the readiness classes so it wins the tie. */
+.prChecksGood {
+  color: var(--green);
+}
+
+.prChecksWarn {
+  color: var(--yellow, #eab308);
+}
+
+.prChecksBad {
+  color: var(--red);
+}
+
 /* ── Popover shell ── */
 
 .prPopover {
@@ -139,6 +157,10 @@
 
 .toneMuted {
   color: var(--text-dim);
+}
+
+.toneQueued {
+  color: var(--accent);
 }
 
 /* ── Scrolling detail ── */
@@ -260,6 +282,11 @@
   padding-right: 22px;
 }
 
+/* Two hover actions instead of one. */
+.prPopoverCommentHeadWide {
+  padding-right: 44px;
+}
+
 .prPopoverCommentChevron {
   flex-shrink: 0;
   color: var(--text-dim);
@@ -275,10 +302,22 @@
   visibility: hidden;
 }
 
-.prPopoverCommentLink {
+.prPopoverCommentActions {
   position: absolute;
   top: 3px;
   right: 3px;
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.prPopoverCommentItem:hover .prPopoverCommentActions,
+.prPopoverCommentActions:focus-within {
+  opacity: 1;
+}
+
+.prPopoverCommentAction {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -287,16 +326,9 @@
   padding: 0;
   color: var(--text-dim);
   border-radius: 4px;
-  opacity: 0;
-  transition: opacity 120ms ease;
 }
 
-.prPopoverCommentItem:hover .prPopoverCommentLink,
-.prPopoverCommentLink:focus-visible {
-  opacity: 1;
-}
-
-.prPopoverCommentLink:hover:not(:disabled) {
+.prPopoverCommentAction:hover:not(:disabled) {
   color: var(--accent);
 }
 

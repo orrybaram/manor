@@ -82,4 +82,10 @@ export interface PrInfo {
   recentComments?: PrComment[];
   /** Individual checks behind `checks`, failing first. */
   checkRuns?: PrCheckRun[];
+  /**
+   * Auto-merge is armed or the PR sits in the repo's merge queue: it will
+   * merge itself once its requirements pass, so nobody needs to press the
+   * button. Absent on older payloads.
+   */
+  queuedToMerge?: boolean;
 }

@@ -206,7 +206,7 @@ export class GitHubManager {
       // The newest entries of all three conversation surfaces: enough for the
       // PR popover's comment list, and the newest of them is what a "new
       // comment" notification carries (#177).
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
+      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -476,6 +476,7 @@ interface RawConversationNode {
 
 interface RawReviewThread {
   isResolved?: boolean;
+  isOutdated?: boolean;
   path?: string;
   comments?: { nodes?: RawConversationNode[] };
 }
@@ -660,6 +661,7 @@ function collectRecentComments(
       kind: "thread",
       path: thread.path ?? null,
       isResolved: thread.isResolved === true,
+      isOutdated: thread.isOutdated === true,
     });
   }
 

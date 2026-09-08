@@ -95,7 +95,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
-  width: 380px;
+  width: 420px;
   max-height: min(520px, calc(100vh - 32px));
   font-size: 11px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -201,7 +201,11 @@
 }
 
 .prPopoverComments {
-  gap: 8px;
+  gap: 10px;
+}
+
+.prPopoverComments .prPopoverSectionLabel {
+  margin-bottom: 0;
 }
 
 .prPopoverSectionLabel {
@@ -264,47 +268,89 @@
    cannot contain a button. */
 .prPopoverCommentItem {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .prPopoverCommentUnresolved {
   background: var(--yellow-a20, rgba(249, 226, 175, 0.13));
+  border-color: transparent;
   box-shadow: inset 2px 0 0 var(--yellow, #eab308);
-  border-radius: 4px;
 }
 
-.prPopoverComment {
+/* Resolved and outdated threads are history: dimmed until unfolded. */
+.prPopoverCommentDone {
+  background: none;
+  opacity: 0.72;
+}
+
+.prPopoverCommentTop {
   display: flex;
-  width: 100%;
   flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  padding: 5px 6px;
-  text-align: left;
-  font-size: 11px;
-  color: var(--text-primary);
-  border-radius: 4px;
-  height: auto;
-  white-space: normal;
+  min-width: 0;
+  padding-right: 24px;
 }
 
-/* A body that already fits is not a toggle: no hover, no hand, full colour. */
-.prPopoverComment:disabled {
-  opacity: 1;
-  cursor: default;
+.prPopoverCommentContent {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
 }
 
-.prPopoverCommentHead {
+.prPopoverCommentTopWide {
+  padding-right: 46px;
+}
+
+.prPopoverCommentFile {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
-  /* Room for the link button that floats over the corner. */
-  padding-right: 22px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
 }
 
-/* Two hover actions instead of one. */
-.prPopoverCommentHeadWide {
-  padding-right: 44px;
+.prPopoverCommentFileIcon {
+  flex-shrink: 0;
+  margin-right: 5px;
+}
+
+.prPopoverCommentFileDir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prPopoverCommentFileName {
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+
+.prPopoverCommentMeta,
+.prPopoverCommentToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  font-size: 11px;
+  text-align: left;
+  color: var(--text-primary);
+  height: auto;
+  background: none;
+}
+
+.prPopoverCommentToggle:hover:not(:disabled) {
+  background: none;
+  color: var(--text-selected);
 }
 
 .prPopoverCommentChevron {
@@ -318,14 +364,10 @@
   transform: rotate(0deg);
 }
 
-.prPopoverCommentChevronHidden {
-  visibility: hidden;
-}
-
 .prPopoverCommentActions {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 7px;
+  right: 7px;
   display: inline-flex;
   gap: 2px;
   opacity: 0;
@@ -367,28 +409,21 @@
 }
 
 .prPopoverTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 9px;
   color: var(--text-dim);
-  background: var(--surface);
-  padding: 1px 4px;
+  background: var(--bg);
+  padding: 1px 5px;
   border-radius: 3px;
-}
-
-/* Three lines of the comment: enough to know whether it needs answering. */
-/* The only head element allowed to give way: a long file name truncates so
-   the author and timestamp never wrap. */
-.prPopoverTagFile {
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .prPopoverCommentBody {
   color: var(--text-primary);
-  line-height: 1.45;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
@@ -408,7 +443,7 @@
 }
 
 .prPopoverCommentBody > * + * {
-  margin-top: 5px;
+  margin-top: 7px;
 }
 
 .prPopoverCommentBody h1,
@@ -474,13 +509,6 @@
 .prPopoverCommentBody input[type="checkbox"] {
   margin: 0 4px 0 0;
   vertical-align: middle;
-}
-
-.prPopoverCommentBodyClamped {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .prPopoverCommentEmpty {

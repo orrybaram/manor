@@ -41,6 +41,8 @@ export interface PrComment {
   path?: string | null;
   /** Review threads only. */
   isResolved?: boolean;
+  /** Review threads only: the diff hunk it hangs off is gone from the PR. */
+  isOutdated?: boolean;
 }
 
 export type PrCommentKind = "comment" | "review" | "thread";

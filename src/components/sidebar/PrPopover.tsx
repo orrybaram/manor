@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useLayoutEffect, useState } from "react";
+import React, { useRef, useCallback, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -21,6 +21,8 @@ import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
+import History from "lucide-react/dist/esm/icons/history";
 import type { PrCheckRun, PrComment, PrInfo } from "../../store/project-store";
 import { prReadiness } from "../../lib/pr-readiness";
 import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
@@ -452,11 +454,10 @@ function CommentsSection(props: {
 }
 
 /**
- * Collapsed, a comment is a three-line preview; clicking it unfolds the whole
- * body. Bodies that already fit are not toggles at all. A resolved thread
- * collapses further — to just its head — since it is done with. The GitHub
- * link lives beside the timestamp so the row itself can be the expand toggle
- * without two buttons nesting.
+ * One comment, as a card: who said it, then the file it hangs off and the
+ * whole body. Comments are what the popover is for, so nothing is clipped — the one exception is a thread that is finished with (resolved,
+ * or outdated because the code it points at is gone), which collapses to its
+ * header until clicked.
  */
 function CommentRow(props: {
   comment: PrComment;
@@ -464,72 +465,71 @@ function CommentRow(props: {
 }) {
   const { comment, onSendToAgent } = props;
   const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const body = comment.body.trim();
 
-  const unresolved = comment.kind === "thread" && comment.isResolved === false;
-  const resolved = comment.kind === "thread" && comment.isResolved === true;
-  const bodyHidden = resolved && !expanded;
+  const isThread = comment.kind === "thread";
+  const resolved = isThread && comment.isResolved === true;
+  const outdated = isThread && comment.isOutdated === true;
+  const unresolved = isThread && !resolved && !outdated;
+  const collapsible = resolved || outdated;
+  const showBody = !collapsible || expanded;
   const canSendToAgent = unresolved && onSendToAgent !== undefined;
 
-  // Measured while clamped: does the clamp actually hide anything? Once
-  // expanded the clamp is gone, so keep the last clamped measurement.
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (expanded || !el) return;
-    setOverflows(el.scrollHeight > el.clientHeight + 1);
-  }, [body, expanded]);
-
-  const canExpand = resolved ? body.length > 0 : overflows || expanded;
+  const meta = (
+    <>
+      {collapsible && (
+        <ChevronDown
+          size={11}
+          className={`${styles.prPopoverCommentChevron}${expanded ? ` ${styles.prPopoverCommentChevronOpen}` : ""}`}
+        />
+      )}
+      <span className={styles.prPopoverCommentAuthor}>
+        {comment.author ? `@${comment.author}` : "unknown"}
+      </span>
+      <CommentTag comment={comment} outdated={outdated} />
+      <CommentTime iso={comment.createdAt} />
+    </>
+  );
 
   return (
     <div
-      className={`${styles.prPopoverCommentItem}${unresolved ? ` ${styles.prPopoverCommentUnresolved}` : ""}`}
+      className={`${styles.prPopoverCommentItem}${unresolved ? ` ${styles.prPopoverCommentUnresolved}` : ""}${collapsible && !expanded ? ` ${styles.prPopoverCommentDone}` : ""}`}
     >
-      <Button
-        variant="ghost"
-        size="sm"
-        className={styles.prPopoverComment}
-        disabled={!canExpand}
-        title={
-          !canExpand
-            ? undefined
-            : expanded
-              ? "Collapse this comment"
-              : "Expand this comment"
-        }
-        aria-expanded={canExpand ? expanded : undefined}
-        onClick={(e) => {
-          e.stopPropagation();
-          setExpanded((v) => !v);
-        }}
+      <div
+        className={`${styles.prPopoverCommentTop}${canSendToAgent ? ` ${styles.prPopoverCommentTopWide}` : ""}`}
       >
-        <div
-          className={`${styles.prPopoverCommentHead}${canSendToAgent ? ` ${styles.prPopoverCommentHeadWide}` : ""}`}
-        >
-          <ChevronDown
-            size={11}
-            aria-hidden={!canExpand}
-            className={`${styles.prPopoverCommentChevron}${expanded ? ` ${styles.prPopoverCommentChevronOpen}` : ""}${canExpand ? "" : ` ${styles.prPopoverCommentChevronHidden}`}`}
-          />
-          <span className={styles.prPopoverCommentAuthor}>
-            {comment.author ? `@${comment.author}` : "unknown"}
-          </span>
-          <CommentTag comment={comment} />
-          <CommentTime iso={comment.createdAt} />
-        </div>
-        {bodyHidden ? null : body ? (
-          <div
-            ref={bodyRef}
-            className={`${styles.prPopoverCommentBody}${expanded ? "" : ` ${styles.prPopoverCommentBodyClamped}`}`}
+        {collapsible ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.prPopoverCommentToggle}
+            title={expanded ? "Collapse this comment" : "Expand this comment"}
+            aria-expanded={expanded}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
           >
-            <CommentMarkdown source={body} />
-          </div>
+            {meta}
+          </Button>
         ) : (
-          <div className={styles.prPopoverCommentEmpty}>No comment text.</div>
+          <div className={styles.prPopoverCommentMeta}>{meta}</div>
         )}
-      </Button>
+      </div>
+
+      {showBody && (
+        <div className={styles.prPopoverCommentContent}>
+          {isThread && comment.path && <CommentFile path={comment.path} />}
+          {body ? (
+            <div className={styles.prPopoverCommentBody}>
+              <CommentMarkdown source={body} />
+            </div>
+          ) : (
+            <div className={styles.prPopoverCommentEmpty}>No comment text.</div>
+          )}
+        </div>
+      )}
+
       <span className={styles.prPopoverCommentActions}>
         {canSendToAgent && (
           <Button
@@ -560,6 +560,26 @@ function CommentRow(props: {
           <ExternalLink size={11} />
         </Button>
       </span>
+    </div>
+  );
+}
+
+/**
+ * The file a review thread hangs off, sitting with the comment text rather
+ * than in the header — so a collapsed thread folds the path away too. The
+ * directory is what gets dropped when the path is too long: the filename is
+ * the part worth reading, and the full path is on hover.
+ */
+function CommentFile(props: { path: string }) {
+  const slash = props.path.lastIndexOf("/");
+  const dir = slash === -1 ? "" : props.path.slice(0, slash + 1);
+  const name = slash === -1 ? props.path : props.path.slice(slash + 1);
+
+  return (
+    <div className={styles.prPopoverCommentFile} title={props.path}>
+      <FileCode size={10} className={styles.prPopoverCommentFileIcon} />
+      {dir && <span className={styles.prPopoverCommentFileDir}>{dir}</span>}
+      <span className={styles.prPopoverCommentFileName}>{name}</span>
     </div>
   );
 }
@@ -632,9 +652,9 @@ function CommentMarkdown(props: { source: string }) {
   );
 }
 
-/** What kind of remark this is: a verdict, a file, or nothing worth saying. */
-function CommentTag(props: { comment: PrComment }) {
-  const { comment } = props;
+/** What kind of remark this is: a verdict, a thread's state, or nothing. */
+function CommentTag(props: { comment: PrComment; outdated?: boolean }) {
+  const { comment, outdated } = props;
 
   if (comment.kind === "review") {
     if (comment.reviewState === "APPROVED") {
@@ -655,24 +675,21 @@ function CommentTag(props: { comment: PrComment }) {
   }
 
   if (comment.kind === "thread") {
-    const file = comment.path?.split("/").pop();
-    return (
-      <>
-        <span
-          className={`${styles.prPopoverTag} ${styles.prPopoverTagFile}`}
-          title={comment.path ?? undefined}
-        >
-          {file ?? "inline"}
+    if (outdated) {
+      return (
+        <span className={styles.prPopoverTag}>
+          <History size={9} />
+          outdated
         </span>
-        {comment.isResolved === false && (
-          <span className={`${styles.prPopoverTag} ${styles.toneWarn}`}>
-            unresolved
-          </span>
-        )}
-        {comment.isResolved === true && (
-          <span className={styles.prPopoverTag}>resolved</span>
-        )}
-      </>
+      );
+    }
+    if (comment.isResolved === true) {
+      return <span className={styles.prPopoverTag}>resolved</span>;
+    }
+    return (
+      <span className={`${styles.prPopoverTag} ${styles.toneWarn}`}>
+        unresolved
+      </span>
     );
   }
 

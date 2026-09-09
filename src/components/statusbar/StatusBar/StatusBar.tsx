@@ -6,6 +6,7 @@ import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { AboutModal } from "../AboutModal/AboutModal";
+import { hasJustUpdated } from "../../../lib/just-updated";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
 import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
@@ -102,7 +103,9 @@ function StatsSegment(props: StatsSegmentProps) {
 export function StatusBar(props: StatusBarProps) {
   const { onNewWorkspace, onNewAgentWithPrompt, onOpenStats } = props;
 
-  const [aboutOpen, setAboutOpen] = useState(false);
+  // An update that just landed opens About on its own, so the changelog for
+  // the version now running is the first thing the user sees.
+  const [aboutOpen, setAboutOpen] = useState(hasJustUpdated);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);

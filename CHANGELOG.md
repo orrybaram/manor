@@ -1,6 +1,18 @@
 # Changelog
 
 
+
+## [0.11.2] - 2026-09-08
+
+**Features**
+- The changelog now opens automatically on first launch after an update
+- Added an in-app changelog to the About window, replacing the inspired-by list
+
+**Fixes**
+- PR popover shows full comment text, collapsing only resolved threads
+- Native scrollbars now match the active theme
+- Sidebar shows queued PR state, with colour applied to just the badge icon
+
 ## [0.11.1] - 2026-09-08
 
 ### Features

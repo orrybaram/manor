@@ -55,6 +55,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const [pendingSection, setPendingSection] = useState<string | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
@@ -150,7 +151,10 @@ export function SettingsModal(props: SettingsModalProps) {
         <Dialog.Content
           data-testid="settings-modal"
           className={styles.modal}
-          onOpenAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            searchRef.current?.focus();
+          }}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
             document
@@ -171,6 +175,7 @@ export function SettingsModal(props: SettingsModalProps) {
               <div className={styles.searchWrap}>
                 <Search size={13} className={styles.searchIcon} />
                 <Input
+                  ref={searchRef}
                   data-testid="settings-search"
                   className={styles.searchInput}
                   type="text"

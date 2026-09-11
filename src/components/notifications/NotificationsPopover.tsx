@@ -20,8 +20,9 @@ import {
   getDateBucket,
   type DateBucket,
 } from "../../utils/date-buckets";
-import { relativeShort, relativeShortThenDate } from "../../utils/relative-time";
+import { relativeShortThenDate } from "../../utils/relative-time";
 import { Button } from "../ui/Button/Button";
+import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
 import { ToggleGroup } from "../ui/ToggleGroup/ToggleGroup";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import styles from "./NotificationsPopover.module.css";
@@ -237,20 +238,7 @@ function CommentPreview(props: {
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <div className={styles.commentHeader}>
-            <MessageSquare size={12} className={styles.rowIcon} />
-            <span className={styles.commentAuthor}>
-              {comment.author ? `@${comment.author}` : "Unknown author"}
-            </span>
-            <span className={styles.commentTime}>
-              {relativeShort(Date.parse(comment.createdAt))}
-            </span>
-          </div>
-          {comment.body.trim() ? (
-            <div className={styles.commentBody}>{comment.body}</div>
-          ) : (
-            <div className={styles.commentEmpty}>No comment text.</div>
-          )}
+          <PrCommentCard comment={comment} />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

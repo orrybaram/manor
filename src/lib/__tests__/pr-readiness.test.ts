@@ -54,12 +54,34 @@ describe("prReadiness", () => {
     expect(prReadiness(pr)).toBe("ready");
   });
 
-  it("returns pending when approved but there is no checks data", () => {
+  // A repo without CI has no checks to wait for, so an approval is the whole
+  // gate. Treating absent checks as "not yet green" left such a PR grey
+  // forever — the badge could never say the one thing it exists to say.
+  it("returns ready when approved and the repo has no checks at all", () => {
     const pr = basePr({
       isDraft: false,
       reviewDecision: "APPROVED",
     });
+    expect(prReadiness(pr)).toBe("ready");
+  });
+
+  it("still requires the approval when there are no checks", () => {
+    const pr = basePr({ isDraft: false, reviewDecision: "REVIEW_REQUIRED" });
     expect(prReadiness(pr)).toBe("pending");
+  });
+
+  it("still respects draft when there are no checks", () => {
+    const pr = basePr({ isDraft: true, reviewDecision: "APPROVED" });
+    expect(prReadiness(pr)).toBe("pending");
+  });
+
+  it("still respects unresolved threads when there are no checks", () => {
+    const pr = basePr({
+      isDraft: false,
+      reviewDecision: "APPROVED",
+      unresolvedThreads: 1,
+    });
+    expect(prReadiness(pr)).toBe("blocked");
   });
 
   it("returns pending when checks are still pending", () => {

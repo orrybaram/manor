@@ -36,11 +36,16 @@ export function prReadiness(pr: PrInfo): PrReadiness {
     return "queued";
   }
 
+  // `checks == null` is "this commit has no status checks at all", not "the
+  // checks have not loaded" — a PrInfo only exists once `gh pr list` has
+  // answered. A repo without CI therefore has nothing to wait for, and an
+  // approved PR there is as shippable as one with a green board.
+  const checksClear =
+    pr.checks == null || (pr.checks.failing === 0 && pr.checks.pending === 0);
+
   const isReady =
     !pr.isDraft &&
-    pr.checks != null &&
-    pr.checks.failing === 0 &&
-    pr.checks.pending === 0 &&
+    checksClear &&
     pr.reviewDecision === "APPROVED" &&
     !pr.unresolvedThreads;
   if (isReady) {

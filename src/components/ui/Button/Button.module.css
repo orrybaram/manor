@@ -7,6 +7,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
+  white-space: nowrap;
   transition: background-color 150ms ease, opacity 150ms ease;
   -webkit-app-region: no-drag;
 }

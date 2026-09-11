@@ -348,8 +348,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   </>
                 )}
                 {error && <div className={styles.error}>{error}</div>}
-                <Row justify="space-between" gap="sm" className={styles.actions}>
-                  <Row gap="sm">
+                <Row
+                  align="center"
+                  justify="space-between"
+                  gap="sm"
+                  className={styles.actions}
+                >
+                  <Row gap="sm" className={styles.actionsLeft}>
                     {projects.length > 1 && (
                       <SearchableSelect
                         value={activeProjectId}
@@ -390,11 +395,17 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       />
                     )}
                   </Row>
-                  <Row gap="sm">
+                  <Row gap="sm" className={styles.actionsRight}>
                     <Button type="button" variant="secondary" onClick={onClose}>
                       Cancel
                     </Button>
-                    <Button type="submit" variant="primary" disabled={isCreating} data-testid="new-workspace-submit">
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={isCreating}
+                      className={styles.submit}
+                      data-testid="new-workspace-submit"
+                    >
                       {isCreating ? (
                         <>
                           <Loader2 size={14} className={styles.spinner} />

@@ -76,16 +76,27 @@
  * running — declared after the readiness classes so it wins the tie. Merged
  * and closed PRs keep their own colour: CI on them is history.
  */
-.prChecksGood {
+.prIconGood {
   --pr-badge-icon: var(--green);
 }
 
-.prChecksWarn {
+.prIconWarn {
   --pr-badge-icon: var(--yellow, #eab308);
 }
 
-.prChecksBad {
+.prIconBad {
   --pr-badge-icon: var(--red);
+}
+
+/* Queued and running-CI badges: the icon is a spinner, so it has to turn. */
+.prBadgeSpin {
+  animation: prBadgeSpin 1.2s linear infinite;
+}
+
+@keyframes prBadgeSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Popover shell ── */

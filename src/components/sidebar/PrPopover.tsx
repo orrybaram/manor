@@ -13,8 +13,10 @@ import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import ShieldQuestion from "lucide-react/dist/esm/icons/shield-question";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import GitPullRequestDraft from "lucide-react/dist/esm/icons/git-pull-request-draft";
+import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle";
 import type { PrCheckRun, PrComment, PrInfo } from "../../store/project-store";
-import { prReadiness } from "../../lib/pr-readiness";
+import { prReadiness, type PrReadiness } from "../../lib/pr-readiness";
 import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
@@ -112,20 +114,7 @@ export function PrPopover(props: PrPopoverProps) {
 
   const isLive = readiness !== "merged" && readiness !== "closed";
 
-  // The background answers "can this ship?" (readiness); the icon answers
-  // "how is CI doing?" — green all passed, red something failed, yellow
-  // still running. The number itself stays neutral. Merged and closed PRs
-  // keep their own colour (CI on them is history), and so does a queued one:
-  // "it will merge itself" outranks a CI run nobody is waiting on.
-  const iconFollowsChecks = isLive && readiness !== "queued";
-  const checksClass =
-    iconFollowsChecks && pr.checks
-      ? pr.checks.failing > 0
-        ? styles.prChecksBad
-        : pr.checks.pending > 0
-          ? styles.prChecksWarn
-          : styles.prChecksGood
-      : "";
+  const { Icon: BadgeIcon, spin, tone } = badgeIcon(pr, readiness);
 
   const showDraftOutline = pr.isDraft && isLive;
 
@@ -143,7 +132,7 @@ export function PrPopover(props: PrPopoverProps) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <span
-          className={`${styles.prBadge} ${badgeClass}${checksClass ? ` ${checksClass}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
+          className={`${styles.prBadge} ${badgeClass}${tone ? ` ${tone}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
           data-readiness={readiness}
           data-draft={pr.isDraft ? "true" : "false"}
           onMouseEnter={handleMouseEnter}
@@ -154,7 +143,11 @@ export function PrPopover(props: PrPopoverProps) {
             onOpen();
           }}
         >
-          <PrIcon size={10} className={styles.prBadgeIcon} />#{pr.number}
+          <BadgeIcon
+            size={10}
+            className={`${styles.prBadgeIcon}${spin ? ` ${styles.prBadgeSpin}` : ""}`}
+          />
+          #{pr.number}
         </span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -218,6 +211,49 @@ export function PrPopover(props: PrPopoverProps) {
       </Popover.Portal>
     </Popover.Root>
   );
+}
+
+/**
+ * ADR-167 keeps the badge on one question — "can this ship?" — which the
+ * background answers in colour. The icon answers the follow-up: *what is it
+ * waiting on?* It spins whenever the honest answer is "wait for a machine"
+ * — a merge queue, or a CI run still going — and otherwise names the
+ * blocker: a failing check, a reviewer, an unresolved thread.
+ */
+function badgeIcon(
+  pr: PrInfo,
+  readiness: PrReadiness,
+): { Icon: typeof GitPullRequest; spin: boolean; tone?: string } {
+  switch (readiness) {
+    case "merged":
+      return { Icon: GitMerge, spin: false };
+    case "closed":
+      return { Icon: GitPullRequestClosed, spin: false };
+    // Auto-merge armed or sitting in the merge queue: it merges itself, so
+    // the spin is the whole status — CI underneath it is nobody's problem.
+    case "queued":
+      return { Icon: LoaderCircle, spin: true };
+    // Mirrors the order `prReadiness` blocks on, so the icon names the same
+    // reason the badge turned yellow.
+    case "blocked":
+      if (pr.checks && pr.checks.failing > 0) {
+        return { Icon: CircleX, spin: false, tone: styles.prIconBad };
+      }
+      if (pr.reviewDecision === "CHANGES_REQUESTED") {
+        return { Icon: ShieldAlert, spin: false, tone: styles.prIconWarn };
+      }
+      return { Icon: MessageSquare, spin: false, tone: styles.prIconWarn };
+    case "ready":
+      return { Icon: CircleCheck, spin: false, tone: styles.prIconGood };
+    default:
+      if (pr.checks && pr.checks.pending > 0) {
+        return { Icon: LoaderCircle, spin: true, tone: styles.prIconWarn };
+      }
+      return {
+        Icon: pr.isDraft ? GitPullRequestDraft : GitPullRequest,
+        spin: false,
+      };
+  }
 }
 
 /** The one-line verdicts: CI, review, unresolved threads. */

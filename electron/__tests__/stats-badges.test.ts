@@ -83,6 +83,17 @@ describe("BADGES", () => {
     expect(badge.earned(THRESHOLDS[id])).toBe(true);
   });
 
+  it("counts quick merges and merged PRs together for shipper", () => {
+    const shipper = BADGES.find((b) => b.id === "shipper") as BadgeDef;
+    expect(shipper.earned(summary({ allTime: { prsMerged: 10 } }))).toBe(true);
+    expect(
+      shipper.earned(summary({ allTime: { worktreesMerged: 4, prsMerged: 5 } })),
+    ).toBe(false);
+    expect(
+      shipper.earned(summary({ allTime: { worktreesMerged: 4, prsMerged: 6 } })),
+    ).toBe(true);
+  });
+
   it("reads missing bucket fields as zero rather than throwing", () => {
     const empty = summary();
     for (const badge of BADGES) {

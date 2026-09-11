@@ -96,6 +96,8 @@ export function counterDescription(counter: StatCounter): string {
       return "Git worktrees removed.";
     case "worktreesMerged":
       return "Worktrees merged back into the base branch with quick merge.";
+    case "prsMerged":
+      return "Pull requests of yours that got merged on GitHub. Counted once each, whatever happens to the workspace after.";
     case "prApproved":
       return "Pull requests of yours that received an approval.";
     case "prChangesRequested":
@@ -140,6 +142,8 @@ export function humanCounterLabel(counter: StatCounter): string {
       return "Worktrees removed";
     case "worktreesMerged":
       return "Worktrees merged";
+    case "prsMerged":
+      return "PRs merged";
     case "prApproved":
       return "PRs approved";
     case "prChangesRequested":

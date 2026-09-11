@@ -68,8 +68,8 @@ export const BADGES: readonly BadgeDef[] = [
   {
     id: "shipper",
     title: "Shipper",
-    description: "Quick-merged 10 worktrees.",
-    earned: (s) => (s.allTime.worktreesMerged ?? 0) >= 10,
+    description: "Shipped 10 workspaces, by quick merge or a merged PR.",
+    earned: (s) => shipped(s) >= 10,
   },
   {
     id: "centurion",
@@ -90,6 +90,16 @@ export const BADGES: readonly BadgeDef[] = [
     earned: (s) => s.streakDays >= 30,
   },
 ];
+
+/**
+ * Workspaces that reached the base branch, however they got there: Manor's
+ * quick merge, or a pull request GitHub reports as merged. The two paths are
+ * counted separately (a quick merge never touches GitHub, and a PR merge
+ * outlives the workspace) but they mean the same thing to Shipper.
+ */
+export function shipped(s: StatsSummary): number {
+  return (s.allTime.worktreesMerged ?? 0) + (s.allTime.prsMerged ?? 0);
+}
 
 /**
  * Newly-earned badges: satisfy their predicate and are not already in

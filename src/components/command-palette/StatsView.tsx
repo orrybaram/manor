@@ -88,6 +88,7 @@ const STAT_GROUPS: readonly StatGroup[] = [
   {
     label: "pull requests",
     rows: [
+      { kind: "counter", counter: "prsMerged" },
       { kind: "counter", counter: "prApproved" },
       { kind: "counter", counter: "prChangesRequested" },
       { kind: "counter", counter: "prChecksFailed" },

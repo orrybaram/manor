@@ -47,6 +47,9 @@ interface ConversationCacheEntry {
 export class GitHubManager {
   private readyPromise: Promise<boolean> | null = null;
 
+  /** See `setPrMergedListener`. */
+  private onPrMerged: ((prUrl: string) => void) | undefined;
+
   /**
    * Keyed by PR URL. The conversation query is the expensive half of a poll —
    * one GraphQL call per branch, every tick — and it doubled the load that
@@ -69,6 +72,17 @@ export class GitHubManager {
       () => false,
     );
     return this.readyPromise;
+  }
+
+  /**
+   * Notified with the PR URL every time a poll sees a merged PR — which is
+   * every tick for as long as the workspace sticks around. Counting it once is
+   * the listener's job (`StatsStore.recordOnce`); this side just reports what
+   * it saw, since the poll is the only place in the app that learns a PR
+   * merged without anyone pressing a button in Manor.
+   */
+  setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
+    this.onPrMerged = listener;
   }
 
   async getPrForBranch(
@@ -142,9 +156,22 @@ export class GitHubManager {
       const queuedToMerge =
         pr.autoMergeRequest != null || isInMergeQueue === true;
 
+      const state = (pr.state as string).toLowerCase();
+      if (state === "merged" && this.onPrMerged) {
+        try {
+          this.onPrMerged(pr.url as string);
+        } catch (err) {
+          // A stats listener must never cost the caller its PR info.
+          console.error(
+            "[GitHubManager] onPrMerged listener threw:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
       return {
         number: pr.number,
-        state: (pr.state as string).toLowerCase(),
+        state,
         title: pr.title,
         url: pr.url,
         isDraft: pr.isDraft,

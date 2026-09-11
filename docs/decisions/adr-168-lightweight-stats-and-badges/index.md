@@ -54,6 +54,7 @@ type StatCounter =
   | "worktreesCreated"
   | "worktreesRemoved"
   | "worktreesMerged"    // projects:quickMergeWorktree success
+  | "prsMerged"          // a PR poll saw state MERGED (added 2026-09-10)
   | "prApproved"
   | "prChangesRequested"
   | "prChecksFailed";
@@ -66,10 +67,12 @@ interface PersistedStats {
   version: 1;
   days: Record<string, DayBucket>;      // key: local YYYY-MM-DD
   badges: Record<string, string>;       // badgeId -> ISO awarded-at
+  once?: string[];                      // recordOnce dedupe tokens (2026-09-10)
 }
 ```
 
 - `record(counter, n = 1, now = Date.now())` adds to today's bucket; `recordMax(gauge, value)` keeps the max.
+- `recordOnce(counter, key)` (added 2026-09-10) adds 1 the first time a key is seen and never again, for taps that observe a *state* rather than an action and therefore re-fire on every poll. Only `sha256(counter\0key)` truncated to 16 hex chars is persisted, in insertion order under `once`, capped at 2,000 tokens (oldest evicted) — the "counts only, never content" rule holds for the key too. Disabled collection is a no-op that does *not* remember the key, so flipping the preference back on lets a still-visible event count once.
 - Day key uses the **local** date. Travel across midnight breaks streaks; accepted.
 - Prune: keep at most 400 day buckets (oldest dropped). At ~200 bytes per day that is under 100 KB forever.
 - `getSummary(now)` returns `{ today, last7Days, allTime, streakDays, badges, enabled }` where `today/last7Days/allTime` are `DayBucket`-shaped totals (gauges use max). `streakDays` counts consecutive local days with `prompts >= 1` ending today or yesterday.
@@ -84,6 +87,7 @@ All taps are in main. `StatsStore` is added to `IpcDeps` (`electron/ipc/types.ts
 | prompts, toolCalls, subagents, agentsResponded, agentSessions, blocks, unblocks, unblockMsTotal, fastUnblocks, maxConcurrentAgents | `createHookRelay` gains an optional `onHookEvent(event, { effects })` dep. `app-lifecycle` passes `statsStore.observeHookEvent`. A pure module `electron/stats-signals.ts` turns `(event, effects, prevStatusForSession)` into a list of `{counter, n}` / `{gauge, value}` deltas so the mapping is unit-testable without the relay. Block/unblock latency is tracked per `sessionId` in a small map inside the signals module (`blockedAt` monotonic ms; cleared on `UserPromptSubmit`, `SessionEnd`, `DeleteSessionState`). Concurrency = `agentManager.getActiveAgents().length` sampled on each `CreateAgent` effect. |
 | **agentsKilled** | See §3. |
 | worktreesCreated / worktreesRemoved / worktreesMerged | `electron/ipc/projects.ts` handlers `projects:createWorktree`, `projects:removeWorktree`, `projects:quickMergeWorktree`, after the underlying call resolves without throwing. |
+| prsMerged | `GitHubManager.setPrMergedListener` (`electron/github.ts`), wired in `app-lifecycle` to `statsStore.recordOnce("prsMerged", prUrl)`. The PR poll is the only place the app learns a PR merged, and it re-reads the same merged PR every tick for as long as the workspace exists — hence `recordOnce`, keyed by PR URL. Counted whether or not the workspace is kept, and independent of `worktreesMerged`: quick merge is local-only (`git merge --ff-only`) and never marks a PR merged, so the two taps cannot see the same event. (Added 2026-09-10.) |
 | prApproved / prChangesRequested / prChecksFailed | The single PR-notification append site in `electron/notifications.ts` (the `kind` map at line ~22). `pr-comment` is deliberately not counted; it is noise. |
 
 Command-palette usage (`src/store/command-usage-store.ts`) stays a renderer-only store and is **not** folded in. It serves ranking, not stats.
@@ -116,7 +120,7 @@ v1 badge set:
 | quick-draw | Quick Draw | allTime.fastUnblocks ≥ 25 |
 | gardener | Gardener | allTime.worktreesCreated ≥ 50 |
 | reaper | Reaper | allTime.worktreesRemoved ≥ 50 |
-| shipper | Shipper | allTime.worktreesMerged ≥ 10 |
+| shipper | Shipper | allTime.worktreesMerged + allTime.prsMerged ≥ 10 (amended 2026-09-10; was worktreesMerged alone) |
 | centurion | Centurion | today.prompts ≥ 100 |
 | week-streak | Seven Days | streakDays ≥ 7 |
 | month-streak | Thirty Days | streakDays ≥ 30 |

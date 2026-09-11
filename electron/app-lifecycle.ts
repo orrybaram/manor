@@ -267,6 +267,13 @@ export function initApp(devTitle: string | null): void {
     },
   });
   setStatsStore(statsStore);
+  // A merged PR ships a workspace just as much as a quick merge does, and it
+  // is the only shipping path the app never initiates itself — the PR poll is
+  // where it surfaces. Counted once per PR, so a worktree kept around after
+  // the merge does not keep counting (ADR-168 §2, amended 2026-09-10).
+  githubManager.setPrMergedListener((prUrl) => {
+    statsStore.recordOnce("prsMerged", prUrl);
+  });
 
   // ADR-161's remote-control surface. Constructed here so the status sink and
   // the quit hook can see it; deliberately *not* started — remote control is

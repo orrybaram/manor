@@ -303,6 +303,76 @@ describe("StatsStore", () => {
     });
   });
 
+  describe("recordOnce", () => {
+    const PR = "https://github.com/o/r/pull/7";
+
+    it("counts the first sighting of a key and ignores every repeat", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+
+      expect(store.recordOnce("prsMerged", PR)).toBe(true);
+      expect(store.recordOnce("prsMerged", PR)).toBe(false);
+      expect(store.recordOnce("prsMerged", PR)).toBe(false);
+      expect(store.recordOnce("prsMerged", "https://github.com/o/r/pull/8")).toBe(true);
+
+      expect(store.getSummary().today).toEqual({ prsMerged: 2 });
+    });
+
+    it("still ignores a repeat after a reload, and never writes the key itself", () => {
+      const now = () => localMs(2026, 9, 5);
+      const store = new StatsStore(tmpDir, { now });
+      store.recordOnce("prsMerged", PR);
+      store.flushNow();
+
+      const raw = fs.readFileSync(statsPath, "utf-8");
+      expect(raw).not.toContain("github.com");
+      expect(readFile().once).toHaveLength(1);
+
+      const reloaded = new StatsStore(tmpDir, { now });
+      expect(reloaded.recordOnce("prsMerged", PR)).toBe(false);
+      expect(reloaded.getSummary().allTime).toEqual({ prsMerged: 1 });
+    });
+
+    it("keys are namespaced per counter", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      expect(store.recordOnce("prsMerged", PR)).toBe(true);
+      expect(store.recordOnce("worktreesMerged", PR)).toBe(true);
+      expect(store.getSummary().today).toEqual({ prsMerged: 1, worktreesMerged: 1 });
+    });
+
+    it("is a no-op while disabled and does not remember the key", () => {
+      let enabled = false;
+      const store = new StatsStore(tmpDir, {
+        now: () => localMs(2026, 9, 5),
+        isEnabled: () => enabled,
+      });
+
+      expect(store.recordOnce("prsMerged", PR)).toBe(false);
+      expect(store.getSummary().today).toEqual({});
+
+      enabled = true;
+      expect(store.recordOnce("prsMerged", PR)).toBe(true);
+      expect(store.getSummary().today).toEqual({ prsMerged: 1 });
+    });
+
+    it("reset forgets every key", () => {
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      store.recordOnce("prsMerged", PR);
+      store.reset();
+      expect(store.recordOnce("prsMerged", PR)).toBe(true);
+    });
+
+    it("drops junk tokens from a hand-edited file", () => {
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(
+        statsPath,
+        JSON.stringify({ version: 1, days: {}, badges: {}, once: ["nope", 7, null] }),
+      );
+      const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5) });
+      store.flushNow();
+      expect(readFile().once).toEqual([]);
+    });
+  });
+
   describe("kill switch", () => {
     it("record and recordMax are no-ops while disabled", () => {
       let enabled = false;

@@ -124,11 +124,16 @@ export const BADGE_META: readonly BadgeMeta[] = [
   {
     id: "shipper",
     title: "Shipper",
-    description: "Quick-merged 10 worktrees.",
+    description: "Shipped 10 workspaces, by quick merge or a merged PR.",
     icon: "🚀",
     color: "88 176 224",
     tier: "bronze",
-    progress: counter("allTime", "worktreesMerged", 10),
+    progress: (summary) => ({
+      current:
+        (summary.allTime.worktreesMerged ?? 0) +
+        (summary.allTime.prsMerged ?? 0),
+      target: 10,
+    }),
   },
   {
     id: "centurion",

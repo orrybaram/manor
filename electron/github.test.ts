@@ -427,6 +427,41 @@ describe("GitHubManager", () => {
       expect(mockState.queue).toHaveLength(0);
     });
 
+    it("reports every sighting of a merged PR to the merged listener", async () => {
+      const seen = vi.fn();
+      manager.setPrMergedListener(seen);
+      setupExecFileCalls([
+        success(pr({})),
+        success(graphql(0)),
+        // The conversation query is still cached and fresh for both merged
+        // polls, so they are one `gh pr list` apiece.
+        success(pr({ state: "MERGED" })),
+        success(pr({ state: "MERGED" })),
+      ]);
+
+      await manager.getPrForBranch("/repo", "b"); // open: silent
+      expect(seen).not.toHaveBeenCalled();
+
+      await manager.getPrForBranch("/repo", "b");
+      await manager.getPrForBranch("/repo", "b");
+      // Deduping is the listener's job, so both sightings are reported.
+      expect(seen.mock.calls).toEqual([
+        ["https://github.com/owner/repo/pull/9"],
+        ["https://github.com/owner/repo/pull/9"],
+      ]);
+      expect(mockState.queue).toHaveLength(0);
+    });
+
+    it("still returns PR info when the merged listener throws", async () => {
+      manager.setPrMergedListener(() => {
+        throw new Error("stats exploded");
+      });
+      setupExecFileCalls([success(pr({ state: "MERGED" })), success(graphql(0))]);
+
+      const result = await manager.getPrForBranch("/repo", "b");
+      expect(result!.state).toBe("merged");
+    });
+
     it("does not cache a failed conversation query", async () => {
       setupExecFileCalls([
         success(pr({ state: "MERGED" })),

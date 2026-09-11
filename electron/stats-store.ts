@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -39,6 +40,7 @@ export type StatCounter =
   | "worktreesCreated"
   | "worktreesRemoved"
   | "worktreesMerged"
+  | "prsMerged"
   | "prApproved"
   | "prChangesRequested"
   | "prChecksFailed";
@@ -61,6 +63,7 @@ export const STAT_COUNTERS: readonly StatCounter[] = [
   "worktreesCreated",
   "worktreesRemoved",
   "worktreesMerged",
+  "prsMerged",
   "prApproved",
   "prChangesRequested",
   "prChecksFailed",
@@ -76,6 +79,12 @@ export interface PersistedStats {
   days: Record<string, DayBucket>;
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
+  /**
+   * Dedupe tokens for `recordOnce`, oldest first. Opaque hashes, never the
+   * keys themselves — the file's "counts only, never content" rule (ADR-168)
+   * holds even for a PR URL. Absent on files written before `prsMerged`.
+   */
+  once?: string[];
 }
 
 /** One retained day's prompt count, for the contribution graph. */
@@ -102,6 +111,13 @@ export interface StatsSummary {
 
 /** Hard cap on retained day buckets. ~200 bytes/day keeps this under 100 KB. */
 const MAX_DAYS = 400;
+/**
+ * Hard cap on retained `recordOnce` tokens, oldest evicted first. At 16 hex
+ * chars apiece this is ~40 KB. Evicting a token can only re-count an event
+ * whose source is still being observed 2,000 events later; for the merged-PR
+ * tap that means a merged PR whose worktree outlived 2,000 other one-shots.
+ */
+const MAX_ONCE = 2000;
 /** Days in the rolling window reported as `last7Days` (today + previous 6). */
 const WINDOW_DAYS = 7;
 
@@ -112,6 +128,8 @@ export class StatsStore {
   private dataDir: string;
   private days: Record<string, DayBucket>;
   private badges: Record<string, string>;
+  /** Insertion-ordered, so eviction drops the oldest token. */
+  private once: Set<string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private isEnabled: () => boolean;
@@ -144,6 +162,7 @@ export class StatsStore {
     const state = this.loadState();
     this.days = state.days;
     this.badges = state.badges;
+    this.once = state.once;
     this.prune();
   }
 
@@ -154,6 +173,7 @@ export class StatsStore {
   private loadState(): {
     days: Record<string, DayBucket>;
     badges: Record<string, string>;
+    once: Set<string>;
   } {
     try {
       const data = fs.readFileSync(this.statsFilePath(), "utf-8");
@@ -161,9 +181,10 @@ export class StatsStore {
       return {
         days: sanitizeDays(state.days),
         badges: sanitizeBadges(state.badges),
+        once: sanitizeOnce(state.once),
       };
     } catch {
-      return { days: {}, badges: {} };
+      return { days: {}, badges: {}, once: new Set() };
     }
   }
 
@@ -173,6 +194,7 @@ export class StatsStore {
       version: 1,
       days: this.days,
       badges: this.badges,
+      once: [...this.once],
     };
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(this.statsFilePath(), JSON.stringify(state, null, 2));
@@ -210,6 +232,18 @@ export class StatsStore {
       if (keep.has(key)) pruned[key] = this.days[key];
     }
     this.days = pruned;
+  }
+
+  /** Evicts the oldest `recordOnce` tokens once past the cap. */
+  private pruneOnce(): void {
+    if (this.once.size <= MAX_ONCE) return;
+    const excess = this.once.size - MAX_ONCE;
+    let dropped = 0;
+    for (const token of this.once) {
+      if (dropped >= excess) break;
+      this.once.delete(token);
+      dropped++;
+    }
   }
 
   /** Notifies subscribers. Never lets a listener throw into a caller. */
@@ -298,6 +332,26 @@ export class StatsStore {
     if (!this.isEnabled()) return;
     this.applyDelta({ counter, n });
     this.commit();
+  }
+
+  /**
+   * Adds 1 to today's bucket the first time this `key` is seen for this
+   * counter, and never again — the tap can fire on every poll. Returns whether
+   * it counted. Only the hash of `key` is persisted, never `key` itself.
+   *
+   * A no-op while collection is disabled, and the key is *not* remembered:
+   * turning stats back on lets a still-observable event count once, the same
+   * way `record` resumes counting.
+   */
+  recordOnce(counter: StatCounter, key: string): boolean {
+    if (!this.isEnabled()) return false;
+    const token = onceToken(counter, key);
+    if (this.once.has(token)) return false;
+    this.once.add(token);
+    this.pruneOnce();
+    this.applyDelta({ counter, n: 1 });
+    this.commit();
+    return true;
   }
 
   /** Keeps the max of `value` and today's recorded value for `gauge`. */
@@ -408,6 +462,7 @@ export class StatsStore {
     }
     this.days = {};
     this.badges = {};
+    this.once = new Set();
     try {
       fs.rmSync(this.statsFilePath(), { force: true });
     } catch {
@@ -415,6 +470,15 @@ export class StatsStore {
     }
     this.emitChange();
   }
+}
+
+/**
+ * Opaque, stable token for a `recordOnce` key. Namespaced by counter so the
+ * same key can be one-shot for two different counters, and hashed so the file
+ * never holds the key itself (a PR URL carries an org, repo and branch).
+ */
+function onceToken(counter: StatCounter, key: string): string {
+  return createHash("sha256").update(`${counter}\u0000${key}`).digest("hex").slice(0, 16);
 }
 
 /** Local `YYYY-MM-DD` for an epoch-ms timestamp. */
@@ -474,6 +538,15 @@ function sanitizeDays(days: unknown): Record<string, DayBucket> {
     result[key] = bucket;
   }
   return result;
+}
+
+/** Keeps only plausible tokens, newest-last order preserved, capped. */
+function sanitizeOnce(once: unknown): Set<string> {
+  if (!Array.isArray(once)) return new Set();
+  const tokens = once.filter(
+    (t): t is string => typeof t === "string" && /^[0-9a-f]{16}$/.test(t),
+  );
+  return new Set(tokens.slice(Math.max(0, tokens.length - MAX_ONCE)));
 }
 
 function sanitizeBadges(badges: unknown): Record<string, string> {

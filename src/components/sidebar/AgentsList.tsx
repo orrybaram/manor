@@ -1,10 +1,12 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
 import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
+import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
+import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
@@ -94,6 +96,42 @@ export function AgentsList(props: AgentsListProps) {
   const { onShowAll } = props;
 
   const { agents, unseenRespondedAgentIds, unseenInputAgentIds } = useAgentStore();
+  const agentsHeight = useProjectStore((s) => s.agentsHeight);
+  const setAgentsHeight = useProjectStore((s) => s.setAgentsHeight);
+  const [isResizing, setIsResizing] = useState(false);
+  const startY = useRef(0);
+  const startHeight = useRef(0);
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      useDragOverlayStore.getState().incrementDragCount();
+      startY.current = e.clientY;
+      startHeight.current = agentsHeight;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = startY.current - ev.clientY;
+        setAgentsHeight(
+          Math.max(MIN_AGENTS_HEIGHT, startHeight.current + delta),
+        );
+      };
+
+      const cleanup = () => {
+        useDragOverlayStore.getState().decrementDragCount();
+        setIsResizing(false);
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", cleanup);
+        window.removeEventListener("blur", cleanup);
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", cleanup);
+      window.addEventListener("blur", cleanup);
+    },
+    [agentsHeight, setAgentsHeight],
+  );
+
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
@@ -159,6 +197,11 @@ export function AgentsList(props: AgentsListProps) {
 
   return (
     <div className={styles.agentsSection}>
+      <div
+        className={`${styles.agentsResizeHandle} ${isResizing ? styles.agentsResizeHandleActive : ""}`}
+        onMouseDown={handleResizeStart}
+        data-testid="sidebar-agents-resize-handle"
+      />
       <div className={styles.sectionHeader}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <Bot size={12} />
@@ -176,7 +219,7 @@ export function AgentsList(props: AgentsListProps) {
           </button>
         )}
       </div>
-      <div className={styles.agentGroups}>
+      <div className={styles.agentGroups} style={{ height: agentsHeight }}>
         {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
           <div key={projectName} className={styles.agentGroup}>
             <div className={styles.agentGroupHeader}>{projectName}</div>

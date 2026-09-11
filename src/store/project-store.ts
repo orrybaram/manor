@@ -28,10 +28,14 @@ const COLLAPSED_KEY = "manor:collapsedProjectIds";
 const COLLAPSED_FOLDER_KEYS_KEY = "manor:collapsedWorkspaceFolderKeys";
 const SIDEBAR_WIDTH_KEY = "manor:sidebarWidth";
 const PORTS_HEIGHT_KEY = "manor:portsHeight";
+const AGENTS_HEIGHT_KEY = "manor:agentsHeight";
 const DEFAULT_SIDEBAR_WIDTH = 220;
 const DEFAULT_PORTS_HEIGHT = 200;
 export const MIN_PORTS_HEIGHT = 60;
 const MAX_PORTS_HEIGHT = 500;
+const DEFAULT_AGENTS_HEIGHT = 200;
+export const MIN_AGENTS_HEIGHT = 60;
+const MAX_AGENTS_HEIGHT = 500;
 
 function loadSidebarWidth(): number {
   try {
@@ -62,6 +66,24 @@ function loadPortsHeight(): number {
     /* ignore */
   }
   return DEFAULT_PORTS_HEIGHT;
+}
+
+function loadAgentsHeight(): number {
+  try {
+    const raw = localStorage.getItem(AGENTS_HEIGHT_KEY);
+    if (raw) {
+      const height = Number(raw);
+      if (
+        Number.isFinite(height) &&
+        height >= MIN_AGENTS_HEIGHT &&
+        height <= MAX_AGENTS_HEIGHT
+      )
+        return height;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_AGENTS_HEIGHT;
 }
 
 function loadCollapsedIds(): Set<string> {
@@ -386,6 +408,7 @@ interface ProjectState {
   sidebarVisible: boolean;
   sidebarWidth: number;
   portsHeight: number;
+  agentsHeight: number;
   loading: boolean;
   initialLoadDone: boolean;
   collapsedProjectIds: Set<string>;
@@ -480,6 +503,7 @@ interface ProjectState {
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
   setPortsHeight: (height: number) => void;
+  setAgentsHeight: (height: number) => void;
   toggleProjectCollapsed: (projectId: string) => void;
   setProjectExpanded: (projectId: string) => void;
   toggleFolderCollapsed: (projectId: string, folderId: string) => void;
@@ -492,6 +516,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   sidebarVisible: true,
   sidebarWidth: loadSidebarWidth(),
   portsHeight: loadPortsHeight(),
+  agentsHeight: loadAgentsHeight(),
   loading: false,
   initialLoadDone: false,
   collapsedProjectIds: loadCollapsedIds(),
@@ -1097,6 +1122,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     localStorage.setItem(PORTS_HEIGHT_KEY, String(clamped));
     set({ portsHeight: clamped });
+  },
+
+  setAgentsHeight: (height: number) => {
+    const clamped = Math.max(
+      MIN_AGENTS_HEIGHT,
+      Math.min(MAX_AGENTS_HEIGHT, height),
+    );
+    localStorage.setItem(AGENTS_HEIGHT_KEY, String(clamped));
+    set({ agentsHeight: clamped });
   },
 
   toggleProjectCollapsed: (projectId: string) =>

@@ -1,4 +1,4 @@
-/** Search index for the settings modal: every navigable section, in nav order. */
+/** Search index for the settings modal: every page and section, in nav order. */
 
 export type SettingsPageId =
   | "general"
@@ -10,8 +10,11 @@ export type SettingsPageId =
   | "remote";
 
 export type SettingsSection = {
-  /** Matches the `data-settings-section` attribute on the section heading. */
-  id: string;
+  /**
+   * Matches the `data-settings-section` attribute on the section heading.
+   * `null` for a whole page, which opens at the top instead of scrolling.
+   */
+  id: string | null;
   label: string;
   /** Extra terms that should surface this section, beyond its label. */
   keywords: string[];
@@ -29,11 +32,14 @@ export type SettingsSearchResult = SectionEntry;
 const PAGE_SECTIONS: {
   page: SettingsPageId;
   pageLabel: string;
+  /** Extra terms that should surface the page itself, beyond its label. */
+  pageKeywords: string[];
   sections: SettingsSection[];
 }[] = [
   {
     page: "general",
     pageLabel: "General",
+    pageKeywords: ["general", "settings", "preferences", "options"],
     sections: [
       {
         id: "general-editor",
@@ -55,6 +61,7 @@ const PAGE_SECTIONS: {
   {
     page: "app",
     pageLabel: "Appearance",
+    pageKeywords: ["appearance", "look", "theme", "style", "font", "colors"],
     sections: [
       {
         id: "app-theme",
@@ -71,6 +78,7 @@ const PAGE_SECTIONS: {
   {
     page: "keybindings",
     pageLabel: "Keybindings",
+    pageKeywords: ["keybindings", "shortcuts", "hotkeys", "keyboard"],
     sections: [
       {
         id: "keybindings-list",
@@ -82,6 +90,7 @@ const PAGE_SECTIONS: {
   {
     page: "notifications",
     pageLabel: "Notifications",
+    pageKeywords: ["notifications", "alerts", "notify", "sounds"],
     sections: [
       {
         id: "notifications-triggers",
@@ -98,6 +107,7 @@ const PAGE_SECTIONS: {
   {
     page: "integrations",
     pageLabel: "Integrations",
+    pageKeywords: ["integrations", "connections", "github", "linear", "accounts"],
     sections: [
       {
         id: "integrations-github",
@@ -114,6 +124,7 @@ const PAGE_SECTIONS: {
   {
     page: "home",
     pageLabel: "Home",
+    pageKeywords: ["home", "local", "workspace", "harness"],
     sections: [
       {
         id: "home-harness",
@@ -125,6 +136,7 @@ const PAGE_SECTIONS: {
   {
     page: "remote",
     pageLabel: "Remote control",
+    pageKeywords: ["remote", "remote control", "devices", "phone", "tunnel", "mobile"],
     sections: [
       {
         id: "remote-devices",
@@ -173,26 +185,47 @@ const PROJECT_SECTIONS: SettingsSection[] = [
   },
 ];
 
-/** Every searchable section, including one set per project. */
+/**
+ * Every searchable entry, including one set per project. Each page leads its own
+ * sections, so a page and its sections tie-break in nav order.
+ */
 export function buildSettingsIndex(
   projects: { id: string; name: string }[],
 ): SectionEntry[] {
-  const fixed = PAGE_SECTIONS.flatMap(({ page, pageLabel, sections }) =>
-    sections.map((section) => ({
-      ...section,
-      pageLabel,
-      page: { type: page } as const,
-    })),
+  const fixed = PAGE_SECTIONS.flatMap(
+    ({ page, pageLabel, pageKeywords, sections }) => [
+      {
+        id: null,
+        label: pageLabel,
+        keywords: pageKeywords,
+        pageLabel,
+        page: { type: page } as const,
+      },
+      // A lone section named after its page would just repeat the page entry.
+      ...sections
+        .filter((section) => section.label !== pageLabel)
+        .map((section) => ({
+          ...section,
+          pageLabel,
+          page: { type: page } as const,
+        })),
+    ],
   );
 
-  const perProject = projects.flatMap((project) =>
-    PROJECT_SECTIONS.map((section) => ({
+  const perProject = projects.flatMap((project) => [
+    {
+      id: null,
+      label: project.name,
+      keywords: ["project", "repository", "repo"],
+      pageLabel: project.name,
+      page: { type: "project", projectId: project.id } as const,
+    },
+    ...PROJECT_SECTIONS.map((section) => ({
       ...section,
-      id: section.id,
       pageLabel: project.name,
       page: { type: "project", projectId: project.id } as const,
     })),
-  );
+  ]);
 
   return [...fixed, ...perProject];
 }

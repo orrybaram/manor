@@ -52,7 +52,11 @@ export function SettingsModal(props: SettingsModalProps) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
-  const [pendingSection, setPendingSection] = useState<string | null>(null);
+  /** A jump requested by search: `id` null means "open the page at the top". */
+  const [pendingJump, setPendingJump] = useState<{
+    id: string | null;
+    nonce: number;
+  } | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -69,7 +73,7 @@ export function SettingsModal(props: SettingsModalProps) {
     setProjectsExpanded(true);
     setQuery("");
     setHighlight(0);
-    setPendingSection(null);
+    setPendingJump(null);
   }
   prevOpenRef.current = open;
 
@@ -80,20 +84,28 @@ export function SettingsModal(props: SettingsModalProps) {
   const goToSection = useCallback((result: SettingsSearchResult) => {
     setPage(result.page);
     if (result.page.type === "project") setProjectsExpanded(true);
-    setPendingSection(result.id);
+    setPendingJump({ id: result.id, nonce: Date.now() });
     setQuery("");
     setHighlight(0);
   }, []);
 
-  // Scroll the freshly navigated-to section into view once its page renders.
+  // Jump to the picked target once its page renders: a section scrolls into
+  // view and flashes, a whole page just opens at the top.
   useEffect(() => {
-    if (!pendingSection) return;
+    if (!pendingJump) return;
 
     const frame = requestAnimationFrame(() => {
+      const sectionId = pendingJump.id;
+      setPendingJump(null);
+
+      if (!sectionId) {
+        contentRef.current?.scrollTo({ top: 0 });
+        return;
+      }
+
       const target = contentRef.current?.querySelector<HTMLElement>(
-        `[data-settings-section="${pendingSection}"]`,
+        `[data-settings-section="${sectionId}"]`,
       );
-      setPendingSection(null);
       if (!target) return;
 
       target.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -104,7 +116,7 @@ export function SettingsModal(props: SettingsModalProps) {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [pendingSection, page]);
+  }, [pendingJump, page]);
 
   const handleSearchKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -196,7 +208,7 @@ export function SettingsModal(props: SettingsModalProps) {
                 >
                   {results.map((result, i) => (
                     <button
-                      key={`${result.page.type}:${"projectId" in result.page ? result.page.projectId : ""}:${result.id}`}
+                      key={`${result.page.type}:${"projectId" in result.page ? result.page.projectId : ""}:${result.id ?? "page"}`}
                       className={`${styles.resultItem} ${i === highlight ? styles.resultItemActive : ""}`}
                       onMouseEnter={() => setHighlight(i)}
                       onClick={() => goToSection(result)}

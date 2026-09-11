@@ -2,6 +2,24 @@
 
 
 
+
+## [0.11.3] - 2026-09-10
+
+## Features
+- Agents section in the sidebar can now be resized vertically
+- PR badge icon now reflects the pull request's status at a glance
+- Merged PRs now count toward the Shipper stat
+- Settings search jumps straight to any section, matches whole categories, and focuses automatically when the modal opens
+- Notification comment previews now render as PR comment cards
+- Notifications filter out bot and self-authored PR comments
+
+## Fixes
+- Agents no longer get stuck showing "requires input"
+- Repos without CI are now correctly marked ready to ship
+- Agent stats count only busy agents and ignore non-root sessions
+- Projects list fills the available sidebar height
+- New workspace dialog keeps its footer buttons inside the dialog
+
 ## [0.11.2] - 2026-09-08
 
 **Features**

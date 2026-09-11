@@ -73,7 +73,7 @@ const STAT_GROUPS: readonly StatGroup[] = [
         kind: "gauge",
         gauge: "maxConcurrentAgents",
         label: "Max concurrent agents",
-        description: "Most agents active at the same time.",
+        description: "Most agents working or waiting on you at once.",
       },
     ],
   },

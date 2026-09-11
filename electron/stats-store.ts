@@ -151,7 +151,10 @@ export class StatsStore {
     return path.join(this.dataDir, "stats.json");
   }
 
-  private loadState(): { days: Record<string, DayBucket>; badges: Record<string, string> } {
+  private loadState(): {
+    days: Record<string, DayBucket>;
+    badges: Record<string, string>;
+  } {
     try {
       const data = fs.readFileSync(this.statsFilePath(), "utf-8");
       const state: Partial<PersistedStats> = JSON.parse(data);
@@ -309,18 +312,22 @@ export class StatsStore {
    * relay derived from it into counter deltas, applying all of them under a
    * single commit.
    *
-   * `activeAgentCount` is sampled by the caller (`agentManager.getActiveAgents()`)
-   * because this store must not reach into agent persistence.
+   * `activeAgentCount` is sampled by the caller (`countBusyAgents` over
+   * `agentManager.getActiveAgents()`) because this store must not reach into
+   * agent persistence. `isRootSession` is false for events from the extra
+   * agent processes a pane hosts, which are not counted at all.
    */
   observeHookEvent(
     event: AgentHookEvent,
     effects: readonly Effect[],
     activeAgentCount: number,
+    isRootSession = true,
   ): void {
     if (!this.isEnabled()) return;
     const deltas = deltasForHookEvent(event, effects, this.tracker, {
       monoNow: this.monoNow(),
       activeAgentCount,
+      isRootSession,
     });
     if (deltas.length === 0) return;
     for (const delta of deltas) this.applyDelta(delta);
@@ -457,7 +464,9 @@ function sanitizeDays(days: unknown): Record<string, DayBucket> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
     if (!raw || typeof raw !== "object") continue;
     const bucket: DayBucket = {};
-    for (const [field, value] of Object.entries(raw as Record<string, unknown>)) {
+    for (const [field, value] of Object.entries(
+      raw as Record<string, unknown>,
+    )) {
       if (!COUNTER_KEYS.has(field) && !GAUGE_KEYS.has(field)) continue;
       if (typeof value !== "number" || !Number.isFinite(value)) continue;
       bucket[field as StatCounter | StatGauge] = value;

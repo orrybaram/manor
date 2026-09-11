@@ -81,6 +81,36 @@ export function killCounters(agent: {
 // ── Hook-event → counter deltas (ADR-168 §2, first table row) ──
 
 /**
+ * Agent statuses that make a live agent count toward *concurrency*: it is
+ * mid-turn or waiting on the user, so it is genuinely one of the plates the
+ * user is spinning. An agent that has finished its turn (`responded`), ended
+ * (`complete`, `idle`) or errored is still `status: "active"` in the store —
+ * its pane is open and resumable — but it is not competing for attention, so
+ * counting it would make the swarm gauge a count of open panes.
+ */
+export const BUSY_AGENT_STATUSES: ReadonlySet<string> = new Set([
+  "working",
+  "thinking",
+  "requires_input",
+]);
+
+/**
+ * How many of `agents` are actually busy right now — the sample behind the
+ * `maxConcurrentAgents` gauge and the Swarm badge.
+ */
+export function countBusyAgents(
+  agents: readonly { status: string; lastAgentStatus: string | null }[],
+): number {
+  let count = 0;
+  for (const agent of agents) {
+    if (agent.status !== "active") continue;
+    if (agent.lastAgentStatus === null) continue;
+    if (BUSY_AGENT_STATUSES.has(agent.lastAgentStatus)) count++;
+  }
+  return count;
+}
+
+/**
  * Unblock latencies strictly below this are "fast". Exactly at the threshold is
  * not fast — the boundary belongs to the slow side so the badge stays honest.
  */
@@ -115,8 +145,22 @@ export function deltasForHookEvent(
   event: AgentHookEvent,
   effects: readonly Effect[],
   tracker: SignalTrackerState,
-  ctx: { monoNow: number; activeAgentCount: number },
+  ctx: {
+    monoNow: number;
+    activeAgentCount: number;
+    /**
+     * Whether the event belongs to the pane's root session. Defaults to true
+     * so callers that cannot tell keep the old (count-everything) behaviour.
+     */
+    isRootSession?: boolean;
+  },
 ): StatDelta[] {
+  // A pane can host more than one agent process: anything the agent itself
+  // spawns inherits `MANOR_PANE_ID` and fires the same hooks. The relay
+  // already ignores those for agent lifecycle; stats must ignore them too, or
+  // prompts and tool calls climb with no user at the keyboard.
+  if (ctx.isRootSession === false) return [];
+
   const deltas: StatDelta[] = [];
   const sessionId = event.sessionId;
 

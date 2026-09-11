@@ -184,6 +184,42 @@ describe("createHookRelay onHookEvent", () => {
     consoleError.mockRestore();
   });
 
+  it("flags events from the pane's root session as root", () => {
+    const onHookEvent = vi.fn();
+    const { relay } = buildRelay(onHookEvent);
+
+    relay(sessionStart("sess-1"));
+    relay(userPromptSubmit("sess-1"));
+
+    expect(onHookEvent.mock.calls[1][2]).toEqual({ isRootSession: true });
+  });
+
+  it("flags events from a second session in the same pane as non-root", () => {
+    const onHookEvent = vi.fn();
+    const { relay } = buildRelay(onHookEvent);
+
+    relay(sessionStart("sess-1"));
+    relay(userPromptSubmit("sess-1"));
+    // A nested agent process inherits MANOR_PANE_ID and fires its own hooks.
+    relay(userPromptSubmit("nested-1"));
+
+    expect(onHookEvent.mock.calls[2][0]).toEqual(userPromptSubmit("nested-1"));
+    expect(onHookEvent.mock.calls[2][2]).toEqual({ isRootSession: false });
+  });
+
+  it("treats the replacement session as root right from its SessionStart", () => {
+    const onHookEvent = vi.fn();
+    const { relay } = buildRelay(onHookEvent);
+
+    relay(sessionStart("sess-1"));
+    relay(userPromptSubmit("sess-1"));
+    relay(sessionStart("sess-2"));
+    relay(userPromptSubmit("sess-2"));
+
+    expect(onHookEvent.mock.calls[2][2]).toEqual({ isRootSession: true });
+    expect(onHookEvent.mock.calls[3][2]).toEqual({ isRootSession: true });
+  });
+
   it("is optional — a relay built without it works unchanged", () => {
     const { relay, agentManager } = buildRelay();
 

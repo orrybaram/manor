@@ -120,11 +120,26 @@ export interface HookRelayDeps {
    * have been applied (ADR-168 §2). Used by the stats tap; must never influence
    * relay behaviour, so throws are logged and swallowed.
    */
-  onHookEvent?: (event: AgentHookEvent, effects: readonly Effect[]) => void;
+  onHookEvent?: (
+    event: AgentHookEvent,
+    effects: readonly Effect[],
+    ctx: HookEventContext,
+  ) => void;
   /** Optional monotonic clock injection for tests. Defaults to process.hrtime.bigint() / 1e6. */
   monoClock?: () => number;
   /** Optional wall clock injection for tests. Defaults to Date.now(). */
   wallClock?: () => number;
+}
+
+/** What an observer needs to know about how the relay treated an event. */
+export interface HookEventContext {
+  /**
+   * Whether the event came from the pane's root session — the agent the user
+   * actually started there. False for the extra agent processes a pane hosts
+   * (anything the agent spawns inherits `MANOR_PANE_ID`), which the relay
+   * deliberately ignores for lifecycle purposes.
+   */
+  isRootSession: boolean;
 }
 
 export type RelayFn = (event: AgentHookEvent) => void;
@@ -308,8 +323,14 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     // Observers run last and cannot change what the relay did. A broken
     // observer is a stats bug, never an agent-lifecycle bug.
     if (onHookEvent) {
+      // Read the pane root *after* the effects ran: a SessionStart that
+      // replaced the pane's session has just repointed it, and the new
+      // session is the root from this event on.
+      const rootSession = paneRootSessionMap.get(event.paneId) ?? null;
+      const isRootSession =
+        sessionId === null || rootSession === null || rootSession === sessionId;
       try {
-        onHookEvent(event, result.effects);
+        onHookEvent(event, result.effects, { isRootSession });
       } catch (error) {
         console.error("[agent-lifecycle] onHookEvent observer threw:", error);
       }

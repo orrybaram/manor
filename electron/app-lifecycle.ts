@@ -23,6 +23,7 @@ import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, type AgentInfo } from "./agent-persistence";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
+import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import { cleanAgentTitle } from "./title-utils";
@@ -534,11 +535,12 @@ export function initApp(devTitle: string | null): void {
       unseenInputAgents,
       broadcastAgent,
       maybeSendNotification,
-      onHookEvent: (event, effects) =>
+      onHookEvent: (event, effects, ctx) =>
         statsStore.observeHookEvent(
           event,
           effects,
-          agentManager.getActiveAgents().length,
+          countBusyAgents(agentManager.getActiveAgents()),
+          ctx.isRootSession,
         ),
     });
 

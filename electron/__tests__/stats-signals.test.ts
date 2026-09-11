@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
 import {
+  countBusyAgents,
   createSignalTracker,
   deltasForHookEvent,
   isKill, killCounters,
+  BUSY_AGENT_STATUSES,
   KILL_STATUSES,
   type SignalTrackerState,
   type StatDelta,
@@ -123,6 +125,57 @@ const createAgentEffect = (sessionId = "sess-1"): Effect => ({
   status: "thinking",
 });
 
+describe("countBusyAgents", () => {
+  const agent = (status: string, lastAgentStatus: string | null) => ({
+    status,
+    lastAgentStatus,
+  });
+
+  it("counts agents that are mid-turn or waiting on the user", () => {
+    expect(
+      countBusyAgents([
+        agent("active", "working"),
+        agent("active", "thinking"),
+        agent("active", "requires_input"),
+      ]),
+    ).toBe(3);
+  });
+
+  it("ignores agents that have finished their turn or the session", () => {
+    expect(
+      countBusyAgents([
+        agent("active", "responded"),
+        agent("active", "idle"),
+        agent("active", "complete"),
+        agent("active", "error"),
+        // Live pane, but the agent has never reported anything yet.
+        agent("active", null),
+        // Not live at all.
+        agent("completed", "working"),
+      ]),
+    ).toBe(0);
+  });
+
+  it("counts only the busy ones in a mixed fleet", () => {
+    expect(
+      countBusyAgents([
+        agent("active", "working"),
+        agent("active", "responded"),
+        agent("active", "thinking"),
+        agent("completed", "complete"),
+      ]),
+    ).toBe(2);
+  });
+
+  it("exposes the busy set it uses", () => {
+    expect([...BUSY_AGENT_STATUSES].sort()).toEqual([
+      "requires_input",
+      "thinking",
+      "working",
+    ]);
+  });
+});
+
 describe("deltasForHookEvent", () => {
   let tracker: SignalTrackerState;
 
@@ -132,16 +185,36 @@ describe("deltasForHookEvent", () => {
 
   function run(
     event: AgentHookEvent,
-    opts: { effects?: Effect[]; monoNow?: number; activeAgentCount?: number } = {},
+    opts: {
+      effects?: Effect[];
+      monoNow?: number;
+      activeAgentCount?: number;
+      isRootSession?: boolean;
+    } = {},
   ): StatDelta[] {
     return deltasForHookEvent(event, opts.effects ?? [], tracker, {
       monoNow: opts.monoNow ?? 0,
       activeAgentCount: opts.activeAgentCount ?? 1,
+      isRootSession: opts.isRootSession,
     });
   }
 
   it("counts a prompt", () => {
-    expect(run(makeEvent("UserPromptSubmit"))).toEqual([{ counter: "prompts", n: 1 }]);
+    expect(run(makeEvent("UserPromptSubmit"))).toEqual([
+      { counter: "prompts", n: 1 },
+    ]);
+  });
+
+  it("counts nothing for a session that is not the pane's root", () => {
+    expect(run(makeEvent("UserPromptSubmit"), { isRootSession: false })).toEqual([]);
+    expect(run(makeEvent("PreToolUse"), { isRootSession: false })).toEqual([]);
+    expect(run(makeEvent("Stop"), { isRootSession: false })).toEqual([]);
+    expect(
+      run(makeEvent("SessionStart"), {
+        isRootSession: false,
+        effects: [createAgentEffect()],
+      }),
+    ).toEqual([]);
   });
 
   it("counts a tool call", () => {

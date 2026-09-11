@@ -1,5 +1,6 @@
 import { ThemeSection } from "./ThemeSection";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function AppSettingsPage() {
@@ -8,7 +9,7 @@ export function AppSettingsPage() {
       <ThemeSection />
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Font</div>
+        <SectionTitle id="app-font">Font</SectionTitle>
         <div className={styles.placeholder}>
           Font family and size settings coming soon.
         </div>

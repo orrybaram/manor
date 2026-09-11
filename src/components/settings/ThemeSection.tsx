@@ -5,6 +5,7 @@ import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { Input } from "../ui/Input";
 import { Row } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 interface ThemeEntry {
@@ -120,7 +121,7 @@ export function ThemeSection() {
 
   return (
     <div onKeyDown={handleKeyDown}>
-      <div className={styles.sectionTitle}>Theme</div>
+      <SectionTitle id="app-theme">Theme</SectionTitle>
       <Input
         ref={searchRef}
         className={styles.themeSearch}

@@ -6,6 +6,7 @@ import { Switch } from "../ui/Switch/Switch";
 import { Button } from "../ui/Button/Button";
 import { ResetStatsDialog } from "../command-palette/ResetStatsDialog";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function GeneralSettingsPage() {
@@ -20,7 +21,7 @@ export function GeneralSettingsPage() {
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Code Editor</div>
+        <SectionTitle id="general-editor">Code Editor</SectionTitle>
         <div className={styles.fieldLabel}>Default editor command</div>
         <Input
           type="text"
@@ -45,7 +46,7 @@ export function GeneralSettingsPage() {
         </div>
       </Stack>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Diff</div>
+        <SectionTitle id="general-diff">Diff</SectionTitle>
         <label className={styles.notifRow}>
           <span>Open diff in new panel</span>
           <Switch
@@ -59,7 +60,7 @@ export function GeneralSettingsPage() {
         </div>
       </Stack>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Usage Stats</div>
+        <SectionTitle id="general-stats">Usage Stats</SectionTitle>
         <label className={styles.notifRow}>
           <span>Collect usage stats</span>
           <Switch

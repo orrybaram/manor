@@ -7,6 +7,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
 import { Stack, Row } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function LinearIntegrationSection() {
@@ -74,7 +75,7 @@ export function LinearIntegrationSection() {
 
   return (
     <Stack gap="xs">
-      <div className={styles.sectionTitle}>Linear</div>
+      <SectionTitle id="integrations-linear">Linear</SectionTitle>
       <div className={styles.sectionDescription}>
         Connect Linear to sync issues, track project progress, and auto-match
         teams to your projects.

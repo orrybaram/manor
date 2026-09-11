@@ -2,6 +2,7 @@ import { usePreferencesStore } from "../../store/preferences-store";
 import type { HarnessKind } from "../../lib/harness";
 import { Input, Select } from "../ui/Input";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 export function HomeSettingsPage() {
@@ -14,7 +15,7 @@ export function HomeSettingsPage() {
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Harness</div>
+        <SectionTitle id="home-harness">Harness</SectionTitle>
         <div className={styles.fieldLabel}>Agent harness</div>
         <Select
           value={preferences.homeHarness}

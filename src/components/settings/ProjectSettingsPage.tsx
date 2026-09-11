@@ -17,6 +17,7 @@ import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
 import { Switch } from "../ui/Switch/Switch";
 import { Stack, Row } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const worktreeScriptFields: Array<{
@@ -292,7 +293,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>General</div>
+        <SectionTitle id="project-general">General</SectionTitle>
         <label className={styles.fieldLabel}>Name</label>
         <Input
           ref={nameRef}
@@ -328,7 +329,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       <LinearProjectSection project={project} />
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Agent</div>
+        <SectionTitle id="project-agent">Agent</SectionTitle>
         <label className={styles.fieldLabel}>Agent Command</label>
         <Input
           ref={agentCommandRef}
@@ -339,7 +340,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       </Stack>
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Ports</div>
+        <SectionTitle id="project-ports">Ports</SectionTitle>
         <label className={styles.notifRow}>
           <span>Named preview URLs</span>
           <Switch
@@ -358,7 +359,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       </Stack>
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Commands</div>
+        <SectionTitle id="project-commands">Commands</SectionTitle>
         <div className={styles.commandList}>
           {commands.map((cmd: CustomCommand, idx: number) => (
             <div
@@ -440,7 +441,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
       </Stack>
 
       <Stack gap="xl">
-        <div className={styles.sectionTitle}>Worktrees</div>
+        <SectionTitle id="project-worktrees">Worktrees</SectionTitle>
         <Stack gap="xs">
           <label className={styles.fieldLabel}>Worktree Path</label>
           <Input

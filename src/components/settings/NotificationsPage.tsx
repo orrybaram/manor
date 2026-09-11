@@ -1,6 +1,7 @@
 import { Switch } from "../ui/Switch/Switch";
 import { Select } from "../ui/Input";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import { usePreferencesStore } from "../../store/preferences-store";
 
@@ -34,7 +35,7 @@ export function NotificationsPage() {
       </div>
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Notify me when...</div>
+        <SectionTitle id="notifications-triggers">Notify me when...</SectionTitle>
 
         <label className={styles.notifRow}>
           <span>Agent responds</span>
@@ -98,7 +99,7 @@ export function NotificationsPage() {
       </Stack>
 
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Pull requests</div>
+        <SectionTitle id="notifications-pr">Pull requests</SectionTitle>
 
         <label className={styles.notifRow}>
           <span>New comment</span>

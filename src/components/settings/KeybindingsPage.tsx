@@ -16,6 +16,7 @@ import {
   CATEGORY_ORDER,
   KeybindingCategory,
 } from "../../lib/keybindings";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const platform = navigator.platform.toLowerCase().includes("mac")
@@ -98,7 +99,7 @@ export function KeybindingsPage() {
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
-        <div className={styles.sectionTitle}>Keybindings</div>
+        <SectionTitle id="keybindings-list">Keybindings</SectionTitle>
         <Input
           className={styles.keybindingsSearch}
           type="text"

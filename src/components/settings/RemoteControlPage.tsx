@@ -24,6 +24,7 @@ import type {
   RemotePairResult,
   TunnelKind,
 } from "../../electron.d";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const TUNNEL_LABEL: Record<TunnelKind, string> = {
@@ -126,7 +127,7 @@ export function RemoteControlPage() {
           />
 
           <Stack gap="xs">
-            <div className={styles.sectionTitle}>Devices</div>
+            <SectionTitle id="remote-devices">Devices</SectionTitle>
             <div className={styles.sectionDescription}>
               Every device gets its own token, shown once. Revoking one takes
               effect on its next request.
@@ -184,7 +185,7 @@ export function RemoteControlPage() {
           </Stack>
 
           <Stack gap="xs">
-            <div className={styles.sectionTitle}>Tunnel</div>
+            <SectionTitle id="remote-tunnel">Tunnel</SectionTitle>
             <div className={styles.sectionDescription}>
               The listener binds 127.0.0.1. A tunnel is what lets your phone
               reach it, and Manor never starts one on its own.

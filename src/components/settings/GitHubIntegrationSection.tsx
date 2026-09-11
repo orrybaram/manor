@@ -4,6 +4,7 @@ import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type GitHubStatus = {
@@ -25,7 +26,7 @@ export function GitHubIntegrationSection() {
 
   return (
     <Stack gap="xs">
-      <div className={styles.sectionTitle}>GitHub</div>
+      <SectionTitle id="integrations-github">GitHub</SectionTitle>
       <div className={styles.sectionDescription}>
         Shows live PR status badges in the sidebar for each branch — including
         CI checks, review decisions, and unresolved comments. Requires the

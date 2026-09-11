@@ -5,6 +5,7 @@ import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Stack } from "../ui/Layout/Layout";
+import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 type LinearProjectSectionProps = {
@@ -64,7 +65,7 @@ export function LinearProjectSection(props: LinearProjectSectionProps) {
 
   return (
     <Stack gap="xs">
-      <div className={styles.sectionTitle}>Linear</div>
+      <SectionTitle id="project-linear">Linear</SectionTitle>
       {!connected ? (
         <div className={styles.fieldHint}>
           Connect Linear in Integrations to link this project to a team.

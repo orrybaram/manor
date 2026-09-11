@@ -67,10 +67,82 @@
   flex-shrink: 0;
   border-right: 1px solid var(--surface);
   padding: 12px 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.nav {
+  flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.searchWrap {
+  position: relative;
+  margin: 0 12px 10px;
+  flex-shrink: 0;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.searchInput {
+  padding-left: 28px;
+}
+
+.searchResults {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.resultItem {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.resultItemActive {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.resultLabel {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultPage {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .navItem {
@@ -230,6 +302,10 @@
   color: var(--text-selected);
 }
 
+/*
+ * A row that narrows the setting above it rather than standing on its own:
+ * indented, quieter, and dimmed to unreachable while its parent is off.
+ */
 /* ── Form fields ── */
 
 .fieldLabel {
@@ -879,4 +955,18 @@
   margin: 4px auto;
   border-radius: 6px;
   background: #fff;
+}
+
+.sectionFlash {
+  animation: sectionFlash 1.4s ease-out;
+}
+
+@keyframes sectionFlash {
+  0%,
+  70% {
+    color: var(--accent);
+  }
+  100% {
+    color: var(--text-dim);
+  }
 }

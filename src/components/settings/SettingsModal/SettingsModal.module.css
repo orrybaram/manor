@@ -306,6 +306,20 @@
  * A row that narrows the setting above it rather than standing on its own:
  * indented, quieter, and dimmed to unreachable while its parent is off.
  */
+.notifSubRow {
+  padding-left: 16px;
+  color: var(--text-dim);
+}
+
+.notifSubRow[data-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.notifSubRow[data-disabled="true"]:hover {
+  color: var(--text-dim);
+}
+
 /* ── Form fields ── */
 
 .fieldLabel {

@@ -9,6 +9,10 @@ export interface AppPreferences {
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
   notifyOnPrComment: boolean;
+  /** Comment notifications from GitHub Apps (`github-actions`, Dependabot, …). */
+  notifyOnBotPrComments: boolean;
+  /** Comment notifications for comments you wrote yourself. */
+  notifyOnOwnPrComments: boolean;
   notifyOnPrApproved: boolean;
   notifyOnPrChangesRequested: boolean;
   notifyOnPrChecksFailed: boolean;

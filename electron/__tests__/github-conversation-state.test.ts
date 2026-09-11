@@ -68,6 +68,61 @@ describe("parsePrConversationState", () => {
     expect(parsePrConversationState({}).latestComment).toBeUndefined();
   });
 
+  it("tags a GitHub App author as a bot, by type or by login suffix", () => {
+    const state = parsePrConversationState({
+      comments: {
+        totalCount: 2,
+        nodes: [
+          {
+            ...comment,
+            author: { __typename: "Bot", login: "github-actions" },
+          },
+        ],
+      },
+      reviews: {
+        totalCount: 0,
+        nodes: [
+          {
+            ...review,
+            author: { __typename: "User", login: "renovate[bot]" },
+          },
+        ],
+      },
+    });
+    expect(state.latestComment?.isBot).toBe(true);
+    expect(state.recentComments?.every((c) => c.isBot)).toBe(true);
+  });
+
+  it("leaves `isBot` off for a person", () => {
+    const state = parsePrConversationState({
+      comments: { totalCount: 1, nodes: [comment] },
+      reviews: { totalCount: 0, nodes: [] },
+    });
+    expect(state.latestComment).not.toHaveProperty("isBot");
+  });
+
+  it("tags the signed-in user's own entries, case-insensitively", () => {
+    const state = parsePrConversationState(
+      {
+        comments: { totalCount: 1, nodes: [comment] },
+        reviews: { totalCount: 1, nodes: [review] },
+      },
+      "ALICE",
+    );
+    expect(state.latestComment?.author).toBe("bob");
+    expect(state.latestComment).not.toHaveProperty("isViewer");
+    const mine = state.recentComments?.find((c) => c.author === "alice");
+    expect(mine?.isViewer).toBe(true);
+  });
+
+  it("tags nothing as yours when the viewer login is unknown", () => {
+    const state = parsePrConversationState({
+      comments: { totalCount: 1, nodes: [comment] },
+      reviews: { totalCount: 0, nodes: [] },
+    });
+    expect(state.recentComments?.some((c) => c.isViewer)).toBe(false);
+  });
+
   it("reads the merge-queue flag, leaving it undefined when absent", () => {
     expect(parsePrConversationState({ isInMergeQueue: true }).isInMergeQueue).toBe(true);
     expect(parsePrConversationState({ isInMergeQueue: false }).isInMergeQueue).toBe(false);

@@ -43,6 +43,13 @@ export interface PrComment {
   isResolved?: boolean;
   /** Review threads only: the diff hunk it hangs off is gone from the PR. */
   isOutdated?: boolean;
+  /**
+   * The author is a GitHub App, not a person — `github-actions`, Dependabot,
+   * a CI reporter. Absent on payloads written before the distinction.
+   */
+  isBot?: boolean;
+  /** The author is the signed-in `gh` user: the comment is your own. */
+  isViewer?: boolean;
 }
 
 export type PrCommentKind = "comment" | "review" | "thread";

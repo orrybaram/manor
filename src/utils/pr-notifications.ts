@@ -74,6 +74,49 @@ export function diffPrEvents(
   return events;
 }
 
+/**
+ * Does this comment's author earn a notification? Bots (`github-actions`,
+ * Dependabot, CI reporters) and your own comments are both noise by default —
+ * you already know what you said, and automation says a great deal.
+ *
+ * An unknown author (a payload written before the fetcher tagged authors)
+ * passes: better a stray notification than a silently dropped one.
+ */
+export function commentPassesFilters(
+  comment: PrComment | undefined,
+  prefs: AppPreferences,
+): boolean {
+  if (!comment) return true;
+  if (comment.isBot && !prefs.notifyOnBotPrComments) return false;
+  if (comment.isViewer && !prefs.notifyOnOwnPrComments) return false;
+  return true;
+}
+
+/**
+ * Everything said since the baseline's newest entry, newest first.
+ *
+ * `latestComment` alone is not enough to filter on: one poll interval can
+ * cover a bot comment *and* a human one, and the bot landing last must not
+ * silence the human. With no usable baseline timestamp the whole pool is
+ * considered, and an empty pool falls back to `latestComment` so the
+ * count-based event still has something to be judged on.
+ */
+function commentsSince(prev: PrInfo, next: PrInfo): PrComment[] {
+  const latest = next.latestComment ?? undefined;
+  const pool = [...(next.recentComments ?? [])];
+  if (latest && !pool.some((c) => c.url === latest.url)) pool.push(latest);
+
+  const since = prev.latestComment
+    ? Date.parse(prev.latestComment.createdAt)
+    : NaN;
+  const fresh = Number.isFinite(since)
+    ? pool.filter((c) => Date.parse(c.createdAt) > since)
+    : pool;
+
+  if (fresh.length === 0) return latest ? [latest] : [];
+  return fresh.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
 /** Which preference gates each event kind. */
 const PREF_FOR: Record<PrNotifyEventKind, keyof AppPreferences> = {
   comment: "notifyOnPrComment",
@@ -133,6 +176,15 @@ export function deliverPrNotifications(
   if (!next) return;
   for (const event of diffPrEvents(prev, next)) {
     if (!prefs[PREF_FOR[event.kind]]) continue;
+    if (event.kind === "comment" && event.comment && prev) {
+      // Notify about the newest comment that survives the author filters —
+      // not necessarily the newest comment outright.
+      const comment = commentsSince(prev, next).find((c) =>
+        commentPassesFilters(c, prefs),
+      );
+      if (!comment) continue;
+      event.comment = comment;
+    }
     // A comment notification leads to the comment, not the top of the PR.
     void notifyPrEvent(event, event.comment?.url ?? next.url);
   }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { diffPrEvents, deliverPrNotifications } from "../pr-notifications";
 import { useToastStore } from "../../store/toast-store";
 import type { PrInfo } from "../../store/project-store";
+import type { PrComment } from "../../lib/pr-info";
 import type { AppPreferences } from "../../electron.d";
 
 function makePr(overrides: Partial<PrInfo> = {}): PrInfo {
@@ -260,5 +261,148 @@ describe("deliverPrNotifications", () => {
 
     expect(show).not.toHaveBeenCalled();
     expect(useToastStore.getState().toasts).toEqual([]);
+  });
+});
+
+describe("deliverPrNotifications — comment author filters", () => {
+  const show = vi.fn();
+  const prefs = {
+    notifyOnPrComment: true,
+    notifyOnBotPrComments: false,
+    notifyOnOwnPrComments: false,
+    notifyOnPrApproved: true,
+    notifyOnPrChangesRequested: true,
+    notifyOnPrChecksFailed: true,
+  } as unknown as AppPreferences;
+
+  const comment = (over: Partial<PrComment> = {}): PrComment => ({
+    author: "alice",
+    body: "One nit.",
+    url: "https://github.com/o/r/pull/123#issuecomment-9",
+    createdAt: "2026-09-05T10:00:00Z",
+    ...over,
+  });
+
+  beforeEach(() => {
+    show.mockReset();
+    show.mockResolvedValue(true);
+    useToastStore.setState({ toasts: [] });
+    const win = globalThis.window as unknown as Record<string, unknown>;
+    const api = win.electronAPI as Record<string, unknown>;
+    api.notifications = { ...(api.notifications as object), show };
+    api.shell = { openExternal: vi.fn() };
+  });
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  const deliver = (
+    latestComment: PrComment,
+    overrides: Partial<AppPreferences> = {},
+    next: Partial<PrInfo> = {},
+  ) => {
+    deliverPrNotifications(
+      makePr({
+        commentCount: 1,
+        latestComment: comment({ createdAt: "2026-09-05T09:00:00Z" }),
+      }),
+      makePr({ commentCount: 2, latestComment, ...next }),
+      { ...prefs, ...overrides },
+    );
+  };
+
+  it("drops a bot comment while bot comments are off", async () => {
+    deliver(comment({ author: "github-actions", isBot: true }));
+    await flush();
+
+    expect(show).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
+  it("delivers a bot comment once bot comments are on", async () => {
+    deliver(comment({ author: "github-actions", isBot: true }), {
+      notifyOnBotPrComments: true,
+    });
+    await flush();
+
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops your own comment while own comments are off", async () => {
+    deliver(comment({ author: "me", isViewer: true }));
+    await flush();
+
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it("delivers your own comment once own comments are on", async () => {
+    deliver(comment({ author: "me", isViewer: true }), {
+      notifyOnOwnPrComments: true,
+    });
+    await flush();
+
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  it("still delivers a human comment", async () => {
+    deliver(comment());
+    await flush();
+
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A bot landing last within one poll interval must not silence the human who
+   * commented just before it.
+   */
+  it("notifies about the newest unfiltered comment when a bot commented last", async () => {
+    const human = comment({
+      body: "Looks good, one question.",
+      url: "https://github.com/o/r/pull/123#issuecomment-10",
+      createdAt: "2026-09-05T10:00:00Z",
+    });
+    const bot = comment({
+      author: "github-actions",
+      isBot: true,
+      body: "Deployed to preview.",
+      url: "https://github.com/o/r/pull/123#issuecomment-11",
+      createdAt: "2026-09-05T10:01:00Z",
+    });
+
+    deliver(bot, {}, { recentComments: [bot, human] });
+    await flush();
+
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ url: human.url, comment: human }),
+    );
+  });
+
+  it("ignores comments already seen at the baseline", async () => {
+    const old = comment({
+      body: "Older human comment.",
+      url: "https://github.com/o/r/pull/123#issuecomment-1",
+      createdAt: "2026-09-05T08:00:00Z",
+    });
+    const bot = comment({
+      author: "github-actions",
+      isBot: true,
+      url: "https://github.com/o/r/pull/123#issuecomment-11",
+      createdAt: "2026-09-05T10:01:00Z",
+    });
+
+    deliver(bot, {}, { recentComments: [bot, old] });
+    await flush();
+
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it("notifies when the author is unknown (payload predates author tagging)", async () => {
+    deliverPrNotifications(
+      makePr({ commentCount: 1 }),
+      makePr({ commentCount: 2 }),
+      prefs,
+    );
+    await flush();
+
+    expect(show).toHaveBeenCalledTimes(1);
   });
 });

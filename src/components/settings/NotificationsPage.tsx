@@ -109,6 +109,30 @@ export function NotificationsPage() {
           />
         </label>
 
+        <label
+          className={`${styles.notifRow} ${styles.notifSubRow}`}
+          data-disabled={!preferences.notifyOnPrComment}
+        >
+          <span>Include bots (GitHub Actions, Dependabot)</span>
+          <Switch
+            checked={preferences.notifyOnBotPrComments}
+            disabled={!preferences.notifyOnPrComment}
+            onCheckedChange={(checked) => set("notifyOnBotPrComments", checked)}
+          />
+        </label>
+
+        <label
+          className={`${styles.notifRow} ${styles.notifSubRow}`}
+          data-disabled={!preferences.notifyOnPrComment}
+        >
+          <span>Include my own comments</span>
+          <Switch
+            checked={preferences.notifyOnOwnPrComments}
+            disabled={!preferences.notifyOnPrComment}
+            onCheckedChange={(checked) => set("notifyOnOwnPrComments", checked)}
+          />
+        </label>
+
         <label className={styles.notifRow}>
           <span>Review approved</span>
           <Switch

@@ -8,6 +8,13 @@ export interface AppPreferences {
   notifyOnResponse: boolean;
   notifyOnRequiresInput: boolean;
   notifyOnPrComment: boolean;
+  /**
+   * Comment notifications from GitHub Apps — `github-actions`, Dependabot, CI
+   * reporters. Off by default: automation talks far more than people do.
+   */
+  notifyOnBotPrComments: boolean;
+  /** Comment notifications for comments you wrote yourself. Off by default. */
+  notifyOnOwnPrComments: boolean;
   notifyOnPrApproved: boolean;
   notifyOnPrChangesRequested: boolean;
   notifyOnPrChecksFailed: boolean;
@@ -40,6 +47,8 @@ const DEFAULTS: AppPreferences = {
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
   notifyOnPrComment: true,
+  notifyOnBotPrComments: false,
+  notifyOnOwnPrComments: false,
   notifyOnPrApproved: true,
   notifyOnPrChangesRequested: true,
   notifyOnPrChecksFailed: true,

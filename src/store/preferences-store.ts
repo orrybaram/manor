@@ -15,6 +15,8 @@ const defaultPreferences: AppPreferences = {
   notifyOnResponse: true,
   notifyOnRequiresInput: true,
   notifyOnPrComment: true,
+  notifyOnBotPrComments: false,
+  notifyOnOwnPrComments: false,
   notifyOnPrApproved: true,
   notifyOnPrChangesRequested: true,
   notifyOnPrChecksFailed: true,

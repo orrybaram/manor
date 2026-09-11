@@ -206,7 +206,10 @@ export class GitHubManager {
       // The newest entries of all three conversation surfaces: enough for the
       // PR popover's comment list, and the newest of them is what a "new
       // comment" notification carries (#177).
-      const query = `query { repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { login } body url submittedAt state } } } } }`;
+      // `viewer` and `__typename` ride along so every entry can be tagged with
+      // who wrote it — you, or a GitHub App — which is what the comment
+      // notification filters gate on.
+      const query = `query { viewer { login } repository(owner: "${owner}", name: "${repo}") { pullRequest(number: ${prNumber}) { isInMergeQueue reviewThreads(first: 100) { nodes { isResolved isOutdated path comments(first: 1) { nodes { author { __typename login } body url createdAt } } } } comments(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url createdAt } } reviews(last: ${RECENT_COMMENT_FETCH}) { totalCount nodes { author { __typename login } body url submittedAt state } } } } }`;
       const { stdout } = await execFileAsync(
         "gh",
         ["api", "graphql", "-f", `query=${query}`],
@@ -216,7 +219,10 @@ export class GitHubManager {
         },
       );
       const data = JSON.parse(stdout);
-      return parsePrConversationState(data?.data?.repository?.pullRequest);
+      return parsePrConversationState(
+        data?.data?.repository?.pullRequest,
+        data?.data?.viewer?.login,
+      );
     } catch {
       return null;
     }
@@ -466,7 +472,7 @@ interface PrConversationState {
 }
 
 interface RawConversationNode {
-  author?: { login?: string } | null;
+  author?: { login?: string; __typename?: string } | null;
   body?: string;
   url?: string;
   createdAt?: string;
@@ -575,6 +581,7 @@ export function parseStatusCheckRollup(rollup: unknown): {
  */
 export function parsePrConversationState(
   pullRequest: unknown,
+  viewerLogin?: string | null,
 ): PrConversationState {
   if (!pullRequest || typeof pullRequest !== "object") return {};
   const pr = pullRequest as {
@@ -601,8 +608,8 @@ export function parsePrConversationState(
   const newest = <T>(nodes: T[]): T | undefined => nodes[nodes.length - 1];
 
   const candidates = [
-    toPrComment(newest(comments)),
-    toPrComment(newest(reviews)),
+    toPrComment(newest(comments), viewerLogin),
+    toPrComment(newest(reviews), viewerLogin),
   ].filter((c): c is PrComment => c !== null);
   const latestComment =
     commentCount === undefined
@@ -611,7 +618,12 @@ export function parsePrConversationState(
           (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
         )[0] ?? null);
 
-  const recentComments = collectRecentComments(comments, reviews, threads);
+  const recentComments = collectRecentComments(
+    comments,
+    reviews,
+    threads,
+    viewerLogin,
+  );
   const isInMergeQueue =
     typeof pr.isInMergeQueue === "boolean" ? pr.isInMergeQueue : undefined;
 
@@ -637,24 +649,25 @@ function collectRecentComments(
   comments: RawConversationNode[],
   reviews: RawConversationNode[],
   threads: RawReviewThread[] | undefined,
+  viewerLogin?: string | null,
 ): PrComment[] {
   const entries: PrComment[] = [];
 
   for (const node of comments) {
-    const c = toPrComment(node);
+    const c = toPrComment(node, viewerLogin);
     if (!c || !c.body.trim()) continue;
     entries.push({ ...c, kind: "comment" });
   }
 
   for (const node of reviews) {
-    const c = toPrComment(node);
+    const c = toPrComment(node, viewerLogin);
     if (!c || !c.body.trim()) continue;
     const state = typeof node.state === "string" ? node.state : null;
     entries.push({ ...c, kind: "review", reviewState: state });
   }
 
   for (const thread of threads ?? []) {
-    const c = toPrComment(thread.comments?.nodes?.[0]);
+    const c = toPrComment(thread.comments?.nodes?.[0], viewerLogin);
     if (!c || !c.body.trim()) continue;
     entries.push({
       ...c,
@@ -670,14 +683,43 @@ function collectRecentComments(
     .slice(0, RECENT_COMMENT_LIMIT);
 }
 
-function toPrComment(node: RawConversationNode | undefined): PrComment | null {
+function toPrComment(
+  node: RawConversationNode | undefined,
+  viewerLogin?: string | null,
+): PrComment | null {
   if (!node || typeof node.url !== "string") return null;
   const createdAt = node.createdAt ?? node.submittedAt;
   if (typeof createdAt !== "string") return null;
-  return {
-    author: node.author?.login ?? "",
+  const author = node.author?.login ?? "";
+  const comment: PrComment = {
+    author,
     body: typeof node.body === "string" ? node.body : "",
     url: node.url,
     createdAt,
   };
+  // Set only when true: the flags read as "known to be a bot" / "known to be
+  // yours", and an absent flag is the same "no" a pre-tagging payload gives.
+  if (isBotAuthor(node.author)) comment.isBot = true;
+  if (
+    author &&
+    viewerLogin &&
+    author.toLowerCase() === viewerLogin.toLowerCase()
+  ) {
+    comment.isViewer = true;
+  }
+  return comment;
+}
+
+/**
+ * GraphQL answers this outright — an App author is a `Bot`, not a `User` — but
+ * the login suffix is checked too: a bot acting through a machine *user*
+ * account (`some-ci[bot]`, `renovate[bot]`) types as `User` and would slip
+ * past `__typename` alone.
+ */
+function isBotAuthor(
+  author: { login?: string; __typename?: string } | null | undefined,
+): boolean {
+  if (!author) return false;
+  if (author.__typename === "Bot") return true;
+  return (author.login ?? "").toLowerCase().endsWith("[bot]");
 }

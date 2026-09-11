@@ -4,6 +4,13 @@
  *
  * Maintains a ring buffer of the last 15 lines of ANSI-stripped terminal output
  * and matches patterns to determine agent status.
+ *
+ * `requires_input` is **edge-triggered**: it is reported only while the matching
+ * prompt line is part of the data chunk just fed in. The answered prompt stays
+ * in the ring buffer afterwards ("Yes, allow once" is never erased from the
+ * transcript), and a level-triggered match would keep re-asserting
+ * `requires_input` on every later chunk — leaving the agent dot stuck on the
+ * waving hand long after the prompt was answered.
  */
 
 import type { AgentStatus } from "./types";
@@ -60,14 +67,23 @@ const REQUIRES_INPUT_STRINGS = [
   "no, and tell claude what to do differently",
   "do you trust the files in this folder?",
   "(y/n)",
-  "continue?",
-  "approve this plan?",
 ];
+
+/**
+ * Questions that only count as a prompt when the line *ends* with them.
+ * Matching these anywhere would fire on ordinary agent prose
+ * ("let me know if you want me to continue?").
+ */
+const REQUIRES_INPUT_SUFFIXES = ["continue?", "approve this plan?"];
 
 function isRequiresInputLine(line: string): boolean {
   const lower = line.toLowerCase();
   for (const s of REQUIRES_INPUT_STRINGS) {
     if (lower.includes(s)) return true;
+  }
+  const trimmed = lower.trimEnd();
+  for (const s of REQUIRES_INPUT_SUFFIXES) {
+    if (trimmed.endsWith(s)) return true;
   }
   return false;
 }
@@ -85,10 +101,18 @@ export type PatternMatchResult = AgentStatus | null;
 export class OutputPatternMatcher {
   private ringBuffer: string[] = [];
 
+  /** Total lines ever pushed — lets detect() map a buffer index to a global one. */
+  private pushedCount = 0;
+
+  /** Value of `pushedCount` before the most recent addData() call. */
+  private chunkStart = 0;
+
   /** Add raw terminal data (may contain multiple lines and ANSI codes) */
   addData(data: string): void {
     const stripped = stripAnsi(data);
     const lines = stripped.split(/\r?\n/);
+
+    this.chunkStart = this.pushedCount;
 
     for (const line of lines) {
       // Skip empty lines and box-drawing lines
@@ -96,10 +120,17 @@ export class OutputPatternMatcher {
       if (isBoxDrawingLine(line)) continue;
 
       this.ringBuffer.push(line);
+      this.pushedCount++;
       if (this.ringBuffer.length > RING_BUFFER_SIZE) {
         this.ringBuffer.shift();
       }
     }
+  }
+
+  /** True when the line at `index` arrived in the most recent addData() call. */
+  private isFresh(index: number): boolean {
+    const globalIndex = this.pushedCount - (this.ringBuffer.length - index);
+    return globalIndex >= this.chunkStart;
   }
 
   /** Scan current buffer and return detected status (or null if unknown) */
@@ -115,7 +146,12 @@ export class OutputPatternMatcher {
     ) {
       const line = this.ringBuffer[i];
 
-      if (isRequiresInputLine(line)) return "requires_input";
+      if (isRequiresInputLine(line)) {
+        // Retained from an earlier chunk — the prompt was already reported when
+        // it arrived, so don't re-assert it over whatever happened since.
+        if (!this.isFresh(i)) continue;
+        return "requires_input";
+      }
       if (isBusyLine(line)) return "thinking";
     }
 
@@ -129,6 +165,8 @@ export class OutputPatternMatcher {
   /** Clear the ring buffer */
   clear(): void {
     this.ringBuffer = [];
+    this.pushedCount = 0;
+    this.chunkStart = 0;
   }
 
   /** Get current buffer contents (for debugging) */

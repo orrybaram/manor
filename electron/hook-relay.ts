@@ -269,7 +269,18 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
     };
   }
 
-  function applyStopForSession(sessionId: string): void {
+  /**
+   * Mark a session's agent as having responded.
+   *
+   * `syncDetector` is for *forced* stops (sweeps). A stop that came from a real
+   * `Stop` hook already reached the AgentDetector through the RelayAgentHook
+   * effect; a forced one never touches it, so the live state has to be pushed
+   * explicitly — see relayRespondedToDetector().
+   */
+  function applyStopForSession(
+    sessionId: string,
+    opts: { syncDetector?: boolean } = {},
+  ): void {
     const agent = agentManager.getAgentBySessionId(sessionId);
     if (!agent) return;
     const prevStatus = agent.lastAgentStatus;
@@ -281,7 +292,28 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
       unseenRespondedAgents.add(updated.id);
       maybeSendNotification(updated, prevStatus, "responded");
       broadcastAgent(updated);
+      if (opts.syncDetector) relayRespondedToDetector(updated, sessionId);
     }
+  }
+
+  /**
+   * Push `responded` into the daemon's AgentDetector for the agent's pane.
+   *
+   * The forced stops in the sweeps used to write persistence only. The renderer
+   * prefers live detector state over `lastAgentStatus`
+   * (`useAgentDisplay.deriveStatus`), so an agent recovered out of
+   * `requires_input` by a sweep kept showing the waving hand forever. Keep both
+   * sides in sync.
+   *
+   * Only relays when the pane still belongs to this session — a pane whose root
+   * session has moved on is now showing a different agent's status.
+   */
+  function relayRespondedToDetector(agent: AgentInfo, sessionId: string): void {
+    const paneId = agent.paneId;
+    if (!paneId) return;
+    const rootSession = paneRootSessionMap.get(paneId);
+    if (rootSession !== undefined && rootSession !== sessionId) return;
+    relayAgentHook(paneId, "responded", agent.agentKind);
   }
 
   function relay(event: AgentHookEvent): void {
@@ -352,7 +384,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
         );
         state.activeSubagents.clear();
         state.pendingStopAt = null;
-        applyStopForSession(sessionId);
+        applyStopForSession(sessionId, { syncDetector: true });
         continue;
       }
 
@@ -366,7 +398,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
               `(lastAgentStatus=${agent.lastAgentStatus}, idle=${idle}ms)`,
           );
           state.activeSubagents.clear();
-          applyStopForSession(sessionId);
+          applyStopForSession(sessionId, { syncDetector: true });
         }
       }
     }
@@ -389,7 +421,7 @@ export function createHookRelay(deps: HookRelayDeps): HookRelayContext {
         `[agent-lifecycle] orphan-agent sweep: forcing responded on ${agent.agentSessionId} ` +
           `(agent.id=${agent.id}, lastAgentStatus=${agent.lastAgentStatus}, age=${age}ms)`,
       );
-      applyStopForSession(agent.agentSessionId);
+      applyStopForSession(agent.agentSessionId, { syncDetector: true });
     }
   }
 

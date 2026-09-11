@@ -147,6 +147,45 @@ describe("OutputPatternMatcher", () => {
     });
   });
 
+  describe("staleness (edge-triggered requires_input)", () => {
+    it("does not re-report a prompt that is only retained in the buffer", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      expect(matcher.detect()).toBe("requires_input");
+
+      // The answered prompt stays on screen; later output must not re-assert it.
+      matcher.addData("Running tool...");
+      expect(matcher.detect()).not.toBe("requires_input");
+    });
+
+    it("reports a prompt again when it is re-drawn", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      matcher.addData("Running tool...");
+      matcher.addData("❯ 1. Yes, allow once");
+      expect(matcher.detect()).toBe("requires_input");
+    });
+
+    it("a chunk with no usable lines does not re-assert a retained prompt", () => {
+      matcher.addData("Proceed with changes? (Y/n)");
+      expect(matcher.detect()).toBe("requires_input");
+
+      matcher.addData("\n\n");
+      expect(matcher.detect()).not.toBe("requires_input");
+    });
+
+    it("still reports busy state while a stale prompt sits in the buffer", () => {
+      matcher.addData("❯ 1. Yes, allow once");
+      matcher.addData("✢ Sprouting... (2m 21s, 9100 tokens)");
+      expect(matcher.detect()).toBe("thinking");
+    });
+  });
+
+  describe("prose false positives", () => {
+    it("ignores 'continue?' inside a sentence", () => {
+      matcher.addData("Tell me if you want me to continue? Not a prompt here.");
+      expect(matcher.detect()).toBe(null);
+    });
+  });
+
   describe("ring buffer", () => {
     it("maintains max 15 lines", () => {
       for (let i = 0; i < 20; i++) {
@@ -213,6 +252,31 @@ describe("AgentDetector fallback debounce", () => {
     // Now fallback should apply
     detector.setFallbackStatus("requires_input");
     expect(changes).toEqual(["thinking", "requires_input"]);
+  });
+
+  it("fallback requires_input is ignored once the turn has responded", () => {
+    const changes: string[] = [];
+    detector.onStatusChange = (state) => changes.push(state.status);
+
+    detector.setStatus("responded");
+    expect(changes).toEqual(["responded"]);
+
+    vi.advanceTimersByTime(2100);
+
+    // Leftover prompt text on screen must not strand the dot on the hand.
+    detector.setFallbackStatus("requires_input");
+    expect(changes).toEqual(["responded"]);
+  });
+
+  it("fallback requires_input still applies mid-turn", () => {
+    const changes: string[] = [];
+    detector.onStatusChange = (state) => changes.push(state.status);
+
+    detector.setStatus("working");
+    vi.advanceTimersByTime(2100);
+
+    detector.setFallbackStatus("requires_input");
+    expect(changes).toEqual(["working", "requires_input"]);
   });
 
   it("fallback status is ignored when no agent is tracked", () => {

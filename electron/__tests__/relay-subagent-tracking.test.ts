@@ -1455,3 +1455,89 @@ describe("createHookRelay — ADR-142: CreateAgent retires previous pane owner",
     expect(unseenInputAgents.has(agentA!.id)).toBe(false);
   });
 });
+
+describe("createHookRelay — forced stops sync the AgentDetector", () => {
+  let ctx: ReturnType<typeof buildRelay>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ctx = buildRelay();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sweep-sync-1: stale-active sweep relays responded to the pane", () => {
+    const { relay, sweepStaleSessions, relayAgentHook, agentManager } = ctx;
+
+    fire(relay, sessionStart({ paneId: "pane-s1", sessionId: "sess-s1" }));
+    fire(relay, permissionRequest({ paneId: "pane-s1", sessionId: "sess-s1" }));
+    relayAgentHook.mockClear();
+
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
+    sweepStaleSessions();
+
+    expect(agentManager.getAgentBySessionId("sess-s1")?.lastAgentStatus).toBe("responded");
+    expect(relayAgentHook).toHaveBeenCalledWith("pane-s1", "responded", "claude");
+  });
+
+  it("sweep-sync-2: orphan sweep relays responded to the pane", () => {
+    const { sweepStaleSessions, relayAgentHook, agentManager } = ctx;
+
+    const oldTime = new Date(Date.now() - STALE_ACTIVE_MS - 5_000).toISOString();
+    const agent = agentManager.createAgent({
+      agentSessionId: "sess-s2",
+      name: null,
+      status: "active",
+      completedAt: null,
+      projectId: null,
+      projectName: null,
+      workspacePath: null,
+      cwd: "",
+      agentKind: "claude",
+      agentCommand: null,
+      paneId: "pane-s2",
+      lastAgentStatus: "requires_input",
+      resumedAt: null,
+    });
+    agentManager.updateAgent(agent.id, { activatedAt: oldTime });
+
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
+    sweepStaleSessions();
+
+    expect(relayAgentHook).toHaveBeenCalledWith("pane-s2", "responded", "claude");
+  });
+
+  it("sweep-sync-3: does not relay when the pane moved on to another session", () => {
+    const { relay, sweepStaleSessions, relayAgentHook, agentManager } = ctx;
+
+    fire(relay, sessionStart({ paneId: "pane-s3", sessionId: "sess-old" }));
+    fire(relay, permissionRequest({ paneId: "pane-s3", sessionId: "sess-old" }));
+
+    // A different session takes over the pane; the old agent keeps its paneId
+    // only until the sweep notices. Its status must not clobber the new agent.
+    const old = agentManager.getAgentBySessionId("sess-old");
+    agentManager.updateAgent(old!.id, { lastAgentStatus: "requires_input" });
+    ctx.paneRootSessionMap.set("pane-s3", "sess-new");
+    relayAgentHook.mockClear();
+
+    vi.advanceTimersByTime(STALE_ACTIVE_MS + 1_000);
+    sweepStaleSessions();
+
+    expect(relayAgentHook).not.toHaveBeenCalledWith("pane-s3", "responded", "claude");
+  });
+
+  it("sweep-sync-4: a real Stop hook does not double-relay", () => {
+    const { relay, relayAgentHook } = ctx;
+
+    fire(relay, sessionStart({ paneId: "pane-s4", sessionId: "sess-s4" }));
+    fire(relay, userPromptSubmit({ paneId: "pane-s4", sessionId: "sess-s4" }));
+    relayAgentHook.mockClear();
+
+    fire(relay, stop({ paneId: "pane-s4", sessionId: "sess-s4" }));
+
+    expect(relayAgentHook).toHaveBeenCalledTimes(1);
+    expect(relayAgentHook).toHaveBeenCalledWith("pane-s4", "responded", "claude");
+  });
+});

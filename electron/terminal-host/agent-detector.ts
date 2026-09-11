@@ -263,6 +263,20 @@ export class AgentDetector {
     // Don't transition to the same status
     if (this.status === status) return;
 
+    // A hook already told us the turn is over. A permission prompt cannot open
+    // while the agent is idle-waiting, so a `requires_input` pattern seen now is
+    // leftover prompt text still on screen — applying it strands the dot on the
+    // waving hand until the next turn starts.
+    if (
+      status === "requires_input" &&
+      (this.status === "responded" || this.status === "complete")
+    ) {
+      this.log(
+        `setFallbackStatus: DROPPED requires_input (turn already ${this.status})`,
+      );
+      return;
+    }
+
     this.log(
       `setFallbackStatus: status=${status} current=[${this.kind}/${this.status}]`,
     );

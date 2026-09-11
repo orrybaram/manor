@@ -293,7 +293,7 @@ export function Sidebar(props: SidebarProps) {
           </span>
           <span className={styles.homeLabel}>Home</span>
         </div>
-        <div>
+        <div className={styles.projectsSection}>
           <ContextMenu.Root>
             <ContextMenu.Trigger asChild>
               <div

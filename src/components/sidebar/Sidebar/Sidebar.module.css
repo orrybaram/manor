@@ -51,13 +51,17 @@
 
 .content {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding-top: 8px;
   padding-bottom: 8px;
 }
 
 /* Duplicated in AgentsList.module.css, Ports.module.css — candidate for a shared <SectionHeader> UI component */
 .sectionHeader {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -119,6 +123,7 @@
    visual from ProjectItem.module.css, sits above the Projects list and is
    exempt from drag/reorder. */
 .homeRow {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -158,8 +163,16 @@
   white-space: nowrap;
 }
 
+.projectsSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .projectsScroll {
-  max-height: 500px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 

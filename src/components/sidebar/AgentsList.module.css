@@ -1,6 +1,7 @@
 /* ── Agents ── */
 
 .agentsSection {
+  flex-shrink: 0;
   padding: 4px 0;
   margin-top: 24px;
 }

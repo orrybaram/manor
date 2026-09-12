@@ -29,10 +29,15 @@ function commentCount(n: number): string {
 }
 
 /**
- * Turn a batch of drafts into one message for an agent, in the register
- * `reviewCommentPrompt` (PrPopover) already established: say what is being
- * asked, then the comments, each with enough context to act on without
- * asking where it lives.
+ * Turn a batch of drafts into one message for an agent: say what is being
+ * asked, then the comments, each with enough context to act on without asking
+ * where it lives.
+ *
+ * The preamble is deliberately not "address these comments". A comment on a
+ * diff is as often a question ("what is this for?") as a request, and an
+ * imperative framing sends an agent off editing code when it was only asked
+ * to explain it. So the instruction is to read each comment on its own terms
+ * and to touch code only where one actually asks for a change.
  *
  * Built multi-line for readability and testability; `submitReview` is the one
  * place that flattens it, because only the delivery step cares that a bare
@@ -42,8 +47,8 @@ export function reviewPrompt(comments: DraftComment[]): string {
   const real = written(comments);
   const lines: string[] = [
     real.length === 1
-      ? "Address this review comment on the current diff:"
-      : `Address these ${real.length} review comments on the current diff:`,
+      ? "I left a comment on the current diff. Take it on its own terms — it may be a question about the code rather than a request to change it. Answer a question directly, and only edit code if the comment actually asks for that."
+      : `I left ${real.length} comments on the current diff. Take each on its own terms — some may be questions about the code, others requests to change it. Answer the questions directly, and only edit code where a comment actually asks for that.`,
   ];
 
   real.forEach((comment, i) => {

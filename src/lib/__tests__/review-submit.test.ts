@@ -80,9 +80,7 @@ describe("reviewPrompt", () => {
   it("uses singular wording and numbers a single comment", () => {
     const prompt = reviewPrompt([makeComment()]);
 
-    expect(prompt.split("\n")[0]).toBe(
-      "Address this review comment on the current diff:",
-    );
+    expect(prompt.split("\n")[0]).toContain("I left a comment");
     expect(prompt).toContain(
       "[1] src/store/app-store.ts L120 — This should be a constant.",
     );
@@ -102,9 +100,7 @@ describe("reviewPrompt", () => {
       makeComment({ id: "c", body: "third note" }),
     ]);
 
-    expect(prompt.split("\n")[0]).toBe(
-      "Address these 3 review comments on the current diff:",
-    );
+    expect(prompt.split("\n")[0]).toContain("I left 3 comments");
     expect(prompt).toContain("[1] src/store/app-store.ts L120 — first note");
     expect(prompt).toContain("[2] src/lib/harness.ts L4-L8 — second note");
     expect(prompt).toContain("[3] src/store/app-store.ts L120 — third note");
@@ -117,10 +113,24 @@ describe("reviewPrompt", () => {
       makeComment({ id: "b", body: "   " }),
     ]);
 
-    expect(prompt.split("\n")[0]).toBe(
-      "Address this review comment on the current diff:",
-    );
+    expect(prompt.split("\n")[0]).toContain("I left a comment");
     expect(prompt).not.toContain("[2]");
+  });
+
+  /**
+   * A comment on a diff is as often a question as a request. An imperative
+   * preamble ("address these comments") sends the agent off editing code that
+   * the user only asked about, so the framing has to leave answering open.
+   */
+  it("does not instruct the agent to change code unconditionally", () => {
+    const preamble = reviewPrompt([
+      makeComment({ id: "a", body: "what does this do?" }),
+      makeComment({ id: "b", body: "and this?" }),
+    ]).split("\n")[0];
+
+    expect(preamble).not.toMatch(/^Address/);
+    expect(preamble).toContain("may be questions");
+    expect(preamble).toContain("only edit code where a comment actually asks");
   });
 });
 
@@ -190,9 +200,7 @@ describe("submitReview", () => {
     const [workspacePath, prompt] =
       vi.mocked(startAgentWithPrompt).mock.calls[0];
     expect(workspacePath).toBe(WS_PATH);
-    expect(prompt).toContain(
-      "Address this review comment on the current diff:",
-    );
+    expect(prompt).toContain("I left a comment on the current diff.");
     expect(useToastStore.getState().toasts[0].message).toBe(
       "Sent 1 comment to a new agent",
     );

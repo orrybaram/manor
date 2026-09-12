@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
@@ -22,12 +28,32 @@ const ROOM_BELOW = 44;
 
 type ChipTarget = {
   anchor: SelectionAnchor;
-  /** Viewport coords of the selection, snapshotted at evaluation time. */
+  /**
+   * Viewport coords of the selection, snapshotted at evaluation time. `top`
+   * and `bottom` bound the whole selection; `left` is where its text starts
+   * (see `textStartLeft`), not the bounding box's left edge.
+   */
   rect: { top: number; bottom: number; left: number };
 };
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Where the selected text starts, horizontally.
+ *
+ * Deliberately not the range's bounding rect: that is the union of every rect
+ * the range touches, and a selection spanning rows swallows whole row boxes —
+ * so its left edge is the line-number gutter, not the code. The range's first
+ * non-empty client rect is the line box the selection actually begins in,
+ * which puts the chip under the text the user highlighted.
+ */
+function textStartLeft(range: Range): number {
+  for (const rect of range.getClientRects()) {
+    if (rect.width > 0) return rect.left;
+  }
+  return range.getBoundingClientRect().left;
 }
 
 /**
@@ -84,10 +110,15 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
         setTarget(null);
         return;
       }
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
       setTarget({
         anchor,
-        rect: { top: rect.top, bottom: rect.bottom, left: rect.left },
+        rect: {
+          top: rect.top,
+          bottom: rect.bottom,
+          left: textStartLeft(range),
+        },
       });
     };
 
@@ -133,7 +164,9 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
   if (!target) return null;
 
   const { startLabel } = target.anchor;
-  const label = startLabel ? `Comment on ${startLabel}` : "Comment on selection";
+  const label = startLabel
+    ? `Comment on ${startLabel}`
+    : "Comment on selection";
 
   return createPortal(
     <div

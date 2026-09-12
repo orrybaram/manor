@@ -1,6 +1,6 @@
 ---
 title: Migrate settings, nudge, about and port links to Link
-status: in-progress
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1, 2]

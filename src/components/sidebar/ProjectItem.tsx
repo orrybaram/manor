@@ -17,6 +17,7 @@ import {
   type ProjectInfo,
   type WorkspaceInfo,
 } from "../../store/project-store";
+import { useAppStore } from "../../store/app-store";
 import {
   applyDrop,
   buildSidebarItems,
@@ -49,8 +50,8 @@ import styles from "./ProjectItem.module.css";
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
   idx: number;
-  isSelected: boolean;
-  selectedWorkspaceIndex: number;
+  /** True for the workspace currently open — matched by path, never by index. */
+  isActive: boolean;
   isDragging: boolean;
   isDeleting: boolean;
   isEditing: boolean;
@@ -82,8 +83,7 @@ const WorkspaceItem = React.forwardRef<
   const {
     ws,
     idx,
-    isSelected,
-    selectedWorkspaceIndex,
+    isActive,
     isDragging,
     isDeleting,
     isEditing,
@@ -120,7 +120,7 @@ const WorkspaceItem = React.forwardRef<
       data-sidebar-row=""
       tabIndex={0}
       {...rest}
-      className={`${styles.workspace} ${isSelected && idx === selectedWorkspaceIndex
+      className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
           : ""
         } ${isDragging ? styles.workspaceDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
@@ -334,7 +334,15 @@ export function ProjectItem(props: ProjectItemProps) {
     walk(items, []);
     return choices;
   }, [items]);
-  const selectedWorkspace = project.workspaces[project.selectedWorkspaceIndex];
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  // Keyed by path, not by `selectedWorkspaceIndex`: that index addresses an
+  // array the sidebar re-sorts on every reorder, so it drifts onto whichever
+  // workspace now sits at the old position. A folder tinting itself accent
+  // because a stale index landed inside it is the bug that made the highlight
+  // look random. The active path is the thing the user is actually looking at.
+  const selectedWorkspace = project.workspaces.find(
+    (ws) => ws.path === activeWorkspacePath,
+  );
 
   const handleDrop = useCallback(
     (sourceKey: string, target: DropTarget, rows: Row[]) => {
@@ -437,8 +445,7 @@ export function ProjectItem(props: ProjectItemProps) {
       <WorkspaceItem
         ws={ws}
         idx={globalIdx}
-        isSelected={isSelected}
-        selectedWorkspaceIndex={project.selectedWorkspaceIndex}
+        isActive={ws.path === activeWorkspacePath}
         isDragging={dragKey === ws.path}
         isDeleting={isDeleting}
         isEditing={isEditing}
@@ -670,7 +677,7 @@ export function ProjectItem(props: ProjectItemProps) {
         depth={depth}
         collapsed={collapsedFolderIds.has(folder.id)}
         containsSelected={
-          isSelected && !!selectedWorkspace && contents.includes(selectedWorkspace)
+          !!selectedWorkspace && contents.includes(selectedWorkspace)
         }
         dropTarget={intoFolderId === folder.id}
         isDragging={dragKey === folder.id}

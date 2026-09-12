@@ -33,6 +33,7 @@ import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
+import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
 import type { DiffMode } from "./types";
@@ -683,6 +684,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <div className={styles.status}>Loading diff...</div>
+          {workspacePath && <ReviewBar workspacePath={workspacePath} />}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -700,6 +702,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <EmptyState message={error} />
+          {workspacePath && <ReviewBar workspacePath={workspacePath} />}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -881,6 +884,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             onComment={handleStartComment}
           />
         )}
+        {workspacePath && <ReviewBar workspacePath={workspacePath} />}
         {workspacePath && (
           <CommitModal
             open={commitOpen}

@@ -1,0 +1,111 @@
+/*
+ * Sticky rather than absolute: the diff's scroll container is the flow parent,
+ * so sticky is the one way to stay pinned to the pane's bottom edge while the
+ * diff scrolls under it — the same mechanism `.backToTop` uses.
+ *
+ * `bottom` clears that button (which sits at 12px) so the two never overlap,
+ * whether or not it happens to be showing.
+ */
+.bar {
+  position: sticky;
+  bottom: 56px;
+  z-index: 10;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* ── Split button ── */
+
+.split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+/* The two halves read as one control: only the outer corners stay round. */
+.submit {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.caret {
+  padding-left: 6px;
+  padding-right: 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--bg);
+}
+
+/* ── Destination menu ── */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 6px;
+}
+
+/* Fixed width so the names line up whether or not a row has a live dot. */
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.rowHint {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

@@ -254,15 +254,6 @@ function insertItem(
   });
 }
 
-/** Index of the top-level item whose subtree holds `key` (or is `key`). */
-function topLevelIndexOf(items: SidebarItem[], key: string): number {
-  return items.findIndex(
-    (item) =>
-      keyOf(item) === key ||
-      (isFolder(item) && locate(item.children, key) !== null),
-  );
-}
-
 /** Every key inside `item`, the item's own key included. */
 function keysWithin(item: SidebarItem): Set<string> {
   const keys = new Set<string>();
@@ -484,10 +475,13 @@ export function placeAfterFolder(
 }
 
 /**
- * "New Folder…" from a row: the new folder takes that row's top-level slot
- * (the loose row itself, or the outermost folder holding it), so the group it
- * creates sits where the eye already is. Any existing item for the same
- * folder is moved rather than duplicated.
+ * "New Folder…" from a row: the new folder claims that row's slot *inside the
+ * folder the row already lives in*, so the group it creates sits where the eye
+ * already is and at the depth the eye is already at — "New Folder…" on a
+ * workspace nested in `epic` makes `epic / new-folder` holding that workspace,
+ * not a sibling of `epic` (ADR-172). An anchor the tree has never heard of
+ * appends at the top level, and an existing item for the same folder is moved
+ * rather than duplicated.
  */
 export function insertFolderBefore(
   items: SidebarItem[],
@@ -501,6 +495,7 @@ export function insertFolderBefore(
     folder,
     children: existing?.children ?? [],
   };
-  const at = topLevelIndexOf(base, anchorKey);
-  return insertItem(base, null, at === -1 ? base.length : at, item);
+  const at = locate(base, anchorKey);
+  if (!at) return insertItem(base, null, base.length, item);
+  return insertItem(base, at.parentId, at.index, item);
 }

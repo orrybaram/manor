@@ -355,8 +355,11 @@
 }
 
 .folderBody {
-  /* chevron (12px) + header gap (4px): member icons sit under the folder icon */
-  padding-left: 16px;
+  /* chevron (12px) + header gap (4px): member icons sit under the folder icon.
+     Nested bodies sit inside one another, so the step shrinks as `--folder-depth`
+     grows and reaches zero four levels in — past that, depth is carried by the
+     chevrons alone and labels keep the width they have left (ADR-172). */
+  padding-left: calc(16px - var(--folder-depth, 0) * 4px);
 }
 
 /* Members repeat the 8px row rhythm of .workspaces without its margin. */

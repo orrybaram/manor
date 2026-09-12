@@ -12,6 +12,8 @@ type FolderItemProps = {
   /** Every visible workspace in the folder's subtree: the count and the
    * collapsed agent dot speak for the whole block (ADR-172). */
   workspaces: WorkspaceInfo[];
+  /** Enclosing folders above this one; 0 at the top level (ADR-172). */
+  depth: number;
   collapsed: boolean;
   /** True when the project's selected workspace lives in this folder. */
   containsSelected: boolean;
@@ -24,6 +26,8 @@ type FolderItemProps = {
   onDelete: () => void;
   /** Opens the New Workspace dialog with this folder as the destination. */
   onNewWorkspace: () => void;
+  /** Opens the New Folder dialog with this folder as the parent. */
+  onNewSubfolder: () => void;
   onDragStart: (e: React.PointerEvent) => void;
   /** Measured for folder drags (the whole block is one row). */
   registerBlock: (el: HTMLElement | null) => void;
@@ -50,6 +54,7 @@ export function FolderItem(props: FolderItemProps) {
   const {
     folder,
     workspaces,
+    depth,
     collapsed,
     containsSelected,
     dropTarget,
@@ -58,6 +63,7 @@ export function FolderItem(props: FolderItemProps) {
     onRename,
     onDelete,
     onNewWorkspace,
+    onNewSubfolder,
     onDragStart,
     registerBlock,
     registerHeader,
@@ -192,6 +198,12 @@ export function FolderItem(props: FolderItemProps) {
             >
               New Workspace…
             </ContextMenu.Item>
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => onNewSubfolder()}
+            >
+              New Folder Inside…
+            </ContextMenu.Item>
             <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={styles.contextMenuItem}
@@ -209,8 +221,16 @@ export function FolderItem(props: FolderItemProps) {
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
+      {/* Bodies nest, so their indents compound: the body's step shrinks as
+          the depth grows, and the depth is capped so a deep tree stops eating
+          the width of a 160px sidebar (ADR-172). */}
       {!collapsed && children && (
-        <div className={styles.folderBody}>{children}</div>
+        <div
+          className={styles.folderBody}
+          style={{ "--folder-depth": Math.min(depth, 4) } as React.CSSProperties}
+        >
+          {children}
+        </div>
       )}
     </div>
   );

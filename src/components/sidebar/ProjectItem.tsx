@@ -255,6 +255,10 @@ export function ProjectItem(props: ProjectItemProps) {
   // Set when "New Folder…" is picked from a workspace's menu: the folder is
   // created and that workspace moved into it in one step.
   const [pendingMovePath, setPendingMovePath] = useState<string | null>(null);
+  // The folder the next new folder belongs in: a folder's "New Folder Inside…",
+  // or the folder the "New Folder…" anchor already lives in, so the new group
+  // appears where it was asked for rather than at the top level (ADR-172).
+  const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
   const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
   // A folder's inline rename input, like a workspace's, suspends dragging.
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -308,6 +312,22 @@ export function ProjectItem(props: ProjectItemProps) {
     }
     return ids;
   }, [folders, collapsedFolderKeys, projectId]);
+  // Every folder for the "Move to Folder" submenu, walked in tree order and
+  // labelled by its full path, so a flat list of menu items still reads as the
+  // tree it came from (ADR-172).
+  const folderChoices = useMemo(() => {
+    const choices: { id: string; label: string }[] = [];
+    const walk = (list: SidebarItem[], trail: string[]) => {
+      for (const item of list) {
+        if (item.kind !== "folder") continue;
+        const path = [...trail, item.folder.name];
+        choices.push({ id: item.folder.id, label: path.join(" / ") });
+        walk(item.children, path);
+      }
+    };
+    walk(items, []);
+    return choices;
+  }, [items]);
   const selectedWorkspace = project.workspaces[project.selectedWorkspaceIndex];
 
   const handleDrop = useCallback(
@@ -528,24 +548,24 @@ export function ProjectItem(props: ProjectItemProps) {
                   className={styles.contextMenu}
                   style={{ maxWidth: 220 }}
                 >
-                  {project.folders.map((folder) => (
+                  {folderChoices.map((choice) => (
                     <ContextMenu.Item
-                      key={folder.id}
+                      key={choice.id}
                       className={styles.contextMenuItem}
                       style={{ display: "flex", alignItems: "center", gap: 6 }}
-                      disabled={ws.folderId === folder.id}
+                      disabled={ws.folderId === choice.id}
                       onSelect={() =>
                         applySidebarChange(
                           projectId,
-                          placeInFolder(items, ws.path, folder.id),
+                          placeInFolder(items, ws.path, choice.id),
                         )
                       }
                     >
-                      {ws.folderId === folder.id && <Check size={12} />}
-                      {folder.name}
+                      {ws.folderId === choice.id && <Check size={12} />}
+                      {choice.label}
                     </ContextMenu.Item>
                   ))}
-                  {project.folders.length > 0 && (
+                  {folderChoices.length > 0 && (
                     <ContextMenu.Separator
                       className={styles.contextMenuSeparator}
                     />
@@ -554,6 +574,7 @@ export function ProjectItem(props: ProjectItemProps) {
                     className={styles.contextMenuItem}
                     onSelect={() => {
                       setPendingMovePath(ws.path);
+                      setNewFolderParentId(ws.folderId ?? null);
                       setNewFolderOpen(true);
                     }}
                   >
@@ -624,7 +645,7 @@ export function ProjectItem(props: ProjectItemProps) {
 
   // Folders nest (ADR-172), so a folder's body is the same renderer one level
   // down rather than a flat list of members.
-  const renderItem = (item: SidebarItem): React.ReactNode => {
+  const renderItem = (item: SidebarItem, depth = 0): React.ReactNode => {
     if (item.kind === "workspace") return renderWorkspace(item.ws);
     const { folder, children } = item;
     const contents = descendantWorkspaces(item);
@@ -633,6 +654,7 @@ export function ProjectItem(props: ProjectItemProps) {
         key={folder.id}
         folder={folder}
         workspaces={contents}
+        depth={depth}
         collapsed={collapsedFolderIds.has(folder.id)}
         containsSelected={
           isSelected && !!selectedWorkspace && contents.includes(selectedWorkspace)
@@ -645,6 +667,11 @@ export function ProjectItem(props: ProjectItemProps) {
         onNewWorkspace={() => {
           setNewWorkspaceFolderId(folder.id);
           setNewWorkspaceOpen(true);
+        }}
+        onNewSubfolder={() => {
+          setPendingMovePath(null);
+          setNewFolderParentId(folder.id);
+          setNewFolderOpen(true);
         }}
         onDragStart={(e) => handleDragStart(folder.id, "folder", e)}
         registerBlock={registerRow(folder.id)}
@@ -659,7 +686,9 @@ export function ProjectItem(props: ProjectItemProps) {
         }
       >
         {children.length > 0 && (
-          <div className={styles.folderMembers}>{children.map(renderItem)}</div>
+          <div className={styles.folderMembers}>
+            {children.map((child) => renderItem(child, depth + 1))}
+          </div>
         )}
       </FolderItem>
     );
@@ -711,6 +740,7 @@ export function ProjectItem(props: ProjectItemProps) {
               className={styles.contextMenuItem}
               onSelect={() => {
                 setPendingMovePath(null);
+                setNewFolderParentId(null);
                 setNewFolderOpen(true);
               }}
             >
@@ -767,7 +797,9 @@ export function ProjectItem(props: ProjectItemProps) {
         </ContextMenu.Portal>
       </ContextMenu.Root>
       {expanded && items.length > 0 && (
-        <div className={styles.workspaces}>{items.map(renderItem)}</div>
+        <div className={styles.workspaces}>
+          {items.map((item) => renderItem(item, 0))}
+        </div>
       )}
 
       <NewWorkspaceDialog
@@ -796,13 +828,23 @@ export function ProjectItem(props: ProjectItemProps) {
         open={newFolderOpen}
         onOpenChange={(open) => {
           setNewFolderOpen(open);
-          if (!open) setPendingMovePath(null);
+          if (!open) {
+            setPendingMovePath(null);
+            setNewFolderParentId(null);
+          }
         }}
         onConfirm={async (name) => {
           setNewFolderOpen(false);
           const movePath = pendingMovePath;
+          const parentId = newFolderParentId;
           setPendingMovePath(null);
-          await createWorkspaceFolder(projectId, name, movePath ?? undefined);
+          setNewFolderParentId(null);
+          await createWorkspaceFolder(
+            projectId,
+            name,
+            movePath ?? undefined,
+            parentId,
+          );
         }}
       />
 

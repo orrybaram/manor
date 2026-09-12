@@ -70,7 +70,8 @@ export function useSidebarDrag({
   const rowHeights = useRef<number[]>([]);
   const sourceIndexRef = useRef(0);
   const dragKindRef = useRef<"workspace" | "folder">("workspace");
-  /** Folder header rects as measured at drag start (workspace drags only). */
+  /** Folder header rects as measured at drag start: the "drop into this
+   * folder" bands, for a dragged workspace and a dragged folder alike. */
   const headerRects = useRef<HeaderRect[]>([]);
 
   const handleDragStart = useCallback(
@@ -92,11 +93,15 @@ export function useSidebarDrag({
       sourceIndexRef.current = sourceIndex;
       dragKindRef.current = kind;
 
-      // A folder drag moves whole blocks, so it measures `.folder`; a
-      // workspace drag walks past headers and members, so a folder row is
-      // just its header.
+      // A folder drag moves whole blocks, so a top-level folder row measures
+      // `.folder`; a workspace drag walks past headers and members, so a
+      // folder row is just its header. A *nested* folder's header is a row of
+      // a folder drag too (ADR-172 lets a folder land inside a folder), and
+      // its block already lives inside its ancestor's — measuring the block
+      // again would count those pixels twice, so anything below the top level
+      // measures its header alone.
       const elementFor = (row: Row): HTMLElement | undefined =>
-        row.kind === "folder" && kind === "workspace"
+        row.kind === "folder" && (kind === "workspace" || row.depth > 0)
           ? rowRefs.current.get(headerRefKey(row.key))
           : rowRefs.current.get(row.key);
 
@@ -107,22 +112,26 @@ export function useSidebarDrag({
         const el = elementFor(row);
         const rect = el?.getBoundingClientRect();
         heights[i] = rect ? rect.height + ROW_GAP : FALLBACK_HEIGHT;
-        // Dropping a member onto its own folder's header would only append it
-        // to the folder it is already in, and it would make dragging the first
-        // member up to the top impossible. Skip that header.
-        if (
-          kind === "workspace" &&
-          row.kind === "folder" &&
-          rect &&
-          row.key !== sourceParentId
-        ) {
-          headers.push({
-            folderId: row.key,
-            rowIndex: i,
-            top: rect.top,
-            height: rect.height,
-          });
-        }
+        if (row.kind !== "folder") return;
+        // Dropping a row onto the header of the folder it is already directly
+        // inside would change nothing, and for a member it would make dragging
+        // the first member up to the top impossible. Skip that header — and,
+        // for a folder drag, the dragged folder's own. Its subtree needs no
+        // skipping: `flattenRows` never emitted it.
+        if (row.key === sourceParentId || row.key === key) return;
+        // The band is always the header alone, even where the row measured
+        // the whole block: "into" is the gesture of hovering the title, not
+        // of hovering anywhere over the folder's contents.
+        const headerRect = rowRefs.current
+          .get(headerRefKey(row.key))
+          ?.getBoundingClientRect();
+        if (!headerRect) return;
+        headers.push({
+          folderId: row.key,
+          rowIndex: i,
+          top: headerRect.top,
+          height: headerRect.height,
+        });
       });
       rowHeights.current = heights;
       headerRects.current = headers;

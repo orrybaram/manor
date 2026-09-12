@@ -672,7 +672,7 @@ describe("placement helpers", () => {
     ]);
   });
 
-  it("insertFolderBefore takes the anchor row's top-level slot", () => {
+  it("insertFolderBefore takes a loose anchor's top-level slot", () => {
     expect(shape(insertFolderBefore(tree(), folder("f3"), "/b"))).toEqual([
       "/a",
       "f1[/m1]",
@@ -682,11 +682,10 @@ describe("placement helpers", () => {
     ]);
   });
 
-  it("insertFolderBefore uses the folder holding the anchor", () => {
-    expect(shape(insertFolderBefore(tree(), folder("f3"), "/m1"))).toEqual([
+  it("insertFolderBefore claims the anchor's slot inside its own folder", () => {
+    expect(shape(insertFolderBefore(tree(), folder("f3", "f1"), "/m1"))).toEqual([
       "/a",
-      "f3[]",
-      "f1[/m1]",
+      "f1[f3[],/m1]",
       "/b",
       "f2[]",
     ]);
@@ -715,5 +714,16 @@ describe("placement helpers", () => {
       "f3",
     );
     expect(shape(items)).toEqual(["/a", "f1[/m1]", "f3[/b]", "f2[]"]);
+  });
+
+  it("composes into the New Folder flow one level down: the group stays nested", () => {
+    const f3 = folder("f3", "f1");
+    const items = placeInFolder(
+      insertFolderBefore(tree(), f3, "/m1"),
+      "/m1",
+      "f3",
+    );
+    expect(shape(items)).toEqual(["/a", "f1[f3[/m1]]", "/b", "f2[]"]);
+    expect(folderParentsOf(items).get("f3")).toBe("f1");
   });
 });

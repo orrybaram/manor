@@ -393,6 +393,29 @@ describe("Pane operations", () => {
     )!;
     expect(tabAfter.focusedPaneId).toBe(paneIds[0]);
   });
+
+  it("refocusActivePane bumps paneFocusNonce without moving focus", () => {
+    const before = useAppStore.getState();
+    const focusedBefore = getActivePanel().tabs[0].focusedPaneId;
+
+    useAppStore.getState().refocusActivePane();
+
+    const after = useAppStore.getState();
+    expect(after.paneFocusNonce).toBe(before.paneFocusNonce + 1);
+    // The demand is "focus the pane that is already focused", so the layout
+    // must come through untouched.
+    expect(after.workspaceLayouts).toBe(before.workspaceLayouts);
+    expect(getActivePanel().tabs[0].focusedPaneId).toBe(focusedBefore);
+  });
+
+  it("every refocusActivePane is a distinct nonce", () => {
+    const start = useAppStore.getState().paneFocusNonce;
+
+    useAppStore.getState().refocusActivePane();
+    useAppStore.getState().refocusActivePane();
+
+    expect(useAppStore.getState().paneFocusNonce).toBe(start + 2);
+  });
 });
 
 describe("Panel operations", () => {

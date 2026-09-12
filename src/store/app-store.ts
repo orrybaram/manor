@@ -301,6 +301,14 @@ export interface AppState {
   focusPane: (paneId: string) => void;
   focusNextPane: () => void;
   focusPrevPane: () => void;
+  /**
+   * Bumped by `refocusActivePane`. The terminal's auto-focus effect depends on
+   * it, so a bump is an explicit "put the keyboard back in the pane" even when
+   * the effect would otherwise leave focus where it is (ADR-172).
+   */
+  paneFocusNonce: number;
+  /** Sends keyboard focus back to the focused pane of the active tab. */
+  refocusActivePane: () => void;
 
   // CWD tracking
   setPaneCwd: (paneId: string, cwd: string) => void;
@@ -618,6 +626,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   panePickedElement: {},
   webviewFocusedPaneId: null,
   layoutLoaded: false,
+  paneFocusNonce: 0,
   closedPaneIds: new Set<string>(),
   closedPaneStack: [],
   pendingStartupCommands: {},
@@ -2088,6 +2097,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       }));
     }),
+
+  // Which pane is focused does not change — only the demand that it actually
+  // hold the keyboard. The nonce is the whole message; the pane's auto-focus
+  // effect listens for the bump (ADR-172).
+  refocusActivePane: () =>
+    set((state) => ({ paneFocusNonce: state.paneFocusNonce + 1 })),
 
   setPaneCwd: (paneId: string, cwd: string) =>
     set((state) => {

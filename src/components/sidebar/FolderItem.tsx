@@ -3,6 +3,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
+import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import styles from "./ProjectItem.module.css";
@@ -137,17 +138,28 @@ export function FolderItem(props: FolderItemProps) {
       style={style}
     >
       <ContextMenu.Root>
-        <ContextMenu.Trigger asChild>
+        {/* While the rename input is open the trigger stands down, so a
+            right-click inside it reaches the OS text-field menu instead of
+            opening this menu — whose focus grab would blur the input and end
+            the edit (ADR-172). */}
+        <ContextMenu.Trigger asChild disabled={editing}>
           <div
             ref={registerHeader}
             className={`${styles.folderHeader} ${containsSelected && collapsed ? styles.folderActive : ""} ${dropTarget ? styles.folderDropTarget : ""}`}
             style={{ touchAction: "none", ...headerStyle }}
+            tabIndex={0}
+            data-sidebar-row=""
             onClick={() => {
               if (!justDragged.current && !editing) onToggleCollapsed();
             }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              startRename();
+            onKeyDown={(e) => {
+              if (editing) return;
+              handleSidebarRowKeyDown(e, {
+                startRename,
+                setExpanded: (expanded) => {
+                  if (expanded === collapsed) onToggleCollapsed();
+                },
+              });
             }}
             onPointerDown={onDragStart}
           >
@@ -167,6 +179,9 @@ export function FolderItem(props: FolderItemProps) {
                 onChange={(e) => setEditValue(e.target.value)}
                 onBlur={commitRename}
                 onKeyDown={(e) => {
+                  // The header's own key handling would see these too; the
+                  // input owns Enter and Escape while it is open.
+                  e.stopPropagation();
                   if (e.key === "Enter") commitRename();
                   if (e.key === "Escape") {
                     renameCancelled.current = true;

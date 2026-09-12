@@ -13,6 +13,9 @@ const nameOf = (item: ReturnType<Page["locator"]>) =>
   item.getByTestId("workspace-name");
 const inputOf = (item: ReturnType<Page["locator"]>) =>
   item.getByTestId("workspace-name-input");
+/** Enter on the focused row opens the rename — double-click no longer does
+ *  (ADR-172). `press` focuses the row first. */
+const startRename = (item: ReturnType<Page["locator"]>) => item.press("Enter");
 
 test("Escape abandons a workspace rename, Enter commits one", async ({
   app,
@@ -30,7 +33,7 @@ test("Escape abandons a workspace rename, Enter commits one", async ({
   );
 
   // Escape: whatever was typed is thrown away.
-  await nameOf(item).dblclick();
+  await startRename(item);
   await expect(inputOf(item)).toBeVisible({ timeout: 5_000 });
   await expect(inputOf(item)).toHaveValue("ws-one");
   await inputOf(item).fill("not this one");
@@ -42,7 +45,7 @@ test("Escape abandons a workspace rename, Enter commits one", async ({
   ).toHaveCount(0);
 
   // Enter still commits, so the guard did not break the happy path.
-  await nameOf(item).dblclick();
+  await startRename(item);
   await expect(inputOf(item)).toBeVisible({ timeout: 5_000 });
   await inputOf(item).fill("ws-renamed");
   await inputOf(item).press("Enter");

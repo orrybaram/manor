@@ -43,6 +43,7 @@ import { FolderItem } from "./FolderItem";
 import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
+import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -61,7 +62,7 @@ interface WorkspaceItemProps {
   justDragged: React.RefObject<boolean>;
   itemRefCallback: (el: HTMLDivElement | null) => void;
   onSelectWorkspace: (index: number) => void;
-  onDoubleClick: (e: React.MouseEvent) => void;
+  onRowKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onPointerDown: (e: React.PointerEvent) => void;
   onEditChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onEditBlur: () => void;
@@ -93,7 +94,7 @@ const WorkspaceItem = React.forwardRef<
     justDragged,
     itemRefCallback,
     onSelectWorkspace,
-    onDoubleClick,
+    onRowKeyDown,
     onPointerDown,
     onEditChange,
     onEditBlur,
@@ -116,6 +117,8 @@ const WorkspaceItem = React.forwardRef<
       }}
       data-testid="workspace-item"
       data-workspace-path={ws.path}
+      data-sidebar-row=""
+      tabIndex={0}
       {...rest}
       className={`${styles.workspace} ${isSelected && idx === selectedWorkspaceIndex
           ? styles.workspaceActive
@@ -126,7 +129,10 @@ const WorkspaceItem = React.forwardRef<
         if (!justDragged.current) onSelectWorkspace(idx);
         rest.onClick?.(e);
       }}
-      onDoubleClick={onDoubleClick}
+      onKeyDown={(e) => {
+        onRowKeyDown(e);
+        rest.onKeyDown?.(e);
+      }}
       onPointerDown={onPointerDown}
     >
       {isEditing ? (
@@ -443,9 +449,9 @@ export function ProjectItem(props: ProjectItemProps) {
         justDragged={justDragged}
         itemRefCallback={registerRow(ws.path)}
         onSelectWorkspace={onSelectWorkspace}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          startRename(ws);
+        onRowKeyDown={(e) => {
+          if (isEditing) return;
+          handleSidebarRowKeyDown(e, { startRename: () => startRename(ws) });
         }}
         onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
         onEditChange={(e) => setEditValue(e.target.value)}
@@ -457,6 +463,9 @@ export function ProjectItem(props: ProjectItemProps) {
           if (editingPath) commitRename(ws);
         }}
         onEditKeyDown={(e) => {
+          // The row's own key handling would see these too; the input owns
+          // Enter and Escape while it is open.
+          e.stopPropagation();
           if (e.key === "Enter") commitRename(ws);
           if (e.key === "Escape") {
             renameCancelled.current = true;
@@ -488,7 +497,11 @@ export function ProjectItem(props: ProjectItemProps) {
           }
         }}
       >
-        <ContextMenu.Trigger asChild>
+        {/* While the rename input is open the trigger stands down, so a
+            right-click inside it reaches the OS text-field menu instead of
+            opening this menu — whose focus grab would blur the input and end
+            the edit (ADR-172). */}
+        <ContextMenu.Trigger asChild disabled={isEditing}>
           {workspaceEl}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>

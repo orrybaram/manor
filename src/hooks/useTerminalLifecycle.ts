@@ -20,6 +20,7 @@ import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
+import { isSidebarRowFocused } from "../lib/sidebar-row";
 import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
@@ -99,15 +100,36 @@ export function useTerminalLifecycle(
     return tab?.focusedPaneId === paneId;
   });
 
+  // An explicit refocusActivePane() — Escape out of the sidebar, say — bumps
+  // this nonce; the bump is the only thing that overrides the sidebar guard
+  // below (ADR-172).
+  const paneFocusNonce = useAppStore((state) => state.paneFocusNonce);
+  const seenFocusNonce = useRef(paneFocusNonce);
+  const firstFocusRun = useRef(true);
+
   useEffect(() => {
+    // Record what this pane has seen before bailing out, so an unfocused pane
+    // never banks a bump meant for its neighbour and spends it later, when it
+    // becomes the focused pane for an unrelated reason.
+    const demanded = seenFocusNonce.current !== paneFocusNonce;
+    seenFocusNonce.current = paneFocusNonce;
+    // Likewise, a mount is a mount whether or not this pane is the focused
+    // one: a freshly opened pane may claim focus, a long-lived one may not.
+    const fresh = firstFocusRun.current;
+    firstFocusRun.current = false;
+
     if (!isFocusedPane || !termRef.current) return;
     const t = termRef.current;
-    // Focus the terminal for keyboard input
-    t.focus();
+    // Focus the terminal for keyboard input — unless the user is driving the
+    // sidebar. Clicking a row switches workspaces, which flips this selector,
+    // and focusing here would yank focus straight back out of the row.
+    if (demanded || fresh || !isSidebarRowFocused()) t.focus();
     // Force a full viewport refresh — TUIs (neovim, claude code) using the
     // WebGL renderer can have a stale canvas after being visibility:hidden.
+    // The pane became visible either way, so this runs even when focus stayed
+    // in the sidebar.
     t.refresh(0, t.rows - 1);
-  }, [isFocusedPane]);
+  }, [isFocusedPane, paneFocusNonce]);
 
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.

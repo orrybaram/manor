@@ -120,6 +120,16 @@
   color: var(--project-color, var(--accent));
 }
 
+/* Keyboard focus on a row: Enter renames it, arrows leave it (ADR-172). Drawn
+   inside the row — the sidebar's scroller would clip an outward ring — and
+   inset past the edge so it still reads on a drop target, whose own 1px ring
+   sits right on that edge. */
+.workspace:focus-visible,
+.folderHeader:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .workspaceIcon {
   color: var(--text-dim);
   flex-shrink: 0;

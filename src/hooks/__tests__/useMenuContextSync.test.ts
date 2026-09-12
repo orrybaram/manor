@@ -89,7 +89,7 @@ describe("deriveMenuContext", () => {
   it("describes the active workspace and its project", () => {
     const project = makeProject({
       worktreeStartScript: "./setup.sh",
-      folders: [{ id: "f1", name: "Archive" }],
+      folders: [{ id: "f1", name: "Archive", parentId: null }],
     });
     const context = deriveMenuContext(makeAppState(), [project], [], PREFS);
 
@@ -106,7 +106,7 @@ describe("deriveMenuContext", () => {
       id: "proj-1",
       name: "Demo",
       hasSetupScript: true,
-      folders: [{ id: "f1", name: "Archive" }],
+      folders: [{ id: "f1", name: "Archive", parentId: null }],
     });
     expect(context.editorName).toBe("Cursor");
   });
@@ -127,6 +127,42 @@ describe("deriveMenuContext", () => {
           { path: FEATURE, label: "Feature" },
         ],
       },
+    ]);
+  });
+
+  it("labels a nested folder by its full path and reports its parent", () => {
+    const project = makeProject({
+      folders: [
+        { id: "f1", name: "epic", parentId: null },
+        { id: "f2", name: "api", parentId: "f1" },
+      ],
+    });
+    const context = deriveMenuContext(makeAppState(), [project], [], PREFS);
+    // The native "Move to Folder" submenu is one flat list, so "api" has to
+    // say which epic it belongs to.
+    expect(context.project?.folders).toEqual([
+      { id: "f1", name: "epic", parentId: null },
+      { id: "f2", name: "epic / api", parentId: "f1" },
+    ]);
+  });
+
+  it("lists workspaces in a nested folder in sidebar order", () => {
+    const deep = ws("/repo/demo-deep", { folderId: "f2" });
+    const folders: WorkspaceFolder[] = [
+      { id: "f1", name: "epic", parentId: null },
+      { id: "f2", name: "api", parentId: "f1" },
+    ];
+    const project = makeProject(
+      { folders },
+      [ws(MAIN, { isMain: true, branch: "main" }), deep, ws(FEATURE)],
+      folders,
+      ["f1", "f2", deep.path, MAIN, FEATURE],
+    );
+    const context = deriveMenuContext(makeAppState(), [project], [], PREFS);
+    expect(context.projects[0].workspaces.map((w) => w.path)).toEqual([
+      deep.path,
+      MAIN,
+      FEATURE,
     ]);
   });
 

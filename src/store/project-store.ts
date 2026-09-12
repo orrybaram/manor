@@ -4,6 +4,7 @@ import { useToastStore } from "./toast-store";
 import { branchesEqual } from "../utils/branch-name";
 import {
   buildSidebarItems,
+  folderParentsOf,
   insertFolderBefore,
   membershipOf,
   placeInFolder,
@@ -126,28 +127,28 @@ function sortWorkspacesByOrder(
 
 /**
  * Mirrors main's `spliceFolderOut`: drops the folder id from the sidebar order
- * and puts its members' paths in that slot, so ungrouping leaves them where
- * the folder was. Re-implemented here rather than imported — the renderer
- * never reaches into `electron/`.
+ * and puts the keys it held in that slot — member paths and child folder ids
+ * alike — so ungrouping leaves them where the folder was. Re-implemented here
+ * rather than imported — the renderer never reaches into `electron/`.
  */
 function spliceFolderOutOfOrder(
   order: string[],
   folderId: string,
-  memberPaths: string[],
+  memberKeys: string[],
 ): string[] {
-  const memberSet = new Set(memberPaths);
+  const memberSet = new Set(memberKeys);
   const rest = order.filter(
     (entry) => entry !== folderId && !memberSet.has(entry),
   );
   const folderIndex = order.indexOf(folderId);
-  if (folderIndex === -1) return [...rest, ...memberPaths];
+  if (folderIndex === -1) return [...rest, ...memberKeys];
 
   let insertAt = 0;
   for (let i = 0; i < folderIndex; i++) {
     const entry = order[i];
     if (entry !== folderId && !memberSet.has(entry)) insertAt++;
   }
-  return [...rest.slice(0, insertAt), ...memberPaths, ...rest.slice(insertAt)];
+  return [...rest.slice(0, insertAt), ...memberKeys, ...rest.slice(insertAt)];
 }
 
 function loadCollapsedFolderKeys(): Set<string> {
@@ -326,6 +327,8 @@ function checkRunsEqual(a?: PrCheckRun[], b?: PrCheckRun[]): boolean {
 export interface WorkspaceFolder {
   id: string;
   name: string;
+  /** Enclosing folder, or null at the top level (ADR-172). */
+  parentId: string | null;
 }
 
 export interface WorkspaceInfo {
@@ -457,7 +460,9 @@ interface ProjectState {
     projectId: string,
     name: string,
     /** When given, the new folder takes this row's slot and swallows it. */
-    anchorPath?: string,
+    anchorKey?: string,
+    /** Enclosing folder for the new folder; top level when omitted. */
+    parentId?: string | null,
   ) => Promise<WorkspaceFolder | null>;
   renameWorkspaceFolder: (
     projectId: string,
@@ -830,12 +835,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     const changedByPath = new Map(changes.map((c) => [c.path, c.folderId]));
 
+    // Folder nesting is the other half of the structure (ADR-172). The map is
+    // parents-first, and the calls below keep that order: main refuses a move
+    // that would close a cycle, and applying a parent before its children is
+    // what keeps a swap of two folders out of that state.
+    const parents = folderParentsOf(next);
+    const folderById = new Map(project.folders.map((f) => [f.id, f]));
+    const folderChanges: { folderId: string; parentId: string | null }[] = [];
+    for (const [folderId, parentId] of parents) {
+      const folder = folderById.get(folderId);
+      if (!folder) continue;
+      if (parentId !== (folder.parentId ?? null)) {
+        folderChanges.push({ folderId, parentId });
+      }
+    }
+    const changedByFolderId = new Map(
+      folderChanges.map((c) => [c.folderId, c.parentId]),
+    );
+
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
           ? {
               ...p,
               sidebarOrder: order,
+              folders: p.folders.map((f) =>
+                changedByFolderId.has(f.id)
+                  ? { ...f, parentId: changedByFolderId.get(f.id) ?? null }
+                  : f,
+              ),
               workspaces: sortWorkspacesByOrder(
                 p.workspaces.map((ws) =>
                   changedByPath.has(ws.path)
@@ -854,6 +882,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectId,
         change.path,
         change.folderId,
+      );
+    }
+    for (const change of folderChanges) {
+      await window.electronAPI.projects.setFolderParent(
+        projectId,
+        change.folderId,
+        change.parentId,
       );
     }
     await window.electronAPI.projects.reorderWorkspaces(projectId, order);
@@ -908,11 +943,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createWorkspaceFolder: async (
     projectId: string,
     name: string,
-    anchorPath?: string,
+    anchorKey?: string,
+    parentId?: string | null,
   ) => {
     const folder = await window.electronAPI.projects.createWorkspaceFolder(
       projectId,
       name,
+      parentId ?? null,
     );
     if (!folder) return folder;
 
@@ -929,15 +966,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    if (anchorPath) {
+    if (anchorKey) {
       const project = get().projects.find((p) => p.id === projectId);
       if (project) {
         const items = buildSidebarItems(project);
         await get().applySidebarChange(
           projectId,
           placeInFolder(
-            insertFolderBefore(items, folder, anchorPath),
-            anchorPath,
+            insertFolderBefore(items, folder, anchorKey),
+            anchorKey,
             folder.id,
           ),
         );
@@ -976,21 +1013,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => {
         if (p.id !== projectId) return p;
-        const memberPaths = sortWorkspacesByOrder(
-          p.workspaces.filter((ws) => ws.folderId === folderId),
-          p.sidebarOrder,
-        ).map((ws) => ws.path);
+        // Main promotes rather than orphans: whatever the folder held —
+        // member workspaces and child folders alike — moves up to the
+        // grandparent and takes the deleted folder's slot in the order.
+        const parentId = p.folders.find((f) => f.id === folderId)?.parentId ?? null;
+        const orderIndex = new Map(p.sidebarOrder.map((entry, i) => [entry, i]));
+        const memberKeys = [
+          ...p.workspaces
+            .filter((ws) => ws.folderId === folderId)
+            .map((ws) => ws.path),
+          ...p.folders.filter((f) => f.parentId === folderId).map((f) => f.id),
+        ].sort(
+          (a, b) =>
+            (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity),
+        );
         const sidebarOrder = spliceFolderOutOfOrder(
           p.sidebarOrder,
           folderId,
-          memberPaths,
+          memberKeys,
         );
         return {
           ...p,
-          folders: p.folders.filter((f) => f.id !== folderId),
+          folders: p.folders
+            .filter((f) => f.id !== folderId)
+            .map((f) => (f.parentId === folderId ? { ...f, parentId } : f)),
           workspaces: sortWorkspacesByOrder(
             p.workspaces.map((ws) =>
-              ws.folderId === folderId ? { ...ws, folderId: null } : ws,
+              ws.folderId === folderId ? { ...ws, folderId: parentId } : ws,
             ),
             sidebarOrder,
           ),

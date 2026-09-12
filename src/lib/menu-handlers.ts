@@ -41,6 +41,7 @@ import {
   buildSidebarItems,
   placeAfterFolder,
   placeInFolder,
+  type SidebarItem,
 } from "../utils/sidebar-items";
 import { navigateBack, navigateForward } from "../hooks/useNavigationHistory";
 import type { SettingsPageId } from "../components/settings/SettingsModal/SettingsModal";
@@ -101,20 +102,18 @@ function stringArg(
 
 /**
  * Every workspace the menu can switch between, in the order the sidebar shows
- * them: Home first, then each project's visible workspaces with folder members
- * flattened into the folder's slot.
+ * them: Home first, then each project's visible workspaces with folders — at
+ * any depth — flattened into the folder's slot.
  */
 export function orderedWorkspacePaths(projects: ProjectInfo[]): string[] {
   const paths: string[] = [HOME_PATH];
-  for (const project of projects) {
-    for (const item of buildSidebarItems(project)) {
-      if (item.kind === "folder") {
-        for (const ws of item.workspaces) paths.push(ws.path);
-      } else {
-        paths.push(item.ws.path);
-      }
+  const walk = (items: SidebarItem[]) => {
+    for (const item of items) {
+      if (item.kind === "folder") walk(item.children);
+      else paths.push(item.ws.path);
     }
-  }
+  };
+  for (const project of projects) walk(buildSidebarItems(project));
   return paths;
 }
 

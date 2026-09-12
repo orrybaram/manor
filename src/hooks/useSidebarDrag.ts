@@ -78,7 +78,9 @@ export function useSidebarDrag({
       if (disabled) return;
       if (e.button !== 0) return;
 
-      const rows = flattenRows(items, collapsedFolderIds, kind);
+      // The dragged key goes in so a folder drag never offers a slot inside
+      // the block that is moving with the pointer (ADR-172).
+      const rows = flattenRows(items, collapsedFolderIds, kind, key);
       const sourceIndex = rows.findIndex((row) => row.key === key);
       if (sourceIndex === -1) return;
 

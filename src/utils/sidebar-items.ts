@@ -1,4 +1,4 @@
-// Pure view model for the sidebar's workspace list (ADR-167).
+// Pure view model for the sidebar's workspace list (ADR-167, ADR-172).
 //
 // `ProjectInfo.sidebarOrder` is a single normalized, depth-first array of
 // workspace paths and folder ids. This module turns that array into an
@@ -6,18 +6,27 @@
 // serializes a tree back to the canonical order. Nothing here touches React,
 // the store, or IPC — the drag hook only produces a `DropTarget`, and the
 // store only persists what `serializeOrder` returns.
+//
+// Since ADR-172 folders nest: structure comes from the links (`parentId` for
+// folders, `folderId` for workspaces) and position from `sidebarOrder`, so
+// every function below is the recursive form of its ADR-167 self.
 
 import type { ProjectInfo, WorkspaceFolder, WorkspaceInfo } from "../store/project-store";
 
 export type SidebarItem =
   | { kind: "workspace"; ws: WorkspaceInfo }
-  | { kind: "folder"; folder: WorkspaceFolder; workspaces: WorkspaceInfo[] };
+  | { kind: "folder"; folder: WorkspaceFolder; children: SidebarItem[] };
 
-/** One drop slot in a drag. `parentFolderId` is null for top-level rows. */
+/**
+ * One drop slot in a drag. `parentFolderId` is null for top-level rows and
+ * `depth` counts enclosing folders, so the drag hook can indent its insertion
+ * line without walking the tree again.
+ */
 export type Row = {
   key: string;
   kind: "workspace" | "folder";
   parentFolderId: string | null;
+  depth: number;
 };
 
 export type DropTarget =
@@ -30,185 +39,256 @@ function isFolder(item: SidebarItem): item is FolderItem {
   return item.kind === "folder";
 }
 
+/** The key an item is addressed by: a workspace path or a folder id. */
+function keyOf(item: SidebarItem): string {
+  return isFolder(item) ? item.folder.id : item.ws.path;
+}
+
 /**
- * Builds the ordered item tree from a project. Walks `sidebarOrder`: a folder
- * id yields a folder item (members are the visible workspaces pointing at it,
- * ordered by their own `sidebarOrder` index), a path yields a loose workspace
- * item when that workspace is visible and has no valid folder. Empty folders
- * are kept. Anything the order forgot is appended — defensive only, main
- * normalizes the array before the renderer sees it.
+ * Each folder's usable parent.
+ *
+ * Main normalizes a dangling or self-referential parent to null, but it does
+ * not untangle a longer cycle in a hand-edited file, and a cycle would make
+ * the recursive build below unreachable (or endless). So a folder whose
+ * parent chain never reaches the top level within the number of folders that
+ * exist is read as top-level itself: every folder in the tangle surfaces,
+ * nothing is hidden, and what remains is a forest.
+ */
+function resolveParents(
+  folders: readonly WorkspaceFolder[],
+): Map<string, string | null> {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const parents = new Map<string, string | null>();
+  for (const folder of folders) {
+    let current = folder.parentId ?? null;
+    let rooted = true;
+    for (let steps = 0; current != null; steps++) {
+      if (steps > folders.length || !byId.has(current)) {
+        rooted = false;
+        break;
+      }
+      current = byId.get(current)?.parentId ?? null;
+    }
+    const parent = folder.parentId ?? null;
+    parents.set(folder.id, rooted && parent !== null ? parent : null);
+  }
+  return parents;
+}
+
+/**
+ * Builds the ordered item tree from a project. A folder's children are the
+ * visible workspaces pointing at it and the folders whose `parentId` is it,
+ * ordered by their first index in `sidebarOrder`; anything the order forgot
+ * is appended (workspaces before folders, in project order) — defensive only,
+ * main normalizes the array before the renderer sees it. Empty folders are
+ * kept, and a workspace whose folder id names no folder is loose.
  */
 export function buildSidebarItems(
   project: Pick<ProjectInfo, "workspaces" | "folders" | "sidebarOrder">,
 ): SidebarItem[] {
   const folderById = new Map(project.folders.map((f) => [f.id, f]));
+  const wsByPath = new Map(project.workspaces.map((ws) => [ws.path, ws]));
+  const parentOf = resolveParents(project.folders);
+
   const orderIndex = new Map<string, number>();
   project.sidebarOrder.forEach((entry, i) => {
     if (!orderIndex.has(entry)) orderIndex.set(entry, i);
   });
 
-  const membersByFolderId = new Map<string, WorkspaceInfo[]>();
-  for (const folder of project.folders) membersByFolderId.set(folder.id, []);
+  // Bucket every key under the parent that will hold it. Workspaces are
+  // collected first so that, among the entries the order forgot, they come
+  // before folders — `Array.prototype.sort` is stable.
+  const childKeys = new Map<string | null, string[]>();
+  const push = (parentId: string | null, key: string) => {
+    const bucket = childKeys.get(parentId);
+    if (bucket) bucket.push(key);
+    else childKeys.set(parentId, [key]);
+  };
   for (const ws of project.workspaces) {
     if (ws.hidden) continue;
-    const members = ws.folderId ? membersByFolderId.get(ws.folderId) : undefined;
-    if (members) members.push(ws);
+    const folderId = ws.folderId && folderById.has(ws.folderId) ? ws.folderId : null;
+    push(folderId, ws.path);
   }
-  for (const members of membersByFolderId.values()) {
-    // Stable: paths missing from the order keep their `project.workspaces`
-    // sequence at the end of the folder.
-    members.sort(
-      (a, b) =>
-        (orderIndex.get(a.path) ?? Infinity) - (orderIndex.get(b.path) ?? Infinity),
+  for (const folder of project.folders) {
+    push(parentOf.get(folder.id) ?? null, folder.id);
+  }
+  for (const keys of childKeys.values()) {
+    keys.sort(
+      (a, b) => (orderIndex.get(a) ?? Infinity) - (orderIndex.get(b) ?? Infinity),
     );
   }
 
-  const wsByPath = new Map(project.workspaces.map((ws) => [ws.path, ws]));
-  const items: SidebarItem[] = [];
-  const emitted = new Set<string>();
-
-  const pushFolder = (folder: WorkspaceFolder) => {
-    emitted.add(folder.id);
-    items.push({
-      kind: "folder",
-      folder,
-      workspaces: membersByFolderId.get(folder.id) ?? [],
+  const build = (parentId: string | null): SidebarItem[] =>
+    (childKeys.get(parentId) ?? []).map((key) => {
+      const folder = folderById.get(key);
+      if (folder) {
+        return { kind: "folder", folder, children: build(folder.id) };
+      }
+      return { kind: "workspace", ws: wsByPath.get(key)! };
     });
-  };
-  const pushLoose = (ws: WorkspaceInfo) => {
-    emitted.add(ws.path);
-    items.push({ kind: "workspace", ws });
-  };
-  const isLoose = (ws: WorkspaceInfo) =>
-    !ws.hidden && !(ws.folderId && folderById.has(ws.folderId));
 
-  for (const entry of project.sidebarOrder) {
-    if (emitted.has(entry)) continue;
-    const folder = folderById.get(entry);
-    if (folder) {
-      pushFolder(folder);
-      continue;
-    }
-    const ws = wsByPath.get(entry);
-    if (ws && isLoose(ws)) pushLoose(ws);
-  }
-
-  for (const ws of project.workspaces) {
-    if (!emitted.has(ws.path) && isLoose(ws)) pushLoose(ws);
-  }
-  for (const folder of project.folders) {
-    if (!emitted.has(folder.id)) pushFolder(folder);
-  }
-
-  return items;
+  return build(null);
 }
 
 /**
  * The drop slots a drag of `dragging` runs against, in tree order.
  *
- * Dragging a folder collapses every top-level item to one row (a folder block
- * moves whole). Dragging a workspace emits a header row per folder followed
- * by its member rows, unless the folder is collapsed.
+ * A workspace drag sees every visible row: folder headers at any depth and
+ * the members of expanded folders. A folder drag moves whole blocks, so it
+ * sees folder headers (a folder may now land inside a folder) and loose
+ * top-level workspaces, but not folders' members — and never anything inside
+ * `draggingKey`'s own subtree, which travels with it.
  */
 export function flattenRows(
   items: SidebarItem[],
   collapsedFolderIds: Set<string>,
   dragging: "workspace" | "folder",
+  draggingKey?: string,
 ): Row[] {
   const rows: Row[] = [];
-  for (const item of items) {
-    if (!isFolder(item)) {
-      rows.push({ key: item.ws.path, kind: "workspace", parentFolderId: null });
-      continue;
+  const walk = (
+    list: SidebarItem[],
+    parentFolderId: string | null,
+    depth: number,
+  ) => {
+    for (const item of list) {
+      if (!isFolder(item)) {
+        if (dragging === "folder" && parentFolderId !== null) continue;
+        rows.push({ key: item.ws.path, kind: "workspace", parentFolderId, depth });
+        continue;
+      }
+      const folderId = item.folder.id;
+      rows.push({ key: folderId, kind: "folder", parentFolderId, depth });
+      // The dragged folder still needs its own row — it is the source — but
+      // its contents are not slots it can be dropped into.
+      if (dragging === "folder" && folderId === draggingKey) continue;
+      if (collapsedFolderIds.has(folderId)) continue;
+      walk(item.children, folderId, depth + 1);
     }
-    rows.push({ key: item.folder.id, kind: "folder", parentFolderId: null });
-    if (dragging === "folder") continue;
-    if (collapsedFolderIds.has(item.folder.id)) continue;
-    for (const ws of item.workspaces) {
-      rows.push({
-        key: ws.path,
-        kind: "workspace",
-        parentFolderId: item.folder.id,
-      });
-    }
-  }
+  };
+  walk(items, null, 0);
   return rows;
 }
 
-function removeWorkspace(
-  items: SidebarItem[],
-  path: string,
-): { items: SidebarItem[]; ws: WorkspaceInfo | null } {
-  let ws: WorkspaceInfo | null = null;
-  const next: SidebarItem[] = [];
+/** The folder item for `folderId`, at any depth. */
+function findFolder(items: SidebarItem[], folderId: string): FolderItem | null {
   for (const item of items) {
-    if (!isFolder(item)) {
-      if (item.ws.path === path) {
-        ws = item.ws;
+    if (!isFolder(item)) continue;
+    if (item.folder.id === folderId) return item;
+    const nested = findFolder(item.children, folderId);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Where `key` sits: the id of the folder holding it and its index there. */
+function locate(
+  items: SidebarItem[],
+  key: string,
+): { parentId: string | null; index: number } | null {
+  const walk = (
+    list: SidebarItem[],
+    parentId: string | null,
+  ): { parentId: string | null; index: number } | null => {
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (keyOf(item) === key) return { parentId, index: i };
+      if (isFolder(item)) {
+        const nested = walk(item.children, item.folder.id);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+  return walk(items, null);
+}
+
+/** Pulls `key` (with its subtree, for a folder) out of the tree. */
+function removeItem(
+  items: SidebarItem[],
+  key: string,
+): { items: SidebarItem[]; item: SidebarItem | null } {
+  let removed: SidebarItem | null = null;
+  const walk = (list: SidebarItem[]): SidebarItem[] => {
+    const next: SidebarItem[] = [];
+    for (const item of list) {
+      if (keyOf(item) === key) {
+        removed = item;
         continue;
       }
-      next.push(item);
-      continue;
+      next.push(isFolder(item) ? { ...item, children: walk(item.children) } : item);
     }
-    const member = item.workspaces.find((w) => w.path === path);
-    if (member) {
-      ws = member;
-      next.push({
-        ...item,
-        workspaces: item.workspaces.filter((w) => w.path !== path),
-      });
-    } else {
-      next.push(item);
-    }
-  }
-  return { items: next, ws };
-}
-
-function removeFolder(
-  items: SidebarItem[],
-  folderId: string,
-): { items: SidebarItem[]; item: FolderItem | null } {
-  const item = items.find((i) => isFolder(i) && i.folder.id === folderId) as
-    | FolderItem
-    | undefined;
-  if (!item) return { items, item: null };
-  return {
-    items: items.filter((i) => i !== item),
-    item,
+    return next;
   };
+  const nextItems = walk(items);
+  return { items: removed ? nextItems : items, item: removed };
 }
 
-function insertLooseAt(
+/**
+ * Puts `item` into `parentId`'s children at `index` (a negative index or one
+ * past the end appends). `parentId` null is the top level.
+ */
+function insertItem(
   items: SidebarItem[],
+  parentId: string | null,
   index: number,
-  ws: WorkspaceInfo,
+  item: SidebarItem,
 ): SidebarItem[] {
-  const next = [...items];
-  next.splice(clamp(index, 0, next.length), 0, { kind: "workspace", ws });
-  return next;
-}
-
-function insertIntoFolderAt(
-  items: SidebarItem[],
-  folderId: string,
-  index: number,
-  ws: WorkspaceInfo,
-): SidebarItem[] {
-  return items.map((item) => {
-    if (!isFolder(item) || item.folder.id !== folderId) return item;
-    const workspaces = [...item.workspaces];
-    workspaces.splice(clamp(index, 0, workspaces.length), 0, ws);
-    return { ...item, workspaces };
+  if (parentId === null) {
+    const next = [...items];
+    next.splice(index < 0 ? next.length : clamp(index, 0, next.length), 0, item);
+    return next;
+  }
+  return items.map((current) => {
+    if (!isFolder(current)) return current;
+    if (current.folder.id !== parentId) {
+      return { ...current, children: insertItem(current.children, parentId, index, item) };
+    }
+    const children = [...current.children];
+    children.splice(
+      index < 0 ? children.length : clamp(index, 0, children.length),
+      0,
+      item,
+    );
+    return { ...current, children };
   });
 }
 
-/** Index of the top-level item that owns `key` (a path or a folder id). */
+/** Index of the top-level item whose subtree holds `key` (or is `key`). */
 function topLevelIndexOf(items: SidebarItem[], key: string): number {
-  return items.findIndex((item) =>
-    isFolder(item)
-      ? item.folder.id === key || item.workspaces.some((w) => w.path === key)
-      : item.ws.path === key,
+  return items.findIndex(
+    (item) =>
+      keyOf(item) === key ||
+      (isFolder(item) && locate(item.children, key) !== null),
   );
+}
+
+/** Every key inside `item`, the item's own key included. */
+function keysWithin(item: SidebarItem): Set<string> {
+  const keys = new Set<string>();
+  const walk = (current: SidebarItem) => {
+    keys.add(keyOf(current));
+    if (isFolder(current)) current.children.forEach(walk);
+  };
+  walk(item);
+  return keys;
+}
+
+/**
+ * True when `candidateId` is `folderId` itself or sits below it — the twin of
+ * main's `isFolderDescendant`, reading the tree instead of the links, and the
+ * reason a folder can never be dropped into its own subtree.
+ */
+export function isFolderDescendant(
+  items: SidebarItem[],
+  folderId: string,
+  candidateId: string | null | undefined,
+): boolean {
+  if (candidateId == null) return false;
+  if (candidateId === folderId) return true;
+  const folder = findFolder(items, folderId);
+  if (!folder) return false;
+  return findFolder(folder.children, candidateId) !== null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -221,9 +301,10 @@ function clamp(value: number, min: number, max: number): number {
  * `rows` is the row list the drag ran against (from `flattenRows`), and
  * `target.rowIndex` is the index the source lands on *after* it has been
  * pulled out — the `finalDrop` semantic of the old index-based drag hook. The
- * row preceding that position decides the parent: a member of an expanded
- * folder or that folder's header puts the source inside it, anything else
- * leaves it loose. Folders never nest.
+ * row preceding that position decides the parent, at any depth: an expanded
+ * folder's header puts the source inside it as the first child, anything else
+ * makes the source that row's next sibling. A folder dropped into itself or
+ * one of its descendants is a no-op.
  */
 export function applyDrop(
   items: SidebarItem[],
@@ -231,99 +312,56 @@ export function applyDrop(
   target: DropTarget,
   rows: Row[],
 ): SidebarItem[] {
-  const sourceIsFolder = items.some(
-    (item) => isFolder(item) && item.folder.id === sourceKey,
-  );
+  const sourceIsFolder = findFolder(items, sourceKey) !== null;
+
+  if (target.type === "into") {
+    if (!findFolder(items, target.folderId)) return items;
+    if (sourceIsFolder && isFolderDescendant(items, sourceKey, target.folderId)) {
+      return items;
+    }
+    const { items: base, item } = removeItem(items, sourceKey);
+    if (!item) return items;
+    return insertItem(base, target.folderId, -1, item);
+  }
+
+  const { items: base, item } = removeItem(items, sourceKey);
+  if (!item) return items;
 
   // Folders whose members were visible when the drag started. Read from the
   // original `rows` so dragging a folder's only member doesn't make its
   // folder look collapsed.
   const expandedFolderIds = new Set(
-    rows
-      .map((r) => r.parentFolderId)
-      .filter((id): id is string => id != null),
+    rows.map((r) => r.parentFolderId).filter((id): id is string => id != null),
   );
 
-  // The row the source lands after, in the row list minus the source itself.
-  const predecessorOf = (skip: (row: Row) => boolean): Row | undefined => {
-    const rest = rows.filter((row) => !skip(row));
-    const index = clamp(
-      target.type === "slot" ? target.rowIndex : 0,
-      0,
-      rest.length,
-    );
-    return index > 0 ? rest[index - 1] : undefined;
-  };
+  // The row the source lands after, in the row list minus the source and
+  // whatever travelled with it.
+  const moved = keysWithin(item);
+  const rest = rows.filter((row) => !moved.has(row.key));
+  const index = clamp(target.rowIndex, 0, rest.length);
+  const pred = index > 0 ? rest[index - 1] : undefined;
 
-  if (sourceIsFolder) {
-    // A folder can never land inside another folder.
-    if (target.type === "into") return items;
-    const { items: base, item } = removeFolder(items, sourceKey);
-    if (!item) return items;
-    const pred = predecessorOf(
-      (row) => row.key === sourceKey || row.parentFolderId === sourceKey,
-    );
-    if (!pred) return [item, ...base];
-    const anchor = pred.parentFolderId ?? pred.key;
-    const at = topLevelIndexOf(base, anchor);
-    const next = [...base];
-    next.splice(at === -1 ? next.length : at + 1, 0, item);
-    return next;
+  if (!pred) return insertItem(base, null, 0, item);
+
+  if (
+    pred.kind === "folder" &&
+    expandedFolderIds.has(pred.key) &&
+    findFolder(base, pred.key)
+  ) {
+    // Landing right under an expanded header means "first child".
+    return insertItem(base, pred.key, 0, item);
   }
 
-  const { items: base, ws } = removeWorkspace(items, sourceKey);
-  if (!ws) return items;
-
-  if (target.type === "into") {
-    const folder = base.find(
-      (item): item is FolderItem =>
-        isFolder(item) && item.folder.id === target.folderId,
-    );
-    if (!folder) return items;
-    return insertIntoFolderAt(base, target.folderId, folder.workspaces.length, ws);
-  }
-
-  const pred = predecessorOf((row) => row.key === sourceKey);
-  if (!pred) return insertLooseAt(base, 0, ws);
-
-  if (pred.kind === "folder") {
-    const folderId = pred.key;
-    const exists = base.some(
-      (item) => isFolder(item) && item.folder.id === folderId,
-    );
-    if (exists && expandedFolderIds.has(folderId)) {
-      // Landing right under an expanded header means "first member".
-      return insertIntoFolderAt(base, folderId, 0, ws);
-    }
-    const at = topLevelIndexOf(base, folderId);
-    return insertLooseAt(base, at === -1 ? base.length : at + 1, ws);
-  }
-
-  if (pred.parentFolderId) {
-    const folder = base.find(
-      (item): item is FolderItem =>
-        isFolder(item) && item.folder.id === pred.parentFolderId,
-    );
-    if (folder) {
-      const memberIndex = folder.workspaces.findIndex((w) => w.path === pred.key);
-      return insertIntoFolderAt(
-        base,
-        folder.folder.id,
-        memberIndex === -1 ? folder.workspaces.length : memberIndex + 1,
-        ws,
-      );
-    }
-  }
-
-  const at = topLevelIndexOf(base, pred.key);
-  return insertLooseAt(base, at === -1 ? base.length : at + 1, ws);
+  const at = locate(base, pred.key);
+  if (!at) return insertItem(base, null, base.length, item);
+  return insertItem(base, at.parentId, at.index + 1, item);
 }
 
 /**
- * Canonical depth-first order for persistence: each top-level entry, a folder
- * id immediately followed by its members. Hidden workspaces aren't in the
- * tree, so their paths are appended afterwards in their previous relative
- * order, which keeps their slot stable across successive edits.
+ * Canonical depth-first order for persistence: each entry, a folder id
+ * immediately followed by its children, recursively. Hidden workspaces aren't
+ * in the tree, so their paths are appended afterwards in their previous
+ * relative order, which keeps their slot stable across successive edits.
  */
 export function serializeOrder(
   items: SidebarItem[],
@@ -337,14 +375,13 @@ export function serializeOrder(
     order.push(key);
   };
 
-  for (const item of items) {
-    if (isFolder(item)) {
-      push(item.folder.id);
-      for (const ws of item.workspaces) push(ws.path);
-    } else {
-      push(item.ws.path);
+  const walk = (list: SidebarItem[]) => {
+    for (const item of list) {
+      push(keyOf(item));
+      if (isFolder(item)) walk(item.children);
     }
-  }
+  };
+  walk(items);
 
   const previousIndex = new Map<string, number>();
   project.sidebarOrder.forEach((entry, i) => {
@@ -368,68 +405,102 @@ export function serializeOrder(
 /** Folder membership implied by the tree: workspace path → folder id or null. */
 export function membershipOf(items: SidebarItem[]): Map<string, string | null> {
   const membership = new Map<string, string | null>();
-  for (const item of items) {
-    if (isFolder(item)) {
-      for (const ws of item.workspaces) membership.set(ws.path, item.folder.id);
-    } else {
-      membership.set(item.ws.path, null);
+  const walk = (list: SidebarItem[], parentId: string | null) => {
+    for (const item of list) {
+      if (isFolder(item)) walk(item.children, item.folder.id);
+      else membership.set(item.ws.path, parentId);
     }
-  }
+  };
+  walk(items, null);
   return membership;
 }
 
-/** Menu "Move to Folder": pull the path out of wherever it is, append to F. */
-export function placeInFolder(
-  items: SidebarItem[],
-  path: string,
-  folderId: string,
-): SidebarItem[] {
-  const { items: base, ws } = removeWorkspace(items, path);
-  if (!ws) return items;
-  const target = base.find(
-    (item): item is FolderItem => isFolder(item) && item.folder.id === folderId,
-  );
-  if (!target) return items;
-  return insertIntoFolderAt(base, folderId, target.workspaces.length, ws);
+/**
+ * Folder nesting implied by the tree: folder id → parent id or null. Walked
+ * parents-first, so a caller replaying the differences against main applies a
+ * new parent before the children that move with it — a swap of two folders
+ * never passes through a state main's cycle guard would reject.
+ */
+export function folderParentsOf(items: SidebarItem[]): Map<string, string | null> {
+  const parents = new Map<string, string | null>();
+  const walk = (list: SidebarItem[], parentId: string | null) => {
+    for (const item of list) {
+      if (!isFolder(item)) continue;
+      parents.set(item.folder.id, parentId);
+      walk(item.children, item.folder.id);
+    }
+  };
+  walk(items, null);
+  return parents;
 }
 
-/** Menu "Remove from Folder": leave F and sit loose immediately after it. */
-export function placeAfterFolder(
+/**
+ * Every workspace in `item`'s subtree, in tree order. A folder header reports
+ * what it holds at any depth — the count and the collapsed agent dot are
+ * about the whole block, not just its direct members.
+ */
+export function descendantWorkspaces(item: SidebarItem): WorkspaceInfo[] {
+  const workspaces: WorkspaceInfo[] = [];
+  const walk = (current: SidebarItem) => {
+    if (isFolder(current)) current.children.forEach(walk);
+    else workspaces.push(current.ws);
+  };
+  walk(item);
+  return workspaces;
+}
+
+/**
+ * Menu "Move to Folder": pull `key` (a workspace path or a folder id) out of
+ * wherever it is and append it to F. Moving a folder into itself or into its
+ * own subtree is refused, the same rule the drag obeys.
+ */
+export function placeInFolder(
   items: SidebarItem[],
-  path: string,
+  key: string,
   folderId: string,
 ): SidebarItem[] {
-  const exists = items.some(
-    (item) => isFolder(item) && item.folder.id === folderId,
-  );
-  if (!exists) return items;
-  const { items: base, ws } = removeWorkspace(items, path);
-  if (!ws) return items;
-  const at = topLevelIndexOf(base, folderId);
-  return insertLooseAt(base, at === -1 ? base.length : at + 1, ws);
+  if (!findFolder(items, folderId)) return items;
+  if (isFolderDescendant(items, key, folderId)) return items;
+  const { items: base, item } = removeItem(items, key);
+  if (!item) return items;
+  return insertItem(base, folderId, -1, item);
+}
+
+/**
+ * Menu "Remove from Folder": leave F and sit immediately after it, which at
+ * the top level means loose and inside a nested F means one level up.
+ */
+export function placeAfterFolder(
+  items: SidebarItem[],
+  key: string,
+  folderId: string,
+): SidebarItem[] {
+  if (!findFolder(items, folderId)) return items;
+  const { items: base, item } = removeItem(items, key);
+  if (!item) return items;
+  const at = locate(base, folderId);
+  if (!at) return insertItem(base, null, base.length, item);
+  return insertItem(base, at.parentId, at.index + 1, item);
 }
 
 /**
  * "New Folder…" from a row: the new folder takes that row's top-level slot
- * (the loose row itself, or the folder currently holding it). Any existing
- * item for the same folder is moved rather than duplicated.
+ * (the loose row itself, or the outermost folder holding it), so the group it
+ * creates sits where the eye already is. Any existing item for the same
+ * folder is moved rather than duplicated.
  */
 export function insertFolderBefore(
   items: SidebarItem[],
   folder: WorkspaceFolder,
-  anchorPath: string,
+  anchorKey: string,
 ): SidebarItem[] {
-  const existing = items.find(
-    (item): item is FolderItem => isFolder(item) && item.folder.id === folder.id,
-  );
-  const base = existing ? items.filter((item) => item !== existing) : items;
+  const existing = findFolder(items, folder.id);
+  const base = existing ? removeItem(items, folder.id).items : items;
   const item: FolderItem = {
     kind: "folder",
     folder,
-    workspaces: existing?.workspaces ?? [],
+    children: existing?.children ?? [],
   };
-  const at = topLevelIndexOf(base, anchorPath);
-  const next = [...base];
-  next.splice(at === -1 ? next.length : at, 0, item);
-  return next;
+  const at = topLevelIndexOf(base, anchorKey);
+  return insertItem(base, null, at === -1 ? base.length : at, item);
 }

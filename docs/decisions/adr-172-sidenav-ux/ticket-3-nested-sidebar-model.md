@@ -1,6 +1,6 @@
 ---
 title: Nested folders — view model, store, menu handlers
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

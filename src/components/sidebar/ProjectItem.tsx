@@ -20,10 +20,12 @@ import {
 import {
   applyDrop,
   buildSidebarItems,
+  descendantWorkspaces,
   placeAfterFolder,
   placeInFolder,
   type DropTarget,
   type Row,
+  type SidebarItem,
 } from "../../utils/sidebar-items";
 import { headerRefKey, useSidebarDrag } from "../../hooks/useSidebarDrag";
 import { useProjectAgentStatus } from "../../hooks/useProjectAgentStatus";
@@ -620,6 +622,49 @@ export function ProjectItem(props: ProjectItemProps) {
     );
   };
 
+  // Folders nest (ADR-172), so a folder's body is the same renderer one level
+  // down rather than a flat list of members.
+  const renderItem = (item: SidebarItem): React.ReactNode => {
+    if (item.kind === "workspace") return renderWorkspace(item.ws);
+    const { folder, children } = item;
+    const contents = descendantWorkspaces(item);
+    return (
+      <FolderItem
+        key={folder.id}
+        folder={folder}
+        workspaces={contents}
+        collapsed={collapsedFolderIds.has(folder.id)}
+        containsSelected={
+          isSelected && !!selectedWorkspace && contents.includes(selectedWorkspace)
+        }
+        dropTarget={intoFolderId === folder.id}
+        isDragging={dragKey === folder.id}
+        onToggleCollapsed={() => toggleFolderCollapsed(projectId, folder.id)}
+        onRename={(name) => renameWorkspaceFolder(projectId, folder.id, name)}
+        onDelete={() => deleteWorkspaceFolder(projectId, folder.id)}
+        onNewWorkspace={() => {
+          setNewWorkspaceFolderId(folder.id);
+          setNewWorkspaceOpen(true);
+        }}
+        onDragStart={(e) => handleDragStart(folder.id, "folder", e)}
+        registerBlock={registerRow(folder.id)}
+        registerHeader={registerRow(headerRefKey(folder.id))}
+        style={getTransformStyle(folder.id)}
+        headerStyle={getTransformStyle(headerRefKey(folder.id))}
+        justDragged={justDragged}
+        onEditingChange={(editing) =>
+          setEditingFolderId((current) =>
+            editing ? folder.id : current === folder.id ? null : current,
+          )
+        }
+      >
+        {children.length > 0 && (
+          <div className={styles.folderMembers}>{children.map(renderItem)}</div>
+        )}
+      </FolderItem>
+    );
+  };
+
   return (
     <div
       className={`${styles.project} ${isSelected ? styles.projectSelected : ""}`}
@@ -722,61 +767,7 @@ export function ProjectItem(props: ProjectItemProps) {
         </ContextMenu.Portal>
       </ContextMenu.Root>
       {expanded && items.length > 0 && (
-        <div className={styles.workspaces}>
-          {items.map((item) =>
-            item.kind === "workspace" ? (
-              renderWorkspace(item.ws)
-            ) : (
-              <FolderItem
-                key={item.folder.id}
-                folder={item.folder}
-                workspaces={item.workspaces}
-                collapsed={collapsedFolderIds.has(item.folder.id)}
-                containsSelected={
-                  isSelected &&
-                  !!selectedWorkspace &&
-                  item.workspaces.includes(selectedWorkspace)
-                }
-                dropTarget={intoFolderId === item.folder.id}
-                isDragging={dragKey === item.folder.id}
-                onToggleCollapsed={() =>
-                  toggleFolderCollapsed(projectId, item.folder.id)
-                }
-                onRename={(name) =>
-                  renameWorkspaceFolder(projectId, item.folder.id, name)
-                }
-                onDelete={() => deleteWorkspaceFolder(projectId, item.folder.id)}
-                onNewWorkspace={() => {
-                  setNewWorkspaceFolderId(item.folder.id);
-                  setNewWorkspaceOpen(true);
-                }}
-                onDragStart={(e) =>
-                  handleDragStart(item.folder.id, "folder", e)
-                }
-                registerBlock={registerRow(item.folder.id)}
-                registerHeader={registerRow(headerRefKey(item.folder.id))}
-                style={getTransformStyle(item.folder.id)}
-                headerStyle={getTransformStyle(headerRefKey(item.folder.id))}
-                justDragged={justDragged}
-                onEditingChange={(editing) =>
-                  setEditingFolderId((current) =>
-                    editing
-                      ? item.folder.id
-                      : current === item.folder.id
-                        ? null
-                        : current,
-                  )
-                }
-              >
-                {item.workspaces.length > 0 && (
-                  <div className={styles.folderMembers}>
-                    {item.workspaces.map((ws) => renderWorkspace(ws))}
-                  </div>
-                )}
-              </FolderItem>
-            ),
-          )}
-        </div>
+        <div className={styles.workspaces}>{items.map(renderItem)}</div>
       )}
 
       <NewWorkspaceDialog

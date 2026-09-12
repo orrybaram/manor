@@ -138,7 +138,7 @@ describe("orderedWorkspacePaths", () => {
           ws("/repo/a/in-folder", { folderId: "f1" }),
           ws("/repo/a/last"),
         ],
-        [{ id: "f1", name: "Folder" }],
+        [{ id: "f1", name: "Folder", parentId: null }],
         ["/repo/a/loose", "f1", "/repo/a/in-folder", "/repo/a/last"],
       ),
     ];
@@ -146,6 +146,39 @@ describe("orderedWorkspacePaths", () => {
       HOME_PATH,
       "/repo/a/loose",
       "/repo/a/in-folder",
+      "/repo/a/last",
+    ]);
+  });
+
+  it("flattens a nested folder's members too", () => {
+    const projects = [
+      makeProject(
+        "a",
+        [
+          ws("/repo/a/loose"),
+          ws("/repo/a/in-folder", { folderId: "f1" }),
+          ws("/repo/a/deep", { folderId: "f2" }),
+          ws("/repo/a/last"),
+        ],
+        [
+          { id: "f1", name: "Epic", parentId: null },
+          { id: "f2", name: "Api", parentId: "f1" },
+        ],
+        [
+          "/repo/a/loose",
+          "f1",
+          "/repo/a/in-folder",
+          "f2",
+          "/repo/a/deep",
+          "/repo/a/last",
+        ],
+      ),
+    ];
+    expect(orderedWorkspacePaths(projects)).toEqual([
+      HOME_PATH,
+      "/repo/a/loose",
+      "/repo/a/in-folder",
+      "/repo/a/deep",
       "/repo/a/last",
     ]);
   });

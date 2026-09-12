@@ -23,7 +23,7 @@ function makeContext(overrides: Partial<MenuContext> = {}): MenuContext {
       id: "proj-1",
       name: "Manor",
       hasSetupScript: false,
-      folders: [{ id: "folder-1", name: "Active" }],
+      folders: [{ id: "folder-1", name: "Active", parentId: null }],
     },
     projects: [
       {

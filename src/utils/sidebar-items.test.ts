@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   applyDrop,
   buildSidebarItems,
+  descendantWorkspaces,
   flattenRows,
+  folderParentsOf,
   insertFolderBefore,
+  isFolderDescendant,
   membershipOf,
   placeAfterFolder,
   placeInFolder,
@@ -31,8 +34,12 @@ function ws(
   };
 }
 
-function folder(id: string, name = id.toUpperCase()): WorkspaceFolder {
-  return { id, name };
+function folder(
+  id: string,
+  parentId: string | null = null,
+  name = id.toUpperCase(),
+): WorkspaceFolder {
+  return { id, name, parentId };
 }
 
 type MinimalProject = Pick<
@@ -48,12 +55,12 @@ function project(
   return { workspaces, folders, sidebarOrder };
 }
 
-/** Compact shape of a tree: loose paths, folders as `id[members]`. */
+/** Compact shape of a tree: loose paths, folders as `id[children]`. */
 function shape(items: SidebarItem[]): string[] {
   return items.map((item) =>
     item.kind === "workspace"
       ? item.ws.path
-      : `${item.folder.id}[${item.workspaces.map((w) => w.path).join(",")}]`,
+      : `${item.folder.id}[${shape(item.children).join(",")}]`,
   );
 }
 
@@ -108,6 +115,44 @@ describe("buildSidebarItems", () => {
     const p = project([ws("/a"), ws("/b")], [folder("f1")], ["/b"]);
     expect(shape(buildSidebarItems(p))).toEqual(["/b", "/a", "f1[]"]);
   });
+
+  it("nests folders by parentId, ordered by sidebarOrder", () => {
+    const p = project(
+      [ws("/a"), ws("/api", "f-api"), ws("/ui", "f-ui"), ws("/top", "f-epic")],
+      [folder("f-epic"), folder("f-api", "f-epic"), folder("f-ui", "f-epic")],
+      ["f-epic", "/top", "f-api", "/api", "f-ui", "/ui", "/a"],
+    );
+    expect(shape(buildSidebarItems(p))).toEqual([
+      "f-epic[/top,f-api[/api],f-ui[/ui]]",
+      "/a",
+    ]);
+  });
+
+  it("interleaves a nested folder with its siblings by order index", () => {
+    const p = project(
+      [ws("/m1", "f1"), ws("/m2", "f1"), ws("/deep", "f2")],
+      [folder("f1"), folder("f2", "f1")],
+      ["f1", "/m1", "f2", "/deep", "/m2"],
+    );
+    expect(shape(buildSidebarItems(p))).toEqual(["f1[/m1,f2[/deep],/m2]"]);
+  });
+
+  it("surfaces a folder whose parent no longer exists", () => {
+    const p = project([ws("/m", "f1")], [folder("f1", "gone")], ["f1", "/m"]);
+    expect(shape(buildSidebarItems(p))).toEqual(["f1[/m]"]);
+  });
+
+  it("renders both folders of a parent cycle at the top level", () => {
+    // Main normalizes a dangling or self-referential parent, but a
+    // hand-corrupted file can still hold A → B → A. Neither folder may
+    // vanish, and the build must terminate.
+    const p = project(
+      [ws("/a", "fa"), ws("/b", "fb")],
+      [folder("fa", "fb"), folder("fb", "fa")],
+      ["fa", "/a", "fb", "/b"],
+    );
+    expect(shape(buildSidebarItems(p))).toEqual(["fa[/a]", "fb[/b]"]);
+  });
 });
 
 describe("flattenRows", () => {
@@ -119,21 +164,29 @@ describe("flattenRows", () => {
     ),
   );
 
+  const nested = buildSidebarItems(
+    project(
+      [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2")],
+      [folder("f1"), folder("f2", "f1")],
+      ["/a", "f1", "/m1", "f2", "/deep"],
+    ),
+  );
+
   it("emits one row per top-level item when dragging a folder", () => {
-    expect(flattenRows(items, new Set(), "folder")).toEqual([
-      { key: "/a", kind: "workspace", parentFolderId: null },
-      { key: "f1", kind: "folder", parentFolderId: null },
-      { key: "/b", kind: "workspace", parentFolderId: null },
+    expect(flattenRows(items, new Set(), "folder", "f1")).toEqual([
+      { key: "/a", kind: "workspace", parentFolderId: null, depth: 0 },
+      { key: "f1", kind: "folder", parentFolderId: null, depth: 0 },
+      { key: "/b", kind: "workspace", parentFolderId: null, depth: 0 },
     ]);
   });
 
   it("emits header plus member rows in tree order when dragging a workspace", () => {
     expect(flattenRows(items, new Set(), "workspace")).toEqual([
-      { key: "/a", kind: "workspace", parentFolderId: null },
-      { key: "f1", kind: "folder", parentFolderId: null },
-      { key: "/m1", kind: "workspace", parentFolderId: "f1" },
-      { key: "/m2", kind: "workspace", parentFolderId: "f1" },
-      { key: "/b", kind: "workspace", parentFolderId: null },
+      { key: "/a", kind: "workspace", parentFolderId: null, depth: 0 },
+      { key: "f1", kind: "folder", parentFolderId: null, depth: 0 },
+      { key: "/m1", kind: "workspace", parentFolderId: "f1", depth: 1 },
+      { key: "/m2", kind: "workspace", parentFolderId: "f1", depth: 1 },
+      { key: "/b", kind: "workspace", parentFolderId: null, depth: 0 },
     ]);
   });
 
@@ -141,6 +194,30 @@ describe("flattenRows", () => {
     expect(
       flattenRows(items, new Set(["f1"]), "workspace").map((r) => r.key),
     ).toEqual(["/a", "f1", "/b"]);
+  });
+
+  it("recurses into nested folders for a workspace drag", () => {
+    expect(flattenRows(nested, new Set(), "workspace")).toEqual([
+      { key: "/a", kind: "workspace", parentFolderId: null, depth: 0 },
+      { key: "f1", kind: "folder", parentFolderId: null, depth: 0 },
+      { key: "/m1", kind: "workspace", parentFolderId: "f1", depth: 1 },
+      { key: "f2", kind: "folder", parentFolderId: "f1", depth: 1 },
+      { key: "/deep", kind: "workspace", parentFolderId: "f2", depth: 2 },
+    ]);
+  });
+
+  it("offers other folders' headers to a folder drag, members aside", () => {
+    expect(flattenRows(nested, new Set(), "folder", "f2")).toEqual([
+      { key: "/a", kind: "workspace", parentFolderId: null, depth: 0 },
+      { key: "f1", kind: "folder", parentFolderId: null, depth: 0 },
+      { key: "f2", kind: "folder", parentFolderId: "f1", depth: 1 },
+    ]);
+  });
+
+  it("keeps the dragged folder's row but not its subtree", () => {
+    expect(
+      flattenRows(nested, new Set(), "folder", "f1").map((r) => r.key),
+    ).toEqual(["/a", "f1"]);
   });
 });
 
@@ -234,6 +311,38 @@ describe("applyDrop — workspace source", () => {
     ).toEqual(["f1[/m2]", "f2[/m1,/x]"]);
   });
 
+  it("moves a workspace into a nested folder", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2")],
+        [folder("f1"), folder("f2", "f1")],
+        ["/a", "f1", "/m1", "f2", "/deep"],
+      ),
+    );
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(applyDrop(items, "/a", { type: "into", folderId: "f2" }, rows)),
+    ).toEqual(["f1[/m1,f2[/deep,/a]]"]);
+    // Row 3 is f2's header, so the slot after it is f2's first child.
+    expect(
+      shape(applyDrop(items, "/a", { type: "slot", rowIndex: 3 }, rows)),
+    ).toEqual(["f1[/m1,f2[/a,/deep]]"]);
+  });
+
+  it("lands beside a nested folder when dropped after its last child", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2")],
+        [folder("f1"), folder("f2", "f1")],
+        ["/a", "f1", "/m1", "f2", "/deep"],
+      ),
+    );
+    const rows = flattenRows(items, new Set(), "workspace");
+    expect(
+      shape(applyDrop(items, "/a", { type: "slot", rowIndex: 4 }, rows)),
+    ).toEqual(["f1[/m1,f2[/deep,/a]]"]);
+  });
+
   it("ignores a drop into a folder that does not exist", () => {
     const items = nested();
     const rows = flattenRows(items, new Set(), "workspace");
@@ -253,9 +362,18 @@ describe("applyDrop — folder source", () => {
       ),
     );
 
+  const deep = () =>
+    buildSidebarItems(
+      project(
+        [ws("/m1", "f1"), ws("/deep", "f2"), ws("/x", "f3")],
+        [folder("f1"), folder("f2", "f1"), folder("f3")],
+        ["f1", "/m1", "f2", "/deep", "f3", "/x"],
+      ),
+    );
+
   it("reorders folders among top-level items", () => {
     const tree = items();
-    const rows = flattenRows(tree, new Set(), "folder");
+    const rows = flattenRows(tree, new Set(), "folder", "f1");
     expect(
       shape(applyDrop(tree, "f1", { type: "slot", rowIndex: 2 }, rows)),
     ).toEqual(["/local", "f2[/x]", "f1[/m1,/m2]"]);
@@ -263,18 +381,44 @@ describe("applyDrop — folder source", () => {
 
   it("moves a folder above the first workspace, members in tow", () => {
     const tree = items();
-    const rows = flattenRows(tree, new Set(), "folder");
+    const rows = flattenRows(tree, new Set(), "folder", "f1");
     const next = applyDrop(tree, "f1", { type: "slot", rowIndex: 0 }, rows);
     expect(shape(next)).toEqual(["f1[/m1,/m2]", "/local", "f2[/x]"]);
     expect(membershipOf(next).get("/m1")).toBe("f1");
   });
 
-  it("never nests a folder inside another folder", () => {
+  it("drops a folder into another folder", () => {
     const tree = items();
-    const rows = flattenRows(tree, new Set(), "folder");
+    const rows = flattenRows(tree, new Set(), "folder", "f1");
+    const next = applyDrop(tree, "f1", { type: "into", folderId: "f2" }, rows);
+    expect(shape(next)).toEqual(["/local", "f2[/x,f1[/m1,/m2]]"]);
+    expect(folderParentsOf(next).get("f1")).toBe("f2");
+  });
+
+  it("refuses to drop a folder into itself", () => {
+    const tree = items();
+    const rows = flattenRows(tree, new Set(), "folder", "f1");
+    expect(applyDrop(tree, "f1", { type: "into", folderId: "f1" }, rows)).toBe(
+      tree,
+    );
+  });
+
+  it("refuses to drop a folder into one of its descendants", () => {
+    const tree = deep();
+    const rows = flattenRows(tree, new Set(), "folder", "f1");
     expect(applyDrop(tree, "f1", { type: "into", folderId: "f2" }, rows)).toBe(
       tree,
     );
+  });
+
+  it("promotes a nested folder back to the top level", () => {
+    const tree = deep();
+    const rows = flattenRows(tree, new Set(), "folder", "f2");
+    // Rows: f1, f2, f3. Landing after f3 (index 2 of the rows minus f2's
+    // subtree) makes f2 a top-level sibling again.
+    const next = applyDrop(tree, "f2", { type: "slot", rowIndex: 2 }, rows);
+    expect(shape(next)).toEqual(["f1[/m1]", "f3[/x]", "f2[/deep]"]);
+    expect(folderParentsOf(next).get("f2")).toBe(null);
   });
 });
 
@@ -290,6 +434,21 @@ describe("serializeOrder", () => {
       "f1",
       "/m1",
       "/m2",
+      "/b",
+    ]);
+  });
+
+  it("emits a nested folder inside its parent's run", () => {
+    const p = project(
+      [ws("/m1", "f1"), ws("/deep", "f2"), ws("/b")],
+      [folder("f1"), folder("f2", "f1")],
+      ["f1", "/m1", "f2", "/deep", "/b"],
+    );
+    expect(serializeOrder(buildSidebarItems(p), p)).toEqual([
+      "f1",
+      "/m1",
+      "f2",
+      "/deep",
       "/b",
     ]);
   });
@@ -324,35 +483,41 @@ describe("serializeOrder", () => {
     expect(order2).toEqual(["/a", "/b", "/h1", "/h2"]);
   });
 
-  it("round-trips through buildSidebarItems", () => {
+  it("round-trips a two-level tree through buildSidebarItems", () => {
     const workspaces = [
       ws("/a"),
       ws("/m1", "f1"),
-      ws("/m2", "f1"),
+      ws("/deep", "f2"),
       ws("/b"),
-      ws("/x", "f2"),
+      ws("/x", "f3"),
     ];
-    const folders = [folder("f1"), folder("f2")];
+    const folders = [folder("f1"), folder("f2", "f1"), folder("f3")];
     const p = project(workspaces, folders, [
       "/a",
       "f1",
       "/m1",
-      "/m2",
       "f2",
+      "/deep",
+      "f3",
       "/x",
       "/b",
     ]);
     const items = buildSidebarItems(p);
     const rows = flattenRows(items, new Set(), "workspace");
-    const next = applyDrop(items, "/b", { type: "slot", rowIndex: 2 }, rows);
+    // /b into f2, the nested folder.
+    const next = applyDrop(items, "/b", { type: "into", folderId: "f2" }, rows);
     const order = serializeOrder(next, p);
 
     const membership = membershipOf(next);
+    const parents = folderParentsOf(next);
     const rebuilt = buildSidebarItems({
       workspaces: workspaces.map((w) =>
         membership.has(w.path) ? { ...w, folderId: membership.get(w.path)! } : w,
       ),
-      folders,
+      folders: folders.map((f) => ({
+        ...f,
+        parentId: parents.get(f.id) ?? null,
+      })),
       sidebarOrder: order,
     });
     expect(shape(rebuilt)).toEqual(shape(next));
@@ -366,15 +531,76 @@ describe("membershipOf", () => {
   it("maps every workspace in the tree to its folder or null", () => {
     const items = buildSidebarItems(
       project(
-        [ws("/a"), ws("/m1", "f1")],
-        [folder("f1")],
-        ["/a", "f1", "/m1"],
+        [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2")],
+        [folder("f1"), folder("f2", "f1")],
+        ["/a", "f1", "/m1", "f2", "/deep"],
       ),
     );
     expect([...membershipOf(items)]).toEqual([
       ["/a", null],
       ["/m1", "f1"],
+      ["/deep", "f2"],
     ]);
+  });
+});
+
+describe("folderParentsOf", () => {
+  it("maps every folder to its parent, parents before children", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/m1", "f1")],
+        [folder("f1"), folder("f2", "f1"), folder("f3", "f2")],
+        ["f1", "/m1", "f2", "f3"],
+      ),
+    );
+    expect([...folderParentsOf(items)]).toEqual([
+      ["f1", null],
+      ["f2", "f1"],
+      ["f3", "f2"],
+    ]);
+  });
+});
+
+describe("descendantWorkspaces", () => {
+  const items = buildSidebarItems(
+    project(
+      [ws("/a"), ws("/m1", "f1"), ws("/deep", "f2"), ws("/deeper", "f3")],
+      [folder("f1"), folder("f2", "f1"), folder("f3", "f2")],
+      ["/a", "f1", "/m1", "f2", "/deep", "f3", "/deeper"],
+    ),
+  );
+
+  it("collects a folder's whole subtree of workspaces", () => {
+    expect(descendantWorkspaces(items[1]).map((w) => w.path)).toEqual([
+      "/m1",
+      "/deep",
+      "/deeper",
+    ]);
+  });
+
+  it("returns the workspace itself for a loose row", () => {
+    expect(descendantWorkspaces(items[0]).map((w) => w.path)).toEqual(["/a"]);
+  });
+});
+
+describe("isFolderDescendant", () => {
+  const items = buildSidebarItems(
+    project(
+      [ws("/m1", "f1")],
+      [folder("f1"), folder("f2", "f1"), folder("f3")],
+      ["f1", "/m1", "f2", "f3"],
+    ),
+  );
+
+  it("counts the folder itself and anything below it", () => {
+    expect(isFolderDescendant(items, "f1", "f1")).toBe(true);
+    expect(isFolderDescendant(items, "f1", "f2")).toBe(true);
+  });
+
+  it("is false for a sibling, an unknown id and null", () => {
+    expect(isFolderDescendant(items, "f1", "f3")).toBe(false);
+    expect(isFolderDescendant(items, "f1", "gone")).toBe(false);
+    expect(isFolderDescendant(items, "f1", null)).toBe(false);
   });
 });
 
@@ -405,6 +631,19 @@ describe("placement helpers", () => {
     ]);
   });
 
+  it("placeInFolder nests a folder inside another folder", () => {
+    expect(shape(placeInFolder(tree(), "f2", "f1"))).toEqual([
+      "/a",
+      "f1[/m1,f2[]]",
+      "/b",
+    ]);
+  });
+
+  it("placeInFolder refuses to nest a folder inside itself", () => {
+    const items = tree();
+    expect(placeInFolder(items, "f1", "f1")).toBe(items);
+  });
+
   it("placeInFolder ignores an unknown folder", () => {
     const items = tree();
     expect(placeInFolder(items, "/a", "nope")).toBe(items);
@@ -417,6 +656,19 @@ describe("placement helpers", () => {
       "/m1",
       "/b",
       "f2[]",
+    ]);
+  });
+
+  it("placeAfterFolder lands one level up for a nested folder", () => {
+    const items = buildSidebarItems(
+      project(
+        [ws("/m1", "f1"), ws("/deep", "f2")],
+        [folder("f1"), folder("f2", "f1")],
+        ["f1", "/m1", "f2", "/deep"],
+      ),
+    );
+    expect(shape(placeAfterFolder(items, "/deep", "f2"))).toEqual([
+      "f1[/m1,f2[],/deep]",
     ]);
   });
 

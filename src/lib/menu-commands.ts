@@ -124,7 +124,8 @@ export interface MenuContext {
     id: string;
     name: string;
     hasSetupScript: boolean;
-    folders: { id: string; name: string }[];
+    /** `name` is the folder's full path (`epic / api`) since ADR-172. */
+    folders: { id: string; name: string; parentId: string | null }[];
   } | null;
   /** Visible projects in sidebar order, each with its visible workspaces. */
   projects: {

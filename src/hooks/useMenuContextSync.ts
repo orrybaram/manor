@@ -13,11 +13,16 @@
  */
 
 import { useAppStore, type AppState } from "../store/app-store";
-import { useProjectStore, type ProjectInfo } from "../store/project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type WorkspaceFolder,
+  type WorkspaceInfo,
+} from "../store/project-store";
 import { useAgentStore } from "../store/agent-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useMountEffect } from "./useMountEffect";
-import { buildSidebarItems } from "../utils/sidebar-items";
+import { buildSidebarItems, type SidebarItem } from "../utils/sidebar-items";
 import { isHomePath } from "../lib/home";
 import type { MenuContext } from "../lib/menu-commands";
 import type { AgentInfo, AppPreferences } from "../electron.d";
@@ -34,11 +39,35 @@ export type MenuAppState = Pick<
   | "paneAgentStatus"
 >;
 
-/** A project's visible workspaces, folder members flattened, in sidebar order. */
+/** A project's visible workspaces, folders of any depth flattened, in sidebar order. */
 function orderedWorkspaces(project: ProjectInfo) {
-  return buildSidebarItems(project).flatMap((item) =>
-    item.kind === "folder" ? item.workspaces : [item.ws],
-  );
+  const flatten = (items: SidebarItem[]): WorkspaceInfo[] =>
+    items.flatMap((item) =>
+      item.kind === "folder" ? flatten(item.children) : [item.ws],
+    );
+  return flatten(buildSidebarItems(project));
+}
+
+/**
+ * A folder's full path, `epic / api`. Nested folders repeat names freely
+ * ("api" under two epics), so the native "Move to Folder" submenu — one flat
+ * list, no nesting of its own — labels them by their whole ancestry. Capped
+ * at the folder count so a corrupt parent cycle can't spin here.
+ */
+function folderPathLabel(
+  folders: WorkspaceFolder[],
+  folder: WorkspaceFolder,
+): string {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const names = [folder.name];
+  let current = folder.parentId ?? null;
+  for (let steps = 0; current != null && steps < folders.length; steps++) {
+    const parent = byId.get(current);
+    if (!parent) break;
+    names.unshift(parent.name);
+    current = parent.parentId ?? null;
+  }
+  return names.join(" / ");
 }
 
 /** What the sidebar (and therefore the menu) calls a workspace. */
@@ -104,7 +133,11 @@ export function deriveMenuContext(
           id: project.id,
           name: project.name,
           hasSetupScript: !!project.worktreeStartScript,
-          folders: project.folders.map((f) => ({ id: f.id, name: f.name })),
+          folders: project.folders.map((f) => ({
+            id: f.id,
+            name: folderPathLabel(project.folders, f),
+            parentId: f.parentId ?? null,
+          })),
         }
       : null,
     projects: projects.map((p) => ({

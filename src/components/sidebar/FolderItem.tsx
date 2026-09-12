@@ -9,7 +9,8 @@ import styles from "./ProjectItem.module.css";
 
 type FolderItemProps = {
   folder: WorkspaceFolder;
-  /** Visible members, used for the count and the collapsed agent dot. */
+  /** Every visible workspace in the folder's subtree: the count and the
+   * collapsed agent dot speak for the whole block (ADR-172). */
   workspaces: WorkspaceInfo[];
   collapsed: boolean;
   /** True when the project's selected workspace lives in this folder. */
@@ -36,7 +37,8 @@ type FolderItemProps = {
   justDragged: React.RefObject<boolean>;
   /** Lets the parent suspend dragging while this folder is being renamed. */
   onEditingChange: (editing: boolean) => void;
-  /** The member rows for this folder; rendered when expanded. */
+  /** The child rows for this folder — workspaces and folders alike; rendered
+   * when expanded. */
   children: React.ReactNode;
 };
 

@@ -28,15 +28,6 @@ export function relativeShortThenDate(ms: number): string {
   });
 }
 
-/** "just now", "5 minutes ago" — for prose, where an abbreviation reads badly. */
-export function relativeLong(ms: number): string {
-  const { minutes, hours, days } = split(ms);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
 function split(ms: number): { minutes: number; hours: number; days: number } {
   const elapsed = Math.max(0, Date.now() - ms);
   return {

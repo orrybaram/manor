@@ -163,6 +163,13 @@
   outline: none;
 }
 
+/* "Comment on selection" is offered on every file, but only acts on a live
+   selection — kept visible when there is none so the menu does not reflow. */
+.contextMenuItem[data-disabled] {
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 .contextMenuSeparator {
   height: 1px;
   margin: 4px 0;

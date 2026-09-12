@@ -15,6 +15,7 @@ import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
+import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
 import {
   useReviewStore,
@@ -31,6 +32,9 @@ import { FileList } from "./FileList/FileList";
 import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
+import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
+import { selectionSnippet, selectionToAnchor } from "./review-anchor";
+import type { SelectionAnchor } from "./review-anchor";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
@@ -73,7 +77,15 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // `done` handler (and on unmount).
     const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
-    const savedSelection = useRef<string>("");
+    /**
+     * Snapshotted when the context menu opens, because by the time an item is
+     * chosen the menu has taken focus and the selection may be gone. The
+     * anchor has to be resolved up front for the same reason.
+     */
+    const savedSelection = useRef<{
+      text: string;
+      anchor: SelectionAnchor | null;
+    }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
     useLayoutEffect(() => {
@@ -248,6 +260,56 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       }
       return byFile;
     }, [drafts]);
+
+    /**
+     * An anchor is only line indices, and those are per-file — so the file the
+     * selection sits in has to come from the DOM. The per-file wrapper carries
+     * `data-file-path` for exactly this.
+     */
+    const filePathForSelection = useCallback((): string | null => {
+      const node = window.getSelection()?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      return (
+        el?.closest<HTMLElement>("[data-file-path]")?.dataset.filePath ?? null
+      );
+    }, []);
+
+    /**
+     * Creates the draft empty and opens it for editing: the composer *is* the
+     * creation step, and `handleCancelComment` drops any draft that never got
+     * a body, so an abandoned chip click leaves nothing behind.
+     */
+    const handleStartComment = useCallback(
+      (anchor: SelectionAnchor, knownFilePath?: string) => {
+        if (!workspacePath) return;
+        const filePath = knownFilePath ?? filePathForSelection();
+        if (!filePath) return;
+
+        const id = useReviewStore.getState().addDraft(workspacePath, {
+          filePath,
+          startIndex: anchor.startIndex,
+          endIndex: anchor.endIndex,
+          snippet: anchor.snippet,
+          startLabel: anchor.startLabel,
+          body: "",
+        });
+        setEditingId(id);
+
+        // The selection has done its job; leaving it lit behind the composer
+        // reads as though it were still live.
+        window.getSelection()?.removeAllRanges();
+
+        // A collapsed file renders no rows, so the new card would have nowhere
+        // to appear.
+        setCollapsed((prev) => {
+          if (!prev.has(filePath)) return prev;
+          const next = new Set(prev);
+          next.delete(filePath);
+          return next;
+        });
+      },
+      [workspacePath, filePathForSelection],
+    );
 
     const handleSaveComment = useCallback(
       (id: string, body: string) => {
@@ -689,13 +751,17 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <ContextMenu.Root
               key={file.path}
               onOpenChange={(open) => {
-                if (open)
-                  savedSelection.current =
-                    window.getSelection()?.toString() ?? "";
+                if (!open) return;
+                const sel = window.getSelection();
+                savedSelection.current = {
+                  text: sel?.toString() ?? "",
+                  anchor: sel ? selectionToAnchor(sel) : null,
+                };
               }}
             >
               <ContextMenu.Trigger asChild>
                 <div
+                  data-file-path={file.path}
                   className={[
                     styles.file,
                     animationState.get(file.path) === "new"
@@ -714,32 +780,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
                     e.preventDefault();
 
-                    const range = sel.getRangeAt(0);
-                    const ancestor =
-                      range.commonAncestorContainer instanceof HTMLElement
-                        ? range.commonAncestorContainer
-                        : range.commonAncestorContainer.parentElement;
-                    const container =
-                      ancestor?.closest("[data-diff-lines]") ??
-                      ancestor?.querySelector("[data-diff-lines]");
-                    const rows = container?.querySelectorAll("[data-index]");
-
-                    const lines: string[] = [];
-                    if (rows) {
-                      for (const row of rows) {
-                        if (!sel.containsNode(row, true)) continue;
-                        const children = row.children;
-                        const numCell = children[0];
-                        const contentCell = children[1];
-                        if (!contentCell) continue;
-                        const num = numCell?.textContent?.trim() ?? "";
-                        const content = contentCell?.textContent ?? "";
-                        lines.push(num ? `${num}: ${content}` : content);
-                      }
-                    }
-
-                    const body =
-                      lines.length > 0 ? lines.join("\n") : sel.toString();
+                    const body = selectionSnippet(sel) ?? sel.toString();
                     e.clipboardData.setData(
                       "text/plain",
                       `${file.path}\n${body}`,
@@ -771,11 +812,31 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               </ContextMenu.Trigger>
               <ContextMenu.Portal>
                 <ContextMenu.Content className={styles.contextMenu}>
+                  {workspacePath && (
+                    <>
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        disabled={!savedSelection.current.anchor}
+                        onSelect={() => {
+                          const { anchor } = savedSelection.current;
+                          if (anchor) handleStartComment(anchor, file.path);
+                        }}
+                      >
+                        <MessageSquarePlus size={14} />
+                        Comment on selection
+                      </ContextMenu.Item>
+                      <ContextMenu.Separator
+                        className={styles.contextMenuSeparator}
+                      />
+                    </>
+                  )}
                   <ContextMenu.Item
                     className={styles.contextMenuItem}
                     onSelect={() => {
-                      if (savedSelection.current)
-                        navigator.clipboard.writeText(savedSelection.current);
+                      if (savedSelection.current.text)
+                        navigator.clipboard.writeText(
+                          savedSelection.current.text,
+                        );
                     }}
                   >
                     <Clipboard size={14} />
@@ -813,6 +874,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           >
             <ArrowUp size={14} />
           </button>
+        )}
+        {workspacePath && (
+          <SelectionCommentChip
+            containerRef={containerRef}
+            onComment={handleStartComment}
+          />
         )}
         {workspacePath && (
           <CommitModal

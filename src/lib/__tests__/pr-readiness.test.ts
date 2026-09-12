@@ -65,9 +65,9 @@ describe("prReadiness", () => {
     expect(prReadiness(pr)).toBe("ready");
   });
 
-  it("still requires the approval when there are no checks", () => {
+  it("returns review, not ready, when review is required and there are no checks", () => {
     const pr = basePr({ isDraft: false, reviewDecision: "REVIEW_REQUIRED" });
-    expect(prReadiness(pr)).toBe("pending");
+    expect(prReadiness(pr)).toBe("review");
   });
 
   it("still respects draft when there are no checks", () => {
@@ -136,5 +136,70 @@ describe("prReadiness", () => {
   it("returns merged even when there are unresolved threads (order matters)", () => {
     const pr = basePr({ state: "merged", unresolvedThreads: 3 });
     expect(prReadiness(pr)).toBe("merged");
+  });
+
+  it("returns review when review is required, checks are clear, and there are no unresolved threads", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      reviewDecision: "REVIEW_REQUIRED",
+    });
+    expect(prReadiness(pr)).toBe("review");
+  });
+
+  it("returns pending, not review, for a draft PR with review required", () => {
+    const pr = basePr({
+      isDraft: true,
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      reviewDecision: "REVIEW_REQUIRED",
+    });
+    expect(prReadiness(pr)).toBe("pending");
+  });
+
+  it("returns pending, not review, when review is required and checks are still pending", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 1, failing: 0, pending: 1 },
+      reviewDecision: "REVIEW_REQUIRED",
+    });
+    expect(prReadiness(pr)).toBe("pending");
+  });
+
+  it("returns blocked, not review, when review is required and checks are failing", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 1, failing: 1, pending: 0 },
+      reviewDecision: "REVIEW_REQUIRED",
+    });
+    expect(prReadiness(pr)).toBe("blocked");
+  });
+
+  it("returns blocked, not review, when review is required and there are unresolved threads", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      reviewDecision: "REVIEW_REQUIRED",
+      unresolvedThreads: 1,
+    });
+    expect(prReadiness(pr)).toBe("blocked");
+  });
+
+  it("returns queued, not review, when review is required but the PR is queued to merge", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      reviewDecision: "REVIEW_REQUIRED",
+      queuedToMerge: true,
+    });
+    expect(prReadiness(pr)).toBe("queued");
+  });
+
+  it("returns pending, not review, when there is no required review at all", () => {
+    const pr = basePr({
+      isDraft: false,
+      checks: { total: 2, passing: 2, failing: 0, pending: 0 },
+      reviewDecision: null,
+    });
+    expect(prReadiness(pr)).toBe("pending");
   });
 });

@@ -72,6 +72,16 @@
 }
 
 /*
+ * A named blocker ("review required") but a lighter tint than .prBlocked —
+ * it is one specific, expected step, not something gone wrong, so it should
+ * not read as loud as a failing check or a changes-requested review.
+ */
+.prReview {
+  background: color-mix(in srgb, var(--yellow, #eab308) 10%, transparent);
+  --pr-badge-icon: color-mix(in srgb, var(--yellow, #eab308) 70%, var(--text-dim));
+}
+
+/*
  * The icon follows CI — green all passed, red something failed, yellow still
  * running — declared after the readiness classes so it wins the tie. Merged
  * and closed PRs keep their own colour: CI on them is history.
@@ -86,6 +96,14 @@
 
 .prIconBad {
   --pr-badge-icon: var(--red);
+}
+
+/*
+ * Pending — a check still running, a review not yet cast — is a wait, not a
+ * problem, so it gets a dimmer yellow than .prIconWarn's actual-blocker tone.
+ */
+.prIconPending {
+  --pr-badge-icon: color-mix(in srgb, var(--yellow, #eab308) 55%, var(--text-dim));
 }
 
 /* Queued and running-CI badges: the icon is a spinner, so it has to turn. */

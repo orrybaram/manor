@@ -2,12 +2,14 @@ import type { PrInfo } from "./pr-info";
 
 /**
  * ADR-167: the PR badge answers exactly one question — "can this ship?".
- * Evaluated in order; the first match wins.
+ * Evaluated in order: merged → closed → blocked → queued → review → ready →
+ * pending. The first match wins.
  */
 export type PrReadiness =
   | "ready"
   | "blocked"
   | "queued"
+  | "review"
   | "pending"
   | "merged"
   | "closed";
@@ -42,6 +44,19 @@ export function prReadiness(pr: PrInfo): PrReadiness {
   // approved PR there is as shippable as one with a green board.
   const checksClear =
     pr.checks == null || (pr.checks.failing === 0 && pr.checks.pending === 0);
+
+  // GitHub reports "REVIEW_REQUIRED" specifically when the branch protection
+  // rule wants a review nobody has cast yet — as opposed to `null`, which is
+  // what a repo with no required review reports for every open PR. Only the
+  // former is a real, nameable blocker worth its own badge state.
+  const isReviewRequired =
+    !pr.isDraft &&
+    checksClear &&
+    !pr.unresolvedThreads &&
+    pr.reviewDecision === "REVIEW_REQUIRED";
+  if (isReviewRequired) {
+    return "review";
+  }
 
   const isReady =
     !pr.isDraft &&

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { anchorComments } from "../DiffLines/anchor-comments";
+import { anchorComments } from "../anchor-comments";
 import type { DraftComment } from "../../../../store/review-store";
 
 function draft(partial: Partial<DraftComment> & { id: string }): DraftComment {

@@ -17,11 +17,7 @@ import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
-import {
-  useReviewStore,
-  NO_DRAFTS,
-  type DraftComment,
-} from "../../../store/review-store";
+
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
 import { countMatches } from "./search-utils";
@@ -33,6 +29,7 @@ import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
+import { useDraftReview } from "./use-draft-review";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
@@ -55,11 +52,6 @@ type DiffPaneProps = {
 
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
-
-/** Frames `jumpToComment` waits for a virtualized card to mount. */
-const JUMP_FRAMES = 20;
-/** Must outlast the card's flash animation, or it cuts off mid-fade. */
-const FLASH_MS = 1600;
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
@@ -87,21 +79,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
      * Snapshotted when the context menu opens, because by the time an item is
      * chosen the menu has taken focus and the selection may be gone. The
      * anchor has to be resolved up front for the same reason.
+     *
+     * State, not a ref: the "Comment on selection" item's `disabled` is
+     * derived from it during render, and a ref mutation schedules no render
+     * to derive it in.
      */
-    const savedSelection = useRef<{
+    const [savedSelection, setSavedSelection] = useState<{
       text: string;
       anchor: SelectionAnchor | null;
     }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-    /**
-     * Latest `handleStartComment`, for the mount-once ⌘↩ keydown listener
-     * below — that listener is registered once, but the callback it calls
-     * closes over `workspacePath`/`editingId` and gets a new identity as
-     * those change.
-     */
-    const handleStartCommentRef = useRef<(anchor: SelectionAnchor) => void>(
-      () => {},
-    );
 
     useLayoutEffect(() => {
       const container = containerRef.current;
@@ -140,19 +127,27 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       });
     }, []);
 
-    const scrollToFile = useCallback((path: string) => {
+    /** Un-collapse a file, so anything anchored inside it has somewhere to go. */
+    const revealFile = useCallback((path: string) => {
       setCollapsed((prev) => {
         if (!prev.has(path)) return prev;
         const next = new Set(prev);
         next.delete(path);
         return next;
       });
-      requestAnimationFrame(() => {
-        fileRefs.current
-          .get(path)
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
     }, []);
+
+    const scrollToFile = useCallback(
+      (path: string) => {
+        revealFile(path);
+        requestAnimationFrame(() => {
+          fileRefs.current
+            .get(path)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      },
+      [revealFile],
+    );
 
     const openSearch = useCallback(() => {
       setSearchOpen(true);
@@ -170,34 +165,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           e.preventDefault();
           openSearch();
         }
-      };
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-    });
-
-    // ⌘↩ / Ctrl+↩ with a live selection inside the pane starts a comment on
-    // it — the same path as clicking the floating chip. `handleStartComment`
-    // is read off a ref (kept current below) rather than closed over
-    // directly, because `useMountEffect` runs this listener once and the
-    // callback's identity changes with `workspacePath`/`editingId`.
-    useMountEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
-        // The composer's own ⌘↩ already stops propagation before this
-        // window-level listener would see the event, so this only fires for
-        // a selection out in the diff, not while typing a comment.
-        if (
-          !containerRef.current?.contains(document.activeElement) &&
-          document.activeElement !== document.body
-        )
-          return;
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed || !sel.anchorNode) return;
-        if (!containerRef.current?.contains(sel.anchorNode)) return;
-        const anchor = selectionToAnchor(sel);
-        if (!anchor) return;
-        e.preventDefault();
-        handleStartCommentRef.current(anchor);
       };
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
@@ -285,185 +252,38 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 
-    // ── Draft review comments ──
+    const review = useDraftReview({
+      workspacePath,
+      files,
+      containerRef,
+      fileRefs,
+      revealFile,
+    });
 
-    const drafts = useReviewStore((s) =>
-      workspacePath ? (s.drafts[workspacePath] ?? NO_DRAFTS) : NO_DRAFTS,
-    );
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [flashCommentId, setFlashCommentId] = useState<string | null>(null);
-
-    /** Grouped once here so each `DiffLines` is handed only its own file's drafts. */
-    const draftsByFile = useMemo(() => {
-      const byFile = new Map<string, DraftComment[]>();
-      for (const draft of drafts) {
-        const existing = byFile.get(draft.filePath);
-        if (existing) existing.push(draft);
-        else byFile.set(draft.filePath, [draft]);
-      }
-      return byFile;
-    }, [drafts]);
-
-    /**
-     * An anchor is only line indices, and those are per-file — so the file the
-     * selection sits in has to come from the DOM. The per-file wrapper carries
-     * `data-file-path` for exactly this.
-     */
-    const filePathForSelection = useCallback((): string | null => {
-      const node = window.getSelection()?.anchorNode;
-      const el = node instanceof Element ? node : node?.parentElement;
-      return (
-        el?.closest<HTMLElement>("[data-file-path]")?.dataset.filePath ?? null
-      );
-    }, []);
-
-    /**
-     * `editingId` is a single id, not a set — only one composer is ever open.
-     * Moving the editing target elsewhere (starting another comment, editing
-     * a different saved one) silently ends whatever was being edited, and an
-     * empty draft left behind that way should vanish exactly like an
-     * explicit Cancel would drop it.
-     */
-    const discardIfEmpty = useCallback(
-      (id: string | null) => {
-        if (!workspacePath || !id) return;
-        const draft = useReviewStore
-          .getState()
-          .drafts[workspacePath]?.find((d) => d.id === id);
-        if (draft && draft.body.trim() === "") {
-          useReviewStore.getState().removeDraft(workspacePath, id);
-        }
-      },
-      [workspacePath],
-    );
-
-    /**
-     * Creates the draft empty and opens it for editing: the composer *is* the
-     * creation step, and `handleCancelComment` drops any draft that never got
-     * a body, so an abandoned chip click leaves nothing behind.
-     */
-    const handleStartComment = useCallback(
-      (anchor: SelectionAnchor, knownFilePath?: string) => {
-        if (!workspacePath) return;
-        const filePath = knownFilePath ?? filePathForSelection();
-        if (!filePath) return;
-
-        discardIfEmpty(editingId);
-
-        const id = useReviewStore.getState().addDraft(workspacePath, {
-          filePath,
-          startIndex: anchor.startIndex,
-          endIndex: anchor.endIndex,
-          snippet: anchor.snippet,
-          startLabel: anchor.startLabel,
-          body: "",
-        });
-        setEditingId(id);
-
-        // The selection has done its job; leaving it lit behind the composer
-        // reads as though it were still live.
-        window.getSelection()?.removeAllRanges();
-
-        // A collapsed file renders no rows, so the new card would have nowhere
-        // to appear.
-        setCollapsed((prev) => {
-          if (!prev.has(filePath)) return prev;
-          const next = new Set(prev);
-          next.delete(filePath);
-          return next;
-        });
-      },
-      [workspacePath, filePathForSelection, editingId, discardIfEmpty],
-    );
-    handleStartCommentRef.current = handleStartComment;
-
-    const handleSaveComment = useCallback(
-      (id: string, body: string) => {
-        if (!workspacePath) return;
-        useReviewStore.getState().updateDraft(workspacePath, id, body);
-        setEditingId((current) => (current === id ? null : current));
-      },
-      [workspacePath],
-    );
-
-    /**
-     * Cancelling a draft that never got a body is cancelling its *creation* —
-     * the chip adds an empty draft up front, so leaving it behind would litter
-     * the review with blank comments. An edit to an existing comment just
-     * reverts.
-     */
-    const handleCancelComment = useCallback(
-      (id: string) => {
-        if (!workspacePath) return;
-        const { drafts: all, removeDraft } = useReviewStore.getState();
-        const draft = all[workspacePath]?.find((d) => d.id === id);
-        if (draft && draft.body.trim() === "") {
-          removeDraft(workspacePath, id);
-        }
-        setEditingId((current) => (current === id ? null : current));
-      },
-      [workspacePath],
-    );
-
-    const handleEditComment = useCallback(
-      (id: string) => {
-        if (id !== editingId) discardIfEmpty(editingId);
-        setEditingId(id);
-      },
-      [editingId, discardIfEmpty],
-    );
-
-    const handleDeleteComment = useCallback(
-      (id: string) => {
-        if (!workspacePath) return;
-        useReviewStore.getState().removeDraft(workspacePath, id);
-        setEditingId((current) => (current === id ? null : current));
-      },
-      [workspacePath],
-    );
-
-    /**
-     * Scroll a comment back into view for the review bar's jump list.
-     *
-     * The card may not be in the document yet: its file can be collapsed, and
-     * the rows are virtualized, so un-collapsing is not enough on its own.
-     * Scrolling the *file* into view is what puts the card's row in range, and
-     * only then can it be found — hence the bounded retry rather than a single
-     * lookup. Falling back to the file header is a worse answer than the card,
-     * but a much better one than nothing happening at all.
-     */
-    const jumpToComment = useCallback((comment: DraftComment) => {
-      setCollapsed((prev) => {
-        if (!prev.has(comment.filePath)) return prev;
-        const next = new Set(prev);
-        next.delete(comment.filePath);
-        return next;
-      });
-
-      const file = fileRefs.current.get(comment.filePath);
-      file?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-      let attempts = 0;
-      const reveal = () => {
-        const card = containerRef.current?.querySelector(
-          `[data-comment-id="${CSS.escape(comment.id)}"]`,
-        );
-        if (card) {
-          card.scrollIntoView({ behavior: "smooth", block: "center" });
-          setFlashCommentId(comment.id);
-          return;
-        }
-        if (attempts++ < JUMP_FRAMES) requestAnimationFrame(reveal);
-      };
-      requestAnimationFrame(reveal);
-    }, []);
-
-    /** Clear the flash once its animation has played out. */
+    // ⌘↩ / Ctrl+↩ with a live selection inside the pane starts a comment on
+    // it — the same path as clicking the floating chip.
     useEffect(() => {
-      if (!flashCommentId) return;
-      const timer = setTimeout(() => setFlashCommentId(null), FLASH_MS);
-      return () => clearTimeout(timer);
-    }, [flashCommentId]);
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
+        // The composer's own ⌘↩ already stops propagation before this
+        // window-level listener would see the event, so this only fires for
+        // a selection out in the diff, not while typing a comment.
+        if (
+          !containerRef.current?.contains(document.activeElement) &&
+          document.activeElement !== document.body
+        )
+          return;
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.anchorNode) return;
+        if (!containerRef.current?.contains(sel.anchorNode)) return;
+        const anchor = selectionToAnchor(sel);
+        if (!anchor) return;
+        e.preventDefault();
+        review.startComment(anchor);
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [review]);
 
     // Fetch staged file list for local mode. Tagged with the workspace it was
     // fetched for so any other workspace (or full-diff mode) reads as empty
@@ -800,7 +620,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <div className={styles.bottomDock}>
               <ReviewBar
                 workspacePath={workspacePath}
-                onJumpToComment={jumpToComment}
+                onJumpToComment={review.jumpToComment}
               />
             </div>
           )}
@@ -827,7 +647,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <div className={styles.bottomDock}>
               <ReviewBar
                 workspacePath={workspacePath}
-                onJumpToComment={jumpToComment}
+                onJumpToComment={review.jumpToComment}
               />
             </div>
           )}
@@ -878,135 +698,134 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             />
           </div>
           <Stack gap="lg" className={styles.fileStack}>
-            {files.map((file) => (
-              <ContextMenu.Root
-                key={file.path}
-                onOpenChange={(open) => {
-                  if (!open) return;
-                  const sel = window.getSelection();
-                  savedSelection.current = {
-                    text: sel?.toString() ?? "",
-                    anchor: sel ? selectionToAnchor(sel) : null,
-                  };
-                }}
-              >
-                <ContextMenu.Trigger asChild>
-                  <div
-                    data-file-path={file.path}
-                    className={[
-                      styles.file,
-                      animationState.get(file.path) === "new"
-                        ? styles.fileNew
-                        : undefined,
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    ref={(el) => {
-                      if (el) fileRefs.current.set(file.path, el);
-                      else fileRefs.current.delete(file.path);
-                    }}
-                    onCopy={(e) => {
-                      const sel = window.getSelection();
-                      if (!sel || sel.isCollapsed) return;
+            {files.map((file) => {
+              const annotations = review.annotationsFor(file.path);
+              return (
+                <ContextMenu.Root
+                  key={file.path}
+                  onOpenChange={(open) => {
+                    if (!open) return;
+                    const sel = window.getSelection();
+                    setSavedSelection({
+                      text: sel?.toString() ?? "",
+                      anchor: sel ? selectionToAnchor(sel) : null,
+                    });
+                  }}
+                >
+                  <ContextMenu.Trigger asChild>
+                    <div
+                      data-file-path={file.path}
+                      className={[
+                        styles.file,
+                        animationState.get(file.path) === "new"
+                          ? styles.fileNew
+                          : undefined,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      ref={(el) => {
+                        if (el) fileRefs.current.set(file.path, el);
+                        else fileRefs.current.delete(file.path);
+                      }}
+                      onCopy={(e) => {
+                        const sel = window.getSelection();
+                        if (!sel || sel.isCollapsed) return;
 
-                      e.preventDefault();
+                        e.preventDefault();
 
-                      const body = selectionSnippet(sel) ?? sel.toString();
-                      e.clipboardData.setData(
-                        "text/plain",
-                        `${file.path}\n${body}`,
-                      );
-                    }}
-                  >
-                    <FileHeader
-                      file={file}
-                      collapsed={collapsed.has(file.path)}
-                      animated={animationState.get(file.path) === "updated"}
-                      onToggle={() => toggleFile(file.path)}
-                    />
-                    {!collapsed.has(file.path) && (
-                      <DiffLines
-                        lines={file.lines}
-                        filePath={file.path}
-                        searchQuery={searchQuery}
-                        matchOffset={fileOffsets.get(file.path) ?? 0}
-                        currentMatch={currentMatch}
-                        comments={draftsByFile.get(file.path)}
-                        editingId={editingId}
-                        flashCommentId={flashCommentId}
-                        onSaveComment={handleSaveComment}
-                        onCancelComment={handleCancelComment}
-                        onEditComment={handleEditComment}
-                        onDeleteComment={handleDeleteComment}
-                      />
-                    )}
-                  </div>
-                </ContextMenu.Trigger>
-                <ContextMenu.Portal>
-                  <ContextMenu.Content className={styles.contextMenu}>
-                    {workspacePath && (
-                      <>
-                        <ContextMenu.Item
-                          className={styles.contextMenuItem}
-                          disabled={!savedSelection.current.anchor}
-                          onSelect={() => {
-                            const { anchor } = savedSelection.current;
-                            if (anchor) handleStartComment(anchor, file.path);
-                          }}
-                        >
-                          <MessageSquarePlus size={14} />
-                          Comment on selection
-                        </ContextMenu.Item>
-                        <ContextMenu.Separator
-                          className={styles.contextMenuSeparator}
-                        />
-                      </>
-                    )}
-                    <ContextMenu.Item
-                      className={styles.contextMenuItem}
-                      onSelect={() => {
-                        if (savedSelection.current.text)
-                          navigator.clipboard.writeText(
-                            savedSelection.current.text,
-                          );
+                        const body = selectionSnippet(sel) ?? sel.toString();
+                        e.clipboardData.setData(
+                          "text/plain",
+                          `${file.path}\n${body}`,
+                        );
                       }}
                     >
-                      <Clipboard size={14} />
-                      Copy
-                    </ContextMenu.Item>
-                    {workspacePath && (
-                      <>
-                        <ContextMenu.Separator
-                          className={styles.contextMenuSeparator}
+                      <FileHeader
+                        file={file}
+                        collapsed={collapsed.has(file.path)}
+                        animated={animationState.get(file.path) === "updated"}
+                        onToggle={() => toggleFile(file.path)}
+                      />
+                      {!collapsed.has(file.path) && (
+                        <DiffLines
+                          lines={file.lines}
+                          filePath={file.path}
+                          searchQuery={searchQuery}
+                          matchOffset={fileOffsets.get(file.path) ?? 0}
+                          currentMatch={currentMatch}
+                          renderRowExtra={annotations?.renderRowExtra}
+                          markedRows={annotations?.markedRows}
                         />
-                        <ContextMenu.Item
-                          className={styles.contextMenuItem}
-                          onSelect={() => {
-                            openInEditor(`${workspacePath}/${file.path}`);
-                          }}
-                        >
-                          <ExternalLink size={14} />
-                          Open in Editor
-                        </ContextMenu.Item>
-                      </>
-                    )}
-                  </ContextMenu.Content>
-                </ContextMenu.Portal>
-              </ContextMenu.Root>
-            ))}
+                      )}
+                    </div>
+                  </ContextMenu.Trigger>
+                  <ContextMenu.Portal>
+                    <ContextMenu.Content className={styles.contextMenu}>
+                      {workspacePath && (
+                        <>
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            disabled={!savedSelection.anchor}
+                            onSelect={() => {
+                              const { anchor } = savedSelection;
+                              if (anchor)
+                                review.startComment(anchor, file.path);
+                            }}
+                          >
+                            <MessageSquarePlus size={14} />
+                            Comment on selection
+                          </ContextMenu.Item>
+                          <ContextMenu.Separator
+                            className={styles.contextMenuSeparator}
+                          />
+                        </>
+                      )}
+                      <ContextMenu.Item
+                        className={styles.contextMenuItem}
+                        onSelect={() => {
+                          if (savedSelection.text)
+                            navigator.clipboard.writeText(
+                              savedSelection.text,
+                            );
+                        }}
+                      >
+                        <Clipboard size={14} />
+                        Copy
+                      </ContextMenu.Item>
+                      {workspacePath && (
+                        <>
+                          <ContextMenu.Separator
+                            className={styles.contextMenuSeparator}
+                          />
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => {
+                              openInEditor(`${workspacePath}/${file.path}`);
+                            }}
+                          >
+                            <ExternalLink size={14} />
+                            Open in Editor
+                          </ContextMenu.Item>
+                        </>
+                      )}
+                    </ContextMenu.Content>
+                  </ContextMenu.Portal>
+                </ContextMenu.Root>
+              );
+            })}
           </Stack>
         </div>
         {workspacePath && (
           <SelectionCommentChip
             containerRef={containerRef}
-            onComment={handleStartComment}
+            onComment={review.startComment}
           />
         )}
         <div className={styles.bottomDock}>
           {workspacePath && (
             <ReviewBar
               workspacePath={workspacePath}
-              onJumpToComment={jumpToComment}
+              onJumpToComment={review.jumpToComment}
             />
           )}
           {showBackToTop && (

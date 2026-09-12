@@ -1,4 +1,4 @@
-import type { DraftComment } from "../../../../store/review-store";
+import type { DraftComment } from "../../../store/review-store";
 
 export type AnchoredComments = {
   /** `endIndex` -> the comments rendered in that row, in creation order. */

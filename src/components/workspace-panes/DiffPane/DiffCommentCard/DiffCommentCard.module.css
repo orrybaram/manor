@@ -83,11 +83,6 @@
   overflow-wrap: anywhere;
 }
 
-.empty {
-  color: var(--text-dim);
-  font-style: italic;
-}
-
 /*
  * Auto-grown from JS, which sets an explicit `height` on every input. The
  * bounds live here: three rows to start so the box reads as a composer, and

@@ -2,12 +2,9 @@ import { useMemo, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DiffLine } from "../types";
-import type { DraftComment } from "../../../../store/review-store";
 import { extToLang, tokenize } from "../syntax";
 import { highlightSyntaxNodes, highlightText } from "./hast-utils";
 import { countMatches } from "../search-utils";
-import { DiffCommentCard } from "../DiffCommentCard/DiffCommentCard";
-import { anchorComments } from "./anchor-comments";
 import styles from "./DiffLines.module.css";
 
 type DiffLinesProps = {
@@ -16,21 +13,19 @@ type DiffLinesProps = {
   searchQuery: string;
   matchOffset: number;
   currentMatch: number;
-  /** Draft review comments for THIS file, anchored by index into `lines`. */
-  comments?: DraftComment[];
-  editingId?: string | null;
-  /** Comment to flash, after the review bar's jump list scrolls to it. */
-  flashCommentId?: string | null;
-  onSaveComment?: (id: string, body: string) => void;
-  onCancelComment?: (id: string) => void;
-  onEditComment?: (id: string) => void;
-  onDeleteComment?: (id: string) => void;
+  /**
+   * Content to hang beneath row `index`, inside the row's own measured box.
+   * Whatever it is belongs to the caller — this component only places it.
+   */
+  renderRowExtra?: (index: number) => ReactNode;
+  /** Rows to mark as annotated, for a left accent and a faint wash. */
+  markedRows?: ReadonlySet<number>;
 };
 
 const ROW_HEIGHT_ESTIMATE = 20;
 
-/** Stable empty list so a file with no review keeps one memo identity. */
-const NO_COMMENTS: DraftComment[] = [];
+/** Stable empty set so a file with nothing to mark keeps one identity. */
+const NO_MARKED_ROWS: ReadonlySet<number> = new Set();
 
 export function DiffLines(props: DiffLinesProps) {
   const {
@@ -39,13 +34,8 @@ export function DiffLines(props: DiffLinesProps) {
     searchQuery,
     matchOffset,
     currentMatch,
-    comments = NO_COMMENTS,
-    editingId = null,
-    flashCommentId = null,
-    onSaveComment,
-    onCancelComment,
-    onEditComment,
-    onDeleteComment,
+    renderRowExtra,
+    markedRows = NO_MARKED_ROWS,
   } = props;
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -72,11 +62,6 @@ export function DiffLines(props: DiffLinesProps) {
     return cumulative;
   }, [lines, searchQuery]);
 
-  const { byEnd, spanned } = useMemo(
-    () => anchorComments(comments, lines.length),
-    [comments, lines.length],
-  );
-
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => parentRef.current,
@@ -92,31 +77,15 @@ export function DiffLines(props: DiffLinesProps) {
   );
 
   /**
-   * The cards for one row, or `null`. They are returned as a third child of
-   * the row rather than being folded into the content cell for two reasons:
-   * the row is the element `measureElement` watches, so a card inside it is
-   * measured for free; and `review-anchor` reads a row's line number and code
-   * off its first two children, so nothing may be inserted before them.
+   * Extra content is returned as a third child of the row rather than folded
+   * into the content cell for two reasons: the row is the element
+   * `measureElement` watches, so anything inside it is measured for free; and
+   * `review-anchor` reads a row's line number and code off its first two
+   * children, so nothing may be inserted before them.
    */
-  const commentsForRow = (index: number): ReactNode => {
-    const rowComments = byEnd.get(index);
-    if (!rowComments) return null;
-    return (
-      <div className={styles.commentColumn}>
-        {rowComments.map((comment) => (
-          <DiffCommentCard
-            key={comment.id}
-            comment={comment}
-            editing={editingId === comment.id}
-            flash={flashCommentId === comment.id}
-            onSave={(body) => onSaveComment?.(comment.id, body)}
-            onCancel={() => onCancelComment?.(comment.id)}
-            onEdit={() => onEditComment?.(comment.id)}
-            onDelete={() => onDeleteComment?.(comment.id)}
-          />
-        ))}
-      </div>
-    );
+  const rowExtra = (index: number): ReactNode => {
+    const extra = renderRowExtra?.(index);
+    return extra ? <div className={styles.rowExtra}>{extra}</div> : null;
   };
 
   return (
@@ -129,12 +98,12 @@ export function DiffLines(props: DiffLinesProps) {
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const i = virtualRow.index;
           const line = lines[i];
-          const rowComments = commentsForRow(i);
+          const extra = rowExtra(i);
           const rowClass =
-            rowComments === null
+            extra === null
               ? styles.row
-              : `${styles.row} ${styles.rowWithComment}`;
-          const commented = spanned.has(i) ? "true" : undefined;
+              : `${styles.row} ${styles.rowWithExtra}`;
+          const commented = markedRows.has(i) ? "true" : undefined;
 
           if (line.type === "hunk") {
             return (
@@ -150,7 +119,7 @@ export function DiffLines(props: DiffLinesProps) {
               >
                 <div className={styles.lineNum} />
                 <div className={styles.hunkContent}>{line.content}</div>
-                {rowComments}
+                {extra}
               </div>
             );
           }
@@ -213,7 +182,7 @@ export function DiffLines(props: DiffLinesProps) {
                 <span className={styles.prefix}>{prefix}</span>
                 {content}
               </div>
-              {rowComments}
+              {extra}
             </div>
           );
         })}

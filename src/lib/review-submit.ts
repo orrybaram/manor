@@ -10,15 +10,6 @@ export type ReviewTarget =
   | { kind: "agent"; agent: AgentInfo }
   | { kind: "new" };
 
-/**
- * A draft is created empty — the composer *is* the creation step — so a
- * comment that never got a body is not a comment. Filtering here as well as
- * in the bar keeps a blank draft out of the prompt no matter who calls.
- */
-function written(comments: DraftComment[]): DraftComment[] {
-  return comments.filter((c) => c.body.trim() !== "");
-}
-
 /** The name to call an agent in a menu row or a toast. */
 export function agentLabel(agent: AgentInfo): string {
   return cleanAgentTitle(agent.name) ?? agent.agentKind;
@@ -44,14 +35,13 @@ function commentCount(n: number): string {
  * newline in a harness's prompt box submits the turn early.
  */
 export function reviewPrompt(comments: DraftComment[]): string {
-  const real = written(comments);
   const lines: string[] = [
-    real.length === 1
+    comments.length === 1
       ? "I left a comment on the current diff. Take it on its own terms — it may be a question about the code rather than a request to change it. Answer a question directly, and only edit code if the comment actually asks for that."
-      : `I left ${real.length} comments on the current diff. Take each on its own terms — some may be questions about the code, others requests to change it. Answer the questions directly, and only edit code where a comment actually asks for that.`,
+      : `I left ${comments.length} comments on the current diff. Take each on its own terms — some may be questions about the code, others requests to change it. Answer the questions directly, and only edit code where a comment actually asks for that.`,
   ];
 
-  real.forEach((comment, i) => {
+  comments.forEach((comment, i) => {
     lines.push(
       `[${i + 1}] ${comment.filePath} ${comment.startLabel} — ${comment.body.trim()}`,
     );
@@ -72,10 +62,9 @@ export function submitReview(
   comments: DraftComment[],
   target: ReviewTarget,
 ): void {
-  const real = written(comments);
-  if (real.length === 0) return;
+  if (comments.length === 0) return;
 
-  const prompt = reviewPrompt(real);
+  const prompt = reviewPrompt(comments);
   const { addToast } = useToastStore.getState();
   const toastId = `review-submit-${workspacePath}`;
 
@@ -83,7 +72,7 @@ export function submitReview(
     startAgentWithPrompt(workspacePath, prompt);
     addToast({
       id: toastId,
-      message: `Sent ${commentCount(real.length)} to a new agent`,
+      message: `Sent ${commentCount(comments.length)} to a new agent`,
       status: "success",
       duration: 3000,
     });
@@ -116,7 +105,7 @@ export function submitReview(
 
   addToast({
     id: toastId,
-    message: `Sent ${commentCount(real.length)} to ${agentLabel(agent)}`,
+    message: `Sent ${commentCount(comments.length)} to ${agentLabel(agent)}`,
     status: "success",
     duration: 3000,
   });

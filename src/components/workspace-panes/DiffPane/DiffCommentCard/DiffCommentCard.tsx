@@ -8,35 +8,23 @@ import styles from "./DiffCommentCard.module.css";
 
 type DiffCommentCardProps = {
   comment: DraftComment;
-  editing: boolean;
   /** Briefly outlined, to catch the eye after the jump list scrolls here. */
   flash?: boolean;
-  onSave: (body: string) => void;
-  /** Discards an empty new draft; reverts an edit. Owned by the caller. */
-  onCancel: () => void;
   onEdit: () => void;
   onDelete: () => void;
 };
 
 /**
- * One draft review comment, rendered inside the diff row it is anchored to.
- *
- * Two states in one component because they are the same card: a composer
- * while you are writing, and a quiet annotation once you are done — a
- * finished review should read as annotated code, not as a column of open
- * text boxes.
- *
- * The card lives inside a virtualized row, so its height is not free: the
- * row's `measureElement` re-reports on every growth. That is why the
- * textarea auto-grows in place (one measure per keystroke that changes the
- * wrap) and then caps and scrolls rather than growing without bound.
+ * A saved review comment, rendered inside the diff row it is anchored to — a
+ * quiet annotation, so a finished review reads as annotated code rather than
+ * a column of open text boxes. Writing one is `CommentComposer` below; the
+ * two are separate components because a comment being written does not exist
+ * in the store yet and so has no `DraftComment` to render.
  */
 export function DiffCommentCard(props: DiffCommentCardProps) {
-  const { comment, editing, flash, onSave, onCancel, onEdit, onDelete } = props;
+  const { comment, flash, onEdit, onDelete } = props;
 
-  return editing ? (
-    <CommentComposer comment={comment} onSave={onSave} onCancel={onCancel} />
-  ) : (
+  return (
     // `data-comment-id` is how the review bar's jump list finds this card in
     // the document — the only handle on a card that may be anywhere in a very
     // long diff.
@@ -71,27 +59,31 @@ export function DiffCommentCard(props: DiffCommentCardProps) {
           </Tooltip>
         </span>
       </div>
-      {comment.body.trim() ? (
-        <div className={styles.body}>{comment.body}</div>
-      ) : (
-        <div className={styles.empty}>No comment text.</div>
-      )}
+      <div className={styles.body}>{comment.body}</div>
     </div>
   );
 }
 
 /**
- * The editing half. Split out so the draft body is component state that is
- * born with the composer and dies with it — re-entering edit always starts
- * from what is in the store, and cancelling never has to undo anything.
+ * Writing a comment, new or edited.
+ *
+ * Takes a label and a starting body rather than a `DraftComment`, because a
+ * new comment has none: nothing reaches the store until it has been saved,
+ * which is what keeps "a draft with no body" from being a state anything
+ * downstream has to handle.
+ *
+ * It lives inside a virtualized row, so its height is not free — the row's
+ * `measureElement` re-reports on every growth. Hence the textarea auto-grows
+ * in place and then caps and scrolls rather than growing without bound.
  */
-function CommentComposer(props: {
-  comment: DraftComment;
+export function CommentComposer(props: {
+  startLabel: string;
+  initialBody?: string;
   onSave: (body: string) => void;
   onCancel: () => void;
 }) {
-  const { comment, onSave, onCancel } = props;
-  const [body, setBody] = useState(comment.body);
+  const { startLabel, initialBody = "", onSave, onCancel } = props;
+  const [body, setBody] = useState(initialBody);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   /** `auto` first: without it the box can only ever grow, never shrink. */
@@ -118,7 +110,7 @@ function CommentComposer(props: {
   return (
     <div className={styles.card}>
       <div className={styles.header}>
-        <span className={styles.anchor}>{comment.startLabel}</span>
+        <span className={styles.anchor}>{startLabel}</span>
       </div>
       <textarea
         ref={textareaRef}

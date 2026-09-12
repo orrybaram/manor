@@ -46,17 +46,12 @@ function basename(filePath: string): string {
 export function ReviewBar(props: ReviewBarProps) {
   const { workspacePath, onJumpToComment } = props;
 
-  const drafts = useReviewStore((s) => s.drafts[workspacePath] ?? NO_DRAFTS);
+  const comments = useReviewStore((s) => s.drafts[workspacePath] ?? NO_DRAFTS);
   const allAgents = useAgentStore((s) => s.agents);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-
-  const comments = useMemo(
-    () => drafts.filter((d) => d.body.trim() !== ""),
-    [drafts],
-  );
 
   /**
    * Filtered here rather than inside the selector: a selector that builds a
@@ -130,7 +125,7 @@ export function ReviewBar(props: ReviewBarProps) {
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            className={styles.menu}
+            className={`${styles.menu} ${styles.commentMenu}`}
             side="top"
             align="start"
             sideOffset={6}

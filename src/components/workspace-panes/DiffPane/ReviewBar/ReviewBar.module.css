@@ -126,6 +126,13 @@
   z-index: 100;
 }
 
+.commentMenu {
+  /* The list grows with the review; past a screenful it scrolls instead. */
+  max-height: min(320px, var(--radix-popover-content-available-height, 320px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .row {
   display: flex;
   align-items: center;

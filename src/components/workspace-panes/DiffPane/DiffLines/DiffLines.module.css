@@ -111,7 +111,7 @@
  * code off its first two children — copy and comment anchoring both break the
  * moment those stop being direct children of the row.
  */
-.rowWithComment {
+.rowWithExtra {
   display: grid;
   grid-template-columns: 50px minmax(0, 1fr);
   align-items: stretch;
@@ -119,11 +119,11 @@
 
 /* The gutter runs the whole block, cards included, rather than stopping under
    the line it numbers. */
-.rowWithComment > :first-child {
+.rowWithExtra > :first-child {
   grid-row: 1 / span 2;
 }
 
-.commentColumn {
+.rowExtra {
   grid-column: 2;
   display: flex;
   flex-direction: column;

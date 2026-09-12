@@ -55,7 +55,10 @@ export function highlightSyntaxNodes(
               "mark",
               {
                 key: `${kp}-m-${pos}`,
-                className: globalIdx === currentMatch ? styles.searchMatchActive : styles.searchMatch,
+                className:
+                  globalIdx === currentMatch
+                    ? styles.searchMatchActive
+                    : styles.searchMatch,
                 "data-match-index": globalIdx,
               },
               text.slice(pos, pos + query.length),
@@ -79,7 +82,11 @@ export function highlightSyntaxNodes(
           : undefined;
         const children = walkNodes(el.children as RootContent[], `${kp}-${i}`);
         result.push(
-          createElement(el.tagName, { key: `${kp}-${i}`, className }, ...children),
+          createElement(
+            el.tagName,
+            { key: `${kp}-${i}`, className },
+            ...children,
+          ),
         );
       }
     }
@@ -111,7 +118,11 @@ export function highlightText(
     fragments.push(
       <mark
         key={pos}
-        className={globalIdx === currentMatch ? styles.searchMatchActive : styles.searchMatch}
+        className={
+          globalIdx === currentMatch
+            ? styles.searchMatchActive
+            : styles.searchMatch
+        }
         data-match-index={globalIdx}
       >
         {text.slice(pos, pos + query.length)}

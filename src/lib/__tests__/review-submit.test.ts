@@ -107,16 +107,6 @@ describe("reviewPrompt", () => {
     expect(prompt).toContain("Code: 4: export interface HarnessAdapter {");
   });
 
-  it("ignores drafts that never got a body", () => {
-    const prompt = reviewPrompt([
-      makeComment({ id: "a", body: "kept" }),
-      makeComment({ id: "b", body: "   " }),
-    ]);
-
-    expect(prompt.split("\n")[0]).toContain("I left a comment");
-    expect(prompt).not.toContain("[2]");
-  });
-
   /**
    * A comment on a diff is as often a question as a request. An imperative
    * preamble ("address these comments") sends the agent off editing code that
@@ -206,8 +196,8 @@ describe("submitReview", () => {
     );
   });
 
-  it("does nothing when every draft is blank", () => {
-    submitReview(WS_PATH, [makeComment({ body: "" })], { kind: "new" });
+  it("does nothing when there is nothing to send", () => {
+    submitReview(WS_PATH, [], { kind: "new" });
 
     expect(write).not.toHaveBeenCalled();
     expect(startAgentWithPrompt).not.toHaveBeenCalled();

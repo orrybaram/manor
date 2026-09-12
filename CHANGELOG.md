@@ -1,6 +1,14 @@
 # Changelog
 
 
+
+## [0.12.1] - 2026-09-12
+
+### Improvements
+
+- External links in Settings, the About modal, nudges, port links, PR popovers and comment cards now open in your default browser.
+- Removed the update section from the About modal.
+
 ## [0.12.0] - 2026-09-12
 
 **Features**

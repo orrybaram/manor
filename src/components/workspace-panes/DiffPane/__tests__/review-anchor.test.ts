@@ -186,4 +186,46 @@ describe("rowsInSelection / selectionSnippet / selectionToAnchor", () => {
     expect(selectionSnippet(sel)).toBeNull();
     expect(selectionToAnchor(sel)).toBeNull();
   });
+
+  it("clamps a selection spanning two files to the file it started in", () => {
+    // Two `[data-diff-lines]` containers, the way two files in the Stack look
+    // in the DOM: `rowsInSelection` must resolve from `sel.anchorNode` (the
+    // file the selection *started* in) rather than falling back to whichever
+    // container is first in document order.
+    const fileA = buildDiffLines([
+      { index: 0, num: "10", content: "const a = 1;" },
+      { index: 1, num: "11", content: "const b = 2;" },
+    ]);
+    const fileB = buildDiffLines([
+      { index: 0, num: "1", content: "const x = 9;" },
+      { index: 1, num: "2", content: "const y = 8;" },
+    ]);
+
+    const startRow = fileA.querySelector('[data-index="1"]')!;
+    const endRow = fileB.querySelector('[data-index="0"]')!;
+    const startText = startRow.children[1].firstChild!;
+    const endText = endRow.children[1].firstChild!;
+
+    const range = document.createRange();
+    range.setStart(startText, 0);
+    range.setEnd(endText, 5);
+
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const rows = rowsInSelection(sel);
+    expect(rows.every((r) => fileA.contains(r))).toBe(true);
+    expect(rows.some((r) => fileB.contains(r))).toBe(false);
+    expect(rows.map((r) => r.dataset.index)).toEqual(["1"]);
+
+    expect(selectionSnippet(sel)).toBe("11: const b = 2;");
+
+    expect(selectionToAnchor(sel)).toEqual({
+      startIndex: 1,
+      endIndex: 1,
+      snippet: "11: const b = 2;",
+      startLabel: "L11",
+    });
+  });
 });

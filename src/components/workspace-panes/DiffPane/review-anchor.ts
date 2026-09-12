@@ -22,21 +22,33 @@ function rowText(row: Element): string | null {
 
 /**
  * The `[data-index]` rows of the nearest `[data-diff-lines]` container that
- * `sel` covers. Climbs from the selection's common ancestor to find the
- * container, falling back to a descendant search when the ancestor sits
- * above it. Empty for a collapsed selection or one that touches no rows.
+ * `sel` covers. Resolved from `sel.anchorNode` first — the node the selection
+ * *started* in — so a selection spanning two files clamps to the file it
+ * started in rather than picking whichever file happens to be first in
+ * document order. Falls back to climbing from the selection's common
+ * ancestor (and, from there, a descendant search) only when the anchor node
+ * itself yields nothing. Empty for a collapsed selection or one that touches
+ * no rows.
  */
 export function rowsInSelection(sel: Selection): HTMLElement[] {
   if (sel.isCollapsed || sel.rangeCount === 0) return [];
 
-  const range = sel.getRangeAt(0);
-  const ancestor =
-    range.commonAncestorContainer instanceof HTMLElement
-      ? range.commonAncestorContainer
-      : range.commonAncestorContainer.parentElement;
-  const container =
-    ancestor?.closest("[data-diff-lines]") ??
-    ancestor?.querySelector("[data-diff-lines]");
+  const anchorNode = sel.anchorNode;
+  const anchorEl =
+    anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+  let container = anchorEl?.closest("[data-diff-lines]") ?? null;
+
+  if (!container) {
+    const range = sel.getRangeAt(0);
+    const ancestor =
+      range.commonAncestorContainer instanceof HTMLElement
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+    container =
+      ancestor?.closest("[data-diff-lines]") ??
+      ancestor?.querySelector("[data-diff-lines]") ??
+      null;
+  }
   if (!container) return [];
 
   const rows: HTMLElement[] = [];

@@ -88,6 +88,15 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       anchor: SelectionAnchor | null;
     }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    /**
+     * Latest `handleStartComment`, for the mount-once ⌘↩ keydown listener
+     * below — that listener is registered once, but the callback it calls
+     * closes over `workspacePath`/`editingId` and gets a new identity as
+     * those change.
+     */
+    const handleStartCommentRef = useRef<(anchor: SelectionAnchor) => void>(
+      () => {},
+    );
 
     useLayoutEffect(() => {
       const container = containerRef.current;
@@ -156,6 +165,34 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           e.preventDefault();
           openSearch();
         }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    });
+
+    // ⌘↩ / Ctrl+↩ with a live selection inside the pane starts a comment on
+    // it — the same path as clicking the floating chip. `handleStartComment`
+    // is read off a ref (kept current below) rather than closed over
+    // directly, because `useMountEffect` runs this listener once and the
+    // callback's identity changes with `workspacePath`/`editingId`.
+    useMountEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
+        // The composer's own ⌘↩ already stops propagation before this
+        // window-level listener would see the event, so this only fires for
+        // a selection out in the diff, not while typing a comment.
+        if (
+          !containerRef.current?.contains(document.activeElement) &&
+          document.activeElement !== document.body
+        )
+          return;
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.anchorNode) return;
+        if (!containerRef.current?.contains(sel.anchorNode)) return;
+        const anchor = selectionToAnchor(sel);
+        if (!anchor) return;
+        e.preventDefault();
+        handleStartCommentRef.current(anchor);
       };
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
@@ -276,6 +313,26 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     /**
+     * `editingId` is a single id, not a set — only one composer is ever open.
+     * Moving the editing target elsewhere (starting another comment, editing
+     * a different saved one) silently ends whatever was being edited, and an
+     * empty draft left behind that way should vanish exactly like an
+     * explicit Cancel would drop it.
+     */
+    const discardIfEmpty = useCallback(
+      (id: string | null) => {
+        if (!workspacePath || !id) return;
+        const draft = useReviewStore
+          .getState()
+          .drafts[workspacePath]?.find((d) => d.id === id);
+        if (draft && draft.body.trim() === "") {
+          useReviewStore.getState().removeDraft(workspacePath, id);
+        }
+      },
+      [workspacePath],
+    );
+
+    /**
      * Creates the draft empty and opens it for editing: the composer *is* the
      * creation step, and `handleCancelComment` drops any draft that never got
      * a body, so an abandoned chip click leaves nothing behind.
@@ -285,6 +342,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         if (!workspacePath) return;
         const filePath = knownFilePath ?? filePathForSelection();
         if (!filePath) return;
+
+        discardIfEmpty(editingId);
 
         const id = useReviewStore.getState().addDraft(workspacePath, {
           filePath,
@@ -309,8 +368,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           return next;
         });
       },
-      [workspacePath, filePathForSelection],
+      [workspacePath, filePathForSelection, editingId, discardIfEmpty],
     );
+    handleStartCommentRef.current = handleStartComment;
 
     const handleSaveComment = useCallback(
       (id: string, body: string) => {
@@ -340,9 +400,13 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       [workspacePath],
     );
 
-    const handleEditComment = useCallback((id: string) => {
-      setEditingId(id);
-    }, []);
+    const handleEditComment = useCallback(
+      (id: string) => {
+        if (id !== editingId) discardIfEmpty(editingId);
+        setEditingId(id);
+      },
+      [editingId, discardIfEmpty],
+    );
 
     const handleDeleteComment = useCallback(
       (id: string) => {

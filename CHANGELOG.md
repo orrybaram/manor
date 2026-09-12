@@ -1,6 +1,9 @@
 # Changelog
 
+## [Unreleased]
 
+## Features
+- Comment on diff lines inline, batch the notes into a review, and send the whole review to a running agent or a new one
 
 
 ## [0.11.3] - 2026-09-10

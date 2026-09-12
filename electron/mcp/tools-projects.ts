@@ -21,6 +21,8 @@ const PROJECT_ID_PROP = {
 export interface WorkspaceFolder {
   id: string;
   name: string;
+  /** Enclosing folder, or null at the top level (ADR-172). */
+  parentId?: string | null;
 }
 
 export interface WorkspaceInfo {
@@ -202,6 +204,11 @@ const tools: ToolDef[] = [
       properties: {
         projectId: PROJECT_ID_PROP,
         name: { type: "string", description: "Folder name." },
+        parentId: {
+          type: ["string", "null"],
+          description:
+            "Folder id to nest the new folder inside. Omit or pass null to create it at the top level.",
+        },
       },
       required: ["name"],
     },
@@ -217,6 +224,24 @@ const tools: ToolDef[] = [
         name: { type: "string", description: "New folder name." },
       },
       required: ["folderId", "name"],
+    },
+  },
+  {
+    name: "move_folder",
+    description:
+      "Nest a sidebar folder inside another folder, or move it back to the top level.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        folderId: { type: "string", description: "Folder to move." },
+        parentId: {
+          type: ["string", "null"],
+          description:
+            "Folder id to nest it inside. Omit or pass null to move it to the top level. A folder cannot be moved inside itself or one of its own descendants.",
+        },
+      },
+      required: ["folderId"],
     },
   },
   {
@@ -648,7 +673,15 @@ const handlers: ToolModule["handlers"] = {
     if (folders.length === 0) {
       return text("No folders in this project.");
     }
-    return text(folders.map((f) => `${f.id}: ${f.name}`).join("\n"));
+    return text(
+      folders
+        .map((f) =>
+          f.parentId
+            ? `${f.id}: ${f.name} (inside ${f.parentId})`
+            : `${f.id}: ${f.name}`,
+        )
+        .join("\n"),
+    );
   },
 
   async create_folder(args, http) {
@@ -656,11 +689,28 @@ const handlers: ToolModule["handlers"] = {
       http,
       args.projectId as string | undefined,
     );
+    const parentId = (args.parentId as string | null | undefined) ?? null;
     const folder = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/folders`,
-      { name: args.name },
+      { name: args.name, parentId },
     )) as WorkspaceFolder;
     return text(`Created folder "${folder.name}" (${folder.id}).`);
+  },
+
+  async move_folder(args, http) {
+    const projectId = await resolveProjectId(
+      http,
+      args.projectId as string | undefined,
+    );
+    const folderId = args.folderId as string;
+    const parentId = (args.parentId as string | null | undefined) ?? null;
+    await http.post(
+      `/projects/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(folderId)}/parent`,
+      { parentId },
+    );
+    return parentId
+      ? text(`Moved folder ${folderId} inside ${parentId}.`)
+      : text(`Moved folder ${folderId} to the top level.`);
   },
 
   async rename_folder(args, http) {

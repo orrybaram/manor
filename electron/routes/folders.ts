@@ -1,5 +1,6 @@
 /**
- * `/projects/:projectId/folders` — sidebar folder CRUD (ADR-167) — and the
+ * `/projects/:projectId/folders` — sidebar folder CRUD (ADR-167, nested by
+ * ADR-172) — and the
  * `/workspaces/folder` route that assigns a workspace into one. Every handler
  * is a direct `ProjectManager` call; `withProject` (from `./projects`) supplies
  * the 503/404 preamble every route here shares with the other project routes.
@@ -28,7 +29,12 @@ export const folderRoutes: Route[] = [
         json(400, { error: "Missing 'name' string in request body" });
         return;
       }
-      const folder = pm.createWorkspaceFolder(params.projectId, name);
+      const parentId = body.parentId ?? null;
+      if (parentId !== null && typeof parentId !== "string") {
+        json(400, { error: "'parentId' must be a string or null" });
+        return;
+      }
+      const folder = pm.createWorkspaceFolder(params.projectId, name, parentId);
       if (!folder) {
         json(500, { error: "Failed to create folder" });
         return;
@@ -50,6 +56,29 @@ export const folderRoutes: Route[] = [
       }
       if (!requireFolder(project, params.folderId, json)) return;
       pm.renameWorkspaceFolder(params.projectId, params.folderId, name);
+      notifyProjectsChanged();
+      json(200, { ok: true });
+    }),
+  },
+
+  {
+    method: "POST",
+    path: "/projects/:projectId/folders/:folderId/parent",
+    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+      const body = await readBody();
+      const parentId = body.parentId ?? null;
+      if (parentId !== null && typeof parentId !== "string") {
+        json(400, { error: "'parentId' must be a string or null" });
+        return;
+      }
+      if (!requireFolder(project, params.folderId, json)) return;
+      if (parentId !== null && !requireFolder(project, parentId, json)) return;
+      // Main refuses a parent that is the folder itself or one of its own
+      // descendants; that is a conflict with the tree, not a bad request.
+      if (!pm.setFolderParent(params.projectId, params.folderId, parentId)) {
+        json(409, { error: "Would create a folder cycle" });
+        return;
+      }
       notifyProjectsChanged();
       json(200, { ok: true });
     }),

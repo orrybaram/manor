@@ -29,6 +29,17 @@ export interface CustomCommand {
 export interface WorkspaceFolder {
   id: string;
   name: string;
+  /** Enclosing folder, or null at the top level. */
+  parentId: string | null;
+}
+
+/**
+ * The part of a folder the parent walk needs. Folders persisted before
+ * ADR-172 have no `parentId` at all, so the walk reads it as optional.
+ */
+export interface FolderLink {
+  id: string;
+  parentId?: string | null;
 }
 
 export interface WorkspaceInfo {
@@ -125,7 +136,12 @@ interface PersistedProject {
   workspaceOrder?: string[];
   workspaceIssues?: Record<string, LinkedIssue[]>;
   workspaceHidden?: Record<string, boolean>;
-  workspaceFolders?: WorkspaceFolder[];
+  // `parentId` is absent in files written before ADR-172; read it as null.
+  workspaceFolders?: Array<{
+    id: string;
+    name: string;
+    parentId?: string | null;
+  }>;
   workspaceFolderIds?: Record<string, string>;
   color?: string | null;
   agentCommand?: string | null;
@@ -182,23 +198,24 @@ export function normalizeSidebarOrder(
 }
 
 /**
- * Removes a folder id from `order` and puts its members' paths in its place,
- * in `memberPaths`' relative order, gathering any member paths that are
- * scattered elsewhere in the array. If the folder id isn't present, the
- * members are appended to the end instead. Never duplicates a path.
+ * Removes a folder id from `order` and puts the keys it contained in its
+ * place — member workspace paths and child folder ids alike — in
+ * `memberKeys`' relative order, gathering any of them that are scattered
+ * elsewhere in the array. If the folder id isn't present, the members are
+ * appended to the end instead. Never duplicates a key.
  */
 export function spliceFolderOut(
   order: string[],
   folderId: string,
-  memberPaths: string[],
+  memberKeys: string[],
 ): string[] {
-  const memberSet = new Set(memberPaths);
+  const memberSet = new Set(memberKeys);
   const rest = order.filter(
     (entry) => entry !== folderId && !memberSet.has(entry),
   );
   const folderIndex = order.indexOf(folderId);
   if (folderIndex === -1) {
-    return [...rest, ...memberPaths];
+    return [...rest, ...memberKeys];
   }
 
   // Recompute where the folder id sits relative to `rest`: count how many
@@ -209,7 +226,30 @@ export function spliceFolderOut(
     if (entry !== folderId && !memberSet.has(entry)) insertAt++;
   }
 
-  return [...rest.slice(0, insertAt), ...memberPaths, ...rest.slice(insertAt)];
+  return [...rest.slice(0, insertAt), ...memberKeys, ...rest.slice(insertAt)];
+}
+
+/**
+ * True when `candidateId` is `folderId` itself or sits anywhere below it in
+ * the folder tree — the two parents a folder may never be given, because
+ * either one cuts its subtree loose from the top level.
+ *
+ * Walks up from the candidate. A corrupt file could hold a cyclic parent
+ * chain, so the walk is capped at the number of folders that exist: a chain
+ * longer than that has already revisited a folder.
+ */
+export function isFolderDescendant(
+  folders: readonly FolderLink[],
+  folderId: string,
+  candidateId: string | null | undefined,
+): boolean {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  let current = candidateId ?? null;
+  for (let steps = 0; current != null && steps <= folders.length; steps++) {
+    if (current === folderId) return true;
+    current = byId.get(current)?.parentId ?? null;
+  }
+  return false;
 }
 
 export class ProjectManager {
@@ -488,12 +528,27 @@ export class ProjectManager {
     this.saveState();
   }
 
-  createWorkspaceFolder(projectId: string, name: string): WorkspaceFolder | null {
+  createWorkspaceFolder(
+    projectId: string,
+    name: string,
+    parentId?: string | null,
+  ): WorkspaceFolder | null {
     const project = this.findProject(projectId);
     if (!project) return null;
     const trimmed = name.trim();
     if (trimmed === "") return null;
-    const folder: WorkspaceFolder = { id: crypto.randomUUID(), name: trimmed };
+    // A parent that names no folder of this project is stored as null rather
+    // than rejected — the same forgiving rule `setWorkspaceFolder` uses.
+    const parent =
+      parentId != null &&
+      project.workspaceFolders?.some((f) => f.id === parentId)
+        ? parentId
+        : null;
+    const folder: WorkspaceFolder = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      parentId: parent,
+    };
     if (!project.workspaceFolders) project.workspaceFolders = [];
     project.workspaceFolders.push(folder);
     if (Array.isArray(project.workspaceOrder)) {
@@ -518,41 +573,84 @@ export class ProjectManager {
     this.saveState();
   }
 
+  /**
+   * Nests `folderId` inside `parentId` (or moves it to the top level with
+   * null). Returns false — leaving the state untouched — for an unknown
+   * folder or for a parent that would close a cycle.
+   */
+  setFolderParent(
+    projectId: string,
+    folderId: string,
+    parentId: string | null,
+  ): boolean {
+    const project = this.findProject(projectId);
+    if (!project) return false;
+    const folders = project.workspaceFolders ?? [];
+    const folder = folders.find((f) => f.id === folderId);
+    if (!folder) return false;
+    const next =
+      parentId != null && folders.some((f) => f.id === parentId)
+        ? parentId
+        : null;
+    if (isFolderDescendant(folders, folderId, next)) return false;
+    folder.parentId = next;
+    this.saveState();
+    return true;
+  }
+
   deleteWorkspaceFolder(projectId: string, folderId: string): void {
     const project = this.findProject(projectId);
     if (!project) return;
 
-    // Collect member paths in their current sidebarOrder position (members
-    // not present in the order go last, in workspaceFolderIds insertion order).
-    const memberPaths: string[] = [];
+    // Deleting a folder promotes what it held rather than orphaning it: the
+    // grandparent takes over, so a nested subtree stays reachable.
+    const grandparentId =
+      project.workspaceFolders?.find((f) => f.id === folderId)?.parentId ??
+      null;
+
+    // Collect what the folder held — member paths and child folder ids — in
+    // their current sidebarOrder position (entries not present in the order
+    // go last, in insertion order).
+    const memberKeys: string[] = [];
     if (project.workspaceFolderIds) {
-      const order = project.workspaceOrder ?? [];
-      const orderMap = new Map(order.map((entry, i) => [entry, i]));
       for (const [path, id] of Object.entries(project.workspaceFolderIds)) {
-        if (id === folderId) memberPaths.push(path);
+        if (id === folderId) memberKeys.push(path);
       }
-      memberPaths.sort((a, b) => {
-        const ai = orderMap.get(a) ?? Infinity;
-        const bi = orderMap.get(b) ?? Infinity;
-        return ai - bi;
-      });
     }
+    for (const child of project.workspaceFolders ?? []) {
+      if (child.parentId === folderId) memberKeys.push(child.id);
+    }
+    const order = project.workspaceOrder ?? [];
+    const orderMap = new Map(order.map((entry, i) => [entry, i]));
+    memberKeys.sort((a, b) => {
+      const ai = orderMap.get(a) ?? Infinity;
+      const bi = orderMap.get(b) ?? Infinity;
+      return ai - bi;
+    });
 
     if (project.workspaceFolders) {
+      for (const child of project.workspaceFolders) {
+        if (child.parentId === folderId) child.parentId = grandparentId;
+      }
       project.workspaceFolders = project.workspaceFolders.filter(
         (f) => f.id !== folderId,
       );
     }
     if (project.workspaceFolderIds) {
       for (const [path, id] of Object.entries(project.workspaceFolderIds)) {
-        if (id === folderId) delete project.workspaceFolderIds[path];
+        if (id !== folderId) continue;
+        if (grandparentId) {
+          project.workspaceFolderIds[path] = grandparentId;
+        } else {
+          delete project.workspaceFolderIds[path];
+        }
       }
     }
     if (project.workspaceOrder) {
       project.workspaceOrder = spliceFolderOut(
         project.workspaceOrder,
         folderId,
-        memberPaths,
+        memberKeys,
       );
     }
     this.saveState();
@@ -609,9 +707,18 @@ export class ProjectManager {
     const names = p.workspaceNames ?? {};
     const issues = p.workspaceIssues ?? {};
     const hiddenMap = p.workspaceHidden ?? {};
-    const folders = p.workspaceFolders ?? [];
+    const persistedFolders = p.workspaceFolders ?? [];
     const folderIds = p.workspaceFolderIds ?? {};
-    const folderIdSet = new Set(folders.map((f) => f.id));
+    const folderIdSet = new Set(persistedFolders.map((f) => f.id));
+    // A parent absent (pre-ADR-172), deleted, or pointing at the folder
+    // itself reads as "top level" — the renderer never sees undefined.
+    const folders: WorkspaceFolder[] = persistedFolders.map((f) => ({
+      ...f,
+      parentId:
+        f.parentId != null && f.parentId !== f.id && folderIdSet.has(f.parentId)
+          ? f.parentId
+          : null,
+    }));
     const workspaces = rawWorkspaces.map((ws) => {
       const mappedFolderId = folderIds[ws.path];
       return {

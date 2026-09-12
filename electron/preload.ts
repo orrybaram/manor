@@ -218,8 +218,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
         workspacePath,
         hidden,
       ),
-    createWorkspaceFolder: (projectId: string, name: string) =>
-      ipcRenderer.invoke("projects:createWorkspaceFolder", projectId, name),
+    createWorkspaceFolder: (
+      projectId: string,
+      name: string,
+      parentId?: string | null,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:createWorkspaceFolder",
+        projectId,
+        name,
+        parentId ?? null,
+      ),
+    // Resolves false when the move would create a folder cycle (ADR-172).
+    setFolderParent: (
+      projectId: string,
+      folderId: string,
+      parentId: string | null,
+    ) =>
+      ipcRenderer.invoke(
+        "projects:setFolderParent",
+        projectId,
+        folderId,
+        parentId,
+      ),
     renameWorkspaceFolder: (
       projectId: string,
       folderId: string,

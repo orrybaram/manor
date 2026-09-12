@@ -108,9 +108,17 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "projects:createWorkspaceFolder",
-    (_event, projectId: string, name: string) => {
+    (_event, projectId: string, name: string, parentId?: string | null) => {
       assertString(name, "name");
-      return projectManager.createWorkspaceFolder(projectId, name);
+      return projectManager.createWorkspaceFolder(projectId, name, parentId);
+    },
+  );
+
+  // Returns false when the move would create a folder cycle (ADR-172).
+  ipcMain.handle(
+    "projects:setFolderParent",
+    (_event, projectId: string, folderId: string, parentId: string | null) => {
+      return projectManager.setFolderParent(projectId, folderId, parentId);
     },
   );
 

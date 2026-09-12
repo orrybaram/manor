@@ -77,6 +77,38 @@ describe("create_folder", () => {
   });
 });
 
+describe("move_folder", () => {
+  it("posts the parent to the folder's parent route", async () => {
+    const http = fakeHttp();
+
+    const result = await projectsModule.handlers.move_folder(
+      { projectId: "p1", folderId: "f2", parentId: "f1" },
+      http,
+    );
+
+    expect(http.calls).toEqual([
+      {
+        method: "POST",
+        path: "/projects/p1/folders/f2/parent",
+        body: { parentId: "f1" },
+      },
+    ]);
+    expect(result.content[0].text).toContain("f1");
+  });
+
+  it("an omitted parentId moves the folder to the top level", async () => {
+    const http = fakeHttp();
+
+    const result = await projectsModule.handlers.move_folder(
+      { projectId: "p1", folderId: "f2" },
+      http,
+    );
+
+    expect(http.calls[0].body).toEqual({ parentId: null });
+    expect(result.content[0].text).toContain("top level");
+  });
+});
+
 describe("rename_workspace", () => {
   it("resolves the caller's workspace via GET /context when omitted", async () => {
     const http = fakeHttp({

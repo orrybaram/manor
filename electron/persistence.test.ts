@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import {
   ProjectManager,
+  isFolderDescendant,
   normalizeSidebarOrder,
   spliceFolderOut,
 } from "./persistence";
@@ -312,7 +313,7 @@ describe("ProjectManager", () => {
 
         const state = readState();
         expect(state.projects[0].workspaceFolders).toEqual([
-          { id: folder!.id, name: "Backend" },
+          { id: folder!.id, name: "Backend", parentId: null },
         ]);
       });
 
@@ -328,6 +329,113 @@ describe("ProjectManager", () => {
 
       it("returns null for an unknown project id", () => {
         expect(manager.createWorkspaceFolder("nonexistent", "Backend")).toBeNull();
+      });
+
+      it("nests the new folder under an existing parent", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+
+        const child = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          parent.id,
+        )!;
+
+        expect(child.parentId).toBe(parent.id);
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[1].parentId).toBe(parent.id);
+      });
+
+      it("stores an unknown parent id as null instead of rejecting it", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+
+        const folder = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          "nonexistent",
+        )!;
+
+        expect(folder.parentId).toBeNull();
+      });
+    });
+
+    describe("setFolderParent", () => {
+      it("nests a folder under another and persists it", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const child = manager.createWorkspaceFolder(project.id, "API")!;
+
+        expect(manager.setFolderParent(project.id, child.id, parent.id)).toBe(
+          true,
+        );
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[1].parentId).toBe(parent.id);
+      });
+
+      it("moves a nested folder back to the top level", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const child = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          parent.id,
+        )!;
+
+        expect(manager.setFolderParent(project.id, child.id, null)).toBe(true);
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[1].parentId).toBeNull();
+      });
+
+      it("refuses to make a folder its own parent", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const folder = manager.createWorkspaceFolder(project.id, "Epic")!;
+
+        expect(manager.setFolderParent(project.id, folder.id, folder.id)).toBe(
+          false,
+        );
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[0].parentId).toBeNull();
+      });
+
+      it("refuses a parent that is one of the folder's descendants", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const top = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const mid = manager.createWorkspaceFolder(project.id, "API", top.id)!;
+        const leaf = manager.createWorkspaceFolder(project.id, "v2", mid.id)!;
+
+        expect(manager.setFolderParent(project.id, top.id, leaf.id)).toBe(
+          false,
+        );
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[0].parentId).toBeNull();
+      });
+
+      it("returns false for an unknown folder id", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        expect(manager.setFolderParent(project.id, "nonexistent", null)).toBe(
+          false,
+        );
+      });
+
+      it("treats an unknown parent id as the top level", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const child = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          parent.id,
+        )!;
+
+        expect(
+          manager.setFolderParent(project.id, child.id, "nonexistent"),
+        ).toBe(true);
+
+        const state = readState();
+        expect(state.projects[0].workspaceFolders[1].parentId).toBeNull();
       });
     });
 
@@ -417,6 +525,46 @@ describe("ProjectManager", () => {
           state.projects[0].workspaceFolderIds["/tmp/proj"],
         ).toBeUndefined();
       });
+
+      it("promotes child folders and member workspaces to the grandparent", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const top = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const mid = manager.createWorkspaceFolder(project.id, "API", top.id)!;
+        const leaf = manager.createWorkspaceFolder(project.id, "v2", mid.id)!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", mid.id);
+
+        manager.deleteWorkspaceFolder(project.id, mid.id);
+
+        const state = readState();
+        const folders = state.projects[0].workspaceFolders;
+        expect(folders.map((f: { id: string }) => f.id)).toEqual([
+          top.id,
+          leaf.id,
+        ]);
+        expect(
+          folders.find((f: { id: string }) => f.id === leaf.id).parentId,
+        ).toBe(top.id);
+        expect(state.projects[0].workspaceFolderIds["/tmp/proj"]).toBe(top.id);
+      });
+
+      it("unfiles members when the deleted folder was at the top level", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const top = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const child = manager.createWorkspaceFolder(project.id, "API", top.id)!;
+        manager.setWorkspaceFolder(project.id, "/tmp/proj", top.id);
+
+        manager.deleteWorkspaceFolder(project.id, top.id);
+
+        const state = readState();
+        expect(
+          state.projects[0].workspaceFolders.find(
+            (f: { id: string }) => f.id === child.id,
+          ).parentId,
+        ).toBeNull();
+        expect(
+          state.projects[0].workspaceFolderIds["/tmp/proj"],
+        ).toBeUndefined();
+      });
     });
 
     describe("buildProjectInfo folder resolution", () => {
@@ -454,6 +602,59 @@ describe("ProjectManager", () => {
         expect(ws2.folderId).toBe(folder.id);
         const ws1 = info.workspaces.find((w) => w.path === "/tmp/proj")!;
         expect(ws1.folderId).toBeNull();
+      });
+
+      it("reads back a nested folder's parentId", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const child = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          parent.id,
+        )!;
+
+        const [info] = await manager.getProjects();
+        expect(info.folders).toEqual([
+          { id: parent.id, name: "Epic", parentId: null },
+          { id: child.id, name: "API", parentId: parent.id },
+        ]);
+      });
+
+      it("loads a project persisted before parentId with every folder at the top level", async () => {
+        await manager.addProject("Proj", "/tmp/proj");
+        const state = readState();
+        state.projects[0].workspaceFolders = [
+          { id: "f1", name: "Epic" },
+          { id: "f2", name: "API" },
+        ];
+        fs.writeFileSync(
+          path.join(tmpDir, "projects.json"),
+          JSON.stringify(state),
+        );
+
+        const reloaded = new ProjectManager(gitMock, tmpDir);
+        const [info] = await reloaded.getProjects();
+        expect(info.folders).toEqual([
+          { id: "f1", name: "Epic", parentId: null },
+          { id: "f2", name: "API", parentId: null },
+        ]);
+      });
+
+      it("resolves a dangling or self-referential parentId to null", async () => {
+        await manager.addProject("Proj", "/tmp/proj");
+        const state = readState();
+        state.projects[0].workspaceFolders = [
+          { id: "f1", name: "Epic", parentId: "gone" },
+          { id: "f2", name: "API", parentId: "f2" },
+        ];
+        fs.writeFileSync(
+          path.join(tmpDir, "projects.json"),
+          JSON.stringify(state),
+        );
+
+        const reloaded = new ProjectManager(gitMock, tmpDir);
+        const [info] = await reloaded.getProjects();
+        expect(info.folders.map((f) => f.parentId)).toEqual([null, null]);
       });
 
       it("resolves a stale folder id to null", async () => {
@@ -562,6 +763,40 @@ describe("ProjectManager", () => {
       });
     });
 
+    describe("isFolderDescendant", () => {
+      const folders = [
+        { id: "top", name: "Epic", parentId: null },
+        { id: "mid", name: "API", parentId: "top" },
+        { id: "leaf", name: "v2", parentId: "mid" },
+        { id: "other", name: "Bugs", parentId: null },
+      ];
+
+      it("counts the folder itself", () => {
+        expect(isFolderDescendant(folders, "top", "top")).toBe(true);
+      });
+
+      it("finds a direct child and an indirect one", () => {
+        expect(isFolderDescendant(folders, "top", "mid")).toBe(true);
+        expect(isFolderDescendant(folders, "top", "leaf")).toBe(true);
+      });
+
+      it("is false for an unrelated folder, an ancestor, null and unknown ids", () => {
+        expect(isFolderDescendant(folders, "top", "other")).toBe(false);
+        expect(isFolderDescendant(folders, "leaf", "top")).toBe(false);
+        expect(isFolderDescendant(folders, "top", null)).toBe(false);
+        expect(isFolderDescendant(folders, "top", "nonexistent")).toBe(false);
+      });
+
+      it("terminates on a cyclic parent chain", () => {
+        const cyclic = [
+          { id: "a", name: "A", parentId: "b" },
+          { id: "b", name: "B", parentId: "a" },
+        ];
+        expect(isFolderDescendant(cyclic, "c", "a")).toBe(false);
+        expect(isFolderDescendant(cyclic, "b", "a")).toBe(true);
+      });
+    });
+
     describe("createWorkspaceFolder appends to workspaceOrder", () => {
       function readState() {
         return JSON.parse(
@@ -617,6 +852,41 @@ describe("ProjectManager", () => {
           "/tmp/loose-1",
           "/tmp/a",
           "/tmp/b",
+          "/tmp/loose-2",
+        ]);
+      });
+
+      it("puts promoted child folders where the folder was, in order", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const childA = manager.createWorkspaceFolder(
+          project.id,
+          "API",
+          parent.id,
+        )!;
+        const childB = manager.createWorkspaceFolder(
+          project.id,
+          "UI",
+          parent.id,
+        )!;
+        manager.setWorkspaceFolder(project.id, "/tmp/a", parent.id);
+        manager.reorderWorkspaces(project.id, [
+          "/tmp/loose-1",
+          parent.id,
+          childA.id,
+          "/tmp/a",
+          childB.id,
+          "/tmp/loose-2",
+        ]);
+
+        manager.deleteWorkspaceFolder(project.id, parent.id);
+
+        const state = readState();
+        expect(state.projects[0].workspaceOrder).toEqual([
+          "/tmp/loose-1",
+          childA.id,
+          "/tmp/a",
+          childB.id,
           "/tmp/loose-2",
         ]);
       });

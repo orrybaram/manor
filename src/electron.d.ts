@@ -469,7 +469,14 @@ export interface ElectronAPI {
     createWorkspaceFolder: (
       projectId: string,
       name: string,
+      parentId?: string | null,
     ) => Promise<import("./store/project-store").WorkspaceFolder | null>;
+    /** Resolves false when the move would create a folder cycle (ADR-172). */
+    setFolderParent: (
+      projectId: string,
+      folderId: string,
+      parentId: string | null,
+    ) => Promise<boolean>;
     renameWorkspaceFolder: (
       projectId: string,
       folderId: string,

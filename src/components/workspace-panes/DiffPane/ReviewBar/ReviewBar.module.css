@@ -26,6 +26,13 @@
 
 /* ── Split button ── */
 
+/* Separated from the count so the destructive action does not sit right next
+   to the tally it would throw away. */
+.discard {
+  margin-left: 12px;
+  font-size: 10px;
+}
+
 .split {
   display: inline-flex;
   align-items: stretch;

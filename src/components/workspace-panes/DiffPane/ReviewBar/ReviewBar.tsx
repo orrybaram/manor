@@ -106,6 +106,15 @@ export function ReviewBar(props: ReviewBarProps) {
         {countLabel}
       </span>
 
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.discard}
+        onClick={handleDiscard}
+      >
+        {confirmingDiscard ? `Discard ${countLabel}?` : "Discard"}
+      </Button>
+
       <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
         <span className={styles.split}>
           <Button
@@ -157,10 +166,6 @@ export function ReviewBar(props: ReviewBarProps) {
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-
-      <Button variant="ghost" size="sm" onClick={handleDiscard}>
-        {confirmingDiscard ? `Discard ${countLabel}?` : "Discard"}
-      </Button>
     </div>
   );
 }

@@ -4,6 +4,17 @@ import { getAgentCommand } from "../agent-defaults";
 import { escapeShellDoubleQuoted } from "./home";
 
 /**
+ * Flatten a prompt to a single line. Prompts here are typed into an
+ * interactive shell or a harness's prompt box, and a bare newline either
+ * leaves the shell waiting on a continuation prompt or submits the turn
+ * early — so every whitespace run that spans a newline collapses to one
+ * space before the text is sent.
+ */
+export function flattenPrompt(prompt: string): string {
+  return prompt.replace(/\s*\n\s*/g, " ").trim();
+}
+
+/**
  * Open a new agent tab in `workspacePath` with `prompt` as its first message.
  *
  * The workspace is selected first — through the project store, so the sidebar
@@ -11,10 +22,6 @@ import { escapeShellDoubleQuoted } from "./home";
  * as that workspace's pending startup command, the same route the command
  * palette's "new agent with prompt" takes. Prewarmed sessions are not consumed:
  * they run the bare agent command, and this one needs the prompt argument.
- *
- * The prompt is flattened to one line. It is typed into an interactive shell
- * inside double quotes, and a newline there would leave the shell waiting on
- * a continuation prompt rather than starting the agent.
  */
 export function startAgentWithPrompt(
   workspacePath: string,
@@ -34,7 +41,7 @@ export function startAgentWithPrompt(
     app.setActiveWorkspace(workspacePath);
   }
 
-  const flat = prompt.replace(/\s*\n\s*/g, " ").trim();
+  const flat = flattenPrompt(prompt);
   const command = `${getAgentCommand(workspacePath)} "${escapeShellDoubleQuoted(flat)}"`;
   useAppStore.getState().setPendingStartupCommand(workspacePath, command);
   useAppStore.getState().addTab();

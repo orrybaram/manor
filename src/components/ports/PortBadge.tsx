@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import { Link } from "../ui/Link/Link";
 import { useAppStore } from "../../store/app-store";
 import styles from "./Ports.module.css";
 
@@ -55,9 +56,14 @@ export function PortBadge(props: PortBadgeProps) {
         >
           <span className={styles.portNumber}>{port.port}</span>
           <span className={styles.portProcess}>{displayProcess}</span>
-          <div role="button" onClick={handleOpenExternal}>
+          <Link
+            variant="plain"
+            href={url}
+            aria-label="Open in default browser"
+            onClick={(e) => e.stopPropagation()}
+          >
             <ExternalLink size={12} className={styles.portOpen} />
-          </div>
+          </Link>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

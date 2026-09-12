@@ -1,8 +1,9 @@
 import { useState } from "react";
-import Link from "lucide-react/dist/esm/icons/link";
+import LinkIcon from "lucide-react/dist/esm/icons/link";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
+import { Link } from "../ui/Link/Link";
 import { Stack } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
@@ -35,7 +36,7 @@ export function GitHubIntegrationSection() {
       {status?.installed && status?.authenticated ? (
         <Stack gap="sm">
           <div className={styles.linearStatus}>
-            <Link size={14} />
+            <LinkIcon size={14} />
             <span>Connected as {status.username}</span>
           </div>
           <Button
@@ -66,16 +67,9 @@ export function GitHubIntegrationSection() {
         <Stack gap="xxs">
           <div>
             GitHub CLI is required for PR status.{" "}
-            <a
-              className={styles.linearLink}
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                window.electronAPI.shell.openExternal("https://cli.github.com");
-              }}
-            >
+            <Link href="https://cli.github.com">
               Install GitHub CLI
-            </a>
+            </Link>
           </div>
           <div className={styles.fieldHint}>
             After installing, run <code>gh auth login</code> in your terminal.

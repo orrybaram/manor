@@ -5,6 +5,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import Download from "lucide-react/dist/esm/icons/download";
 import Check from "lucide-react/dist/esm/icons/check";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
+import { Link } from "../ui/Link/Link";
 import { MiniTerminal, type MiniTerminalHandle } from "../ui/MiniTerminal";
 import styles from "../EmptyState.module.css";
 
@@ -131,16 +132,12 @@ export function GitHubNudge(props: GitHubNudgeProps) {
           ) : (
             <span className={styles.nudgeText}>
               Install the{" "}
-              <button
+              <Link
+                href="https://cli.github.com"
                 className={styles.nudgeLink}
-                onClick={() =>
-                  window.electronAPI.shell.openExternal(
-                    "https://cli.github.com",
-                  )
-                }
               >
                 GitHub CLI
-              </button>{" "}
+              </Link>{" "}
               to see your issues here
             </span>
           )}

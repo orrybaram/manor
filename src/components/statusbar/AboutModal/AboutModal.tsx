@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ManorLogo } from "../../ui/ManorLogo";
+import { Link } from "../../ui/Link/Link";
 import changelogSource from "../../../../CHANGELOG.md?raw";
 import styles from "./AboutModal.module.css";
 
@@ -36,18 +37,17 @@ export function AboutModal(props: AboutModalProps) {
             <Markdown
               remarkPlugins={[remarkGfm]}
               components={{
-                a: ({ href, children }) => (
-                  <a
-                    href={href}
-                    title={href}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (href) window.electronAPI.shell.openExternal(href);
-                    }}
-                  >
-                    {children}
-                  </a>
-                ),
+                a: ({ href, children }) =>
+                  href ? (
+                    <Link
+                      href={href}
+                      title={href}
+                    >
+                      {children}
+                    </Link>
+                  ) : (
+                    <span>{children}</span>
+                  ),
               }}
             >
               {CHANGELOG}

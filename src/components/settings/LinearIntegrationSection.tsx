@@ -1,10 +1,11 @@
 import { useState } from "react";
-import Link from "lucide-react/dist/esm/icons/link";
+import LinkIcon from "lucide-react/dist/esm/icons/link";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
+import { Link } from "../ui/Link/Link";
 import { Input } from "../ui/Input";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
@@ -83,7 +84,7 @@ export function LinearIntegrationSection() {
       {connected ? (
         <Stack gap="sm">
           <div className={styles.linearStatus}>
-            <Link size={14} />
+            <LinkIcon size={14} />
             <span>Connected as {viewer?.name ?? "..."}</span>
           </div>
           {matchCount !== null && matchCount > 0 && (
@@ -125,18 +126,9 @@ export function LinearIntegrationSection() {
           {error && <div className={styles.linearError}>{error}</div>}
           <div className={styles.fieldHint}>
             Get your API key from{" "}
-            <a
-              className={styles.linearLink}
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                window.electronAPI.shell.openExternal(
-                  "https://linear.app/trytango/settings/account/security",
-                );
-              }}
-            >
+            <Link href="https://linear.app/trytango/settings/account/security">
               Linear Settings
-            </a>
+            </Link>
             . Your key is stored securely in the macOS Keychain — you may be
             prompted for your login password.
           </div>

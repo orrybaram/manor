@@ -573,15 +573,6 @@
   color: var(--red, #f38ba8);
 }
 
-.linearLink {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.linearLink:hover {
-  text-decoration: underline;
-}
-
 /* ── Multi-select (Radix Popover) ── */
 
 .multiSelectTrigger {

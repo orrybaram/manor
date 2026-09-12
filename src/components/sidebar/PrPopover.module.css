@@ -152,6 +152,9 @@
   color: var(--text-selected);
   line-height: 1.4;
   border-radius: 4px;
+  /* Button is nowrap; a PR title is a sentence and has to wrap to fit. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .prPopoverTitle:hover:not(:disabled) {

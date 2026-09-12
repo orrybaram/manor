@@ -1,6 +1,6 @@
 ---
 title: Add ui/Link component and rule
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

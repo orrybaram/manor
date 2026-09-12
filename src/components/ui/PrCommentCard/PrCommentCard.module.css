@@ -132,7 +132,7 @@
   border-radius: 4px;
 }
 
-.action:hover:not(:disabled) {
+.action:hover {
   color: var(--accent);
 }
 

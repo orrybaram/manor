@@ -142,7 +142,7 @@
   color: var(--text-primary);
 }
 
-/* A ghost Button reflowed into a left-aligned, wrapping title link. */
+/* A left-aligned, wrapping title link. */
 .prPopoverTitle {
   display: block;
   width: 100%;
@@ -152,12 +152,10 @@
   color: var(--text-selected);
   line-height: 1.4;
   border-radius: 4px;
-  /* Button is nowrap; a PR title is a sentence and has to wrap to fit. */
-  white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.prPopoverTitle:hover:not(:disabled) {
+.prPopoverTitle:hover {
   background: none;
   color: var(--accent);
 }
@@ -276,8 +274,8 @@
   border-radius: 4px;
 }
 
-.prPopoverCheck:disabled {
-  opacity: 1;
+a.prPopoverCheck:hover {
+  background: var(--surface);
 }
 
 .prPopoverCheckName {

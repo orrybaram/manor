@@ -1,6 +1,6 @@
 ---
 title: Migrate PR popover and comment card to Link
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

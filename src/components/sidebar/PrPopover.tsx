@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Button } from "../ui/Button/Button";
+import { Link } from "../ui/Link/Link";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitPullRequestClosed from "lucide-react/dist/esm/icons/git-pull-request-closed";
@@ -44,10 +45,6 @@ const MAX_CHECKS_COLLAPSED = 10;
 
 /** Comments are the tallest rows; past this the popover stops being a popover. */
 const MAX_COMMENTS_SHOWN = 6;
-
-function openExternal(url: string) {
-  window.electronAPI.shell.openExternal(url);
-}
 
 /**
  * The hover card behind the PR badge. Everything in it is a link into GitHub —
@@ -186,18 +183,15 @@ export function PrPopover(props: PrPopoverProps) {
             )}
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
+          <Link
+            variant="plain"
+            href={pr.url}
             className={styles.prPopoverTitle}
             title="Open this pull request on GitHub"
-            onClick={(e) => {
-              e.stopPropagation();
-              openExternal(pr.url);
-            }}
+            onClick={(e) => e.stopPropagation()}
           >
             {pr.title}
-          </Button>
+          </Link>
 
           <SummaryRows pr={pr} />
 
@@ -416,18 +410,8 @@ function CheckRow(props: { run: PrCheckRun }) {
     skipped: styles.toneMuted,
   }[run.status];
 
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className={styles.prPopoverCheck}
-      disabled={!run.url}
-      title={run.url ? `Open ${run.name} on GitHub` : run.name}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (run.url) openExternal(run.url);
-      }}
-    >
+  const children = (
+    <>
       <Icon size={11} className={toneClass} />
       <span
         className={`${styles.prPopoverCheckName}${run.status === "skipped" ? ` ${styles.toneMuted}` : ""}`}
@@ -441,7 +425,27 @@ function CheckRow(props: { run: PrCheckRun }) {
             ? run.workflow
             : null}
       </span>
-    </Button>
+    </>
+  );
+
+  if (!run.url) {
+    return (
+      <div className={styles.prPopoverCheck} title={run.name}>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      variant="plain"
+      href={run.url}
+      className={styles.prPopoverCheck}
+      title={`Open ${run.name} on GitHub`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </Link>
   );
 }
 

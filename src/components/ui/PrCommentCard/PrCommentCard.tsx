@@ -11,12 +11,9 @@ import History from "lucide-react/dist/esm/icons/history";
 import type { PrComment } from "../../../lib/pr-info";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { Button } from "../Button/Button";
+import { Link } from "../Link/Link";
 import { Tooltip } from "../Tooltip/Tooltip";
 import styles from "./PrCommentCard.module.css";
-
-function openExternal(url: string) {
-  window.electronAPI.shell.openExternal(url);
-}
 
 /**
  * One comment, as a card: who said it, then the file it hangs off and the
@@ -115,19 +112,16 @@ export function PrCommentCard(props: {
             <Bot size={11} />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
+        <Link
+          variant="plain"
+          href={comment.url}
           className={styles.action}
           title="Open this comment on GitHub"
           aria-label="Open this comment on GitHub"
-          onClick={(e) => {
-            e.stopPropagation();
-            openExternal(comment.url);
-          }}
+          onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink size={11} />
-        </Button>
+        </Link>
       </span>
     </div>
   );
@@ -181,19 +175,19 @@ function CommentMarkdown(props: { source: string }) {
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeRaw, rehypeSanitize]}
       components={{
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            title={href}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (href) openExternal(href);
-            }}
-          >
-            {children}
-          </a>
-        ),
+        a: ({ href, children }) =>
+          href ? (
+            <Link
+              variant="inline"
+              href={href}
+              title={href}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {children}
+            </Link>
+          ) : (
+            <span>{children}</span>
+          ),
         img: ({ alt }) => <span className={styles.tag}>{alt || "image"}</span>,
       }}
     >

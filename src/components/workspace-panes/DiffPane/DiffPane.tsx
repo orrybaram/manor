@@ -16,6 +16,11 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import { useProjectStore } from "../../../store/project-store";
+import {
+  useReviewStore,
+  NO_DRAFTS,
+  type DraftComment,
+} from "../../../store/review-store";
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
 import { countMatches } from "./search-utils";
@@ -225,6 +230,65 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, [workspacePath, defaultBranch, diffMode, fetchKey]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
+
+    // ── Draft review comments ──
+
+    const drafts = useReviewStore((s) =>
+      workspacePath ? (s.drafts[workspacePath] ?? NO_DRAFTS) : NO_DRAFTS,
+    );
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    /** Grouped once here so each `DiffLines` is handed only its own file's drafts. */
+    const draftsByFile = useMemo(() => {
+      const byFile = new Map<string, DraftComment[]>();
+      for (const draft of drafts) {
+        const existing = byFile.get(draft.filePath);
+        if (existing) existing.push(draft);
+        else byFile.set(draft.filePath, [draft]);
+      }
+      return byFile;
+    }, [drafts]);
+
+    const handleSaveComment = useCallback(
+      (id: string, body: string) => {
+        if (!workspacePath) return;
+        useReviewStore.getState().updateDraft(workspacePath, id, body);
+        setEditingId((current) => (current === id ? null : current));
+      },
+      [workspacePath],
+    );
+
+    /**
+     * Cancelling a draft that never got a body is cancelling its *creation* —
+     * the chip adds an empty draft up front, so leaving it behind would litter
+     * the review with blank comments. An edit to an existing comment just
+     * reverts.
+     */
+    const handleCancelComment = useCallback(
+      (id: string) => {
+        if (!workspacePath) return;
+        const { drafts: all, removeDraft } = useReviewStore.getState();
+        const draft = all[workspacePath]?.find((d) => d.id === id);
+        if (draft && draft.body.trim() === "") {
+          removeDraft(workspacePath, id);
+        }
+        setEditingId((current) => (current === id ? null : current));
+      },
+      [workspacePath],
+    );
+
+    const handleEditComment = useCallback((id: string) => {
+      setEditingId(id);
+    }, []);
+
+    const handleDeleteComment = useCallback(
+      (id: string) => {
+        if (!workspacePath) return;
+        useReviewStore.getState().removeDraft(workspacePath, id);
+        setEditingId((current) => (current === id ? null : current));
+      },
+      [workspacePath],
+    );
 
     // Fetch staged file list for local mode. Tagged with the workspace it was
     // fetched for so any other workspace (or full-diff mode) reads as empty
@@ -695,6 +759,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                       searchQuery={searchQuery}
                       matchOffset={fileOffsets.get(file.path) ?? 0}
                       currentMatch={currentMatch}
+                      comments={draftsByFile.get(file.path)}
+                      editingId={editingId}
+                      onSaveComment={handleSaveComment}
+                      onCancelComment={handleCancelComment}
+                      onEditComment={handleEditComment}
+                      onDeleteComment={handleDeleteComment}
                     />
                   )}
                 </div>

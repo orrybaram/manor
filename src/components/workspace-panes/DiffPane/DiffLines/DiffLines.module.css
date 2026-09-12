@@ -102,6 +102,49 @@
   background: var(--surface);
 }
 
+/* ── Review comments ── */
+
+/*
+ * A row carrying draft comments stacks: the code on top, the cards beneath it
+ * in the content column so the gutter stays a clean strip. Grid rather than an
+ * inner wrapper element because `review-anchor` reads a row's line number and
+ * code off its first two children — copy and comment anchoring both break the
+ * moment those stop being direct children of the row.
+ */
+.rowWithComment {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* The gutter runs the whole block, cards included, rather than stopping under
+   the line it numbers. */
+.rowWithComment > :first-child {
+  grid-row: 1 / span 2;
+}
+
+.commentColumn {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+/* "There is a note on this line": an accent bar in the gutter and a wash over
+   the code. The wash is a gradient rather than a background-color so it layers
+   over the add/del tint instead of replacing it. */
+.row[data-commented="true"] > :first-child {
+  box-shadow: inset 2px 0 0 var(--blue);
+}
+
+.row[data-commented="true"] > :nth-child(2) {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--blue) 6%, transparent),
+    color-mix(in srgb, var(--blue) 6%, transparent)
+  );
+}
+
 /* ── Search highlights ── */
 
 .searchMatch {

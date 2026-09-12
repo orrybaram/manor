@@ -107,6 +107,7 @@ export function PrPopover(props: PrPopoverProps) {
     ready: styles.prReady,
     blocked: styles.prBlocked,
     queued: styles.prQueued,
+    review: styles.prReview,
     pending: styles.prPending,
     merged: styles.prMerged,
     closed: styles.prClosed,
@@ -243,11 +244,17 @@ function badgeIcon(
         return { Icon: ShieldAlert, spin: false, tone: styles.prIconWarn };
       }
       return { Icon: MessageSquare, spin: false, tone: styles.prIconWarn };
+    case "review":
+      return { Icon: ShieldQuestion, spin: false, tone: styles.prIconPending };
     case "ready":
       return { Icon: CircleCheck, spin: false, tone: styles.prIconGood };
     default:
+      // A pending check is a machine still working, but it is not the merge
+      // queue's spinner — that one is accent-coloured because the queue will
+      // finish the job itself. This is just "not done yet", so it gets the
+      // same quiet clock the popover's own summary row uses for it.
       if (pr.checks && pr.checks.pending > 0) {
-        return { Icon: LoaderCircle, spin: true, tone: styles.prIconWarn };
+        return { Icon: Clock, spin: false, tone: styles.prIconPending };
       }
       return {
         Icon: pr.isDraft ? GitPullRequestDraft : GitPullRequest,

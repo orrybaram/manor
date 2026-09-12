@@ -1,5 +1,29 @@
 # Changelog
 
+
+## [0.12.0] - 2026-09-12
+
+**Features**
+- Comment on any diff by selecting text — a floating Comment chip turns the selection into an inline comment
+- Batch inline comments into a single review and send it to an agent, with a destination picker for where it goes
+- Jump straight to any comment from the review bar's tally
+- Nested folders in the sidebar — drag to reorganize and create folders inside folders
+- PR badge now shows a quiet pending state and flags when a PR needs review
+- Press Enter to rename in the sidebar; the sidebar keeps focus while you work
+
+**Fixes**
+- Review prompts no longer assume you're asking for a code change
+- Comment chip now lines up with the text you selected
+- Review bar no longer overlaps the back-to-top button
+- Comment anchors stay correct across files
+- Sidebar highlight now follows the open workspace, and the focus ring appears on click
+- Right-clicking during a rename no longer closes the input
+
+**Improvements**
+- Diff pane no longer re-renders itself every five seconds
+- Comment chip stopped re-scanning the file on every frame
+- Review bar reordered, with a smaller Discard button
+
 ## [0.11.3] - 2026-09-10
 
 ## Features

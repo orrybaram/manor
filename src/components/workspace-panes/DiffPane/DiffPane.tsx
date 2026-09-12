@@ -748,7 +748,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <div className={styles.status}>Loading diff...</div>
-          {workspacePath && <ReviewBar workspacePath={workspacePath} />}
+          {workspacePath && (
+            <div className={styles.bottomDock}>
+              <ReviewBar workspacePath={workspacePath} />
+            </div>
+          )}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -766,7 +770,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         <div className={styles.container} ref={containerRef}>
           <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
           <EmptyState message={error} />
-          {workspacePath && <ReviewBar workspacePath={workspacePath} />}
+          {workspacePath && (
+            <div className={styles.bottomDock}>
+              <ReviewBar workspacePath={workspacePath} />
+            </div>
+          )}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -933,22 +941,24 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           ))}
           </Stack>
         </div>
-        {showBackToTop && (
-          <button
-            className={styles.backToTop}
-            onClick={scrollToTop}
-            aria-label="Back to top"
-          >
-            <ArrowUp size={14} />
-          </button>
-        )}
         {workspacePath && (
           <SelectionCommentChip
             containerRef={containerRef}
             onComment={handleStartComment}
           />
         )}
-        {workspacePath && <ReviewBar workspacePath={workspacePath} />}
+        <div className={styles.bottomDock}>
+          {workspacePath && <ReviewBar workspacePath={workspacePath} />}
+          {showBackToTop && (
+            <button
+              className={styles.backToTop}
+              onClick={scrollToTop}
+              aria-label="Back to top"
+            >
+              <ArrowUp size={14} />
+            </button>
+          )}
+        </div>
         {workspacePath && (
           <CommitModal
             open={commitOpen}

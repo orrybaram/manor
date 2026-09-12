@@ -1,18 +1,9 @@
 /*
- * Sticky rather than absolute: the diff's scroll container is the flow parent,
- * so sticky is the one way to stay pinned to the pane's bottom edge while the
- * diff scrolls under it — the same mechanism `.backToTop` uses.
- *
- * `bottom` clears that button (which sits at 12px) so the two never overlap,
- * whether or not it happens to be showing.
+ * Positioning belongs to `.bottomDock` in `DiffPane.module.css`, not here: the
+ * bar and the back-to-top button share one sticky row, and a bar that pinned
+ * itself would land on top of that button rather than beside it.
  */
 .bar {
-  position: sticky;
-  bottom: 56px;
-  z-index: 10;
-  width: fit-content;
-  margin-left: auto;
-  margin-right: 12px;
   display: flex;
   align-items: center;
   gap: 10px;

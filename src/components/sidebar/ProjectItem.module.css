@@ -120,12 +120,17 @@
   color: var(--project-color, var(--accent));
 }
 
-/* Keyboard focus on a row: Enter renames it, arrows leave it (ADR-172). Drawn
+/* Focus on a row: Enter renames it, arrows leave it (ADR-172). Drawn
    inside the row — the sidebar's scroller would clip an outward ring — and
    inset past the edge so it still reads on a drop target, whose own 1px ring
-   sits right on that edge. */
-.workspace:focus-visible,
-.folderHeader:focus-visible {
+   sits right on that edge.
+
+   `:focus`, not `:focus-visible`: Chromium does not count a mouse click on a
+   `div` as visible focus, and a click here is exactly when the ring has to
+   show — the row is holding focus that the terminal no longer takes back, and
+   Enter will rename it. Without the ring that state is invisible. */
+.workspace:focus,
+.folderHeader:focus {
   outline: 1px solid var(--accent);
   outline-offset: -2px;
 }

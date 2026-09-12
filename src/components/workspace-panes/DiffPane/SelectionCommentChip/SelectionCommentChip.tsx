@@ -10,7 +10,12 @@ import { createPortal } from "react-dom";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
-import { selectionToAnchor, type SelectionAnchor } from "../review-anchor";
+import {
+  selectionRowRange,
+  selectionToAnchor,
+  type SelectionAnchor,
+  type SelectionRowRange,
+} from "../review-anchor";
 import styles from "./SelectionCommentChip.module.css";
 
 type SelectionCommentChipProps = {
@@ -27,11 +32,11 @@ const MARGIN = 8;
 const ROOM_BELOW = 44;
 
 type ChipTarget = {
-  anchor: SelectionAnchor;
+  range: SelectionRowRange;
   /**
    * Viewport coords of the selection, snapshotted at evaluation time. `top`
    * and `bottom` bound the whole selection; `left` is where its text starts
-   * (see `textStartLeft`), not the bounding box's left edge.
+   * (see `selectionBox`), not the bounding box's left edge.
    */
   rect: { top: number; bottom: number; left: number };
 };
@@ -40,20 +45,55 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Sub-pixel jitter during a drag is not a move worth re-rendering for. */
+function sameTarget(a: ChipTarget | null, b: ChipTarget): boolean {
+  return (
+    a !== null &&
+    a.range.startIndex === b.range.startIndex &&
+    a.range.endIndex === b.range.endIndex &&
+    Math.abs(a.rect.top - b.rect.top) < 1 &&
+    Math.abs(a.rect.bottom - b.rect.bottom) < 1 &&
+    Math.abs(a.rect.left - b.rect.left) < 1
+  );
+}
+
 /**
- * Where the selected text starts, horizontally.
+ * Where to hang the chip: the top and left of where the selection *starts*,
+ * and the bottom of where it *ends*.
  *
- * Deliberately not the range's bounding rect: that is the union of every rect
- * the range touches, and a selection spanning rows swallows whole row boxes —
- * so its left edge is the line-number gutter, not the code. The range's first
- * non-empty client rect is the line box the selection actually begins in,
- * which puts the chip under the text the user highlighted.
+ * Measured with two collapsed probe ranges rather than the selection's own
+ * rects. `getBoundingClientRect` on a multi-row range is the union of every
+ * rect it touches, so its left edge is the line-number gutter rather than the
+ * code — and `getClientRects` returns one rect per line, which is a growing
+ * amount of layout work to redo on every frame of a drag. A collapsed range
+ * measures one point.
  */
-function textStartLeft(range: Range): number {
-  for (const rect of range.getClientRects()) {
-    if (rect.width > 0) return rect.left;
+function selectionBox(range: Range): {
+  top: number;
+  bottom: number;
+  left: number;
+} {
+  const startProbe = range.cloneRange();
+  startProbe.collapse(true);
+  const endProbe = range.cloneRange();
+  endProbe.collapse(false);
+
+  const start = startProbe.getBoundingClientRect();
+  const end = endProbe.getBoundingClientRect();
+
+  // A collapsed range can measure as all-zero where there is no text box to
+  // sit in; the union rect is wrong-but-present, which beats the viewport
+  // corner.
+  if (start.top === 0 && start.bottom === 0 && start.left === 0) {
+    const union = range.getBoundingClientRect();
+    return { top: union.top, bottom: union.bottom, left: union.left };
   }
-  return range.getBoundingClientRect().left;
+
+  return {
+    top: start.top,
+    bottom: Math.max(end.bottom, start.bottom),
+    left: start.left,
+  };
 }
 
 /**
@@ -105,21 +145,24 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
         setTarget(null);
         return;
       }
-      const anchor = selectionToAnchor(sel);
-      if (!anchor) {
+      // The cheap probe, not `selectionToAnchor`: this runs once per frame for
+      // the whole of a drag, and reading every covered row's text that often
+      // is what made selecting in a long diff feel heavy. The full anchor —
+      // snippet included — is resolved in `handleClick`, off the live
+      // selection, exactly once.
+      const rowRange = selectionRowRange(sel);
+      if (!rowRange) {
         setTarget(null);
         return;
       }
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      setTarget({
-        anchor,
-        rect: {
-          top: rect.top,
-          bottom: rect.bottom,
-          left: textStartLeft(range),
-        },
-      });
+
+      const next: ChipTarget = {
+        range: rowRange,
+        rect: selectionBox(sel.getRangeAt(0)),
+      };
+      // Re-rendering re-measures the chip and re-runs its layout effect, so a
+      // drag that has not actually changed the answer should not cause one.
+      setTarget((prev) => (sameTarget(prev, next) ? prev : next));
     };
 
     /** `selectionchange` fires on every mouse move of a drag; one evaluation
@@ -156,14 +199,15 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
   }, [containerRef]);
 
   const handleClick = useCallback(() => {
-    if (!target) return;
-    onComment(target.anchor);
+    const sel = window.getSelection();
+    const anchor = sel ? selectionToAnchor(sel) : null;
+    if (anchor) onComment(anchor);
     setTarget(null);
-  }, [target, onComment]);
+  }, [onComment]);
 
   if (!target) return null;
 
-  const { startLabel } = target.anchor;
+  const { startLabel } = target.range;
   const label = startLabel
     ? `Comment on ${startLabel}`
     : "Comment on selection";

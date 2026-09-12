@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import {
   rowsInSelection,
+  selectionRowRange,
   selectionSnippet,
   selectionToAnchor,
 } from "../review-anchor";
@@ -227,5 +228,76 @@ describe("rowsInSelection / selectionSnippet / selectionToAnchor", () => {
       snippet: "11: const b = 2;",
       startLabel: "L11",
     });
+  });
+});
+
+describe("selectionRowRange", () => {
+  it("resolves the same rows as selectionToAnchor, without the snippet", () => {
+    const container = buildDiffLines([
+      { index: 0, num: "10", content: "const a = 1;" },
+      { index: 1, num: "11", content: "const b = 2;" },
+      { index: 2, num: "12", content: "const c = 3;" },
+    ]);
+    const sel = selectRows(
+      container,
+      { index: 0, offset: 0 },
+      { index: 2, offset: 5 },
+    );
+
+    expect(selectionRowRange(sel)).toEqual({
+      startIndex: 0,
+      endIndex: 2,
+      startLabel: "L10–L12",
+    });
+  });
+
+  it("is null for a collapsed selection", () => {
+    const container = buildDiffLines([
+      { index: 0, num: "10", content: "const a = 1;" },
+    ]);
+    const sel = selectRows(
+      container,
+      { index: 0, offset: 2 },
+      { index: 0, offset: 2 },
+    );
+
+    expect(selectionRowRange(sel)).toBeNull();
+  });
+
+  /**
+   * The chip runs this once per frame for the whole of a drag. It used to
+   * test every row in the file with `containsNode`, which made selecting in a
+   * long diff feel heavy — so the cost must not scale with the file.
+   */
+  it("does not scale with the number of rows in the file", () => {
+    const rows = Array.from({ length: 400 }, (_, i) => ({
+      index: i,
+      num: String(i + 1),
+      content: `const v${i} = ${i};`,
+    }));
+    const container = buildDiffLines(rows);
+
+    const real = Selection.prototype.containsNode;
+    let calls = 0;
+    Selection.prototype.containsNode = function (...args) {
+      calls++;
+      return real.apply(this, args);
+    };
+
+    try {
+      const sel = selectRows(
+        container,
+        { index: 5, offset: 0 },
+        { index: 390, offset: 3 },
+      );
+      const range = selectionRowRange(sel);
+
+      expect(range?.startIndex).toBe(5);
+      expect(range?.endIndex).toBe(390);
+      // Two endpoints, and at most one inward step each.
+      expect(calls).toBeLessThanOrEqual(4);
+    } finally {
+      Selection.prototype.containsNode = real;
+    }
   });
 });

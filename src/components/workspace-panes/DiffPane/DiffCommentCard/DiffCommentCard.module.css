@@ -48,6 +48,25 @@
   opacity: 1;
 }
 
+/* Jumping to a comment lands it mid-viewport in a wall of diff, where a card
+   looks like every other card. The outline fades out on its own so nothing is
+   left in a selected-looking state. */
+.flash {
+  animation: flash 1.4s ease-out;
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
 .action {
   display: inline-flex;
   align-items: center;

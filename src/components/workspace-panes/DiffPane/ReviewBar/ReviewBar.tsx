@@ -5,7 +5,11 @@ import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import type { AgentInfo, AgentStatus } from "../../../../electron.d";
 import { useAgentStore } from "../../../../store/agent-store";
-import { useReviewStore, NO_DRAFTS } from "../../../../store/review-store";
+import {
+  useReviewStore,
+  NO_DRAFTS,
+  type DraftComment,
+} from "../../../../store/review-store";
 import { adapterForKind } from "../../../../lib/harness";
 import {
   agentLabel,
@@ -16,10 +20,19 @@ import { Button } from "../../../ui/Button/Button";
 import { AgentDot } from "../../../ui/AgentDot/AgentDot";
 import styles from "./ReviewBar.module.css";
 
-type ReviewBarProps = { workspacePath: string };
+type ReviewBarProps = {
+  workspacePath: string;
+  /** Scroll a comment back into view. Owned by the pane that renders it. */
+  onJumpToComment: (comment: DraftComment) => void;
+};
 
 /** How long "Discard 3 comments?" waits for its "Yes" before backing out. */
 const CONFIRM_TIMEOUT = 4000;
+
+/** Just the filename: the jump list is narrow, and the path is not the point. */
+function basename(filePath: string): string {
+  return filePath.split("/").pop() ?? filePath;
+}
 
 /**
  * The floating submit control for a review in progress.
@@ -31,12 +44,13 @@ const CONFIRM_TIMEOUT = 4000;
  * click and the popover is the override.
  */
 export function ReviewBar(props: ReviewBarProps) {
-  const { workspacePath } = props;
+  const { workspacePath, onJumpToComment } = props;
 
   const drafts = useReviewStore((s) => s.drafts[workspacePath] ?? NO_DRAFTS);
   const allAgents = useAgentStore((s) => s.agents);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   const comments = useMemo(
@@ -101,10 +115,56 @@ export function ReviewBar(props: ReviewBarProps) {
 
   return (
     <div className={styles.bar}>
-      <span className={styles.count}>
-        <MessageSquare size={11} />
-        {countLabel}
-      </span>
+      <Popover.Root open={listOpen} onOpenChange={setListOpen}>
+        <Popover.Trigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.count}
+            aria-label="Jump to a comment"
+          >
+            <MessageSquare size={11} />
+            {countLabel}
+            <ChevronUp size={11} className={styles.countCaret} />
+          </Button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            className={styles.menu}
+            side="top"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+          >
+            {comments.map((comment) => (
+              <Button
+                key={comment.id}
+                variant="ghost"
+                size="sm"
+                className={styles.commentRow}
+                onClick={() => {
+                  setListOpen(false);
+                  onJumpToComment(comment);
+                }}
+              >
+                <span className={styles.commentWhere}>
+                  <span className={styles.commentFile}>
+                    {basename(comment.filePath)}
+                  </span>
+                  {comment.startLabel && (
+                    <span className={styles.commentAnchor}>
+                      {comment.startLabel}
+                    </span>
+                  )}
+                </span>
+                <span className={styles.commentBody}>
+                  {comment.body.trim()}
+                </span>
+              </Button>
+            ))}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
 
       <Button
         variant="ghost"

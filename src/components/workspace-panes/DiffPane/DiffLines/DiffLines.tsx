@@ -19,6 +19,8 @@ type DiffLinesProps = {
   /** Draft review comments for THIS file, anchored by index into `lines`. */
   comments?: DraftComment[];
   editingId?: string | null;
+  /** Comment to flash, after the review bar's jump list scrolls to it. */
+  flashCommentId?: string | null;
   onSaveComment?: (id: string, body: string) => void;
   onCancelComment?: (id: string) => void;
   onEditComment?: (id: string) => void;
@@ -39,6 +41,7 @@ export function DiffLines(props: DiffLinesProps) {
     currentMatch,
     comments = NO_COMMENTS,
     editingId = null,
+    flashCommentId = null,
     onSaveComment,
     onCancelComment,
     onEditComment,
@@ -105,6 +108,7 @@ export function DiffLines(props: DiffLinesProps) {
             key={comment.id}
             comment={comment}
             editing={editingId === comment.id}
+            flash={flashCommentId === comment.id}
             onSave={(body) => onSaveComment?.(comment.id, body)}
             onCancel={() => onCancelComment?.(comment.id)}
             onEdit={() => onEditComment?.(comment.id)}

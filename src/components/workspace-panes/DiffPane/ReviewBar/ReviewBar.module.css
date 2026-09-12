@@ -24,6 +24,64 @@
   white-space: nowrap;
 }
 
+/* The ghost variant hovers to --surface, which is the bar's own background,
+   so the tally would have no hover state at all without this. */
+.count:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.countCaret {
+  opacity: 0.6;
+}
+
+/* A comment can be anywhere in a very long diff, so the tally doubles as the
+   way back to one: two lines per row, because where it is and what it says
+   are both needed to tell three comments apart. */
+.commentRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.commentWhere {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.commentFile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commentAnchor {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+/* Two lines of the body, then ellipsis — enough to recognise a comment
+   without the list turning into the comments themselves. */
+.commentBody {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
 /* ── Split button ── */
 
 /* Separated from the count so the destructive action does not sit right next

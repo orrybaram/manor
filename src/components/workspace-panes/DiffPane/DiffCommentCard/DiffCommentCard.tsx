@@ -9,6 +9,8 @@ import styles from "./DiffCommentCard.module.css";
 type DiffCommentCardProps = {
   comment: DraftComment;
   editing: boolean;
+  /** Briefly outlined, to catch the eye after the jump list scrolls here. */
+  flash?: boolean;
   onSave: (body: string) => void;
   /** Discards an empty new draft; reverts an edit. Owned by the caller. */
   onCancel: () => void;
@@ -30,12 +32,18 @@ type DiffCommentCardProps = {
  * wrap) and then caps and scrolls rather than growing without bound.
  */
 export function DiffCommentCard(props: DiffCommentCardProps) {
-  const { comment, editing, onSave, onCancel, onEdit, onDelete } = props;
+  const { comment, editing, flash, onSave, onCancel, onEdit, onDelete } = props;
 
   return editing ? (
     <CommentComposer comment={comment} onSave={onSave} onCancel={onCancel} />
   ) : (
-    <div className={styles.card}>
+    // `data-comment-id` is how the review bar's jump list finds this card in
+    // the document — the only handle on a card that may be anywhere in a very
+    // long diff.
+    <div
+      className={`${styles.card}${flash ? ` ${styles.flash}` : ""}`}
+      data-comment-id={comment.id}
+    >
       <div className={styles.header}>
         <span className={styles.anchor}>{comment.startLabel}</span>
         <span className={styles.actions}>

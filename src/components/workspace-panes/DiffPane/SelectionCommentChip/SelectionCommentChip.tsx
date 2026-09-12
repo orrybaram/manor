@@ -145,11 +145,9 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
         setTarget(null);
         return;
       }
-      // The cheap probe, not `selectionToAnchor`: this runs once per frame for
-      // the whole of a drag, and reading every covered row's text that often
-      // is what made selecting in a long diff feel heavy. The full anchor —
-      // snippet included — is resolved in `handleClick`, off the live
-      // selection, exactly once.
+      // The cheap probe, not `selectionToAnchor`: the full anchor — snippet
+      // included — is resolved in `handleClick`, off the live selection,
+      // exactly once.
       const rowRange = selectionRowRange(sel);
       if (!rowRange) {
         setTarget(null);
@@ -165,23 +163,62 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
       setTarget((prev) => (sameTarget(prev, next) ? prev : next));
     };
 
-    /** `selectionchange` fires on every mouse move of a drag; one evaluation
-     *  per frame is enough, and keeps the row walk off the drag's hot path. */
     const schedule = () => {
       if (frame === 0) frame = requestAnimationFrame(evaluate);
     };
 
     const hide = () => setTarget(null);
 
+    /**
+     * Nothing is evaluated while the button is down.
+     *
+     * `selectionchange` fires on every mouse move of a drag, and each
+     * evaluation walks the range, measures it, re-renders the chip and
+     * re-measures that — two forced layouts per frame, for a chip the user
+     * cannot click until they let go anyway. Skipping the whole path while
+     * dragging is what keeps the browser's own selection painting — the only
+     * feedback that matters mid-drag — on an otherwise empty main thread.
+     *
+     * The release is still a trigger, so the chip lands as soon as there is
+     * something to click. Keyboard selection is unaffected: no button is down,
+     * so `selectionchange` evaluates as it always did.
+     */
+    let dragging = false;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Pressing the chip is not the start of a new selection — hiding it here
+      // would unmount the button before its own click could land.
+      const target = e.target;
+      if (target instanceof Node && chipRef.current?.contains(target)) return;
+
+      dragging = true;
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      // A chip left over from the last selection has nothing to do with the
+      // one being drawn now, and it sits under the cursor.
+      hide();
+    };
+
+    const handleMouseUp = () => {
+      dragging = false;
+      schedule();
+    };
+
+    const handleSelectionChange = () => {
+      if (!dragging) schedule();
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") hide();
     };
 
-    document.addEventListener("selectionchange", schedule);
-    // A drag that ends without moving the caret fires no `selectionchange`,
-    // so the release itself has to be a trigger. Listened for on the document,
-    // not the container: a drag started in the diff often ends outside it.
-    document.addEventListener("mouseup", schedule);
+    document.addEventListener("selectionchange", handleSelectionChange);
+    // Listened for on the document, not the container: a drag started in the
+    // diff often ends outside it, and a release there still ends the drag.
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
     document.addEventListener("keyup", schedule);
     // Capture, because scroll does not bubble and the diff scrolls in a
     // container nested well below the pane.
@@ -190,8 +227,9 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
 
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame);
-      document.removeEventListener("selectionchange", schedule);
-      document.removeEventListener("mouseup", schedule);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("keyup", schedule);
       document.removeEventListener("scroll", hide, true);
       document.removeEventListener("keydown", handleKeyDown);
@@ -216,6 +254,7 @@ export function SelectionCommentChip(props: SelectionCommentChipProps) {
     <div
       ref={chipRef}
       className={styles.chip}
+      data-testid="selection-comment-chip"
       // Without this the mousedown collapses the selection, and by the time
       // the click lands there is nothing left to anchor a comment to.
       onMouseDown={(e) => e.preventDefault()}

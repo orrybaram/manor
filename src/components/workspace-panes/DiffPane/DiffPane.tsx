@@ -200,6 +200,27 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const loading = settled?.key !== fetchKey;
     const error = settled?.key === fetchKey ? settled.error : null;
 
+    /**
+     * Record a fetch's outcome, but only when it is actually a different
+     * outcome.
+     *
+     * The diff is re-fetched every few seconds and is usually byte-identical,
+     * so `setRaw` bails on its own. A fresh `{ key, error }` object does not:
+     * it is a new identity every poll, and it re-rendered the whole pane —
+     * every file, every row — for a result that had not changed. That work
+     * lands on the same main thread as whatever the user is doing, and a drag
+     * in flight when it fires simply stops until it finishes.
+     */
+    const settleOnce = useCallback(
+      (key: string, nextError: string | null) =>
+        setSettled((prev) =>
+          prev && prev.key === key && prev.error === nextError
+            ? prev
+            : { key, error: nextError },
+        ),
+      [],
+    );
+
     useEffect(() => {
       if (!workspacePath) return;
 
@@ -220,10 +241,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             const scrollTop = containerRef.current?.scrollTop ?? 0;
             if (!result || result.trim() === "") {
               setRaw(null);
-              setSettled({ key: fetchKey, error: "No changes found" });
+              settleOnce(fetchKey, "No changes found");
             } else {
               setRaw(result);
-              setSettled({ key: fetchKey, error: null });
+              settleOnce(fetchKey, null);
             }
             requestAnimationFrame(() => {
               if (containerRef.current) {
@@ -233,10 +254,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           })
           .catch((err) => {
             if (cancelled) return;
-            setSettled({
-              key: fetchKey,
-              error: err instanceof Error ? err.message : "Failed to load diff",
-            });
+            settleOnce(
+              fetchKey,
+              err instanceof Error ? err.message : "Failed to load diff",
+            );
           });
       };
 
@@ -248,7 +269,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         cancelled = true;
         clearInterval(timer);
       };
-    }, [workspacePath, defaultBranch, diffMode, fetchKey]);
+    }, [workspacePath, defaultBranch, diffMode, fetchKey, settleOnce]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
 

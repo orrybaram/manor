@@ -45,3 +45,6 @@ tests/e2e/artifacts/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Renderer profiles captured by scripts/profile-renderer.mjs
+*.cpuprofile

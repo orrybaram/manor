@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from "react";
+import { memo, useMemo, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DiffLine } from "../types";
@@ -27,7 +27,16 @@ const ROW_HEIGHT_ESTIMATE = 20;
 /** Stable empty set so a file with nothing to mark keeps one identity. */
 const NO_MARKED_ROWS: ReadonlySet<number> = new Set();
 
-export function DiffLines(props: DiffLinesProps) {
+/**
+ * Memoized because it is expensive and its props usually have not changed.
+ *
+ * Anything that re-renders `DiffPane` — a poll settling, a file being staged,
+ * the search box — otherwise rebuilds every row of every file, and a large
+ * review is several thousand rows. The props are all stable across such a
+ * render: `lines` comes from a `useMemo` over the raw diff, and the review
+ * annotations from one over the drafts.
+ */
+export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
   const {
     lines,
     filePath,
@@ -189,4 +198,4 @@ export function DiffLines(props: DiffLinesProps) {
       </div>
     </div>
   );
-}
+});

@@ -10,6 +10,15 @@
   container-type: size;
 }
 
+/* The OS highlight colour has nothing to do with the loaded theme, and over a
+   tinted add/del row it reads as a third, unrelated colour. A translucent
+   accent lets the row's own tint stay visible underneath. */
+.container ::selection,
+.container::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-selected);
+}
+
 .header {
   position: sticky;
   top: 0;

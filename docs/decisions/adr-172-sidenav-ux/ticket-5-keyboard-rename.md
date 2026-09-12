@@ -1,6 +1,6 @@
 ---
 title: Enter renames, sidebar holds focus, right-click keeps the input
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

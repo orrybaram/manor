@@ -1,0 +1,174 @@
+/*
+ * Positioning belongs to `.bottomDock` in `DiffPane.module.css`, not here: the
+ * bar and the back-to-top button share one sticky row, and a bar that pinned
+ * itself would land on top of that button rather than beside it.
+ */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* The ghost variant hovers to --surface, which is the bar's own background,
+   so the tally would have no hover state at all without this. */
+.count:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.countCaret {
+  opacity: 0.6;
+}
+
+/* A comment can be anywhere in a very long diff, so the tally doubles as the
+   way back to one: two lines per row, because where it is and what it says
+   are both needed to tell three comments apart. */
+.commentRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.commentWhere {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.commentFile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commentAnchor {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+/* Two lines of the body, then ellipsis — enough to recognise a comment
+   without the list turning into the comments themselves. */
+.commentBody {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+/* ── Split button ── */
+
+/* Separated from the count so the destructive action does not sit right next
+   to the tally it would throw away. */
+.discard {
+  margin-left: 12px;
+  font-size: 10px;
+}
+
+.split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+/* The two halves read as one control: only the outer corners stay round. */
+.submit {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.caret {
+  padding-left: 6px;
+  padding-right: 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--bg);
+}
+
+/* ── Destination menu ── */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.commentMenu {
+  /* The list grows with the review; past a screenful it scrolls instead. */
+  max-height: min(320px, var(--radix-popover-content-available-height, 320px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 6px;
+}
+
+/* Fixed width so the names line up whether or not a row has a live dot. */
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.rowHint {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

@@ -35,6 +35,28 @@ if (app.isPackaged) {
   }
 }
 
+/**
+ * Opt-in remote debugging, for profiling the renderer from outside the app.
+ *
+ * DevTools shares the renderer's main thread, so on a pane that is already
+ * janking it is the worst possible place to measure from — it competes with
+ * the thing it is measuring, and on a busy window it can hang outright. A
+ * debugging port lets a profiler attach over CDP from another process and
+ * record without taking a share of the thread it is recording.
+ *
+ * Off unless `MANOR_DEBUG_PORT` is set, and never in a packaged build: this
+ * opens a port that can drive the renderer, and it is a development tool, not
+ * something to ship listening.
+ */
+if (!app.isPackaged && process.env.MANOR_DEBUG_PORT) {
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    process.env.MANOR_DEBUG_PORT,
+  );
+  // Bind to loopback explicitly rather than relying on the default.
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+}
+
 // In dev mode, include the git branch in the app name so multiple
 // instances (e.g. from different worktrees) are distinguishable in
 // the Dock, App Switcher, and Mission Control.

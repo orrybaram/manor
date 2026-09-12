@@ -10,6 +10,15 @@
   container-type: size;
 }
 
+/* The OS highlight colour has nothing to do with the loaded theme, and over a
+   tinted add/del row it reads as a third, unrelated colour. A translucent
+   accent lets the row's own tint stay visible underneath. */
+.container ::selection,
+.container::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-selected);
+}
+
 .header {
   position: sticky;
   top: 0;
@@ -105,15 +114,35 @@
   border-radius: 6px;
 }
 
+/* ── Bottom dock ── */
+
+/* The review bar and the back-to-top button share one sticky row. Left as two
+   independent sticky siblings they each clamp to the same bottom offset and
+   land on top of each other, so the dock is what keeps them side by side. It
+   spans the full width to push its contents right, and is click-through
+   everywhere except on the controls themselves. */
+.bottomDock {
+  position: sticky;
+  bottom: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-right: 12px;
+  pointer-events: none;
+}
+
+.bottomDock > * {
+  pointer-events: auto;
+}
+
 /* ── Back to top ── */
 
 .backToTop {
-  position: sticky;
-  bottom: 12px;
-  left: 100%;
-  margin-right: 12px;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -163,6 +192,13 @@
   outline: none;
 }
 
+/* "Comment on selection" is offered on every file, but only acts on a live
+   selection — kept visible when there is none so the menu does not reflow. */
+.contextMenuItem[data-disabled] {
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
 .contextMenuSeparator {
   height: 1px;
   margin: 4px 0;
@@ -182,7 +218,9 @@
 /* ── Animations ── */
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeSlideIn {
@@ -199,4 +237,3 @@
 .fileNew {
   animation: fadeSlideIn 300ms ease forwards;
 }
-

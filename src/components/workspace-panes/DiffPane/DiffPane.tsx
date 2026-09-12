@@ -15,7 +15,9 @@ import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
+import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
+
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
 import { countMatches } from "./search-utils";
@@ -26,6 +28,11 @@ import { FileList } from "./FileList/FileList";
 import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
+import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
+import { useDraftReview } from "./use-draft-review";
+import { ReviewBar } from "./ReviewBar/ReviewBar";
+import { selectionSnippet, selectionToAnchor } from "./review-anchor";
+import type { SelectionAnchor } from "./review-anchor";
 import type { DiffMode } from "./types";
 import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
@@ -68,7 +75,19 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // `done` handler (and on unmount).
     const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
-    const savedSelection = useRef<string>("");
+    /**
+     * Snapshotted when the context menu opens, because by the time an item is
+     * chosen the menu has taken focus and the selection may be gone. The
+     * anchor has to be resolved up front for the same reason.
+     *
+     * State, not a ref: the "Comment on selection" item's `disabled` is
+     * derived from it during render, and a ref mutation schedules no render
+     * to derive it in.
+     */
+    const [savedSelection, setSavedSelection] = useState<{
+      text: string;
+      anchor: SelectionAnchor | null;
+    }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
     useLayoutEffect(() => {
@@ -108,19 +127,27 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       });
     }, []);
 
-    const scrollToFile = useCallback((path: string) => {
+    /** Un-collapse a file, so anything anchored inside it has somewhere to go. */
+    const revealFile = useCallback((path: string) => {
       setCollapsed((prev) => {
         if (!prev.has(path)) return prev;
         const next = new Set(prev);
         next.delete(path);
         return next;
       });
-      requestAnimationFrame(() => {
-        fileRefs.current
-          .get(path)
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
     }, []);
+
+    const scrollToFile = useCallback(
+      (path: string) => {
+        revealFile(path);
+        requestAnimationFrame(() => {
+          fileRefs.current
+            .get(path)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      },
+      [revealFile],
+    );
 
     const openSearch = useCallback(() => {
       setSearchOpen(true);
@@ -173,6 +200,27 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const loading = settled?.key !== fetchKey;
     const error = settled?.key === fetchKey ? settled.error : null;
 
+    /**
+     * Record a fetch's outcome, but only when it is actually a different
+     * outcome.
+     *
+     * The diff is re-fetched every few seconds and is usually byte-identical,
+     * so `setRaw` bails on its own. A fresh `{ key, error }` object does not:
+     * it is a new identity every poll, and it re-rendered the whole pane —
+     * every file, every row — for a result that had not changed. That work
+     * lands on the same main thread as whatever the user is doing, and a drag
+     * in flight when it fires simply stops until it finishes.
+     */
+    const settleOnce = useCallback(
+      (key: string, nextError: string | null) =>
+        setSettled((prev) =>
+          prev && prev.key === key && prev.error === nextError
+            ? prev
+            : { key, error: nextError },
+        ),
+      [],
+    );
+
     useEffect(() => {
       if (!workspacePath) return;
 
@@ -193,10 +241,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             const scrollTop = containerRef.current?.scrollTop ?? 0;
             if (!result || result.trim() === "") {
               setRaw(null);
-              setSettled({ key: fetchKey, error: "No changes found" });
+              settleOnce(fetchKey, "No changes found");
             } else {
               setRaw(result);
-              setSettled({ key: fetchKey, error: null });
+              settleOnce(fetchKey, null);
             }
             requestAnimationFrame(() => {
               if (containerRef.current) {
@@ -206,11 +254,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           })
           .catch((err) => {
             if (cancelled) return;
-            setSettled({
-              key: fetchKey,
-              error:
-                err instanceof Error ? err.message : "Failed to load diff",
-            });
+            settleOnce(
+              fetchKey,
+              err instanceof Error ? err.message : "Failed to load diff",
+            );
           });
       };
 
@@ -222,9 +269,42 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         cancelled = true;
         clearInterval(timer);
       };
-    }, [workspacePath, defaultBranch, diffMode, fetchKey]);
+    }, [workspacePath, defaultBranch, diffMode, fetchKey, settleOnce]);
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
+
+    const review = useDraftReview({
+      workspacePath,
+      files,
+      containerRef,
+      fileRefs,
+      revealFile,
+    });
+
+    // ⌘↩ / Ctrl+↩ with a live selection inside the pane starts a comment on
+    // it — the same path as clicking the floating chip.
+    useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
+        // The composer's own ⌘↩ already stops propagation before this
+        // window-level listener would see the event, so this only fires for
+        // a selection out in the diff, not while typing a comment.
+        if (
+          !containerRef.current?.contains(document.activeElement) &&
+          document.activeElement !== document.body
+        )
+          return;
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.anchorNode) return;
+        if (!containerRef.current?.contains(sel.anchorNode)) return;
+        const anchor = selectionToAnchor(sel);
+        if (!anchor) return;
+        e.preventDefault();
+        review.startComment(anchor);
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [review]);
 
     // Fetch staged file list for local mode. Tagged with the workspace it was
     // fetched for so any other workspace (or full-diff mode) reads as empty
@@ -265,7 +345,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         if (stagedKey === null) return;
         setStagedResult((prev) => ({
           key: stagedKey,
-          files: updater(prev?.key === stagedKey ? prev.files : NO_STAGED_FILES),
+          files: updater(
+            prev?.key === stagedKey ? prev.files : NO_STAGED_FILES,
+          ),
         }));
       },
       [stagedKey],
@@ -528,11 +610,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       <div className={styles.topBar}>
         <ModeToggle diffMode={diffMode} onModeChange={handleModeChange} />
         <Row gap="xs" align="center" className={styles.actionGroup}>
-          <Button
-            variant="secondary"
-            onClick={handlePush}
-            disabled={pushing}
-          >
+          <Button variant="secondary" onClick={handlePush} disabled={pushing}>
             {pushing ? (
               <span className={styles.pushSpinner} />
             ) : (
@@ -555,8 +633,18 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     if (loading) {
       return (
         <div className={styles.container} ref={containerRef}>
-          <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
+          <div className={styles.header} ref={setHeaderEl}>
+            {topBar}
+          </div>
           <div className={styles.status}>Loading diff...</div>
+          {workspacePath && (
+            <div className={styles.bottomDock}>
+              <ReviewBar
+                workspacePath={workspacePath}
+                onJumpToComment={review.jumpToComment}
+              />
+            </div>
+          )}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -572,8 +660,18 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     if (error) {
       return (
         <div className={styles.container} ref={containerRef}>
-          <div className={styles.header} ref={setHeaderEl}>{topBar}</div>
+          <div className={styles.header} ref={setHeaderEl}>
+            {topBar}
+          </div>
           <EmptyState message={error} />
+          {workspacePath && (
+            <div className={styles.bottomDock}>
+              <ReviewBar
+                workspacePath={workspacePath}
+                onJumpToComment={review.jumpToComment}
+              />
+            </div>
+          )}
           {workspacePath && (
             <CommitModal
               open={commitOpen}
@@ -621,129 +719,146 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             />
           </div>
           <Stack gap="lg" className={styles.fileStack}>
-            {files.map((file) => (
-            <ContextMenu.Root
-              key={file.path}
-              onOpenChange={(open) => {
-                if (open)
-                  savedSelection.current =
-                    window.getSelection()?.toString() ?? "";
-              }}
-            >
-              <ContextMenu.Trigger asChild>
-                <div
-                  className={[
-                    styles.file,
-                    animationState.get(file.path) === "new"
-                      ? styles.fileNew
-                      : undefined,
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  ref={(el) => {
-                    if (el) fileRefs.current.set(file.path, el);
-                    else fileRefs.current.delete(file.path);
-                  }}
-                  onCopy={(e) => {
+            {files.map((file) => {
+              const annotations = review.annotationsFor(file.path);
+              return (
+                <ContextMenu.Root
+                  key={file.path}
+                  onOpenChange={(open) => {
+                    if (!open) return;
                     const sel = window.getSelection();
-                    if (!sel || sel.isCollapsed) return;
-
-                    e.preventDefault();
-
-                    const range = sel.getRangeAt(0);
-                    const ancestor =
-                      range.commonAncestorContainer instanceof HTMLElement
-                        ? range.commonAncestorContainer
-                        : range.commonAncestorContainer.parentElement;
-                    const container =
-                      ancestor?.closest("[data-diff-lines]") ??
-                      ancestor?.querySelector("[data-diff-lines]");
-                    const rows = container?.querySelectorAll("[data-index]");
-
-                    const lines: string[] = [];
-                    if (rows) {
-                      for (const row of rows) {
-                        if (!sel.containsNode(row, true)) continue;
-                        const children = row.children;
-                        const numCell = children[0];
-                        const contentCell = children[1];
-                        if (!contentCell) continue;
-                        const num = numCell?.textContent?.trim() ?? "";
-                        const content = contentCell?.textContent ?? "";
-                        lines.push(num ? `${num}: ${content}` : content);
-                      }
-                    }
-
-                    const body =
-                      lines.length > 0 ? lines.join("\n") : sel.toString();
-                    e.clipboardData.setData(
-                      "text/plain",
-                      `${file.path}\n${body}`,
-                    );
+                    setSavedSelection({
+                      text: sel?.toString() ?? "",
+                      anchor: sel ? selectionToAnchor(sel) : null,
+                    });
                   }}
                 >
-                  <FileHeader
-                    file={file}
-                    collapsed={collapsed.has(file.path)}
-                    animated={animationState.get(file.path) === "updated"}
-                    onToggle={() => toggleFile(file.path)}
-                  />
-                  {!collapsed.has(file.path) && (
-                    <DiffLines
-                      lines={file.lines}
-                      filePath={file.path}
-                      searchQuery={searchQuery}
-                      matchOffset={fileOffsets.get(file.path) ?? 0}
-                      currentMatch={currentMatch}
-                    />
-                  )}
-                </div>
-              </ContextMenu.Trigger>
-              <ContextMenu.Portal>
-                <ContextMenu.Content className={styles.contextMenu}>
-                  <ContextMenu.Item
-                    className={styles.contextMenuItem}
-                    onSelect={() => {
-                      if (savedSelection.current)
-                        navigator.clipboard.writeText(savedSelection.current);
-                    }}
-                  >
-                    <Clipboard size={14} />
-                    Copy
-                  </ContextMenu.Item>
-                  {workspacePath && (
-                    <>
-                      <ContextMenu.Separator
-                        className={styles.contextMenuSeparator}
+                  <ContextMenu.Trigger asChild>
+                    <div
+                      data-file-path={file.path}
+                      className={[
+                        styles.file,
+                        animationState.get(file.path) === "new"
+                          ? styles.fileNew
+                          : undefined,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      ref={(el) => {
+                        if (el) fileRefs.current.set(file.path, el);
+                        else fileRefs.current.delete(file.path);
+                      }}
+                      onCopy={(e) => {
+                        const sel = window.getSelection();
+                        if (!sel || sel.isCollapsed) return;
+
+                        e.preventDefault();
+
+                        const body = selectionSnippet(sel) ?? sel.toString();
+                        e.clipboardData.setData(
+                          "text/plain",
+                          `${file.path}\n${body}`,
+                        );
+                      }}
+                    >
+                      <FileHeader
+                        file={file}
+                        collapsed={collapsed.has(file.path)}
+                        animated={animationState.get(file.path) === "updated"}
+                        onToggle={() => toggleFile(file.path)}
                       />
+                      {!collapsed.has(file.path) && (
+                        <DiffLines
+                          lines={file.lines}
+                          filePath={file.path}
+                          searchQuery={searchQuery}
+                          matchOffset={fileOffsets.get(file.path) ?? 0}
+                          currentMatch={currentMatch}
+                          renderRowExtra={annotations?.renderRowExtra}
+                          markedRows={annotations?.markedRows}
+                        />
+                      )}
+                    </div>
+                  </ContextMenu.Trigger>
+                  <ContextMenu.Portal>
+                    <ContextMenu.Content className={styles.contextMenu}>
+                      {workspacePath && (
+                        <>
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            disabled={!savedSelection.anchor}
+                            onSelect={() => {
+                              const { anchor } = savedSelection;
+                              if (anchor)
+                                review.startComment(anchor, file.path);
+                            }}
+                          >
+                            <MessageSquarePlus size={14} />
+                            Comment on selection
+                          </ContextMenu.Item>
+                          <ContextMenu.Separator
+                            className={styles.contextMenuSeparator}
+                          />
+                        </>
+                      )}
                       <ContextMenu.Item
                         className={styles.contextMenuItem}
                         onSelect={() => {
-                          openInEditor(
-                            `${workspacePath}/${file.path}`,
-                          );
+                          if (savedSelection.text)
+                            navigator.clipboard.writeText(
+                              savedSelection.text,
+                            );
                         }}
                       >
-                        <ExternalLink size={14} />
-                        Open in Editor
+                        <Clipboard size={14} />
+                        Copy
                       </ContextMenu.Item>
-                    </>
-                  )}
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
-            </ContextMenu.Root>
-          ))}
+                      {workspacePath && (
+                        <>
+                          <ContextMenu.Separator
+                            className={styles.contextMenuSeparator}
+                          />
+                          <ContextMenu.Item
+                            className={styles.contextMenuItem}
+                            onSelect={() => {
+                              openInEditor(`${workspacePath}/${file.path}`);
+                            }}
+                          >
+                            <ExternalLink size={14} />
+                            Open in Editor
+                          </ContextMenu.Item>
+                        </>
+                      )}
+                    </ContextMenu.Content>
+                  </ContextMenu.Portal>
+                </ContextMenu.Root>
+              );
+            })}
           </Stack>
         </div>
-        {showBackToTop && (
-          <button
-            className={styles.backToTop}
-            onClick={scrollToTop}
-            aria-label="Back to top"
-          >
-            <ArrowUp size={14} />
-          </button>
+        {workspacePath && (
+          <SelectionCommentChip
+            containerRef={containerRef}
+            onComment={review.startComment}
+          />
         )}
+        <div className={styles.bottomDock}>
+          {workspacePath && (
+            <ReviewBar
+              workspacePath={workspacePath}
+              onJumpToComment={review.jumpToComment}
+            />
+          )}
+          {showBackToTop && (
+            <button
+              className={styles.backToTop}
+              onClick={scrollToTop}
+              aria-label="Back to top"
+            >
+              <ArrowUp size={14} />
+            </button>
+          )}
+        </div>
         {workspacePath && (
           <CommitModal
             open={commitOpen}

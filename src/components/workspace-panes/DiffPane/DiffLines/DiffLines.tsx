@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from "react";
+import { memo, useMemo, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DiffLine } from "../types";
@@ -13,12 +13,39 @@ type DiffLinesProps = {
   searchQuery: string;
   matchOffset: number;
   currentMatch: number;
+  /**
+   * Content to hang beneath row `index`, inside the row's own measured box.
+   * Whatever it is belongs to the caller — this component only places it.
+   */
+  renderRowExtra?: (index: number) => ReactNode;
+  /** Rows to mark as annotated, for a left accent and a faint wash. */
+  markedRows?: ReadonlySet<number>;
 };
 
 const ROW_HEIGHT_ESTIMATE = 20;
 
-export function DiffLines(props: DiffLinesProps) {
-  const { lines, filePath, searchQuery, matchOffset, currentMatch } = props;
+/** Stable empty set so a file with nothing to mark keeps one identity. */
+const NO_MARKED_ROWS: ReadonlySet<number> = new Set();
+
+/**
+ * Memoized because it is expensive and its props usually have not changed.
+ *
+ * Anything that re-renders `DiffPane` — a poll settling, a file being staged,
+ * the search box — otherwise rebuilds every row of every file, and a large
+ * review is several thousand rows. The props are all stable across such a
+ * render: `lines` comes from a `useMemo` over the raw diff, and the review
+ * annotations from one over the drafts.
+ */
+export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
+  const {
+    lines,
+    filePath,
+    searchQuery,
+    matchOffset,
+    currentMatch,
+    renderRowExtra,
+    markedRows = NO_MARKED_ROWS,
+  } = props;
   const parentRef = useRef<HTMLDivElement>(null);
 
   const tokenizedLines = useMemo(() => {
@@ -58,6 +85,18 @@ export function DiffLines(props: DiffLinesProps) {
     [virtualizer],
   );
 
+  /**
+   * Extra content is returned as a third child of the row rather than folded
+   * into the content cell for two reasons: the row is the element
+   * `measureElement` watches, so anything inside it is measured for free; and
+   * `review-anchor` reads a row's line number and code off its first two
+   * children, so nothing may be inserted before them.
+   */
+  const rowExtra = (index: number): ReactNode => {
+    const extra = renderRowExtra?.(index);
+    return extra ? <div className={styles.rowExtra}>{extra}</div> : null;
+  };
+
   return (
     <div ref={parentRef} className={styles.scrollContainer}>
       <div
@@ -68,6 +107,12 @@ export function DiffLines(props: DiffLinesProps) {
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const i = virtualRow.index;
           const line = lines[i];
+          const extra = rowExtra(i);
+          const rowClass =
+            extra === null
+              ? styles.row
+              : `${styles.row} ${styles.rowWithExtra}`;
+          const commented = markedRows.has(i) ? "true" : undefined;
 
           if (line.type === "hunk") {
             return (
@@ -75,13 +120,15 @@ export function DiffLines(props: DiffLinesProps) {
                 key={virtualRow.key}
                 ref={measureRef}
                 data-index={i}
-                className={styles.row}
+                data-commented={commented}
+                className={rowClass}
                 style={{
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
                 <div className={styles.lineNum} />
                 <div className={styles.hunkContent}>{line.content}</div>
+                {extra}
               </div>
             );
           }
@@ -133,7 +180,8 @@ export function DiffLines(props: DiffLinesProps) {
               key={virtualRow.key}
               ref={measureRef}
               data-index={i}
-              className={styles.row}
+              data-commented={commented}
+              className={rowClass}
               style={{
                 transform: `translateY(${virtualRow.start}px)`,
               }}
@@ -143,10 +191,11 @@ export function DiffLines(props: DiffLinesProps) {
                 <span className={styles.prefix}>{prefix}</span>
                 {content}
               </div>
+              {extra}
             </div>
           );
         })}
       </div>
     </div>
   );
-}
+});

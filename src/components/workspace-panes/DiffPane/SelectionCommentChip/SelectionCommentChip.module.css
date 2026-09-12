@@ -1,0 +1,31 @@
+/*
+ * The floating "Comment" affordance for a diff selection. Fixed, and
+ * portalled to <body>, because the diff's scroll container sets
+ * `contain: layout paint` — anything positioned inside it gets clipped at
+ * the container's edge, which is exactly where a selection near the top or
+ * bottom of the pane needs the chip to sit.
+ *
+ * `left`/`top` are written by the component once it has measured itself.
+ */
+.chip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Above the diff's sticky headers (20) and its context menu (50), below
+     tooltips (200) so the chip's own tooltip still wins. */
+  z-index: 100;
+}
+
+/* `secondary` is transparent by design; floating over code it needs a body
+   of its own to stay legible. */
+.button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-selected);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--accent);
+}

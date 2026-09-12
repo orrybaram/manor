@@ -1,0 +1,122 @@
+/*
+ * A draft review comment, inside a diff row. The row it lives in is mono and
+ * 12px; a comment is prose, so the card resets to the app's UI font and
+ * normal wrapping rather than inheriting the diff's typography.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* The card is a block in the code, not a line of it: an inherited
+     `white-space: pre-wrap` would turn its indentation into layout. */
+  white-space: normal;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+}
+
+.anchor {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Revealed on hover, but always laid out — an action row that appears from
+   nowhere would reflow the card (and the virtualized row measuring it). */
+.actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.card:hover .actions,
+.actions:focus-within {
+  opacity: 1;
+}
+
+/* Jumping to a comment lands it mid-viewport in a wall of diff, where a card
+   looks like every other card. The outline fades out on its own so nothing is
+   left in a selected-looking state. */
+.flash {
+  animation: flash 1.4s ease-out;
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-dim);
+}
+
+.body {
+  color: var(--text-selected);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Auto-grown from JS, which sets an explicit `height` on every input. The
+ * bounds live here: three rows to start so the box reads as a composer, and
+ * a ceiling of roughly twelve rows past which it scrolls instead of pushing
+ * the diff around.
+ */
+.textarea {
+  width: 100%;
+  min-height: 66px;
+  max-height: 232px;
+  padding: 6px 8px;
+  resize: none;
+  overflow-y: auto;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--text-selected);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.textarea:focus {
+  border-color: var(--accent);
+}
+
+.textarea::placeholder {
+  color: var(--text-dim);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}

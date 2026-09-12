@@ -260,12 +260,13 @@ All shortcuts are customizable via **Settings > Keybindings**. Every shortcut al
 
 ### Diff Pane
 
-| Shortcut    | Action             |
-| ----------- | ------------------ |
-| `Cmd+F`     | Open search        |
-| `Enter`     | Next search result |
-| `Escape`    | Close search       |
-| `Cmd+Enter` | Submit commit      |
+| Shortcut    | Action                           |
+| ----------- | -------------------------------- |
+| `Cmd+F`     | Open search                      |
+| `Enter`     | Next search result               |
+| `Escape`    | Close search                     |
+| `Cmd+Enter` | Submit commit                    |
+| `Cmd+Enter` | Start a comment on the selection |
 
 ## Inspirations
 

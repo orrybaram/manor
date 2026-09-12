@@ -59,6 +59,25 @@ export function createCustomHarness(
   };
 }
 
+/**
+ * Resolve the harness adapter for a live agent's `agentKind`, for interrupting
+ * a running pane before steering it with a new prompt. Mirrors
+ * `interruptSequenceFor` in `electron/harness-interrupt.ts` — that file can't
+ * be imported here (electron/src sit in separate tsconfigs), so the mapping
+ * has to be kept in step by hand. Anything other than "claude" ends its turn
+ * on Ctrl-C, matching that function's `default`.
+ */
+export function adapterForKind(kind: string): HarnessAdapter {
+  switch (kind) {
+    case "claude":
+      return claudeHarness;
+    case "codex":
+    case "opencode":
+    default:
+      return codexHarness;
+  }
+}
+
 export interface HomeHarnessPreferences {
   homeHarness: HarnessKind;
   homeCustomCommand: string;

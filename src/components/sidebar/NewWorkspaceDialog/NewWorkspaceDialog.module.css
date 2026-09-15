@@ -71,17 +71,18 @@
 
 .actions {
   margin-top: 16px;
-  min-width: 0;
 }
 
-/* The selects give up space first, so the buttons never push past the dialog. */
-.actionsLeft {
-  flex: 1 1 auto;
-  min-width: 0;
+/* The selects get their own row and wrap rather than shrink, so a project,
+   folder or branch name is never squeezed down to an ellipsis by the buttons. */
+.selects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.actionsRight {
-  flex: 0 0 auto;
+.selects:empty {
+  display: none;
 }
 
 /* Reserve the "Creating..." width so the row doesn't reflow on submit. */

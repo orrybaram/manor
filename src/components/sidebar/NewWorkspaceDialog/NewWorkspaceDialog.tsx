@@ -348,13 +348,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   </>
                 )}
                 {error && <div className={styles.error}>{error}</div>}
-                <Row
-                  align="center"
-                  justify="space-between"
-                  gap="sm"
-                  className={styles.actions}
-                >
-                  <Row gap="sm" className={styles.actionsLeft}>
+                <Stack gap="md" className={styles.actions}>
+                  <div className={styles.selects}>
                     {projects.length > 1 && (
                       <SearchableSelect
                         value={activeProjectId}
@@ -394,8 +389,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         data-testid="new-workspace-base-branch-select"
                       />
                     )}
-                  </Row>
-                  <Row gap="sm" className={styles.actionsRight}>
+                  </div>
+                  <Row gap="sm" justify="flex-end">
                     <Button type="button" variant="secondary" onClick={onClose}>
                       Cancel
                     </Button>
@@ -416,7 +411,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       )}
                     </Button>
                   </Row>
-                </Row>
+                </Stack>
               </fieldset>
             </Stack>
           </form>

@@ -3,7 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
-import { Input } from "../ui/Input/Input";
+import { EmojiInput } from "../ui/EmojiAutocomplete";
 
 type ConvertToWorkspaceDialogProps = {
   open: boolean;
@@ -38,7 +38,7 @@ export function ConvertToWorkspaceDialog(props: ConvertToWorkspaceDialogProps) {
               </code>
             </div>
           )}
-          <Input
+          <EmojiInput
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Workspace name"

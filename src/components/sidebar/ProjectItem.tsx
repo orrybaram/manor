@@ -45,6 +45,8 @@ import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
+import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
+import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -107,6 +109,11 @@ const WorkspaceItem = React.forwardRef<
 
   const { status: workspaceStatus, pulse: workspacePulse } = useWorkspaceAgentStatus(ws.path);
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
+  const {
+    handleKeyDown: handleEmojiKeyDown,
+    fieldProps: emojiFieldProps,
+    suggestions: emojiSuggestions,
+  } = useEmojiAutocomplete(editRef, { enabled: isEditing });
 
   return (
     <div
@@ -136,17 +143,24 @@ const WorkspaceItem = React.forwardRef<
       onPointerDown={onPointerDown}
     >
       {isEditing ? (
-        <input
-          ref={editRef}
-          className={styles.workspaceNameInput}
-          data-testid="workspace-name-input"
-          value={editValue}
-          onChange={onEditChange}
-          onBlur={onEditBlur}
-          onKeyDown={onEditKeyDown}
-          onClick={onEditClick}
-          onPointerDown={onEditPointerDown}
-        />
+        <>
+          <input
+            ref={editRef}
+            className={styles.workspaceNameInput}
+            data-testid="workspace-name-input"
+            value={editValue}
+            onChange={onEditChange}
+            {...emojiFieldProps}
+            onBlur={composeHandlers(emojiFieldProps.onBlur, onEditBlur)}
+            onKeyDown={(e) => {
+              if (handleEmojiKeyDown(e)) return;
+              onEditKeyDown(e);
+            }}
+            onClick={onEditClick}
+            onPointerDown={onEditPointerDown}
+          />
+          {emojiSuggestions}
+        </>
       ) : (
         <>
           <span className={styles.workspaceIcon}>

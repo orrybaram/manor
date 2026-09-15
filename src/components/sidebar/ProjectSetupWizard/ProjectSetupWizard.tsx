@@ -9,6 +9,7 @@ import { PROJECT_COLORS } from "../../../project-colors";
 import { DEFAULT_AGENT_COMMAND } from "../../../agent-defaults";
 import { Button } from "../../ui/Button/Button";
 import { Input, Textarea } from "../../ui/Input";
+import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { toDirSlug } from "../../../utils/branch-name";
 import styles from "./ProjectSetupWizard.module.css";
@@ -327,7 +328,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
               </div>
             </Stack>
             <label className={styles.fieldLabel}>Project Name
-            <Input
+            <EmojiInput
               ref={nameRef}
               type="text"
               value={name}

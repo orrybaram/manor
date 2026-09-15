@@ -1,6 +1,6 @@
 ---
 title: Adopt emoji autocomplete in commit, feedback and review comment fields
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

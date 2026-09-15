@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Input, Textarea } from "../../ui/Input/Input";
+import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
 import { useToastStore } from "../../../store/toast-store";
 import styles from "./FeedbackModal.module.css";
@@ -178,7 +178,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
 
           <div className={styles.field}>
             <label className={styles.label}>Title</label>
-            <Input
+            <EmojiInput
               ref={titleInputRef}
               placeholder="Brief summary..."
               value={title}
@@ -188,7 +188,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
 
           <div className={styles.field}>
             <label className={styles.label}>Description</label>
-            <Textarea
+            <EmojiTextarea
               placeholder="What happened? What did you expect?"
               value={description}
               onChange={(e) => setDescription(e.target.value)}

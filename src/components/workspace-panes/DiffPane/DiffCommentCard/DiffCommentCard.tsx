@@ -4,6 +4,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { DraftComment } from "../../../../store/review-store";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
+import { useEmojiAutocomplete } from "../../../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import styles from "./DiffCommentCard.module.css";
 
 type DiffCommentCardProps = {
@@ -85,6 +86,11 @@ export function CommentComposer(props: {
   const { startLabel, initialBody = "", onSave, onCancel } = props;
   const [body, setBody] = useState(initialBody);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    handleKeyDown: handleEmojiKeyDown,
+    fieldProps: emojiFieldProps,
+    suggestions: emojiSuggestions,
+  } = useEmojiAutocomplete(textareaRef);
 
   /** `auto` first: without it the box can only ever grow, never shrink. */
   const autoGrow = useCallback(() => {
@@ -118,6 +124,7 @@ export function CommentComposer(props: {
         value={body}
         placeholder="Leave a comment…"
         spellCheck
+        {...emojiFieldProps}
         onChange={(e) => {
           setBody(e.target.value);
           autoGrow();
@@ -126,6 +133,7 @@ export function CommentComposer(props: {
         // diff's search from a window listener, Escape closes overlays — so
         // the card has to swallow them, not just handle them.
         onKeyDown={(e) => {
+          if (handleEmojiKeyDown(e)) return;
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
             e.stopPropagation();
@@ -139,6 +147,7 @@ export function CommentComposer(props: {
           }
         }}
       />
+      {emojiSuggestions}
       <div className={styles.footer}>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

@@ -1,6 +1,6 @@
 ---
 title: useEmojiAutocomplete hook and EmojiInput/EmojiTextarea components
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]

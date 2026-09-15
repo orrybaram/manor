@@ -1,6 +1,6 @@
 ---
 title: Strip emoji from sanitized branch names
-status: in-progress
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

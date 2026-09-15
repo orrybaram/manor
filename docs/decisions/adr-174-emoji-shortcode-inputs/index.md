@@ -114,7 +114,10 @@ function useEmojiAutocomplete<T extends HTMLInputElement | HTMLTextAreaElement>(
   Keys pressed during IME composition (`e.nativeEvent.isComposing`) are
   ignored.
 - The list is a Radix `Popover` anchored with `Popover.Anchor virtualRef` to
-  the field, portalled so sidebar `overflow` cannot clip it, with
+  the `:` that opened it (measured by `caretRect.ts`, which lays the text out
+  in a hidden mirror of the field), so in a textarea it opens under the line
+  being typed rather than below the field. It is portalled so sidebar
+  `overflow` cannot clip it, with
   `onOpenAutoFocus`/`onCloseAutoFocus` prevented so focus never leaves the
   field. Options use `onMouseDown` + `preventDefault`, like `SearchableSelect`,
   so clicking one never blurs the field and never fires a rename commit.

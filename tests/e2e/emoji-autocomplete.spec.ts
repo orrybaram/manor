@@ -51,6 +51,28 @@ test("emoji suggestions in the new workspace dialog insert without submitting", 
   await expect(dialog).not.toBeVisible({ timeout: 5_000 });
 });
 
+test("emoji suggestions in a textarea open under the line being typed", async ({
+  window,
+}) => {
+  await window.getByRole("button", { name: "Send feedback" }).click();
+  const description = window.getByPlaceholder(
+    "What happened? What did you expect?",
+  );
+  await expect(description).toBeVisible({ timeout: 5_000 });
+
+  await description.fill("first line\nsecond line\nthird ");
+  await description.pressSequentially(":tad");
+  await expect(listbox(window)).toBeVisible({ timeout: 10_000 });
+
+  // Anchored to the third line's `:` — inside the textarea, indented past
+  // "third " — rather than below the textarea's bottom-left corner.
+  const fieldBox = await description.boundingBox();
+  const listBox = await listbox(window).boundingBox();
+  expect(listBox!.y).toBeGreaterThan(fieldBox!.y + 40);
+  expect(listBox!.y).toBeLessThan(fieldBox!.y + fieldBox!.height);
+  expect(listBox!.x).toBeGreaterThan(fieldBox!.x + 30);
+});
+
 test("emoji suggestions in the inline workspace rename keep the edit open", async ({
   app,
   window,
@@ -74,6 +96,11 @@ test("emoji suggestions in the inline workspace rename keep the edit open", asyn
   await input.fill("");
   await input.pressSequentially("ship :rock");
   await expect(listbox(window)).toBeVisible({ timeout: 10_000 });
+
+  // The list opens at the `:`, not at the field's left edge.
+  const inputBox = await input.boundingBox();
+  const listBox = await listbox(window).boundingBox();
+  expect(listBox!.x).toBeGreaterThan(inputBox!.x + 15);
 
   // Escape closes only the list; the rename is still in progress.
   await input.press("Escape");

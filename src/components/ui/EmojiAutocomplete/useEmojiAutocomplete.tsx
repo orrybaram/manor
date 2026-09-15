@@ -1,5 +1,6 @@
-import React, { useId, useRef, useState } from "react";
+import React, { useId, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import { getCaretClientRect } from "./caretRect";
 import {
   completeClosedShortcode,
   findShortcodeQuery,
@@ -121,6 +122,28 @@ export function useEmojiAutocomplete<T extends EmojiField>(
       setHighlight(0);
     }
   }
+
+  // Anchor the list at the `:` that opened it, not the field, so it sits
+  // under the text being completed and holds still while the query grows.
+  // Floating UI calls getBoundingClientRect on every position update, and
+  // contextElement lets it follow scrolling ancestors of the field.
+  const anchorStart = match?.start ?? null;
+  const anchorRef = useMemo<PopoverVirtualRef>(
+    () => ({
+      current: {
+        getBoundingClientRect: () => {
+          const el = inputRef.current;
+          if (!el) return new DOMRect();
+          if (anchorStart === null) return el.getBoundingClientRect();
+          return getCaretClientRect(el, anchorStart);
+        },
+        get contextElement() {
+          return inputRef.current ?? undefined;
+        },
+      },
+    }),
+    [inputRef, anchorStart],
+  );
 
   const open = enabled && match !== null && results.length > 0;
 
@@ -264,9 +287,7 @@ export function useEmojiAutocomplete<T extends EmojiField>(
       {/* The field is always mounted while the list is open, so `current` is
           non-null whenever Radix measures it. React 19's RefObject<T | null>
           does not overlap Radix's RefObject<Measurable>, hence the cast. */}
-      <Popover.Anchor
-        virtualRef={inputRef as unknown as PopoverVirtualRef}
-      />
+      <Popover.Anchor virtualRef={anchorRef} />
       <Popover.Portal>
         <Popover.Content
           side="bottom"

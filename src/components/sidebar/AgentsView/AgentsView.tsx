@@ -43,7 +43,11 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
   const { agent, onResumeAgent, onRemoveAgent, onRenameAgent } = props;
 
   const { title, status } = useAgentDisplay(agent);
-  const rename = useInlineRename(title, (name) => onRenameAgent(agent.id, name));
+  const rename = useInlineRename(
+    title,
+    (name) => onRenameAgent(agent.id, name),
+    { emoji: true },
+  );
 
   return (
     <ContextMenu.Root>
@@ -71,12 +75,15 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
         >
           <AgentDot status={status} size="sidebar" />
           {rename.editing ? (
-            <input
-              className={`${menuStyles.workspaceNameInput} ${styles.agentNameInput}`}
-              aria-label="Agent name"
-              data-testid="agent-name-input"
-              {...rename.inputProps}
-            />
+            <>
+              <input
+                className={`${menuStyles.workspaceNameInput} ${styles.agentNameInput}`}
+                aria-label="Agent name"
+                data-testid="agent-name-input"
+                {...rename.inputProps}
+              />
+              {rename.suggestions}
+            </>
           ) : (
             <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
           )}

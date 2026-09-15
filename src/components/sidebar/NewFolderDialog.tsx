@@ -2,7 +2,7 @@ import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./dialogs.module.css";
 import { Button } from "../ui/Button/Button";
-import { Input } from "../ui/Input/Input";
+import { EmojiInput } from "../ui/EmojiAutocomplete";
 
 type NewFolderDialogProps = {
   open: boolean;
@@ -37,7 +37,7 @@ export function NewFolderDialog(props: NewFolderDialogProps) {
             Group workspaces in the sidebar. Folders do not change anything on
             disk.
           </Dialog.Description>
-          <Input
+          <EmojiInput
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}

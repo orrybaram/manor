@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Input, Textarea } from "../../../ui/Input/Input";
+import { EmojiInput, EmojiTextarea } from "../../../ui/EmojiAutocomplete";
 import { Button } from "../../../ui/Button/Button";
 import styles from "./CommitModal.module.css";
 
@@ -107,7 +107,7 @@ export function CommitModal(props: CommitModalProps) {
 
           <div className={styles.field}>
             <label className={styles.label}>Message</label>
-            <Input
+            <EmojiInput
               placeholder="Commit message..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -117,7 +117,7 @@ export function CommitModal(props: CommitModalProps) {
 
           <div className={styles.field}>
             <label className={styles.label}>Description (optional)</label>
-            <Textarea
+            <EmojiTextarea
               placeholder="Extended description..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}

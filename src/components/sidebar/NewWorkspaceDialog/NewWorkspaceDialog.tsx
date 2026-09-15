@@ -8,6 +8,7 @@ import Folder from "lucide-react/dist/esm/icons/folder";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectInfo } from "../../../store/project-store";
 import { Input } from "../../ui/Input";
+import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
@@ -283,7 +284,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   <>
                     <Stack>
                       <label className={styles.fieldLabel}>Name</label>
-                      <Input
+                      <EmojiInput
                         ref={nameRef}
                         type="text"
                         value={name}
@@ -319,7 +320,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   <>
                     <Stack>
                       <label className={styles.fieldLabel}>Name</label>
-                      <Input
+                      <EmojiInput
                         ref={nameRef}
                         type="text"
                         value={name}

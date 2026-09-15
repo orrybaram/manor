@@ -23,7 +23,7 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   onRename: (name: string) => void;
 }) {
   const { title, status } = useAgentDisplay(agent);
-  const rename = useInlineRename(title, onRename);
+  const rename = useInlineRename(title, onRename, { emoji: true });
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -50,12 +50,15 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
         >
           <AgentDot status={status} size="sidebar" pulse={shouldPulse} />
           {rename.editing ? (
-            <input
-              className={menuStyles.workspaceNameInput}
-              aria-label="Agent name"
-              data-testid="agent-name-input"
-              {...rename.inputProps}
-            />
+            <>
+              <input
+                className={menuStyles.workspaceNameInput}
+                aria-label="Agent name"
+                data-testid="agent-name-input"
+                {...rename.inputProps}
+              />
+              {rename.suggestions}
+            </>
           ) : (
             <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
           )}

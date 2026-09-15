@@ -6,6 +6,8 @@ import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
+import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
 
 type FolderItemProps = {
@@ -83,6 +85,11 @@ export function FolderItem(props: FolderItemProps) {
   const renameCancelled = useRef(false);
   const blockRef = useRef<HTMLDivElement | null>(null);
   const wasCollapsed = useRef(collapsed);
+  const {
+    handleKeyDown: handleEmojiKeyDown,
+    fieldProps: emojiFieldProps,
+    suggestions: emojiSuggestions,
+  } = useEmojiAutocomplete(editRef, { enabled: editing });
 
   // Expanding a folder near the bottom of the sidebar otherwise reveals its
   // members below the fold, where nothing looks like it happened. Once the
@@ -172,26 +179,31 @@ export function FolderItem(props: FolderItemProps) {
               <Folder size={12} />
             </span>
             {editing ? (
-              <input
-                ref={editRef}
-                className={styles.workspaceNameInput}
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  // The header's own key handling would see these too; the
-                  // input owns Enter and Escape while it is open.
-                  e.stopPropagation();
-                  if (e.key === "Enter") commitRename();
-                  if (e.key === "Escape") {
-                    renameCancelled.current = true;
-                    setEditingState(false);
-                    e.currentTarget.blur();
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-              />
+              <>
+                <input
+                  ref={editRef}
+                  className={styles.workspaceNameInput}
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  {...emojiFieldProps}
+                  onBlur={composeHandlers(emojiFieldProps.onBlur, commitRename)}
+                  onKeyDown={(e) => {
+                    if (handleEmojiKeyDown(e)) return;
+                    // The header's own key handling would see these too; the
+                    // input owns Enter and Escape while it is open.
+                    e.stopPropagation();
+                    if (e.key === "Enter") commitRename();
+                    if (e.key === "Escape") {
+                      renameCancelled.current = true;
+                      setEditingState(false);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+                {emojiSuggestions}
+              </>
             ) : (
               <>
                 <span className={styles.folderName} title={folder.name}>

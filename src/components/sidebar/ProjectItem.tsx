@@ -529,20 +529,41 @@ export function ProjectItem(props: ProjectItemProps) {
             >
               Open in Editor
             </ContextMenu.Item>
-            <ContextMenu.Item
-              className={styles.contextMenuItem}
-              onSelect={() =>
-                navigator.clipboard.writeText(ws.branch || "main")
-              }
-            >
-              Copy Branch Name
-            </ContextMenu.Item>
-            <ContextMenu.Item
-              className={styles.contextMenuItem}
-              onSelect={() => navigator.clipboard.writeText(ws.path)}
-            >
-              Copy Path
-            </ContextMenu.Item>
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger
+                className={styles.contextMenuItem}
+                style={{ display: "flex", alignItems: "center" }}
+              >
+                Copy
+                <ChevronRight size={14} style={{ marginLeft: "auto" }} />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className={styles.contextMenu}>
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() =>
+                      navigator.clipboard.writeText(ws.branch || "main")
+                    }
+                  >
+                    Branch Name
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => navigator.clipboard.writeText(ws.path)}
+                  >
+                    Path
+                  </ContextMenu.Item>
+                  {ws.pr && (
+                    <ContextMenu.Item
+                      className={styles.contextMenuItem}
+                      onSelect={() => navigator.clipboard.writeText(ws.pr!.url)}
+                    >
+                      Pull Request Link
+                    </ContextMenu.Item>
+                  )}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
             {ws.isMain && ws.branch && ws.branch !== project.defaultBranch && (
               <>
                 <ContextMenu.Separator className={styles.contextMenuSeparator} />

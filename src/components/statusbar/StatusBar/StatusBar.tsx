@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { Fragment, useState, useCallback, useMemo } from "react";
 import { useAppStore, selectWebviewFocusVisible } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 
@@ -15,12 +15,33 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useStatsStore, formatUnblockLatency } from "../../../store/stats-store";
 import { LinearIcon } from "../../command-palette/LinearIcon";
 import { GitHubIcon } from "../../command-palette/GitHubIcon";
-import type { LinkedIssue } from "../../../store/project-store";
+import type { LinkedIssue, WorkspaceFolder } from "../../../store/project-store";
 import type { CommandPaletteProps } from "../../command-palette/types";
 import styles from "./StatusBar.module.css";
 
 function isGitHubIssue(issue: LinkedIssue): boolean {
   return issue.id.startsWith("gh-");
+}
+
+/**
+ * The folders enclosing a workspace, outermost first. Stops at a folder id
+ * that names no folder, and at a parent cycle in a hand-edited file, so the
+ * trail always ends.
+ */
+function folderTrail(
+  folders: readonly WorkspaceFolder[],
+  folderId: string | null | undefined,
+): WorkspaceFolder[] {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const trail: WorkspaceFolder[] = [];
+  const seen = new Set<string>();
+  let current = folderId ? byId.get(folderId) : undefined;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    trail.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return trail;
 }
 
 type LinkedIssueIconProps = {
@@ -124,6 +145,8 @@ export function StatusBar(props: StatusBarProps) {
     ? (workspace.name ?? workspace.branch)
     : null;
 
+  const folders = folderTrail(project?.folders ?? [], workspace?.folderId);
+
   const linkedIssues = workspace?.linkedIssues ?? [];
 
   const handlePopoverClose = useCallback(() => setPopoverOpen(false), []);
@@ -135,6 +158,12 @@ export function StatusBar(props: StatusBarProps) {
         {project && (
           <>
             <span className={styles.segment}>{project.name}</span>
+            {folders.map((folder) => (
+              <Fragment key={folder.id}>
+                <span className={styles.separator}>&gt;</span>
+                <span className={styles.segment}>{folder.name}</span>
+              </Fragment>
+            ))}
             {workspaceLabel && (
               <>
                 <span className={styles.separator}>&gt;</span>

@@ -2,6 +2,24 @@
 
 
 
+
+## [0.13.0] - 2026-09-14
+
+### Features
+- Emoji shortcode autocomplete in text fields: type `:` to get emoji suggestions next to your cursor
+- Emoji autocomplete in workspace and folder names, commit messages, feedback and review comments
+- Emoji are removed from branch names generated from workspace names
+- Status bar breadcrumbs now show folder names
+- Workspace menu has a new Copy submenu that includes the PR link
+- Command palette search now includes the commands you use most
+- Stats streaks now count active weeks instead of days
+
+### Fixes
+- Nested folders in the sidebar can now be reordered by dragging
+- Diff search highlights no longer leave stray characters behind
+- Selects in the New Workspace dialog are no longer cut off
+- Keyboard shortcuts with modifier keys now work while emoji suggestions are open
+
 ## [0.12.1] - 2026-09-12
 
 ### Improvements

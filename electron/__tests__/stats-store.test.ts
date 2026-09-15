@@ -255,7 +255,7 @@ describe("StatsStore", () => {
     });
   });
 
-  describe("streakDays", () => {
+  describe("streakWeeks", () => {
     function storeWithPromptDays(offsets: number[], nowMs: number): StatsStore {
       const days: Record<string, { prompts: number }> = {};
       for (const offset of offsets) {
@@ -268,38 +268,50 @@ describe("StatsStore", () => {
       return new StatsStore(tmpDir, { now: () => nowMs });
     }
 
+    // A Saturday. Its week runs from Monday 2026-08-31 (offset -5) to Sunday
+    // 2026-09-06; the week before starts at offset -12.
     const now = localMs(2026, 9, 5);
 
     it("is zero for an empty store", () => {
-      expect(new StatsStore(tmpDir, { now: () => now }).getSummary().streakDays).toBe(0);
+      expect(new StatsStore(tmpDir, { now: () => now }).getSummary().streakWeeks).toBe(0);
     });
 
-    it("counts back from today when today has prompts", () => {
-      const store = storeWithPromptDays([0, -1, -2], now);
-      expect(store.getSummary().streakDays).toBe(3);
+    it("counts back from this week when this week has prompts", () => {
+      const store = storeWithPromptDays([0, -7, -14], now);
+      expect(store.getSummary().streakWeeks).toBe(3);
     });
 
-    it("counts back from yesterday when today has none yet", () => {
-      const store = storeWithPromptDays([-1, -2], now);
-      expect(store.getSummary().streakDays).toBe(2);
+    it("counts back from last week when this week has none yet", () => {
+      const store = storeWithPromptDays([-7, -14], now);
+      expect(store.getSummary().streakWeeks).toBe(2);
     });
 
-    it("is zero when neither today nor yesterday has prompts", () => {
-      const store = storeWithPromptDays([-2, -3, -4], now);
-      expect(store.getSummary().streakDays).toBe(0);
+    it("is zero when neither this week nor last week has prompts", () => {
+      const store = storeWithPromptDays([-14, -21], now);
+      expect(store.getSummary().streakWeeks).toBe(0);
     });
 
-    it("stops at the first gap", () => {
-      const store = storeWithPromptDays([0, -1, -3, -4], now);
-      expect(store.getSummary().streakDays).toBe(2);
+    it("stops at the first idle week", () => {
+      const store = storeWithPromptDays([0, -7, -21], now);
+      expect(store.getSummary().streakWeeks).toBe(2);
+    });
+
+    it("buckets by calendar week, Monday to Sunday", () => {
+      // Monday of this week and the Sunday before it: one day apart, two weeks.
+      expect(storeWithPromptDays([-5, -6], now).getSummary().streakWeeks).toBe(2);
+    });
+
+    it("counts a week with several active days once", () => {
+      const store = storeWithPromptDays([0, -1, -2, -3, -4, -5], now);
+      expect(store.getSummary().streakWeeks).toBe(1);
     });
 
     it("ignores days that only have non-prompt activity", () => {
       const store = new StatsStore(tmpDir, { now: () => now });
       store.record("toolCalls", 50);
-      expect(store.getSummary().streakDays).toBe(0);
+      expect(store.getSummary().streakWeeks).toBe(0);
       store.record("prompts");
-      expect(store.getSummary().streakDays).toBe(1);
+      expect(store.getSummary().streakWeeks).toBe(1);
     });
   });
 
@@ -407,7 +419,7 @@ describe("StatsStore", () => {
       expect(summary.today).toEqual({});
       expect(summary.allTime).toEqual({});
       expect(summary.badges).toEqual({});
-      expect(summary.streakDays).toBe(0);
+      expect(summary.streakWeeks).toBe(0);
     });
 
     it("reset cancels a pending debounced save so nothing is rewritten", () => {

@@ -146,21 +146,21 @@ export const BADGE_META: readonly BadgeMeta[] = [
   },
   {
     id: "week-streak",
-    title: "Seven Days",
-    description: "Prompted an agent seven days in a row.",
+    title: "Four Weeks",
+    description: "Prompted an agent four weeks in a row.",
     icon: "🔥",
     color: "236 140 72",
     tier: "silver",
-    progress: (summary) => ({ current: summary.streakDays, target: 7 }),
+    progress: (summary) => ({ current: summary.streakWeeks, target: 4 }),
   },
   {
     id: "month-streak",
-    title: "Thirty Days",
-    description: "Prompted an agent thirty days in a row.",
+    title: "Twelve Weeks",
+    description: "Prompted an agent twelve weeks in a row.",
     icon: "🌟",
     color: "160 132 236",
     tier: "gold",
-    progress: (summary) => ({ current: summary.streakDays, target: 30 }),
+    progress: (summary) => ({ current: summary.streakWeeks, target: 12 }),
   },
 ];
 

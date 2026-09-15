@@ -436,8 +436,8 @@ export function StatsView() {
   return (
     <div className={styles.statsView}>
       <div className={styles.statsStreak}>
-        {summary.streakDays > 0
-          ? `🔥 ${summary.streakDays}-day streak`
+        {summary.streakWeeks > 0
+          ? `🔥 ${summary.streakWeeks}-week streak`
           : "No streak yet"}
       </div>
 

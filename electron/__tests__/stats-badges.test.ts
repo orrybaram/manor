@@ -8,7 +8,8 @@ function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
     today: {},
     last7Days: {},
     allTime: {},
-    streakDays: 0,
+    streakWeeks: 0,
+    dailyPrompts: [],
     badges: {},
     enabled: true,
     ...overrides,
@@ -27,8 +28,8 @@ const THRESHOLDS: Record<string, StatsSummary> = {
   reaper: summary({ allTime: { worktreesRemoved: 50 } }),
   shipper: summary({ allTime: { worktreesMerged: 10 } }),
   centurion: summary({ today: { prompts: 100 } }),
-  "week-streak": summary({ streakDays: 7 }),
-  "month-streak": summary({ streakDays: 30 }),
+  "week-streak": summary({ streakWeeks: 4 }),
+  "month-streak": summary({ streakWeeks: 12 }),
 };
 
 /** One below each badge's threshold — the predicate must still read false. */
@@ -43,8 +44,8 @@ const BELOW_THRESHOLDS: Record<string, StatsSummary> = {
   reaper: summary({ allTime: { worktreesRemoved: 49 } }),
   shipper: summary({ allTime: { worktreesMerged: 9 } }),
   centurion: summary({ today: { prompts: 99 } }),
-  "week-streak": summary({ streakDays: 6 }),
-  "month-streak": summary({ streakDays: 29 }),
+  "week-streak": summary({ streakWeeks: 3 }),
+  "month-streak": summary({ streakWeeks: 11 }),
 };
 
 describe("BADGES", () => {
@@ -115,7 +116,7 @@ describe("evaluateBadges", () => {
         worktreesRemoved: 50,
         worktreesMerged: 10,
       },
-      streakDays: 30,
+      streakWeeks: 12,
     });
     const result = evaluateBadges(allEarned, {});
     expect(result.map((b) => b.id)).toEqual(BADGES.map((b) => b.id));
@@ -132,7 +133,7 @@ describe("evaluateBadges", () => {
         worktreesRemoved: 50,
         worktreesMerged: 10,
       },
-      streakDays: 30,
+      streakWeeks: 12,
     });
     const awarded = { massacre: "2026-01-01T00:00:00.000Z", shipper: "2026-01-01T00:00:00.000Z" };
     const result = evaluateBadges(allEarned, awarded);

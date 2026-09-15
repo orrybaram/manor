@@ -77,17 +77,19 @@ export const BADGES: readonly BadgeDef[] = [
     description: "Sent 100 prompts in a single day.",
     earned: (s) => (s.today.prompts ?? 0) >= 100,
   },
+  // Streaks count active weeks, not days. The ids predate that and stay as
+  // they are, so badges already awarded under the day rules still show.
   {
     id: "week-streak",
-    title: "Seven Days",
-    description: "Prompted an agent seven days in a row.",
-    earned: (s) => s.streakDays >= 7,
+    title: "Four Weeks",
+    description: "Prompted an agent four weeks in a row.",
+    earned: (s) => s.streakWeeks >= 4,
   },
   {
     id: "month-streak",
-    title: "Thirty Days",
-    description: "Prompted an agent thirty days in a row.",
-    earned: (s) => s.streakDays >= 30,
+    title: "Twelve Weeks",
+    description: "Prompted an agent twelve weeks in a row.",
+    earned: (s) => s.streakWeeks >= 12,
   },
 ];
 

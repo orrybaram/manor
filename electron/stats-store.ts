@@ -98,7 +98,8 @@ export interface StatsSummary {
   today: DayBucket;
   last7Days: DayBucket;
   allTime: DayBucket;
-  streakDays: number;
+  /** Consecutive local weeks (Monday to Sunday) with at least one prompt. */
+  streakWeeks: number;
   /**
    * Prompt count per local day, oldest first, for days that recorded at least
    * one. Sparse on purpose — the renderer fills the grid's gaps, so an idle
@@ -394,7 +395,7 @@ export class StatsStore {
       today: { ...(this.days[today] ?? {}) },
       last7Days: aggregate(this.windowBuckets(WINDOW_DAYS)),
       allTime: aggregate(Object.values(this.days)),
-      streakDays: this.streakDays(),
+      streakWeeks: this.streakWeeks(),
       dailyPrompts: this.dailyPrompts(),
       badges: this.getBadges(),
       enabled: this.isEnabled(),
@@ -420,13 +421,18 @@ export class StatsStore {
   }
 
   /**
-   * Consecutive local days with at least one prompt, counting back from today —
-   * or from yesterday when today has no prompts yet, so an unstarted day does
-   * not read as a broken streak. Zero when neither day has prompts.
+   * Consecutive local weeks (Monday to Sunday) with at least one prompt,
+   * counting back from this week — or from last week when this week has no
+   * prompts yet, so an unstarted week does not read as a broken streak. Zero
+   * when neither week has prompts. One active day is enough to keep a week.
    */
-  private streakDays(): number {
+  private streakWeeks(): number {
+    const activeWeeks = new Set<string>();
+    for (const [day, bucket] of Object.entries(this.days)) {
+      if ((bucket.prompts ?? 0) >= 1) activeWeeks.add(weekKeyOfDay(day));
+    }
     const hasPrompts = (offset: number): boolean =>
-      (this.days[dayKeyOffset(this.now(), offset)]?.prompts ?? 0) >= 1;
+      activeWeeks.has(weekKeyOffset(this.now(), offset));
 
     let offset: number;
     if (hasPrompts(0)) offset = 0;
@@ -495,6 +501,23 @@ function dayKeyOffset(ms: number, offset: number): string {
   const date = new Date(ms);
   date.setDate(date.getDate() + offset);
   return dayKey(date.getTime());
+}
+
+/**
+ * Week key — the day key of its Monday — for the local week `offset` weeks
+ * away from `ms` (negative offsets go back).
+ */
+function weekKeyOffset(ms: number, offset: number): string {
+  const date = new Date(ms);
+  const sinceMonday = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - sinceMonday + offset * 7);
+  return dayKey(date.getTime());
+}
+
+/** Week key for a stored local YYYY-MM-DD day key. */
+function weekKeyOfDay(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  return weekKeyOffset(new Date(year, month - 1, date).getTime(), 0);
 }
 
 /** Sums counters and maxes gauges across buckets. */

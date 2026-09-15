@@ -139,7 +139,8 @@ export interface StatsSummary {
   today: DayBucket;
   last7Days: DayBucket;
   allTime: DayBucket;
-  streakDays: number;
+  /** Consecutive local weeks (Monday to Sunday) with at least one prompt. */
+  streakWeeks: number;
   /** Prompt count per local day, oldest first, for days that recorded one. */
   dailyPrompts: DailyPrompts[];
   /** badgeId -> ISO awarded-at. */

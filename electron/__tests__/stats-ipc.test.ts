@@ -33,7 +33,7 @@ describe("stats:getSummary / stats:reset handlers", () => {
   });
 
   it("stats:getSummary returns the store's summary", () => {
-    const summary = { today: {}, last7Days: {}, allTime: {}, streakDays: 0, badges: {}, enabled: true };
+    const summary = { today: {}, last7Days: {}, allTime: {}, streakWeeks: 0, badges: {}, enabled: true };
     const statsStore = {
       getSummary: vi.fn().mockReturnValue(summary),
       reset: vi.fn(),

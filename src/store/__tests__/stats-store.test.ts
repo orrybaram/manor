@@ -26,7 +26,7 @@ function makeSummary(over: Partial<StatsSummary> = {}): StatsSummary {
     today: {},
     last7Days: {},
     allTime: {},
-    streakDays: 0,
+    streakWeeks: 0,
     dailyPrompts: [],
     badges: {},
     enabled: true,
@@ -41,7 +41,7 @@ beforeEach(() => {
 
 describe("useStatsStore", () => {
   it("replaces the summary and marks loaded on a changed broadcast", () => {
-    const summary = makeSummary({ streakDays: 3 });
+    const summary = makeSummary({ streakWeeks: 3 });
 
     onChangedCallback?.(summary);
 

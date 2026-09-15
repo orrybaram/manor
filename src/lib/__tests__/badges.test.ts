@@ -38,8 +38,8 @@ const ELECTRON_BADGE_TARGETS: Record<string, number> = {
   reaper: 50,
   shipper: 10,
   centurion: 100,
-  "week-streak": 7,
-  "month-streak": 30,
+  "week-streak": 4,
+  "month-streak": 12,
 };
 
 function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
@@ -47,7 +47,7 @@ function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
     today: {},
     last7Days: {},
     allTime: {},
-    streakDays: 0,
+    streakWeeks: 0,
     dailyPrompts: [],
     badges: {},
     enabled: true,
@@ -101,7 +101,7 @@ describe("BADGE_META", () => {
     const s = summary({
       allTime: { agentsKilled: 40 },
       today: { subagents: 3 },
-      streakDays: 4,
+      streakWeeks: 2,
     });
 
     const byId = new Map(BADGE_META.map((b) => [b.id, b]));
@@ -118,8 +118,8 @@ describe("BADGE_META", () => {
       target: 10,
     });
     expect(byId.get("week-streak")!.progress(s)).toEqual({
-      current: 4,
-      target: 7,
+      current: 2,
+      target: 4,
     });
   });
 

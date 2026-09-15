@@ -1,6 +1,6 @@
 ---
 title: Adopt emoji autocomplete in sidebar name inputs
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [2]

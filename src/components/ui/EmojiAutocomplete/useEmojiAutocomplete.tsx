@@ -205,6 +205,8 @@ export function useEmojiAutocomplete<T extends EmojiField>(
 
   const handleKeyDown = (e: React.KeyboardEvent<T>): boolean => {
     if (!open || e.nativeEvent.isComposing) return false;
+    // Modified keys belong to the caller (e.g. ⌘↵ to submit), not the list.
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
 
     switch (e.key) {
       case "ArrowDown":

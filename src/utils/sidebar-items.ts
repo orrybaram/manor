@@ -135,9 +135,13 @@ export function buildSidebarItems(
  *
  * A workspace drag sees every visible row: folder headers at any depth and
  * the members of expanded folders. A folder drag moves whole blocks, so it
- * sees folder headers (a folder may now land inside a folder) and loose
- * top-level workspaces, but not folders' members — and never anything inside
- * `draggingKey`'s own subtree, which travels with it.
+ * opens only the folders the dragged one sits inside — it can move among its
+ * own siblings, workspaces included, and out through its parents — while
+ * every other folder stays one row for its whole block. It never sees
+ * anything inside `draggingKey`'s own subtree, which travels with it.
+ *
+ * A folder's children are rows exactly when the folder is open here, which is
+ * what the drag hook reads to measure a folder by its header or its block.
  */
 export function flattenRows(
   items: SidebarItem[],
@@ -145,6 +149,10 @@ export function flattenRows(
   dragging: "workspace" | "folder",
   draggingKey?: string,
 ): Row[] {
+  const opened =
+    dragging === "folder" && draggingKey !== undefined
+      ? enclosingFolderIds(items, draggingKey)
+      : null;
   const rows: Row[] = [];
   const walk = (
     list: SidebarItem[],
@@ -153,21 +161,34 @@ export function flattenRows(
   ) => {
     for (const item of list) {
       if (!isFolder(item)) {
-        if (dragging === "folder" && parentFolderId !== null) continue;
         rows.push({ key: item.ws.path, kind: "workspace", parentFolderId, depth });
         continue;
       }
       const folderId = item.folder.id;
       rows.push({ key: folderId, kind: "folder", parentFolderId, depth });
-      // The dragged folder still needs its own row — it is the source — but
-      // its contents are not slots it can be dropped into.
-      if (dragging === "folder" && folderId === draggingKey) continue;
       if (collapsedFolderIds.has(folderId)) continue;
+      // The dragged folder is not its own ancestor, so its contents are never
+      // offered as slots it could be dropped into.
+      if (opened && !opened.has(folderId)) continue;
       walk(item.children, folderId, depth + 1);
     }
   };
   walk(items, null, 0);
   return rows;
+}
+
+/** Ids of every folder enclosing `key`, at any depth. */
+function enclosingFolderIds(items: SidebarItem[], key: string): Set<string> {
+  const walk = (list: SidebarItem[], trail: string[]): string[] | null => {
+    for (const item of list) {
+      if (keyOf(item) === key) return trail;
+      if (!isFolder(item)) continue;
+      const found = walk(item.children, [...trail, item.folder.id]);
+      if (found) return found;
+    }
+    return null;
+  };
+  return new Set(walk(items, []) ?? []);
 }
 
 /** The folder item for `folderId`, at any depth. */

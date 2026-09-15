@@ -206,12 +206,33 @@ describe("flattenRows", () => {
     ]);
   });
 
-  it("offers other folders' headers to a folder drag, members aside", () => {
+  it("opens the dragged folder's parents, so it can move among its siblings", () => {
     expect(flattenRows(nested, new Set(), "folder", "f2")).toEqual([
       { key: "/a", kind: "workspace", parentFolderId: null, depth: 0 },
       { key: "f1", kind: "folder", parentFolderId: null, depth: 0 },
+      { key: "/m1", kind: "workspace", parentFolderId: "f1", depth: 1 },
       { key: "f2", kind: "folder", parentFolderId: "f1", depth: 1 },
     ]);
+  });
+
+  it("keeps every other folder one block row during a folder drag", () => {
+    const tree = buildSidebarItems(
+      project(
+        [ws("/m1", "f1"), ws("/deep", "f2"), ws("/x", "f3")],
+        [folder("f1"), folder("f2", "f1"), folder("f3")],
+        ["f1", "/m1", "f2", "/deep", "f3", "/x"],
+      ),
+    );
+    expect(flattenRows(tree, new Set(), "folder", "f3").map((r) => r.key)).toEqual([
+      "f1",
+      "f3",
+    ]);
+  });
+
+  it("does not open a collapsed parent of the dragged folder", () => {
+    expect(
+      flattenRows(nested, new Set(["f1"]), "folder", "f2").map((r) => r.key),
+    ).toEqual(["/a", "f1"]);
   });
 
   it("keeps the dragged folder's row but not its subtree", () => {
@@ -414,11 +435,30 @@ describe("applyDrop — folder source", () => {
   it("promotes a nested folder back to the top level", () => {
     const tree = deep();
     const rows = flattenRows(tree, new Set(), "folder", "f2");
-    // Rows: f1, f2, f3. Landing after f3 (index 2 of the rows minus f2's
-    // subtree) makes f2 a top-level sibling again.
-    const next = applyDrop(tree, "f2", { type: "slot", rowIndex: 2 }, rows);
+    // Rows: f1, /m1, f2, f3 — f3 is one block row. Landing after f3 (index 3
+    // of the rows minus f2's subtree) makes f2 a top-level sibling again.
+    const next = applyDrop(tree, "f2", { type: "slot", rowIndex: 3 }, rows);
     expect(shape(next)).toEqual(["f1[/m1]", "f3[/x]", "f2[/deep]"]);
     expect(folderParentsOf(next).get("f2")).toBe(null);
+  });
+
+  it("reorders a nested folder among its siblings", () => {
+    const tree = buildSidebarItems(
+      project(
+        [ws("/a", "f2"), ws("/b", "f3"), ws("/m", "f1")],
+        [folder("f1"), folder("f2", "f1"), folder("f3", "f1")],
+        ["f1", "f2", "/a", "f3", "/b", "/m"],
+      ),
+    );
+    const rows = flattenRows(tree, new Set(), "folder", "f3");
+    // Rows: f1, f2, f3, /m. Landing right under f1's header puts f3 first.
+    expect(
+      shape(applyDrop(tree, "f3", { type: "slot", rowIndex: 1 }, rows)),
+    ).toEqual(["f1[f3[/b],f2[/a],/m]"]);
+    // And past /m, still inside f1, it goes last.
+    expect(
+      shape(applyDrop(tree, "f3", { type: "slot", rowIndex: 3 }, rows)),
+    ).toEqual(["f1[f2[/a],/m,f3[/b]]"]);
   });
 });
 

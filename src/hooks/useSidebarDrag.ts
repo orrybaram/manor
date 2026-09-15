@@ -13,14 +13,12 @@ const ROW_GAP = 8;
 /** Fallback row height when an element never registered (never rendered). */
 const FALLBACK_HEIGHT = 36;
 /**
- * Extra pixels above and below a folder header that still read as "drop into
- * this folder". Rows shift out from under the pointer as it approaches, so
- * the header's own box is a narrow target; the buffer makes it forgiving.
+ * Share of a folder header, trimmed from each edge, that still reorders
+ * rather than drops into the folder. The middle of the header is "into"; its
+ * edges are the slots before and after it, so two folders side by side always
+ * leave a reorder gap between them.
  */
-const INTO_BUFFER = 8;
-/** Additional buffer while already targeting a folder, so the band does not
- * flicker off when the pointer drifts a few pixels. */
-const INTO_STICKY = 10;
+const INTO_EDGE = 0.25;
 /** Prefix for the `rowRefs` entry holding a folder's header element. */
 const HEADER_PREFIX = "header:";
 
@@ -28,8 +26,6 @@ const HEADER_PREFIX = "header:";
 export function headerRefKey(folderId: string): string {
   return `${HEADER_PREFIX}${folderId}`;
 }
-
-type HeaderRect = { folderId: string; rowIndex: number; top: number; height: number };
 
 /**
  * The sidebar's single drag: one instance per project, keyed by `Row.key`
@@ -69,10 +65,9 @@ export function useSidebarDrag({
   const rowsRef = useRef<Row[]>([]);
   const rowHeights = useRef<number[]>([]);
   const sourceIndexRef = useRef(0);
-  const dragKindRef = useRef<"workspace" | "folder">("workspace");
-  /** Folder header rects as measured at drag start: the "drop into this
-   * folder" bands, for a dragged workspace and a dragged folder alike. */
-  const headerRects = useRef<HeaderRect[]>([]);
+  /** Folders whose children are rows of the current drag: they measure and
+   * move by their header alone, every other folder by its whole block. */
+  const openFolderIds = useRef<Set<string>>(new Set());
 
   const handleDragStart = useCallback(
     (key: string, kind: "workspace" | "folder", e: ReactPointerEvent) => {
@@ -91,50 +86,42 @@ export function useSidebarDrag({
       dragCleanedUp.current = false;
       rowsRef.current = rows;
       sourceIndexRef.current = sourceIndex;
-      dragKindRef.current = kind;
 
-      // A folder drag moves whole blocks, so a top-level folder row measures
-      // `.folder`; a workspace drag walks past headers and members, so a
-      // folder row is just its header. A *nested* folder's header is a row of
-      // a folder drag too (ADR-172 lets a folder land inside a folder), and
-      // its block already lives inside its ancestor's — measuring the block
-      // again would count those pixels twice, so anything below the top level
-      // measures its header alone.
+      // A folder whose children are rows is measured by its header, since each
+      // child is measured on its own; any other folder — collapsed, a block
+      // of a folder drag, or the dragged folder itself — is one row spanning
+      // its whole block. No pixel is counted twice, and since a block's
+      // contents are never rows, no transform ever compounds with an
+      // ancestor's.
+      const open = new Set<string>();
+      for (const row of rows) {
+        if (row.parentFolderId !== null) open.add(row.parentFolderId);
+      }
+      openFolderIds.current = open;
       const elementFor = (row: Row): HTMLElement | undefined =>
-        row.kind === "folder" && (kind === "workspace" || row.depth > 0)
+        row.kind === "folder" && open.has(row.key)
           ? rowRefs.current.get(headerRefKey(row.key))
           : rowRefs.current.get(row.key);
 
-      const heights: number[] = [];
-      const headers: HeaderRect[] = [];
       const sourceParentId = rows[sourceIndex].parentFolderId;
+      const heights: number[] = [];
+      // Header height of every folder the source may be dropped into, 0 for
+      // any other row. Dropping a row onto the header of the folder it is
+      // already directly inside would change nothing, and for a member it
+      // would make dragging the first member up to the top impossible, so
+      // that header is skipped — as is the dragged folder's own. Its subtree
+      // needs no skipping: `flattenRows` never emitted it.
+      const intoHeights: number[] = [];
       rows.forEach((row, i) => {
-        const el = elementFor(row);
-        const rect = el?.getBoundingClientRect();
+        const rect = elementFor(row)?.getBoundingClientRect();
         heights[i] = rect ? rect.height + ROW_GAP : FALLBACK_HEIGHT;
-        if (row.kind !== "folder") return;
-        // Dropping a row onto the header of the folder it is already directly
-        // inside would change nothing, and for a member it would make dragging
-        // the first member up to the top impossible. Skip that header — and,
-        // for a folder drag, the dragged folder's own. Its subtree needs no
-        // skipping: `flattenRows` never emitted it.
-        if (row.key === sourceParentId || row.key === key) return;
-        // The band is always the header alone, even where the row measured
-        // the whole block: "into" is the gesture of hovering the title, not
-        // of hovering anywhere over the folder's contents.
-        const headerRect = rowRefs.current
-          .get(headerRefKey(row.key))
-          ?.getBoundingClientRect();
-        if (!headerRect) return;
-        headers.push({
-          folderId: row.key,
-          rowIndex: i,
-          top: headerRect.top,
-          height: headerRect.height,
-        });
+        intoHeights[i] =
+          row.kind === "folder" && i !== sourceIndex && row.key !== sourceParentId
+            ? (rowRefs.current.get(headerRefKey(row.key))?.getBoundingClientRect()
+                .height ?? 0)
+            : 0;
       });
       rowHeights.current = heights;
-      headerRects.current = headers;
 
       target.setPointerCapture(e.pointerId);
 
@@ -151,58 +138,52 @@ export function useSidebarDrag({
 
         setDragOffset(dy);
 
+        // Walk outward from the source, one row at a time. Crossing a row's
+        // midpoint moves the slot past it; crossing the middle of a folder's
+        // header targets that folder instead, and the slot stays where it was
+        // before the folder, so the header sits still under the dragged row.
+        //
+        // Both are decided from `dy` alone against the heights measured at
+        // drag start, never from where a shift has since moved a row, so the
+        // target cannot flicker as neighbours slide out from under the
+        // pointer. Going down the dragged row's leading edge meets a folder's
+        // header first; going up it meets the block's bottom first and the
+        // header last.
         let offset = 0;
         let targetIdx = sourceIndex;
+        let into: string | null = null;
         if (dy < 0) {
           for (let i = sourceIndex - 1; i >= 0; i--) {
             offset -= heights[i];
+            const header = intoHeights[i];
+            if (
+              header > 0 &&
+              dy >= offset + header * INTO_EDGE &&
+              dy <= offset + header * (1 - INTO_EDGE)
+            ) {
+              into = rows[i].key;
+              break;
+            }
             if (dy < offset + heights[i] / 2) targetIdx = i;
             else break;
           }
         } else {
           for (let i = sourceIndex + 1; i < rows.length; i++) {
+            const start = offset;
             offset += heights[i];
+            const header = intoHeights[i];
+            if (
+              header > 0 &&
+              dy >= start + header * INTO_EDGE &&
+              dy <= start + header * (1 - INTO_EDGE)
+            ) {
+              into = rows[i].key;
+              break;
+            }
             if (dy > offset - heights[i] / 2) targetIdx = i;
             else break;
           }
         }
-
-        // Into-detection runs against the rects measured at drag start, not
-        // against wherever a neighbour shift has pushed a header. That is
-        // exact while `into` is active (it suppresses every shift, so headers
-        // sit at their start rects) and only slightly generous on the way in,
-        // where the band is at most one row height off.
-        // Into-detection. A header sits at its start rect while nothing has
-        // shifted, and one dragged-row height away once the slot search has
-        // moved it aside; the pointer may be over either, so the band is the
-        // union of both boxes plus a buffer. While a folder is already the
-        // target the rows are pinned (no shift) and the band grows a little
-        // more so it does not flicker off.
-        let into: string | null = null;
-        const sourceH = heights[sourceIndex];
-        for (const header of headerRects.current) {
-          const i = header.rowIndex;
-          let shift = 0;
-          if (targetIdx > sourceIndex && i > sourceIndex && i <= targetIdx) {
-            shift = -sourceH;
-          } else if (targetIdx < sourceIndex && i < sourceIndex && i >= targetIdx) {
-            shift = sourceH;
-          }
-          const top = Math.min(header.top, header.top + shift);
-          const bottom = Math.max(
-            header.top + header.height,
-            header.top + header.height + shift,
-          );
-          const pad =
-            INTO_BUFFER +
-            (intoFolderIdRef.current === header.folderId ? INTO_STICKY : 0);
-          if (ev.clientY >= top - pad && ev.clientY <= bottom + pad) {
-            into = header.folderId;
-            break;
-          }
-        }
-        // Landing "into" a folder moves no neighbours.
-        if (into) targetIdx = sourceIndex;
 
         if (intoFolderIdRef.current !== into) {
           intoFolderIdRef.current = into;
@@ -256,9 +237,9 @@ export function useSidebarDrag({
   /**
    * The transform for one rendered element. Workspaces pass their path; a
    * folder passes its id for the block and `headerRefKey(id)` for the header,
-   * and only the one the current drag measures gets a transform — during a
-   * workspace drag the header shifts on its own while its members shift
-   * individually, during a folder drag the whole block moves.
+   * and only the one the current drag measures gets a transform — an open
+   * folder's header shifts on its own while its children shift individually,
+   * any other folder moves as a whole block.
    */
   const getTransformStyle = useCallback(
     (key: string): CSSProperties | undefined => {
@@ -270,9 +251,7 @@ export function useSidebarDrag({
       const idx = rows.findIndex((row) => row.key === rowKey);
       if (idx === -1) return undefined;
       if (rows[idx].kind === "folder") {
-        if (isHeaderKey !== (dragKindRef.current === "workspace")) {
-          return undefined;
-        }
+        if (isHeaderKey !== openFolderIds.current.has(rowKey)) return undefined;
       } else if (isHeaderKey) {
         return undefined;
       }
@@ -281,8 +260,6 @@ export function useSidebarDrag({
       if (idx === dragIndex) {
         return { transform: `translateY(${dragOffset}px)`, zIndex: 10 };
       }
-      // Hovering a folder header lifts the row out of the list entirely.
-      if (intoFolderId) return { transition: "transform 150ms ease" };
       if (dragIndex === dropIndex) return { transition: "transform 150ms ease" };
 
       const h = rowHeights.current[dragIndex] || FALLBACK_HEIGHT;
@@ -298,7 +275,7 @@ export function useSidebarDrag({
       }
       return { transition: "transform 150ms ease" };
     },
-    [dragKey, dropIndex, dragOffset, intoFolderId],
+    [dragKey, dropIndex, dragOffset],
   );
 
   return {

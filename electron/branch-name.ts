@@ -8,6 +8,11 @@
 export function sanitizeBranchName(input: string): string {
   let result = input.trim();
 
+  // Emoji belong in display names, not git refs.
+  // eslint-disable-next-line no-misleading-character-class
+  result = result.replace(/[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}\u{200D}\u{20E3}]/gu, "");
+  result = result.trim();
+
   // Internal whitespace runs -> single hyphen.
   result = result.replace(/\s+/g, "-");
 

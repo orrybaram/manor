@@ -54,7 +54,10 @@ export function highlightSyntaxNodes(
             createElement(
               "mark",
               {
-                key: `${kp}-m-${pos}`,
+                // `i` keeps sibling text nodes' marks apart: two of them
+                // matching at the same offset would otherwise share a key,
+                // and React leaves stale marks behind as the query changes.
+                key: `${kp}-${i}-m-${pos}`,
                 className:
                   globalIdx === currentMatch
                     ? styles.searchMatchActive

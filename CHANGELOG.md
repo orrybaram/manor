@@ -3,6 +3,17 @@
 
 
 
+
+## [0.13.1] - 2026-09-16
+
+### Features
+- Clicking the status bar issue indicator now opens the issue directly when the workspace has only one linked issue
+
+### Fixes
+- Large files in the diff viewer no longer crash by hitting React's update depth limit
+- Sidebar diff stats now stay visible after a project reloads
+- Empty PR comment notifications are now hidden
+
 ## [0.13.0] - 2026-09-14
 
 ### Features

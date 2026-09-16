@@ -257,7 +257,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       ]);
       return results;
     },
-    enabled: isOpen && issues.length > 0,
+    enabled: isOpen && issues.length > 1,
     staleTime: 30_000,
   });
 
@@ -344,20 +344,28 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
     onClose(); // close popover, dialog takes over
   }, [onClose]);
 
+  // With a single linked issue, skip the list and open its detail directly.
+  const singleIssueId =
+    visibleIssues.length === 1 ? visibleIssues[0].id : null;
+  const popoverOpen = isOpen && singleIssueId === null;
+  const dialogIssueId =
+    selectedIssueId ?? (isOpen ? singleIssueId : null);
+
   const handleDialogClose = useCallback(() => {
     setSelectedIssueId(null);
-  }, []);
+    onClose();
+  }, [onClose]);
 
   const handleCloseAll = useCallback(() => {
     setSelectedIssueId(null);
     onClose();
   }, [onClose]);
 
-  const selectedIsGitHub = selectedIssueId?.startsWith("gh-") ?? false;
+  const selectedIsGitHub = dialogIssueId?.startsWith("gh-") ?? false;
 
   return (
     <>
-      <Popover.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <Popover.Root open={popoverOpen} onOpenChange={(open) => !open && onClose()}>
         <Popover.Trigger asChild>{children}</Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
@@ -394,7 +402,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       </Popover.Root>
 
       <Dialog.Root
-        open={selectedIssueId !== null}
+        open={dialogIssueId !== null}
         onOpenChange={(open) => !open && handleDialogClose()}
       >
         <Dialog.Portal>
@@ -403,12 +411,12 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
             <Dialog.Title className={styles.dialogSrOnly}>
               Issue Detail
             </Dialog.Title>
-            {selectedIssueId && (
+            {dialogIssueId && (
               selectedIsGitHub ? (
                 <GitHubIssueDetailView
                   repoPath={repoPath}
                   issueNumber={parseInt(
-                    selectedIssueId.replace("gh-", ""),
+                    dialogIssueId.replace("gh-", ""),
                     10,
                   )}
                   onBack={handleDialogClose}
@@ -421,7 +429,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
                 />
               ) : (
                 <IssueDetailView
-                  issueId={selectedIssueId}
+                  issueId={dialogIssueId}
                   onBack={handleDialogClose}
                   onClose={handleCloseAll}
                   onNewWorkspace={onNewWorkspace}

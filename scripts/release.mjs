@@ -172,14 +172,15 @@ const newEntry = `## [${version}] - ${today()}\n\n${changelog}`;
 
 if (fs.existsSync(CHANGELOG_PATH)) {
   const existing = fs.readFileSync(CHANGELOG_PATH, "utf-8");
-  // Insert after the first "# Changelog" header line
+  // Insert after the first "# Changelog" header line, collapsing the blank
+  // lines that follow it so they don't accumulate across releases
   const headerRe = /^# Changelog\s*\n/m;
   const match = existing.match(headerRe);
   if (match) {
     const insertAt = match.index + match[0].length;
     const updated =
-      existing.slice(0, insertAt) +
-      "\n" +
+      existing.slice(0, match.index) +
+      "# Changelog\n\n" +
       newEntry +
       "\n\n" +
       existing.slice(insertAt);

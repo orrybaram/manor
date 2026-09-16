@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 import type { DiffLine } from "../types";
 import { extToLang, tokenize } from "../syntax";
 import { highlightSyntaxNodes, highlightText } from "./hast-utils";
@@ -23,6 +24,27 @@ type DiffLinesProps = {
 };
 
 const ROW_HEIGHT_ESTIMATE = 20;
+
+/**
+ * The list is not its own scroller: it grows to its full height and the pane
+ * around it scrolls. So every row must be in range, which is done by giving
+ * the virtualizer a viewport of unbounded height.
+ *
+ * This used to be faked by estimating each row at the height of the whole
+ * file, so the list measured taller than its content. That is quadratic, and
+ * past ~1300 rows it exceeds the tallest box Chromium will lay out. The
+ * clamped height then only covered a slice of the unmeasured rows, so each
+ * commit mounted a slice, measured it and re-rendered for the next — a chain
+ * of nested updates that a large file ran past React's limit (error #185).
+ */
+const UNBOUNDED_RECT: Rect = { width: 0, height: Number.POSITIVE_INFINITY };
+
+function observeUnboundedRect(
+  _instance: Virtualizer<HTMLDivElement, Element>,
+  cb: (rect: Rect) => void,
+) {
+  cb(UNBOUNDED_RECT);
+}
 
 /** Stable empty set so a file with nothing to mark keeps one identity. */
 const NO_MARKED_ROWS: ReadonlySet<number> = new Set();
@@ -74,7 +96,9 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => lines.length * ROW_HEIGHT_ESTIMATE,
+    estimateSize: () => ROW_HEIGHT_ESTIMATE,
+    initialRect: UNBOUNDED_RECT,
+    observeElementRect: observeUnboundedRect,
     overscan: 30,
   });
 

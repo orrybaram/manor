@@ -79,6 +79,10 @@ export function diffPrEvents(
  * Dependabot, CI reporters) and your own comments are both noise by default —
  * you already know what you said, and automation says a great deal.
  *
+ * A comment with no text never does: a bodiless review is the empty wrapper
+ * GitHub creates around an approval or inline comments, and there is nothing
+ * to read.
+ *
  * An unknown author (a payload written before the fetcher tagged authors)
  * passes: better a stray notification than a silently dropped one.
  */
@@ -87,6 +91,7 @@ export function commentPassesFilters(
   prefs: AppPreferences,
 ): boolean {
   if (!comment) return true;
+  if (!comment.body.trim()) return false;
   if (comment.isBot && !prefs.notifyOnBotPrComments) return false;
   if (comment.isViewer && !prefs.notifyOnOwnPrComments) return false;
   return true;

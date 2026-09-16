@@ -23,6 +23,8 @@ export class DiffWatcher {
   start(window: BrowserWindow, workspaces: Record<string, string>): void {
     this.stop();
     this.scanning = false;
+    // Force the first tick to emit so a fresh/reloaded renderer gets stats.
+    this.lastStats = {};
     this.workspaces = new Map(Object.entries(workspaces));
     this.nonGitPaths.clear();
 

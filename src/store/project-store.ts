@@ -1128,8 +1128,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })),
 
   updateWorkspaceDiffStats: (workspacePath: string, stats: DiffStats | null) =>
-    set((s) => ({
-      projects: s.projects.map((p) => {
+    set((s) => {
+      let changed = false;
+      const projects = s.projects.map((p) => {
         const wsIdx = p.workspaces.findIndex((ws) => ws.path === workspacePath);
         if (wsIdx === -1) return p;
         const ws = p.workspaces[wsIdx];
@@ -1138,11 +1139,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           ws.diffStats?.removed === stats?.removed
         )
           return p;
+        changed = true;
         const workspaces = [...p.workspaces];
         workspaces[wsIdx] = { ...ws, diffStats: stats };
         return { ...p, workspaces };
-      }),
-    })),
+      });
+      // Keep the same `projects` reference on no-ops so subscribers
+      // (e.g. useDiffWatcher's re-apply effect) don't re-run.
+      return changed ? { projects } : s;
+    }),
 
   updateWorkspacePr: (workspacePath: string, pr: PrInfo | null) =>
     set((s) => ({

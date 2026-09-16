@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useProjectStore } from "../store/project-store";
+import { useProjectStore, type DiffStats } from "../store/project-store";
 import { useMountEffect } from "./useMountEffect";
 
 export function useDiffWatcher() {
@@ -42,14 +42,26 @@ export function useDiffWatcher() {
     };
   }, [workspaceMap]);
 
+  // The main process only emits when stats change, so keep the latest payload
+  // around. Reloading projects (e.g. on `projects-changed`) replaces workspace
+  // objects and drops `diffStats`; re-apply the cached stats when that happens.
+  const latestDiffsRef = useRef<Record<string, DiffStats>>({});
+  const applyDiffs = (diffs: Record<string, DiffStats>) => {
+    // Clear stats for workspaces with no diff
+    for (const wsPath of Object.keys(prevMapRef.current)) {
+      updateWorkspaceDiffStats(wsPath, diffs[wsPath] ?? null);
+    }
+  };
+
+  useEffect(() => {
+    applyDiffs(latestDiffsRef.current);
+  }, [projects]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Subscribe to diff change events
   useMountEffect(() => {
     const unsubscribe = window.electronAPI.diffs.onChange((diffs) => {
-      // Get all workspace paths to clear stats for workspaces with no diff
-      const allPaths = Object.keys(prevMapRef.current);
-      for (const wsPath of allPaths) {
-        updateWorkspaceDiffStats(wsPath, diffs[wsPath] ?? null);
-      }
+      latestDiffsRef.current = diffs;
+      applyDiffs(diffs);
     });
     return unsubscribe;
   });

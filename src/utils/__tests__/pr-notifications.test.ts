@@ -343,6 +343,14 @@ describe("deliverPrNotifications — comment author filters", () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 
+  it("drops a comment with no text (a bodiless review)", async () => {
+    deliver(comment({ body: "  " }));
+    await flush();
+
+    expect(show).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
   it("still delivers a human comment", async () => {
     deliver(comment());
     await flush();

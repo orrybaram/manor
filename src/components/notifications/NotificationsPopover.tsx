@@ -78,6 +78,14 @@ function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
 }
 
 /**
+ * A comment notification recorded before empty comments were filtered at
+ * delivery — a bodiless review has nothing to read, so hide it.
+ */
+function isEmptyComment(record: NotificationRecord): boolean {
+  return record.kind === "pr-comment" && record.comment?.body.trim() === "";
+}
+
+/**
  * How long the pointer must rest on a row before the comment opens (#177).
  * Long enough that sweeping down the list to click a row never opens one.
  */
@@ -258,7 +266,9 @@ export function NotificationsPopover() {
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clear = useNotificationStore((s) => s.clear);
 
-  const visible = notifications.filter((n) => matchesFilter(n.kind, filter));
+  const visible = notifications.filter(
+    (n) => matchesFilter(n.kind, filter) && !isEmptyComment(n),
+  );
 
   const grouped = new Map<DateBucket, NotificationRecord[]>();
   for (const record of visible) {

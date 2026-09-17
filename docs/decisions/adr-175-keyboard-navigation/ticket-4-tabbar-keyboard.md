@@ -1,6 +1,6 @@
 ---
 title: Tab bar — tablist semantics, roving focus, focusable close and add buttons
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

@@ -572,6 +572,8 @@ export function TabBar(props: TabBarProps) {
         <div
           ref={barRef}
           data-focus-region="tabbar"
+          role="tablist"
+          aria-orientation="horizontal"
           className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
@@ -626,10 +628,25 @@ export function TabBar(props: TabBarProps) {
                 <Popover.Anchor asChild>
                   <button
                     className={styles.addButton}
+                    aria-label="New tab"
                     onClick={() => { ensureFocused(); addTab(); }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setAddMenuOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      // Shift+F10 opens the Browser/Agent menu that otherwise
+                      // needs a right-click.
+                      if (
+                        e.key === "F10" &&
+                        e.shiftKey &&
+                        !e.metaKey &&
+                        !e.ctrlKey &&
+                        !e.altKey
+                      ) {
+                        e.preventDefault();
+                        setAddMenuOpen(true);
+                      }
                     }}
                   >
                     <Plus size={14} />

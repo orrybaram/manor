@@ -1,6 +1,6 @@
 ---
 title: Sidebar rows — all focusable, Enter opens, F2 renames, roving tabindex, focus ring
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [2]

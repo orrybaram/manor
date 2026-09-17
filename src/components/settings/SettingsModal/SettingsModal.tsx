@@ -228,6 +228,7 @@ export function SettingsModal(props: SettingsModalProps) {
               ) : (
                 <nav className={styles.nav}>
                   <button
+                    data-testid="settings-nav-general"
                     className={`${styles.navItem} ${page.type === "general" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "general" })}
                   >
@@ -236,6 +237,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-appearance"
                     className={`${styles.navItem} ${page.type === "app" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "app" })}
                   >
@@ -244,6 +246,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-keybindings"
                     className={`${styles.navItem} ${page.type === "keybindings" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "keybindings" })}
                   >
@@ -252,6 +255,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-notifications"
                     className={`${styles.navItem} ${page.type === "notifications" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "notifications" })}
                   >
@@ -260,6 +264,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-integrations"
                     className={`${styles.navItem} ${page.type === "integrations" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "integrations" })}
                   >
@@ -268,6 +273,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-home"
                     className={`${styles.navItem} ${page.type === "home" ? styles.navItemActive : ""}`}
                     onClick={() => setPage({ type: "home" })}
                   >

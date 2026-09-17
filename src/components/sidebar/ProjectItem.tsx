@@ -763,6 +763,7 @@ export function ProjectItem(props: ProjectItemProps) {
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
+            data-testid="project-header"
             className={styles.projectHeader}
             onClick={() => {
               onToggleCollapsed();

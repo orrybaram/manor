@@ -753,6 +753,75 @@ test.describe("browser pane", () => {
   });
 });
 
+// ── Popout windows ───────────────────────────────────────────────────────
+
+/**
+ * Click an application-menu item by its label path, the way macOS would. The
+ * menu lives in main, so this is `app.evaluate` rather than a DOM click; it is
+ * setup (making a popout), not the behaviour under test.
+ */
+function clickMenuItem(app: ElectronApplication, labels: string[]) {
+  return app.evaluate(({ Menu, BrowserWindow }, path) => {
+    let items = Menu.getApplicationMenu()?.items ?? [];
+    let item: Electron.MenuItem | undefined;
+    for (const label of path) {
+      item = items.find((candidate) => candidate.label === label);
+      if (!item) throw new Error(`Menu item not found: ${path.join(" › ")}`);
+      items = item.submenu?.items ?? [];
+    }
+    if (!item!.enabled) throw new Error(`Menu item disabled: ${path.join(" › ")}`);
+    const win = BrowserWindow.getAllWindows()[0];
+    item!.click(undefined, win, undefined);
+  }, labels);
+}
+
+test.describe("popout window", () => {
+  /**
+   * A popout has no palette, settings or sidebar of its own: ⌘K and ⌘,
+   * pressed there open them in the main window.
+   */
+  test("⌘K and ⌘, in a popout reach the main window", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    await boot(app, window, tempHome, "ws-popout");
+
+    // Keep a tab in the main window, then move the selected one out.
+    await window.keyboard.press("Meta+t");
+    await expect(visibleTabs(window)).toHaveCount(2, { timeout: 10_000 });
+    const popoutOpened = app.waitForEvent("window");
+    await expect
+      .poll(() =>
+        clickMenuItem(app, ["Window", "Move Tab to New Window"]).then(
+          () => true,
+          () => false,
+        ),
+      )
+      .toBe(true);
+    const popout = await popoutOpened;
+    await popout.waitForLoadState("domcontentloaded");
+    await expect(popout.locator('[data-testid="tab"]:visible')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(visibleTabs(window)).toHaveCount(1, FOCUS);
+    // The popout's own terminal takes the keyboard once it is up.
+    await expect
+      .poll(() => terminalFocused(popout), { timeout: 10_000 })
+      .toBe(true);
+
+    await popout.keyboard.press("Meta+k");
+    await expect(paletteInput(window)).toBeVisible(FOCUS);
+    await expect(paletteInput(popout)).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(paletteInput(window)).toHaveCount(0, FOCUS);
+
+    await popout.keyboard.press("Meta+,");
+    await expect(window.getByTestId("settings-modal")).toBeVisible(FOCUS);
+    await expect(popout.getByTestId("settings-modal")).toHaveCount(0);
+  });
+});
+
 // ── Visibility and coverage ──────────────────────────────────────────────
 
 test.describe("focus visibility", () => {

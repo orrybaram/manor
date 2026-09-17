@@ -190,7 +190,9 @@ function pathWithoutAgents(currentPath: string, tempHome: string): string {
       continue;
     }
     // One shim per dropped directory, in its place, so lookup order holds.
+    // Rebuilt on every launch: a test that restarts the app reuses its home.
     const shimDir = path.join(tempHome, "path-shim", String(out.length));
+    fs.rmSync(shimDir, { recursive: true, force: true });
     fs.mkdirSync(shimDir, { recursive: true });
     out.push(shimDir);
     for (const name of fs.readdirSync(dir)) {

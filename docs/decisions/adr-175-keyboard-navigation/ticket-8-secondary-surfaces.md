@@ -1,6 +1,6 @@
 ---
 title: Secondary surfaces — ports, PR badge, processes, recorder, theme picker, welcome, toast
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [5, 6]

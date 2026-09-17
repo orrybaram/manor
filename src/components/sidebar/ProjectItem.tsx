@@ -50,6 +50,7 @@ import {
 } from "../../lib/keyboard-context-menu";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
+import { Button } from "../ui/Button/Button";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -182,8 +183,14 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName} data-testid="workspace-name">{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  <span
+                  // A real button nested inside the row (ADR-175): the row's
+                  // own key handler only acts when `e.target ===
+                  // e.currentTarget`, so Enter/Space here open the diff
+                  // instead of the workspace.
+                  <Button
+                    variant="ghost"
                     className={`${styles.diffStats} ${styles.diffStatsClickable}`}
+                    aria-label="Open diff"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -200,7 +207,7 @@ const WorkspaceItem = React.forwardRef<
                         -{ws.diffStats.removed}
                       </span>
                     )}
-                  </span>
+                  </Button>
                 )}
             </div>
             <div className={styles.workspaceBranchRow}>

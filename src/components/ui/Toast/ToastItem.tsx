@@ -68,7 +68,17 @@ export function ToastItem(props: ToastItemProps) {
       )}
       <div
         className={`${styles.body} ${expandable ? styles.detailExpandable : ""}`}
+        role={expandable ? "button" : undefined}
+        tabIndex={expandable ? 0 : undefined}
+        aria-expanded={expandable ? expanded : undefined}
         onClick={handleBodyClick}
+        onKeyDown={(e) => {
+          if (!expandable) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setUserExpanded(!expanded);
+          }
+        }}
       >
         <div className={styles.message}>{toast.message}</div>
         {toast.detail && (

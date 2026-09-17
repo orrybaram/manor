@@ -36,7 +36,13 @@ export const CATEGORY_ORDER: KeybindingCategory[] = [
 export interface KeybindingDef {
   id: string;
   label: string;
-  defaultCombo: KeyCombo;
+  /**
+   * Omitted for a command that is bindable but ships with no shortcut of its
+   * own (ADR-175) — `open-notifications`, so far. `platformDefaults` and
+   * `resolveBindings` leave such a command out of the resolved bindings map
+   * until the user assigns one.
+   */
+  defaultCombo?: KeyCombo;
   category: KeybindingCategory;
 }
 
@@ -295,6 +301,13 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     defaultCombo: metaCombo("[", false, true),
     category: "workspace",
   },
+  {
+    id: "open-notifications",
+    label: "Open Notifications",
+    // No default combo — ⌘⇧E and ⌘⇧Y are already spoken for; bind one in
+    // Settings › Keybindings.
+    category: "app",
+  },
 ];
 
 /**
@@ -307,17 +320,19 @@ export function platformDefaults(platform: string): KeybindingDef[] {
   if (isMac) {
     return DEFAULT_KEYBINDINGS.map((def) => ({
       ...def,
-      defaultCombo: { ...def.defaultCombo },
+      defaultCombo: def.defaultCombo ? { ...def.defaultCombo } : undefined,
     }));
   }
 
   return DEFAULT_KEYBINDINGS.map((def) => ({
     ...def,
-    defaultCombo: {
-      ...def.defaultCombo,
-      meta: false,
-      ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
-    },
+    defaultCombo: def.defaultCombo
+      ? {
+          ...def.defaultCombo,
+          meta: false,
+          ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
+        }
+      : undefined,
   }));
 }
 
@@ -363,7 +378,7 @@ export function resolveBindings(
 ): { bindings: Record<string, KeyCombo>; overriddenIds: Set<string> } {
   const defaults: Record<string, KeyCombo> = {};
   for (const def of platformDefaults(platform)) {
-    defaults[def.id] = def.defaultCombo;
+    if (def.defaultCombo) defaults[def.id] = def.defaultCombo;
   }
 
   const bindings = { ...defaults };

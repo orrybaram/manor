@@ -62,7 +62,17 @@ export function PortsList() {
       <div
         className={styles.sectionHeader}
         style={{ cursor: "pointer" }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand ports" : "Collapse ports"}
         onClick={() => setCollapsed(!collapsed)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setCollapsed(!collapsed);
+          }
+        }}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span

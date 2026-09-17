@@ -784,7 +784,13 @@
   line-height: 1.4;
 }
 
-.processKill {
+/*
+ * `button.processKill` (element + class, ADR-175) rather than `.processKill`
+ * alone: these sit on a `ui/Button`, whose own `.button` / `.ghost` / `.sm`
+ * classes are equal specificity and would otherwise win or lose depending on
+ * stylesheet order.
+ */
+button.processKill {
   display: inline-flex;
   align-items: center;
   background: none;
@@ -797,8 +803,9 @@
   flex-shrink: 0;
 }
 
-.processKill:hover {
+button.processKill:hover:not(:disabled) {
   color: var(--red);
+  background: none;
 }
 
 .processMeta {

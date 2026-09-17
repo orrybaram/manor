@@ -38,3 +38,9 @@ Also intermittently failing under `--repeat-each` since ticket 3: `Enter opens a
 - `notification-center.spec.ts` › a suppressed notification is still recorded, readable, and clickable
 
 Both fail on the commit before ticket 6. Decide whether ADR-175 caused them: check out `7708dc9` (pre-ADR main) in a temporary git worktree, copy in the current `tests/e2e/fixtures.ts` (PATH shim fix), build, and run both. If they fail there too, report them as pre-existing and leave them alone. If they pass, fix the regression.
+
+## Also
+
+- `Enter opens a workspace, F2 renames it` failed twice in a row after ticket 7 at the step "Escape cancels the rename" (spec line ~392). Treat it as a real bug until shown otherwise.
+- Add a popout-window test to the keyboard suite: detach a tab (Window menu / existing command, driven from the keyboard or `app.evaluate`), then in the popout press ⌘K and ⌘, and assert the main window shows the palette / settings.
+- One unit test failed once during ticket 7 and passed on rerun. Run `pnpm test:unit` three times and identify it if it recurs.

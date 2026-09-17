@@ -57,6 +57,10 @@ export function PrPopover(props: PrPopoverProps) {
 
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set on focus, so `onOpenAutoFocus` knows the popover was opened from the
+  // keyboard and should let Radix move focus into it; a hover-opened popover
+  // keeps its current "don't steal focus" behaviour (ADR-175).
+  const openedByKeyboardRef = useRef(false);
 
   const clearHoverTimeout = useCallback(() => {
     if (timeoutRef.current) {
@@ -76,6 +80,19 @@ export function PrPopover(props: PrPopoverProps) {
   const handleMouseLeave = useCallback(() => {
     clearHoverTimeout();
     timeoutRef.current = setTimeout(() => setOpen(false), 150);
+  }, [clearHoverTimeout]);
+
+  // Focus opens the same preview a hover does, immediately rather than after
+  // HOVER_DELAY — deliberately tabbing here is not a pointer sweeping past.
+  // There is no matching blur handler: once open, Radix's own DismissableLayer
+  // closes the popover when focus moves outside both the trigger and the
+  // content, which is exactly what lets `onOpenAutoFocus` (below) hand focus
+  // from the badge into the content without the move itself closing it.
+  const handleFocus = useCallback(() => {
+    clearHoverTimeout();
+    openedByKeyboardRef.current = true;
+    setOpen(true);
+    fetchPrs();
   }, [clearHoverTimeout]);
 
   const PrIcon =
@@ -133,12 +150,27 @@ export function PrPopover(props: PrPopoverProps) {
           className={`${styles.prBadge} ${badgeClass}${tone ? ` ${tone}` : ""}${showDraftOutline ? ` ${styles.prDraft}` : ""}`}
           data-readiness={readiness}
           data-draft={pr.isDraft ? "true" : "false"}
+          role="button"
+          tabIndex={0}
+          aria-label={`Pull request #${pr.number}: ${pr.title}`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
+          onFocus={handleFocus}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onOpen();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpen();
+            } else if (e.key === "Escape" && open) {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+            }
           }}
         >
           <BadgeIcon
@@ -163,8 +195,23 @@ export function PrPopover(props: PrPopoverProps) {
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          // A keyboard-opened popover lets Radix's default auto-focus land
+          // inside it, so Tab continues on into the comments and checks; a
+          // hover-opened one keeps focus wherever it already was.
+          onOpenAutoFocus={(e) => {
+            if (!openedByKeyboardRef.current) e.preventDefault();
+          }}
+          // Mirrors `onOpenAutoFocus`: focus returns to the badge only if it
+          // came from the badge. Reset happens here, not on blur — moving
+          // focus from the badge into the auto-focused content above must
+          // not itself count as closing the popover.
+          onCloseAutoFocus={(e) => {
+            if (!openedByKeyboardRef.current) {
+              e.preventDefault();
+              return;
+            }
+            openedByKeyboardRef.current = false;
+          }}
         >
           <div className={styles.prPopoverHeader}>
             <PrIcon size={14} />

@@ -56,10 +56,19 @@ export function WelcomeEmptyState(props: WelcomeEmptyStateProps) {
       </div>
       <div
         className={`${styles.dropZone} ${dragging ? styles.dragging : ""}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Open project"
         onClick={onAddProject}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onAddProject();
+          }
+        }}
         data-testid="import-project-button"
       >
         <Row align="center" gap="sm" className={styles.title}>

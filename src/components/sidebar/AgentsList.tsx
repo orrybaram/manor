@@ -12,6 +12,8 @@ import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
 import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { Button } from "../ui/Button/Button";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
@@ -79,9 +81,21 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
           ) : (
             <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
           )}
-          <span className={styles.agentClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close agent">
-            <X size={12} />
-          </span>
+          <Tooltip label="Close agent">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.agentClose}
+              aria-label="Close agent"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+            >
+              <X size={12} />
+            </Button>
+          </Tooltip>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

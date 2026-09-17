@@ -184,6 +184,9 @@ export function createMenuHandlers(
       ensureSidebarVisible();
       focusRegionWhenReady("sidebar");
     },
+    // The notifications popover lives in the sidebar, so this is primary-only
+    // like `focus-sidebar`; a popout forwards it here (MAIN_WINDOW_KEYBINDINGS).
+    "open-notifications": () => requestUi({ type: "open-notifications" }),
     "history-back": () => navigateBack(),
     "history-forward": () => navigateForward(),
     "new-workspace": () => chrome.openNewWorkspace(),

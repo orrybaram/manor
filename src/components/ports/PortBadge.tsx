@@ -63,6 +63,9 @@ export function PortBadge(props: PortBadgeProps) {
           ref={badgeRef}
           className={styles.portBadge}
           title={titleText}
+          role="button"
+          tabIndex={0}
+          aria-label={titleText}
           onClick={handleOpenInTab}
           onKeyDown={(e) => {
             if (isContextMenuKey(e)) {
@@ -70,6 +73,11 @@ export function PortBadge(props: PortBadgeProps) {
               e.stopPropagation();
               menuOpenedByKeyboard.current = true;
               openContextMenuFromKeyboard(e.currentTarget);
+              return;
+            }
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleOpenInTab();
             }
           }}
           style={{ cursor: "pointer" }}

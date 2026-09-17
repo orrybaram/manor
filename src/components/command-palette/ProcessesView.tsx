@@ -152,7 +152,9 @@ export function ProcessesView() {
         <Command.Item
           value={`daemon Terminal Host Daemon ${daemon.pid ?? ""}`}
           className={styles.processCard}
-          onSelect={() => {}}
+          onSelect={() => {
+            if (daemon.alive) void handleKillDaemon();
+          }}
         >
           <div className={styles.processCardHeader}>
             <span className={styles.processCardIcon}>
@@ -168,16 +170,18 @@ export function ProcessesView() {
             )}
             {daemon.alive && (
               <Tooltip label="Kill daemon" side="top">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className={styles.processKill}
-                  tabIndex={-1}
+                  aria-label="Kill daemon"
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleKillDaemon();
                   }}
                 >
                   <X size={12} />
-                </button>
+                </Button>
               </Tooltip>
             )}
           </div>
@@ -200,7 +204,11 @@ export function ProcessesView() {
               key={server.name}
               value={`internal server ${displayName} ${server.port ?? ""}`}
               className={styles.processCard}
-              onSelect={() => {}}
+              onSelect={() => {
+                if (server.name === "portlessManager") {
+                  void handleRestartPortless();
+                }
+              }}
             >
               <div className={styles.processCardHeader}>
                 <span className={styles.processCardIcon}>
@@ -214,16 +222,18 @@ export function ProcessesView() {
                 )}
                 {server.name === "portlessManager" && (
                   <Tooltip label="Restart proxy" side="top">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className={styles.processKill}
-                      tabIndex={-1}
+                      aria-label="Restart proxy"
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleRestartPortless();
                       }}
                     >
                       <RefreshCw size={12} />
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               </div>
@@ -246,7 +256,6 @@ export function ProcessesView() {
                   variant="ghost"
                   size="sm"
                   style={{ marginLeft: "auto" }}
-                  tabIndex={-1}
                   disabled={cleaningUp}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -277,7 +286,9 @@ export function ProcessesView() {
                 key={session.sessionId}
                 value={`session ${session.sessionId} ${cwd ?? ""}`}
                 className={styles.item}
-                onSelect={() => {}}
+                onSelect={() => {
+                  if (session.alive) void handleKillSession(session.sessionId);
+                }}
               >
                 <span className={styles.icon}>
                   <Terminal size={14} />
@@ -296,16 +307,18 @@ export function ProcessesView() {
                 )}
                 {session.alive && (
                   <Tooltip label="Kill session" side="top">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className={styles.processKill}
-                      tabIndex={-1}
+                      aria-label="Kill session"
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleKillSession(session.sessionId);
                       }}
                     >
                       <X size={12} />
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               </Command.Item>
@@ -330,7 +343,7 @@ export function ProcessesView() {
                 key={session.sessionId}
                 value={`orphaned session ${session.sessionId} ${cwd ?? ""}`}
                 className={styles.item}
-                onSelect={() => {}}
+                onSelect={() => void handleKillSession(session.sessionId)}
               >
                 <span className={styles.icon}>
                   <Terminal size={14} />
@@ -340,16 +353,18 @@ export function ProcessesView() {
                   {cwd ? ` — ${cwd}` : ""}
                 </span>
                 <Tooltip label="Kill orphaned session" side="top">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className={styles.processKill}
-                    tabIndex={-1}
+                    aria-label="Kill orphaned session"
                     onClick={(e) => {
                       e.stopPropagation();
                       void handleKillSession(session.sessionId);
                     }}
                   >
                     <X size={12} />
-                  </button>
+                  </Button>
                 </Tooltip>
               </Command.Item>
             );
@@ -370,7 +385,7 @@ export function ProcessesView() {
               key={`${p.port}-${p.pid}`}
               value={`port ${p.port} ${p.processName} ${p.pid}`}
               className={styles.item}
-              onSelect={() => {}}
+              onSelect={() => void handleKillPort(p.pid)}
             >
               <span className={styles.icon}>
                 <Globe size={14} />
@@ -380,16 +395,18 @@ export function ProcessesView() {
               </span>
               <span className={styles.processMeta}>PID {p.pid}</span>
               <Tooltip label={`Kill PID ${p.pid}`} side="top">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className={styles.processKill}
-                  tabIndex={-1}
+                  aria-label={`Kill PID ${p.pid}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleKillPort(p.pid);
                   }}
                 >
                   <X size={12} />
-                </button>
+                </Button>
               </Tooltip>
             </Command.Item>
           ))

@@ -456,6 +456,17 @@ export function useCommands({
         },
       },
       {
+        id: "open-notifications",
+        label: "Open Notifications",
+        icon: <Bell size={14} />,
+        shortcut: fmt("open-notifications"),
+        keywords: ["notifications", "bell", "alerts"],
+        action: () => {
+          onClose();
+          requestUi({ type: "open-notifications" });
+        },
+      },
+      {
         id: "open-in-editor",
         label: "Open in Editor",
         icon: <ExternalLink size={14} />,

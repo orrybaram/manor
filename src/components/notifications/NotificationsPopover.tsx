@@ -102,7 +102,9 @@ const READ_HOVER_DELAY = 3000;
 /**
  * Marks an unread notification read once the pointer has rested on its row
  * for `READ_HOVER_DELAY`. Returns the handlers to spread on the row; leaving
- * early cancels, and a row that is already read arms nothing.
+ * early cancels, and a row that is already read arms nothing. Keyboard focus
+ * arms the same timer as a hover — arrowing onto a row and pausing there
+ * reads it exactly as resting the pointer on it would (ADR-175).
  */
 function useHoverMarksRead(record: NotificationRecord) {
   const markRead = useNotificationStore((s) => s.markRead);
@@ -126,7 +128,12 @@ function useHoverMarksRead(record: NotificationRecord) {
 
   useEffect(() => cancel, [cancel]);
 
-  return { onMouseEnter: arm, onMouseLeave: cancel };
+  return {
+    onMouseEnter: arm,
+    onMouseLeave: cancel,
+    onFocus: arm,
+    onBlur: cancel,
+  };
 }
 
 /** One notification row; its own component so the hover-to-read timer has a home. */
@@ -283,6 +290,24 @@ export function NotificationsPopover() {
     void navigateToNotification(record);
   };
 
+  /** ↑ / ↓ move focus between rows, the way the sidebar and tab bar do. */
+  const handleListKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const rows = Array.from(
+      e.currentTarget.querySelectorAll<HTMLElement>(
+        '[data-testid="notification-row"]',
+      ),
+    );
+    if (rows.length === 0) return;
+    e.preventDefault();
+    const currentIndex = rows.indexOf(document.activeElement as HTMLElement);
+    const nextIndex =
+      e.key === "ArrowDown"
+        ? Math.min(currentIndex + 1, rows.length - 1)
+        : Math.max(currentIndex - 1, 0);
+    rows[nextIndex]?.focus();
+  }, []);
+
   useEffect(() => {
     return onUiRequest((request) => {
       if (request.type === "open-notifications") setOpen(true);
@@ -357,7 +382,7 @@ export function NotificationsPopover() {
             />
           </div>
 
-          <div className={styles.scrollArea}>
+          <div className={styles.scrollArea} onKeyDown={handleListKeyDown}>
             {visible.length === 0 && (
               <div className={styles.empty} data-testid="notifications-empty">
                 {notifications.length === 0

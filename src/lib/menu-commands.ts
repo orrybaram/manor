@@ -120,6 +120,7 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
   "history-forward",
   "toggle-sidebar",
   "focus-sidebar",
+  "open-notifications",
 ]);
 
 /**

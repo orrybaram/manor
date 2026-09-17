@@ -12,6 +12,7 @@ import {
   comboFromEvent,
   comboMatches,
   formatCombo,
+  isBindableCombo,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
   KeybindingCategory,
@@ -50,41 +51,84 @@ export function KeybindingsPage() {
   const recordingIdRef = useRef(recordingId);
   recordingIdRef.current = recordingId;
 
+  // The row's own "shortcut" button, keyed by command id, so recording can
+  // hand focus back to the row that started it (ADR-175).
+  const shortcutBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  // The id recording just ended for, consumed by the effect below once the
+  // row has re-rendered back into its non-recording state and the button
+  // ref above is live again.
+  const pendingFocusIdRef = useRef<string | null>(null);
+
   const filtered = search
     ? DEFAULT_KEYBINDINGS.filter((def) =>
         def.label.toLowerCase().includes(search.toLowerCase()),
       )
     : DEFAULT_KEYBINDINGS;
 
-  const cancelRecording = useCallback(() => {
+  const endRecording = useCallback((idToRestore: string | null) => {
+    pendingFocusIdRef.current = idToRestore;
     setRecordingId(null);
     setRecordedCombo(null);
     setConflict(null);
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    endRecording(recordingId);
+  }, [recordingId, endRecording]);
+
   const confirmRecording = useCallback(() => {
     if (recordingId && recordedCombo) {
       store.set(recordingId, recordedCombo);
     }
-    cancelRecording();
-  }, [recordingId, recordedCombo, store, cancelRecording]);
+    endRecording(recordingId);
+  }, [recordingId, recordedCombo, store, endRecording]);
+
+  // Runs once the row recording just ended for has re-rendered its button.
+  useEffect(() => {
+    if (recordingId !== null) return;
+    const id = pendingFocusIdRef.current;
+    if (!id) return;
+    pendingFocusIdRef.current = null;
+    shortcutBtnRefs.current.get(id)?.focus();
+  }, [recordingId]);
 
   useEffect(() => {
     if (!recordingId) return;
 
-    const handler = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Never captured: the browser keeps moving focus, so Tab (or
+      // Shift+Tab) reaches the Confirm/Cancel buttons — or leaves the row
+      // entirely — like it would anywhere else (ADR-175).
+      if (e.key === "Tab") return;
+
       e.preventDefault();
       e.stopPropagation();
 
       if (e.key === "Escape") {
         cancelRecording();
+      }
+      // Everything else, including a modifier held on its own, is captured
+      // on keyup below — that's the key (and modifiers still held at that
+      // point) the user actually meant to record, not the down-stroke of
+      // whichever one happened to land first.
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Tab" || e.key === "Escape") return;
+      if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const combo = comboFromEvent(e);
+
+      // Bindings need ⌘, Ctrl or Alt, except a bare function key (ADR-175).
+      if (!isBindableCombo(combo)) {
+        setRecordedCombo(null);
+        setConflict("Needs ⌘, Ctrl, Alt or an unmodified F1–F12");
         return;
       }
 
-      // Ignore modifier-only presses
-      if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return;
-
-      const combo = comboFromEvent(e);
       const conflictResult = findConflict(combo, recordingId, bindings);
       setRecordedCombo(combo);
       setConflict(
@@ -92,8 +136,12 @@ export function KeybindingsPage() {
       );
     };
 
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
   }, [recordingId, bindings, cancelRecording]);
 
   return (
@@ -147,25 +195,37 @@ export function KeybindingsPage() {
                                 ? formatCombo(recordedCombo, platform)
                                 : "Press keys..."}
                             </span>
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className={styles.keybindingActionBtn}
                               onClick={confirmRecording}
                               title="Confirm"
+                              aria-label={`Confirm shortcut for ${def.label}`}
                               disabled={!recordedCombo || !!conflict}
                             >
                               <Check size={14} />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className={styles.keybindingActionBtn}
                               onClick={cancelRecording}
                               title="Cancel"
+                              aria-label={`Cancel recording for ${def.label}`}
                             >
                               <X size={14} />
-                            </button>
+                            </Button>
                           </Row>
                         ) : (
                           <Row align="center" gap="xs">
-                            <button
+                            <Button
+                              ref={(el) => {
+                                if (el) shortcutBtnRefs.current.set(def.id, el);
+                                else shortcutBtnRefs.current.delete(def.id);
+                              }}
+                              variant="secondary"
+                              size="sm"
                               className={styles.keybindingShortcut}
                               onClick={() => {
                                 setRecordingId(def.id);
@@ -173,17 +233,21 @@ export function KeybindingsPage() {
                                 setConflict(null);
                               }}
                               title="Click to edit"
+                              aria-label={`${def.label} shortcut: ${combo ? formatCombo(combo, platform) : "unassigned"}. Press to record a new one.`}
                             >
                               {combo ? formatCombo(combo, platform) : "—"}
-                            </button>
+                            </Button>
                             {isOverridden && (
-                              <button
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 className={styles.keybindingActionBtn}
                                 onClick={() => store.reset(def.id)}
                                 title="Reset to default"
+                                aria-label={`Reset ${def.label} to its default shortcut`}
                               >
                                 <RotateCcw size={13} />
-                              </button>
+                              </Button>
                             )}
                           </Row>
                         )}

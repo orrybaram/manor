@@ -33,6 +33,14 @@ export function PortGroup(props: PortGroupProps) {
           className={styles.portGroupHeader}
           onClick={handleSelectWorkspace}
           style={{ cursor: "pointer" }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleSelectWorkspace();
+            }
+          }}
         >
           <span className={styles.portGroupBranch}>
             {group.branch}

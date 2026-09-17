@@ -251,6 +251,18 @@ All shortcuts are customizable via **Settings > Keybindings**. Every shortcut al
 | `Cmd+Shift+E` | Focus the sidebar (shows it if hidden)                          |
 | `Cmd+Shift+Y` | Focus the tab bar                                               |
 
+Once focus is in the sidebar or the tab bar:
+
+| Key                                   | Action                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `↑` / `↓` (sidebar), `←` / `→` (tabs) | Move between rows or tabs                                                  |
+| `Home` / `End`                        | First or last row or tab                                                   |
+| `Enter` / `Space`                     | Open the workspace, select the tab, or collapse/expand a project or folder |
+| `←` / `→` (sidebar)                   | Collapse or expand a project or folder                                     |
+| `F2`                                  | Rename the workspace or folder                                             |
+| `Shift+F10` or `Cmd+.`                | Open the context menu for the focused row, tab or port                     |
+| `Escape` (sidebar)                    | Return focus to the pane                                                   |
+
 ### Zoom
 
 | Shortcut | Action     |

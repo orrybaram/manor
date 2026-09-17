@@ -1,6 +1,6 @@
 ---
 title: Make the keyboard suite green and run the full e2e suite
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3, 4, 5, 6, 7, 8]
@@ -44,3 +44,5 @@ Both fail on the commit before ticket 6. Decide whether ADR-175 caused them: che
 - `Enter opens a workspace, F2 renames it` failed twice in a row after ticket 7 at the step "Escape cancels the rename" (spec line ~392). Treat it as a real bug until shown otherwise.
 - Add a popout-window test to the keyboard suite: detach a tab (Window menu / existing command, driven from the keyboard or `app.evaluate`), then in the popout press ⌘K and ⌘, and assert the main window shows the palette / settings.
 - One unit test failed once during ticket 7 and passed on rerun. Run `pnpm test:unit` three times and identify it if it recurs.
+- Also triage against `7708dc9` in the same way: `pr-badge-matrix.spec.ts` (lucide class `lucide-shield-question` became `lucide-shield-question-mark`?) and `sidebar-pr-tweaks.spec.ts` (the comment-author locator finds 0 rows). Ticket 8 reworked `PrPopover.tsx`, so make sure the second one is not ours.
+- Add keyboard e2e coverage for the PR badge (focus opens the popover, Escape closes it and focus returns to the badge) if the harness in `sidebar-pr-tweaks.spec.ts` can set up a PR.

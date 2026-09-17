@@ -139,6 +139,17 @@
   background: var(--surface);
 }
 
+/* Same rule as the rows in ProjectItem.module.css: a ring for keyboard focus
+   only, none for a click (ADR-175). */
+.homeRow:focus {
+  outline: none;
+}
+
+.homeRow:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .homeRowActive {
   background: var(--surface);
   color: var(--text-selected);

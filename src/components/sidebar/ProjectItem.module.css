@@ -120,13 +120,21 @@
   color: var(--project-color, var(--accent));
 }
 
-/* Rows take focus so Enter can rename them and the arrows can walk the tree
-   (ADR-172), but they draw no ring for it: a sidebar row is already telling
-   you plenty — active, drop target, agent state — and a focus outline on top
-   of that reads as noise rather than information. Focus stays invisible. */
+/* Rows take focus so the keyboard can walk and open them (ADR-172, ADR-175).
+   A click draws no ring — the row already shows active, drop target and agent
+   state, and an outline on top reads as noise — but keyboard focus does, or
+   there is no telling where it is (`:focus-visible`). */
+.projectHeader:focus,
 .workspace:focus,
 .folderHeader:focus {
   outline: none;
+}
+
+.projectHeader:focus-visible,
+.workspace:focus-visible,
+.folderHeader:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .workspaceIcon {

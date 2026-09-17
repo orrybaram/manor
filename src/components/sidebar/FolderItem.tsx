@@ -80,10 +80,12 @@ export function FolderItem(props: FolderItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(folder.name);
   const editRef = useRef<HTMLInputElement>(null);
-  // Escape cancels by blurring the input; the blur handler still sees
-  // `editing === true` (no re-render yet), so the cancel is flagged in a ref.
+  // Escape cancels and Enter commits by moving focus back to the header; the
+  // blur handler that follows still sees `editing === true` (no re-render
+  // yet), so the finished edit is flagged in a ref.
   const renameCancelled = useRef(false);
   const blockRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const wasCollapsed = useRef(collapsed);
   const {
     handleKeyDown: handleEmojiKeyDown,
@@ -124,6 +126,12 @@ export function FolderItem(props: FolderItemProps) {
     });
   };
 
+  /** Hand focus back to the header once the rename input closes. */
+  const focusHeader = (input: HTMLInputElement) => {
+    if (headerRef.current) headerRef.current.focus();
+    else input.blur();
+  };
+
   const commitRename = () => {
     if (renameCancelled.current) {
       renameCancelled.current = false;
@@ -151,18 +159,26 @@ export function FolderItem(props: FolderItemProps) {
             the edit (ADR-172). */}
         <ContextMenu.Trigger asChild disabled={editing}>
           <div
-            ref={registerHeader}
+            ref={(el) => {
+              headerRef.current = el;
+              registerHeader(el);
+            }}
             className={`${styles.folderHeader} ${containsSelected && collapsed ? styles.folderActive : ""} ${dropTarget ? styles.folderDropTarget : ""}`}
             style={{ touchAction: "none", ...headerStyle }}
-            tabIndex={0}
+            // The roving tabindex (useRovingRows) decides which row holds 0.
+            tabIndex={-1}
             data-sidebar-row=""
+            aria-expanded={!collapsed}
             onClick={() => {
               if (!justDragged.current && !editing) onToggleCollapsed();
             }}
             onKeyDown={(e) => {
               if (editing) return;
               handleSidebarRowKeyDown(e, {
+                activate: onToggleCollapsed,
                 startRename,
+                // Ticket 5 (ADR-175) opens the folder's context menu here.
+                openMenu: undefined,
                 setExpanded: (expanded) => {
                   if (expanded === collapsed) onToggleCollapsed();
                 },
@@ -189,14 +205,19 @@ export function FolderItem(props: FolderItemProps) {
                   onBlur={composeHandlers(emojiFieldProps.onBlur, commitRename)}
                   onKeyDown={(e) => {
                     if (handleEmojiKeyDown(e)) return;
-                    // The header's own key handling would see these too; the
-                    // input owns Enter and Escape while it is open.
-                    e.stopPropagation();
-                    if (e.key === "Enter") commitRename();
+                    // The input owns its plain keys while it is open — the
+                    // header's own handling would see them too. ⌘ / Ctrl
+                    // combos carry on to the app's shortcuts (ADR-175).
+                    if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
+                    if (e.key === "Enter") {
+                      commitRename();
+                      renameCancelled.current = true;
+                      focusHeader(e.currentTarget);
+                    }
                     if (e.key === "Escape") {
                       renameCancelled.current = true;
                       setEditingState(false);
-                      e.currentTarget.blur();
+                      focusHeader(e.currentTarget);
                     }
                   }}
                   onClick={(e) => e.stopPropagation()}

@@ -91,7 +91,8 @@ test("emoji suggestions in the inline workspace rename keep the edit open", asyn
   );
   const input = item.getByTestId("workspace-name-input");
 
-  await item.press("Enter");
+  // F2 opens the row's rename (ADR-175).
+  await item.press("F2");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill("");
   await input.pressSequentially("ship :rock");

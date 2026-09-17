@@ -1,6 +1,6 @@
 ---
 title: Focus regions, F6 cycling, focus-sidebar/focus-tabbar commands
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

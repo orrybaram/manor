@@ -125,7 +125,9 @@ const WorkspaceItem = React.forwardRef<
       data-testid="workspace-item"
       data-workspace-path={ws.path}
       data-sidebar-row=""
-      tabIndex={0}
+      // The roving tabindex (useRovingRows) decides which row holds 0.
+      tabIndex={-1}
+      aria-current={isActive ? "true" : undefined}
       {...rest}
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
@@ -384,10 +386,18 @@ export function ProjectItem(props: ProjectItemProps) {
     else rowRefs.current.delete(key);
   };
 
-  // Escape cancels by blurring the input, and that blur must not commit.
-  // The blur handler's `editingPath` is still the old value at that point
-  // (state has not re-rendered yet), so the cancel is flagged in a ref.
+  // Escape cancels and Enter commits by moving focus back to the row, and the
+  // input's blur that follows must not commit (again). The blur handler's
+  // `editingPath` is still the old value at that point (state has not
+  // re-rendered yet), so the finished edit is flagged in a ref.
   const renameCancelled = useRef(false);
+
+  /** Hand focus back to a workspace row once its rename input closes. */
+  const focusWorkspaceRow = (path: string, input: HTMLInputElement) => {
+    const row = rowRefs.current.get(path);
+    if (row) row.focus();
+    else input.blur();
+  };
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     renameCancelled.current = false;
@@ -472,7 +482,12 @@ export function ProjectItem(props: ProjectItemProps) {
         onSelectWorkspace={onSelectWorkspace}
         onRowKeyDown={(e) => {
           if (isEditing) return;
-          handleSidebarRowKeyDown(e, { startRename: () => startRename(ws) });
+          handleSidebarRowKeyDown(e, {
+            activate: () => onSelectWorkspace(globalIdx),
+            startRename: () => startRename(ws),
+            // Ticket 5 (ADR-175) opens the row's context menu from here.
+            openMenu: undefined,
+          });
         }}
         onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
         onEditChange={(e) => setEditValue(e.target.value)}
@@ -484,14 +499,19 @@ export function ProjectItem(props: ProjectItemProps) {
           if (editingPath) commitRename(ws);
         }}
         onEditKeyDown={(e) => {
-          // The row's own key handling would see these too; the input owns
-          // Enter and Escape while it is open.
-          e.stopPropagation();
-          if (e.key === "Enter") commitRename(ws);
+          // The input owns its plain keys while it is open — the row's own
+          // handling would see them too. ⌘ / Ctrl combos carry on to the
+          // app's shortcuts (ADR-175).
+          if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
+          if (e.key === "Enter") {
+            commitRename(ws);
+            renameCancelled.current = true;
+            focusWorkspaceRow(ws.path, e.currentTarget);
+          }
           if (e.key === "Escape") {
             renameCancelled.current = true;
             setEditingPath(null);
-            e.currentTarget.blur();
+            focusWorkspaceRow(ws.path, e.currentTarget);
           }
         }}
         onEditClick={(e) => e.stopPropagation()}
@@ -764,10 +784,23 @@ export function ProjectItem(props: ProjectItemProps) {
         <ContextMenu.Trigger asChild>
           <div
             data-testid="project-header"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-expanded={expanded}
             className={styles.projectHeader}
             onClick={() => {
               onToggleCollapsed();
             }}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, {
+                activate: onToggleCollapsed,
+                setExpanded: (next) => {
+                  if (next === collapsed) onToggleCollapsed();
+                },
+                // Ticket 5 (ADR-175) opens the header's context menu here.
+                openMenu: undefined,
+              })
+            }
             onPointerDown={onDragStart}
             style={{ touchAction: "none" }}
           >

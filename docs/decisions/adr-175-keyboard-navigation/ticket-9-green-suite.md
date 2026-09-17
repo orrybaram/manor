@@ -1,6 +1,6 @@
 ---
 title: Make the keyboard suite green and run the full e2e suite
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [3, 4, 5, 6, 7, 8]

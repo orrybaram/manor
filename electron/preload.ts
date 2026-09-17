@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
 import type { DetachedTabPayload } from "../src/store/detach-types";
-import type { MenuCommandPayload, MenuContext } from "../src/lib/menu-commands";
+import type {
+  ForwardedCommandPayload,
+  MenuCommandPayload,
+  MenuContext,
+} from "../src/lib/menu-commands";
 
 interface WindowBounds {
   x: number;
@@ -567,6 +571,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     resetAll: () => ipcRenderer.invoke("keybindings:resetAll"),
     onChange: (callback: (overrides: Record<string, string>) => void) =>
       onChannel("keybindings-changed", callback),
+    /**
+     * A bound combo pressed where this window's key handler can't see it — in
+     * a web page, or a primary-only command pressed in a popout.
+     */
+    onForwardedCommand: (
+      callback: (payload: ForwardedCommandPayload) => void,
+    ) => onChannel("keybinding-command", callback),
+    /** Popout → main: focus the primary window and run `commandId` there. */
+    runInMainWindow: (commandId: string) =>
+      ipcRenderer.send("keybindings:runInMainWindow", commandId),
   },
 
   menu: {

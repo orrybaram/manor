@@ -1,6 +1,6 @@
 ---
 title: Shortcuts in browser pages and popout windows
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2]

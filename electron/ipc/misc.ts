@@ -11,6 +11,10 @@ import {
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { openInEditor } from "../editor";
 import type { IpcDeps } from "./types";
+import {
+  MAIN_WINDOW_KEYBINDINGS,
+  type ForwardedCommandPayload,
+} from "../../src/lib/menu-commands";
 
 export function register(deps: IpcDeps): void {
   const { backend, preferencesManager, keybindingsManager } = deps;
@@ -199,14 +203,29 @@ export function register(deps: IpcDeps): void {
     keybindingsManager.resetAll();
   });
 
+  // Every window dispatches keybindings (popouts included), so every window
+  // needs the edit.
   keybindingsManager.onChange((overrides) => {
-    const mw = getMainWindow();
-    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
+    for (const win of deps.getRendererWindows()) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
       try {
-        mw.webContents.send("keybindings-changed", overrides);
+        win.webContents.send("keybindings-changed", overrides);
       } catch {
         // Render frame disposed — safe to ignore
       }
     }
+  });
+
+  // A popout pressed a primary-only shortcut (⌘, ⌘K, ⌘⇧N, …): bring the
+  // primary window forward and run the command there (ADR-175).
+  ipcMain.on("keybindings:runInMainWindow", (_event, commandId: unknown) => {
+    if (typeof commandId !== "string") return;
+    if (!MAIN_WINDOW_KEYBINDINGS.has(commandId)) return;
+    const mw = getMainWindow();
+    if (!mw || mw.isDestroyed() || mw.webContents.isDestroyed()) return;
+    if (mw.isMinimized()) mw.restore();
+    mw.focus();
+    const payload: ForwardedCommandPayload = { commandId, source: "popout" };
+    mw.webContents.send("keybinding-command", payload);
   });
 }

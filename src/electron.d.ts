@@ -2,7 +2,11 @@ import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
-import type { MenuCommandPayload, MenuContext } from "./lib/menu-commands";
+import type {
+  ForwardedCommandPayload,
+  MenuCommandPayload,
+  MenuContext,
+} from "./lib/menu-commands";
 
 export interface AppPreferences {
   dockBadgeEnabled: boolean;
@@ -785,6 +789,15 @@ export interface ElectronAPI {
     onChange: (
       callback: (overrides: Record<string, string>) => void,
     ) => () => void;
+    /**
+     * A bound combo pressed where this window's key handler can't see it — in
+     * a web page, or a primary-only command pressed in a popout.
+     */
+    onForwardedCommand: (
+      callback: (payload: ForwardedCommandPayload) => void,
+    ) => () => void;
+    /** Popout → main: focus the primary window and run `commandId` there. */
+    runInMainWindow: (commandId: string) => void;
   };
 
   menu: {

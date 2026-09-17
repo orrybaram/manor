@@ -31,3 +31,10 @@ blocked_by: [3, 4, 5, 6, 7, 8]
 `sidebar › project headers collapse from the keyboard` failed 2/3 runs after ticket 4 (also on the pre-ticket-4 baseline). ArrowUp timing in the sidebar. Find the root cause (likely a roving-tabindex / focus race in `installRovingRows` or the collapse re-render dropping focus) — fix the app, not the wait.
 
 Also intermittently failing under `--repeat-each` since ticket 3: `Enter opens a workspace, F2 renames it` and `Enter on Home opens the home view`. Same suspicion: sidebar focus lost across a re-render. Run each with `--repeat-each 10` before and after the fix.
+
+## Other failing specs to triage
+
+- `command-palette-frequent.spec.ts` › frequently used commands rise to the top
+- `notification-center.spec.ts` › a suppressed notification is still recorded, readable, and clickable
+
+Both fail on the commit before ticket 6. Decide whether ADR-175 caused them: check out `7708dc9` (pre-ADR main) in a temporary git worktree, copy in the current `tests/e2e/fixtures.ts` (PATH shim fix), build, and run both. If they fail there too, report them as pre-existing and leave them alone. If they pass, fix the regression.

@@ -420,3 +420,100 @@ export function comboToAccelerator(
 
   return parts.join("+");
 }
+
+// ── Pure combo matching (shared by the renderer and Electron main) ─────────
+
+/**
+ * Single-character keys compare case-insensitively: with Shift held (⌘⇧E, say)
+ * the reported key can arrive upper-cased, while bindings store lower case.
+ */
+function keysMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase();
+}
+
+/** True for F1–F12, the only keys a binding may use without a modifier. */
+export function isFunctionKey(key: string): boolean {
+  return /^F([1-9]|1[0-2])$/.test(key);
+}
+
+/** Returns true if two KeyCombos match (modifiers exactly, letters in any case). */
+export function comboMatches(a: KeyCombo, b: KeyCombo): boolean {
+  return (
+    keysMatch(a.key, b.key) &&
+    a.meta === b.meta &&
+    a.ctrl === b.ctrl &&
+    a.shift === b.shift &&
+    a.alt === b.alt
+  );
+}
+
+/**
+ * Whether a key press can be a binding at all: bindings use ⌘, Ctrl or Alt,
+ * except function keys (F6 cycles focus regions), which may stand alone.
+ */
+export function isBindableCombo(combo: KeyCombo): boolean {
+  return combo.meta || combo.ctrl || combo.alt || isFunctionKey(combo.key);
+}
+
+/** Every command bound to `combo`, in the bindings map's (registry) order. */
+export function commandsForCombo(
+  combo: KeyCombo,
+  bindings: Record<string, KeyCombo>,
+): string[] {
+  if (!isBindableCombo(combo)) return [];
+  const ids: string[] = [];
+  for (const [commandId, bound] of Object.entries(bindings)) {
+    if (comboMatches(combo, bound)) ids.push(commandId);
+  }
+  return ids;
+}
+
+/**
+ * Browser commands a focused web page services itself (zoom and reload in
+ * main, the rest relayed to the host pane on their own `webview:*` channels).
+ * While a page or its URL bar has focus these beat any app command sharing the
+ * combo — ⌘[ / ⌘] mean back / forward there, not previous / next pane.
+ */
+export const PAGE_BROWSER_COMMANDS: readonly string[] = [
+  "browser-zoom-in",
+  "browser-zoom-out",
+  "browser-zoom-reset",
+  "browser-reload",
+  "browser-focus-url",
+  "browser-find",
+  "browser-back",
+  "browser-forward",
+];
+
+/**
+ * Bound commands that must never be forwarded out of a web page: they are
+ * serviced deep inside another pane type, so forwarding would only swallow the
+ * key.
+ */
+const NOT_FORWARDED_FROM_PAGE = new Set(["terminal-search"]);
+
+/**
+ * What a key pressed inside a focused web page (`<webview>` guest) should do:
+ *
+ * - `browser`: a {@link PAGE_BROWSER_COMMANDS} entry the page handles itself;
+ * - `app`: any other bound command, forwarded to the host window;
+ * - `null`: not bound — the page keeps the key.
+ */
+export type PageKeyAction =
+  | { kind: "browser"; commandId: string }
+  | { kind: "app"; commandId: string }
+  | null;
+
+export function resolvePageKey(
+  combo: KeyCombo,
+  bindings: Record<string, KeyCombo>,
+): PageKeyAction {
+  const ids = commandsForCombo(combo, bindings);
+  const browser = ids.find((id) => PAGE_BROWSER_COMMANDS.includes(id));
+  if (browser) return { kind: "browser", commandId: browser };
+  const app = ids.find(
+    (id) => !id.startsWith("browser-") && !NOT_FORWARDED_FROM_PAGE.has(id),
+  );
+  return app ? { kind: "app", commandId: app } : null;
+}

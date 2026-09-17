@@ -186,6 +186,14 @@ describe("cycleRegion", () => {
     expect(cycleRegion(-1)).toBe("statusbar");
   });
 
+  it("counts from an explicit region when focus has been dropped", () => {
+    // A web page's <webview> is blurred before F6 moves on from it.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(cycleRegion(1, "pane")).toBe("statusbar");
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(cycleRegion(-1, "pane")).toBe("tabbar");
+  });
+
   it("returns null when no other region can take focus", () => {
     document.body.innerHTML = `<div data-focus-region="statusbar"><button id="only">x</button></div>`;
     document.getElementById("only")!.focus();

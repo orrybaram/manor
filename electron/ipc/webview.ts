@@ -18,6 +18,8 @@ import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { AgentManager } from "../agent-persistence";
 import type { LocalBackend } from "../backend/local-backend";
 import type { IpcDeps } from "./types";
+import { resolveBindings } from "../../src/lib/keybinding-defs";
+import { createPageKeyHandler } from "./webview-keys";
 import {
   buildPopupWindowOptions,
   closeAllChildWindows,
@@ -309,6 +311,17 @@ export function register(deps: IpcDeps): void {
     return deps.mainWindow;
   }
 
+  // The merged keybinding map pages match keys against, kept in step with the
+  // user's edits so a rebound shortcut works from a page straight away.
+  const bindingPlatform = process.platform === "darwin" ? "MacIntel" : "other";
+  let pageBindings = resolveBindings(
+    deps.keybindingsManager.getAll(),
+    bindingPlatform,
+  ).bindings;
+  deps.keybindingsManager.onChange((overrides) => {
+    pageBindings = resolveBindings(overrides, bindingPlatform).bindings;
+  });
+
   ipcMain.handle(
     "webview:register",
     (_event, paneId: string, webContentsId: number) => {
@@ -386,61 +399,14 @@ export function register(deps: IpcDeps): void {
           wc.off("context-menu", handler);
         });
 
-        let lastEscapeTime = 0;
-        const escapeHandler = (
-          ev: Electron.Event,
-          input: Electron.Input,
-        ) => {
-          if (input.type !== "keyDown") return;
-
-          // Escape — double-tap to blur webview
-          if (
-            input.key === "Escape" &&
-            !input.alt &&
-            !input.control &&
-            !input.meta &&
-            !input.shift
-          ) {
-            const now = Date.now();
-            if (now - lastEscapeTime < 500) {
-              ev.preventDefault();
-              rendererWebContents.send("webview:escape", paneId);
-              lastEscapeTime = 0;
-            } else {
-              lastEscapeTime = now;
-            }
-            return;
-          }
-
-          // Browser keybindings (Cmd only, no other modifiers)
-          if (input.meta && !input.alt && !input.control && !input.shift) {
-            if (input.key === "=") {
-              ev.preventDefault();
-              wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 5));
-            } else if (input.key === "-") {
-              ev.preventDefault();
-              wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
-            } else if (input.key === "0") {
-              ev.preventDefault();
-              wc.setZoomLevel(0);
-            } else if (input.key === "r") {
-              ev.preventDefault();
-              wc.reload();
-            } else if (input.key === "l") {
-              ev.preventDefault();
-              rendererWebContents.send("webview:focus-url", paneId);
-            } else if (input.key === "f") {
-              ev.preventDefault();
-              rendererWebContents.send("webview:find", paneId);
-            } else if (input.key === "[") {
-              ev.preventDefault();
-              rendererWebContents.send("webview:go-back", paneId);
-            } else if (input.key === "]") {
-              ev.preventDefault();
-              rendererWebContents.send("webview:go-forward", paneId);
-            }
-          }
-        };
+        // Double-Escape, the browser's own keys, and every other bound combo
+        // (forwarded to the app) — see webview-keys.ts.
+        const escapeHandler = createPageKeyHandler({
+          paneId,
+          page: wc,
+          host: rendererWebContents,
+          getBindings: () => pageBindings,
+        });
         wc.on("before-input-event", escapeHandler);
         webviewEscapeCleanup.set(paneId, () => {
           wc.off("before-input-event", escapeHandler);

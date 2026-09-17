@@ -150,10 +150,16 @@ export function focusRegion(region: FocusRegion): boolean {
  * Step to the next (`1`) or previous (`-1`) region that can take focus,
  * wrapping around and skipping unavailable ones. From outside every region the
  * walk starts before the first (forward) or after the last (backward).
+ *
+ * `from` overrides the region focus is taken to be in — for a web page, whose
+ * `<webview>` has just been blurred so the pane no longer holds DOM focus.
  */
-export function cycleRegion(delta: 1 | -1): FocusRegion | null {
+export function cycleRegion(
+  delta: 1 | -1,
+  from: FocusRegion | null = currentRegion(),
+): FocusRegion | null {
   const count = REGION_ORDER.length;
-  const current = currentRegion();
+  const current = from;
   const start = current
     ? REGION_ORDER.indexOf(current)
     : delta === 1

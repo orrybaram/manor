@@ -349,3 +349,47 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
 
   strip.write("evidence.txt", log.join("\n") + "\n");
 });
+
+/**
+ * ADR-175: the PR badge works from the keyboard. Tab from the workspace row
+ * reaches the badge, focus opens the popover, and Escape closes it with focus
+ * back on the badge. After setup every interaction is a key press.
+ */
+test("PR badge popover from the keyboard", async ({ window }) => {
+  await expect(window.locator('[data-testid="workspace-item"]').first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await createWorkspaceInFolder(window, "ui-fix", null, new Filmstrip("pr-badge-keyboard"));
+
+  const badge = window.locator('[data-readiness]', { hasText: "#102" });
+  await expect(badge).toHaveCount(1, { timeout: 30_000 });
+  const popover = window.locator('[class*="prPopover"][data-state="open"]');
+  const badgeFocused = () =>
+    window.evaluate(() => !!document.activeElement?.matches("[data-readiness]"));
+  const focusInPopover = () =>
+    window.evaluate(
+      () => !!document.activeElement?.closest('[class*="prPopover"][data-state="open"]'),
+    );
+
+  // The new workspace is the active row; the badge is its next Tab stop.
+  await window.keyboard.press("Meta+Shift+e");
+  await expect
+    .poll(() =>
+      window.evaluate(
+        () => document.activeElement?.matches('[data-testid="workspace-item"]') ?? false,
+      ),
+    )
+    .toBe(true);
+  await window.keyboard.press("Tab");
+
+  // Focusing the badge opens the popover and hands focus into it.
+  await expect(popover).toBeVisible({ timeout: 5_000 });
+  await expect.poll(async () => (await badgeFocused()) || (await focusInPopover())).toBe(true);
+
+  // Escape closes it, focus returns to the badge, and it stays closed.
+  await window.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0, { timeout: 5_000 });
+  await expect.poll(badgeFocused).toBe(true);
+  await window.waitForTimeout(500);
+  await expect(popover).toHaveCount(0);
+});

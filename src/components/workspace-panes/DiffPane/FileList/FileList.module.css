@@ -193,7 +193,9 @@
 }
 
 .fileListItem:hover .fileActions,
-.fileListItemSelected .fileActions {
+.fileListItemSelected .fileActions,
+.fileListItem:focus-within .fileActions,
+.fileActions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }

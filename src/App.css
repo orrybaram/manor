@@ -141,6 +141,20 @@ body,
   }
 }
 
+/* Keyboard-only focus ring. Scoped to interactive elements that opt in by
+   role/tag/tabindex; `.xterm-helper-textarea` sets `tabIndex=0` to stay
+   Tab-reachable inside xterm itself but must never show a ring (xterm draws
+   its own cursor), and a `<webview>`'s own guest content manages its own
+   focus indication. Components that need a different ring style define their
+   own `:focus-visible` rule, which wins on specificity. */
+:where(button, [role="button"], [role="tab"], a, [tabindex]):not(
+    .xterm-helper-textarea,
+    webview
+  ):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

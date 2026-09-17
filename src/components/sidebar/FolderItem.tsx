@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
+import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
@@ -80,11 +81,17 @@ export function FolderItem(props: FolderItemProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(folder.name);
   const editRef = useRef<HTMLInputElement>(null);
-  // Escape cancels by blurring the input; the blur handler still sees
-  // `editing === true` (no re-render yet), so the cancel is flagged in a ref.
+  // Escape cancels and Enter commits by moving focus back to the header; the
+  // blur handler that follows still sees `editing === true` (no re-render
+  // yet), so the finished edit is flagged in a ref.
   const renameCancelled = useRef(false);
   const blockRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const wasCollapsed = useRef(collapsed);
+  // Set when the header's context menu was opened via the keyboard
+  // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the header;
+  // a mouse-opened menu keeps Radix's own default (ADR-175).
+  const menuOpenedByKeyboard = useRef(false);
   const {
     handleKeyDown: handleEmojiKeyDown,
     fieldProps: emojiFieldProps,
@@ -118,10 +125,28 @@ export function FolderItem(props: FolderItemProps) {
     renameCancelled.current = false;
     setEditValue(folder.name);
     setEditingState(true);
+    // From the context menu, wait for the menu to hand focus back first (see
+    // ProjectItem's startRename).
     requestAnimationFrame(() => {
-      editRef.current?.focus();
-      editRef.current?.select();
+      const input = editRef.current;
+      if (!input || input === document.activeElement) return;
+      input.focus();
+      input.select();
     });
+  };
+
+  // F2 on the focused header: the input takes focus in the commit that
+  // renders it, so the next key lands in it rather than on the header.
+  useLayoutEffect(() => {
+    if (!editing || headerRef.current !== document.activeElement) return;
+    editRef.current?.focus();
+    editRef.current?.select();
+  }, [editing]);
+
+  /** Hand focus back to the header once the rename input closes. */
+  const focusHeader = (input: HTMLInputElement) => {
+    if (headerRef.current) headerRef.current.focus();
+    else input.blur();
   };
 
   const commitRename = () => {
@@ -151,18 +176,28 @@ export function FolderItem(props: FolderItemProps) {
             the edit (ADR-172). */}
         <ContextMenu.Trigger asChild disabled={editing}>
           <div
-            ref={registerHeader}
+            ref={(el) => {
+              headerRef.current = el;
+              registerHeader(el);
+            }}
             className={`${styles.folderHeader} ${containsSelected && collapsed ? styles.folderActive : ""} ${dropTarget ? styles.folderDropTarget : ""}`}
             style={{ touchAction: "none", ...headerStyle }}
-            tabIndex={0}
+            // The roving tabindex (useRovingRows) decides which row holds 0.
+            tabIndex={-1}
             data-sidebar-row=""
+            aria-expanded={!collapsed}
             onClick={() => {
               if (!justDragged.current && !editing) onToggleCollapsed();
             }}
             onKeyDown={(e) => {
               if (editing) return;
               handleSidebarRowKeyDown(e, {
+                activate: onToggleCollapsed,
                 startRename,
+                openMenu: (row) => {
+                  menuOpenedByKeyboard.current = true;
+                  openContextMenuFromKeyboard(row);
+                },
                 setExpanded: (expanded) => {
                   if (expanded === collapsed) onToggleCollapsed();
                 },
@@ -189,14 +224,19 @@ export function FolderItem(props: FolderItemProps) {
                   onBlur={composeHandlers(emojiFieldProps.onBlur, commitRename)}
                   onKeyDown={(e) => {
                     if (handleEmojiKeyDown(e)) return;
-                    // The header's own key handling would see these too; the
-                    // input owns Enter and Escape while it is open.
-                    e.stopPropagation();
-                    if (e.key === "Enter") commitRename();
+                    // The input owns its plain keys while it is open — the
+                    // header's own handling would see them too. ⌘ / Ctrl
+                    // combos carry on to the app's shortcuts (ADR-175).
+                    if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
+                    if (e.key === "Enter") {
+                      commitRename();
+                      renameCancelled.current = true;
+                      focusHeader(e.currentTarget);
+                    }
                     if (e.key === "Escape") {
                       renameCancelled.current = true;
                       setEditingState(false);
-                      e.currentTarget.blur();
+                      focusHeader(e.currentTarget);
                     }
                   }}
                   onClick={(e) => e.stopPropagation()}
@@ -218,7 +258,16 @@ export function FolderItem(props: FolderItemProps) {
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (menuOpenedByKeyboard.current) {
+                e.preventDefault();
+                headerRef.current?.focus();
+              }
+              menuOpenedByKeyboard.current = false;
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => onNewWorkspace()}

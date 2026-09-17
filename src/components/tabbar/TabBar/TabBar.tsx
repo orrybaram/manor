@@ -5,6 +5,7 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { isContextMenuKey } from "../../../lib/keyboard-context-menu";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
@@ -571,6 +572,9 @@ export function TabBar(props: TabBarProps) {
       <ContextMenu.Trigger asChild>
         <div
           ref={barRef}
+          data-focus-region="tabbar"
+          role="tablist"
+          aria-orientation="horizontal"
           className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
@@ -625,10 +629,21 @@ export function TabBar(props: TabBarProps) {
                 <Popover.Anchor asChild>
                   <button
                     className={styles.addButton}
+                    aria-label="New tab"
                     onClick={() => { ensureFocused(); addTab(); }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setAddMenuOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      // Shift+F10, the ContextMenu key or ⌘. open the
+                      // Browser/Agent menu that otherwise needs a right-click
+                      // (ADR-175).
+                      if (isContextMenuKey(e)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setAddMenuOpen(true);
+                      }
                     }}
                   >
                     <Plus size={14} />

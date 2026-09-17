@@ -11,7 +11,11 @@
 import { useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { useKeybindingsStore } from "../store/keybindings-store";
-import { comboFromEvent, comboMatches } from "../lib/keybindings";
+import {
+  comboFromEvent,
+  comboMatches,
+  isFunctionKey,
+} from "../lib/keybindings";
 
 export function useTerminalHotkeys(onOpenSearch?: () => void) {
   const bindings = useKeybindingsStore((s) => s.bindings);
@@ -40,8 +44,11 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
           return false;
         }
 
-        // No modifier? Let terminal handle it
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) return true;
+        // No modifier? Let terminal handle it — unless it's a function key,
+        // which may be bound on its own (F6 cycles focus regions).
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && !isFunctionKey(e.key)) {
+          return true;
+        }
 
         // Check if this combo matches any app keybinding
         const combo = comboFromEvent(e);

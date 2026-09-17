@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -45,8 +46,12 @@ import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
+import {
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
+import { Button } from "../ui/Button/Button";
 import styles from "./ProjectItem.module.css";
 
 interface WorkspaceItemProps {
@@ -125,7 +130,9 @@ const WorkspaceItem = React.forwardRef<
       data-testid="workspace-item"
       data-workspace-path={ws.path}
       data-sidebar-row=""
-      tabIndex={0}
+      // The roving tabindex (useRovingRows) decides which row holds 0.
+      tabIndex={-1}
+      aria-current={isActive ? "true" : undefined}
       {...rest}
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
@@ -177,8 +184,14 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName} data-testid="workspace-name">{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  <span
+                  // A real button nested inside the row (ADR-175): the row's
+                  // own key handler only acts when `e.target ===
+                  // e.currentTarget`, so Enter/Space here open the diff
+                  // instead of the workspace.
+                  <Button
+                    variant="ghost"
                     className={`${styles.diffStats} ${styles.diffStatsClickable}`}
+                    aria-label="Open diff"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -195,7 +208,7 @@ const WorkspaceItem = React.forwardRef<
                         -{ws.diffStats.removed}
                       </span>
                     )}
-                  </span>
+                  </Button>
                 )}
             </div>
             <div className={styles.workspaceBranchRow}>
@@ -305,6 +318,13 @@ export function ProjectItem(props: ProjectItemProps) {
     reason?: string;
   } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
+  // Paths of workspace rows whose context menu was opened via the keyboard
+  // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the row; a
+  // mouse-opened menu keeps Radix's own default (ADR-175).
+  const workspaceMenuOpenedByKeyboard = useRef<Set<string>>(new Set());
+  // Same, for the project header's own context menu.
+  const projectMenuOpenedByKeyboard = useRef(false);
+  const projectHeaderRef = useRef<HTMLDivElement | null>(null);
 
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
   const toggleFolderCollapsed = useProjectStore((s) => s.toggleFolderCollapsed);
@@ -384,20 +404,46 @@ export function ProjectItem(props: ProjectItemProps) {
     else rowRefs.current.delete(key);
   };
 
-  // Escape cancels by blurring the input, and that blur must not commit.
-  // The blur handler's `editingPath` is still the old value at that point
-  // (state has not re-rendered yet), so the cancel is flagged in a ref.
+  // Escape cancels and Enter commits by moving focus back to the row, and the
+  // input's blur that follows must not commit (again). The blur handler's
+  // `editingPath` is still the old value at that point (state has not
+  // re-rendered yet), so the finished edit is flagged in a ref.
   const renameCancelled = useRef(false);
+
+  /** Hand focus back to a workspace row once its rename input closes. */
+  const focusWorkspaceRow = (path: string, input: HTMLInputElement) => {
+    const row = rowRefs.current.get(path);
+    if (row) row.focus();
+    else input.blur();
+  };
 
   const startRename = useCallback((ws: WorkspaceInfo) => {
     renameCancelled.current = false;
     setEditingPath(ws.path);
     setEditValue(ws.name || ws.branch || "");
+    // A rename picked from a menu or the palette waits a frame: the menu
+    // hands focus back to where it came from as it closes, and focusing the
+    // input first would let that blur (and commit) it.
     requestAnimationFrame(() => {
-      editRef.current?.focus();
-      editRef.current?.select();
+      const input = editRef.current;
+      if (!input || input === document.activeElement) return;
+      input.focus();
+      input.select();
     });
   }, []);
+
+  // F2 on a focused row: nothing else is about to move focus, so the input
+  // takes it in the commit that renders it. Waiting a frame left a window
+  // where the input was on screen but the row still held focus, and a key
+  // pressed then (Escape, the first letter of the name) went to the row,
+  // which ignores keys while editing (ADR-175).
+  useLayoutEffect(() => {
+    if (!editingPath) return;
+    const row = rowRefs.current.get(editingPath);
+    if (!row || row !== document.activeElement) return;
+    editRef.current?.focus();
+    editRef.current?.select();
+  }, [editingPath, rowRefs]);
 
   const commitRename = useCallback(
     (ws: WorkspaceInfo) => {
@@ -472,7 +518,14 @@ export function ProjectItem(props: ProjectItemProps) {
         onSelectWorkspace={onSelectWorkspace}
         onRowKeyDown={(e) => {
           if (isEditing) return;
-          handleSidebarRowKeyDown(e, { startRename: () => startRename(ws) });
+          handleSidebarRowKeyDown(e, {
+            activate: () => onSelectWorkspace(globalIdx),
+            startRename: () => startRename(ws),
+            openMenu: (row) => {
+              workspaceMenuOpenedByKeyboard.current.add(ws.path);
+              openContextMenuFromKeyboard(row);
+            },
+          });
         }}
         onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
         onEditChange={(e) => setEditValue(e.target.value)}
@@ -484,14 +537,19 @@ export function ProjectItem(props: ProjectItemProps) {
           if (editingPath) commitRename(ws);
         }}
         onEditKeyDown={(e) => {
-          // The row's own key handling would see these too; the input owns
-          // Enter and Escape while it is open.
-          e.stopPropagation();
-          if (e.key === "Enter") commitRename(ws);
+          // The input owns its plain keys while it is open — the row's own
+          // handling would see them too. ⌘ / Ctrl combos carry on to the
+          // app's shortcuts (ADR-175).
+          if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
+          if (e.key === "Enter") {
+            commitRename(ws);
+            renameCancelled.current = true;
+            focusWorkspaceRow(ws.path, e.currentTarget);
+          }
           if (e.key === "Escape") {
             renameCancelled.current = true;
             setEditingPath(null);
-            e.currentTarget.blur();
+            focusWorkspaceRow(ws.path, e.currentTarget);
           }
         }}
         onEditClick={(e) => e.stopPropagation()}
@@ -526,7 +584,16 @@ export function ProjectItem(props: ProjectItemProps) {
           {workspaceEl}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
+                e.preventDefault();
+                rowRefs.current.get(ws.path)?.focus();
+              }
+              workspaceMenuOpenedByKeyboard.current.delete(ws.path);
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() =>
@@ -763,10 +830,27 @@ export function ProjectItem(props: ProjectItemProps) {
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
+            ref={projectHeaderRef}
+            data-testid="project-header"
+            data-sidebar-row=""
+            tabIndex={-1}
+            aria-expanded={expanded}
             className={styles.projectHeader}
             onClick={() => {
               onToggleCollapsed();
             }}
+            onKeyDown={(e) =>
+              handleSidebarRowKeyDown(e, {
+                activate: onToggleCollapsed,
+                setExpanded: (next) => {
+                  if (next === collapsed) onToggleCollapsed();
+                },
+                openMenu: (row) => {
+                  projectMenuOpenedByKeyboard.current = true;
+                  openContextMenuFromKeyboard(row);
+                },
+              })
+            }
             onPointerDown={onDragStart}
             style={{ touchAction: "none" }}
           >
@@ -784,7 +868,16 @@ export function ProjectItem(props: ProjectItemProps) {
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (projectMenuOpenedByKeyboard.current) {
+                e.preventDefault();
+                projectHeaderRef.current?.focus();
+              }
+              projectMenuOpenedByKeyboard.current = false;
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => setNewWorkspaceOpen(true)}

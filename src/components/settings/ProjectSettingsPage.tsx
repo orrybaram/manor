@@ -9,6 +9,7 @@ import {
   type CustomCommand,
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
+import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
@@ -67,6 +68,8 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   const [hasGhostty, setHasGhostty] = useState(false);
   const [query, setQuery] = useState("");
   const [allColors, setAllColors] = useState<Record<string, ThemeColors>>({});
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   useMountEffect(() => {
     setQuery("");
@@ -121,20 +124,54 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
     [project.id, updateProject, applyProjectTheme],
   );
 
+  const handleSelectByIndex = useCallback(
+    (index: number) => {
+      if (filtered[index]) handleSelect(filtered[index].name);
+    },
+    [filtered, handleSelect],
+  );
+
+  const scrollToHighlight = useCallback(
+    (updater: (i: number) => number) => {
+      setHighlightIndex((prev) => {
+        const next = updater(prev);
+        if (next >= 0 && next < filtered.length) {
+          const name = filtered[next].name;
+          requestAnimationFrame(() => {
+            itemRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
+          });
+        }
+        return next;
+      });
+    },
+    [filtered],
+  );
+
+  const handleKeyDown = useListKeyboardNav(
+    filtered.length,
+    highlightIndex,
+    scrollToHighlight,
+    handleSelectByIndex,
+  );
+
   return (
-    <div>
+    <div onKeyDown={handleKeyDown}>
       <label className={styles.fieldLabel}>Theme</label>
       <Input
         className={styles.themeSearch}
         type="text"
         placeholder="Search themes..."
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setHighlightIndex(-1);
+        }}
       />
       <div style={{ maxHeight: 300, overflowY: "auto" }}>
         <div className={styles.themeList}>
-          {filtered.map((entry) => {
+          {filtered.map((entry, idx) => {
             const isSelected = entry.name === selectedName;
+            const isHighlighted = idx === highlightIndex;
             const colors = allColors[entry.name] ?? null;
             const dotColors = colors
               ? [
@@ -149,8 +186,13 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
             return (
               <div
                 key={entry.name}
-                className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""}`}
+                ref={(el) => {
+                  if (el) itemRefs.current.set(entry.name, el);
+                  else itemRefs.current.delete(entry.name);
+                }}
+                className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""} ${isHighlighted ? styles.themeItemHighlighted : ""}`}
                 onClick={() => handleSelect(entry.name)}
+                onMouseEnter={() => setHighlightIndex(idx)}
               >
                 <span className={styles.checkmark}>
                   {isSelected ? <Check size={14} /> : ""}
@@ -408,6 +450,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               />
               <button
                 className={styles.commandDeleteBtn}
+                aria-label="Delete command"
                 onClick={() => {
                   const filtered = (project.commands ?? []).filter(
                     (c) => c.id !== cmd.id,

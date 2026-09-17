@@ -64,5 +64,5 @@ export function HomeEmptyState(props: HomeEmptyStateProps) {
     ...(issuesAction ? [issuesAction] : []),
   ];
 
-  return <EmptyStateShell actions={actions} />;
+  return <EmptyStateShell actions={actions} testId="home-view" />;
 }

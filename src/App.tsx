@@ -30,7 +30,11 @@ import {
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
-import { dispatchKeybinding, startNewAgent } from "./lib/keybinding-commands";
+import {
+  dispatchKeybinding,
+  runForwardedCommand,
+  startNewAgent,
+} from "./lib/keybinding-commands";
 import { placeNewWorkspaceInFolder } from "./lib/place-new-workspace";
 import {
   createMenuHandlers,
@@ -465,6 +469,14 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
+
+  // Bound combos pressed inside a web page, or primary-only shortcuts pressed
+  // in a popout, arrive from main and run like a local key press (ADR-175).
+  useMountEffect(() =>
+    window.electronAPI.keybindings.onForwardedCommand((payload) =>
+      runForwardedCommand(payload, menuHandlersRef.current),
+    ),
+  );
 
   // Native menu clicks land on the same map. Main has already routed the
   // command here, so nothing is filtered on this side.

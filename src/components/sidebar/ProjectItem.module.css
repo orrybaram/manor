@@ -120,13 +120,21 @@
   color: var(--project-color, var(--accent));
 }
 
-/* Rows take focus so Enter can rename them and the arrows can walk the tree
-   (ADR-172), but they draw no ring for it: a sidebar row is already telling
-   you plenty — active, drop target, agent state — and a focus outline on top
-   of that reads as noise rather than information. Focus stays invisible. */
+/* Rows take focus so the keyboard can walk and open them (ADR-172, ADR-175).
+   A click draws no ring — the row already shows active, drop target and agent
+   state, and an outline on top reads as noise — but keyboard focus does, or
+   there is no telling where it is (`:focus-visible`). */
+.projectHeader:focus,
 .workspace:focus,
 .folderHeader:focus {
   outline: none;
+}
+
+.projectHeader:focus-visible,
+.workspace:focus-visible,
+.folderHeader:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .workspaceIcon {
@@ -211,17 +219,42 @@
   color: var(--red);
 }
 
-.diffStatsClickable {
+/*
+ * The combined selector (rather than `.diffStatsClickable` alone) beats
+ * `ui/Button`'s own `.button` / `.ghost` / `.sm` classes regardless of
+ * stylesheet order (ADR-175: this badge is a real `<Button>` now, not a
+ * `<span>`, so it needs its native/variant chrome reset back to the pill
+ * look the span used to get for free).
+ */
+.diffStats.diffStatsClickable {
   cursor: pointer;
   /* Grow leftwards into the free space: the parent clips overflow, and the
      badge sits flush against its right edge. */
   transform-origin: right center;
   transition: transform 150ms ease, background 150ms ease;
+  border: none;
+  font: inherit;
+  color: inherit;
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  white-space: nowrap;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--surface);
 }
 
-.diffStatsClickable:hover {
+.diffStats.diffStatsClickable:hover:not(:disabled) {
   background: var(--hover);
   transform: scale(1.08);
+}
+
+.diffStats.diffStatsClickable:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* ── Context Menu (duplicated in Ports.module.css — candidate for a shared <ContextMenu> UI component) ── */

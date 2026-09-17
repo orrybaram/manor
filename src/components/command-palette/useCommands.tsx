@@ -32,6 +32,7 @@ import {
   splitFocusedPaneWith,
 } from "../../lib/pane-actions";
 import { requestUi } from "../../utils/ui-request";
+import { focusRegionWhenReady } from "../../lib/focus-regions";
 import type { ActivePort } from "../../electron.d.ts";
 import styles from "./CommandPalette.module.css";
 
@@ -429,6 +430,40 @@ export function useCommands({
         action: () => {
           toggleSidebar();
           onClose();
+        },
+      },
+      {
+        id: "focus-sidebar",
+        label: "Focus Sidebar",
+        icon: <PanelLeft size={14} />,
+        shortcut: fmt("focus-sidebar"),
+        keywords: ["keyboard", "navigate"],
+        action: () => {
+          onClose();
+          if (!useProjectStore.getState().sidebarVisible) toggleSidebar();
+          focusRegionWhenReady("sidebar");
+        },
+      },
+      {
+        id: "focus-tabbar",
+        label: "Focus Tab Bar",
+        icon: <Keyboard size={14} />,
+        shortcut: fmt("focus-tabbar"),
+        keywords: ["keyboard", "navigate", "tabs"],
+        action: () => {
+          onClose();
+          focusRegionWhenReady("tabbar");
+        },
+      },
+      {
+        id: "open-notifications",
+        label: "Open Notifications",
+        icon: <Bell size={14} />,
+        shortcut: fmt("open-notifications"),
+        keywords: ["notifications", "bell", "alerts"],
+        action: () => {
+          onClose();
+          requestUi({ type: "open-notifications" });
         },
       },
       {

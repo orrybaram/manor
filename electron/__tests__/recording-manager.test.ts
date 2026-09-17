@@ -27,6 +27,26 @@ async function waitFor(
   throw new Error(`Timed out waiting for: ${label}`);
 }
 
+/**
+ * Wait until an auto-stopped recording is finalized: its stream flushed and
+ * its result cached. It leaves `list()` before the flush finishes, so an empty
+ * list alone is not enough to read the file. Once it has left the list,
+ * `stop()` only reads the cache, and returns non-null once the result is in it.
+ */
+async function waitForAutoStopped(
+  manager: RecordingManager,
+  recordingId: string,
+): Promise<void> {
+  await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
+  const deadline = Date.now() + 2000;
+  while (!(await manager.stop(recordingId))) {
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for: recording finalized");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe("RecordingManager", () => {
   let tmpDir: string;
   let manager: RecordingManager;
@@ -409,7 +429,7 @@ describe("RecordingManager", () => {
       await waitFor(() => events.length === 1, "auto-stop event", 3000);
       expect(events[0]).toEqual({ recordingId, paneId: "pane-1" });
 
-      await waitFor(() => manager.list().length === 0, "recording finalized");
+      await waitForAutoStopped(manager, recordingId);
       expect(fs.readFileSync(outPath, "utf8")).toBe("abc");
       // Finalized: an explicit stop afterwards replays the cached result
       // rather than losing it — see "finished-recordings cache" below.
@@ -433,7 +453,7 @@ describe("RecordingManager", () => {
       });
       manager.appendChunk(started.recordingId, Buffer.from("head-"));
 
-      await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
+      await waitForAutoStopped(manager, started.recordingId);
       expect(fs.readFileSync(started.path, "utf8")).toBe("head-tail");
     });
 
@@ -450,7 +470,7 @@ describe("RecordingManager", () => {
       });
       manager.appendChunk(recordingId, Buffer.from("abc"));
 
-      await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
+      await waitForAutoStopped(manager, recordingId);
       expect(fs.readFileSync(outPath, "utf8")).toBe("abc");
     });
 
@@ -499,7 +519,7 @@ describe("RecordingManager", () => {
       });
       manager.appendChunk(recordingId, Buffer.from("abc"));
 
-      await waitFor(() => manager.list().length === 0, "auto-stop", 3000);
+      await waitForAutoStopped(manager, recordingId);
 
       const result = await manager.stop(recordingId);
       expect(result).not.toBeNull();

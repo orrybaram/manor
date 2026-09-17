@@ -8,17 +8,6 @@ export function getPlatform(): "mac" | "other" {
   return p.toLowerCase().includes("mac") ? "mac" : "other";
 }
 
-/** Returns true if two KeyCombos are an exact match. */
-export function comboMatches(a: KeyCombo, b: KeyCombo): boolean {
-  return (
-    a.key === b.key &&
-    a.meta === b.meta &&
-    a.ctrl === b.ctrl &&
-    a.shift === b.shift &&
-    a.alt === b.alt
-  );
-}
-
 /** Extracts a KeyCombo from a DOM KeyboardEvent. */
 export function comboFromEvent(e: KeyboardEvent): KeyCombo {
   return {

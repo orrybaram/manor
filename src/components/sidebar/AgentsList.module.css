@@ -127,11 +127,13 @@
   padding: 1px;
 }
 
-.agentItem:hover .agentClose {
+.agentItem:hover .agentClose,
+.agentItem:focus-within .agentClose {
   opacity: 1;
 }
 
-.agentClose:hover {
+.agentClose:hover,
+.agentClose:focus-visible {
   color: var(--text-selected);
   background: var(--surface);
 }

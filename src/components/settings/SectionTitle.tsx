@@ -11,7 +11,7 @@ type SectionTitleProps = {
 export function SectionTitle(props: SectionTitleProps) {
   const { id, children } = props;
   return (
-    <div className={styles.sectionTitle} data-settings-section={id}>
+    <div className={styles.sectionTitle} data-settings-section={id} tabIndex={-1}>
       {children}
     </div>
   );

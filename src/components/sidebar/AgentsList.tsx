@@ -1,5 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import {
+  isContextMenuKey,
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import X from "lucide-react/dist/esm/icons/x";
 import type { AgentInfo } from "../../electron.d";
@@ -8,6 +12,8 @@ import { useAppStore, selectVisiblePaneIds } from "../../store/app-store";
 import { useProjectStore, MIN_AGENTS_HEIGHT } from "../../store/project-store";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
+import { Button } from "../ui/Button/Button";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { allPaneIds } from "../../store/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
@@ -24,10 +30,16 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
 }) {
   const { title, status } = useAgentDisplay(agent);
   const rename = useInlineRename(title, onRename, { emoji: true });
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  // Set when the row's context menu was opened via the keyboard, so
+  // `onCloseAutoFocus` knows to return focus to the row; a mouse-opened menu
+  // keeps the rename hook's own restore behaviour (ADR-175).
+  const menuOpenedByKeyboard = useRef(false);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
+          ref={rowRef}
           role="button"
           tabIndex={0}
           className={styles.agentItem}
@@ -42,6 +54,13 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
           }}
           onKeyDown={(e) => {
             if (rename.editing) return;
+            if (isContextMenuKey(e)) {
+              e.preventDefault();
+              e.stopPropagation();
+              menuOpenedByKeyboard.current = true;
+              openContextMenuFromKeyboard(e.currentTarget);
+              return;
+            }
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onClick();
@@ -62,15 +81,35 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
           ) : (
             <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
           )}
-          <span className={styles.agentClose} onClick={(e) => { e.stopPropagation(); onClose(); }} title="Close agent">
-            <X size={12} />
-          </span>
+          <Tooltip label="Close agent">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.agentClose}
+              aria-label="Close agent"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+            >
+              <X size={12} />
+            </Button>
+          </Tooltip>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
           className={menuStyles.contextMenu}
-          {...rename.menuContentProps}
+          onCloseAutoFocus={(e) => {
+            rename.menuContentProps.onCloseAutoFocus(e);
+            if (e.defaultPrevented) return;
+            if (menuOpenedByKeyboard.current) {
+              e.preventDefault();
+              rowRef.current?.focus();
+            }
+            menuOpenedByKeyboard.current = false;
+          }}
         >
           <ContextMenu.Item
             className={menuStyles.contextMenuItem}

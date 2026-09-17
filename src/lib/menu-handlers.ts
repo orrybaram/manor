@@ -34,6 +34,7 @@ import {
 } from "./pane-actions";
 import { detachTabToNewWindow, movePaneToNewWindow } from "./window-handoff";
 import { openInEditor } from "./editor";
+import { focusRegion, focusRegionWhenReady } from "./focus-regions";
 import { HOME_PATH } from "./home";
 import { EXTERNAL_LINKS, type MenuCommandPayload } from "./menu-commands";
 import { requestUi } from "../utils/ui-request";
@@ -178,6 +179,17 @@ export function createMenuHandlers(
     settings: () => chrome.openSettings(),
     "command-palette": () => chrome.togglePalette(),
     "toggle-sidebar": () => useProjectStore.getState().toggleSidebar(),
+    "focus-sidebar": () => {
+      // A visible sidebar takes focus now: the key that follows ⌘⇧E (an arrow,
+      // Home) can arrive before the next frame, and would reach the terminal.
+      if (focusRegion("sidebar")) return;
+      // A hidden sidebar has no rows to focus; show it and wait for the commit.
+      ensureSidebarVisible();
+      focusRegionWhenReady("sidebar");
+    },
+    // The notifications popover lives in the sidebar, so this is primary-only
+    // like `focus-sidebar`; a popout forwards it here (MAIN_WINDOW_KEYBINDINGS).
+    "open-notifications": () => requestUi({ type: "open-notifications" }),
     "history-back": () => navigateBack(),
     "history-forward": () => navigateForward(),
     "new-workspace": () => chrome.openNewWorkspace(),

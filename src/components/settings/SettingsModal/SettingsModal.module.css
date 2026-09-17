@@ -695,7 +695,13 @@
   color: var(--text-primary);
 }
 
-.keybindingShortcut {
+/*
+ * `button.keybindingShortcut` / `button.keybindingActionBtn` (element +
+ * class, ADR-175): these sit on a `ui/Button`, whose own `.button` /
+ * `.secondary` / `.ghost` / `.sm` classes are equal specificity and would
+ * otherwise win or lose depending on stylesheet order.
+ */
+button.keybindingShortcut {
   font-size: 12px;
   font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
   padding: 3px 8px;
@@ -708,7 +714,7 @@
   text-align: center;
 }
 
-.keybindingShortcut:hover {
+button.keybindingShortcut:hover {
   border-color: var(--text-dim);
 }
 
@@ -724,7 +730,7 @@
   width: 100%;
 }
 
-.keybindingActionBtn {
+button.keybindingActionBtn {
   background: none;
   border: none;
   color: var(--text-dim);
@@ -735,7 +741,7 @@
   align-items: center;
 }
 
-.keybindingActionBtn:hover {
+button.keybindingActionBtn:hover:not(:disabled) {
   background: var(--surface);
   color: var(--text-selected);
 }

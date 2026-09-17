@@ -95,9 +95,45 @@ export const SHARED_WINDOW_COMMANDS: ReadonlySet<string> = new Set<string>([
   "browser-zoom-reset",
   "browser-reload",
   "browser-focus-url",
+  "browser-back",
+  "browser-forward",
+  "browser-find",
   "open-diff",
+  "focus-next-region",
+  "focus-prev-region",
+  "focus-tabbar",
   ...Array.from({ length: 9 }, (_, i) => `select-tab-${i + 1}`),
 ]);
+
+/**
+ * Keybinding commands only the primary window implements. A popout that sees
+ * one of these asks main to focus the primary window and run it there
+ * (`keybindings:runInMainWindow`); main rejects any other id.
+ */
+export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
+  "settings",
+  "command-palette",
+  "new-workspace",
+  "next-workspace",
+  "prev-workspace",
+  "history-back",
+  "history-forward",
+  "toggle-sidebar",
+  "focus-sidebar",
+  "open-notifications",
+]);
+
+/**
+ * Payload of the main → renderer `keybinding-command` channel: a bound combo
+ * pressed somewhere the renderer's own key handler can't see it — inside a web
+ * page (`webview`) or in a popout for a primary-only command (`popout`).
+ */
+export interface ForwardedCommandPayload {
+  commandId: string;
+  source: "webview" | "popout";
+  /** The browser pane the key was pressed in, for `source: "webview"`. */
+  paneId?: string;
+}
 
 /** Payload of the main → renderer `menu-command` channel. */
 export interface MenuCommandPayload {

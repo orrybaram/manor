@@ -22,13 +22,20 @@ type EmptyStateShellProps = {
   actions: ActionItem[];
   /** Optional notice rendered above the shortcut list (e.g. the gh CLI nudge). */
   banner?: ReactNode;
+  /** `data-testid` for the root, so e2e tests can tell the surfaces apart. */
+  testId?: string;
 };
 
 export function EmptyStateShell(props: EmptyStateShellProps) {
-  const { subtitle, actions, banner } = props;
+  const { subtitle, actions, banner, testId } = props;
 
   return (
-    <Row align="center" justify="center" className={styles.container}>
+    <Row
+      align="center"
+      justify="center"
+      className={styles.container}
+      data-testid={testId}
+    >
       <Stack gap="3xl" className={styles.content}>
         <div className={styles.logo}>
           <ManorLogo />

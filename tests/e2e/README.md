@@ -29,7 +29,7 @@ Useful environment variables:
 | `MANOR_E2E_LOG=1`          | Forward the launched app's stdout/stderr into the test output. The app is a separate process, so this is the only way to see what main logged. |
 | `MANOR_E2E_HEADED=1`       | Show the browser that plays the phone. The Electron window is always visible.                                                                  |
 | `MANOR_E2E_HOLD=<seconds>` | Pause the remote-control test at the point where a phone is paired and live, so you can drive both by hand.                                    |
-| `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                 |
+| `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                |
 
 `pnpm e2e:remote:watch` is those last two together.
 
@@ -65,6 +65,43 @@ exist yet.
 Terminal output is **not** in the DOM: xterm renders into a WebGL canvas.
 Observe a pane through `helpers/terminal.ts` (the daemon's scrollback file) or
 `helpers/local-api.ts` (the app's own control surface) instead.
+
+## Keyboard navigation (ADR-175)
+
+`keyboard-navigation.spec.ts` checks that the whole app works without a
+pointer. After boot, every interaction in it is a key press. It never calls
+`click()`, so don't add one to make a test pass. The only exception is setup
+that has no key of its own, such as making a popout through the application
+menu with `app.evaluate`. The PR badge's keyboard test lives in
+`sidebar-pr-tweaks.spec.ts`, because that file has the fake `gh`.
+
+The app keeps this selector contract for the suite:
+
+| Selector                                                              | Meaning                                                                                                                       |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `[data-focus-region="sidebar\|tabbar\|pane\|statusbar"]`              | Root of a region that F6 / Shift+F6 cycles through. The test reads the region that holds focus from `activeElement`.          |
+| `[data-sidebar-row]`                                                  | Every row in the sidebar that can take focus (Home, project headers, workspace rows, folder headers). One has `tabindex="0"`. |
+| `home-row`, `project-header`, `workspace-item`                        | Sidebar rows. The active workspace row has `aria-current="true"` and `data-workspace-path`.                                   |
+| `role="tablist"` / `role="tab"` + `aria-selected`, `tab`, `tab-close` | The tab bar, with a roving tabindex. The "+" button is `aria-label="New tab"`.                                                |
+| `settings-nav-<section>`, `[data-settings-section]`                   | Settings navigation and the sections it shows.                                                                                |
+| `[role="menu"]`                                                       | An open Radix context menu (opened with Shift+F10 or ⌘.).                                                                     |
+| `xterm-helper-textarea` has focus                                     | The terminal holds the keyboard.                                                                                              |
+
+Focus polls use a short timeout (`FOCUS`, 3 s). A key pressed right after a
+focus move has to land on the new target, so a flake here is usually an app
+bug: focus deferred by a frame, or a re-render that drops focus. Fix it in the
+app, not with a `waitForTimeout`. To check that a fix holds, run the spec with
+`--repeat-each 10`.
+
+### The pointer-only sweep
+
+`no pointer-only controls` walks the main window, Settings and the
+notifications popover. It fails on any visible element with `cursor: pointer`
+that can't take focus and isn't inside something that can. A `tabindex="-1"`
+element passes only as a member of a roving group (`[data-sidebar-row]`,
+`[role="tab"]`), and a `<label>` passes when its control can take focus. If
+the sweep reports a new clickable `div`, give it a real `Button` or a
+keyboard handler plus `tabIndex`. Don't widen the sweep's exemptions.
 
 ## The remote-control harness (ADR-161)
 

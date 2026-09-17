@@ -1,8 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
 import { useAppStore } from "../../store/app-store";
+import {
+  isContextMenuKey,
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import styles from "./Ports.module.css";
 
 type PortBadgeProps = {
@@ -45,13 +49,37 @@ export function PortBadge(props: PortBadgeProps) {
     : `Open localhost:${port.port}`;
   const displayProcess = projectName || port.processName;
 
+  const badgeRef = useRef<HTMLDivElement | null>(null);
+  // Set when the badge's context menu was opened via the keyboard, so
+  // `onCloseAutoFocus` knows to return focus to the badge; a mouse-opened
+  // menu keeps Radix's own default (ADR-175). The badge isn't focusable yet
+  // (ticket 8 makes it so) — this handler is ready for when it is.
+  const menuOpenedByKeyboard = useRef(false);
+
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
+          ref={badgeRef}
           className={styles.portBadge}
           title={titleText}
+          role="button"
+          tabIndex={0}
+          aria-label={titleText}
           onClick={handleOpenInTab}
+          onKeyDown={(e) => {
+            if (isContextMenuKey(e)) {
+              e.preventDefault();
+              e.stopPropagation();
+              menuOpenedByKeyboard.current = true;
+              openContextMenuFromKeyboard(e.currentTarget);
+              return;
+            }
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleOpenInTab();
+            }
+          }}
           style={{ cursor: "pointer" }}
         >
           <span className={styles.portNumber}>{port.port}</span>
@@ -67,7 +95,16 @@ export function PortBadge(props: PortBadgeProps) {
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={styles.contextMenu}>
+        <ContextMenu.Content
+          className={styles.contextMenu}
+          onCloseAutoFocus={(e) => {
+            if (menuOpenedByKeyboard.current) {
+              e.preventDefault();
+              badgeRef.current?.focus();
+            }
+            menuOpenedByKeyboard.current = false;
+          }}
+        >
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={handleOpenInTab}

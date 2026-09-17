@@ -121,7 +121,7 @@ export async function launchApp(
     if (key.startsWith("MANOR_") || key === "ZDOTDIR") continue;
     env[key] = value;
   }
-  env.PATH = pathWithoutAgents(env.PATH ?? "");
+  env.PATH = pathWithoutAgents(env.PATH ?? "", tempHome);
 
   return _electron.launch({
     args: [
@@ -158,31 +158,49 @@ export function videoDir(): string | undefined {
 }
 
 /**
- * PATH with any directory holding a real agent CLI removed.
+ * PATH with every real agent CLI made unreachable.
  *
  * Manor's default agent command is `claude`, and a test that has not yet
  * pointed its project somewhere else — or that consumes a session warmed
  * before it did — would otherwise launch the real thing: a live agent, in a
  * temp home, waiting on onboarding no one is watching. A test run must not be
  * able to start one by accident, so the binaries are simply not reachable.
+ *
+ * A directory holding an agent is dropped, but it is usually a shared one —
+ * `/opt/homebrew/bin` — that also holds the `git` the app must use. Dropping
+ * it wholesale leaves `/usr/bin/git`, which on a machine that never accepted
+ * the Xcode license fails every command. So everything else in a dropped
+ * directory is linked into a shim directory that takes its place.
  */
-function pathWithoutAgents(currentPath: string): string {
+function pathWithoutAgents(currentPath: string, tempHome: string): string {
   const agents = ["claude", "codex"];
-  return currentPath
-    .split(path.delimiter)
-    .filter(
-      (dir) =>
-        dir !== "" &&
-        !agents.some((agent) => {
-          try {
-            fs.accessSync(path.join(dir, agent), fs.constants.X_OK);
-            return true;
-          } catch {
-            return false;
-          }
-        }),
-    )
-    .join(path.delimiter);
+  const isExecutable = (file: string) => {
+    try {
+      fs.accessSync(file, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const out: string[] = [];
+  for (const dir of currentPath.split(path.delimiter)) {
+    if (dir === "" || out.includes(dir)) continue;
+    if (!agents.some((agent) => isExecutable(path.join(dir, agent)))) {
+      out.push(dir);
+      continue;
+    }
+    // One shim per dropped directory, in its place, so lookup order holds.
+    // Rebuilt on every launch: a test that restarts the app reuses its home.
+    const shimDir = path.join(tempHome, "path-shim", String(out.length));
+    fs.rmSync(shimDir, { recursive: true, force: true });
+    fs.mkdirSync(shimDir, { recursive: true });
+    out.push(shimDir);
+    for (const name of fs.readdirSync(dir)) {
+      if (agents.includes(name)) continue;
+      fs.symlinkSync(path.join(dir, name), path.join(shimDir, name));
+    }
+  }
+  return out.join(path.delimiter);
 }
 
 /**

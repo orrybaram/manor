@@ -7,7 +7,14 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath, homeLaunchCommand } from "./home";
-import { comboFromEvent, comboMatches } from "./keybindings";
+import {
+  PAGE_BROWSER_COMMANDS,
+  comboFromEvent,
+  commandsForCombo,
+} from "./keybindings";
+import { cycleRegion, focusRegion } from "./focus-regions";
+import { requestUi } from "../utils/ui-request";
+import type { ForwardedCommandPayload } from "./menu-commands";
 
 /**
  * Keybinding commands that are meaningful in ANY window — the primary window
@@ -24,8 +31,8 @@ import { comboFromEvent, comboMatches } from "./keybindings";
  * be built once, outside the render cycle.
  */
 
-/** The focused pane's browser ref, or undefined when the focus isn't a browser. */
-export function getFocusedBrowserRef(): BrowserPaneRef | undefined {
+/** The focused pane's id when that pane is a browser, else undefined. */
+function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
   const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
   if (!layout) return;
@@ -36,7 +43,27 @@ export function getFocusedBrowserRef(): BrowserPaneRef | undefined {
   const focusedPaneId = tab.focusedPaneId;
   if (!focusedPaneId) return;
   if (state.paneContentType[focusedPaneId] !== "browser") return;
-  return getBrowserPaneRef(focusedPaneId);
+  return focusedPaneId;
+}
+
+/** The focused pane's browser ref, or undefined when the focus isn't a browser. */
+export function getFocusedBrowserRef(): BrowserPaneRef | undefined {
+  const paneId = focusedBrowserPaneId();
+  return paneId ? getBrowserPaneRef(paneId) : undefined;
+}
+
+/**
+ * True while DOM focus sits inside the focused browser pane's own chrome — its
+ * URL bar, find bar or toolbar. There the browser's ⌘[ / ⌘] / ⌘F beat the
+ * pane and terminal commands that share those combos.
+ */
+function isBrowserPaneDomFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const paneId = focusedBrowserPaneId();
+  if (!paneId) return false;
+  const active = document.activeElement as HTMLElement | null | undefined;
+  const pane = active?.closest?.("[data-pane-id]");
+  return pane?.getAttribute("data-pane-id") === paneId;
 }
 
 /**
@@ -165,6 +192,15 @@ export function createSharedKeybindingHandlers(
       input?.focus();
       input?.select();
     },
+    "browser-back": () => getFocusedBrowserRef()?.goBack(),
+    "browser-forward": () => getFocusedBrowserRef()?.goForward(),
+    "browser-find": () => {
+      const paneId = focusedBrowserPaneId();
+      if (paneId) requestUi({ type: "pane-search", paneId });
+    },
+    "focus-next-region": () => void cycleRegion(1),
+    "focus-prev-region": () => void cycleRegion(-1),
+    "focus-tabbar": () => void focusRegion("tabbar"),
     "open-diff": () => {
       const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
       if (diffOpensInNewPanel) store().openDiffInNewPanel();
@@ -180,37 +216,163 @@ export function createSharedKeybindingHandlers(
 }
 
 /**
+ * Any Radix dialog currently open in this window. Matches both the modal and
+ * non-modal shapes Radix can render — `aria-modal` isn't actually emitted by
+ * the installed `@radix-ui/react-dialog`, so the plain `[role="dialog"]`
+ * clause is what matches in practice; the `aria-modal` clause is kept in case
+ * a future upgrade starts emitting it.
+ */
+const OPEN_DIALOG_SELECTOR =
+  '[role="dialog"][data-state="open"][aria-modal="true"], [role="dialog"][data-state="open"]';
+
+/**
+ * Command a dialog's own toggle keybinding still runs while it's open, keyed
+ * by that dialog's `data-testid`. Everything else is left to the dialog while
+ * one is open — e.g. ⌘T must not touch tabs behind an open Settings modal.
+ */
+const DIALOG_OWN_TOGGLE: Record<string, string> = {
+  "settings-modal": "settings",
+  "command-palette": "command-palette",
+};
+
+function openDialogTestId(): string | null {
+  // Guard for unit tests, which run this module in a DOM-less environment.
+  if (typeof document === "undefined") return null;
+  return (
+    document
+      .querySelector<HTMLElement>(OPEN_DIALOG_SELECTOR)
+      ?.getAttribute("data-testid") ?? null
+  );
+}
+
+/** Whether an open dialog leaves `commandId` alone (ADR-175 modal scope). */
+function blockedByDialog(commandId: string): boolean {
+  const openDialog = openDialogTestId();
+  return openDialog !== null && DIALOG_OWN_TOGGLE[openDialog] !== commandId;
+}
+
+export interface DispatchOptions {
+  /**
+   * Called for a bound command this window has no handler for. Return true
+   * when it was handled elsewhere (a popout hands primary-only commands to the
+   * main window), which swallows the key.
+   */
+  fallback?: (commandId: string) => boolean;
+}
+
+/**
+ * Run the first runnable command in `commandIds`. Returns whether one ran.
+ *
+ * Browser commands are conditional — they only run when the focused pane is a
+ * browser, so a browser combo elsewhere reaches the native menu (app zoom) or
+ * the terminal unimpeded.
+ */
+function runFirst(
+  commandIds: string[],
+  handlers: Record<string, () => void>,
+  options: DispatchOptions,
+): boolean {
+  for (const commandId of commandIds) {
+    const handler = handlers[commandId];
+    if (commandId.startsWith("browser-")) {
+      if (!handler || !getFocusedBrowserRef()) continue;
+      handler();
+      return true;
+    }
+    // A command this window doesn't implement (a primary-only command seen in
+    // a popout, or one handled deeper in the tree like `terminal-search`) must
+    // not be swallowed — keep scanning, then let the event reach its real
+    // handler.
+    if (!handler) {
+      if (options.fallback?.(commandId)) return true;
+      continue;
+    }
+    handler();
+    return true;
+  }
+  return false;
+}
+
+/**
  * Match a keydown against the user's bindings and run the bound handler.
  *
- * Browser commands are conditional — they only fire when the focused pane is a
- * browser. When no browser is focused the match is skipped entirely so the
- * event reaches the native menu (app zoom) or the terminal unimpeded.
+ * Matches run in registry order, except that while DOM focus is inside the
+ * focused browser pane (its URL bar, say) the browser commands go first — so
+ * ⌘[ / ⌘] / ⌘F mean back / forward / find there, as they do in the page.
+ *
+ * While a Radix dialog is open, only that dialog's own toggle command (the one
+ * that also closes it) is allowed through; every other command is left to the
+ * dialog — including a bound combo the dialog doesn't otherwise handle, which
+ * simply falls through to the browser/OS default instead of reaching behind
+ * the modal.
  */
 export function dispatchKeybinding(
   e: KeyboardEvent,
   handlers: Record<string, () => void>,
+  options: DispatchOptions = {},
 ): void {
-  // Skip plain keys with no modifier — custom bindings always use at least one
-  if (!e.metaKey && !e.ctrlKey && !e.altKey) return;
+  let commandIds = commandsForCombo(
+    comboFromEvent(e),
+    useKeybindingsStore.getState().bindings,
+  );
+  if (commandIds.length === 0) return;
 
-  const combo = comboFromEvent(e);
-  const bindings = useKeybindingsStore.getState().bindings;
+  // The first match decides whether a dialog blocks the key, as before.
+  if (blockedByDialog(commandIds[0])) return;
 
-  for (const [commandId, boundCombo] of Object.entries(bindings)) {
-    if (!comboMatches(combo, boundCombo)) continue;
-    const handler = handlers[commandId];
-    if (commandId.startsWith("browser-")) {
-      if (!handler || !getFocusedBrowserRef()) continue;
-      e.preventDefault();
-      handler();
+  if (isBrowserPaneDomFocused()) {
+    const browserFirst = commandIds.filter((id) =>
+      PAGE_BROWSER_COMMANDS.includes(id),
+    );
+    commandIds = [
+      ...browserFirst,
+      ...commandIds.filter((id) => !browserFirst.includes(id)),
+    ];
+  }
+
+  if (runFirst(commandIds, handlers, options)) e.preventDefault();
+}
+
+/** Commands that move keyboard focus somewhere in this window's chrome. */
+const FOCUS_MOVING_COMMANDS = new Set([
+  "focus-next-region",
+  "focus-prev-region",
+  "focus-sidebar",
+  "focus-tabbar",
+]);
+
+/**
+ * Run a command main forwarded to this window: a bound combo pressed inside a
+ * web page, or a primary-only command pressed in a popout. It goes through the
+ * same rules as a local key press — the modal scope, and browser commands only
+ * with a browser focused.
+ */
+export function runForwardedCommand(
+  payload: ForwardedCommandPayload,
+  handlers: Record<string, () => void>,
+  options: DispatchOptions = {},
+): void {
+  const { commandId, source } = payload;
+  if (blockedByDialog(commandId)) return;
+
+  if (source === "webview" && FOCUS_MOVING_COMMANDS.has(commandId)) {
+    // The page holds the keyboard; let go of the <webview> first so focus can
+    // land in the app's chrome. Region cycling then counts from the pane the
+    // page lives in, which no longer holds DOM focus.
+    const active =
+      typeof document !== "undefined"
+        ? (document.activeElement as HTMLElement | null)
+        : null;
+    if (active?.tagName === "WEBVIEW") active.blur();
+    if (commandId === "focus-next-region") {
+      void cycleRegion(1, "pane");
       return;
     }
-    // A command this window doesn't implement (a primary-only command seen in a
-    // popout, or one handled deeper in the tree like `terminal-search`) must not
-    // be swallowed — keep scanning, then let the event reach its real handler.
-    if (!handler) continue;
-    e.preventDefault();
-    handler();
-    return;
+    if (commandId === "focus-prev-region") {
+      void cycleRegion(-1, "pane");
+      return;
+    }
   }
+
+  runFirst([commandId], handlers, options);
 }

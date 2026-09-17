@@ -26,6 +26,10 @@ import {
 } from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import {
+  handleSidebarRowKeyDown,
+  useRovingRows,
+} from "../../../lib/sidebar-row";
+import {
   removeWorktreeWithToast,
   quickMergeWorktreeWithToast,
   hideWorkspaceAndNavigate,
@@ -218,6 +222,7 @@ export function Sidebar(props: SidebarProps) {
   // Resizable sidebar
   const sidebarRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
+  useRovingRows(sidebarRef);
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -248,6 +253,7 @@ export function Sidebar(props: SidebarProps) {
   return (
     <div
       ref={sidebarRef}
+      data-focus-region="sidebar"
       className={styles.sidebar}
       style={{ width: sidebarWidth }}
     >
@@ -286,7 +292,15 @@ export function Sidebar(props: SidebarProps) {
         <div
           className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
           data-testid="home-row"
+          data-sidebar-row=""
+          tabIndex={-1}
+          aria-current={homeActive ? "true" : undefined}
           onClick={() => setActiveWorkspace(HOME_PATH)}
+          onKeyDown={(e) =>
+            handleSidebarRowKeyDown(e, {
+              activate: () => setActiveWorkspace(HOME_PATH),
+            })
+          }
         >
           <span className={styles.homeIcon}>
             <House size={12} />
@@ -296,10 +310,9 @@ export function Sidebar(props: SidebarProps) {
         <div className={styles.projectsSection}>
           <ContextMenu.Root>
             <ContextMenu.Trigger asChild>
-              <div
-                className={styles.sectionHeader}
-                style={{ cursor: "pointer" }}
-              >
+              {/* Right-click only offers "Add Project", which the app menu
+                  also carries; a click does nothing, so no pointer cursor. */}
+              <div className={styles.sectionHeader}>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <Boxes size={12} />
                   Projects

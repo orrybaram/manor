@@ -99,6 +99,18 @@
   color: var(--text-selected);
 }
 
+/* A click draws no ring — the active/hover states already show which tab is
+   which — but keyboard focus does, or there is no telling where it is
+   (ADR-175, `:focus-visible`). */
+.tab:focus {
+  outline: none;
+}
+
+.tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .tabDragging {
   opacity: 0.3;
   z-index: 10;
@@ -169,21 +181,34 @@
   flex: 1;
 }
 
-.tabAudio {
+/* `.tabAudio` and `.tabClose` sit on a `Button` (ADR-175, focusable, an
+   `aria-label`). Reset its base padding/sizing for these icon-only 12px
+   glyphs; keep the click/hover visuals the `<span>` version had. The `.tab`
+   ancestor in every selector below outranks `Button`'s own `.ghost`/size
+   rules regardless of stylesheet order. */
+.tab .tabAudio,
+.tab .tabClose {
   flex-shrink: 0;
-  opacity: 0.6;
-  cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
+  padding: 2px;
+  min-width: 0;
+  -webkit-app-region: no-drag;
+}
+
+.tab .tabAudio {
+  opacity: 0.6;
   margin-left: 4px;
   transition: opacity 0.15s;
 }
 
-.tabAudio:hover {
+.tab .tabAudio:hover,
+.tab .tabAudio:focus-visible {
   opacity: 1;
 }
 
-.tabClose {
+.tab .tabClose {
   font-size: 14px;
   line-height: 1;
   position: relative;
@@ -193,12 +218,16 @@
   transition: opacity 0.15s;
 }
 
+/* Hover-only visual, but also visible whenever the tab holds focus (either
+   directly or through this button) so the keyboard user can see it. */
 .tab:hover .tabClose,
+.tab:focus-within .tabClose,
 .tabActive .tabClose {
   opacity: 0.6;
 }
 
-.tabClose:hover {
+.tab .tabClose:hover,
+.tab .tabClose:focus-visible {
   opacity: 1 !important;
   background: var(--border);
 }

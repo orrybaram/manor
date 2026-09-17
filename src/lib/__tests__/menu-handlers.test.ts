@@ -20,16 +20,11 @@ import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 const WS_PATH = "/repo/main";
 
 /**
- * Keybindings nothing in the command map services: terminal search and browser
- * back/forward/find are handled by the focused pane itself (Edit › Find… sends
- * the menu-only `find` command instead).
+ * Keybindings nothing in the command map services: terminal search is handled
+ * by the focused terminal itself (Edit › Find… sends the menu-only `find`
+ * command instead).
  */
-const PANE_OWNED_KEYBINDINGS = new Set([
-  "terminal-search",
-  "browser-back",
-  "browser-forward",
-  "browser-find",
-]);
+const PANE_OWNED_KEYBINDINGS = new Set(["terminal-search"]);
 
 /** Shared keybinding handlers that have no default binding of their own. */
 const UNBOUND_SHARED_COMMANDS = ["close-panel", "move-tab-to-next-panel"];

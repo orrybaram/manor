@@ -11,8 +11,10 @@ import { useThemeStore } from "./store/theme-store";
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
+  runForwardedCommand,
   startNewAgent,
 } from "./lib/keybinding-commands";
+import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
 import { dispatchMenuCommand } from "./lib/menu-handlers";
 import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
@@ -134,21 +136,35 @@ export default function DetachedApp() {
   // mount the primary window's global key handler — so without this, Cmd+W and
   // the other tab/pane shortcuts would be dead here. It gets the same
   // window-agnostic command map as the primary window (new tab, new agent, new
-  // browser, pane/panel/browser commands); the primary-only commands (command
-  // palette, settings, sidebar, new workspace, navigation history) are absent
-  // by design and simply fall through. Closing the window when it empties is
-  // handled by the store subscription above, no matter which command emptied it.
+  // browser, pane/panel/browser commands). The primary-only commands (command
+  // palette, settings, sidebar, new workspace, workspace switching, navigation
+  // history) are handed to main, which focuses the primary window and runs them
+  // there. Closing the window when it empties is handled by the store
+  // subscription above, no matter which command emptied it.
   useMountEffect(() => {
     // Popouts never consume the prewarmed session: its cwd tracks the PRIMARY
     // window's active workspace, so a popout on a different workspace would
     // inherit the wrong directory.
     const handlers = createSharedKeybindingHandlers({ prewarmNewAgent: false });
 
+    const options = {
+      fallback: (commandId: string) => {
+        if (!MAIN_WINDOW_KEYBINDINGS.has(commandId)) return false;
+        window.electronAPI.keybindings.runInMainWindow(commandId);
+        return true;
+      },
+    };
+
     function handleKeyDown(e: KeyboardEvent) {
-      dispatchKeybinding(e, handlers);
+      dispatchKeybinding(e, handlers, options);
     }
 
     window.addEventListener("keydown", handleKeyDown);
+    // Bound combos pressed inside one of this window's web pages.
+    const unsubscribeForwarded =
+      window.electronAPI.keybindings.onForwardedCommand((payload) =>
+        runForwardedCommand(payload, handlers, options),
+      );
     // Menu commands land here too. Main only routes a command to a focused
     // popout when `SHARED_WINDOW_COMMANDS` says it can service it, which is
     // exactly the set this map implements (ADR-170); anything else it sends to
@@ -158,6 +174,7 @@ export default function DetachedApp() {
     );
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      unsubscribeForwarded();
       unsubscribeMenu();
     };
   });

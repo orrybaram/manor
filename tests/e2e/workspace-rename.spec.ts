@@ -13,9 +13,10 @@ const nameOf = (item: ReturnType<Page["locator"]>) =>
   item.getByTestId("workspace-name");
 const inputOf = (item: ReturnType<Page["locator"]>) =>
   item.getByTestId("workspace-name-input");
-/** Enter on the focused row opens the rename — double-click no longer does
- *  (ADR-172). `press` focuses the row first. */
-const startRename = (item: ReturnType<Page["locator"]>) => item.press("Enter");
+/** F2 on the focused row opens the rename — double-click no longer does
+ *  (ADR-172), and Enter now opens the workspace (ADR-175). `press` focuses
+ *  the row first. */
+const startRename = (item: ReturnType<Page["locator"]>) => item.press("F2");
 
 test("Escape abandons a workspace rename, Enter commits one", async ({
   app,

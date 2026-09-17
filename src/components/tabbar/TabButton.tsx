@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Volume2 from "lucide-react/dist/esm/icons/volume-2";
 import VolumeX from "lucide-react/dist/esm/icons/volume-x";
 import X from "lucide-react/dist/esm/icons/x";
+import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
@@ -12,8 +13,84 @@ import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
+import {
+  isContextMenuKey,
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
+
+/** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
+function allTabs(from: HTMLElement): HTMLElement[] {
+  const root = from.closest<HTMLElement>('[role="tablist"]');
+  if (!root) return [from];
+  return Array.from(root.querySelectorAll<HTMLElement>('[role="tab"]'));
+}
+
+function focusAdjacentTab(from: HTMLElement, delta: 1 | -1): void {
+  const tabs = allTabs(from);
+  const index = tabs.indexOf(from);
+  if (index < 0) return;
+  const next = tabs[(index + delta + tabs.length) % tabs.length];
+  next?.focus();
+}
+
+function focusEdgeTab(from: HTMLElement, edge: "first" | "last"): void {
+  const tabs = allTabs(from);
+  (edge === "first" ? tabs[0] : tabs[tabs.length - 1])?.focus();
+}
+
+/**
+ * Keyboard handling for a tab (ADR-175). ←/→ move focus between tabs without
+ * selecting; Home/End jump to the ends; Enter/Space select, same as a click.
+ * Only runs when the event targets the tab itself — a nested close or mute
+ * `Button` handles its own keys (Enter/Space already trigger a native click).
+ */
+function handleTabKeyDown(
+  e: ReactKeyboardEvent<HTMLDivElement>,
+  actions: {
+    select: () => void;
+    /** Shift+F10 / ContextMenu key / ⌘. — wired by ticket 5 (ADR-175). */
+    openMenu?: (tab: HTMLElement) => void;
+  },
+): void {
+  if (e.target !== e.currentTarget) return;
+
+  if (isContextMenuKey(e)) {
+    if (!actions.openMenu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    actions.openMenu(e.currentTarget);
+    return;
+  }
+
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  switch (e.key) {
+    case "Enter":
+    case " ":
+      // Space would otherwise scroll the tab bar.
+      e.preventDefault();
+      actions.select();
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      focusAdjacentTab(e.currentTarget, -1);
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      focusAdjacentTab(e.currentTarget, 1);
+      break;
+    case "Home":
+      e.preventDefault();
+      focusEdgeTab(e.currentTarget, "first");
+      break;
+    case "End":
+      e.preventDefault();
+      focusEdgeTab(e.currentTarget, "last");
+      break;
+  }
+}
 
 /** Right-aligned keyboard-shortcut hint for a context-menu item. */
 function MenuShortcut({ commandId }: { commandId: string }) {
@@ -101,20 +178,39 @@ export function TabButton(props: TabButtonProps) {
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
+  // Set when the context menu was opened via `openMenu` (keyboard), so
+  // `onCloseAutoFocus` knows to return focus to the tab; a mouse-opened menu
+  // keeps Radix's own default (don't steal focus after a click).
+  const openedByKeyboard = useRef(false);
+  const tabElRef = useRef<HTMLDivElement | null>(null);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
-          ref={buttonRef}
+          ref={(el) => {
+            tabElRef.current = el;
+            buttonRef(el);
+          }}
           className={`${styles.tab} ${contentTypeClass} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
+          onKeyDown={(e) =>
+            handleTabKeyDown(e, {
+              select: onSelect,
+              openMenu: (tab) => {
+                openedByKeyboard.current = true;
+                openContextMenuFromKeyboard(tab);
+              },
+            })
+          }
           draggable={draggable}
           onDragStart={onDragStart}
           onDrag={onDrag}
           onDragEnd={onDragEnd}
           data-testid="tab"
           data-tab-id={tabId}
+          role="tab"
           aria-selected={isActive}
+          tabIndex={isActive ? 0 : -1}
         >
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
@@ -134,8 +230,12 @@ export function TabButton(props: TabButtonProps) {
           </span>
           {(audioPlaying || audioMuted) && (
             <Tooltip label={audioMuted ? "Unmute Tab" : "Mute Tab"}>
-              <span
+              <Button
+                variant="ghost"
+                size="sm"
                 className={styles.tabAudio}
+                aria-label={audioMuted ? "Unmute tab" : "Mute tab"}
+                tabIndex={isActive ? 0 : -1}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                 }}
@@ -149,13 +249,18 @@ export function TabButton(props: TabButtonProps) {
                 }}
               >
                 {audioMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
-              </span>
+              </Button>
             </Tooltip>
           )}
           {canClose && !isPinned && (
             <Tooltip label="Close Tab">
-              <span
+              <Button
+                variant="ghost"
+                size="sm"
                 className={styles.tabClose}
+                aria-label="Close tab"
+                data-testid="tab-close"
+                tabIndex={isActive ? 0 : -1}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                 }}
@@ -165,13 +270,22 @@ export function TabButton(props: TabButtonProps) {
                 }}
               >
                 <X size={12} />
-              </span>
+              </Button>
             </Tooltip>
           )}
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={styles.contextMenu}>
+        <ContextMenu.Content
+          className={styles.contextMenu}
+          onCloseAutoFocus={(e) => {
+            if (openedByKeyboard.current) {
+              e.preventDefault();
+              tabElRef.current?.focus();
+            }
+            openedByKeyboard.current = false;
+          }}
+        >
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={onTogglePin}

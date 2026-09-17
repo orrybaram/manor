@@ -152,7 +152,7 @@ export function StatusBar(props: StatusBarProps) {
   const handlePopoverClose = useCallback(() => setPopoverOpen(false), []);
 
   return (
-    <div className={styles.statusBar}>
+    <div className={styles.statusBar} data-focus-region="statusbar">
       <div className={styles.left}>
         {!project && <span className={styles.segment}>Home</span>}
         {project && (

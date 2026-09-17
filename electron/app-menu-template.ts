@@ -189,6 +189,10 @@ export function buildMenuTemplate(
     submenu: [
       cmd("command-palette", "Command Palette"),
       cmd("toggle-sidebar", "Toggle Sidebar"),
+      cmd("focus-sidebar", "Focus Sidebar"),
+      cmd("focus-tabbar", "Focus Tab Bar"),
+      cmd("focus-next-region", "Focus Next Region"),
+      cmd("focus-prev-region", "Focus Previous Region"),
       cmd("notifications", "Notifications"),
       cmd("your-issues", "Your Issues"),
       SEPARATOR,

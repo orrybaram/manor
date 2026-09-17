@@ -1,6 +1,6 @@
 ---
 title: Dialog focus restore, shortcut scope behind modals, focus-visible styles, labels
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

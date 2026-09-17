@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
@@ -289,5 +289,67 @@ describe("dispatchKeybinding", () => {
     dispatchKeybinding(e, { "browser-zoom-in": zoomIn });
     expect(zoomIn).not.toHaveBeenCalled();
     expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+
+  describe("with a modal dialog open", () => {
+    /** Stub `document.querySelector` to report one open Radix dialog. */
+    function stubOpenDialog(testId: string) {
+      vi.stubGlobal("document", {
+        querySelector: (selector: string) =>
+          selector.includes('[role="dialog"]')
+            ? { getAttribute: () => testId }
+            : null,
+      });
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("blocks a command behind the settings modal", () => {
+      stubOpenDialog("settings-modal");
+      const newTab = vi.fn();
+      const e = keyEvent(useKeybindingsStore.getState().bindings["new-tab"].key);
+      dispatchKeybinding(e, { "new-tab": newTab });
+      expect(newTab).not.toHaveBeenCalled();
+      expect(e.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it("still lets ⌘, close the settings modal", () => {
+      stubOpenDialog("settings-modal");
+      const settings = vi.fn();
+      const e = keyEvent(useKeybindingsStore.getState().bindings["settings"].key);
+      dispatchKeybinding(e, { settings });
+      expect(settings).toHaveBeenCalled();
+      expect(e.preventDefault).toHaveBeenCalled();
+    });
+
+    it("blocks the palette toggle while settings (not the palette) is open", () => {
+      stubOpenDialog("settings-modal");
+      const togglePalette = vi.fn();
+      const e = keyEvent(
+        useKeybindingsStore.getState().bindings["command-palette"].key,
+      );
+      dispatchKeybinding(e, { "command-palette": togglePalette });
+      expect(togglePalette).not.toHaveBeenCalled();
+    });
+
+    it("still lets ⌘K close the command palette", () => {
+      stubOpenDialog("command-palette");
+      const togglePalette = vi.fn();
+      const e = keyEvent(
+        useKeybindingsStore.getState().bindings["command-palette"].key,
+      );
+      dispatchKeybinding(e, { "command-palette": togglePalette });
+      expect(togglePalette).toHaveBeenCalled();
+    });
+
+    it("blocks a command behind a dialog with no toggle of its own", () => {
+      stubOpenDialog("agents-modal");
+      const newTab = vi.fn();
+      const e = keyEvent(useKeybindingsStore.getState().bindings["new-tab"].key);
+      dispatchKeybinding(e, { "new-tab": newTab });
+      expect(newTab).not.toHaveBeenCalled();
+    });
   });
 });

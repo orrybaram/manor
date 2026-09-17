@@ -15,6 +15,7 @@ import { ToggleGroup } from "../../ui/ToggleGroup";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
+import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 
 type Mode = "new" | "existing";
 
@@ -51,6 +52,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     initialBranch = "",
     initialFolderId = null,
   } = props;
+
+  const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
   const [mode, setMode] = useState<Mode>("new");
   const [name, setName] = useState("");
@@ -253,12 +256,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           className={styles.dialog}
           data-testid="new-workspace-dialog"
           onOpenAutoFocus={handleOpenAutoFocus}
-          onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            document
-              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-              ?.focus();
-          }}
+          onCloseAutoFocus={restoreFocusOnClose}
         >
           <Row align="center" justify="space-between" className={styles.header}>
             <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>

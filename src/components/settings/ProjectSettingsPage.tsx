@@ -408,6 +408,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               />
               <button
                 className={styles.commandDeleteBtn}
+                aria-label="Delete command"
                 onClick={() => {
                   const filtered = (project.commands ?? []).filter(
                     (c) => c.id !== cmd.id,

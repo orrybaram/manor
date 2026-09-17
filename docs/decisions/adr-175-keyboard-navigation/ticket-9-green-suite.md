@@ -29,3 +29,5 @@ blocked_by: [3, 4, 5, 6, 7, 8]
 ## Known flake to resolve
 
 `sidebar › project headers collapse from the keyboard` failed 2/3 runs after ticket 4 (also on the pre-ticket-4 baseline). ArrowUp timing in the sidebar. Find the root cause (likely a roving-tabindex / focus race in `installRovingRows` or the collapse re-render dropping focus) — fix the app, not the wait.
+
+Also intermittently failing under `--repeat-each` since ticket 3: `Enter opens a workspace, F2 renames it` and `Enter on Home opens the home view`. Same suspicion: sidebar focus lost across a re-render. Run each with `--repeat-each 10` before and after the fix.

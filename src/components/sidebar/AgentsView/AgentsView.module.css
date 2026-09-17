@@ -213,7 +213,9 @@
   color: var(--text-selected);
 }
 
-.agentRow:hover .removeButton {
+.agentRow:hover .removeButton,
+.agentRow:focus-within .removeButton,
+.removeButton:focus-visible {
   opacity: 1;
 }
 

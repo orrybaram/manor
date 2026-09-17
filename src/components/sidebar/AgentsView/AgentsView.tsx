@@ -6,6 +6,7 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentStore } from "../../../store/agent-store";
+import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
 import { useInlineRename } from "../../../hooks/useInlineRename";
@@ -147,6 +148,8 @@ type AgentsModalProps = {
 export function AgentsModal(props: AgentsModalProps) {
   const { open, onClose, onResumeAgent } = props;
 
+  const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
+
   const {
     agents,
     loading,
@@ -228,12 +231,7 @@ export function AgentsModal(props: AgentsModalProps) {
           className={styles.modal}
           data-testid="agents-modal"
           onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            document
-              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-              ?.focus();
-          }}
+          onCloseAutoFocus={restoreFocusOnClose}
         >
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>
@@ -256,7 +254,7 @@ export function AgentsModal(props: AgentsModalProps) {
               ))}
             </div>
             <Dialog.Close asChild>
-              <button className={styles.closeButton}>
+              <button className={styles.closeButton} aria-label="Close">
                 <X size={16} />
               </button>
             </Dialog.Close>

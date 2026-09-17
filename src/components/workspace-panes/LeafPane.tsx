@@ -485,6 +485,7 @@ export function LeafPane(props: LeafPaneProps) {
             className={styles.paneStatusBtn}
             onClick={handleSplit}
             title="Split pane"
+            aria-label="Split pane"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <rect
@@ -511,6 +512,7 @@ export function LeafPane(props: LeafPaneProps) {
             className={styles.paneStatusBtn}
             onClick={handleClose}
             title="Close pane"
+            aria-label="Close pane"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
               <line

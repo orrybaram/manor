@@ -1,6 +1,6 @@
 ---
 title: Open context menus from the keyboard
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3, 4]

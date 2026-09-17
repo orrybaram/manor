@@ -184,11 +184,47 @@ export function createSharedKeybindingHandlers(
 }
 
 /**
+ * Any Radix dialog currently open in this window. Matches both the modal and
+ * non-modal shapes Radix can render — `aria-modal` isn't actually emitted by
+ * the installed `@radix-ui/react-dialog`, so the plain `[role="dialog"]`
+ * clause is what matches in practice; the `aria-modal` clause is kept in case
+ * a future upgrade starts emitting it.
+ */
+const OPEN_DIALOG_SELECTOR =
+  '[role="dialog"][data-state="open"][aria-modal="true"], [role="dialog"][data-state="open"]';
+
+/**
+ * Command a dialog's own toggle keybinding still runs while it's open, keyed
+ * by that dialog's `data-testid`. Everything else is left to the dialog while
+ * one is open — e.g. ⌘T must not touch tabs behind an open Settings modal.
+ */
+const DIALOG_OWN_TOGGLE: Record<string, string> = {
+  "settings-modal": "settings",
+  "command-palette": "command-palette",
+};
+
+function openDialogTestId(): string | null {
+  // Guard for unit tests, which run this module in a DOM-less environment.
+  if (typeof document === "undefined") return null;
+  return (
+    document
+      .querySelector<HTMLElement>(OPEN_DIALOG_SELECTOR)
+      ?.getAttribute("data-testid") ?? null
+  );
+}
+
+/**
  * Match a keydown against the user's bindings and run the bound handler.
  *
  * Browser commands are conditional — they only fire when the focused pane is a
  * browser. When no browser is focused the match is skipped entirely so the
  * event reaches the native menu (app zoom) or the terminal unimpeded.
+ *
+ * While a Radix dialog is open, only that dialog's own toggle command (the one
+ * that also closes it) is allowed through; every other command is left to the
+ * dialog — including a bound combo the dialog doesn't otherwise handle, which
+ * simply falls through to the browser/OS default instead of reaching behind
+ * the modal.
  */
 export function dispatchKeybinding(
   e: KeyboardEvent,
@@ -200,9 +236,13 @@ export function dispatchKeybinding(
 
   const combo = comboFromEvent(e);
   const bindings = useKeybindingsStore.getState().bindings;
+  const openDialog = openDialogTestId();
 
   for (const [commandId, boundCombo] of Object.entries(bindings)) {
     if (!comboMatches(combo, boundCombo)) continue;
+
+    if (openDialog && DIALOG_OWN_TOGGLE[openDialog] !== commandId) return;
+
     const handler = handlers[commandId];
     if (commandId.startsWith("browser-")) {
       if (!handler || !getFocusedBrowserRef()) continue;

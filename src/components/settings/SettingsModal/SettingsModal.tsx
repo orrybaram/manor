@@ -12,6 +12,7 @@ import Link from "lucide-react/dist/esm/icons/link";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import { useProjectStore } from "../../../store/project-store";
+import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
@@ -46,6 +47,8 @@ type SettingsModalProps = {
 
 export function SettingsModal(props: SettingsModalProps) {
   const { open, onClose, initialProjectId, initialPage } = props;
+
+  const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
@@ -100,6 +103,7 @@ export function SettingsModal(props: SettingsModalProps) {
 
       if (!sectionId) {
         contentRef.current?.scrollTo({ top: 0 });
+        contentRef.current?.focus();
         return;
       }
 
@@ -113,6 +117,9 @@ export function SettingsModal(props: SettingsModalProps) {
       // Reflow so the animation restarts when the same section is picked twice.
       void target.offsetWidth;
       target.classList.add(styles.sectionFlash);
+      // Move keyboard focus to the section heading so Tab continues from
+      // here, not from wherever the search input was left.
+      target.focus();
     });
 
     return () => cancelAnimationFrame(frame);
@@ -144,6 +151,27 @@ export function SettingsModal(props: SettingsModalProps) {
     [searching, results, highlight, goToSection],
   );
 
+  // ↑/↓ move focus between the nav's buttons (page links and the Projects
+  // group header/rows alike) instead of falling through to browser scrolling.
+  const handleNavKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const buttons = Array.from(
+        e.currentTarget.querySelectorAll<HTMLButtonElement>("button"),
+      );
+      if (buttons.length === 0) return;
+      const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      const next =
+        current === -1
+          ? 0
+          : (current + delta + buttons.length) % buttons.length;
+      e.preventDefault();
+      buttons[next]?.focus();
+    },
+    [],
+  );
+
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) onClose();
@@ -167,17 +195,12 @@ export function SettingsModal(props: SettingsModalProps) {
             e.preventDefault();
             searchRef.current?.focus();
           }}
-          onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            document
-              .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-              ?.focus();
-          }}
+          onCloseAutoFocus={restoreFocusOnClose}
         >
           <div className={styles.header}>
             <Dialog.Title className={styles.title}>Settings</Dialog.Title>
             <Dialog.Close asChild>
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" aria-label="Close settings">
                 <X size={16} />
               </Button>
             </Dialog.Close>
@@ -226,10 +249,11 @@ export function SettingsModal(props: SettingsModalProps) {
                   )}
                 </div>
               ) : (
-                <nav className={styles.nav}>
+                <nav className={styles.nav} onKeyDown={handleNavKeyDown}>
                   <button
                     data-testid="settings-nav-general"
                     className={`${styles.navItem} ${page.type === "general" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "general" ? "page" : undefined}
                     onClick={() => setPage({ type: "general" })}
                   >
                     <Settings size={14} />
@@ -239,6 +263,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-appearance"
                     className={`${styles.navItem} ${page.type === "app" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "app" ? "page" : undefined}
                     onClick={() => setPage({ type: "app" })}
                   >
                     <Palette size={14} />
@@ -248,6 +273,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-keybindings"
                     className={`${styles.navItem} ${page.type === "keybindings" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "keybindings" ? "page" : undefined}
                     onClick={() => setPage({ type: "keybindings" })}
                   >
                     <Keyboard size={14} />
@@ -257,6 +283,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-notifications"
                     className={`${styles.navItem} ${page.type === "notifications" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "notifications" ? "page" : undefined}
                     onClick={() => setPage({ type: "notifications" })}
                   >
                     <Bell size={14} />
@@ -266,6 +293,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-integrations"
                     className={`${styles.navItem} ${page.type === "integrations" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "integrations" ? "page" : undefined}
                     onClick={() => setPage({ type: "integrations" })}
                   >
                     <Link size={14} />
@@ -275,6 +303,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-home"
                     className={`${styles.navItem} ${page.type === "home" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "home" ? "page" : undefined}
                     onClick={() => setPage({ type: "home" })}
                   >
                     <Bot size={14} />
@@ -284,6 +313,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   <button
                     data-testid="settings-nav-remote"
                     className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "remote" ? "page" : undefined}
                     onClick={() => setPage({ type: "remote" })}
                   >
                     <Smartphone size={14} />
@@ -311,6 +341,12 @@ export function SettingsModal(props: SettingsModalProps) {
                             ? styles.navItemActive
                             : ""
                         }`}
+                        aria-current={
+                          page.type === "project" &&
+                          page.projectId === project.id
+                            ? "page"
+                            : undefined
+                        }
                         onClick={() =>
                           setPage({ type: "project", projectId: project.id })
                         }
@@ -327,7 +363,7 @@ export function SettingsModal(props: SettingsModalProps) {
               )}
             </div>
 
-            <div className={styles.content} ref={contentRef}>
+            <div className={styles.content} ref={contentRef} tabIndex={-1}>
               {page.type === "general" && <GeneralSettingsPage />}
               {page.type === "app" && <AppSettingsPage />}
               {page.type === "keybindings" && <KeybindingsPage />}

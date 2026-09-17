@@ -40,6 +40,7 @@ type KeyInit = {
 /** A minimal stand-in for React's keyboard event on `row`. */
 function press(row: HTMLElement, init: KeyInit, actions: SidebarRowKeyActions) {
   const preventDefault = vi.fn();
+  const stopPropagation = vi.fn();
   const event = {
     shiftKey: false,
     metaKey: false,
@@ -49,9 +50,10 @@ function press(row: HTMLElement, init: KeyInit, actions: SidebarRowKeyActions) {
     target: init.target ?? row,
     currentTarget: row,
     preventDefault,
+    stopPropagation,
   } as unknown as ReactKeyboardEvent<HTMLElement>;
   handleSidebarRowKeyDown(event, actions);
-  return { preventDefault };
+  return { preventDefault, stopPropagation };
 }
 
 function actionsMock() {
@@ -120,18 +122,30 @@ describe("handleSidebarRowKeyDown", () => {
 
   it("Shift+F10, ContextMenu and ⌘. open the menu when a handler is given", () => {
     const actions = actionsMock();
-    press(el("ws-a"), { key: "F10", shiftKey: true }, actions);
+    const shiftF10 = press(el("ws-a"), { key: "F10", shiftKey: true }, actions);
     press(el("ws-a"), { key: "ContextMenu" }, actions);
     press(el("ws-a"), { key: ".", metaKey: true }, actions);
     expect(actions.openMenu).toHaveBeenCalledTimes(3);
     expect(actions.openMenu).toHaveBeenCalledWith(el("ws-a"));
+    // Handled locally, so the global shortcut dispatcher never sees it.
+    expect(shiftF10.stopPropagation).toHaveBeenCalled();
 
-    const { preventDefault } = press(
+    // ⌘⇧. (Copy Branch Name) must not be mistaken for ⌘. (open the menu).
+    const copyBranch = press(
+      el("ws-a"),
+      { key: ".", metaKey: true, shiftKey: true },
+      actions,
+    );
+    expect(actions.openMenu).toHaveBeenCalledTimes(3);
+    expect(copyBranch.preventDefault).not.toHaveBeenCalled();
+
+    const { preventDefault, stopPropagation } = press(
       el("ws-a"),
       { key: "F10", shiftKey: true },
       { activate: vi.fn() },
     );
     expect(preventDefault).not.toHaveBeenCalled();
+    expect(stopPropagation).not.toHaveBeenCalled();
   });
 
   it("leaves modified keys to app shortcuts", () => {

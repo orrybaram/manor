@@ -5,6 +5,7 @@ import Bot from "lucide-react/dist/esm/icons/bot";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { isContextMenuKey } from "../../../lib/keyboard-context-menu";
 import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
@@ -635,16 +636,12 @@ export function TabBar(props: TabBarProps) {
                       setAddMenuOpen(true);
                     }}
                     onKeyDown={(e) => {
-                      // Shift+F10 opens the Browser/Agent menu that otherwise
-                      // needs a right-click.
-                      if (
-                        e.key === "F10" &&
-                        e.shiftKey &&
-                        !e.metaKey &&
-                        !e.ctrlKey &&
-                        !e.altKey
-                      ) {
+                      // Shift+F10, the ContextMenu key or ⌘. open the
+                      // Browser/Agent menu that otherwise needs a right-click
+                      // (ADR-175).
+                      if (isContextMenuKey(e)) {
                         e.preventDefault();
+                        e.stopPropagation();
                         setAddMenuOpen(true);
                       }
                     }}

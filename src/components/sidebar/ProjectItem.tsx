@@ -45,6 +45,9 @@ import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
+import {
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
@@ -307,6 +310,13 @@ export function ProjectItem(props: ProjectItemProps) {
     reason?: string;
   } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
+  // Paths of workspace rows whose context menu was opened via the keyboard
+  // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the row; a
+  // mouse-opened menu keeps Radix's own default (ADR-175).
+  const workspaceMenuOpenedByKeyboard = useRef<Set<string>>(new Set());
+  // Same, for the project header's own context menu.
+  const projectMenuOpenedByKeyboard = useRef(false);
+  const projectHeaderRef = useRef<HTMLDivElement | null>(null);
 
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
   const toggleFolderCollapsed = useProjectStore((s) => s.toggleFolderCollapsed);
@@ -485,8 +495,10 @@ export function ProjectItem(props: ProjectItemProps) {
           handleSidebarRowKeyDown(e, {
             activate: () => onSelectWorkspace(globalIdx),
             startRename: () => startRename(ws),
-            // Ticket 5 (ADR-175) opens the row's context menu from here.
-            openMenu: undefined,
+            openMenu: (row) => {
+              workspaceMenuOpenedByKeyboard.current.add(ws.path);
+              openContextMenuFromKeyboard(row);
+            },
           });
         }}
         onPointerDown={(e) => handleDragStart(ws.path, "workspace", e)}
@@ -546,7 +558,16 @@ export function ProjectItem(props: ProjectItemProps) {
           {workspaceEl}
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (workspaceMenuOpenedByKeyboard.current.has(ws.path)) {
+                e.preventDefault();
+                rowRefs.current.get(ws.path)?.focus();
+              }
+              workspaceMenuOpenedByKeyboard.current.delete(ws.path);
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() =>
@@ -783,6 +804,7 @@ export function ProjectItem(props: ProjectItemProps) {
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
+            ref={projectHeaderRef}
             data-testid="project-header"
             data-sidebar-row=""
             tabIndex={-1}
@@ -797,8 +819,10 @@ export function ProjectItem(props: ProjectItemProps) {
                 setExpanded: (next) => {
                   if (next === collapsed) onToggleCollapsed();
                 },
-                // Ticket 5 (ADR-175) opens the header's context menu here.
-                openMenu: undefined,
+                openMenu: (row) => {
+                  projectMenuOpenedByKeyboard.current = true;
+                  openContextMenuFromKeyboard(row);
+                },
               })
             }
             onPointerDown={onDragStart}
@@ -818,7 +842,16 @@ export function ProjectItem(props: ProjectItemProps) {
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (projectMenuOpenedByKeyboard.current) {
+                e.preventDefault();
+                projectHeaderRef.current?.focus();
+              }
+              projectMenuOpenedByKeyboard.current = false;
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => setNewWorkspaceOpen(true)}

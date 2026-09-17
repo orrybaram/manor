@@ -25,3 +25,7 @@ blocked_by: [3, 4, 5, 6, 7, 8]
 ## Files to touch
 - whatever the failures point at
 - `tests/e2e/README.md`, docs, `CHANGELOG.md`
+
+## Known flake to resolve
+
+`sidebar › project headers collapse from the keyboard` failed 2/3 runs after ticket 4 (also on the pre-ticket-4 baseline). ArrowUp timing in the sidebar. Find the root cause (likely a roving-tabindex / focus race in `installRovingRows` or the collapse re-render dropping focus) — fix the app, not the wait.

@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
@@ -13,20 +13,12 @@ import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
+import {
+  isContextMenuKey,
+  openContextMenuFromKeyboard,
+} from "../../lib/keyboard-context-menu";
 import { TabAgentDot } from "./TabAgentDot";
 import styles from "./TabBar/TabBar.module.css";
-
-/**
- * Shift+F10, the ContextMenu key or ⌘. — the row's context menu (ADR-175).
- * Mirrors `sidebar-row.ts`'s `isMenuKey`.
- */
-function isMenuKey(e: ReactKeyboardEvent<HTMLElement>): boolean {
-  if (e.key === "ContextMenu") return true;
-  if (e.key === "F10" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    return true;
-  }
-  return e.key === "." && e.metaKey && !e.ctrlKey && !e.altKey;
-}
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
 function allTabs(from: HTMLElement): HTMLElement[] {
@@ -64,9 +56,10 @@ function handleTabKeyDown(
 ): void {
   if (e.target !== e.currentTarget) return;
 
-  if (isMenuKey(e)) {
+  if (isContextMenuKey(e)) {
     if (!actions.openMenu) return;
     e.preventDefault();
+    e.stopPropagation();
     actions.openMenu(e.currentTarget);
     return;
   }
@@ -185,18 +178,28 @@ export function TabButton(props: TabButtonProps) {
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
   const contentTypeClass = isDiff ? styles.tabDiff : isBrowser ? styles.tabBrowser : styles.tabTerminal;
+  // Set when the context menu was opened via `openMenu` (keyboard), so
+  // `onCloseAutoFocus` knows to return focus to the tab; a mouse-opened menu
+  // keeps Radix's own default (don't steal focus after a click).
+  const openedByKeyboard = useRef(false);
+  const tabElRef = useRef<HTMLDivElement | null>(null);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
-          ref={buttonRef}
+          ref={(el) => {
+            tabElRef.current = el;
+            buttonRef(el);
+          }}
           className={`${styles.tab} ${contentTypeClass} ${isActive ? styles.tabActive : ""} ${isDragging ? styles.tabDragging : ""} ${isPinned ? styles.tabPinned : ""} ${isDropTarget ? styles.tabDropTarget : ""}`}
           onClick={onSelect}
           onKeyDown={(e) =>
             handleTabKeyDown(e, {
               select: onSelect,
-              // Ticket 5 (ADR-175) opens the tab's context menu from here.
-              openMenu: undefined,
+              openMenu: (tab) => {
+                openedByKeyboard.current = true;
+                openContextMenuFromKeyboard(tab);
+              },
             })
           }
           draggable={draggable}
@@ -273,7 +276,16 @@ export function TabButton(props: TabButtonProps) {
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={styles.contextMenu}>
+        <ContextMenu.Content
+          className={styles.contextMenu}
+          onCloseAutoFocus={(e) => {
+            if (openedByKeyboard.current) {
+              e.preventDefault();
+              tabElRef.current?.focus();
+            }
+            openedByKeyboard.current = false;
+          }}
+        >
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={onTogglePin}

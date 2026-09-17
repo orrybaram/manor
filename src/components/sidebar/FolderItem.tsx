@@ -4,6 +4,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import type { WorkspaceFolder, WorkspaceInfo } from "../../store/project-store";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
+import { openContextMenuFromKeyboard } from "../../lib/keyboard-context-menu";
 import { useWorkspacesAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
@@ -87,6 +88,10 @@ export function FolderItem(props: FolderItemProps) {
   const blockRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const wasCollapsed = useRef(collapsed);
+  // Set when the header's context menu was opened via the keyboard
+  // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the header;
+  // a mouse-opened menu keeps Radix's own default (ADR-175).
+  const menuOpenedByKeyboard = useRef(false);
   const {
     handleKeyDown: handleEmojiKeyDown,
     fieldProps: emojiFieldProps,
@@ -177,8 +182,10 @@ export function FolderItem(props: FolderItemProps) {
               handleSidebarRowKeyDown(e, {
                 activate: onToggleCollapsed,
                 startRename,
-                // Ticket 5 (ADR-175) opens the folder's context menu here.
-                openMenu: undefined,
+                openMenu: (row) => {
+                  menuOpenedByKeyboard.current = true;
+                  openContextMenuFromKeyboard(row);
+                },
                 setExpanded: (expanded) => {
                   if (expanded === collapsed) onToggleCollapsed();
                 },
@@ -239,7 +246,16 @@ export function FolderItem(props: FolderItemProps) {
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className={styles.contextMenu}>
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={(e) => {
+              if (menuOpenedByKeyboard.current) {
+                e.preventDefault();
+                headerRef.current?.focus();
+              }
+              menuOpenedByKeyboard.current = false;
+            }}
+          >
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => onNewWorkspace()}

@@ -13,6 +13,7 @@
 
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { useAppStore } from "../store/app-store";
+import { isContextMenuKey } from "./keyboard-context-menu";
 
 export const SIDEBAR_ROW_SELECTOR = "[data-sidebar-row]";
 
@@ -57,14 +58,6 @@ export type SidebarRowKeyActions = {
   openMenu?: (row: HTMLElement) => void;
 };
 
-function isMenuKey(e: ReactKeyboardEvent<HTMLElement>): boolean {
-  if (e.key === "ContextMenu") return true;
-  if (e.key === "F10" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    return true;
-  }
-  return e.key === "." && e.metaKey && !e.ctrlKey && !e.altKey;
-}
-
 /**
  * Keyboard handling shared by every sidebar row. Callers wire it to the row's
  * `onKeyDown` and skip it while the row's inline rename input is open — that
@@ -78,9 +71,10 @@ export function handleSidebarRowKeyDown(
   // Their keys are their own business.
   if (e.target !== e.currentTarget) return;
 
-  if (isMenuKey(e)) {
+  if (isContextMenuKey(e)) {
     if (!actions.openMenu) return;
     e.preventDefault();
+    e.stopPropagation();
     actions.openMenu(e.currentTarget);
     return;
   }

@@ -127,13 +127,21 @@ const paletteInput = (window: Page) => window.locator("[cmdk-input]");
  * Pointer-only controls: visible elements with `cursor: pointer` that can't
  * take focus and aren't inside something that can. Children of a pointer
  * parent that is itself reported are skipped, so one bad control is one line.
+ *
+ * A `tabindex="-1"` element counts only as a member of a roving-tabindex
+ * composite (sidebar rows, tabs): one member holds the Tab stop and the arrow
+ * keys reach the rest. Anywhere else, -1 means the keyboard cannot get there.
+ * A `<label>` is a pointer target for its control, so it passes when that
+ * control can take focus.
  */
 const pointerOnly = (window: Page, scope = "body") =>
   window.evaluate((scope) => {
     const root = document.querySelector(scope);
     if (!root) return [`scope ${scope} not found`];
+    const ROVING = "[data-sidebar-row],[role='tab']";
     const focusable = (el: Element) =>
       (el as HTMLElement).tabIndex >= 0 ||
+      el.matches(ROVING) ||
       el.matches("button,a[href],input,select,textarea,[contenteditable]");
     const out: string[] = [];
     for (const el of Array.from(root.querySelectorAll("*"))) {
@@ -142,9 +150,14 @@ const pointerOnly = (window: Page, scope = "body") =>
       if (!h.offsetParent && getComputedStyle(h).position !== "fixed") continue;
       if (
         focusable(h) ||
-        h.closest("button,a[href],[tabindex]:not([tabindex='-1'])")
+        h.closest(`button,a[href],[tabindex]:not([tabindex='-1']),${ROVING}`)
       )
         continue;
+      if (h instanceof HTMLLabelElement) {
+        const control =
+          h.control ?? h.querySelector("button,input,select,textarea");
+        if (control && focusable(control)) continue;
+      }
       if (
         h.parentElement &&
         getComputedStyle(h.parentElement).cursor === "pointer" &&

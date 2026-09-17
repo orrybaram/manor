@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -420,11 +421,29 @@ export function ProjectItem(props: ProjectItemProps) {
     renameCancelled.current = false;
     setEditingPath(ws.path);
     setEditValue(ws.name || ws.branch || "");
+    // A rename picked from a menu or the palette waits a frame: the menu
+    // hands focus back to where it came from as it closes, and focusing the
+    // input first would let that blur (and commit) it.
     requestAnimationFrame(() => {
-      editRef.current?.focus();
-      editRef.current?.select();
+      const input = editRef.current;
+      if (!input || input === document.activeElement) return;
+      input.focus();
+      input.select();
     });
   }, []);
+
+  // F2 on a focused row: nothing else is about to move focus, so the input
+  // takes it in the commit that renders it. Waiting a frame left a window
+  // where the input was on screen but the row still held focus, and a key
+  // pressed then (Escape, the first letter of the name) went to the row,
+  // which ignores keys while editing (ADR-175).
+  useLayoutEffect(() => {
+    if (!editingPath) return;
+    const row = rowRefs.current.get(editingPath);
+    if (!row || row !== document.activeElement) return;
+    editRef.current?.focus();
+    editRef.current?.select();
+  }, [editingPath, rowRefs]);
 
   const commitRename = useCallback(
     (ws: WorkspaceInfo) => {

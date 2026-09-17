@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Folder from "lucide-react/dist/esm/icons/folder";
@@ -125,11 +125,23 @@ export function FolderItem(props: FolderItemProps) {
     renameCancelled.current = false;
     setEditValue(folder.name);
     setEditingState(true);
+    // From the context menu, wait for the menu to hand focus back first (see
+    // ProjectItem's startRename).
     requestAnimationFrame(() => {
-      editRef.current?.focus();
-      editRef.current?.select();
+      const input = editRef.current;
+      if (!input || input === document.activeElement) return;
+      input.focus();
+      input.select();
     });
   };
+
+  // F2 on the focused header: the input takes focus in the commit that
+  // renders it, so the next key lands in it rather than on the header.
+  useLayoutEffect(() => {
+    if (!editing || headerRef.current !== document.activeElement) return;
+    editRef.current?.focus();
+    editRef.current?.select();
+  }, [editing]);
 
   /** Hand focus back to the header once the rename input closes. */
   const focusHeader = (input: HTMLInputElement) => {

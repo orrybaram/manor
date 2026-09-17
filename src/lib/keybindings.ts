@@ -8,10 +8,24 @@ export function getPlatform(): "mac" | "other" {
   return p.toLowerCase().includes("mac") ? "mac" : "other";
 }
 
-/** Returns true if two KeyCombos are an exact match. */
+/**
+ * Single-character keys compare case-insensitively: with Shift held (⌘⇧E, say)
+ * `KeyboardEvent.key` can arrive upper-cased, while bindings store lower case.
+ */
+function keysMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase();
+}
+
+/** True for F1–F12, the only keys a binding may use without a modifier. */
+export function isFunctionKey(key: string): boolean {
+  return /^F([1-9]|1[0-2])$/.test(key);
+}
+
+/** Returns true if two KeyCombos match (modifiers exactly, letters in any case). */
 export function comboMatches(a: KeyCombo, b: KeyCombo): boolean {
   return (
-    a.key === b.key &&
+    keysMatch(a.key, b.key) &&
     a.meta === b.meta &&
     a.ctrl === b.ctrl &&
     a.shift === b.shift &&

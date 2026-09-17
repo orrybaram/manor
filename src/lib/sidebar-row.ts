@@ -1,23 +1,16 @@
 /**
  * The sidebar's focusable rows — workspace rows and folder headers (ADR-172).
  *
- * `data-sidebar-row` is a contract between two places that do not know about
- * each other: the rows put it on whatever element takes focus, and the
- * terminal's auto-focus effect reads it to tell "the user is driving the
- * sidebar" from "the focused pane changed", so it can stop yanking focus back
- * out of a row the moment a click switches workspaces.
+ * `data-sidebar-row` marks whatever element takes focus for a row. Keyboard
+ * navigation walks these, and `focus-regions` picks one when focus jumps into
+ * the sidebar. The terminal's "don't steal focus" guard now keys off the whole
+ * sidebar region (`isNavRegionFocused`, ADR-175) rather than rows alone.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useAppStore } from "../store/app-store";
 
 export const SIDEBAR_ROW_SELECTOR = "[data-sidebar-row]";
-
-/** True while keyboard focus sits on (or inside) a sidebar row. */
-export function isSidebarRowFocused(): boolean {
-  const active = document.activeElement;
-  return !!active?.closest(SIDEBAR_ROW_SELECTOR);
-}
 
 /**
  * Move focus one row along in document order. Rows are collected from the

@@ -96,6 +96,9 @@ export const SHARED_WINDOW_COMMANDS: ReadonlySet<string> = new Set<string>([
   "browser-reload",
   "browser-focus-url",
   "open-diff",
+  "focus-next-region",
+  "focus-prev-region",
+  "focus-tabbar",
   ...Array.from({ length: 9 }, (_, i) => `select-tab-${i + 1}`),
 ]);
 

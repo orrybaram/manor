@@ -7,7 +7,8 @@ import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath, homeLaunchCommand } from "./home";
-import { comboFromEvent, comboMatches } from "./keybindings";
+import { comboFromEvent, comboMatches, isFunctionKey } from "./keybindings";
+import { cycleRegion, focusRegion } from "./focus-regions";
 
 /**
  * Keybinding commands that are meaningful in ANY window — the primary window
@@ -165,6 +166,9 @@ export function createSharedKeybindingHandlers(
       input?.focus();
       input?.select();
     },
+    "focus-next-region": () => void cycleRegion(1),
+    "focus-prev-region": () => void cycleRegion(-1),
+    "focus-tabbar": () => void focusRegion("tabbar"),
     "open-diff": () => {
       const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
       if (diffOpensInNewPanel) store().openDiffInNewPanel();
@@ -190,8 +194,9 @@ export function dispatchKeybinding(
   e: KeyboardEvent,
   handlers: Record<string, () => void>,
 ): void {
-  // Skip plain keys with no modifier — custom bindings always use at least one
-  if (!e.metaKey && !e.ctrlKey && !e.altKey) return;
+  // Skip plain keys with no modifier — bindings use at least one, except for
+  // function keys (F6 cycles focus regions).
+  if (!e.metaKey && !e.ctrlKey && !e.altKey && !isFunctionKey(e.key)) return;
 
   const combo = comboFromEvent(e);
   const bindings = useKeybindingsStore.getState().bindings;

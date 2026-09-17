@@ -571,6 +571,7 @@ export function TabBar(props: TabBarProps) {
       <ContextMenu.Trigger asChild>
         <div
           ref={barRef}
+          data-focus-region="tabbar"
           className={`${styles.tabBar} ${!sidebarVisible ? styles.noSidebar : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}

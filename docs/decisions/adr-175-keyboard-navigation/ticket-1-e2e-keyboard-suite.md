@@ -1,6 +1,6 @@
 ---
 title: E2E keyboard navigation suite (red first)
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

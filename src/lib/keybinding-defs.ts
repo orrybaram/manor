@@ -49,6 +49,11 @@ function metaCombo(
   return { key, meta: true, ctrl, shift, alt };
 }
 
+/** A combo without ⌘ — only function keys may be bound this way (ADR-175). */
+function plainCombo(key: string, shift = false): KeyCombo {
+  return { key, meta: false, ctrl: false, shift, alt: false };
+}
+
 export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
   {
     id: "new-tab",
@@ -120,6 +125,30 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
     id: "toggle-sidebar",
     label: "Toggle Sidebar",
     defaultCombo: metaCombo("\\"),
+    category: "app",
+  },
+  {
+    id: "focus-sidebar",
+    label: "Focus Sidebar",
+    defaultCombo: metaCombo("e", true), // Cmd+Shift+E
+    category: "app",
+  },
+  {
+    id: "focus-tabbar",
+    label: "Focus Tab Bar",
+    defaultCombo: metaCombo("y", true), // Cmd+Shift+Y
+    category: "app",
+  },
+  {
+    id: "focus-next-region",
+    label: "Focus Next Region",
+    defaultCombo: plainCombo("F6"),
+    category: "app",
+  },
+  {
+    id: "focus-prev-region",
+    label: "Focus Previous Region",
+    defaultCombo: plainCombo("F6", true),
     category: "app",
   },
   {

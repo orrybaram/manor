@@ -25,7 +25,7 @@ export function LeafPanel({ panelId, workspacePath, onNewAgent }: LeafPanelProps
       onClick={() => focusPanel(panelId)}
     >
       <TabBar panelId={panelId} workspacePath={workspacePath} onNewAgent={onNewAgent} />
-      <div className="terminal-container">
+      <div className="terminal-container" data-focus-region="pane">
         {panel.tabs.map((tab) => (
           <div
             key={tab.id}

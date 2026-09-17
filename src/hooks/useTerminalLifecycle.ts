@@ -20,7 +20,7 @@ import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
 import { isHomePath } from "../lib/home";
-import { isSidebarRowFocused } from "../lib/sidebar-row";
+import { isNavRegionFocused } from "../lib/focus-regions";
 import type { StreamPosition } from "../electron.d";
 import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
@@ -120,10 +120,11 @@ export function useTerminalLifecycle(
 
     if (!isFocusedPane || !termRef.current) return;
     const t = termRef.current;
-    // Focus the terminal for keyboard input — unless the user is driving the
-    // sidebar. Clicking a row switches workspaces, which flips this selector,
-    // and focusing here would yank focus straight back out of the row.
-    if (demanded || fresh || !isSidebarRowFocused()) t.focus();
+    // Focus the terminal for keyboard input — unless the user is driving a
+    // navigation region (sidebar, tab bar, status bar; ADR-175). Clicking a
+    // row switches workspaces, which flips this selector, and focusing here
+    // would yank focus straight back out of the row.
+    if (demanded || fresh || !isNavRegionFocused()) t.focus();
     // Force a full viewport refresh — TUIs (neovim, claude code) using the
     // WebGL renderer can have a stale canvas after being visibility:hidden.
     // The pane became visible either way, so this runs even when focus stayed

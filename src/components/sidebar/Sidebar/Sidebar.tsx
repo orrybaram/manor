@@ -248,6 +248,7 @@ export function Sidebar(props: SidebarProps) {
   return (
     <div
       ref={sidebarRef}
+      data-focus-region="sidebar"
       className={styles.sidebar}
       style={{ width: sidebarWidth }}
     >

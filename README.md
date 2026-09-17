@@ -242,6 +242,15 @@ All shortcuts are customizable via **Settings > Keybindings**. Every shortcut al
 | `Ctrl+Cmd+↓`  | Next workspace     |
 | `Ctrl+Cmd+↑`  | Previous workspace |
 
+### Keyboard Focus
+
+| Shortcut      | Action                                                          |
+| ------------- | --------------------------------------------------------------- |
+| `F6`          | Move focus to the next region (sidebar, tabs, pane, status bar) |
+| `Shift+F6`    | Move focus to the previous region                               |
+| `Cmd+Shift+E` | Focus the sidebar (shows it if hidden)                          |
+| `Cmd+Shift+Y` | Focus the tab bar                                               |
+
 ### Zoom
 
 | Shortcut | Action     |

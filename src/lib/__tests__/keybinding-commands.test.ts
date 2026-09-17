@@ -120,6 +120,9 @@ describe("createSharedKeybindingHandlers", () => {
       "browser-reload",
       "browser-focus-url",
       "open-diff",
+      "focus-next-region",
+      "focus-prev-region",
+      "focus-tabbar",
       "select-tab-1",
       "select-tab-9",
     ]) {
@@ -136,6 +139,7 @@ describe("createSharedKeybindingHandlers", () => {
       "new-workspace",
       "history-back",
       "history-forward",
+      "focus-sidebar",
     ]) {
       expect(handlers[id], id).toBeUndefined();
     }
@@ -232,6 +236,39 @@ describe("dispatchKeybinding", () => {
     dispatchKeybinding(e, { "new-tab": newTab });
     expect(newTab).not.toHaveBeenCalled();
     expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a bound function key without a modifier", () => {
+    const next = vi.fn();
+    const e = keyEvent("F6", { metaKey: false });
+    dispatchKeybinding(e, { "focus-next-region": next });
+    expect(next).toHaveBeenCalled();
+    expect(e.preventDefault).toHaveBeenCalled();
+  });
+
+  it("dispatches Shift+F6 to the previous-region command", () => {
+    const next = vi.fn();
+    const prev = vi.fn();
+    const e = keyEvent("F6", { metaKey: false, shiftKey: true });
+    dispatchKeybinding(e, {
+      "focus-next-region": next,
+      "focus-prev-region": prev,
+    });
+    expect(prev).toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("ignores an unbound function key", () => {
+    const e = keyEvent("F7", { metaKey: false });
+    dispatchKeybinding(e, { "focus-next-region": vi.fn() });
+    expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("matches a shifted letter whatever its case", () => {
+    const focusSidebar = vi.fn();
+    const e = keyEvent("E", { shiftKey: true });
+    dispatchKeybinding(e, { "focus-sidebar": focusSidebar });
+    expect(focusSidebar).toHaveBeenCalled();
   });
 
   it("lets a command this window doesn't implement fall through", () => {

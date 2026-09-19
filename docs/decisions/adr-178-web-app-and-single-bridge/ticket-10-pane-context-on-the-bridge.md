@@ -1,6 +1,6 @@
 ---
 title: agents.setPaneContext on the bridge, so a browser-opened pane has an agent context
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [7]

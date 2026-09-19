@@ -1,6 +1,6 @@
 ---
 title: Follower mode — a web viewer never resizes a pane the desktop owns
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3, 4]

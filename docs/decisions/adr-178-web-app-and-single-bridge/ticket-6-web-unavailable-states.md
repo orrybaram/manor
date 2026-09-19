@@ -48,6 +48,19 @@ empty state; nothing crashes, nothing silently no-ops.
   worktree scripts, keybindings, remote control itself) — render read-only
   with a one-line note when `isWebApp()`.
 
+## Carried over from ticket 4's report
+
+- `git.push` is a method *and* a namespace in `preload.ts`; on the web the
+  bridge rejects `git.push.start` with `BridgeUnavailableError` (git is not on
+  the slice-1 table). `DiffPane` / the git panel need an empty state for that
+  rather than a raw rejection — same "says so" treatment as the rest.
+- `src/web-main.tsx` grew `FullPageMessage`/`ForbiddenScreen` beside the
+  entry and now trips `react-refresh/only-export-components` three times.
+  Move the screens to `src/web/screens.tsx`; keep the `data-testid`s
+  (`web-app-no-token`, `web-app-forbidden`) — ticket 7 relies on them.
+- `clipboard.writeText` is served locally via `navigator.clipboard`
+  (`LOCALLY_SERVED` in `src/web/unavailable.ts`). Leave it; it is harmless.
+
 ## Tests
 
 - Component tests for `BrowserPane` (web → empty state with link, electron →

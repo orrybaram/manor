@@ -926,6 +926,23 @@ describe("start-agent", () => {
   const WS_AGENT_CMD = "claude --workspace";
   const OTHER_AGENT_CMD = "codex --other";
 
+  let selectWorkspace: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // `launchAgentInWorkspace` (agent-prompt-launch.ts) selects the target
+    // workspace through the project store before it does anything else, so
+    // the sidebar highlight follows — that store action calls out to main.
+    selectWorkspace = vi.fn();
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: {
+        ...(window as unknown as { electronAPI: Record<string, unknown> })
+          .electronAPI,
+        projects: { selectWorkspace },
+      },
+    });
+  });
+
   /** Two workspaces with different agent commands, the *other* one active. */
   function setupTwoWorkspaces() {
     useProjectStore.setState({
@@ -1038,6 +1055,33 @@ describe("start-agent", () => {
     await start({ workspacePath: WS_PATH, prompt: 'say "hi" $NOW' });
 
     expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "say \\"hi\\" \\$NOW"`);
+  });
+
+  it("flattens a multi-line prompt to a single line before seeding it", async () => {
+    setupTwoWorkspaces();
+
+    // The exact shape `renderPrompt` (electron/routes/projects.ts) produces
+    // for the default batch-create-workspaces prompt: title, blank line,
+    // body. An unflattened newline either stalls the shell on a continuation
+    // prompt or submits the turn early on the blank line.
+    await start({
+      workspacePath: WS_PATH,
+      prompt: "Work on GitHub issue #1: title\n\nbody",
+    });
+
+    const seeded = pending()[WS_PATH];
+    expect(seeded).not.toContain("\n");
+    expect(seeded).toBe(
+      `${WS_AGENT_CMD} "Work on GitHub issue #1: title body"`,
+    );
+  });
+
+  it("selects the target workspace through the project store, so the sidebar follows", async () => {
+    setupTwoWorkspaces();
+
+    await start({ workspacePath: WS_PATH, prompt: "go" });
+
+    expect(selectWorkspace).toHaveBeenCalledWith("p1", 0);
   });
 
   it("seeds the bare launch command when no prompt is given", async () => {

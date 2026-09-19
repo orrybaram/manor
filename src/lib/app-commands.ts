@@ -24,12 +24,10 @@ import {
   type WorkspaceLayout,
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import { usePreferencesStore } from "../store/preferences-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
-import { escapeShellDoubleQuoted, homeLaunchCommand } from "./home";
 import { isHomePath } from "./home-path";
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
+import { launchAgentInWorkspace } from "./agent-prompt-launch";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
@@ -563,34 +561,6 @@ function setActiveWorkspace(args: Record<string, unknown>): {
 // Agent handlers
 // ---------------------------------------------------------------------------
 
-/**
- * The launch command for `workspacePath`, most specific source first: the
- * caller's override, the home harness for the Home surface, the owning
- * project's `agentCommand`, then the global default.
- *
- * Mirrors `resolveWorkspaceCommand` in `keybinding-commands.ts`, but takes its
- * path as an argument instead of reading `activeWorkspacePath` — a correlated
- * launch must resolve the command for the workspace it was *asked* for.
- */
-function resolveLaunchCommand(
-  workspacePath: string,
-  override: string | undefined,
-): string {
-  if (override) return override;
-  if (isHomePath(workspacePath)) {
-    const { preferences } = usePreferencesStore.getState();
-    return homeLaunchCommand({
-      homeHarness: preferences.homeHarness,
-      homeCustomCommand: preferences.homeCustomCommand,
-      homeCustomInterrupt: preferences.homeCustomInterrupt,
-    });
-  }
-  const project = useProjectStore
-    .getState()
-    .projects.find((p) => p.workspaces.some((w) => w.path === workspacePath));
-  return project?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-}
-
 /** True when a loaded project already claims `workspacePath`. */
 function projectsKnowWorkspace(workspacePath: string): boolean {
   return useProjectStore
@@ -607,6 +577,14 @@ function projectsKnowWorkspace(workspacePath: string): boolean {
  * `activeWorkspacePath`, which a same-microtask `setActiveWorkspace` could not
  * refresh: the pending command landed on the *previous* workspace while the
  * tab opened in the new one (ADR-176).
+ *
+ * The launch itself — selecting the workspace, resolving its command,
+ * flattening and seeding the prompt, opening the tab — is
+ * `launchAgentInWorkspace` in `agent-prompt-launch.ts`, shared with
+ * `startAgentWithPrompt`. This handler only owns what is specific to a
+ * correlated, control-server-initiated launch: refetching projects for a
+ * workspace created moments ago, and reporting the created tab/pane back to
+ * main.
  */
 async function startAgent(args: Record<string, unknown>): Promise<{
   tabId: string;
@@ -625,20 +603,7 @@ async function startAgent(args: Record<string, unknown>): Promise<{
     await useProjectStore.getState().loadProjects();
   }
 
-  useAppStore.getState().setActiveWorkspace(workspacePath);
-
-  // Seed the launch command for the pane `addTab` is about to create: a bare
-  // pane boots a plain shell, so an unseeded workspace would get a terminal
-  // and no agent (`useTerminalLifecycle` runs whatever this leaves behind).
-  // No prewarm, unlike `startNewAgent` — the prewarmed session already runs
-  // the base command, and a correlated launch needs this specific one.
-  const base = resolveLaunchCommand(workspacePath, agentCommand);
-  const command = prompt
-    ? `${base} "${escapeShellDoubleQuoted(prompt)}"`
-    : base;
-  useAppStore.getState().setPendingStartupCommand(workspacePath, command);
-
-  const tab = useAppStore.getState().addTab();
+  const tab = launchAgentInWorkspace(workspacePath, { prompt, agentCommand });
   if (!tab) throw new Error("No active panel to open an agent in");
   return { tabId: tab.tabId, paneId: tab.paneId, workspacePath };
 }

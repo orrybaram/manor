@@ -1,6 +1,6 @@
 ---
 title: Capability tiers — read, send, full — replace canSend
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

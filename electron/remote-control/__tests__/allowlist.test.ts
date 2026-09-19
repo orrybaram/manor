@@ -103,10 +103,15 @@ describe("the remote table excludes", () => {
     expect(paths.filter((p) => p.startsWith("/issues"))).toEqual([]);
   });
 
-  it("agent launching", () => {
-    // `GET /agents` (the session list) shares its path with the launch route,
-    // so this is asserted by key, not by path.
-    expect(keys(remote).filter((k) => k === "POST /agents")).toEqual([]);
+  /**
+   * This assertion also denied `POST /agents` until ADR-177, which deleted that
+   * line on purpose — the mechanism this file exists for. Launching is now on a
+   * send-capable device's surface, behind `confirmed: true`, an audit line, and
+   * `server.ts`'s exact-match check against the workspaces the machine knows.
+   * Everything *under* `/agents/` — rename, delete, read-of-one — stays off, and
+   * that is what is still asserted here.
+   */
+  it("acting on one named agent: rename, delete, read-of-one", () => {
     expect(paths.filter((p) => p.startsWith("/agents/"))).toEqual([]);
   });
 
@@ -128,5 +133,26 @@ describe("the remote table excludes", () => {
   it("every route that is not read-only unless writes are enabled", () => {
     const readOnly = remoteRouteTable(routes, false);
     expect(keys(readOnly)).not.toContain("POST /sessions/send");
+  });
+});
+
+/**
+ * The launch route (ADR-177) is the one row on the surface that starts a
+ * process, so what it is and is not in gets its own block. The capability is the
+ * *first* of its four gates and the only one that works by absence: a read-only
+ * device does not get a 403 from a row it can see, it gets a table the row was
+ * never in.
+ */
+describe("the launch route", () => {
+  it("is absent for a device that cannot send", () => {
+    expect(keys(remoteRouteTable(routes, false))).not.toContain("POST /agents");
+  });
+
+  it("is present for a device that can", () => {
+    expect(keys(remoteRouteTable(routes, true))).toContain("POST /agents");
+  });
+
+  it("does not put the read half behind the capability", () => {
+    expect(keys(remoteRouteTable(routes, false))).toContain("GET /agents");
   });
 });

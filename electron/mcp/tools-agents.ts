@@ -81,7 +81,7 @@ const tools: ToolDef[] = [
   {
     name: "start_agent",
     description:
-      "Launch an agent session in a workspace, optionally with an initial prompt. Fire-and-forget: returns once the launch is dispatched.",
+      "Launch an agent session in a workspace, optionally with an initial prompt. Waits for confirmation that a pane actually started and returns its id.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -260,8 +260,10 @@ const handlers: ToolModule["handlers"] = {
       workspacePath: args.workspacePath,
     };
     if (args.prompt !== undefined) body.prompt = args.prompt;
-    await http.post("/agents", body);
-    return text(`Launched agent in ${args.workspacePath}.`);
+    const result = (await http.post("/agents", body)) as { paneId: string };
+    return text(
+      `Launched agent in ${args.workspacePath} (pane ${result.paneId}).`,
+    );
   },
 
   async batch_create_workspaces(args, http) {
@@ -285,7 +287,7 @@ const handlers: ToolModule["handlers"] = {
         const status = r.error
           ? `(failed: ${r.error})`
           : r.started
-            ? "(agent started)"
+            ? `(agent started, pane ${r.paneId})`
             : "(workspace created)";
         // `assignError`/`launchError` mean the workspace exists but a later
         // step failed — distinct from `error`, which means no workspace

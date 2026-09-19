@@ -13,8 +13,8 @@
  * `if (!tab) return state;`); a tool that does nothing and reports success is
  * worse than one that errors, so every handler validates before it writes.
  *
- * Note the two legacy commands `start-agent` and `run-setup-script` are *not*
- * here: they are fire-and-forget, and they depend on `App.tsx`'s callback refs.
+ * Note the one legacy command `run-setup-script` is *not* here: it is
+ * fire-and-forget, and it depends on `App.tsx`'s callback refs.
  */
 
 import {
@@ -26,6 +26,8 @@ import {
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
 import { hasPaneId, type SplitDirection } from "../store/pane-tree";
+import { isHomePath } from "./home-path";
+import { launchAgentInWorkspace } from "./agent-prompt-launch";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
@@ -555,6 +557,57 @@ function setActiveWorkspace(args: Record<string, unknown>): {
   return { workspacePath };
 }
 
+// ---------------------------------------------------------------------------
+// Agent handlers
+// ---------------------------------------------------------------------------
+
+/** True when a loaded project already claims `workspacePath`. */
+function projectsKnowWorkspace(workspacePath: string): boolean {
+  return useProjectStore
+    .getState()
+    .projects.some((p) => p.workspaces.some((w) => w.path === workspacePath));
+}
+
+/**
+ * Open an agent pane in an explicitly named workspace, optionally seeded with
+ * a first prompt.
+ *
+ * Every store read and every store write keys off the `workspacePath`
+ * argument. The predecessor lived in `App.tsx` and closed over React's
+ * `activeWorkspacePath`, which a same-microtask `setActiveWorkspace` could not
+ * refresh: the pending command landed on the *previous* workspace while the
+ * tab opened in the new one (ADR-176).
+ *
+ * The launch itself — selecting the workspace, resolving its command,
+ * flattening and seeding the prompt, opening the tab — is
+ * `launchAgentInWorkspace` in `agent-prompt-launch.ts`, shared with
+ * `startAgentWithPrompt`. This handler only owns what is specific to a
+ * correlated, control-server-initiated launch: refetching projects for a
+ * workspace created moments ago, and reporting the created tab/pane back to
+ * main.
+ */
+async function startAgent(args: Record<string, unknown>): Promise<{
+  tabId: string;
+  paneId: string;
+  workspacePath: string;
+}> {
+  const workspacePath = requireString(args, "workspacePath");
+  const prompt = optionalString(args, "prompt");
+  const agentCommand = optionalString(args, "agentCommand");
+
+  // A workspace created moments ago over the control server is not in the
+  // store yet, and the command resolution below needs it. Refetch only when
+  // the path is genuinely unknown: `requestRenderer` times out at 5s, so an
+  // unconditional refetch risks reporting a successful launch as a failure.
+  if (!isHomePath(workspacePath) && !projectsKnowWorkspace(workspacePath)) {
+    await useProjectStore.getState().loadProjects();
+  }
+
+  const tab = launchAgentInWorkspace(workspacePath, { prompt, agentCommand });
+  if (!tab) throw new Error("No active panel to open an agent in");
+  return { tabId: tab.tabId, paneId: tab.paneId, workspacePath };
+}
+
 /**
  * Every correlated command main may send. An unrecognised `cmd` must be
  * rejected by the caller, not silently resolved — see `App.tsx`.
@@ -583,4 +636,5 @@ export const appCommandHandlers: Record<string, Handler> = {
   "focus-next-pane": focusNextPane,
   "focus-prev-pane": focusPrevPane,
   "set-active-workspace": setActiveWorkspace,
+  "start-agent": startAgent,
 };

@@ -90,6 +90,8 @@ export interface BatchResultEntry {
   title: string;
   workspacePath?: string;
   started: boolean;
+  /** Pane the launched agent occupies. Present only when `started` is true. */
+  paneId?: string;
   /** No workspace was created at all — the issue fetch or worktree create failed. */
   error?: string;
   /**
@@ -249,44 +251,56 @@ async function batchCreateWorkspaces(
   notifyProjectsChanged();
 
   // 3. Resolve each issue to a result entry, assigning and launching as it
-  // goes. `details.map` preserves order in `results` regardless of which
-  // issues need assignment or launch, and each callback's own `await`s run
-  // concurrently across issues — `startAgent` itself is a synchronous
-  // dispatch, so calling it inline costs nothing.
-  const results: BatchResultEntry[] = await Promise.all(
-    details.map(async (d) => {
-      if ("error" in d) {
-        return { number: d.number, title: "", started: false, error: d.error };
-      }
-      const ws = createdByNumber.get(d.number);
-      const entry: BatchResultEntry = {
+  // goes. This runs sequentially, not fanned out through `Promise.all` like
+  // steps 1 and 2 above: each launch is a correlated round-trip to the
+  // renderer (ADR-176), and firing N of those concurrently would be both
+  // needless load on the renderer and harder to reason about than N agents
+  // starting one after another. A `for` loop pushing into `results` keeps
+  // input order without relying on `Promise.all` to preserve it.
+  const results: BatchResultEntry[] = [];
+  for (const d of details) {
+    if ("error" in d) {
+      results.push({
         number: d.number,
-        title: ws?.title ?? d.detail.title,
-        workspacePath: ws?.worktreePath,
+        title: "",
         started: false,
-      };
-      if (!ws || ws.error) {
-        entry.error = ws?.error ?? "Workspace was not created";
-        return entry;
+        error: d.error,
+      });
+      continue;
+    }
+    const ws = createdByNumber.get(d.number);
+    const entry: BatchResultEntry = {
+      number: d.number,
+      title: ws?.title ?? d.detail.title,
+      workspacePath: ws?.worktreePath,
+      started: false,
+    };
+    if (!ws || ws.error) {
+      entry.error = ws?.error ?? "Workspace was not created";
+      results.push(entry);
+      continue;
+    }
+    if (assign) {
+      try {
+        await github.assignIssue(project.path, d.number);
+      } catch (err) {
+        entry.assignError = String(err);
       }
-      if (assign) {
-        try {
-          await github.assignIssue(project.path, d.number);
-        } catch (err) {
-          entry.assignError = String(err);
-        }
+    }
+    if (ws.worktreePath && launch) {
+      const result = await startAgent(
+        ws.worktreePath,
+        renderPrompt(promptTemplate, ws),
+      );
+      entry.started = result.ok;
+      if (result.ok) {
+        entry.paneId = result.data.paneId;
+      } else {
+        entry.launchError = result.error;
       }
-      if (ws.worktreePath && launch) {
-        const result = startAgent(
-          ws.worktreePath,
-          renderPrompt(promptTemplate, ws),
-        );
-        entry.started = result.ok;
-        if (!result.ok) entry.launchError = result.error;
-      }
-      return entry;
-    }),
-  );
+    }
+    results.push(entry);
+  }
   json(200, { results });
 }
 

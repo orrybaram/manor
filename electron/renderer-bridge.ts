@@ -16,9 +16,9 @@ import type { Json } from "./routes/types";
  * Payload of the main→renderer "app-command" channel.
  *
  * Two semantics share this channel. Without a `requestId` the send is
- * fire-and-forget (`start-agent`, `run-setup-script` — the renderer has nothing
- * meaningful to report back). With one, the renderer *must* reply on
- * "app-command-result" and main awaits it; see `requestRenderer`.
+ * fire-and-forget (`run-setup-script` — the renderer has nothing meaningful to
+ * report back). With one, the renderer *must* reply on "app-command-result"
+ * and main awaits it; see `requestRenderer`.
  */
 export interface AppCommand {
   cmd: string;
@@ -153,22 +153,37 @@ export async function proxyToRenderer(
   json(200, result.data);
 }
 
+/** What the renderer reports back after opening an agent pane. */
+export interface StartedAgent {
+  tabId: string;
+  paneId: string;
+  workspacePath: string;
+}
+
 /**
- * Ask the renderer to open a new agent pane in the given workspace. Agents are
- * launched by the renderer (App.tsx seeds a shell command), so main round-trips
- * the request over the "app-command" channel.
+ * Ask the renderer to open a new agent pane in the given workspace, and await
+ * the pane it created.
+ *
+ * Only the renderer owns the pane store, so the launch itself happens there
+ * (`start-agent` in `src/lib/app-commands.ts` resolves the workspace's agent
+ * command, seeds it, and adds a tab). This is a correlated round-trip rather
+ * than a fire-and-forget send so callers learn whether a pane actually
+ * appeared — a silent no-op reported as success is unretryable (ADR-176).
+ *
+ * `prompt` seeds the agent's first turn; `agentCommand` overrides the
+ * workspace's configured launch command.
  */
-export function startAgent(
+export async function startAgent(
   workspacePath: string,
   prompt?: string,
-): { ok: boolean; error?: string } {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) {
-    return { ok: false, error: "No Manor window is open" };
-  }
-  const command: AppCommand = { cmd: "start-agent", workspacePath, prompt };
-  win.webContents.send("app-command", command);
-  return { ok: true };
+  agentCommand?: string,
+): Promise<RendererResponse<StartedAgent>> {
+  const result = await requestRenderer("start-agent", {
+    workspacePath,
+    prompt,
+    agentCommand,
+  });
+  return result.ok ? { ok: true, data: result.data as StartedAgent } : result;
 }
 
 /**

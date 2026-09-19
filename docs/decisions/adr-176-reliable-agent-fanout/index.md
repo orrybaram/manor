@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -166,6 +166,43 @@ launch that *did* happen into a reported failure. The handler therefore only
 refetches when the path is genuinely unknown. `app-commands.test.ts:947`
 currently asserts `start-agent` is absent from the table — that expectation
 inverts.
+
+## Amendment — a fourth defect, found during implementation
+
+Verifying ticket 1 turned up a fourth defect that defeated this ADR's stated
+goal on its most common path, so ticket 4 was added before acceptance.
+
+`escapeShellDoubleQuoted` (`src/lib/home.ts`) does not touch newlines, and
+`renderPrompt` (`electron/routes/projects.ts`) builds the *default* batch prompt
+as `` `Work on GitHub issue #${number}: ${title}\n\n${body}` `` — always
+multi-line. Every default `batch-create-workspaces` launch therefore sent a
+prompt containing newlines into a double-quoted shell argument, leaving the
+shell on a continuation prompt or submitting the turn early at the first blank
+line. Fixing the workspace targeting alone would have left fan-out broken, just
+differently.
+
+The repo already had `flattenPrompt` for exactly this hazard, living in
+`src/lib/agent-prompt-launch.ts` next to `startAgentWithPrompt` — a
+near-duplicate launch path ticket 1 did not know about. The two had
+complementary gaps: `startAgentWithPrompt` flattened the prompt and drove the
+sidebar selection but ignored the home harness; ticket 1's handler handled the
+home harness and an explicit override but did neither of the others.
+
+Ticket 4 collapsed both onto one `launchAgentInWorkspace` helper that does all
+four, and extended `getAgentCommand` (`src/agent-defaults.ts`) to be the single
+home-harness-aware owner of launch-command resolution. Every existing
+`getAgentCommand` call site was checked: none special-cased the Home surface
+before, so this closes a latent gap for them rather than regressing any.
+
+This introduces an `agent-defaults.ts → lib/home.ts → lib/harness.ts →
+agent-defaults.ts` import cycle. All cross-references sit inside function
+bodies, never at module top level, so it resolves correctly — confirmed by the
+build.
+
+**Known follow-up, not taken here.** `keybinding-commands.ts` still carries its
+own `resolveWorkspaceCommand`, now functionally identical to `getAgentCommand`
+minus the override parameter. Pointing it at `getAgentCommand` and deleting it
+is a clean standalone cleanup.
 
 ## Tickets
 

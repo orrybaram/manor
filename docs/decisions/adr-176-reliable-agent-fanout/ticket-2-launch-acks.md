@@ -1,6 +1,6 @@
 ---
 title: Report confirmed launches — paneId in the agent and batch routes
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

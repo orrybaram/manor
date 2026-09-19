@@ -171,6 +171,31 @@ body {
   background: var(--hover);
 }
 
+/* The launch button in `mountList`'s bar — present only for a send-capable
+   device (`identity.canSend`), same rule the composer follows. A round accent
+   button reads as "add" without needing an icon font. */
+.add {
+  appearance: none;
+  border: none;
+  background: var(--accent);
+  color: var(--bg-deep);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font: inherit;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.add:active {
+  filter: brightness(0.92);
+}
+
 /* ── Scrollable body ─────────────────────────────────────────────────── */
 
 .body {
@@ -232,6 +257,13 @@ body {
   border-color: color-mix(in srgb, var(--red) 45%, var(--border));
 }
 
+/* The new-session screen's single selection — a workspace row that has been
+   tapped, not one whose session is merely running. */
+.session.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
 .session-name {
   min-width: 0;
 }
@@ -260,6 +292,35 @@ body {
   color: var(--text-dim);
   font-size: 18px;
   line-height: 1;
+}
+
+/* ── New-session screen ──────────────────────────────────────────────── */
+
+.workspace-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* `display: flex` above would otherwise win against the UA's [hidden] rule,
+   same as `.hint[hidden]` above. */
+.workspace-groups[hidden] {
+  display: none;
+}
+
+.workspace-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 /* ── Status glyphs, matching AgentDot on the desktop ─────────────────── */

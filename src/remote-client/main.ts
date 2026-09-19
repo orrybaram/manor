@@ -568,6 +568,13 @@ function mountList(): Screen {
   const heading = el("h1", undefined, "Sessions");
   const device = el("span", "sub");
   const liveNode = makeLive(false);
+  // Built once, appended/removed in `update()` below — the same "remove,
+  // don't disable" rule `mountDetail` applies to `actions`/`composer`. A
+  // read-only device gets no button, because the route it would call is not
+  // on its table either.
+  const add = el("button", "add", "+");
+  add.title = "Start a new session";
+  add.addEventListener("click", () => show(mountNewSession()));
   bar.replaceChildren(heading, device, liveNode);
 
   const banner = el("div", "banner");
@@ -594,6 +601,12 @@ function mountList(): Screen {
       paintLive(liveNode);
       paintNotice(banner);
       paintHint(hint);
+
+      if (identity?.canSend === true) {
+        if (!add.isConnected) bar.append(add);
+      } else {
+        add.remove();
+      }
 
       empty.hidden = agents.length > 0;
       list.hidden = agents.length === 0;
@@ -651,6 +664,193 @@ function backToList(): void {
   transcript = null;
   show(mountList());
   void loadAgents();
+}
+
+/** A single launch target, as `GET /workspaces` projects it. */
+interface WorkspaceOption {
+  path: string;
+  branch: string;
+  name: string | null;
+  isMain: boolean;
+}
+
+/** One project's section, as `GET /workspaces` returns it. */
+interface WorkspaceGroup {
+  projectId: string;
+  projectName: string;
+  workspaces: WorkspaceOption[];
+}
+
+/** `POST /agents`'s success body — `StartedAgent` (`electron/renderer-bridge.ts`). */
+interface StartedAgent {
+  tabId: string;
+  paneId: string;
+  workspacePath: string;
+}
+
+/**
+ * Pick a workspace, type a prompt, launch.
+ *
+ * `GET /workspaces` loads once on mount, not on every `update()` — the rows it
+ * builds hold nothing a reader can lose, but rebuilding them on every poll
+ * would still throw away the selection a thumb just made. Selection is
+ * therefore a class toggle on already-built rows, and the composer's input is
+ * never touched by `update()` at all, exactly like `mountDetail`'s.
+ */
+function mountNewSession(): Screen {
+  const back = el("button", "back", "Back");
+  back.addEventListener("click", backToList);
+  const heading = el("h1", undefined, "New Session");
+  bar.replaceChildren(back, heading);
+
+  const banner = el("div", "banner");
+  const status = el("div", "empty");
+  status.append(el("span", undefined, "Loading…"));
+  const list = el("div", "workspace-groups");
+  list.hidden = true;
+
+  const composer = el("div", "composer");
+  const input = el("input");
+  input.placeholder = "What should the agent do?";
+  input.autocapitalize = "off";
+  input.autocomplete = "off";
+  const launch = el("button", "primary", "Launch");
+  launch.disabled = true;
+  composer.append(input, launch);
+
+  body.replaceChildren(banner, status, list, composer);
+
+  /** Selected row, and the option it stands for — single selection. */
+  let selected: { option: WorkspaceOption; row: HTMLElement } | null = null;
+  let allRows: HTMLElement[] = [];
+  let launching = false;
+
+  const refreshLaunch = (): void => {
+    launch.disabled = launching || !selected || input.value.trim() === "";
+  };
+  input.addEventListener("input", refreshLaunch);
+
+  function selectRow(option: WorkspaceOption, row: HTMLElement): void {
+    selected = { option, row };
+    for (const r of allRows) r.classList.toggle("selected", r === row);
+    refreshLaunch();
+  }
+
+  function workspaceRow(
+    option: WorkspaceOption,
+    running: boolean,
+  ): HTMLElement {
+    // The exact shape of a session row — `.session`'s three-column grid — so
+    // nothing new is needed to make it look at home in the same list.
+    const row = el("li", "session");
+    const glyph = el("span", "glyph", option.isMain ? "🏠" : "🌱");
+    row.append(glyph);
+
+    const name = el("div", "session-name");
+    name.append(el("strong", undefined, option.name || option.branch));
+    name.append(
+      el(
+        "span",
+        "meta",
+        [option.branch, running ? "session running" : null]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    row.append(name);
+
+    row.addEventListener("click", () => selectRow(option, row));
+    return row;
+  }
+
+  function renderGroups(groups: WorkspaceGroup[]): void {
+    status.hidden = groups.length > 0;
+    list.hidden = groups.length === 0;
+    if (groups.length === 0) {
+      status.replaceChildren(
+        el("strong", undefined, "No workspaces"),
+        el(
+          "span",
+          undefined,
+          "Add a project in Manor to launch a session here.",
+        ),
+      );
+      status.hidden = false;
+      return;
+    }
+
+    allRows = [];
+    const sections: HTMLElement[] = [];
+    for (const group of groups) {
+      const section = el("div", "workspace-group");
+      section.append(el("h2", "section-heading", group.projectName));
+      const ul = el("ul", "sessions");
+      for (const option of group.workspaces) {
+        const running = agents.some(
+          (agent) => agent.workspacePath === option.path,
+        );
+        const row = workspaceRow(option, running);
+        allRows.push(row);
+        ul.append(row);
+      }
+      section.append(ul);
+      sections.push(section);
+    }
+    list.replaceChildren(...sections);
+  }
+
+  void (async () => {
+    const groups = await api<WorkspaceGroup[]>("/workspaces");
+    if (groups) renderGroups(groups);
+  })();
+
+  launch.addEventListener("click", () => {
+    if (launching || !selected) return;
+    const prompt = input.value.trim();
+    if (!prompt) return;
+    const { option } = selected;
+    const label = option.name || option.branch;
+
+    confirmAction({
+      title: `Launch in ${label}?`,
+      detail: "This starts an agent process in this workspace.",
+      code: prompt,
+      verb: "Launch",
+      run: async () => {
+        launching = true;
+        refreshLaunch();
+        const started = await api<StartedAgent>("/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            workspacePath: option.path,
+            prompt,
+            confirmed: true,
+          }),
+        });
+        launching = false;
+        if (!started) {
+          refreshLaunch();
+          return;
+        }
+        setNotice("Launched.", "ok");
+        // The response carries a paneId, not an agent id (ADR-177): reread
+        // `/agents` and match it. The row the hook relay creates may not have
+        // landed yet — going back and letting the poll surface it beats
+        // spinning on a screen with nothing to show.
+        await loadAgents();
+        const agent = agents.find((a) => a.paneId === started.paneId);
+        if (agent) openSession(agent);
+        else backToList();
+      },
+    });
+  });
+
+  return {
+    update() {
+      paintNotice(banner);
+      refreshLaunch();
+    },
+  };
 }
 
 function mountDetail(agentId: string): Screen {

@@ -68,10 +68,11 @@ describe("the listener's own routes", () => {
   // `GET /events` is absent on purpose: it keeps the raw socket and so is the
   // one path `server.ts` still answers outside the table. Anything else showing
   // up outside this list is a bug.
-  it("are exactly the two routes that go through the table", () => {
+  it("are exactly the three routes that go through the table", () => {
     expect([...LISTENER_OWN_ROUTES]).toEqual([
       "GET /me",
       "POST /push/subscribe",
+      "GET /workspaces",
     ]);
   });
 

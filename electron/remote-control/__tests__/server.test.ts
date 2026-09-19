@@ -518,6 +518,194 @@ describe("RemoteControlServer", () => {
     });
   });
 
+  describe("GET /workspaces", () => {
+    it("requires a token", async () => {
+      expect((await get("/workspaces")).status).toBe(401);
+    });
+
+    it("503s when project management is not available", async () => {
+      const res = await get("/workspaces", READ_TOKEN);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        error: "Project management is not available",
+      });
+    });
+
+    it("gives a read-only device the list — this is a read, canSend is irrelevant", async () => {
+      deps.projectManager = {
+        getProjects: async () => [
+          {
+            id: "p1",
+            name: "manor",
+            path: "/Users/me/manor",
+            defaultBranch: "main",
+            workspaces: [
+              {
+                path: "/Users/me/manor",
+                branch: "main",
+                isMain: true,
+                name: null,
+              },
+            ],
+            selectedWorkspaceIndex: 0,
+            defaultRunCommand: null,
+            worktreePath: null,
+            worktreeStartScript: null,
+            worktreeTeardownScript: null,
+            linearAssociations: [],
+            color: null,
+            agentCommand: null,
+            commands: [],
+            themeName: null,
+            setupComplete: true,
+            portlessEnabled: true,
+            folders: [],
+            sidebarOrder: [],
+          },
+        ],
+      } as unknown as ControlDeps["projectManager"];
+
+      const res = await get("/workspaces", READ_TOKEN);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([
+        {
+          projectId: "p1",
+          projectName: "manor",
+          workspaces: [
+            {
+              path: "/Users/me/manor",
+              branch: "main",
+              name: null,
+              isMain: true,
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("leaks no key beyond the four per workspace and the two per project", async () => {
+      deps.projectManager = {
+        getProjects: async () => [
+          {
+            id: "p1",
+            name: "manor",
+            path: "/Users/me/manor",
+            defaultBranch: "main",
+            workspaces: [
+              {
+                path: "/Users/me/manor",
+                branch: "main",
+                isMain: true,
+                name: "main",
+              },
+            ],
+            selectedWorkspaceIndex: 0,
+            defaultRunCommand: null,
+            worktreePath: null,
+            worktreeStartScript: "./start.sh",
+            worktreeTeardownScript: null,
+            linearAssociations: [{ id: "l1" }],
+            color: "#fff",
+            agentCommand: "claude --dangerously-skip-permissions",
+            commands: [],
+            themeName: null,
+            setupComplete: true,
+            portlessEnabled: true,
+            folders: [],
+            sidebarOrder: [],
+          },
+        ],
+      } as unknown as ControlDeps["projectManager"];
+
+      const body = (await (
+        await get("/workspaces", READ_TOKEN)
+      ).json()) as Array<{
+        workspaces: Record<string, unknown>[];
+        [key: string]: unknown;
+      }>;
+      expect(Object.keys(body[0]).sort()).toEqual(
+        ["projectId", "projectName", "workspaces"].sort(),
+      );
+      expect(Object.keys(body[0].workspaces[0]).sort()).toEqual(
+        ["path", "branch", "name", "isMain"].sort(),
+      );
+    });
+
+    it("omits a hidden workspace, and omits the project entirely when nothing is visible", async () => {
+      deps.projectManager = {
+        getProjects: async () => [
+          {
+            id: "p1",
+            name: "has a visible one",
+            path: "/a",
+            defaultBranch: "main",
+            workspaces: [
+              { path: "/a", branch: "main", isMain: true, name: null },
+              {
+                path: "/a-hidden",
+                branch: "feature",
+                isMain: false,
+                name: null,
+                hidden: true,
+              },
+            ],
+            selectedWorkspaceIndex: 0,
+            defaultRunCommand: null,
+            worktreePath: null,
+            worktreeStartScript: null,
+            worktreeTeardownScript: null,
+            linearAssociations: [],
+            color: null,
+            agentCommand: null,
+            commands: [],
+            themeName: null,
+            setupComplete: true,
+            portlessEnabled: true,
+            folders: [],
+            sidebarOrder: [],
+          },
+          {
+            id: "p2",
+            name: "all hidden",
+            path: "/b",
+            defaultBranch: "main",
+            workspaces: [
+              {
+                path: "/b",
+                branch: "main",
+                isMain: true,
+                name: null,
+                hidden: true,
+              },
+            ],
+            selectedWorkspaceIndex: 0,
+            defaultRunCommand: null,
+            worktreePath: null,
+            worktreeStartScript: null,
+            worktreeTeardownScript: null,
+            linearAssociations: [],
+            color: null,
+            agentCommand: null,
+            commands: [],
+            themeName: null,
+            setupComplete: true,
+            portlessEnabled: true,
+            folders: [],
+            sidebarOrder: [],
+          },
+        ],
+      } as unknown as ControlDeps["projectManager"];
+
+      const body = (await (await get("/workspaces", READ_TOKEN)).json()) as {
+        projectId: string;
+        workspaces: unknown[];
+      }[];
+      expect(body).toHaveLength(1);
+      expect(body[0].projectId).toBe("p1");
+      expect(body[0].workspaces).toHaveLength(1);
+    });
+  });
+
   describe("POST /push/subscribe", () => {
     const subscription = {
       endpoint: "https://push.example/abc",

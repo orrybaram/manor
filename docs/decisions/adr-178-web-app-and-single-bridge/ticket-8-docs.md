@@ -1,6 +1,6 @@
 ---
 title: Docs — the full tier, the web app, and CONTEXT.md is now real
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

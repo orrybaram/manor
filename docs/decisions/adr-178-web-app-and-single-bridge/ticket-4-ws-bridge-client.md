@@ -1,6 +1,6 @@
 ---
 title: The WebSocket bridge client, installed as window.electronAPI
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [3]

@@ -1,6 +1,6 @@
 ---
 title: E2E — a PC browser opens the app, sees the sidebar, drives a live terminal
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1, 2, 3, 4, 5, 6]

@@ -53,7 +53,9 @@ import {
   agentsGetRecent,
   agentsGetUnseen,
   agentsBuildResumeCommand,
+  agentsSetPaneContext,
   type AgentQuery,
+  type PaneContext,
 } from "../ipc/agents";
 import {
   preferencesGetAll,
@@ -254,7 +256,7 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   // on web (ticket 6) ──
   "remoteControl.getStatus": (deps: IpcDeps) => remoteControlGetStatus(deps),
 
-  // ── agents: reads only ──
+  // ── agents: reads, plus the one write a pane needs to get an agent context ──
   "agents.getAll": (deps: IpcDeps, opts?: AgentQuery) =>
     agentsGetAll(deps, opts),
   "agents.get": (deps: IpcDeps, agentId: string) => agentsGet(deps, agentId),
@@ -264,6 +266,16 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   "agents.getUnseen": () => agentsGetUnseen(),
   "agents.buildResumeCommand": (deps: IpcDeps, agentId: string) =>
     agentsBuildResumeCommand(deps, agentId),
+  /**
+   * Called after every `pty.create` that has a `cwd` (ticket 10) — without
+   * this on the table, a pane opened from a browser silently never gets the
+   * project/workspace context the sidebar's per-pane agent metadata reads.
+   */
+  "agents.setPaneContext": (
+    deps: IpcDeps,
+    paneId: string,
+    context: PaneContext,
+  ) => agentsSetPaneContext(deps, paneId, context),
 
   // ── the two logs the chrome reads on mount ──
   "notifications.getAll": (deps: IpcDeps) => notificationsGetAll(deps),
@@ -293,4 +305,5 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "projects.select",
   "projects.selectWorkspace",
   "preferences.set",
+  "agents.setPaneContext",
 ]);

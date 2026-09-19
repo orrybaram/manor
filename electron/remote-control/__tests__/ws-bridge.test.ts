@@ -133,6 +133,7 @@ describe("WsBridgeServer", () => {
           preferencesSet.push([key, value]);
         },
       },
+      paneContextMap: new Map(),
       projectManager: {
         getProjects: () => [{ id: "p1", name: "manor", workspaces: [] }],
         getSelectedProjectIndex: () => 0,
@@ -355,6 +356,31 @@ describe("WsBridgeServer", () => {
       expect(preferencesSet).toEqual([["notifyOnResponse", false]]);
     });
 
+    /**
+     * A pane opened from a browser needs the same project/workspace context
+     * as one opened on the desktop (ADR-178 ticket 10) — otherwise the
+     * sidebar's per-pane agent metadata has nothing to point at.
+     */
+    it("resolves agents.setPaneContext and reaches the map", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "spc1", "agents", "setPaneContext", [
+        "pane-a",
+        {
+          projectId: "p1",
+          projectName: "manor",
+          workspacePath: "/home/user/manor",
+          agentCommand: "claude",
+        },
+      ]);
+      expect(result).toMatchObject({ ok: true });
+      expect(deps.paneContextMap.get("pane-a")).toEqual({
+        projectId: "p1",
+        projectName: "manor",
+        workspacePath: "/home/user/manor",
+        agentCommand: "claude",
+      });
+    });
+
     /** `keybindings.set`/`reset`/`resetAll` stay off — that page is read-only on web. */
     it("keeps keybindings.set off the table", async () => {
       const client = await greet(FULL_TOKEN);
@@ -542,6 +568,27 @@ describe("WsBridgeServer", () => {
       expect(entries[0]).toMatchObject({
         route: "preferences.set",
         target: "notifyOnResponse",
+        outcome: "sent",
+      });
+    });
+
+    it("audits agents.setPaneContext with the paneId as its target", async () => {
+      const client = await greet(FULL_TOKEN);
+      await invoke(client, "spc-audit", "agents", "setPaneContext", [
+        "pane-a",
+        {
+          projectId: "p1",
+          projectName: "manor",
+          workspacePath: "/home/user/manor",
+          agentCommand: "claude",
+        },
+      ]);
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        route: "agents.setPaneContext",
+        target: "pane-a",
         outcome: "sent",
       });
     });

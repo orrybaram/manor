@@ -42,6 +42,14 @@ export interface AgentQuery {
   offset?: number;
 }
 
+/** The pane context `agents:setPaneContext` stores against a paneId. */
+export interface PaneContext {
+  projectId: string;
+  projectName: string;
+  workspacePath: string;
+  agentCommand: string | null;
+}
+
 /**
  * The reads, lifted out of their `ipcMain.handle` wrappers so the ADR-178
  * WebSocket bridge calls the same code the desktop renderer does. Everything
@@ -85,10 +93,27 @@ export function agentsBuildResumeCommand(
   );
 }
 
+/**
+ * Records which project/workspace a pane belongs to, so the sidebar's
+ * per-pane agent metadata (and a later agent record for that pane) has a
+ * project to point at. A write — this is why it is `MUTATING` on the ADR-178
+ * bridge (ticket 10), audited by paneId the same way `pty.create` is.
+ */
+export function agentsSetPaneContext(
+  deps: IpcDeps,
+  paneId: string,
+  context: PaneContext,
+): void {
+  assertString(paneId, "paneId");
+  assertString(context.projectId, "projectId");
+  assertString(context.projectName, "projectName");
+  assertString(context.workspacePath, "workspacePath");
+  deps.paneContextMap.set(paneId, context);
+}
+
 export function register(deps: IpcDeps): void {
   const {
     agentManager,
-    paneContextMap,
     unseenRespondedAgents,
     unseenInputAgents,
     preferencesManager,
@@ -187,17 +212,8 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "agents:setPaneContext",
-    (
-      _event,
-      paneId: string,
-      context: { projectId: string; projectName: string; workspacePath: string; agentCommand: string | null },
-    ) => {
-      assertString(paneId, "paneId");
-      assertString(context.projectId, "projectId");
-      assertString(context.projectName, "projectName");
-      assertString(context.workspacePath, "workspacePath");
-      paneContextMap.set(paneId, context);
-    },
+    (_event, paneId: string, context: PaneContext) =>
+      agentsSetPaneContext(deps, paneId, context),
   );
 
   ipcMain.handle("agents:abandonForPane", (_event, paneId: string, title?: string | null) => {

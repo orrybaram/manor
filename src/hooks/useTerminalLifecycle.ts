@@ -16,6 +16,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { openExternal } from "../lib/open-external";
+import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
@@ -350,12 +351,19 @@ export function useTerminalLifecycle(
               // The home has no owning project — associate the pane with
               // the sentinel workspace and the resolved harness command.
               const prefs = usePreferencesStore.getState().preferences;
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: "",
-                projectName: "Home",
-                workspacePath: cwd,
-                agentCommand: resolveHomeAdapter(prefs).launchCommand(),
-              });
+              window.electronAPI.agents
+                .setPaneContext(paneId, {
+                  projectId: "",
+                  projectName: "Home",
+                  workspacePath: cwd,
+                  agentCommand: resolveHomeAdapter(prefs).launchCommand(),
+                })
+                .catch(
+                  handleBridgeUnavailable(
+                    "agents-set-pane-context-unavailable",
+                    "Pane context isn't synced from the browser yet",
+                  ),
+                );
             } else {
               const projects = useProjectStore.getState().projects;
               const project = projects.find((p) =>
@@ -363,12 +371,19 @@ export function useTerminalLifecycle(
               );
 
               // Fire-and-forget call to set pane context
-              window.electronAPI.agents.setPaneContext(paneId, {
-                projectId: project?.id ?? "",
-                projectName: project?.name ?? "",
-                workspacePath: cwd,
-                agentCommand: project?.agentCommand ?? null,
-              });
+              window.electronAPI.agents
+                .setPaneContext(paneId, {
+                  projectId: project?.id ?? "",
+                  projectName: project?.name ?? "",
+                  workspacePath: cwd,
+                  agentCommand: project?.agentCommand ?? null,
+                })
+                .catch(
+                  handleBridgeUnavailable(
+                    "agents-set-pane-context-unavailable",
+                    "Pane context isn't synced from the browser yet",
+                  ),
+                );
             }
           }
 

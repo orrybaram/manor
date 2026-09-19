@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.13.2] - 2026-09-18
+
+## Features
+
+- Full keyboard navigation: F6 cycles focus regions, sidebar rows and tab bar support roving focus, Enter opens, F2 renames
+- Open context menus from the keyboard
+- Keyboard shortcuts now work in browser panes and popout windows
+- Keyboard access for secondary surfaces: ports, PR badge, processes, recorder, theme picker, welcome screen, and toasts
+- Dialogs restore focus on close and scope shortcuts correctly behind modals
+- Agent launches now report a confirmed pane ID from the agent and batch routes
+- New orchestrator primer and fan-out playbook surfaced at session start
+
+## Fixes
+
+- Escape on the PR popover no longer reopens it
+- Sidebar and rename input take focus before the next keypress arrives
+- Multi-line agent prompts are flattened so they launch reliably
+
+## Improvements
+
+- Visible focus rings and proper labels across interactive controls
+- More reliable agent launch targeting via an explicit target in the app-command table
+
 ## [0.13.1] - 2026-09-16
 
 ### Features

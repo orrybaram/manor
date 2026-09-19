@@ -23,3 +23,12 @@ export const FAKE_AGENT_ECHO = "received:";
  * message re-arms the permission prompt.
  */
 export const FAKE_AGENT_HUSH = "hush";
+
+/**
+ * Send this and the agent draws two identical rows wider than a phone can
+ * show without wrapping — ADR-177's fixture for "the grid is not reflowed".
+ */
+export const FAKE_AGENT_RULER = "ruler";
+/** Exactly what each row `FAKE_AGENT_RULER` draws, so a test can assert on
+ *  the row itself rather than duplicating the script's width here. */
+export const FAKE_AGENT_RULER_ROW = "#".repeat(120);

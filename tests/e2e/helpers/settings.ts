@@ -59,6 +59,34 @@ export async function enableRemoteControl(window: Page): Promise<number> {
   return Number(match[1]);
 }
 
+/**
+ * Point a project at a different agent command, through the same Settings UI
+ * a user would use — not a seeded `projects.json`, which would fabricate the
+ * state the remote-control suite otherwise earns through the app itself.
+ *
+ * `ProjectSettingsPage` gives the field no test id, so it is found the way a
+ * user finds it: by the label next to it.
+ */
+export async function setAgentCommand(
+  window: Page,
+  projectName: string,
+  command: string,
+): Promise<void> {
+  await openSettings(window);
+  await window.getByRole("button", { name: projectName, exact: true }).click();
+
+  const input = window
+    .getByTestId("settings-modal")
+    .locator('label:text("Agent Command") + input');
+  await expect(input).toBeVisible({ timeout: 5_000 });
+  await input.fill(command);
+  await input.blur();
+  // Left open, a global shortcut like "new workspace" cannot reach the main
+  // window — the modal traps focus, same as every other settings helper here
+  // that does not document leaving it open on purpose.
+  await closeSettings(window);
+}
+
 export interface PairedDevice {
   label: string;
   token: string;

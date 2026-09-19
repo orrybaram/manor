@@ -460,8 +460,8 @@ export const agentRoutes: Route[] = [
       const snap = await deps.backend.pty.getSnapshot(paneId);
       let ansi: string;
       let source: "live" | "scrollback";
-      let cols: number | null = null;
-      let rows: number | null = null;
+      let cols: number | null;
+      let rows: number | null;
       if (snap) {
         ansi = snap.screenAnsi;
         source = "live";

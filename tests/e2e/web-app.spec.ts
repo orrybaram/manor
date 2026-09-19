@@ -197,15 +197,17 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await client.close();
     }
 
-    // 5. Audit: no line for keystrokes, and exactly the bridge-invoke lines
-    // for `pty.create`, aimed at the pane both viewers shared.
+    // 5. Audit: no line for keystrokes. Attaching a pane from the browser is
+    // two audited bridge calls — `pty.create`, then the `agents.setPaneContext`
+    // that follows every successful create (ticket 10) — both aimed at the
+    // pane the two viewers shared, and nothing else.
     const entries = auditEntries(tempHome);
     expect(entries.some((e) => e.route === "pty.write")).toBe(false);
 
     const bridgeEntries = entries.filter((e) => e.transport === "bridge");
-    expect(bridgeEntries.length).toBeGreaterThan(0);
+    expect(bridgeEntries.map((e) => e.route)).toContain("pty.create");
     for (const entry of bridgeEntries) {
-      expect(entry.route).toBe("pty.create");
+      expect(["pty.create", "agents.setPaneContext"]).toContain(entry.route);
       expect(entry.target).toBe(desktopPaneId);
       expect(entry.outcome).toBe("sent");
     }

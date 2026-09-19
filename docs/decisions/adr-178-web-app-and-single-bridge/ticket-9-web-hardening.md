@@ -1,6 +1,6 @@
 ---
 title: Web hardening — the gaps ticket 6 found outside its files
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [6]

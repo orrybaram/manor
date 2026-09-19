@@ -333,6 +333,14 @@ export type PushProgressEvent =
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
 
 export interface ElectronAPI {
+  /**
+   * Which implementation of this interface is installed (ADR-178 D8): the
+   * Electron preload, or `src/web/ws-bridge.ts` over a WebSocket. Read it to
+   * hide what a browser genuinely cannot do (webview panes, detached windows,
+   * native dialogs) — never to guess at a capability the bridge can report.
+   */
+  platform: "electron" | "web";
+
   env: {
     isPackaged: boolean;
   };

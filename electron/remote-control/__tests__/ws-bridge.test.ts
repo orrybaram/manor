@@ -55,7 +55,9 @@ interface Client {
   closed: Promise<number>;
   send(frame: unknown): void;
   /** Resolves with the first frame matching `match`, or rejects on close. */
-  next(match: (f: Record<string, unknown>) => boolean): Promise<Record<string, unknown>>;
+  next(
+    match: (f: Record<string, unknown>) => boolean,
+  ): Promise<Record<string, unknown>>;
 }
 
 describe("WsBridgeServer", () => {
@@ -219,7 +221,12 @@ describe("WsBridgeServer", () => {
     it("refuses to do anything before the hello lands", async () => {
       const client = connect();
       await new Promise<void>((resolve) => client.socket.once("open", resolve));
-      client.send({ id: "1", kind: "invoke", ns: "projects", method: "getAll" });
+      client.send({
+        id: "1",
+        kind: "invoke",
+        ns: "projects",
+        method: "getAll",
+      });
       // Not a hello, so it is not a conversation this server is having.
       expect(await client.closed).toBe(4401);
     });
@@ -315,6 +322,8 @@ describe("WsBridgeServer", () => {
         ns: "pty",
         event: "output",
         args: ["mine", 7],
+        // Which pane, for a client whose one socket carries several.
+        key: "pane-a",
       });
       const outputs = client.frames.filter((f) => f.kind === "event");
       expect(outputs).toHaveLength(1);

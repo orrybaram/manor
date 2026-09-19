@@ -389,7 +389,15 @@ export class WsBridgeServer {
   ): void {
     if (this.connections.size === 0) return;
     const name = `${ns}.${event}`;
-    const payload = JSON.stringify({ kind: "event", ns, event, args });
+    // The key rides along on the frame as well as filtering it. One socket
+    // carries every pane the browser has open, and `args` for `pty.output` is
+    // the preload's `(data, seq)` — nothing in it says which pane, so without
+    // this the client could only deliver a pane's bytes to all of them.
+    const payload = JSON.stringify(
+      key === null
+        ? { kind: "event", ns, event, args }
+        : { kind: "event", ns, event, args, key },
+    );
     for (const connection of this.connections) {
       if (connection.device === null) continue;
       const keys = connection.subscriptions.get(name);

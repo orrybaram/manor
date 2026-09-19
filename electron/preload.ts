@@ -55,6 +55,11 @@ const detachedWindowId = detachedArg
 const isDetached = detachedWindowId !== null;
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  // Which implementation of this interface answers (ADR-178 D8). The web
+  // bridge reports "web"; a component that has to hide a native-only action
+  // reads this rather than sniffing the user agent.
+  platform: "electron",
+
   env: {
     isPackaged,
   },

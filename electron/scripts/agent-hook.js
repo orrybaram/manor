@@ -119,7 +119,7 @@ const SESSION_START_HINT = {
   hookSpecificOutput: {
     hookEventName: "SessionStart",
     additionalContext:
-      "This terminal runs inside Manor. The `manor` CLI is on PATH: run `manor --help` for commands that manage projects, workspaces, panes, agents, and browser panes. Prefer it over the mcp__manor__* tools; they do the same thing but load a large tool roster into context.",
+      "This terminal runs inside Manor. The `manor` CLI is on PATH: run `manor --help` for commands that manage projects, workspaces, panes, agents, and browser panes. Prefer it over the mcp__manor__* tools; they do the same thing but load a large tool roster into context. To fan a backlog of GitHub issues out to parallel agents in one shot, use `manor batch-create-workspaces --issues 1,2,3`; it creates a workspace per issue and launches an agent in each. Pass `--prompt-template` to override the default per-issue prompt. Verify launches with `manor list-agents` (a launch with no pane did not happen); don't fan out more than 4 agents at once without confirming with the user.",
   },
 };
 

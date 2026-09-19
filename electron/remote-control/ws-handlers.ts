@@ -11,10 +11,19 @@
  * be reached. The lifted functions keep their `assert*` validation, and both
  * callers go through it.
  *
- * Slice 1 is deliberately small: the reads the sidebar and the stores make on
- * mount, the PTY calls a live terminal makes, and two selection writes.
- * Everything else answers `unavailable:web` — an honest refusal the renderer
- * can render an empty state from, rather than a hang or a silent no-op.
+ * Slice 1 started deliberately small — the reads the sidebar and the stores
+ * make on mount, the PTY calls a live terminal makes, and two selection
+ * writes — and grew as later tickets closed gaps that only showed up once a
+ * browser was actually driving the app: `pty.reset` (ticket 5, so the pane
+ * menu's reset action works over the bridge, decorated with a winsize exactly
+ * as `pty.create` is), `preferences.set` and `remoteControl.getStatus`
+ * (ticket 9, so a `full` device's own settings pages aren't lying about the
+ * surface they're on), and `agents.setPaneContext` (ticket 10, so a pane
+ * opened from a browser gets the same per-pane agent metadata a desktop pane
+ * does). What is below is the table as it stands, not the slice-1 table
+ * anymore. Everything not in it answers `unavailable:web` — an honest refusal
+ * the renderer can render an empty state from, rather than a hang or a
+ * silent no-op.
  *
  * Adding a *write* here is a security decision, not a convenience one. A
  * `full` device already reaches the whole HTTP route table (D3), so nothing
@@ -225,7 +234,8 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
 
   // ── projects: the sidebar's reads, plus the two selection writes ──
   "projects.getAll": (deps: IpcDeps) => projectsGetAll(deps),
-  "projects.getSelectedIndex": (deps: IpcDeps) => projectsGetSelectedIndex(deps),
+  "projects.getSelectedIndex": (deps: IpcDeps) =>
+    projectsGetSelectedIndex(deps),
   "projects.select": (deps: IpcDeps, index: number) =>
     projectsSelect(deps, index),
   "projects.selectWorkspace": (

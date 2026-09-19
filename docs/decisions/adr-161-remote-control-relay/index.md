@@ -19,6 +19,9 @@ database:
 
 # ADR-161: Remote control surface — check on agents from a phone
 
+_Amended by [ADR-178](../adr-178-web-app-and-single-bridge/index.md): capability
+tiers, the `/ws` bridge, and the web app._
+
 ## Context
 
 An agent goes `requires_input` and sits there. If you are not at the machine, you find

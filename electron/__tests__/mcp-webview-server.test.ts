@@ -938,13 +938,12 @@ describe("WebviewServer agent orchestration routes", () => {
         prompt: "do the thing",
       });
 
+      // The route hands back the renderer's `StartedAgent` unwrapped — not
+      // the `{ok, data}` envelope `requestRenderer` settles with internally.
       expect(result).toEqual({
-        ok: true,
-        data: {
-          tabId: "tab-1",
-          paneId: "pane-1",
-          workspacePath: "/repos/demo-ws",
-        },
+        tabId: "tab-1",
+        paneId: "pane-1",
+        workspacePath: "/repos/demo-ws",
       });
       expect(send).toHaveBeenCalledWith("app-command", {
         cmd: "start-agent",
@@ -952,7 +951,6 @@ describe("WebviewServer agent orchestration routes", () => {
         args: {
           workspacePath: "/repos/demo-ws",
           prompt: "do the thing",
-          agentCommand: undefined,
         },
       });
     });
@@ -965,6 +963,31 @@ describe("WebviewServer agent orchestration routes", () => {
       await expect(
         mcpHttpPost(baseUrl, "/agents", { workspacePath: "/repos/demo-ws" }),
       ).rejects.toThrow("HTTP 503");
+    });
+
+    it("returns 400 when the renderer's start-agent handler fails", async () => {
+      // A "handler" failure (the renderer answered, but with `ok: false`) is
+      // the caller's fault — a bad workspacePath, say — so it maps to 400,
+      // distinct from the 503 above for "no renderer to ask at all".
+      const send = vi.fn((_channel: string, command: AppCommand) => {
+        const listener = (
+          ipcMain.on as ReturnType<typeof vi.fn>
+        ).mock.calls.filter(
+          (call) => call[0] === "app-command-result",
+        )[0][1] as (event: unknown, result: AppCommandResult) => void;
+        listener(null, {
+          requestId: command.requestId!,
+          ok: false,
+          error: "Unknown workspace",
+        });
+      });
+      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+        [{ webContents: { send } }],
+      );
+
+      await expect(
+        mcpHttpPost(baseUrl, "/agents", { workspacePath: "/nowhere" }),
+      ).rejects.toThrow("HTTP 400");
     });
   });
 
@@ -1142,6 +1165,64 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedLaunch?.started).toBe(false);
       expect(failedLaunch?.error).toBeUndefined();
       expect(failedLaunch?.launchError).toContain("No Manor window is open");
+      expect((failedLaunch as { paneId?: string }).paneId).toBeUndefined();
+    });
+
+    // One issue's launch failing must not stop the loop, and only a
+    // confirmed pane earns `paneId` — the two are otherwise indistinguishable
+    // once `started` alone is read.
+    it("keeps launching later issues after an earlier one's agent fails to start", async () => {
+      const send = vi.fn((channel: string, command?: AppCommand) => {
+        // `notifyProjectsChanged` sends "projects-changed" on this same
+        // `webContents.send`, with no `AppCommand` — ignore anything that
+        // isn't the correlated "app-command" this test is playing renderer for.
+        if (channel !== "app-command" || !command) return;
+        const listener = (
+          ipcMain.on as ReturnType<typeof vi.fn>
+        ).mock.calls.filter(
+          (call) => call[0] === "app-command-result",
+        )[0][1] as (event: unknown, result: AppCommandResult) => void;
+        const workspacePath = command.args?.workspacePath as string;
+        if (workspacePath === "/repos/demo-ws-10") {
+          listener(null, {
+            requestId: command.requestId!,
+            ok: false,
+            error: "harness crashed",
+          });
+        } else {
+          listener(null, {
+            requestId: command.requestId!,
+            ok: true,
+            data: { tabId: "tab-1", paneId: "pane-20", workspacePath },
+          });
+        }
+      });
+      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
+        [{ webContents: { send } }],
+      );
+
+      const result = (await mcpHttpPost(
+        baseUrl,
+        "/projects/proj-1/workspaces/batch",
+        { issues: [10, 20] },
+      )) as {
+        results: Array<{
+          number: number;
+          started: boolean;
+          paneId?: string;
+          launchError?: string;
+        }>;
+      };
+
+      // Order survives the loop rewrite regardless of which issue failed.
+      expect(result.results.map((r) => r.number)).toEqual([10, 20]);
+      const [failed, ok] = result.results;
+      expect(failed.started).toBe(false);
+      expect(failed.paneId).toBeUndefined();
+      expect(failed.launchError).toContain("harness crashed");
+      expect(ok.started).toBe(true);
+      expect(ok.paneId).toBe("pane-20");
+      expect(ok.launchError).toBeUndefined();
     });
 
     // Order is preserved in `details` order even when a middle issue's fetch
@@ -1166,9 +1247,12 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(result.results[1].error).toContain("gh issue view failed");
     });
 
-    // Assign calls are independent network writes — they must not be
-    // serialized one-by-one behind each other's 10s timeout.
-    it("issues assign calls concurrently rather than one at a time", async () => {
+    // ADR-176: step 3 (assign + launch) runs one issue at a time, not fanned
+    // out — a launch is now a correlated round-trip to the renderer, and N of
+    // those concurrently is both needless load and harder to reason about.
+    // Assign shares the same loop iteration, so it inherits the same
+    // ordering even though the write itself has no such requirement.
+    it("runs each issue's assign call after the previous issue's is done, not concurrently", async () => {
       const callOrder: string[] = [];
       const resolvers: Record<number, () => void> = {};
 
@@ -1188,23 +1272,22 @@ describe("WebviewServer agent orchestration routes", () => {
         { issues: [10, 20], assign: true, startAgent: false },
       );
 
-      // Both calls should have started before either has been resolved —
-      // proof they were issued in parallel, not awaited sequentially.
+      // Only the first issue's assign has started — the loop awaits it
+      // before it ever reaches the second.
       await vi.waitFor(() => {
         expect(callOrder).toContain("start-10");
+      });
+      expect(callOrder).not.toContain("start-20");
+      expect(resolvers[20]).toBeUndefined();
+
+      resolvers[10]();
+      await vi.waitFor(() => {
         expect(callOrder).toContain("start-20");
       });
-      expect(resolvers[10]).toBeDefined();
-      expect(resolvers[20]).toBeDefined();
-
-      // Resolve out of order — the later-numbered call finishes first.
       resolvers[20]();
-      resolvers[10]();
 
       await resultPromise;
-      expect(callOrder.indexOf("start-20")).toBeLessThan(
-        callOrder.indexOf("end-10"),
-      );
+      expect(callOrder).toEqual(["start-10", "end-10", "start-20", "end-20"]);
     });
 
     it("returns 400 when source: 'linear' is passed in the batch body", async () => {

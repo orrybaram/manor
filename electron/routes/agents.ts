@@ -11,7 +11,7 @@
 import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import { startAgent } from "../renderer-bridge";
+import { proxyToRenderer } from "../renderer-bridge";
 import { interruptSequenceFor } from "../harness-interrupt";
 import {
   getUnseenFlagsForAgent,
@@ -285,7 +285,10 @@ export const agentRoutes: Route[] = [
   },
 
   {
-    // Launch an agent pane in a workspace.
+    // Launch an agent pane in a workspace. Correlated round-trip (ADR-176):
+    // the response is the renderer's actual outcome — a `StartedAgent` pane
+    // on success, or the mapped failure `proxyToRenderer` already knows how
+    // to produce — not a fire-and-forget dispatch reported as success.
     method: "POST",
     path: "/agents",
     async handler({ json, readBody }) {
@@ -296,8 +299,7 @@ export const agentRoutes: Route[] = [
         return;
       }
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      const result = await startAgent(workspacePath, prompt);
-      json(result.ok ? 200 : 503, result);
+      await proxyToRenderer(json, "start-agent", { workspacePath, prompt });
     },
   },
 

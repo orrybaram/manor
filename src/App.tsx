@@ -383,18 +383,12 @@ function App() {
 
   // App-commands from the main process (e.g. MCP start_agent). Main cannot
   // create panes directly, so it round-trips over the "app-command" channel.
-  // Payloads carrying a `requestId` expect a reply; the rest are legacy
-  // fire-and-forget commands that close over this component's callback refs.
+  // Payloads carrying a `requestId` are answered by `appCommandHandlers`;
+  // `run-setup-script` is the last fire-and-forget straggler, kept here
+  // because it needs this component's `runWorkspaceSetupScript`.
   useEffect(() => {
     const cleanup = window.electronAPI.onAppCommand(
-      async ({ cmd, requestId, workspacePath, prompt, script, args }) => {
-        if (cmd === "start-agent" && workspacePath) {
-          await loadProjects(); // ensure a freshly-created workspace is visible
-          setActiveWorkspace(workspacePath);
-          if (prompt) handleNewAgentWithPromptRef.current(prompt);
-          else handleNewAgentRef.current();
-          return;
-        }
+      async ({ cmd, requestId, workspacePath, script, args }) => {
         if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
           setActiveWorkspace(workspacePath);
@@ -423,9 +417,6 @@ function App() {
   }, [loadProjects, setActiveWorkspace]);
 
   // Keybindings
-  const handleNewAgentRef = useRef<() => void>(() => {});
-  const handleNewAgentWithPromptRef = useRef<(prompt: string) => void>(() => {});
-
   // One command ID → action map for BOTH the keyboard and the native menu
   // (ADR-170). The window-agnostic half is shared with the detached-window
   // renderer (see `keybinding-commands`); the rest either needs this window's
@@ -558,7 +549,6 @@ function App() {
     // boundary resolves the cwd, so Home needs no special casing here.
     await startNewAgent({ prewarm: true });
   }, []);
-  handleNewAgentRef.current = handleNewAgent;
 
   const handleNewAgentWithPrompt = useCallback(
     (prompt: string) => {
@@ -575,7 +565,6 @@ function App() {
     },
     [addTab, activeWorkspacePath, activeWorkspaceCommand],
   );
-  handleNewAgentWithPromptRef.current = handleNewAgentWithPrompt;
 
   if (!appReady) {
     return (

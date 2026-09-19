@@ -296,7 +296,7 @@ export const agentRoutes: Route[] = [
         return;
       }
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      const result = startAgent(workspacePath, prompt);
+      const result = await startAgent(workspacePath, prompt);
       json(result.ok ? 200 : 503, result);
     },
   },

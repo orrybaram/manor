@@ -251,8 +251,7 @@ async function batchCreateWorkspaces(
   // 3. Resolve each issue to a result entry, assigning and launching as it
   // goes. `details.map` preserves order in `results` regardless of which
   // issues need assignment or launch, and each callback's own `await`s run
-  // concurrently across issues — `startAgent` itself is a synchronous
-  // dispatch, so calling it inline costs nothing.
+  // concurrently across issues.
   const results: BatchResultEntry[] = await Promise.all(
     details.map(async (d) => {
       if ("error" in d) {
@@ -277,7 +276,7 @@ async function batchCreateWorkspaces(
         }
       }
       if (ws.worktreePath && launch) {
-        const result = startAgent(
+        const result = await startAgent(
           ws.worktreePath,
           renderPrompt(promptTemplate, ws),
         );

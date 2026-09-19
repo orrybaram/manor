@@ -910,8 +910,25 @@ describe("WebviewServer agent orchestration routes", () => {
   });
 
   describe("POST /agents", () => {
-    it("dispatches an app-command and returns ok", async () => {
-      const send = vi.fn();
+    it("round-trips the launch and returns the renderer's pane", async () => {
+      // The launch is correlated (ADR-176): main waits for the renderer to
+      // report the pane it created, so the test has to play the renderer.
+      const send = vi.fn((_channel: string, command: AppCommand) => {
+        const listener = (
+          ipcMain.on as ReturnType<typeof vi.fn>
+        ).mock.calls.filter(
+          (call) => call[0] === "app-command-result",
+        )[0][1] as (event: unknown, result: AppCommandResult) => void;
+        listener(null, {
+          requestId: command.requestId!,
+          ok: true,
+          data: {
+            tabId: "tab-1",
+            paneId: "pane-1",
+            workspacePath: "/repos/demo-ws",
+          },
+        });
+      });
       (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
         [{ webContents: { send } }],
       );
@@ -921,11 +938,22 @@ describe("WebviewServer agent orchestration routes", () => {
         prompt: "do the thing",
       });
 
-      expect(result).toEqual({ ok: true });
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          tabId: "tab-1",
+          paneId: "pane-1",
+          workspacePath: "/repos/demo-ws",
+        },
+      });
       expect(send).toHaveBeenCalledWith("app-command", {
         cmd: "start-agent",
-        workspacePath: "/repos/demo-ws",
-        prompt: "do the thing",
+        requestId: expect.any(String),
+        args: {
+          workspacePath: "/repos/demo-ws",
+          prompt: "do the thing",
+          agentCommand: undefined,
+        },
       });
     });
 

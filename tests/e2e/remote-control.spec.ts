@@ -594,20 +594,12 @@ test.describe("remote control", () => {
         timeout: 60_000,
       });
 
-      // The client's one-shot re-read (`mountNewSession`'s launch handler)
-      // races the hook relay reporting `SessionStart`, and can lose it —
-      // the launch is not undone, only the auto-open is skipped, and the
-      // session lands in the list like any other. Either way it must be
-      // reachable, not dead: tap it if the race left it on the list.
+      // ADR-177's claim: a launch lands you where you would have gone
+      // anyway. `mountNewSession`'s launch handler remembers the paneId and
+      // lets `loadAgents()` — driven by the SSE `status` event and the 5s
+      // poll — open it as soon as either notices the row the hook relay's
+      // `SessionStart` creates. No tap required.
       const heading = phone.page.locator("h1", { hasText: prompt });
-      if (!(await heading.isVisible())) {
-        const newRow = sessionRow(phone.page, {
-          name: prompt,
-          project: PROJECT_NAME,
-        });
-        await expect(newRow).toBeVisible({ timeout: 10_000 });
-        await newRow.click();
-      }
       await expect(heading).toBeVisible({ timeout: 20_000 });
       await expect(phone.page.locator("pre.terminal")).toContainText(
         FAKE_AGENT_BANNER,

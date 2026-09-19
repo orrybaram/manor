@@ -121,6 +121,15 @@ const dismissed = readDismissed();
 /** The agent whose transcript is on screen, or null on the list. */
 let openAgentId: string | null = null;
 let screen: Screen = { update() {} };
+/**
+ * A launch's `paneId`, remembered so the next `loadAgents()` — already driven
+ * by the SSE `status` event and the 5s poll — can open the session it started
+ * as soon as either notices the new row, instead of racing the hook relay's
+ * `SessionStart` with a bespoke retry. Bounded so a launch that never
+ * produces a session cannot yank the user into a transcript minutes later.
+ */
+let pendingLaunch: { paneId: string; expiresAt: number } | null = null;
+const PENDING_LAUNCH_TTL_MS = 30_000;
 
 // ── Token ──
 
@@ -192,7 +201,30 @@ async function loadAgents(): Promise<void> {
   const next = await api<AgentSummary[]>("/agents");
   if (!next) return;
   agents = next;
+  resolvePendingLaunch();
   screen.update();
+}
+
+/**
+ * Land in a just-launched session the moment its row shows up here — see
+ * `pendingLaunch`. Dropped, rather than resolved, if it has expired or the
+ * user has already opened a different session by hand: a refresh that
+ * arrives late must not hijack what they are looking at now.
+ */
+function resolvePendingLaunch(): void {
+  if (!pendingLaunch) return;
+  if (Date.now() > pendingLaunch.expiresAt) {
+    pendingLaunch = null;
+    return;
+  }
+  if (openAgentId !== null) {
+    pendingLaunch = null;
+    return;
+  }
+  const agent = agents.find((a) => a.paneId === pendingLaunch!.paneId);
+  if (!agent) return;
+  pendingLaunch = null;
+  openSession(agent);
 }
 
 async function loadTranscript(agentId: string): Promise<void> {
@@ -844,14 +876,17 @@ function mountNewSession(): Screen {
           return;
         }
         setNotice("Launched.", "ok");
-        // The response carries a paneId, not an agent id (ADR-177): reread
-        // `/agents` and match it. The row the hook relay creates may not have
-        // landed yet — going back and letting the poll surface it beats
-        // spinning on a screen with nothing to show.
-        await loadAgents();
-        const agent = agents.find((a) => a.paneId === started.paneId);
-        if (agent) openSession(agent);
-        else backToList();
+        // The response carries a paneId, not an agent id (ADR-177), and the
+        // row the hook relay creates may not have landed yet. Remember the
+        // paneId and let `loadAgents()` open it as soon as the SSE `status`
+        // event or the 5s poll notices the new row — `backToList()`'s own
+        // immediate `loadAgents()` resolves it in one hop when the relay is
+        // quick.
+        pendingLaunch = {
+          paneId: started.paneId,
+          expiresAt: Date.now() + PENDING_LAUNCH_TTL_MS,
+        };
+        backToList();
       },
     });
   });

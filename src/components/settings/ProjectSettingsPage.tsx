@@ -19,6 +19,7 @@ import { Input, Textarea } from "../ui/Input";
 import { Switch } from "../ui/Switch/Switch";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
+import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const worktreeScriptFields: Array<{
@@ -263,6 +264,10 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   const { project } = props;
 
   const updateProject = useProjectStore((s) => s.updateProject);
+  // `projects.update` isn't on the slice-1 bridge table (ADR-178): the
+  // optimistic local edit would look saved and then silently not persist.
+  // Read-only beats that.
+  const webApp = isWebApp();
   const nameRef = useRef<HTMLInputElement>(null);
   const agentCommandRef = useRef<HTMLInputElement>(null);
   const worktreePathRef = useRef<HTMLInputElement>(null);
@@ -334,6 +339,12 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
 
   return (
     <Stack className={styles.pageContent}>
+      {webApp && (
+        <div className={styles.sectionDescription}>
+          The agent command and worktree scripts aren&apos;t editable from the
+          browser yet — shown read-only.
+        </div>
+      )}
       <Stack gap="xs">
         <SectionTitle id="project-general">General</SectionTitle>
         <label className={styles.fieldLabel}>Name</label>
@@ -378,6 +389,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
           defaultValue={project.agentCommand ?? ""}
           onBlur={() => handleBlur("agentCommand")}
           placeholder={DEFAULT_AGENT_COMMAND}
+          disabled={webApp}
         />
       </Stack>
 
@@ -510,6 +522,7 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
               onBlur={() => handleBlur(field)}
               placeholder={placeholder}
               rows={4}
+              disabled={webApp}
             />
           </Stack>
         ))}

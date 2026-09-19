@@ -18,6 +18,7 @@ import {
   openContextMenuFromKeyboard,
 } from "../../lib/keyboard-context-menu";
 import { TabAgentDot } from "./TabAgentDot";
+import { isWebApp } from "../../lib/platform";
 import styles from "./TabBar/TabBar.module.css";
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
@@ -341,8 +342,11 @@ export function TabButton(props: TabButtonProps) {
           )}
           {/* A popout's sole tab offers no "new window": tearing it out empties
               this window, which then closes itself — a no-op with extra steps.
-              A popout holding several tabs can still spawn another window. */}
-          {!(window.electronAPI?.isDetached && countTabsInWindow() === 1) && (
+              A popout holding several tabs can still spawn another window.
+              `window.detachTab` has no browser meaning either (ADR-178) —
+              removed there, not disabled. */}
+          {!isWebApp() &&
+            !(window.electronAPI?.isDetached && countTabsInWindow() === 1) && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={() => {

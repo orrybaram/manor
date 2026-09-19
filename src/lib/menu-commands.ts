@@ -124,6 +124,39 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
+ * Commands whose only implementation reaches a namespace `src/web/unavailable.ts`
+ * has no browser meaning for at all — ADR-178's "what can never mirror in a
+ * browser" table, expressed as command ids instead of preload namespaces.
+ * `commandAvailableOnWeb` filters these out of the command palette and turns
+ * them into no-ops for the keybinding and menu-command dispatchers when
+ * `isWebApp()` (`platform.ts`). Kept here, beside the rest of the command
+ * catalog, so a command's web availability is decided next to its id and is
+ * unit-testable without touching the DOM this module is built to avoid.
+ */
+export const NATIVE_ONLY_COMMANDS: ReadonlySet<string> = new Set<string>([
+  // `dialog.openDirectory` — no filesystem picker in a browser tab.
+  "add-project",
+  "new-project",
+  // `shell.openInEditor` — no local editor process to hand a path to.
+  "open-in-editor",
+  // `shell.showItemInFolder` — no Finder to reveal anything in.
+  "reveal-in-finder",
+  // `window.detachTab`/`window.setPosition` — no native chrome, and
+  // `window.open` under a popup blocker is not a substitute (ADR-156).
+  "detach-pane",
+  "detach-tab",
+  // `shell.openExternal`, reached directly rather than through a `<Link>`.
+  "help-docs",
+  "help-release-notes",
+  "help-report-issue",
+]);
+
+/** Whether `commandId` does anything on the web app (ADR-178 ticket 6). */
+export function commandAvailableOnWeb(commandId: string): boolean {
+  return !NATIVE_ONLY_COMMANDS.has(commandId);
+}
+
+/**
  * Payload of the main → renderer `keybinding-command` channel: a bound combo
  * pressed somewhere the renderer's own key handler can't see it — inside a web
  * page (`webview`) or in a popout for a primary-only command (`popout`).

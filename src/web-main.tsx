@@ -9,6 +9,7 @@ import {
   forgetWebToken,
   WEB_TOKEN_KEY,
 } from "./web/ws-bridge";
+import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
 
 /**
  * The web app's entry (ADR-178 D1): the desktop renderer, served to a
@@ -49,58 +50,6 @@ function readToken(): string | null {
   } catch {
     return null;
   }
-}
-
-/** One message, centred, on nothing. Every dead end here renders as one. */
-function FullPageMessage(props: {
-  children: React.ReactNode;
-  testId?: string;
-}): React.JSX.Element {
-  return (
-    <div
-      data-testid={props.testId}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        fontFamily: "system-ui, sans-serif",
-        color: "#ccc",
-        background: "#1e1e2e",
-        textAlign: "center",
-        padding: "2rem",
-      }}
-    >
-      {props.children}
-    </div>
-  );
-}
-
-/** "Open the link from the pairing dialog" — the whole screen, deliberately. */
-function NoTokenScreen(): React.JSX.Element {
-  return (
-    <FullPageMessage testId="web-app-no-token">
-      This device isn&apos;t paired. Open the link from the pairing dialog in
-      Manor &rarr; Settings &rarr; Remote control.
-    </FullPageMessage>
-  );
-}
-
-/**
- * Paired, but below `full` (ADR-178 D3). The token is good — it is a `read`
- * or `send` device, and those tiers are an allowlist of routes, not this
- * surface. Said plainly, and without forgetting the token: the same device
- * still works in the remote client at `/`.
- */
-function ForbiddenScreen(): React.JSX.Element {
-  return (
-    <FullPageMessage testId="web-app-forbidden">
-      This device isn&apos;t paired with full access, so it can&apos;t open the
-      full Manor app. Re-pair it at full access in Manor &rarr; Settings &rarr;
-      Remote control, or use the lightweight client at{" "}
-      <code style={{ marginLeft: "0.25rem" }}>/</code>.
-    </FullPageMessage>
-  );
 }
 
 const queryClient = new QueryClient({

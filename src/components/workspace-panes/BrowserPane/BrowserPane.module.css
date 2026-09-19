@@ -27,6 +27,35 @@
   color: var(--text-dim);
 }
 
+/* ADR-178: the stated empty state a browser pane renders on the web app,
+   instead of the `<webview>` it cannot mount there. */
+.webUnavailable {
+  position: absolute;
+  inset: 0;
+  background: var(--dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.webUnavailableMessage {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.webUnavailableLink {
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .webviewContainer webview {
   width: 100%;
   height: 100%;

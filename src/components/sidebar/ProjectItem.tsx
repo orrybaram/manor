@@ -44,6 +44,7 @@ import { NewFolderDialog } from "./NewFolderDialog";
 import { FolderItem } from "./FolderItem";
 import { placeNewWorkspaceInFolder } from "../../lib/place-new-workspace";
 import { openInEditor } from "../../lib/editor";
+import { isWebApp } from "../../lib/platform";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 import { handleSidebarRowKeyDown } from "../../lib/sidebar-row";
 import {
@@ -219,9 +220,7 @@ const WorkspaceItem = React.forwardRef<
                 <PrPopover
                   pr={ws.pr}
                   workspacePath={ws.path}
-                  onOpen={() =>
-                    window.electronAPI.shell.openExternal(ws.pr!.url)
-                  }
+                  onOpen={() => openExternalUrl(ws.pr!.url)}
                 />
               )}
             </div>
@@ -250,6 +249,19 @@ type ProjectItemProps = {
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
   onOpenDiff?: (wsIndex: number) => void;
 };
+
+/**
+ * `shell.openExternal` has no browser meaning (ADR-178), but "open this PR"
+ * does — a plain `window.open` gets there without Electron, so this one call
+ * site degrades instead of losing the feature entirely.
+ */
+function openExternalUrl(url: string): void {
+  if (isWebApp()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  void window.electronAPI.shell.openExternal(url);
+}
 
 export function ProjectItem(props: ProjectItemProps) {
   const {
@@ -594,22 +606,29 @@ export function ProjectItem(props: ProjectItemProps) {
               workspaceMenuOpenedByKeyboard.current.delete(ws.path);
             }}
           >
-            <ContextMenu.Item
-              className={styles.contextMenuItem}
-              onSelect={() =>
-                window.electronAPI.shell.openExternal(
-                  `file://${ws.path}`,
-                )
-              }
-            >
-              Open in Finder
-            </ContextMenu.Item>
-            <ContextMenu.Item
-              className={styles.contextMenuItem}
-              onSelect={() => openInEditor(ws.path)}
-            >
-              Open in Editor
-            </ContextMenu.Item>
+            {/* `shell.*` has no browser meaning (ADR-178) — removed, not
+                disabled, following the remote client's rule for an
+                affordance a paired device can't use at all. */}
+            {!isWebApp() && (
+              <>
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() =>
+                    window.electronAPI.shell.openExternal(
+                      `file://${ws.path}`,
+                    )
+                  }
+                >
+                  Open in Finder
+                </ContextMenu.Item>
+                <ContextMenu.Item
+                  className={styles.contextMenuItem}
+                  onSelect={() => openInEditor(ws.path)}
+                >
+                  Open in Editor
+                </ContextMenu.Item>
+              </>
+            )}
             <ContextMenu.Sub>
               <ContextMenu.SubTrigger
                 className={styles.contextMenuItem}

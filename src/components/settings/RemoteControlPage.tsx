@@ -26,6 +26,7 @@ import type {
   TunnelKind,
 } from "../../electron.d";
 import { SectionTitle } from "./SectionTitle";
+import { isWebApp } from "../../lib/platform";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 const TUNNEL_LABEL: Record<TunnelKind, string> = {
@@ -96,6 +97,13 @@ export function RemoteControlPage() {
     void refreshDetection();
   });
 
+  // `remoteControl.*` isn't on the slice-1 bridge table (ADR-178) — not even
+  // the reads, so this page's own status never actually loads over the
+  // bridge. Read-only with a note beats a switch and a pairing form that
+  // silently do nothing.
+  const webApp = isWebApp();
+  const locked = webApp || busy || !status.encryptionAvailable;
+
   const tunnel = status.tunnel;
   const running = tunnel.state === "running";
   const available = (["tailscale", "cloudflared"] as const).filter(
@@ -131,10 +139,17 @@ export function RemoteControlPage() {
         <Switch
           data-testid="remote-control-switch"
           checked={status.enabled}
-          disabled={busy || !status.encryptionAvailable}
+          disabled={locked}
           onCheckedChange={(checked) => void setEnabled(checked)}
         />
       </div>
+
+      {webApp && (
+        <div className={styles.sectionDescription}>
+          This page isn&apos;t live from the browser yet — the switch, pairing
+          and tunnel controls are read-only here.
+        </div>
+      )}
 
       {!status.encryptionAvailable && (
         <div className={styles.remoteWarning}>
@@ -171,6 +186,7 @@ export function RemoteControlPage() {
                 placeholder="Device name, e.g. “my phone”"
                 value={label}
                 maxLength={64}
+                disabled={webApp}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && label.trim()) void handlePair();
@@ -179,7 +195,7 @@ export function RemoteControlPage() {
               <Button
                 data-testid="remote-pair-submit"
                 variant="secondary"
-                disabled={busy || label.trim().length === 0}
+                disabled={locked || label.trim().length === 0}
                 onClick={() => void handlePair()}
               >
                 Pair
@@ -216,7 +232,7 @@ export function RemoteControlPage() {
                   <DeviceRow
                     key={device.id}
                     device={device}
-                    busy={busy}
+                    busy={locked}
                     onRevoke={() => void revoke(device.id)}
                   />
                 ))}
@@ -239,7 +255,7 @@ export function RemoteControlPage() {
               <Row gap="sm">
                 <Button
                   variant="secondary"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => void stopTunnel()}
                 >
                   Stop tunnel
@@ -263,7 +279,7 @@ export function RemoteControlPage() {
                   >
                     <Button
                       variant="secondary"
-                      disabled={busy || tunnel.state === "starting"}
+                      disabled={locked || tunnel.state === "starting"}
                       onClick={() => setConfirmKind(kind)}
                     >
                       {tunnel.state === "starting"

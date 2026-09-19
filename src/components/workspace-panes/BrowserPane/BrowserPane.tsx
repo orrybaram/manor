@@ -6,6 +6,8 @@ import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browse
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
+import { isWebApp } from "../../../lib/platform";
+import { Link } from "../../ui/Link/Link";
 
 import styles from "./BrowserPane.module.css";
 
@@ -125,6 +127,11 @@ const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
     const { paneId, initialUrl, onNavStateChange } = props;
+
+    // `<webview>` is Electron-only (ADR-178 "what can never mirror in a
+    // browser"): a page cannot embed *and* script an arbitrary cross-origin
+    // site. Computed once — the bridge's `platform` never changes mid-session.
+    const webApp = isWebApp();
 
     const webviewRef = useRef<WebviewElement>(null);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
@@ -297,15 +304,21 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       reload() {
         webviewRef.current?.reload();
       },
+      // Every method below this point drives the native `<webview>` this
+      // component never mounts on the web app — a no-op there rather than a
+      // call into `UNAVAILABLE_NAMESPACES` (ADR-178 ticket 6).
       stop() {
+        if (webApp) return;
         window.electronAPI.webview.stop(paneId);
       },
       startPicker() {
+        if (webApp) return;
         if (navStateRef.current.pickerActive) return;
         fireNavStateChange({ pickerActive: true });
         window.electronAPI.webview.startPicker(paneId);
       },
       cancelPicker() {
+        if (webApp) return;
         if (!navStateRef.current.pickerActive) return;
         window.electronAPI.webview.cancelPicker(paneId);
       },
@@ -316,25 +329,31 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         // URL input is rendered by LeafPane; no-op placeholder
       },
       zoomIn() {
+        if (webApp) return;
         window.electronAPI.webview.zoomIn(paneId);
       },
       zoomOut() {
+        if (webApp) return;
         window.electronAPI.webview.zoomOut(paneId);
       },
       zoomReset() {
+        if (webApp) return;
         window.electronAPI.webview.zoomReset(paneId);
       },
       findInPage(query: string, options?: { forward?: boolean; findNext?: boolean }) {
+        if (webApp) return;
         fireNavStateChange({ findQuery: query });
         if (query) {
           window.electronAPI.webview.findInPage(paneId, query, options);
         }
       },
       stopFind() {
+        if (webApp) return;
         window.electronAPI.webview.stopFindInPage(paneId);
         fireNavStateChange({ findBarOpen: false, findQuery: "", findActiveMatch: 0, findTotalMatches: 0 });
       },
       toggleFindBar() {
+        if (webApp) return;
         const open = !navStateRef.current.findBarOpen;
         if (!open) {
           window.electronAPI.webview.stopFindInPage(paneId);
@@ -344,12 +363,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         }
       },
       toggleMute() {
+        if (webApp) return;
         const newMuted = !navStateRef.current.muted;
         window.electronAPI.webview.setAudioMuted(paneId, newMuted);
         fireNavStateChange({ muted: newMuted });
         useAppStore.getState().setPaneAudioMuted(paneId, newMuted);
       },
       stopRecording() {
+        if (webApp) return;
         void window.electronAPI.webview.stopRecording(paneId);
       },
       getUrlInputValue() {
@@ -362,7 +383,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         onFocus: handleUrlFocus,
       },
       onSuggestionMouseDown: handleSuggestionMouseDown,
-    }), [paneId, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
+    }), [paneId, webApp, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
     useMountEffect(() => {
       const wv = webviewRef.current;
@@ -546,6 +567,31 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubGoForward();
       };
     });
+
+    if (webApp) {
+      // ADR-178: `<webview>` cannot exist here, so this pane says so instead
+      // of mounting nothing — a `<Link>` opens the same URL in an actual
+      // browser tab, which is the desktop app's own popup-window escape
+      // hatch (`window.open`), just without Electron in the loop.
+      const hasUrl = Boolean(url) && !isBlank;
+      return (
+        <div className={styles.container}>
+          <div className={styles.webviewContainer}>
+            <div className={styles.webUnavailable} data-testid="browser-pane-web-unavailable">
+              <p className={styles.webUnavailableMessage}>
+                Browser panes need the desktop app.
+              </p>
+              {hasUrl && (
+                <Link href={url} className={styles.webUnavailableLink}>
+                  Open {url} in a new tab
+                </Link>
+              )}
+            </div>
+            {isDragActive && <div className={styles.dragOverlay} />}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className={styles.container}>

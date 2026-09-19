@@ -458,20 +458,40 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  /* A column flex container stretches its child to the container's width by
+     default (`align-items: stretch`), which would clamp `.stream` to the
+     viewport and defeat the horizontal scroll below — a wide grid needs to be
+     free to size to its own content and overflow. */
+  align-items: flex-start;
 }
 
 .terminal .stream {
   font-family: var(--font-mono);
-  font-size: 12px;
+  /* Set by `fitGrid` in `main.ts` to fit `cols` columns in the available
+     width; 12px — the size this was always fixed at — is both the fallback
+     before a grid width is known and the ceiling `fitGrid` clamps to. */
+  font-size: var(--term-font-size, 12px);
   line-height: 1.45;
   color: var(--term-fg);
-  /* Wrapped, not scrolled sideways: the daemon renders an 80-column screen and
-     a phone is narrower than that, and text hidden off the right edge of a
-     phone is text nobody reads. Every break the terminal itself made is still
-     honoured. */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /*
+   * A screen row is a row, not prose. `POST /sessions/read` hands back the
+   * daemon's *rendered* screen: an agent's box borders, diff gutters and
+   * progress lines are drawn assuming column alignment, and `pre-wrap` broke
+   * every one of them in a different place — the "garbled" transcript ADR-177
+   * fixes. Fidelity comes from `fitGrid` shrinking the font to fit `cols`
+   * instead of reflowing the text.
+   *
+   * A pane can still be wider than the phone even at the 6px floor (a
+   * 200-column pane, say). Below the floor nobody would be able to read
+   * anything smaller anyway, so the floor wins and `.terminal`'s
+   * `overflow: auto` lets the transcript pan sideways instead — a tiny,
+   * aligned grid beats a large, scrambled one.
+   */
+  white-space: pre;
   tab-size: 8;
+  /* Sized to its own content, not shrunk to the container — see
+     `align-items: flex-start` above. */
+  min-width: max-content;
 }
 
 .terminal.empty {

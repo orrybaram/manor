@@ -111,7 +111,8 @@ app.append(bar, body);
 let token = readToken();
 let identity: Identity | null = null;
 let agents: AgentSummary[] = [];
-let transcript: { agentId: string; text: string } | null = null;
+let transcript: { agentId: string; text: string; cols: number | null } | null =
+  null;
 let notice: { text: string; tone: "ok" | "warn" } | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let live = false;
@@ -195,17 +196,27 @@ async function loadAgents(): Promise<void> {
 }
 
 async function loadTranscript(agentId: string): Promise<void> {
-  const payload = await api<{ text: string }>("/sessions/read", {
-    method: "POST",
-    // `raw` keeps the escape sequences: this is a terminal, and it is rendered
-    // as one. `tailLines` is what a phone can plausibly scroll.
-    body: JSON.stringify({ target: agentId, tailLines: 400, raw: true }),
-  });
+  const payload = await api<{ text: string; cols: number | null }>(
+    "/sessions/read",
+    {
+      method: "POST",
+      // `raw` keeps the escape sequences: this is a terminal, and it is
+      // rendered as one. `tailLines` is what a phone can plausibly scroll.
+      body: JSON.stringify({ target: agentId, tailLines: 400, raw: true }),
+    },
+  );
   if (!payload) return;
   // A late reply for a session the user has already left must not overwrite
   // what they are looking at now.
   if (openAgentId !== agentId) return;
-  transcript = { agentId, text: trimBlankRows(payload.text) };
+  // `cols` is the live grid's width (ADR-177) — null when neither the live
+  // snapshot nor scrollback's `meta.json` knows it, in which case the render
+  // stays at the font-size ceiling rather than guessing a width.
+  transcript = {
+    agentId,
+    text: trimBlankRows(payload.text),
+    cols: payload.cols,
+  };
   screen.update();
 }
 
@@ -914,6 +925,20 @@ function mountDetail(agentId: string): Screen {
 
   /** The transcript currently drawn, so an unchanged poll costs nothing. */
   let painted: string | null = null;
+  /** The grid width the font is currently fit to, so a poll that repeats the
+   *  same `cols` costs nothing either — the fit depends on `cols` and the
+   *  viewport, and a poll changes neither. */
+  let gridCols: number | null = null;
+
+  // A rotation fires `resize` and `orientationchange` several times in quick
+  // succession; coalesce them into one recompute instead of thrashing layout.
+  let refitTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRefit = (): void => {
+    if (refitTimer) clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => fitGrid(terminal, stream, gridCols), 100);
+  };
+  window.addEventListener("resize", scheduleRefit);
+  window.addEventListener("orientationchange", scheduleRefit);
 
   // The transcript re-reads itself while it is open. An agent's reply lands a
   // second or two after a send, and a phone should not have to be asked.
@@ -955,20 +980,100 @@ function mountDetail(agentId: string): Screen {
       stop.hidden = status !== "working" && status !== "thinking";
       actions.hidden = replies.hidden && stop.hidden;
 
-      // Identical output is not worth re-rendering: the poll fires every
-      // second or two whether or not the session said anything, and every
-      // repaint is a chance to lose the reader's place.
-      if (transcript?.agentId === agentId && transcript.text !== painted) {
-        painted = transcript.text;
-        paintTerminal(terminal, stream, transcript.text);
+      if (transcript?.agentId === agentId) {
+        // The fit depends on `cols`, not on the text, so it is only redone
+        // when the grid's width actually changes — typically once, on the
+        // first payload of the session. It must happen *before* the text is
+        // painted below: changing the font size changes `scrollHeight`, and
+        // painting first would measure the old height and jump the reader's
+        // place on the first paint of a session.
+        if (transcript.cols !== gridCols) {
+          gridCols = transcript.cols;
+          fitGrid(terminal, stream, gridCols);
+        }
+
+        // Identical output is not worth re-rendering: the poll fires every
+        // second or two whether or not the session said anything, and every
+        // repaint is a chance to lose the reader's place.
+        if (transcript.text !== painted) {
+          painted = transcript.text;
+          paintTerminal(terminal, stream, transcript.text);
+        }
       }
     },
-    dispose: () => clearInterval(timer),
+    dispose: () => {
+      clearInterval(timer);
+      if (refitTimer) clearTimeout(refitTimer);
+      window.removeEventListener("resize", scheduleRefit);
+      window.removeEventListener("orientationchange", scheduleRefit);
+    },
   };
 }
 
 function agentById(id: string): AgentSummary | null {
   return agents.find((agent) => agent.id === id) ?? null;
+}
+
+/** A narrow grid should not balloon: the size this was always fixed at. */
+const FONT_CEILING = 12;
+/** Below this nobody reads anything — the transcript pans sideways instead. */
+const FONT_FLOOR = 6;
+/** Probe geometry for `measureAdvanceRatio` — arbitrary, cancels out in the ratio. */
+const PROBE_SIZE = 100;
+const PROBE_CHARS = 20;
+
+/** The mono font's per-character advance ÷ its font size. Cached: the font
+ *  never changes, so this is measured once, lazily, on the first fit. */
+let advanceRatio: number | null = null;
+
+/**
+ * Measure the mono font's per-character advance as a fraction of its size.
+ *
+ * A probe span of a known number of `0`s at a known (large, so rounding
+ * error is negligible) font size, appended to the live transcript so it
+ * inherits the real font stack, measured, and removed — synchronously, so
+ * nothing is ever painted with it in place.
+ */
+function measureAdvanceRatio(stream: HTMLElement): number {
+  if (advanceRatio !== null) return advanceRatio;
+  const probe = document.createElement("span");
+  probe.style.fontSize = `${PROBE_SIZE}px`;
+  probe.style.whiteSpace = "pre";
+  probe.textContent = "0".repeat(PROBE_CHARS);
+  stream.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  advanceRatio = width / PROBE_SIZE / PROBE_CHARS;
+  return advanceRatio;
+}
+
+/**
+ * Fit `cols` columns of the daemon's grid into the transcript's width by
+ * scaling the font (ADR-177) — the alternative, reflowing the text, is what
+ * broke every box border and diff gutter an agent draws.
+ *
+ * `cols === null` means neither the live snapshot nor scrollback's
+ * `meta.json` knew the grid's width; the ceiling wins, same as before this
+ * existed, but the transcript is still never reflowed.
+ */
+function fitGrid(
+  terminal: HTMLElement,
+  stream: HTMLElement,
+  cols: number | null,
+): void {
+  if (cols === null || cols <= 0) {
+    terminal.style.setProperty("--term-font-size", `${FONT_CEILING}px`);
+    return;
+  }
+  const ratio = measureAdvanceRatio(stream);
+  const style = getComputedStyle(terminal);
+  const available =
+    terminal.clientWidth -
+    parseFloat(style.paddingLeft) -
+    parseFloat(style.paddingRight);
+  const size = Math.floor(available / (cols * ratio));
+  const clamped = Math.min(FONT_CEILING, Math.max(FONT_FLOOR, size));
+  terminal.style.setProperty("--term-font-size", `${clamped}px`);
 }
 
 /**

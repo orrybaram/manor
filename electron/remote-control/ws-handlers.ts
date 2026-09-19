@@ -27,9 +27,11 @@ import {
   ptyCreate,
   ptyWrite,
   ptyResize,
+  ptyReset,
   ptyClose,
   ptyDetach,
 } from "../ipc/pty";
+import { isDesktopAttached } from "../pty-attachments";
 import { layoutLoad, layoutGetRestoredSessions } from "../ipc/layout";
 import {
   projectsGetAll,
@@ -93,10 +95,73 @@ export class BridgeRefusal extends Error {
   }
 }
 
+/** What a create-shaped call tells the browser about the winsize (D5). */
+export interface WinsizeDecoration {
+  /** False when a desktop window has this pane mounted: follow, do not fit. */
+  winsizeOwner: boolean;
+  /** The grid to render — the owner's, not the one the browser asked for. */
+  cols: number;
+  rows: number;
+}
+
+/**
+ * The session's current grid, or null if the daemon has no opinion yet.
+ *
+ * Never throws: a browser that cannot be told the owner's size is better off
+ * with the size it asked for than with a failed `pty.create`.
+ */
+async function sessionGrid(
+  deps: IpcDeps,
+  paneId: string,
+): Promise<{ cols: number; rows: number } | null> {
+  try {
+    const snapshot = await deps.backend.pty.getSnapshot(paneId);
+    if (!snapshot?.cols || !snapshot.rows) return null;
+    return { cols: snapshot.cols, rows: snapshot.rows };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run a create-shaped call for a *web* viewer and say who owns the winsize.
+ *
+ * Two things happen here that do not happen on the desktop path, and both are
+ * D5. First, when the desktop holds the pane the browser's own `cols×rows` is
+ * dropped before the call: `createOrAttach` resizes the session before it
+ * snapshots it (see `terminal-host/client.ts`), so passing the browser's grid
+ * through would resize the desktop's pane as a side effect of merely looking at
+ * it — the exact bug ADR-163/164/165 are about, arriving through the one door
+ * marked "read". Second, the answer carries the owner's grid, which is what the
+ * follower renders.
+ *
+ * Decoration happens here and nowhere else. The desktop's `ipcMain.handle`
+ * keeps the shape it has always returned; `winsizeOwner` absent means owner.
+ */
+async function createShaped<T extends { ok: boolean }>(
+  deps: IpcDeps,
+  paneId: string,
+  cols: number,
+  rows: number,
+  run: (cols: number, rows: number) => Promise<T>,
+): Promise<T | (T & WinsizeDecoration)> {
+  const follower = isDesktopAttached(paneId);
+  const owner = follower ? await sessionGrid(deps, paneId) : null;
+  const grid = owner ?? { cols, rows };
+  const result = await run(grid.cols, grid.rows);
+  if (!result.ok) return result;
+  return {
+    ...result,
+    winsizeOwner: !follower,
+    cols: grid.cols,
+    rows: grid.rows,
+  };
+}
+
 export const WS_HANDLERS: Record<string, BridgeHandler> = {
   // ── pty: the terminal itself ──
-  // `create` and `resize` gain follower behaviour in ticket 5 (D5); here they
-  // do exactly what the desktop's handlers do.
+  // `create` and `reset` answer with who owns the winsize; `resize` is a no-op
+  // while the desktop does (ADR-178 D5).
   "pty.create": (
     deps: IpcDeps,
     paneId: string,
@@ -104,11 +169,40 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
     cols: number,
     rows: number,
     agentKind?: string | null,
-  ) => ptyCreate(deps, paneId, cwd, cols, rows, agentKind),
+  ) =>
+    createShaped(deps, paneId, cols, rows, (c, r) =>
+      ptyCreate(deps, paneId, cwd, c, r, agentKind),
+    ),
+  /**
+   * Create-shaped, and reachable from the pane menu — so it is on the table,
+   * decorated exactly as `create` is. `pty.consumePrewarmed` is not: a prewarmed
+   * session belongs to the window that asked for one.
+   */
+  "pty.reset": (
+    deps: IpcDeps,
+    paneId: string,
+    cwd: string | null,
+    cols: number,
+    rows: number,
+  ) =>
+    createShaped(deps, paneId, cols, rows, (c, r) =>
+      ptyReset(deps, paneId, cwd, c, r),
+    ),
   "pty.write": (deps: IpcDeps, paneId: string, data: string) =>
     ptyWrite(deps, paneId, data),
-  "pty.resize": (deps: IpcDeps, paneId: string, cols: number, rows: number) =>
-    ptyResize(deps, paneId, cols, rows),
+  /**
+   * A follower asking for a size is not an error, and it is not a resize.
+   *
+   * It is answered rather than refused because refusing is a rejected promise
+   * on every layout tick, which `useTerminalResize` would log; and it is
+   * dropped rather than forwarded because the desktop's grid is not the
+   * browser's to move. A browser that is the *only* viewer resizes normally —
+   * it is the winsize owner then.
+   */
+  "pty.resize": (deps: IpcDeps, paneId: string, cols: number, rows: number) => {
+    if (isDesktopAttached(paneId)) return;
+    return ptyResize(deps, paneId, cols, rows);
+  },
   "pty.close": (deps: IpcDeps, paneId: string) => ptyClose(deps, paneId),
   "pty.detach": (deps: IpcDeps, paneId: string) => ptyDetach(deps, paneId),
 
@@ -176,6 +270,7 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
  */
 export const MUTATING: ReadonlySet<string> = new Set([
   "pty.create",
+  "pty.reset",
   "pty.close",
   "projects.select",
   "projects.selectWorkspace",

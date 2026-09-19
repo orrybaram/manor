@@ -6,7 +6,7 @@
  * `WsBridgeServer` would let any of those three come loose and still pass.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +16,7 @@ import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import { WsBridgeServer } from "../ws-bridge-server";
+import { attach, resetAttachments } from "../../pty-attachments";
 import type { IpcDeps } from "../../ipc/types";
 import type { ControlDeps } from "../../routes/types";
 
@@ -70,6 +71,12 @@ describe("WsBridgeServer", () => {
   let clients: Client[];
   let written: Array<[string, string]>;
   let created: string[];
+  /** `[paneId, cols, rows]` — the size a create actually reached the daemon with. */
+  let createdAt: Array<[string, number, number]>;
+  let resized: Array<[string, number, number]>;
+  let killed: string[];
+  /** The grid the daemon reports for any session, or none. */
+  let sessionSize: { cols: number; rows: number } | null;
 
   beforeEach(async () => {
     auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-ws-audit-"));
@@ -77,6 +84,11 @@ describe("WsBridgeServer", () => {
     clients = [];
     written = [];
     created = [];
+    createdAt = [];
+    resized = [];
+    killed = [];
+    sessionSize = null;
+    resetAttachments();
 
     // Enough of `IpcDeps` for the handlers this file exercises. The cast is
     // the point: the bridge takes the real deps object, and a test that
@@ -84,13 +96,31 @@ describe("WsBridgeServer", () => {
     deps = {
       backend: {
         pty: {
-          createOrAttach: async (paneId: string) => {
+          createOrAttach: async (
+            paneId: string,
+            _cwd: string,
+            cols: number,
+            rows: number,
+          ) => {
             created.push(paneId);
+            createdAt.push([paneId, cols, rows]);
             return { snapshot: null };
           },
           write: (paneId: string, data: string) => {
             written.push([paneId, data]);
           },
+          resize: async (paneId: string, cols: number, rows: number) => {
+            resized.push([paneId, cols, rows]);
+          },
+          kill: async (paneId: string) => {
+            killed.push(paneId);
+          },
+          detach: async () => {},
+          disposeDead: async () => {},
+          // The session's real grid, as the daemon holds it: what a follower
+          // is told to render, and what the desktop is already rendering.
+          getSnapshot: async (paneId: string) =>
+            sessionSize ? { screenAnsi: "", ...sessionSize, sessionId: paneId } : null,
         },
       },
       preferencesManager: {
@@ -415,6 +445,129 @@ describe("WsBridgeServer", () => {
       await invoke(client, "i", "projects", "getAll");
       expect(written).toEqual([["pane-a", "sk-secret"]]);
       expect(audit.read()).toEqual([]);
+    });
+  });
+
+  /**
+   * ADR-178 D5. The bridge is the one place that knows a caller is a *web*
+   * viewer, so it is the one place that can answer "who owns the winsize" —
+   * and the answer has to be carried on the create reply, because by the time
+   * the browser could ask separately it has already fitted itself.
+   */
+  describe("follower mode", () => {
+    const PANE = "pane-a";
+
+    it("tells a browser it owns the winsize when no desktop window does", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "c1", "pty", "create", [
+        PANE,
+        null,
+        100,
+        30,
+      ]);
+      expect(result).toMatchObject({ ok: true });
+      expect(result.result).toMatchObject({
+        ok: true,
+        winsizeOwner: true,
+        cols: 100,
+        rows: 30,
+      });
+      expect(createdAt).toEqual([[PANE, 100, 30]]);
+    });
+
+    it("tells a browser it is a follower, and hands it the owner's grid", async () => {
+      attach(PANE, 1);
+      sessionSize = { cols: 160, rows: 45 };
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "c2", "pty", "create", [
+        PANE,
+        null,
+        100,
+        30,
+      ]);
+      expect(result.result).toMatchObject({
+        ok: true,
+        winsizeOwner: false,
+        cols: 160,
+        rows: 45,
+      });
+    });
+
+    /**
+     * The one that would have shipped the bug. `createOrAttach` resizes before
+     * it snapshots, so a browser merely *looking* at a desktop-owned pane would
+     * have resized it — through the call it has to make to see anything.
+     */
+    it("does not carry a browser's grid into a create on a desktop-owned pane", async () => {
+      attach(PANE, 1);
+      sessionSize = { cols: 160, rows: 45 };
+      const client = await greet(FULL_TOKEN);
+      await invoke(client, "c3", "pty", "create", [PANE, null, 100, 30]);
+      expect(createdAt).toEqual([[PANE, 160, 45]]);
+    });
+
+    it("drops a follower's resize instead of refusing it", async () => {
+      attach(PANE, 1);
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "r1", "pty", "resize", [
+        PANE,
+        100,
+        30,
+      ]);
+      // Resolved, not rejected: a follower asking is not an error, and a
+      // rejection would be logged on every layout tick.
+      expect(result).toMatchObject({ ok: true });
+      expect(resized).toEqual([]);
+    });
+
+    it("resizes normally when the browser is the only viewer", async () => {
+      const client = await greet(FULL_TOKEN);
+      await invoke(client, "r2", "pty", "resize", [PANE, 100, 30]);
+      expect(resized).toEqual([[PANE, 100, 30]]);
+    });
+
+    it("decorates pty.reset the same way, being create-shaped", async () => {
+      attach(PANE, 1);
+      sessionSize = { cols: 160, rows: 45 };
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "x1", "pty", "reset", [
+        PANE,
+        null,
+        100,
+        30,
+      ]);
+      expect(result.result).toMatchObject({
+        ok: true,
+        winsizeOwner: false,
+        cols: 160,
+        rows: 45,
+      });
+      expect(killed).toEqual([PANE]);
+      expect(createdAt).toEqual([[PANE, 160, 45]]);
+    });
+
+    it("keeps pty.consumePrewarmed off the table", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "x2", "pty", "consumePrewarmed");
+      expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
+    });
+  });
+
+  describe("listenerCount", () => {
+    /**
+     * A browser on the bridge is a watcher. Counting only the SSE hub showed a
+     * paired laptop with the whole app open as "0 listening" in the settings
+     * page, which is the one number that page exists to be right about.
+     */
+    it("counts a bridge socket", async () => {
+      expect(server.listenerCount).toBe(0);
+      const client = await greet(FULL_TOKEN);
+      await client.next((f) => f.type === "hello");
+      expect(server.listenerCount).toBe(1);
+
+      client.socket.close();
+      await client.closed;
+      await vi.waitFor(() => expect(server.listenerCount).toBe(0));
     });
   });
 

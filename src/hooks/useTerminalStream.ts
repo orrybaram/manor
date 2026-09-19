@@ -123,6 +123,12 @@ export function useTerminalStream(
       },
     );
 
+    // This is also how a *follower* learns the winsize owner moved the grid
+    // (ADR-178 D5): the same event, applied to the emulator the same way. The
+    // grid change it causes reaches `useTerminalResize`'s `term.onResize`,
+    // which in follower mode re-fits the font instead of measuring the pane
+    // and sending the size back — sending it back would be a loop with a pty
+    // in it, and the pty is the desktop's.
     const unsubResized = window.electronAPI.pty.onResized(
       paneId,
       (cols: number, rows: number) => {

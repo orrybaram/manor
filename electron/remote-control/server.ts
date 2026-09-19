@@ -199,9 +199,16 @@ export class RemoteControlServer {
     return this.port;
   }
 
-  /** Live SSE connections — the UI's "someone is watching" signal. */
+  /**
+   * Live connections — the UI's "someone is watching" signal.
+   *
+   * Both transports, because the question the settings page is asking is "is
+   * anyone looking at this machine", and a browser on the bridge (ADR-178) is
+   * looking harder than any SSE listener: counting only `hub` showed a paired
+   * laptop with the whole app open as zero watchers.
+   */
   get listenerCount(): number {
-    return this.hub.size;
+    return this.hub.size + (this.bridge?.size ?? 0);
   }
 
   async start(): Promise<{ port: number }> {

@@ -259,6 +259,28 @@ export interface AgentState {
  */
 export type StreamPosition = number;
 
+/**
+ * What a create-shaped PTY call answers with.
+ *
+ * The last three fields are the ADR-178 bridge's (D5) and only the bridge's:
+ * the preload path never sets them, and **absent means this viewer owns the
+ * winsize**, which is what the desktop app has always been. A browser told
+ * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
+ * never asks the pty for a different pair.
+ */
+export interface PtyCreateResult {
+  ok: boolean;
+  snapshot?: string | null;
+  snapshotSeq?: StreamPosition;
+  error?: string;
+  prewarmed?: boolean;
+  /** False when another viewer — the desktop app — owns the winsize. */
+  winsizeOwner?: boolean;
+  /** The winsize owner's grid, to be rendered as-is. */
+  cols?: number;
+  rows?: number;
+}
+
 /** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
 export interface PersistedPaneSession {
   daemonSessionId: string;
@@ -361,13 +383,7 @@ export interface ElectronAPI {
       cols: number,
       rows: number,
       agentKind?: string | null,
-    ) => Promise<{
-      ok: boolean;
-      snapshot?: string | null;
-      snapshotSeq?: StreamPosition;
-      error?: string;
-      prewarmed?: boolean;
-    }>;
+    ) => Promise<PtyCreateResult>;
     write: (paneId: string, data: string) => Promise<void>;
     /** Resolves once the pty is actually at that size, not merely told to be. */
     resize: (paneId: string, cols: number, rows: number) => Promise<void>;
@@ -377,12 +393,7 @@ export interface ElectronAPI {
       cwd: string | null,
       cols: number,
       rows: number,
-    ) => Promise<{
-      ok: boolean;
-      snapshot?: string | null;
-      error?: string;
-      prewarmed?: boolean;
-    }>;
+    ) => Promise<PtyCreateResult>;
     detach: (paneId: string) => Promise<void>;
     consumePrewarmed: () => Promise<{
       paneId: string;

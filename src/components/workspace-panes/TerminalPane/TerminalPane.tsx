@@ -51,7 +51,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     });
   }, [paneId, openSearch]);
 
-  const { ptyError, term, searchAddon, write, reset } = useTerminalLifecycle(
+  const { ptyError, term, searchAddon, write, reset, follower } = useTerminalLifecycle(
     containerRef,
     paneId,
     cwd,
@@ -65,7 +65,20 @@ export function TerminalPane(props: TerminalPaneProps) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div ref={containerRef} className={styles.container} data-testid="terminal-pane">
+        <div
+          ref={containerRef}
+          className={`${styles.container} ${follower ? styles.containerFollowing : ""}`}
+          data-testid="terminal-pane"
+        >
+          {/* Why this pane does not fit its box: the desktop app owns this
+              session's winsize and this viewer is following it (ADR-178 D5).
+              Saying so is cheaper than leaving the user to discover that
+              dragging the pane changes nothing. */}
+          {follower && (
+            <span className={styles.followerBadge} data-testid="terminal-follower">
+              following desktop · {follower.cols}×{follower.rows}
+            </span>
+          )}
           {searchOpen && term && searchAddon && (
             <TerminalSearchBar
               term={term}

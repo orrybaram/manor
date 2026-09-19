@@ -32,6 +32,7 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
+import { releaseViewer } from "./pty-attachments";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { WsBridgeServer } from "./remote-control/ws-bridge-server";
@@ -170,8 +171,15 @@ export function initApp(devTitle: string | null): void {
 
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
+    // Read the id now: `closed` fires with a freed native window behind the
+    // wrapper, and `webContents` is not there to be asked by then.
+    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
+      // A window that dies without unmounting its panes still let them go —
+      // otherwise every pane it held stays desktop-owned forever and a browser
+      // on the bridge follows a grid nothing is driving (ADR-178 D5).
+      releaseViewer(viewerId);
     });
   }
 

@@ -15,6 +15,33 @@
   display: block;
 }
 
+/* Follower mode (ADR-178 D5): the grid belongs to the winsize owner, so a
+   pane too narrow for it at the font floor pans sideways rather than
+   reflowing the agent's boxes and gutters to a width it was never drawn at.
+   `contain: strict` has to go with it — strict containment would clip the
+   overflow it is meant to scroll. */
+.containerFollowing {
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: layout paint;
+}
+
+.followerBadge {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  z-index: 40;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* Error dialog — shown when PTY creation fails */
 .errorOverlay {
   position: fixed;

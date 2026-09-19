@@ -748,6 +748,28 @@ describe("RemoteControlServer", () => {
       expect(audit.read()).toEqual([]);
     });
 
+    /**
+     * `POST /sessions/read` is a read wearing a POST: it returns scrollback
+     * and changes nothing, and it is a POST only because the pane id and the
+     * line count belong in a body. Auditing by HTTP method alone would give a
+     * browser polling a terminal one line per poll, which buries the lines
+     * that matter under the lines that do not.
+     */
+    it("writes no line for POST /sessions/read", async () => {
+      withLiveSession();
+      deps.backend = {
+        pty: {
+          write: ptyWrite,
+          getSnapshot: async () => ({ screenAnsi: "$ ", cols: 80, rows: 24 }),
+        },
+      } as unknown as ControlDeps["backend"];
+      const res = await post("/sessions/read", FULL_TOKEN, {
+        target: "agent-1",
+      });
+      expect(res.status).toBe(200);
+      expect(audit.read()).toEqual([]);
+    });
+
     it("leaves every send-tier gate exactly where it was", async () => {
       withLiveSession();
       // Still refused without confirmation…

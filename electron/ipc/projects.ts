@@ -4,19 +4,44 @@ import type { ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
 import type { IpcDeps } from "./types";
 
+/**
+ * The four the sidebar needs to paint itself, lifted out of their
+ * `ipcMain.handle` wrappers so the ADR-178 WebSocket bridge calls the same
+ * code the desktop renderer does. The two selection calls are the only
+ * `projects` *writes* on the bridge's slice-1 table; everything that creates,
+ * removes or merges a workspace stays desktop-only until a later slice.
+ */
+export function projectsGetAll(deps: IpcDeps): unknown {
+  return deps.projectManager.getProjects();
+}
+
+export function projectsGetSelectedIndex(deps: IpcDeps): number {
+  return deps.projectManager.getSelectedProjectIndex();
+}
+
+export function projectsSelect(deps: IpcDeps, index: number): void {
+  deps.projectManager.selectProject(index);
+}
+
+export function projectsSelectWorkspace(
+  deps: IpcDeps,
+  projectId: string,
+  workspaceIndex: number,
+): void {
+  deps.projectManager.selectWorkspace(projectId, workspaceIndex);
+}
+
 export function register(deps: IpcDeps): void {
   const { projectManager, statsStore } = deps;
 
-  ipcMain.handle("projects:getAll", () => {
-    return projectManager.getProjects();
-  });
+  ipcMain.handle("projects:getAll", () => projectsGetAll(deps));
 
-  ipcMain.handle("projects:getSelectedIndex", () => {
-    return projectManager.getSelectedProjectIndex();
-  });
+  ipcMain.handle("projects:getSelectedIndex", () =>
+    projectsGetSelectedIndex(deps),
+  );
 
   ipcMain.handle("projects:select", (_event, index: number) => {
-    projectManager.selectProject(index);
+    projectsSelect(deps, index);
   });
 
   ipcMain.handle("projects:add", (_event, name: string, projectPath: string) => {
@@ -32,7 +57,7 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "projects:selectWorkspace",
     (_event, projectId: string, workspaceIndex: number) => {
-      projectManager.selectWorkspace(projectId, workspaceIndex);
+      projectsSelectWorkspace(deps, projectId, workspaceIndex);
     },
   );
 

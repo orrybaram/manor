@@ -39,6 +39,17 @@ export interface RemoteAuditEntry {
    * front of them. Absent on lines written before this field existed.
    */
   tier?: "send" | "full";
+  /**
+   * Which surface the device came in on (ADR-178 D8).
+   *
+   * `"http"` — omitted, for every line written before this field existed — is
+   * a route on the remote listener, and `route` reads `POST /sessions/send`.
+   * `"bridge"` is a WebSocket `invoke`, and `route` reads `pty.create`: a
+   * handler-table key, not an HTTP one. Two different namespaces in one field
+   * would be a trap for anyone grepping the trail, so the field that says
+   * which is right next to it.
+   */
+  transport?: "http" | "bridge";
   route: string;
   /** The `target` the caller named — an agent id, pane id, or branch. */
   target: string | null;

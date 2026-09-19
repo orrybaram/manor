@@ -34,6 +34,57 @@ function assertRendererAgentUpdate(updates: unknown): asserts updates is Record<
   }
 }
 
+/** What `agents:getAll` narrows its page by. */
+export interface AgentQuery {
+  projectId?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * The reads, lifted out of their `ipcMain.handle` wrappers so the ADR-178
+ * WebSocket bridge calls the same code the desktop renderer does. Everything
+ * that mutates an agent record — update, delete, markSeen, abandonForPane,
+ * reconcileStale — stays desktop-only for slice 1.
+ */
+export function agentsGetAll(deps: IpcDeps, opts?: AgentQuery): unknown {
+  return deps.agentManager.getAllAgents(opts);
+}
+
+export function agentsGet(deps: IpcDeps, agentId: string): unknown {
+  assertString(agentId, "agentId");
+  return deps.agentManager.getAgentById(agentId);
+}
+
+export function agentsGetActive(deps: IpcDeps): unknown {
+  return deps.agentManager.getActiveAgents();
+}
+
+export function agentsGetRecent(
+  deps: IpcDeps,
+  opts?: { limit?: number },
+): unknown {
+  return deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
+}
+
+export function agentsGetUnseen(): unknown {
+  return getUnseenSnapshot();
+}
+
+export function agentsBuildResumeCommand(
+  deps: IpcDeps,
+  agentId: string,
+): string | null {
+  assertString(agentId, "agentId");
+  const agent = deps.agentManager.getAgentById(agentId);
+  if (!agent || !agent.agentCommand) return null;
+  return getConnector(agent.agentKind).getResumeCommand(
+    agent.agentCommand,
+    agent.agentSessionId,
+  );
+}
+
 export function register(deps: IpcDeps): void {
   const {
     agentManager,
@@ -45,43 +96,26 @@ export function register(deps: IpcDeps): void {
     statsStore,
   } = deps;
 
-  ipcMain.handle(
-    "agents:getAll",
-    (
-      _event,
-      opts?: {
-        projectId?: string;
-        status?: string;
-        limit?: number;
-        offset?: number;
-      },
-    ) => {
-      return agentManager.getAllAgents(opts);
-    },
+  ipcMain.handle("agents:getAll", (_event, opts?: AgentQuery) =>
+    agentsGetAll(deps, opts),
   );
 
-  ipcMain.handle("agents:get", (_event, agentId: string) => {
-    assertString(agentId, "agentId");
-    return agentManager.getAgentById(agentId);
-  });
+  ipcMain.handle("agents:get", (_event, agentId: string) =>
+    agentsGet(deps, agentId),
+  );
 
-  ipcMain.handle("agents:getActive", () => {
-    return agentManager.getActiveAgents();
-  });
+  ipcMain.handle("agents:getActive", () => agentsGetActive(deps));
 
-  ipcMain.handle("agents:getRecent", (_event, opts?: { limit?: number }) => {
-    const limit = opts?.limit ?? 50;
-    return agentManager.getAllAgents({ limit });
-  });
+  ipcMain.handle("agents:getRecent", (_event, opts?: { limit?: number }) =>
+    agentsGetRecent(deps, opts),
+  );
 
   /**
    * Returns the full unseen-flag snapshot from main as `{ responded, requires_input }`
    * arrays of agent ids. Used by the renderer on boot to prime its cache so
    * the pulse-state matches main exactly. See ADR-136 §"Change 3".
    */
-  ipcMain.handle("agents:getUnseen", () => {
-    return getUnseenSnapshot();
-  });
+  ipcMain.handle("agents:getUnseen", () => agentsGetUnseen());
 
   /**
    * Returns the count of agents pruned during the most recent AgentManager
@@ -147,15 +181,9 @@ export function register(deps: IpcDeps): void {
     });
   });
 
-  ipcMain.handle("agents:buildResumeCommand", (_event, agentId: string) => {
-    assertString(agentId, "agentId");
-    const agent = agentManager.getAgentById(agentId);
-    if (!agent || !agent.agentCommand) return null;
-    return getConnector(agent.agentKind).getResumeCommand(
-      agent.agentCommand,
-      agent.agentSessionId,
-    );
-  });
+  ipcMain.handle("agents:buildResumeCommand", (_event, agentId: string) =>
+    agentsBuildResumeCommand(deps, agentId),
+  );
 
   ipcMain.handle(
     "agents:setPaneContext",

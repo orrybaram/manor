@@ -6,9 +6,12 @@
  * them read nothing but the calling device; the third reads project
  * *configuration* — never session state — projected down to four fields:
  *
- *   - `GET /me` — the calling device's own label and send capability, plus the
+ *   - `GET /me` — the calling device's own label and capability tier, plus the
  *     public half of the push key. No token, no hash, nothing about any other
- *     device.
+ *     device. It reports both the tier (ADR-178) and the `canSend` boolean
+ *     derived from it, which is what `src/remote-client/main.ts` has always
+ *     read — the derived field stays so the small client needs no change and
+ *     the two can never disagree.
  *   - `POST /push/subscribe` — store this device's push endpoint.
  *   - `GET /workspaces` — enough of `deps.projectManager.getProjects()` for a
  *     phone to choose a launch target: project name, and each visible
@@ -32,11 +35,12 @@
 
 import type { Route } from "../routes/types";
 import { routeKey } from "./allowlist";
+import { canSend, type Capability } from "./devices";
 import type { PushManager } from "./push";
 
 /** What the listener's own handlers need that `RouteContext` does not carry. */
 export interface ListenerRouteContext {
-  device: { id: string; label: string; canSend: boolean };
+  device: { id: string; label: string; capability: Capability };
   /** Null disables push entirely; the client then simply never subscribes. */
   push: PushManager | null;
 }
@@ -53,7 +57,11 @@ export function listenerRoutes({
         json(200, {
           id: device.id,
           label: device.label,
-          canSend: device.canSend,
+          capability: device.capability,
+          // Derived, never stored twice. The remote client (ADR-161/177) reads
+          // this and only this; `full` reads as "can send" there because from
+          // that client's point of view it is exactly that.
+          canSend: canSend(device.capability),
           // The *public* half of the VAPID pair. It is an application server
           // key, not a secret — a client cannot subscribe without it.
           vapidPublicKey: push?.publicKey() ?? null,
@@ -128,7 +136,7 @@ export function listenerRoutes({
  * `method` and `path` are read, and no handler runs.
  */
 export const LISTENER_OWN_ROUTES: readonly string[] = listenerRoutes({
-  device: { id: "", label: "", canSend: false },
+  device: { id: "", label: "", capability: "read" },
   push: null,
 }).map(routeKey);
 

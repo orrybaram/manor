@@ -87,10 +87,20 @@ export async function setAgentCommand(
   await closeSettings(window);
 }
 
+/** Mirrors `RemoteCapability` in `src/electron.d.ts` (ADR-178 D3). */
+export type PairedCapability = "read" | "send" | "full";
+
+/** The tier picker's buttons, as a reader sees them. */
+const CAPABILITY_BUTTON: Record<PairedCapability, string> = {
+  read: "Watch",
+  send: "Reply",
+  full: "Everything",
+};
+
 export interface PairedDevice {
   label: string;
   token: string;
-  canSend: boolean;
+  capability: PairedCapability;
 }
 
 /**
@@ -104,14 +114,19 @@ export async function pairDevice(
   window: Page,
   {
     label,
-    canSend,
+    capability,
     film,
-  }: { label: string; canSend: boolean; film?: Filmstrip },
+  }: { label: string; capability: PairedCapability; film?: Filmstrip },
 ): Promise<PairedDevice> {
   await openRemoteControlSettings(window);
 
   await window.getByTestId("remote-pair-label").fill(label);
-  if (canSend) await window.getByTestId("remote-pair-can-send").click();
+  // Clicked even for `read`, which is already the default: the assertion that
+  // matters is that the button a user would press exists and selects the tier.
+  await window
+    .getByTestId("remote-pair-capability")
+    .getByRole("button", { name: CAPABILITY_BUTTON[capability], exact: true })
+    .click();
   await window.getByTestId("remote-pair-submit").click();
 
   const dialog = window.getByTestId("remote-pairing-dialog");
@@ -131,5 +146,5 @@ export async function pairDevice(
     window.getByTestId("remote-device-row").filter({ hasText: label }),
   ).toHaveCount(1);
 
-  return { label, token, canSend };
+  return { label, token, capability };
 }

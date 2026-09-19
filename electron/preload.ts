@@ -800,8 +800,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("remoteControl:refreshDetection"),
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke("remoteControl:setEnabled", enabled),
-    pair: (label: string, canSend: boolean) =>
-      ipcRenderer.invoke("remoteControl:pair", label, canSend),
+    pair: (label: string, capability: "read" | "send" | "full") =>
+      ipcRenderer.invoke("remoteControl:pair", label, capability),
     revoke: (id: string) => ipcRenderer.invoke("remoteControl:revoke", id),
     startTunnel: (kind?: "tailscale" | "cloudflared") =>
       ipcRenderer.invoke("remoteControl:startTunnel", kind),

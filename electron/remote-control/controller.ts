@@ -14,7 +14,11 @@
  *     the machine is there, and still shows up in the indicator as reachable.
  */
 
-import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
+import type {
+  Capability,
+  RemoteDeviceInfo,
+  RemoteDeviceStore,
+} from "./devices";
 import { isPushable, pushPayloadFor, type PushManager } from "./push";
 import type { RemoteControlServer, RemoteStatusEvent } from "./server";
 import type { TunnelKind, TunnelManager, TunnelStatus } from "./tunnel";
@@ -131,8 +135,8 @@ export class RemoteControlController {
     return this.status();
   }
 
-  pair(label: string, canSend: boolean): PairResult {
-    const { device, rawToken } = this.deviceStore.pair(label, canSend);
+  pair(label: string, capability: Capability): PairResult {
+    const { device, rawToken } = this.deviceStore.pair(label, capability);
     const url = this.tunnel.status.url;
     this.emit();
     return {

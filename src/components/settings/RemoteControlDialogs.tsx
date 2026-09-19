@@ -9,6 +9,26 @@ import styles from "./SettingsModal/SettingsModal.module.css";
 import dialogStyles from "../sidebar/dialogs.module.css";
 
 /**
+ * What the paired devices will be able to do, in one sentence, counted by
+ * tier (ADR-178 D3).
+ *
+ * A tier with nobody in it is not mentioned: "0 of them can do anything the
+ * desktop app can" is noise in a dialog whose whole job is to say what is
+ * actually about to become reachable.
+ */
+function capabilitySentence(counts: { send: number; full: number }): string {
+  const clauses: string[] = [];
+  if (counts.send > 0)
+    clauses.push(`${counts.send} of them can also type into a live shell`);
+  if (counts.full > 0)
+    clauses.push(
+      `${counts.full} can do anything the desktop app can, including removing workspaces`,
+    );
+  if (clauses.length === 0) return " None of them can type into a session.";
+  return ` ${clauses.join(", and ")}.`;
+}
+
+/**
  * Starting a tunnel is an outward-facing action, so the dialog names what
  * becomes reachable and by which tool rather than asking "are you sure".
  */
@@ -16,11 +36,12 @@ export function TunnelConfirmDialog(props: {
   kind: TunnelKind | null;
   /** How the tool is written for a reader: "Tailscale", "Cloudflare Tunnel". */
   kindLabel: string | null;
-  canSendCount: number;
+  /** Paired devices above the read tier, counted per tier. */
+  capabilityCounts: { send: number; full: number };
   onCancel: () => void;
   onConfirm: (kind: TunnelKind) => void;
 }) {
-  const { kind, kindLabel, canSendCount, onCancel, onConfirm } = props;
+  const { kind, kindLabel, capabilityCounts, onCancel, onConfirm } = props;
   return (
     <Dialog.Root
       open={kind !== null}
@@ -38,9 +59,7 @@ export function TunnelConfirmDialog(props: {
             Paired devices will be able to read your sessions, their statuses,
             and the full scrollback of any of them — which routinely contains
             API keys and source code.
-            {canSendCount > 0
-              ? ` ${canSendCount} of them can also type into a live shell.`
-              : " None of them can type into a session."}
+            {capabilitySentence(capabilityCounts)}
             {kind === "cloudflared"
               ? " A Cloudflare quick tunnel is public: the pairing token is the only thing protecting it."
               : " Only devices on your tailnet can reach the address at all."}{" "}

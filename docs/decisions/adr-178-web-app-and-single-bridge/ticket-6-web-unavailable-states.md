@@ -1,6 +1,6 @@
 ---
 title: What the browser cannot do says so
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [4]
@@ -58,6 +58,9 @@ empty state; nothing crashes, nothing silently no-ops.
   entry and now trips `react-refresh/only-export-components` three times.
   Move the screens to `src/web/screens.tsx`; keep the `data-testid`s
   (`web-app-no-token`, `web-app-forbidden`) — ticket 7 relies on them.
+- `RemoteControlPage.tsx` still says "listeners" for a count that now
+  includes browsers on `/ws` (ticket 5). Reword to cover both — "watching"
+  or "connected" — and keep the number.
 - `clipboard.writeText` is served locally via `navigator.clipboard`
   (`LOCALLY_SERVED` in `src/web/unavailable.ts`). Leave it; it is harmless.
 

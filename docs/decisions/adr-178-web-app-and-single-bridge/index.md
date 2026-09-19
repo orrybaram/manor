@@ -246,6 +246,14 @@ is correct only while every host has an Electron main; the daemon move is
 scheduled, not optional. The read-and-type intermediate state will be reported
 as a bug by anyone who did not read this file.
 
+**Known gaps after slice 1 (ticket 5's report), owned by slice 2.** Winsize
+ownership is claimed at `pty.create` and never transferred: two browsers on
+one desktop-free pane are both told they own it, and a follower is not told
+when the desktop lets go mid-session. Both need the bridge's sockets tracked
+in `pty-attachments.ts` and an ownership event on the bridge; neither is
+needed for a PC browser next to a running desktop, which is what slice 1
+proves.
+
 **Not decided here.** Cloud authentication. The shape of the shared layout
 package. Whether the remote client ever moves off HTTP+SSE (currently: no).
 

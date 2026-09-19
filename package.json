@@ -20,6 +20,8 @@
     "test:e2e:remote": "pnpm build && playwright test tests/e2e/remote-control.spec.ts",
     "e2e:remote": "playwright test tests/e2e/remote-control.spec.ts",
     "e2e:remote:watch": "MANOR_E2E_HEADED=1 MANOR_E2E_HOLD=300 playwright test tests/e2e/remote-control.spec.ts --grep 'pair a phone'",
+    "test:e2e:web": "pnpm build && playwright test tests/e2e/web-app.spec.ts",
+    "e2e:web": "playwright test tests/e2e/web-app.spec.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

@@ -17,13 +17,21 @@ import pkg from "./package.json";
  * and an ordinary browser build.
  *
  * `root: "src"` so the build can resolve `./App`, `./lib/*`, etc. exactly as
- * `vite.config.ts`'s implicit root does. `base: "./"` because `/app` is one
- * path among several this listener serves, at a tunnel hostname unknown at
- * build time — the same reason `vite.remote.config.ts` sets it.
+ * `vite.config.ts`'s implicit root does. `base: "/app/"` — absolute, not
+ * `vite.remote.config.ts`'s `"./"` — because `/app` is a *subpath*, not the
+ * origin's root the remote client mounts at: a relative base resolves against
+ * the *document's* URL, and `/app` with no trailing slash (the address ADR-178
+ * names, and the one a user is most likely to type or paste) has no path
+ * segment for `./assets/…` to resolve underneath, so the browser requests
+ * `/assets/…` instead — unauthenticated, 404 or (worse) answered by whatever
+ * the remote client mounts at `/`. An absolute base names the one prefix this
+ * bundle is ever served at and does not care what the document's own URL
+ * looked like; it still says nothing about the tunnel's hostname, which is the
+ * property the comment this replaces was actually protecting.
  */
 export default defineConfig({
   root: path.resolve(__dirname, "src"),
-  base: "./",
+  base: "/app/",
   // Fonts referenced by `App.css` (`@font-face`) come from the repo-root
   // `public/`, not `src/public/` — `root: "src"` would otherwise default to
   // the latter, which does not exist, and the app would boot with no

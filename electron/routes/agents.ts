@@ -416,6 +416,14 @@ export const agentRoutes: Route[] = [
     // output. Snapshot first (live, rendered, already-collapsed redraws),
     // falling back to on-disk scrollback for sessions whose live emulator
     // has already gone away.
+    //
+    // `cols`/`rows` ride along because a *renderer* needs the grid's width,
+    // not just its text: an agent's box borders, diff gutters and progress
+    // lines are drawn assuming column alignment, and the longest line in a
+    // tail is not the column count — a client can't recover the grid from
+    // the text alone. Live comes from the snapshot, cold from scrollback's
+    // `meta.json`; if neither has it, both are `null` rather than a guessed
+    // 80, so a client that gets `null` knows it's guessing too.
     method: "POST",
     path: "/sessions/read",
     async handler({ deps, json, readBody }) {
@@ -452,25 +460,28 @@ export const agentRoutes: Route[] = [
       const snap = await deps.backend.pty.getSnapshot(paneId);
       let ansi: string;
       let source: "live" | "scrollback";
+      let cols: number | null = null;
+      let rows: number | null = null;
       if (snap) {
         ansi = snap.screenAnsi;
         source = "live";
+        cols = snap.cols ?? null;
+        rows = snap.rows ?? null;
       } else {
         ansi = ScrollbackWriter.readScrollback(paneId);
+        const meta = ScrollbackWriter.readMeta(paneId);
         // Without an agent row there is nothing else vouching for this target, so
         // an empty disk read means the pane simply doesn't exist — 404 rather
         // than hand back a convincing-looking empty transcript.
-        if (
-          !agent &&
-          ansi === "" &&
-          ScrollbackWriter.readMeta(paneId) === null
-        ) {
+        if (!agent && ansi === "" && meta === null) {
           json(404, {
             error: `No session or pane matches target '${target}'`,
           });
           return;
         }
         source = "scrollback";
+        cols = meta?.cols ?? null;
+        rows = meta?.rows ?? null;
       }
 
       const raw = body.raw === true;
@@ -525,6 +536,8 @@ export const agentRoutes: Route[] = [
         text: output,
         lineCount,
         truncated,
+        cols,
+        rows,
       });
     },
   },

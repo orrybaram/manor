@@ -27,6 +27,37 @@ import { safeStorage } from "electron";
 
 import { remoteDevicesFile } from "../paths";
 
+/**
+ * How much of the machine a paired device may reach (ADR-178 D3).
+ *
+ *   - `read`  — the read half of the remote allowlist and nothing else.
+ *   - `send`  — the read half plus the three acting routes, each behind
+ *               `confirmed: true` and an audit line.
+ *   - `full`  — the whole route table. Authentication is the only boundary;
+ *               every non-GET is audited and nothing asks for `confirmed`.
+ *
+ * `read` and `send` are the two tiers `allowlist.ts` governs. `full` is
+ * deliberately not expressible as a longer allowlist: the point of it is that
+ * there is no list.
+ */
+export type Capability = "read" | "send" | "full";
+
+/** The three tiers, in widening order. The one place they are enumerated. */
+export const CAPABILITIES: readonly Capability[] = ["read", "send", "full"];
+
+/** Narrow an unknown to a tier, for IPC and for persisted rows. */
+export function isCapability(value: unknown): value is Capability {
+  return CAPABILITIES.includes(value as Capability);
+}
+
+/**
+ * May a device of this tier act? The send gates ask this rather than comparing
+ * against a tier, so widening the ladder later is one edit rather than a grep.
+ */
+export function canSend(capability: Capability): boolean {
+  return capability === "send" || capability === "full";
+}
+
 export interface RemoteDevice {
   /** Random id. Safe to log — it is not a credential. */
   id: string;
@@ -34,8 +65,8 @@ export interface RemoteDevice {
   label: string;
   /** SHA-256 hex of the raw token. Never leaves this module. */
   tokenHash: string;
-  /** Write capability. Off unless the user ticked the box at pairing. */
-  canSend: boolean;
+  /** How far this device reaches. `read` unless explicitly granted more. */
+  capability: Capability;
   createdAt: number;
   lastSeenAt: number | null;
   /**
@@ -104,7 +135,7 @@ export class RemoteDeviceStore {
    */
   pair(
     label: string,
-    canSend: boolean,
+    capability: Capability,
   ): {
     device: RemoteDeviceInfo;
     rawToken: string;
@@ -119,7 +150,7 @@ export class RemoteDeviceStore {
       id: crypto.randomUUID(),
       label,
       tokenHash: sha256Hex(rawToken),
-      canSend,
+      capability,
       createdAt: Date.now(),
       lastSeenAt: null,
       pushSubscription: null,
@@ -240,9 +271,26 @@ export class RemoteDeviceStore {
     try {
       const parsed: unknown = JSON.parse(decrypted);
       if (!Array.isArray(parsed)) return;
+      let migrated = false;
       for (const entry of parsed) {
         const device = asDevice(entry);
-        if (device) this.devices.set(device.id, device);
+        if (!device) continue;
+        this.devices.set(device.id, device);
+        if (!isCapability((entry as Record<string, unknown>).capability))
+          migrated = true;
+      }
+      // A pre-ADR-178 file held `canSend`. `asDevice` has already mapped it to
+      // a tier in memory; write the new shape back now rather than waiting for
+      // the next pair or `lastSeenAt` flush, so the old key does not linger on
+      // disk for a device that is never used again.
+      if (migrated) {
+        try {
+          this.persist();
+        } catch {
+          // A machine that cannot encrypt still gets the in-memory migration;
+          // refusing to *read* here would lock the user out of their own
+          // devices over a write we do not need.
+        }
       }
     } catch {
       // Corrupt payload — same recovery.
@@ -281,6 +329,21 @@ function asSubscription(value: unknown): PushSubscriptionRecord | null {
   return { endpoint: v.endpoint, keys: { p256dh: k.p256dh, auth: k.auth } };
 }
 
+/**
+ * The tier a persisted row carries, or null if it carries neither shape.
+ *
+ * A row written before ADR-178 has `canSend` and no `capability`: `true` was
+ * "read plus the three acting routes", which is exactly `send`, and `false`
+ * was `read`. Nothing is ever migrated *up* to `full` — that tier only exists
+ * because a user picked it in the pairing dialog and read the sentence under
+ * it.
+ */
+function asCapability(v: Record<string, unknown>): Capability | null {
+  if (isCapability(v.capability)) return v.capability;
+  if (typeof v.canSend === "boolean") return v.canSend ? "send" : "read";
+  return null;
+}
+
 /** Validate one persisted row. A row that fails any check is dropped. */
 function asDevice(value: unknown): RemoteDevice | null {
   if (typeof value !== "object" || value === null) return null;
@@ -289,14 +352,15 @@ function asDevice(value: unknown): RemoteDevice | null {
   if (typeof v.label !== "string") return null;
   if (typeof v.tokenHash !== "string" || !/^[0-9a-f]{64}$/.test(v.tokenHash))
     return null;
-  if (typeof v.canSend !== "boolean") return null;
+  const capability = asCapability(v);
+  if (capability === null) return null;
   if (typeof v.createdAt !== "number") return null;
   const lastSeenAt = typeof v.lastSeenAt === "number" ? v.lastSeenAt : null;
   return {
     id: v.id,
     label: v.label,
     tokenHash: v.tokenHash,
-    canSend: v.canSend,
+    capability,
     createdAt: v.createdAt,
     lastSeenAt,
     pushSubscription: asSubscription(v.pushSubscription),

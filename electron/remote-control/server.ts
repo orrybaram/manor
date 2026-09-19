@@ -21,8 +21,11 @@
  *   4. `Origin`/`Host` agreement, as defence in depth only. This is a
  *      browser-enforced control and `curl` does not enforce it, so it is never
  *      the boundary;
- *   5. dispatch against `remoteRouteTable(routes, device.canSend)` — a table
- *      that never contained the dangerous routes in the first place.
+ *   5. dispatch against `remoteRouteTable(routes, device.capability)` — for
+ *      `read` and `send`, a table that never contained the dangerous routes in
+ *      the first place. For `full` (ADR-178 D3) it is the whole table, and
+ *      step 3 is the only boundary there is; every non-GET row is wrapped in
+ *      an audit line instead.
  *
  * It binds `127.0.0.1` even when enabled. Reaching it from outside is the
  * tunnel's job (`./tunnel.ts`), which is a separate, explicit user action.
@@ -40,6 +43,7 @@ import type {
   RouteContext,
 } from "../routes/types";
 import { remoteRouteTable, routeKey } from "./allowlist";
+import type { Capability } from "./devices";
 import { listenerRoutes } from "./listener-routes";
 import { hashText, RemoteAuditLog } from "./audit";
 import type { PushManager } from "./push";
@@ -51,7 +55,7 @@ import { defaultClientDir, serveClientAsset } from "./static";
 export interface AuthenticatedDevice {
   id: string;
   label: string;
-  canSend: boolean;
+  capability: Capability;
 }
 
 export interface DeviceVerifier {
@@ -80,8 +84,16 @@ const GUARDED_WRITE_ROUTES = new Set([
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
-/** No allowlisted route uses anything else, so nothing else gets past step 1. */
-const ALLOWED_METHODS = new Set(["GET", "POST"]);
+/**
+ * The three methods `Route` can declare. Anything else is not a route this
+ * machine has, whatever the tier, so it dies at step 1 — before authentication
+ * and before a body is read.
+ *
+ * `DELETE` is here for the `full` tier only (ADR-178). For `read` and `send`
+ * the table still contains no `DELETE` row, so such a request falls through to
+ * a 404: absent, as it always was, rather than the 405 this set used to give.
+ */
+const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
 
 /**
  * The collaborators that have a sensible default. Named rather than positional
@@ -307,7 +319,7 @@ export class RemoteControlServer {
 
     const table = [
       ...listenerRoutes({ device, push: this.push }),
-      ...this.guardWrites(remoteRouteTable(routes, device.canSend), device),
+      ...this.guardWrites(remoteRouteTable(routes, device.capability), device),
     ];
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
@@ -337,12 +349,32 @@ export class RemoteControlServer {
    * local MCP path must keep working exactly as it does, so the confirmation
    * and the audit line are remote-only concerns and live here.
    *
-   * This is the *third* gate. The first is the table: a device without
-   * `canSend` never sees these routes at all, so nothing below is what stops
-   * it. `LAUNCH_ROUTE` gets a fourth — the workspace must be one the machine
-   * knows (ADR-177) — because it starts a process rather than typing at one.
+   * For a `send` device this is the *third* gate. The first is the table: a
+   * device without the send capability never sees these routes at all, so
+   * nothing below is what stops it. `LAUNCH_ROUTE` gets a fourth — the
+   * workspace must be one the machine knows (ADR-177) — because it starts a
+   * process rather than typing at one.
+   *
+   * For a `full` device there is no first gate to lean on: `remoteRouteTable`
+   * handed back the whole table. So the rule is the blunt one — every route
+   * whose method is not `GET` gets an audit line, and none of them asks for
+   * `confirmed`. Asking would be theatre: the thing calling these is the
+   * desktop app running in a browser, and its own confirmation dialogs already
+   * stand in front of every destructive action. What is owed instead is a
+   * record, and that is what this writes.
    */
   private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
+    if (device.capability === "full") {
+      return table.map((route) =>
+        route.method === "GET"
+          ? route
+          : {
+              ...route,
+              handler: (ctx: RouteContext) =>
+                this.fullTierWrite(routeKey(route), route, device, ctx),
+            },
+      );
+    }
     return table.map((route) => {
       const key = routeKey(route);
       return GUARDED_WRITE_ROUTES.has(key)
@@ -353,6 +385,78 @@ export class RemoteControlServer {
           }
         : route;
     });
+  }
+
+  /**
+   * Run a `full` device's write and record that it happened.
+   *
+   * Nothing is refused here — the tier's whole definition is that
+   * authentication was the boundary. The line names the route and what it was
+   * aimed at, and stops there: no text, no hash. Every one of the desktop's
+   * ~100 routes takes a differently shaped body, and an audit log that went
+   * fishing through all of them would eventually land on one carrying a
+   * credential. Only the two field names the remote surface already trusted
+   * (`target`, `workspacePath`) are read, and otherwise the target is whatever
+   * the path itself captured.
+   */
+  private async fullTierWrite(
+    key: string,
+    route: Route,
+    device: AuthenticatedDevice,
+    ctx: RouteContext,
+  ): Promise<void> {
+    const target = await this.fullTierTarget(ctx);
+
+    const line = (outcome: RemoteAuditEntryOutcome, status: number) =>
+      this.audit.append({
+        at: new Date().toISOString(),
+        deviceId: device.id,
+        deviceLabel: device.label,
+        tier: "full",
+        route: key,
+        target,
+        textLength: null,
+        textSha256: null,
+        interrupt: key === INTERRUPT_ROUTE,
+        outcome,
+        status,
+      });
+
+    let status = 0;
+    const json: Json = (s, b) => {
+      status = s;
+      ctx.json(s, b);
+    };
+
+    try {
+      await route.handler({ ...ctx, json });
+    } catch (err) {
+      line("failed", 500);
+      throw err;
+    }
+    line(outcomeFor(status), status);
+  }
+
+  /**
+   * What a `full` device's write was aimed at, for the audit line.
+   *
+   * Body first, path second: `POST /sessions/send` names its target in the
+   * body while `DELETE /panes/:paneId` names it in the path, and the line
+   * should read the same way for both. `readBody()` is memoized by
+   * `makeReadBody`, so the handler below still gets the same parse rather than
+   * a consumed socket — and a body that never arrives or does not parse costs
+   * the line its target, never the request.
+   */
+  private async fullTierTarget(ctx: RouteContext): Promise<string | null> {
+    try {
+      const body = await ctx.readBody();
+      if (typeof body.target === "string") return body.target;
+      if (typeof body.workspacePath === "string") return body.workspacePath;
+    } catch {
+      // Fall through to the path.
+    }
+    const captured = Object.values(ctx.params);
+    return captured.length > 0 ? captured.join("/") : null;
   }
 
   private async guardedWrite(
@@ -395,6 +499,7 @@ export class RemoteControlServer {
         at: new Date().toISOString(),
         deviceId: device.id,
         deviceLabel: device.label,
+        tier: "send",
         route: key,
         target,
         textLength: text === null ? null : text.length,
@@ -444,7 +549,7 @@ export class RemoteControlServer {
       line("failed", 500, "handler threw");
       throw err;
     }
-    line(status === 200 ? "sent" : "rejected", status);
+    line(outcomeFor(status), status);
   }
 
   /**
@@ -489,6 +594,15 @@ export class RemoteControlServer {
 }
 
 type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
+
+/**
+ * How a completed handler reads in the trail. 2xx is the whole success range —
+ * the acting routes all answer 200, but a `full` device reaches rows that
+ * answer 201 or 204, and those are not rejections.
+ */
+function outcomeFor(status: number): RemoteAuditEntryOutcome {
+  return status >= 200 && status < 300 ? "sent" : "rejected";
+}
 
 /** The raw bearer token, or null. Never logged by any caller. */
 function bearerToken(req: http.IncomingMessage): string | null {

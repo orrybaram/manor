@@ -29,6 +29,7 @@ import {
   openRemoteControlSettings,
   pairDevice,
   setAgentCommand,
+  type PairedCapability,
   type PairedDevice,
 } from "./helpers/settings";
 import {
@@ -127,12 +128,12 @@ async function pairedPhone(
   request: APIRequestContext,
   {
     label,
-    canSend,
+    capability,
     film,
     agentCommand,
   }: {
     label: string;
-    canSend: boolean;
+    capability: PairedCapability;
     film?: Filmstrip;
     /** Set before anything asks Manor to start a process on its own — a
      *  launch (ADR-177) spawns the *project's* agent command, not whatever
@@ -155,7 +156,7 @@ async function pairedPhone(
 
   const port = await enableRemoteControl(window);
   await film?.shot(window, "settings-remote-enabled");
-  const device = await pairDevice(window, { label, canSend, film });
+  const device = await pairDevice(window, { label, capability, film });
   // Shot before the modal closes: the paired-device row only exists here.
   await film?.shot(window, "settings-device-paired");
   await closeSettings(window);
@@ -182,7 +183,7 @@ test.describe("remote control", () => {
       window,
       tempHome,
       request,
-      { label: "e2e phone", canSend: true, film },
+      { label: "e2e phone", capability: "send", film },
     );
 
     try {
@@ -293,7 +294,7 @@ test.describe("remote control", () => {
 
     const { phone } = await pairedPhone(app, window, tempHome, request, {
       label: "live phone",
-      canSend: true,
+      capability: "send",
     });
 
     try {
@@ -352,7 +353,7 @@ test.describe("remote control", () => {
       window,
       tempHome,
       request,
-      { label: "read only phone", canSend: false },
+      { label: "read only phone", capability: "read" },
     );
 
     try {
@@ -419,7 +420,7 @@ test.describe("remote control", () => {
 
     const { phone } = await pairedPhone(app, window, tempHome, request, {
       label: "grid phone",
-      canSend: true,
+      capability: "send",
       film,
     });
 
@@ -520,7 +521,7 @@ test.describe("remote control", () => {
 
     const { phone } = await pairedPhone(app, window, tempHome, request, {
       label: "launch phone",
-      canSend: true,
+      capability: "send",
       film,
       // A launch spawns this for real (ADR-177), unlike every other session
       // in this file, which is typed straight into a pane.

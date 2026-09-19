@@ -40,24 +40,32 @@ import type { ControlDeps } from "../../routes/types";
 
 const READ_TOKEN = "read-token";
 const WRITE_TOKEN = "write-token";
+/** ADR-178's third tier: the whole route table, authentication the only gate. */
+const FULL_TOKEN = "full-token";
 /** The one workspace `withKnownWorkspace()` teaches the machine about. */
 const KNOWN_WORKSPACE = "/Users/me/manor";
 
 const reader: AuthenticatedDevice = {
   id: "dev-read",
   label: "phone",
-  canSend: false,
+  capability: "read",
 };
 const writer: AuthenticatedDevice = {
   id: "dev-write",
   label: "phone (send)",
-  canSend: true,
+  capability: "send",
+};
+const everything: AuthenticatedDevice = {
+  id: "dev-full",
+  label: "laptop browser",
+  capability: "full",
 };
 
 const devices = {
   verify: (raw: unknown) => {
     if (raw === READ_TOKEN) return reader;
     if (raw === WRITE_TOKEN) return writer;
+    if (raw === FULL_TOKEN) return everything;
     return null;
   },
 };
@@ -290,10 +298,23 @@ describe("RemoteControlServer", () => {
       expect((await get("/projects/p1/issues", WRITE_TOKEN)).status).toBe(404);
     });
 
-    it("405s a method the surface never serves", async () => {
+    // 404 and not 405: `DELETE` is a method the listener now lets past step 1
+    // (a `full` device uses it), but the row was never in *this* device's
+    // table, so it is absent exactly as `/tabs` and `/projects` are.
+    it("404s a DELETE for a device below the full tier", async () => {
+      for (const token of [READ_TOKEN, WRITE_TOKEN]) {
+        const res = await fetch(`${base}/panes/pane-1`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        expect(res.status).toBe(404);
+      }
+    });
+
+    it("405s a method no route in the table can ever declare", async () => {
       const res = await fetch(`${base}/panes/pane-1`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${WRITE_TOKEN}` },
+        method: "PUT",
+        headers: { Authorization: `Bearer ${FULL_TOKEN}` },
       });
       expect(res.status).toBe(405);
     });
@@ -615,6 +636,144 @@ describe("RemoteControlServer", () => {
     });
   });
 
+  /**
+   * ADR-178 D3's third tier. Two properties, and they pull in opposite
+   * directions on purpose: a `full` device reaches everything the desktop app
+   * reaches with nothing to confirm, and every one of those requests leaves a
+   * line. The `send` device is asserted alongside in each case, so "full" can
+   * never quietly become what "send" means.
+   */
+  describe("the full tier", () => {
+    const del = (path: string, token: string, body?: unknown) =>
+      fetch(`${base}${path}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    it("reaches a DELETE route that is absent for a send device", async () => {
+      expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
+
+      const res = await del("/panes/pane-7", FULL_TOKEN);
+      expect(res.status).toBe(200);
+      expect(proxyToRenderer).toHaveBeenCalledWith(
+        expect.any(Function),
+        "close-pane",
+        { paneId: "pane-7" },
+      );
+    });
+
+    it("needs no confirmed:true, and audits the write anyway", async () => {
+      const res = await del("/panes/pane-7", FULL_TOKEN);
+      expect(res.status).toBe(200);
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        outcome: "sent",
+        status: 200,
+        tier: "full",
+        deviceId: everything.id,
+        deviceLabel: everything.label,
+        route: "DELETE /panes/:paneId",
+        // Nothing in the body to take it from, so the path's capture is it.
+        target: "pane-7",
+        textLength: null,
+        textSha256: null,
+        interrupt: false,
+      });
+    });
+
+    it("reaches layout mutation, which no allowlisted tier can", async () => {
+      expect(
+        (await post("/tabs", WRITE_TOKEN, { workspacePath: "/tmp" })).status,
+      ).toBe(404);
+
+      const res = await post("/tabs", FULL_TOKEN, {
+        workspacePath: KNOWN_WORKSPACE,
+      });
+      expect(res.status).toBe(200);
+      expect(audit.read()[0]).toMatchObject({
+        tier: "full",
+        route: "POST /tabs",
+        target: KNOWN_WORKSPACE,
+      });
+    });
+
+    it("audits a send without confirmation and without the text", async () => {
+      withLiveSession();
+      const res = await post("/sessions/send", FULL_TOKEN, {
+        target: "agent-1",
+        text: "sk-secret-value",
+      });
+      expect(res.status).toBe(200);
+      expect(ptyWrite).toHaveBeenCalled();
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        tier: "full",
+        route: "POST /sessions/send",
+        target: "agent-1",
+        // The tier reaches ~100 differently shaped bodies, so it fishes in
+        // none of them. No length, no hash, nothing to leak.
+        textLength: null,
+        textSha256: null,
+      });
+      expect(JSON.stringify(entries[0])).not.toContain("sk-secret-value");
+    });
+
+    it("skips the workspace check a send device gets on a launch", async () => {
+      withKnownWorkspace();
+      const res = await post("/agents", FULL_TOKEN, {
+        workspacePath: "/tmp/anywhere-at-all",
+        prompt: "go",
+      });
+      // No `confirmed`, and a workspace the machine has never heard of: the
+      // desktop app can launch there, so this device can too.
+      expect(res.status).toBe(200);
+      expect(audit.read()[0]).toMatchObject({
+        tier: "full",
+        route: "POST /agents",
+        target: "/tmp/anywhere-at-all",
+      });
+    });
+
+    it("writes no line for a read", async () => {
+      expect((await get("/agents", FULL_TOKEN)).status).toBe(200);
+      expect((await get("/panes", FULL_TOKEN)).status).not.toBe(404);
+      expect(audit.read()).toEqual([]);
+    });
+
+    it("leaves every send-tier gate exactly where it was", async () => {
+      withLiveSession();
+      // Still refused without confirmation…
+      expect(
+        (
+          await post("/sessions/send", WRITE_TOKEN, {
+            target: "agent-1",
+            text: "hi",
+          })
+        ).status,
+      ).toBe(400);
+      // …still unable to reach the routes the allowlist never named…
+      expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
+      expect((await get("/projects", WRITE_TOKEN)).status).toBe(404);
+      // …and its own lines still say which tier wrote them.
+      expect(audit.read()[0]).toMatchObject({ tier: "send" });
+    });
+
+    it("keeps everything off a read-only device, DELETE included", async () => {
+      expect((await del("/panes/pane-7", READ_TOKEN)).status).toBe(404);
+      expect((await get("/projects", READ_TOKEN)).status).toBe(404);
+      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(audit.read()).toEqual([]);
+    });
+  });
+
   describe("request hygiene", () => {
     it("413s an oversized declared body", async () => {
       const res = await fetch(`${base}/sessions/read`, {
@@ -696,6 +855,7 @@ describe("RemoteControlServer", () => {
       expect(body).toEqual({
         id: writer.id,
         label: writer.label,
+        capability: "send",
         canSend: true,
         vapidPublicKey: "vapid-public-key",
       });
@@ -712,8 +872,22 @@ describe("RemoteControlServer", () => {
     it("reports a read-only device as unable to send", async () => {
       const body = (await (await get("/me", READ_TOKEN)).json()) as {
         canSend: boolean;
+        capability: string;
       };
       expect(body.canSend).toBe(false);
+      expect(body.capability).toBe("read");
+    });
+
+    // The remote client (ADR-161/177) reads `canSend` and nothing else, so the
+    // derived boolean has to stay true for the widest tier or a `full` device
+    // would open the small client with its composer removed.
+    it("reports a full device as both full and able to send", async () => {
+      const body = (await (await get("/me", FULL_TOKEN)).json()) as {
+        canSend: boolean;
+        capability: string;
+      };
+      expect(body.capability).toBe("full");
+      expect(body.canSend).toBe(true);
     });
   });
 
@@ -730,7 +904,7 @@ describe("RemoteControlServer", () => {
       });
     });
 
-    it("gives a read-only device the list — this is a read, canSend is irrelevant", async () => {
+    it("gives a read-only device the list — this is a read, the tier is irrelevant", async () => {
       deps.projectManager = {
         getProjects: async () => [
           {

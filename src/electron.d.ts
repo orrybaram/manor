@@ -640,7 +640,10 @@ export interface ElectronAPI {
     getStatus: () => Promise<RemoteControlStatus>;
     refreshDetection: () => Promise<RemoteControlStatus>;
     setEnabled: (enabled: boolean) => Promise<RemoteControlStatus>;
-    pair: (label: string, canSend: boolean) => Promise<RemotePairResult>;
+    pair: (
+      label: string,
+      capability: RemoteCapability,
+    ) => Promise<RemotePairResult>;
     revoke: (id: string) => Promise<RemoteControlStatus>;
     startTunnel: (kind?: TunnelKind) => Promise<RemoteControlStatus>;
     stopTunnel: () => Promise<RemoteControlStatus>;
@@ -1034,11 +1037,19 @@ export interface TunnelStatus {
   error: string | null;
 }
 
+/**
+ * How much of the machine a paired device may reach (ADR-178 D3): read the
+ * allowlisted read routes, also act on the three acting routes, or reach
+ * everything the desktop app can. Mirrors `Capability` in
+ * `electron/remote-control/devices.ts`.
+ */
+export type RemoteCapability = "read" | "send" | "full";
+
 export interface RemoteDeviceInfo {
   id: string;
   label: string;
-  /** Whether this device may type into a session. Off unless explicitly granted. */
-  canSend: boolean;
+  /** How far this device reaches. `read` unless explicitly granted more. */
+  capability: RemoteCapability;
   createdAt: number;
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */

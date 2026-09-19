@@ -111,7 +111,8 @@ app.append(bar, body);
 let token = readToken();
 let identity: Identity | null = null;
 let agents: AgentSummary[] = [];
-let transcript: { agentId: string; text: string } | null = null;
+let transcript: { agentId: string; text: string; cols: number | null } | null =
+  null;
 let notice: { text: string; tone: "ok" | "warn" } | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let live = false;
@@ -120,6 +121,15 @@ const dismissed = readDismissed();
 /** The agent whose transcript is on screen, or null on the list. */
 let openAgentId: string | null = null;
 let screen: Screen = { update() {} };
+/**
+ * A launch's `paneId`, remembered so the next `loadAgents()` — already driven
+ * by the SSE `status` event and the 5s poll — can open the session it started
+ * as soon as either notices the new row, instead of racing the hook relay's
+ * `SessionStart` with a bespoke retry. Bounded so a launch that never
+ * produces a session cannot yank the user into a transcript minutes later.
+ */
+let pendingLaunch: { paneId: string; expiresAt: number } | null = null;
+const PENDING_LAUNCH_TTL_MS = 30_000;
 
 // ── Token ──
 
@@ -191,21 +201,54 @@ async function loadAgents(): Promise<void> {
   const next = await api<AgentSummary[]>("/agents");
   if (!next) return;
   agents = next;
+  resolvePendingLaunch();
   screen.update();
 }
 
+/**
+ * Land in a just-launched session the moment its row shows up here — see
+ * `pendingLaunch`. Dropped, rather than resolved, if it has expired or the
+ * user has already opened a different session by hand: a refresh that
+ * arrives late must not hijack what they are looking at now.
+ */
+function resolvePendingLaunch(): void {
+  if (!pendingLaunch) return;
+  if (Date.now() > pendingLaunch.expiresAt) {
+    pendingLaunch = null;
+    return;
+  }
+  if (openAgentId !== null) {
+    pendingLaunch = null;
+    return;
+  }
+  const agent = agents.find((a) => a.paneId === pendingLaunch!.paneId);
+  if (!agent) return;
+  pendingLaunch = null;
+  openSession(agent);
+}
+
 async function loadTranscript(agentId: string): Promise<void> {
-  const payload = await api<{ text: string }>("/sessions/read", {
-    method: "POST",
-    // `raw` keeps the escape sequences: this is a terminal, and it is rendered
-    // as one. `tailLines` is what a phone can plausibly scroll.
-    body: JSON.stringify({ target: agentId, tailLines: 400, raw: true }),
-  });
+  const payload = await api<{ text: string; cols: number | null }>(
+    "/sessions/read",
+    {
+      method: "POST",
+      // `raw` keeps the escape sequences: this is a terminal, and it is
+      // rendered as one. `tailLines` is what a phone can plausibly scroll.
+      body: JSON.stringify({ target: agentId, tailLines: 400, raw: true }),
+    },
+  );
   if (!payload) return;
   // A late reply for a session the user has already left must not overwrite
   // what they are looking at now.
   if (openAgentId !== agentId) return;
-  transcript = { agentId, text: trimBlankRows(payload.text) };
+  // `cols` is the live grid's width (ADR-177) — null when neither the live
+  // snapshot nor scrollback's `meta.json` knows it, in which case the render
+  // stays at the font-size ceiling rather than guessing a width.
+  transcript = {
+    agentId,
+    text: trimBlankRows(payload.text),
+    cols: payload.cols,
+  };
   screen.update();
 }
 
@@ -568,6 +611,13 @@ function mountList(): Screen {
   const heading = el("h1", undefined, "Sessions");
   const device = el("span", "sub");
   const liveNode = makeLive(false);
+  // Built once, appended/removed in `update()` below — the same "remove,
+  // don't disable" rule `mountDetail` applies to `actions`/`composer`. A
+  // read-only device gets no button, because the route it would call is not
+  // on its table either.
+  const add = el("button", "add", "+");
+  add.title = "Start a new session";
+  add.addEventListener("click", () => show(mountNewSession()));
   bar.replaceChildren(heading, device, liveNode);
 
   const banner = el("div", "banner");
@@ -594,6 +644,12 @@ function mountList(): Screen {
       paintLive(liveNode);
       paintNotice(banner);
       paintHint(hint);
+
+      if (identity?.canSend === true) {
+        if (!add.isConnected) bar.append(add);
+      } else {
+        add.remove();
+      }
 
       empty.hidden = agents.length > 0;
       list.hidden = agents.length === 0;
@@ -651,6 +707,196 @@ function backToList(): void {
   transcript = null;
   show(mountList());
   void loadAgents();
+}
+
+/** A single launch target, as `GET /workspaces` projects it. */
+interface WorkspaceOption {
+  path: string;
+  branch: string;
+  name: string | null;
+  isMain: boolean;
+}
+
+/** One project's section, as `GET /workspaces` returns it. */
+interface WorkspaceGroup {
+  projectId: string;
+  projectName: string;
+  workspaces: WorkspaceOption[];
+}
+
+/** `POST /agents`'s success body — `StartedAgent` (`electron/renderer-bridge.ts`). */
+interface StartedAgent {
+  tabId: string;
+  paneId: string;
+  workspacePath: string;
+}
+
+/**
+ * Pick a workspace, type a prompt, launch.
+ *
+ * `GET /workspaces` loads once on mount, not on every `update()` — the rows it
+ * builds hold nothing a reader can lose, but rebuilding them on every poll
+ * would still throw away the selection a thumb just made. Selection is
+ * therefore a class toggle on already-built rows, and the composer's input is
+ * never touched by `update()` at all, exactly like `mountDetail`'s.
+ */
+function mountNewSession(): Screen {
+  const back = el("button", "back", "Back");
+  back.addEventListener("click", backToList);
+  const heading = el("h1", undefined, "New Session");
+  bar.replaceChildren(back, heading);
+
+  const banner = el("div", "banner");
+  const status = el("div", "empty");
+  status.append(el("span", undefined, "Loading…"));
+  const list = el("div", "workspace-groups");
+  list.hidden = true;
+
+  const composer = el("div", "composer");
+  const input = el("input");
+  input.placeholder = "What should the agent do?";
+  input.autocapitalize = "off";
+  input.autocomplete = "off";
+  const launch = el("button", "primary", "Launch");
+  launch.disabled = true;
+  composer.append(input, launch);
+
+  body.replaceChildren(banner, status, list, composer);
+
+  /** Selected row, and the option it stands for — single selection. */
+  let selected: { option: WorkspaceOption; row: HTMLElement } | null = null;
+  let allRows: HTMLElement[] = [];
+  let launching = false;
+
+  const refreshLaunch = (): void => {
+    launch.disabled = launching || !selected || input.value.trim() === "";
+  };
+  input.addEventListener("input", refreshLaunch);
+
+  function selectRow(option: WorkspaceOption, row: HTMLElement): void {
+    selected = { option, row };
+    for (const r of allRows) r.classList.toggle("selected", r === row);
+    refreshLaunch();
+  }
+
+  function workspaceRow(
+    option: WorkspaceOption,
+    running: boolean,
+  ): HTMLElement {
+    // The exact shape of a session row — `.session`'s three-column grid — so
+    // nothing new is needed to make it look at home in the same list.
+    const row = el("li", "session");
+    const glyph = el("span", "glyph", option.isMain ? "🏠" : "🌱");
+    row.append(glyph);
+
+    const name = el("div", "session-name");
+    name.append(el("strong", undefined, option.name || option.branch));
+    name.append(
+      el(
+        "span",
+        "meta",
+        [option.branch, running ? "session running" : null]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    row.append(name);
+
+    row.addEventListener("click", () => selectRow(option, row));
+    return row;
+  }
+
+  function renderGroups(groups: WorkspaceGroup[]): void {
+    status.hidden = groups.length > 0;
+    list.hidden = groups.length === 0;
+    if (groups.length === 0) {
+      status.replaceChildren(
+        el("strong", undefined, "No workspaces"),
+        el(
+          "span",
+          undefined,
+          "Add a project in Manor to launch a session here.",
+        ),
+      );
+      status.hidden = false;
+      return;
+    }
+
+    allRows = [];
+    const sections: HTMLElement[] = [];
+    for (const group of groups) {
+      const section = el("div", "workspace-group");
+      section.append(el("h2", "section-heading", group.projectName));
+      const ul = el("ul", "sessions");
+      for (const option of group.workspaces) {
+        const running = agents.some(
+          (agent) => agent.workspacePath === option.path,
+        );
+        const row = workspaceRow(option, running);
+        allRows.push(row);
+        ul.append(row);
+      }
+      section.append(ul);
+      sections.push(section);
+    }
+    list.replaceChildren(...sections);
+  }
+
+  void (async () => {
+    const groups = await api<WorkspaceGroup[]>("/workspaces");
+    if (groups) renderGroups(groups);
+  })();
+
+  launch.addEventListener("click", () => {
+    if (launching || !selected) return;
+    const prompt = input.value.trim();
+    if (!prompt) return;
+    const { option } = selected;
+    const label = option.name || option.branch;
+
+    confirmAction({
+      title: `Launch in ${label}?`,
+      detail: "This starts an agent process in this workspace.",
+      code: prompt,
+      verb: "Launch",
+      run: async () => {
+        launching = true;
+        refreshLaunch();
+        const started = await api<StartedAgent>("/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            workspacePath: option.path,
+            prompt,
+            confirmed: true,
+          }),
+        });
+        launching = false;
+        if (!started) {
+          refreshLaunch();
+          return;
+        }
+        setNotice("Launched.", "ok");
+        // The response carries a paneId, not an agent id (ADR-177), and the
+        // row the hook relay creates may not have landed yet. Remember the
+        // paneId and let `loadAgents()` open it as soon as the SSE `status`
+        // event or the 5s poll notices the new row — `backToList()`'s own
+        // immediate `loadAgents()` resolves it in one hop when the relay is
+        // quick.
+        pendingLaunch = {
+          paneId: started.paneId,
+          expiresAt: Date.now() + PENDING_LAUNCH_TTL_MS,
+        };
+        backToList();
+      },
+    });
+  });
+
+  return {
+    update() {
+      paintNotice(banner);
+      refreshLaunch();
+    },
+  };
 }
 
 function mountDetail(agentId: string): Screen {
@@ -714,6 +960,20 @@ function mountDetail(agentId: string): Screen {
 
   /** The transcript currently drawn, so an unchanged poll costs nothing. */
   let painted: string | null = null;
+  /** The grid width the font is currently fit to, so a poll that repeats the
+   *  same `cols` costs nothing either — the fit depends on `cols` and the
+   *  viewport, and a poll changes neither. */
+  let gridCols: number | null = null;
+
+  // A rotation fires `resize` and `orientationchange` several times in quick
+  // succession; coalesce them into one recompute instead of thrashing layout.
+  let refitTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRefit = (): void => {
+    if (refitTimer) clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => fitGrid(terminal, stream, gridCols), 100);
+  };
+  window.addEventListener("resize", scheduleRefit);
+  window.addEventListener("orientationchange", scheduleRefit);
 
   // The transcript re-reads itself while it is open. An agent's reply lands a
   // second or two after a send, and a phone should not have to be asked.
@@ -755,20 +1015,100 @@ function mountDetail(agentId: string): Screen {
       stop.hidden = status !== "working" && status !== "thinking";
       actions.hidden = replies.hidden && stop.hidden;
 
-      // Identical output is not worth re-rendering: the poll fires every
-      // second or two whether or not the session said anything, and every
-      // repaint is a chance to lose the reader's place.
-      if (transcript?.agentId === agentId && transcript.text !== painted) {
-        painted = transcript.text;
-        paintTerminal(terminal, stream, transcript.text);
+      if (transcript?.agentId === agentId) {
+        // The fit depends on `cols`, not on the text, so it is only redone
+        // when the grid's width actually changes — typically once, on the
+        // first payload of the session. It must happen *before* the text is
+        // painted below: changing the font size changes `scrollHeight`, and
+        // painting first would measure the old height and jump the reader's
+        // place on the first paint of a session.
+        if (transcript.cols !== gridCols) {
+          gridCols = transcript.cols;
+          fitGrid(terminal, stream, gridCols);
+        }
+
+        // Identical output is not worth re-rendering: the poll fires every
+        // second or two whether or not the session said anything, and every
+        // repaint is a chance to lose the reader's place.
+        if (transcript.text !== painted) {
+          painted = transcript.text;
+          paintTerminal(terminal, stream, transcript.text);
+        }
       }
     },
-    dispose: () => clearInterval(timer),
+    dispose: () => {
+      clearInterval(timer);
+      if (refitTimer) clearTimeout(refitTimer);
+      window.removeEventListener("resize", scheduleRefit);
+      window.removeEventListener("orientationchange", scheduleRefit);
+    },
   };
 }
 
 function agentById(id: string): AgentSummary | null {
   return agents.find((agent) => agent.id === id) ?? null;
+}
+
+/** A narrow grid should not balloon: the size this was always fixed at. */
+const FONT_CEILING = 12;
+/** Below this nobody reads anything — the transcript pans sideways instead. */
+const FONT_FLOOR = 6;
+/** Probe geometry for `measureAdvanceRatio` — arbitrary, cancels out in the ratio. */
+const PROBE_SIZE = 100;
+const PROBE_CHARS = 20;
+
+/** The mono font's per-character advance ÷ its font size. Cached: the font
+ *  never changes, so this is measured once, lazily, on the first fit. */
+let advanceRatio: number | null = null;
+
+/**
+ * Measure the mono font's per-character advance as a fraction of its size.
+ *
+ * A probe span of a known number of `0`s at a known (large, so rounding
+ * error is negligible) font size, appended to the live transcript so it
+ * inherits the real font stack, measured, and removed — synchronously, so
+ * nothing is ever painted with it in place.
+ */
+function measureAdvanceRatio(stream: HTMLElement): number {
+  if (advanceRatio !== null) return advanceRatio;
+  const probe = document.createElement("span");
+  probe.style.fontSize = `${PROBE_SIZE}px`;
+  probe.style.whiteSpace = "pre";
+  probe.textContent = "0".repeat(PROBE_CHARS);
+  stream.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  advanceRatio = width / PROBE_SIZE / PROBE_CHARS;
+  return advanceRatio;
+}
+
+/**
+ * Fit `cols` columns of the daemon's grid into the transcript's width by
+ * scaling the font (ADR-177) — the alternative, reflowing the text, is what
+ * broke every box border and diff gutter an agent draws.
+ *
+ * `cols === null` means neither the live snapshot nor scrollback's
+ * `meta.json` knew the grid's width; the ceiling wins, same as before this
+ * existed, but the transcript is still never reflowed.
+ */
+function fitGrid(
+  terminal: HTMLElement,
+  stream: HTMLElement,
+  cols: number | null,
+): void {
+  if (cols === null || cols <= 0) {
+    terminal.style.setProperty("--term-font-size", `${FONT_CEILING}px`);
+    return;
+  }
+  const ratio = measureAdvanceRatio(stream);
+  const style = getComputedStyle(terminal);
+  const available =
+    terminal.clientWidth -
+    parseFloat(style.paddingLeft) -
+    parseFloat(style.paddingRight);
+  const size = Math.floor(available / (cols * ratio));
+  const clamped = Math.min(FONT_CEILING, Math.max(FONT_FLOOR, size));
+  terminal.style.setProperty("--term-font-size", `${clamped}px`);
 }
 
 /**

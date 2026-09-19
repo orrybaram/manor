@@ -71,6 +71,16 @@ while IFS= read -r -n 1 char; do
     if [ "$line" = "spam" ]; then
       for i in $(seq 1 200); do printf 'line %s\n' "$i"; done
     fi
+    # Two identical rows, wider than any phone — ADR-177's grid-fidelity
+    # fixture. Wide enough that a naive wrapping renderer would break each
+    # into several visual rows; a real terminal (and a client that renders one
+    # without reflowing) keeps each as one line regardless of how it wraps in
+    # transit. See `FAKE_AGENT_RULER_ROW` in fake-agent.ts for the exact text.
+    if [ "$line" = "ruler" ]; then
+      ruler=$(printf '#%.0s' $(seq 1 120))
+      printf '%s\n' "$ruler"
+      printf '%s\n' "$ruler"
+    fi
     # "hush" ends the turn and stays there. Every other message re-arms the
     # permission prompt, so a test that needs the *responded* state — the one
     # the green dot pulses for — has no other way to reach it.

@@ -12,8 +12,8 @@
  * Adding a line to either array is a security decision, and
  * `__tests__/allowlist.test.ts` is written to make that deliberate — it asserts
  * both that every name resolves to a real route and that whole families of
- * routes (`/projects`, `/issues`, agent launch, any `DELETE`) stay off the
- * surface, so widening it means consciously deleting a test line.
+ * routes (`/projects`, `/issues`, everything under `/agents/`, any `DELETE`)
+ * stay off the surface, so widening it means consciously deleting a test line.
  */
 
 import type { Route } from "../routes/types";
@@ -23,8 +23,9 @@ import type { Route } from "../routes/types";
  * and `POST /tabs`/`POST /panes/split` mutate layout, so neither is a read
  * despite living under an otherwise-readable prefix. The session list the
  * mobile client renders is `GET /agents`, which shares its path with the
- * launch route — the allowlist key is method + path, so only the read half
- * is ever on the surface.
+ * launch route — the allowlist key is method + path, so the two halves are
+ * allowlisted separately and only the read half is on a read-only device's
+ * surface. The write half is below.
  */
 export const REMOTE_READ_ROUTES = [
   "GET /agents",
@@ -44,10 +45,28 @@ export const REMOTE_READ_ROUTES = [
  * side effect of injecting a prompt) so that "make it stop" is reachable
  * without having to say something, and so the audit trail can tell the two
  * apart.
+ *
+ * `POST /agents` — the launch route — is the newest line (ADR-177) and the only
+ * one that starts a *process* rather than typing at one that already exists.
+ * The honest framing for why it is allowed to be here at all: a device holding
+ * the send capability can already type anything it likes into a live shell and
+ * press return, so a route that can pick only a workspace and a first prompt is
+ * a narrower power than the one above it, not a new category of power. Anyone
+ * unwilling to grant that should revoke send capability rather than count rows.
+ *
+ * Its presence here is conditional on the fourth gate, which lives in
+ * `server.ts` and is part of the deal rather than a detail of it: before the
+ * real handler runs, the requested `workspacePath` must *exactly* equal one the
+ * machine already knows from `projectManager`, or the request is a 403 with an
+ * audit line. Without that check this line would let a tunnel launch a process
+ * in any directory on the disk, and it would not belong here. The check is
+ * remote-only on purpose — the loopback callers (MCP, CLI) legitimately launch
+ * into paths that are not in a project yet.
  */
 export const REMOTE_WRITE_ROUTES = [
   "POST /sessions/send",
   "POST /sessions/interrupt",
+  "POST /agents",
 ] as const;
 
 /**

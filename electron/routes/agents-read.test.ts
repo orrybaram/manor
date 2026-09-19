@@ -38,10 +38,16 @@ async function read(
   body: Record<string, unknown>,
   {
     agent = null,
-    snapshots = {} as Record<string, string>,
+    snapshots = {} as Record<
+      string,
+      { screenAnsi: string; cols?: number; rows?: number }
+    >,
   }: {
     agent?: Record<string, unknown> | null;
-    snapshots?: Record<string, string>;
+    snapshots?: Record<
+      string,
+      { screenAnsi: string; cols?: number; rows?: number }
+    >;
   } = {},
 ) {
   const calls: Array<{ status: number; body: any }> = [];
@@ -50,7 +56,7 @@ async function read(
     backend: {
       pty: {
         getSnapshot: async (id: string) =>
-          id in snapshots ? { screenAnsi: snapshots[id] } : null,
+          id in snapshots ? snapshots[id] : null,
       },
     },
   } as unknown as ControlDeps;
@@ -74,7 +80,7 @@ describe("POST /sessions/read", () => {
   it("reads a live pane that has no agent row at all", async () => {
     const res = await read(
       { target: "pane-7" },
-      { snapshots: { "pane-7": "$ ls\nREADME.md\n" } },
+      { snapshots: { "pane-7": { screenAnsi: "$ ls\nREADME.md\n" } } },
     );
 
     expect(res.status).toBe(200);
@@ -122,7 +128,7 @@ describe("POST /sessions/read", () => {
       { target: "agent-1" },
       {
         agent: { id: "agent-1", paneId: "pane-1", lastAgentStatus: "working" },
-        snapshots: { "pane-1": "thinking...\n" },
+        snapshots: { "pane-1": { screenAnsi: "thinking...\n" } },
       },
     );
 
@@ -142,5 +148,69 @@ describe("POST /sessions/read", () => {
     );
 
     expect(res.status).toBe(409);
+  });
+
+  describe("cols/rows", () => {
+    it("reports the live snapshot's grid size", async () => {
+      const res = await read(
+        { target: "pane-7" },
+        {
+          snapshots: {
+            "pane-7": { screenAnsi: "$ ls\nREADME.md\n", cols: 120, rows: 40 },
+          },
+        },
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.cols).toBe(120);
+      expect(res.body.rows).toBe(40);
+    });
+
+    it("falls back to scrollback's meta.json for the grid size on the cold path", async () => {
+      readScrollback.mockReturnValue("$ make build\ndone\n");
+      readMeta.mockReturnValue({
+        sessionId: "pane-9",
+        cols: 80,
+        rows: 24,
+      } as any);
+
+      const res = await read({ target: "pane-9" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe("scrollback");
+      expect(res.body.cols).toBe(80);
+      expect(res.body.rows).toBe(24);
+    });
+
+    it("reports null cols/rows when meta is unreadable or absent", async () => {
+      readScrollback.mockReturnValue("$ make build\ndone\n");
+      readMeta.mockReturnValue(null);
+
+      const res = await read({ target: "pane-9" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.cols).toBeNull();
+      expect(res.body.rows).toBeNull();
+    });
+
+    it("is unaffected by tailLines/maxBytes truncation", async () => {
+      const res = await read(
+        { target: "pane-7", tailLines: 1, maxBytes: 4 },
+        {
+          snapshots: {
+            "pane-7": {
+              screenAnsi: "line one\nline two\nline three\n",
+              cols: 120,
+              rows: 40,
+            },
+          },
+        },
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.truncated).toBe(true);
+      expect(res.body.cols).toBe(120);
+      expect(res.body.rows).toBe(40);
+    });
   });
 });

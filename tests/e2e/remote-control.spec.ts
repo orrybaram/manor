@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import type { ElectronApplication } from "@playwright/test";
 
@@ -11,6 +13,8 @@ import {
   FAKE_AGENT,
   FAKE_AGENT_BANNER,
   FAKE_AGENT_ECHO,
+  FAKE_AGENT_RULER,
+  FAKE_AGENT_RULER_ROW,
 } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
 import {
@@ -24,6 +28,7 @@ import {
   enableRemoteControl,
   openRemoteControlSettings,
   pairDevice,
+  setAgentCommand,
   type PairedDevice,
 } from "./helpers/settings";
 import {
@@ -58,6 +63,52 @@ interface Paired {
 }
 
 /**
+ * Mirrors `trimBlankRows` in `src/remote-client/ansi.ts`: `/sessions/read`
+ * hands back the whole screen grid, and the client drops the blank rows below
+ * the last real line before painting one. A row count measured off the DOM
+ * has to be compared against the same trimmed count, not the raw payload's.
+ */
+function visibleLineCount(rawText: string): number {
+  const lines = rawText.split("\n");
+  let end = lines.length;
+  while (end > 0 && stripSgr(lines[end - 1]).trim() === "") end--;
+  return end;
+}
+
+function stripSgr(line: string): string {
+  return line.replace(/\u001b\[[\d;]*m/g, "");
+}
+
+/** One line of `RemoteAuditLog` (`electron/remote-control/audit.ts`). */
+interface AuditEntry {
+  route: string;
+  target: string | null;
+  textLength: number | null;
+  textSha256: string | null;
+  outcome: "sent" | "rejected" | "failed";
+}
+
+/** Where main writes the remote-control audit trail — mirrors `remoteAuditFile()` in `electron/paths.ts`. */
+function auditFile(tempHome: string): string {
+  const dataDir =
+    process.platform === "darwin"
+      ? path.join(tempHome, "Library", "Application Support", "Manor")
+      : path.join(tempHome, ".local", "share", "Manor");
+  return path.join(dataDir, "remote-audit.jsonl");
+}
+
+/** Every audit line written so far. Malformed or missing is read as none. */
+function auditEntries(tempHome: string): AuditEntry[] {
+  const file = auditFile(tempHome);
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, "utf-8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as AuditEntry);
+}
+
+/**
  * Everything up to a live phone: a running session, the listener on, a device
  * paired, and the client loaded with its token.
  *
@@ -78,9 +129,19 @@ async function pairedPhone(
     label,
     canSend,
     film,
-  }: { label: string; canSend: boolean; film?: Filmstrip },
+    agentCommand,
+  }: {
+    label: string;
+    canSend: boolean;
+    film?: Filmstrip;
+    /** Set before anything asks Manor to start a process on its own — a
+     *  launch (ADR-177) spawns the *project's* agent command, not whatever
+     *  this fixture types into a pane by hand. */
+    agentCommand?: string;
+  },
 ): Promise<Paired> {
   await importSeededProject(app, window, tempHome);
+  if (agentCommand) await setAgentCommand(window, PROJECT_NAME, agentCommand);
   await createWorkspace(window, "remote-e2e");
   await openTerminalTab(window);
 
@@ -138,6 +199,10 @@ test.describe("remote control", () => {
 
       // The token must not survive in the address bar.
       expect(phone.page.url()).not.toContain(device.token);
+
+      // A send-capable device gets the "+" that starts a new session
+      // (ADR-177); the read-only test below asserts its absence.
+      await expect(phone.page.locator("button.add")).toBeVisible();
 
       await row.click();
       await expect(phone.page.locator("pre.terminal")).toContainText(
@@ -296,6 +361,9 @@ test.describe("remote control", () => {
         project: PROJECT_NAME,
       });
       await expect(row).toBeVisible({ timeout: 30_000 });
+      // Starting a session is a write too (ADR-177): the "+" goes with the
+      // composer and the actions row, absent rather than merely disabled.
+      await expect(phone.page.locator("button.add")).toHaveCount(0);
       await row.click();
       await expect(phone.page.locator("pre.terminal")).toContainText(
         FAKE_AGENT_BANNER,
@@ -339,5 +407,219 @@ test.describe("remote control", () => {
       data: { workspacePath: tempHome },
     });
     expect(launch.status()).toBe(404);
+  });
+
+  test("a wide grid renders row for row on the phone, not reflowed", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("remote-control-grid");
+
+    const { phone } = await pairedPhone(app, window, tempHome, request, {
+      label: "grid phone",
+      canSend: true,
+      film,
+    });
+
+    try {
+      const row = sessionRow(phone.page, {
+        name: AGENT_TITLE,
+        project: PROJECT_NAME,
+      });
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.click();
+
+      const terminal = phone.page.locator("pre.terminal");
+      const stream = phone.page.locator("pre.terminal .stream");
+      await expect(terminal).toContainText(FAKE_AGENT_BANNER, {
+        timeout: 20_000,
+      });
+
+      // Every payload this session's open transcript fetches from here on,
+      // so the one that actually carries the ruler can be picked out after
+      // the fact — the poll (`TRANSCRIPT_MS`) keeps firing regardless of
+      // exactly when the fixture lands.
+      const reads: Promise<{ text: string }>[] = [];
+      phone.page.on("response", (res) => {
+        if (
+          res.request().method() === "POST" &&
+          res.url().endsWith("/sessions/read")
+        ) {
+          reads.push(res.json() as Promise<{ text: string }>);
+        }
+      });
+
+      // Drawn straight into the real terminal, independent of the remote send
+      // path: this is a claim about what `/sessions/read` returns and how the
+      // phone renders it, not about sending.
+      await runInTerminal(window, FAKE_AGENT_RULER);
+
+      await expect(stream).toContainText(FAKE_AGENT_RULER_ROW, {
+        timeout: 20_000,
+      });
+      await film.shot(phone.page, "phone-grid-fidelity");
+
+      let payload: { text: string } | undefined;
+      for (const read of reads) {
+        const body = await read;
+        if (body.text.includes(FAKE_AGENT_RULER_ROW)) payload = body;
+      }
+      if (!payload) {
+        throw new Error("No /sessions/read response carried the ruler rows");
+      }
+      const expectedLines = visibleLineCount(payload.text);
+
+      const measured = await stream.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return {
+          rows: node.scrollHeight / parseFloat(style.lineHeight),
+          fontSize: parseFloat(style.fontSize),
+          whiteSpace: style.whiteSpace,
+        };
+      });
+
+      // The reflow this fixture exists to catch: a wrapped grid renders more
+      // visual rows than the payload has lines.
+      expect(Math.round(measured.rows)).toBe(expectedLines);
+      expect(measured.whiteSpace).toBe("pre");
+      // The ticket-5 clamp: never bigger than the old fixed size, never so
+      // small nobody could read it.
+      expect(measured.fontSize).toBeLessThanOrEqual(12);
+      expect(measured.fontSize).toBeGreaterThanOrEqual(6);
+
+      // The two drawn rows are still exactly as wide as each other — column
+      // alignment survived the whole pipeline, not just "close enough". A
+      // reflow would not show up here (wrapping doesn't touch `textContent`),
+      // which is exactly why it is a separate assertion from the row count
+      // above rather than a substitute for it. Rows the daemon serializes are
+      // `\r\n`-terminated (a real terminal's own line ending), so the split
+      // has to eat the `\r` too — otherwise every row but the last would
+      // carry a trailing one and never compare equal to
+      // `FAKE_AGENT_RULER_ROW`.
+      const drawnRows =
+        (await stream.textContent())
+          ?.split(/\r?\n/)
+          .filter((line) => line === FAKE_AGENT_RULER_ROW) ?? [];
+      expect(drawnRows.length).toBeGreaterThanOrEqual(2);
+      expect(drawnRows[0].length).toBe(drawnRows[1].length);
+    } finally {
+      film.write("phone-console.log", phone.log.join("\n") + "\n");
+      await phone.close();
+    }
+  });
+
+  test("launching a new session from the phone", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("remote-control-launch");
+
+    const { phone } = await pairedPhone(app, window, tempHome, request, {
+      label: "launch phone",
+      canSend: true,
+      film,
+      // A launch spawns this for real (ADR-177), unlike every other session
+      // in this file, which is typed straight into a pane.
+      agentCommand: `"${FAKE_AGENT}"`,
+    });
+
+    try {
+      // A workspace nothing is running in yet, to launch into. The one
+      // `pairedPhone` already made keeps running the fixture's own session,
+      // so "no session running here" has something real to be false about.
+      await createWorkspace(window, "phone-launch-target");
+
+      const add = phone.page.locator("button.add");
+      await expect(add).toBeVisible({ timeout: 30_000 });
+
+      const workspacesResponse = phone.page.waitForResponse(
+        (res) =>
+          res.request().method() === "GET" && res.url().endsWith("/workspaces"),
+      );
+      await add.click();
+      const groups = (await (await workspacesResponse).json()) as {
+        projectName: string;
+        workspaces: {
+          path: string;
+          branch: string;
+          name: string | null;
+          isMain: boolean;
+        }[];
+      }[];
+      const project = groups.find((g) => g.projectName === PROJECT_NAME);
+      // A custom name is only stored when it differs from the branch
+      // (`ProjectManager.createWorktree`); typed as a plain slug, this
+      // workspace's name and branch are the same string, so `branch` is what
+      // `GET /workspaces` actually carries.
+      const targetWorkspace = project?.workspaces.find(
+        (w) => w.branch === "phone-launch-target",
+      );
+      expect(targetWorkspace).toBeTruthy();
+
+      await expect(
+        phone.page.locator(".section-heading", { hasText: PROJECT_NAME }),
+      ).toBeVisible();
+      const targetRow = phone.page
+        .locator("li.session")
+        .filter({ hasText: "phone-launch-target" });
+      await expect(targetRow).toBeVisible();
+      await expect(targetRow).not.toContainText("session running");
+      await film.shot(phone.page, "phone-new-session-list");
+
+      await targetRow.click();
+      const prompt = "say hello from the phone launch";
+      await phone.page.locator(".composer input").fill(prompt);
+      const launch = phone.page.getByRole("button", { name: "Launch" }).first();
+      await expect(launch).toBeEnabled();
+      await launch.click();
+
+      const sheet = phone.page.locator(".sheet");
+      await expect(sheet).toBeVisible();
+      // The confirmation names the exact workspace and the exact prompt.
+      await expect(sheet).toContainText("phone-launch-target");
+      await expect(sheet).toContainText(prompt);
+      await film.shot(phone.page, "phone-launch-confirm");
+      await sheet.getByRole("button", { name: "Launch" }).click();
+
+      // A new session exists — proven the same way `pairedPhone` proves the
+      // first one, over the app's own local surface. The fake agent's title
+      // (and so its name) is set from its own first argument, which is the
+      // prompt the launch carried.
+      await waitForVisibleSession(request, tempHome, {
+        name: prompt,
+        timeout: 60_000,
+      });
+
+      // ADR-177's claim: a launch lands you where you would have gone
+      // anyway. `mountNewSession`'s launch handler remembers the paneId and
+      // lets `loadAgents()` — driven by the SSE `status` event and the 5s
+      // poll — open it as soon as either notices the row the hook relay's
+      // `SessionStart` creates. No tap required.
+      const heading = phone.page.locator("h1", { hasText: prompt });
+      await expect(heading).toBeVisible({ timeout: 20_000 });
+      await expect(phone.page.locator("pre.terminal")).toContainText(
+        FAKE_AGENT_BANNER,
+        { timeout: 20_000 },
+      );
+      await film.shot(phone.page, "phone-launch-landed");
+
+      // The audit line names the workspace it launched into, and never the
+      // prompt itself — only its length and hash, exactly like a send.
+      const entries = auditEntries(tempHome).filter(
+        (e) => e.route === "POST /agents",
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0].target).toBe(targetWorkspace!.path);
+      expect(entries[0].outcome).toBe("sent");
+      expect(entries[0].textLength).toBe(prompt.length);
+      expect(JSON.stringify(entries[0])).not.toContain(prompt);
+    } finally {
+      film.write("phone-console.log", phone.log.join("\n") + "\n");
+      await phone.close();
+    }
   });
 });

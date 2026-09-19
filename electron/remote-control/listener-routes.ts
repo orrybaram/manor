@@ -2,13 +2,21 @@
  * The routes the remote listener answers itself, rather than dispatching into
  * `electron/routes/`.
  *
- * They exist only for the phone client, they are all authenticated, and none
- * of them reads session state:
+ * They exist only for the phone client and they are all authenticated. Two of
+ * them read nothing but the calling device; the third reads project
+ * *configuration* — never session state — projected down to four fields:
  *
  *   - `GET /me` — the calling device's own label and send capability, plus the
  *     public half of the push key. No token, no hash, nothing about any other
  *     device.
  *   - `POST /push/subscribe` — store this device's push endpoint.
+ *   - `GET /workspaces` — enough of `deps.projectManager.getProjects()` for a
+ *     phone to choose a launch target: project name, and each visible
+ *     workspace's path, branch and name. It is its own row rather than an
+ *     allowlisting of `GET /projects` because `ProjectInfo` also carries
+ *     `agentCommand`, `worktreeStartScript`, Linear associations and every
+ *     absolute path on the machine — none of which a phone needs to pick a
+ *     workspace, and all of which a phone is the wrong place to hold.
  *
  * They are ordinary `Route` rows on purpose. An earlier shape had them as
  * `if (method === … && pathname === …)` blocks inside the request handler with
@@ -73,6 +81,42 @@ export function listenerRoutes({
           stored ? 200 : 404,
           stored ? { ok: true } : { error: "Not found" },
         );
+      },
+    },
+
+    {
+      // A read, and a read-only device gets it same as a send-capable one:
+      // seeing where a session *could* start is not a write, only launching
+      // one is (`POST /agents`, gated separately in `server.ts`).
+      method: "GET",
+      path: "/workspaces",
+      async handler({ deps, json }) {
+        const pm = deps.projectManager;
+        if (!pm) {
+          json(503, { error: "Project management is not available" });
+          return;
+        }
+        const projects = await pm.getProjects();
+        // Order preserved, not sorted: `getProjects()`'s order is the
+        // sidebar's, and the phone should match it.
+        const result = projects
+          .map((project) => ({
+            projectId: project.id,
+            projectName: project.name,
+            // The phone offers what the sidebar offers, so a hidden workspace
+            // is filtered here rather than left for the client to hide.
+            workspaces: project.workspaces
+              .filter((workspace) => workspace.hidden !== true)
+              .map((workspace) => ({
+                path: workspace.path,
+                branch: workspace.branch,
+                name: workspace.name,
+                isMain: workspace.isMain,
+              })),
+          }))
+          // A project with nothing visible in it is not a launch target.
+          .filter((project) => project.workspaces.length > 0);
+        json(200, result);
       },
     },
   ];

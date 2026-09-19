@@ -70,7 +70,13 @@ export interface RemoteStatusEvent {
 /** The acting routes on the surface. Wrapped, never reached bare. */
 const SEND_ROUTE = "POST /sessions/send";
 const INTERRUPT_ROUTE = "POST /sessions/interrupt";
-const GUARDED_WRITE_ROUTES = new Set([SEND_ROUTE, INTERRUPT_ROUTE]);
+/** Launching (ADR-177) — the only guarded write that starts a process. */
+const LAUNCH_ROUTE = "POST /agents";
+const GUARDED_WRITE_ROUTES = new Set([
+  SEND_ROUTE,
+  INTERRUPT_ROUTE,
+  LAUNCH_ROUTE,
+]);
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -305,10 +311,11 @@ export class RemoteControlServer {
     ];
     const ownedPrefixes = new Set(table.map((r) => r.path.split("/")[1]));
 
-    // Filter by method *before* dispatch: `GET /agents` is on the surface but
-    // `POST /agents` (launch) is not, and the router would otherwise answer the
-    // latter with a 405 that reveals the row exists. With only same-method rows
-    // in the table, a missing write route falls through to the plain 404 below.
+    // Filter by method *before* dispatch: `GET /agents` is on every device's
+    // surface and `POST /agents` (launch) is on only a send-capable one's, so a
+    // read-only device asking to launch would otherwise get a 405 that reveals
+    // the row exists. With only same-method rows in the table, a write route
+    // this device does not hold falls through to the plain 404 below.
     const matched = await dispatch(
       table.filter((r) => r.method === method),
       ownedPrefixes,
@@ -332,7 +339,8 @@ export class RemoteControlServer {
    *
    * This is the *third* gate. The first is the table: a device without
    * `canSend` never sees these routes at all, so nothing below is what stops
-   * it.
+   * it. `LAUNCH_ROUTE` gets a fourth — the workspace must be one the machine
+   * knows (ADR-177) — because it starts a process rather than typing at one.
    */
   private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
     return table.map((route) => {
@@ -354,10 +362,27 @@ export class RemoteControlServer {
     ctx: RouteContext,
   ): Promise<void> {
     const body = await ctx.readBody();
-    const target = typeof body.target === "string" ? body.target : null;
-    const text = typeof body.text === "string" ? body.text : null;
+    // One audit shape, two vocabularies: a send names a `target` and carries
+    // `text`, a launch names a `workspacePath` and carries a `prompt`. Read both
+    // so a launch audits as the thing it acted on and the text it typed, rather
+    // than as two nulls — and so the prompt is hashed by exactly the code that
+    // hashes a send's text. Neither is ever recorded in the clear.
+    const target =
+      typeof body.target === "string"
+        ? body.target
+        : typeof body.workspacePath === "string"
+          ? body.workspacePath
+          : null;
+    const text =
+      typeof body.text === "string"
+        ? body.text
+        : typeof body.prompt === "string"
+          ? body.prompt
+          : null;
     // True for the interrupt route by definition, and for a send that carried
-    // an override of the interrupt sequence.
+    // an override of the interrupt sequence. A launch is neither — it is a new
+    // pane, and a new pane interrupts nothing — so this yields false for it
+    // without needing a case of its own.
     const interrupt =
       key === INTERRUPT_ROUTE || typeof body.interrupt === "string";
 
@@ -393,6 +418,18 @@ export class RemoteControlServer {
       return;
     }
 
+    // Gate four, and the only one that exists for a single route: a remote
+    // launch may only target a workspace this machine already knows about. See
+    // `knownWorkspacePaths`.
+    if (key === LAUNCH_ROUTE && !(await this.isKnownWorkspace(target))) {
+      line("rejected", 403, `unknown workspace: ${target ?? "(none given)"}`);
+      // The body says nothing about what *would* have matched. A phone that
+      // needs the list asks `GET /workspaces` for it; a caller guessing paths
+      // learns nothing from a rejection.
+      ctx.json(403, { error: "Unknown workspace" });
+      return;
+    }
+
     let status = 0;
     const json: Json = (s, b) => {
       status = s;
@@ -408,6 +445,46 @@ export class RemoteControlServer {
       throw err;
     }
     line(status === 200 ? "sent" : "rejected", status);
+  }
+
+  /**
+   * Is this the path of a workspace the machine already knows?
+   *
+   * `POST /agents` itself (`electron/routes/agents.ts`) accepts any
+   * `workspacePath` string and lets the renderer resolve it, which is right for
+   * the loopback callers — MCP and the CLI legitimately launch into a directory
+   * that is not in a project yet, and they already own the machine. Over a
+   * tunnel it is not right, so the narrowing lives here with the other
+   * remote-only concerns rather than in the route.
+   *
+   * Exact equality, never a prefix test: a prefix would accept
+   * `/Users/me/manor/../../etc` and every other traversal dressed as a known
+   * workspace, and it buys nothing — every legitimate target is a path the phone
+   * read verbatim from `GET /workspaces`. Hidden workspaces count as known: the
+   * property being enforced is "a directory the user already told Manor about",
+   * not "a row the phone was offered".
+   *
+   * No `projectManager` means no known paths, which means no remote launch. A
+   * `getProjects()` that throws is the same answer for the same reason — the
+   * check cannot be allowed to fail open, and a throw here would otherwise
+   * escape as a 500 with no audit line.
+   */
+  private async isKnownWorkspace(requested: string | null): Promise<boolean> {
+    if (requested === null) return false;
+    const projectManager = this.getDeps().projectManager;
+    if (!projectManager) return false;
+    try {
+      const projects = await projectManager.getProjects();
+      return projects.some((project) =>
+        project.workspaces.some((workspace) => workspace.path === requested),
+      );
+    } catch (err) {
+      console.error(
+        "[remote-control] could not read workspaces; refusing launch:",
+        err,
+      );
+      return false;
+    }
   }
 }
 

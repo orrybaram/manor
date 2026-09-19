@@ -20,7 +20,8 @@ import {
 /**
  * The two settings reads the web app needs at boot, lifted out of their
  * `ipcMain.handle` wrappers so the ADR-178 WebSocket bridge calls the same
- * code the desktop renderer does. The setters stay desktop-only for slice 1.
+ * code the desktop renderer does. `preferences.set` (below) joined them in
+ * ticket 9; `keybindingsSet`/`reset`/`resetAll` stay desktop-only.
  */
 export function preferencesGetAll(deps: IpcDeps): unknown {
   return deps.preferencesManager.getAll();
@@ -28,6 +29,25 @@ export function preferencesGetAll(deps: IpcDeps): unknown {
 
 export function keybindingsGetAll(deps: IpcDeps): Record<string, string> {
   return deps.keybindingsManager.getAll();
+}
+
+/**
+ * `preferences.set`, lifted the same way, for a `full` device (ADR-178
+ * ticket 9). This was off the slice-1 table for scope, not policy: D3 lets a
+ * `full` device write preferences, so theme, notifications and general
+ * toggles work from a browser instead of rejecting. `keybindings.set` stays
+ * off the table — ticket 6 made that page read-only on web.
+ */
+export function preferencesSet(
+  deps: IpcDeps,
+  key: string,
+  value: unknown,
+): void {
+  assertString(key, "key");
+  deps.preferencesManager.set(
+    key as keyof import("../preferences").AppPreferences,
+    value as never,
+  );
 }
 
 export function register(deps: IpcDeps): void {
@@ -134,13 +154,9 @@ export function register(deps: IpcDeps): void {
   // ── Preferences ──
   ipcMain.handle("preferences:getAll", () => preferencesGetAll(deps));
 
-  ipcMain.handle("preferences:set", (_event, key: string, value: unknown) => {
-    assertString(key, "key");
-    preferencesManager.set(
-      key as keyof import("../preferences").AppPreferences,
-      value as never,
-    );
-  });
+  ipcMain.handle("preferences:set", (_event, key: string, value: unknown) =>
+    preferencesSet(deps, key, value),
+  );
 
   ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
     playNotificationSound(soundName);

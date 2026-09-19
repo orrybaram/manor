@@ -55,7 +55,12 @@ import {
   agentsBuildResumeCommand,
   type AgentQuery,
 } from "../ipc/agents";
-import { preferencesGetAll, keybindingsGetAll } from "../ipc/misc";
+import {
+  preferencesGetAll,
+  preferencesSet,
+  keybindingsGetAll,
+} from "../ipc/misc";
+import { remoteControlGetStatus } from "../ipc/remote-control";
 import { statsGetSummary } from "../ipc/stats";
 import { notificationsGetAll } from "../ipc/notifications";
 import { processesList } from "../ipc/processes";
@@ -234,7 +239,20 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   "theme.preview": (deps: IpcDeps, name: string) => themePreview(deps, name),
   "theme.allColors": (deps: IpcDeps) => themeAllColors(deps),
   "preferences.getAll": (deps: IpcDeps) => preferencesGetAll(deps),
+  /**
+   * A `full` device may write preferences (D3); the reason this was off the
+   * slice-1 table was scope, not policy. `keybindings.set`/`reset`/`resetAll`
+   * stay off — ticket 6 made that page read-only on web — and are absent on
+   * purpose, not merely unimplemented.
+   */
+  "preferences.set": (deps: IpcDeps, key: string, value: unknown) =>
+    preferencesSet(deps, key, value),
   "keybindings.getAll": (deps: IpcDeps) => keybindingsGetAll(deps),
+
+  // ── remoteControl: the one read, so the settings page isn't lying to the
+  // device that let it in. setEnabled/pair/revoke/tunnel stay off — read-only
+  // on web (ticket 6) ──
+  "remoteControl.getStatus": (deps: IpcDeps) => remoteControlGetStatus(deps),
 
   // ── agents: reads only ──
   "agents.getAll": (deps: IpcDeps, opts?: AgentQuery) =>
@@ -274,4 +292,5 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "pty.close",
   "projects.select",
   "projects.selectWorkspace",
+  "preferences.set",
 ]);

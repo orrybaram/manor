@@ -19,6 +19,7 @@ import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearchBar } from "./TerminalSearchBar";
 import { onUiRequest } from "../../../utils/ui-request";
+import { isWebApp } from "../../../lib/platform";
 import styles from "./TerminalPane.module.css";
 
 type TerminalPaneProps = {
@@ -104,16 +105,20 @@ export function TerminalPane(props: TerminalPaneProps) {
                   <strong>Developer Tools</strong>.
                 </p>
                 <Row gap="sm" className={styles.errorActions}>
-                  <button
-                    className={styles.errorButton}
-                    onClick={() => {
-                      window.electronAPI.shell.openExternal(
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                      );
-                    }}
-                  >
-                    Open Privacy &amp; Security
-                  </button>
+                  {/* A macOS Settings deep link — no such surface in a
+                      browser tab (ADR-178). */}
+                  {!isWebApp() && (
+                    <button
+                      className={styles.errorButton}
+                      onClick={() => {
+                        window.electronAPI.shell.openExternal(
+                          "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                        );
+                      }}
+                    >
+                      Open Privacy &amp; Security
+                    </button>
+                  )}
                   <Dialog.Close asChild>
                     <button className={styles.errorButton}>
                       Dismiss

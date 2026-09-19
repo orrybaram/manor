@@ -6,6 +6,7 @@ import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import { useAppStore } from "../../store/app-store";
 import { EmptyStateShell, type ActionItem } from "./EmptyStateShell";
 import { useIssuesShortcut } from "./useIssuesShortcut";
+import { isWebApp } from "../../lib/platform";
 import type { PaletteView } from "../command-palette/types";
 
 type HomeEmptyStateProps = {
@@ -26,13 +27,21 @@ export function HomeEmptyState(props: HomeEmptyStateProps) {
 
   const { action: issuesAction } = useIssuesShortcut(onOpenPaletteView);
 
+  // No filesystem picker in a browser tab (ADR-178): removed rather than
+  // left to open nothing.
+  const webApp = isWebApp();
+
   const actions: ActionItem[] = [
-    {
-      icon: <FolderPlus size={16} />,
-      label: "Add Project",
-      keys: [],
-      action: onAddProject,
-    },
+    ...(webApp
+      ? []
+      : [
+          {
+            icon: <FolderPlus size={16} />,
+            label: "Add Project",
+            keys: [],
+            action: onAddProject,
+          } satisfies ActionItem,
+        ]),
     {
       icon: <Plus size={16} />,
       label: "New Agent",

@@ -15,7 +15,18 @@ import type { RemoteControlStatus } from "../remote-control/controller";
 import { CAPABILITIES, isCapability } from "../remote-control/devices";
 import type { Capability } from "../remote-control/devices";
 import type { TunnelKind } from "../remote-control/tunnel";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 import type { IpcDeps } from "./types";
+
+/**
+ * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`
+ * wrapper the way `preferencesGetAll` was — a `full` device may see who else
+ * is paired and what they can do (device labels and capabilities, never
+ * tokens), the same view the desktop settings panel gets.
+ */
+export function remoteControlGetStatus(deps: IpcDeps): RemoteControlStatus {
+  return deps.remoteControl.status();
+}
 
 /**
  * The tier is a string off the renderer, so it is checked against the three
@@ -49,8 +60,11 @@ export function register(deps: IpcDeps): void {
   const { remoteControl, getRendererWindows } = deps;
 
   // Push status to every renderer so the settings panel and the persistent
-  // exposure indicator can never disagree about whether we are reachable.
+  // exposure indicator can never disagree about whether we are reachable. A
+  // web renderer has no `webContents`; `publishRendererBroadcast` is the
+  // second sink that reaches it over the bridge (ADR-178 D8).
   remoteControl.onChange((status: RemoteControlStatus) => {
+    publishRendererBroadcast("remoteControl", "status", status);
     for (const win of getRendererWindows()) {
       try {
         if (!win.webContents.mainFrame) continue;
@@ -61,7 +75,9 @@ export function register(deps: IpcDeps): void {
     }
   });
 
-  ipcMain.handle("remoteControl:getStatus", () => remoteControl.status());
+  ipcMain.handle("remoteControl:getStatus", () =>
+    remoteControlGetStatus(deps),
+  );
 
   ipcMain.handle("remoteControl:refreshDetection", () =>
     remoteControl.refreshDetection(),

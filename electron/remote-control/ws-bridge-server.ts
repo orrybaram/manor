@@ -370,6 +370,7 @@ export class WsBridgeServer {
    * | `keybindings.changed`   | `keybindings.onChange(cb)`       |
    * | `notifications.changed` | `notifications.onChanged(cb)`    |
    * | `stats.changed`         | `stats.onChanged(cb)`            |
+   * | `remoteControl.status`  | `remoteControl.onStatus(cb)`     |
    *
    * `theme` is absent from that list because the desktop has no theme
    * broadcast: a theme change comes back as the return value of

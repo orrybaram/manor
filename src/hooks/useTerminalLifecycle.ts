@@ -15,6 +15,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { openExternal } from "../lib/open-external";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
@@ -189,7 +190,7 @@ export function useTerminalLifecycle(
         ...(theme ? { theme } : {}),
         linkHandler: {
           activate: (_event, text) => {
-            window.electronAPI.shell.openExternal(text);
+            openExternal(text);
           },
         },
       }),
@@ -231,7 +232,7 @@ export function useTerminalLifecycle(
     try {
       t.loadAddon(
         new WebLinksAddon((_event, url) => {
-          window.electronAPI.shell.openExternal(url);
+          openExternal(url);
         }),
       );
     } catch {

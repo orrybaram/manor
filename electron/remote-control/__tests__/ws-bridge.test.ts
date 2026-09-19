@@ -17,6 +17,7 @@ import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import { WsBridgeServer } from "../ws-bridge-server";
 import { attach, resetAttachments } from "../../pty-attachments";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { IpcDeps } from "../../ipc/types";
 import type { ControlDeps } from "../../routes/types";
 
@@ -77,6 +78,8 @@ describe("WsBridgeServer", () => {
   let killed: string[];
   /** The grid the daemon reports for any session, or none. */
   let sessionSize: { cols: number; rows: number } | null;
+  /** `[key, value]` pairs `preferences.set` actually reached the manager with. */
+  let preferencesSet: Array<[string, unknown]>;
 
   beforeEach(async () => {
     auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-ws-audit-"));
@@ -88,6 +91,7 @@ describe("WsBridgeServer", () => {
     resized = [];
     killed = [];
     sessionSize = null;
+    preferencesSet = [];
     resetAttachments();
 
     // Enough of `IpcDeps` for the handlers this file exercises. The cast is
@@ -125,11 +129,34 @@ describe("WsBridgeServer", () => {
       },
       preferencesManager: {
         getAll: () => ({ notifyOnRequiresInput: true }),
+        set: (key: string, value: unknown) => {
+          preferencesSet.push([key, value]);
+        },
       },
       projectManager: {
         getProjects: () => [{ id: "p1", name: "manor", workspaces: [] }],
         getSelectedProjectIndex: () => 0,
         selectProject: () => {},
+      },
+      remoteControl: {
+        status: () => ({
+          enabled: true,
+          port: 4177,
+          devices: [
+            {
+              id: "dev-full",
+              label: "laptop browser",
+              capability: "full",
+              createdAt: "2024-01-01T00:00:00.000Z",
+              lastSeenAt: null,
+              hasPush: false,
+            },
+          ],
+          tunnel: { state: "stopped", kind: null, url: null, error: null },
+          detected: { tailscale: false, cloudflared: false },
+          encryptionAvailable: true,
+          listeners: 1,
+        }),
       },
     } as unknown as IpcDeps;
 
@@ -298,6 +325,46 @@ describe("WsBridgeServer", () => {
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
     });
 
+    /**
+     * The read a `full` device needs to see who else is paired, added
+     * alongside its status broadcast (ADR-178 ticket 9). Reads only —
+     * `setEnabled`/`pair`/`revoke`/tunnel stay off the table.
+     */
+    it("resolves remoteControl.getStatus for a full device", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "rc1", "remoteControl", "getStatus");
+      expect(result).toMatchObject({ ok: true });
+      expect(result.result).toMatchObject({
+        enabled: true,
+        listeners: 1,
+        devices: [{ id: "dev-full", capability: "full" }],
+      });
+    });
+
+    /**
+     * A `full` device may write preferences (D3) — off the slice-1 table for
+     * scope, not policy.
+     */
+    it("resolves preferences.set and reaches the manager", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "ps1", "preferences", "set", [
+        "notifyOnResponse",
+        false,
+      ]);
+      expect(result).toMatchObject({ ok: true });
+      expect(preferencesSet).toEqual([["notifyOnResponse", false]]);
+    });
+
+    /** `keybindings.set`/`reset`/`resetAll` stay off — that page is read-only on web. */
+    it("keeps keybindings.set off the table", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "kb1", "keybindings", "set", [
+        "new-tab",
+        "cmd+t",
+      ]);
+      expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
+    });
+
     it("refuses layout.save by name rather than dropping it", async () => {
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "d", "layout", "save", [{}]);
@@ -416,6 +483,30 @@ describe("WsBridgeServer", () => {
       await invoke(client, "sync2", "projects", "getAll");
       expect(client.frames.filter((f) => f.kind === "event")).toEqual([]);
     });
+
+    /**
+     * The second sink `renderer-broadcast.ts` exists for: a change the
+     * desktop windows learn about via `webContents.send` reaches a
+     * subscribed browser the same way (ADR-178 ticket 9).
+     */
+    it("forwards a remoteControl.status broadcast to a subscribed socket", async () => {
+      const client = await greet(FULL_TOKEN);
+      client.send({ kind: "subscribe", ns: "remoteControl", event: "status" });
+      await invoke(client, "sync", "projects", "getAll");
+
+      publishRendererBroadcast("remoteControl", "status", {
+        enabled: true,
+        listeners: 2,
+      });
+
+      const event = await client.next((f) => f.kind === "event");
+      expect(event).toMatchObject({
+        kind: "event",
+        ns: "remoteControl",
+        event: "status",
+        args: [{ enabled: true, listeners: 2 }],
+      });
+    });
   });
 
   describe("audit", () => {
@@ -436,6 +527,22 @@ describe("WsBridgeServer", () => {
         outcome: "sent",
         textLength: null,
         textSha256: null,
+      });
+    });
+
+    it("audits preferences.set with the key as its target, never the value", async () => {
+      const client = await greet(FULL_TOKEN);
+      await invoke(client, "ps-audit", "preferences", "set", [
+        "notifyOnResponse",
+        false,
+      ]);
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        route: "preferences.set",
+        target: "notifyOnResponse",
+        outcome: "sent",
       });
     });
 

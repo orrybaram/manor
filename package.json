@@ -5,8 +5,9 @@
   "packageManager": "pnpm@10.23.0",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "node scripts/patch-electron-name.mjs && vite build --config vite.remote.config.ts && vite",
-    "build": "vite build && vite build --config vite.remote.config.ts",
+    "dev": "node scripts/patch-electron-name.mjs && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts && vite",
+    "build": "vite build && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",
     "package": "source .env && vite build && electron-builder",
     "test": "vitest run && pnpm knip:ci",

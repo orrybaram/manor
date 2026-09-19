@@ -29,6 +29,19 @@ which already sees every desktop `pty:create`, `pty:close` and `pty:detach`.
   backend (a follower asking is not an error; refusing loudly would make
   `useTerminalResize` log on every layout tick).
 
+## Carried over from ticket 3's report (server side, same files)
+
+- `pty.reset` is create-shaped (it answers with a snapshot and re-attaches)
+  and is reachable from the desktop pane menu; add it to the handler table in
+  `ws-handlers.ts` with the **same** `winsizeOwner`/`cols`/`rows` decoration
+  as `pty.create`. `pty.consumePrewarmed` stays off the table.
+- `RemoteControlServer.listenerCount` reads only `hub.size` (SSE). A browser
+  on `/ws` shows as zero watchers in `RemoteControlPage.tsx`. Count
+  `bridge.size` too, and add a server test.
+- Decorate in the **bridge entry only** — wrap the lifted `ptyCreate` in
+  `ws-handlers.ts`; do not change the shape the desktop's `ipcMain.handle`
+  returns.
+
 ## Renderer
 
 - `src/electron.d.ts` — `pty.create`'s result gains optional

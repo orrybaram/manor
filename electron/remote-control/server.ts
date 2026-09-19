@@ -49,7 +49,12 @@ import { hashText, RemoteAuditLog } from "./audit";
 import type { PushManager } from "./push";
 import { AuthRateLimiter } from "./rate-limit";
 import { SseHub } from "./sse";
-import { defaultClientDir, serveClientAsset } from "./static";
+import {
+  defaultClientDir,
+  defaultWebDir,
+  serveClientAsset,
+  serveWebAsset,
+} from "./static";
 
 /** What the listener needs of a device. `RemoteDeviceStore` satisfies it. */
 export interface AuthenticatedDevice {
@@ -108,6 +113,12 @@ export interface RemoteControlServerOptions {
    * page at all (tests, and dev before a build).
    */
   clientDir?: string | null;
+  /**
+   * Built web-app directory (ADR-178), served at `/app`. Omit for the
+   * bundled one; pass `null` to serve no page at all (tests, and dev before
+   * a build).
+   */
+  webDir?: string | null;
   /** Null disables push entirely; the client then simply never subscribes. */
   push?: PushManager | null;
 }
@@ -120,6 +131,7 @@ export class RemoteControlServer {
   private readonly limiter: AuthRateLimiter;
   private readonly audit: RemoteAuditLog;
   private readonly clientDir: string | null;
+  private readonly webDir: string | null;
   private readonly push: PushManager | null;
 
   constructor(
@@ -133,6 +145,8 @@ export class RemoteControlServer {
     // different thing from "not specified, use the built one".
     this.clientDir =
       options.clientDir === undefined ? defaultClientDir() : options.clientDir;
+    this.webDir =
+      options.webDir === undefined ? defaultWebDir() : options.webDir;
     this.push = options.push ?? null;
   }
 
@@ -237,7 +251,7 @@ export class RemoteControlServer {
 
     const url = new URL(req.url, "http://127.0.0.1");
 
-    // ── 1b. The app shell, before auth and on purpose ──
+    // ── 1b. The app shells, before auth and on purpose ──
     // The pairing token rides in the URL fragment, which never reaches the
     // server, so the page has to load unauthenticated and present its token
     // from JavaScript. Only static files are reachable this way; see
@@ -245,6 +259,13 @@ export class RemoteControlServer {
     if (
       method === "GET" &&
       serveClientAsset(res, url.pathname, this.clientDir)
+    ) {
+      return;
+    }
+    if (
+      method === "GET" &&
+      (url.pathname === "/app" || url.pathname.startsWith("/app/")) &&
+      serveWebAsset(res, url.pathname, this.webDir)
     ) {
       return;
     }

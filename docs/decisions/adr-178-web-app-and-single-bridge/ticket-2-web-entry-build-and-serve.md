@@ -1,6 +1,6 @@
 ---
 title: Build the renderer as a browser bundle and serve it at /app
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

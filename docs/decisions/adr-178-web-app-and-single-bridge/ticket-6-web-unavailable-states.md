@@ -1,6 +1,6 @@
 ---
 title: What the browser cannot do says so
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

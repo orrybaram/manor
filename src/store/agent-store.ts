@@ -65,13 +65,15 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     get().receiveAgentUpdate(agent, unseen);
   });
 
-  // Whatever is on screen has been read. Layout mutations are immutable, so
-  // every focus / tab-select / workspace-switch lands here as a fresh
-  // `workspaceLayouts` identity — which is exactly the moment a pane the user
-  // could not see becomes one they can.
+  // Whatever is on screen has been read. Structure (`workspaceLayouts`) and
+  // this window's viewport (`viewports`: selected tab, focused pane — ADR-179
+  // D3) are both immutable, so every split / tab-select / workspace-switch
+  // lands here as a fresh identity — which is exactly the moment a pane the
+  // user could not see becomes one they can.
   useAppStore.subscribe((state, prev) => {
     if (
       state.workspaceLayouts === prev.workspaceLayouts &&
+      state.viewports === prev.viewports &&
       state.activeWorkspacePath === prev.activeWorkspacePath
     ) {
       return;

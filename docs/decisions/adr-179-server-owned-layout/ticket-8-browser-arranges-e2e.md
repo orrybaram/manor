@@ -1,6 +1,6 @@
 ---
 title: E2E — the browser arranges, the desk follows, and back
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [5, 6, 7]

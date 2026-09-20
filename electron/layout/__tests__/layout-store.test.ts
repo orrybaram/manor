@@ -235,6 +235,21 @@ describe("LayoutStore", () => {
       expect(kill).toHaveBeenCalledTimes(1);
     });
 
+    it("drops the pending command of a pane that leaves the tree", async () => {
+      // Queued for a pane nothing ever mounted — closed from another window,
+      // say. Without this the line would be typed into whatever pane next
+      // happened to reuse the id (ADR-179 ticket 11).
+      store.pendingCommands.set("pane-1", "pnpm dev");
+
+      await store.apply(
+        WS,
+        { type: "close-pane", paneId: "pane-1" },
+        { kind: "window", id: "1" },
+      );
+
+      expect(store.pendingCommands.take("pane-1")).toBeNull();
+    });
+
     it("never kills a closed diff pane", async () => {
       await store.apply(
         WS,

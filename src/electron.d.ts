@@ -463,6 +463,19 @@ export interface ElectronAPI {
       workspacePath: string,
       command: import("./lib/layout/commands").LayoutCommand,
     ) => Promise<LayoutApplyResult>;
+    /**
+     * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
+     *
+     * Sent immediately *before* the `apply` that creates the pane: both go
+     * over the same ordered channel and the server records this one
+     * synchronously, so the line is always waiting by the time the layout
+     * broadcast makes some renderer mount the pane and call `pty.create`.
+     */
+    setPendingCommand: (
+      paneId: string,
+      text: string,
+      kind?: "shell" | "agent-startup",
+    ) => Promise<void>;
     remove: (workspacePath: string) => Promise<void>;
     reportViewport: (
       workspacePath: string,

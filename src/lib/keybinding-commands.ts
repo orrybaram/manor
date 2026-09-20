@@ -101,12 +101,21 @@ export async function startNewAgent(
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed()
     : null;
-  if (activeWorkspacePath && !prewarmed?.commandInjected) {
-    useAppStore
-      .getState()
-      .setPendingStartupCommand(activeWorkspacePath, command);
+  if (!prewarmed) {
+    useAppStore.getState().addTerminalTab(command, "agent-startup");
+    return;
   }
-  useAppStore.getState().addTab(prewarmed?.paneId);
+  // The prewarmed session already exists, so its pane id is known before the
+  // tab is: queue the launch line against it directly, and only when the
+  // warm session is not already running one (ADR-179 ticket 11).
+  if (!prewarmed.commandInjected) {
+    await window.electronAPI.layout.setPendingCommand(
+      prewarmed.paneId,
+      command,
+      "agent-startup",
+    );
+  }
+  useAppStore.getState().addTab(prewarmed.paneId);
 }
 
 /**

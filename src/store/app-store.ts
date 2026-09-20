@@ -98,10 +98,6 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
-  /** Pending startup commands to run in new terminals (workspace path → script) */
-  pendingStartupCommands: Record<string, string>;
-  /** Pending startup commands keyed by pane ID (for split-with-agent) */
-  pendingPaneCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -137,7 +133,15 @@ export interface AppState {
    * already prewarmed under that ID; everything else lets the store mint one.
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
-  addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
+  /**
+   * A new tab whose terminal runs `command` as soon as its shell is ready.
+   * The command is queued on the server (ADR-179 ticket 11), not here, so the
+   * pane runs it whichever renderer happens to mount it first.
+   */
+  addTerminalTab: (
+    command: string,
+    kind?: "shell" | "agent-startup",
+  ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
     opts?: { background?: boolean },
@@ -252,11 +256,6 @@ export interface AppState {
 
   // Agent status tracking
   setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
-
-  // Startup commands
-  setPendingStartupCommand: (workspacePath: string, command: string) => void;
-  consumePendingStartupCommand: (workspacePath: string) => string | null;
-  consumePendingPaneCommand: (paneId: string) => string | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -841,6 +840,32 @@ function sendLayoutCommand(
 }
 
 
+/**
+ * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
+ *
+ * "New tab running `pnpm dev`", "split with agent", an agent launch: the line
+ * has to wait somewhere between the layout change and the pane's first
+ * `pty.create`, and that somewhere is the server — the same map `POST /tabs
+ * { command }` fills, so the desktop and a route take one road. It used to be
+ * a `pendingPaneCommands` entry in this store, which only worked because the
+ * renderer that queued it was also the one that mounted the pane.
+ *
+ * Send this *before* the `apply` that creates the pane. Both go over the same
+ * ordered channel and the main-side handler is synchronous, so the entry is
+ * recorded before the broadcast that makes any renderer mount the pane.
+ */
+export function sendPendingCommand(
+  paneId: string,
+  text: string,
+  kind: "shell" | "agent-startup" = "shell",
+): void {
+  void window.electronAPI?.layout
+    ?.setPendingCommand(paneId, text, kind)
+    ?.catch((err: unknown) => {
+      console.error(`[layout] pending command for ${paneId} failed:`, err);
+    });
+}
+
 /** Every pane the layout renders, across every panel and tab. */
 function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
   const ids = new Set<string>();
@@ -968,7 +993,6 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
         const paneUrl = { ...patch.paneUrl };
         const paneFavicon = { ...state.paneFavicon };
         const panePickedElement = { ...state.panePickedElement };
-        const pendingPaneCommands = { ...state.pendingPaneCommands };
         for (const paneId of gone) {
           delete paneCwd[paneId];
           delete paneTitle[paneId];
@@ -977,7 +1001,6 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
           delete paneUrl[paneId];
           delete paneFavicon[paneId];
           delete panePickedElement[paneId];
-          delete pendingPaneCommands[paneId];
         }
         Object.assign(patch, {
           paneCwd,
@@ -987,7 +1010,6 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
           paneUrl,
           paneFavicon,
           panePickedElement,
-          pendingPaneCommands,
         });
       }
     }
@@ -1139,8 +1161,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   webviewFocusedPaneId: null,
   layoutLoaded: false,
   paneFocusNonce: 0,
-  pendingStartupCommands: {},
-  pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
@@ -1261,19 +1281,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
   },
 
-  addTerminalTab: (command: string) => {
+  addTerminalTab: (command: string, kind = "shell" as const) => {
     const path = get().activeWorkspacePath;
     if (!path) return null;
     const tab = createTab();
     const tabPaneId = firstPaneOfTab(tab);
-    // The pane's own state first, the command second: the pane mounts when
-    // the broadcast lands, and it reads these on the way up.
-    set((state) => ({
-      pendingPaneCommands: {
-        ...state.pendingPaneCommands,
-        [tabPaneId]: command,
-      },
-    }));
+    // The command first, the tab second: the pane mounts when the broadcast
+    // lands, and `pty.create` is what types this.
+    sendPendingCommand(tabPaneId, command, kind);
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };
   },
@@ -1512,13 +1527,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneContentType: { ...s.paneContentType, [newPane]: treeContentType },
       }),
       ...(url && { paneUrl: { ...s.paneUrl, [newPane]: url } }),
-      ...(paneCommand && {
-        pendingPaneCommands: {
-          ...s.pendingPaneCommands,
-          [newPane]: paneCommand,
-        },
-      }),
     }));
+    if (paneCommand) {
+      sendPendingCommand(
+        newPane,
+        paneCommand,
+        contentType === "agent" ? "agent-startup" : "shell",
+      );
+    }
     sendLayoutCommand(ctx.path, {
       type: "split-pane-at",
       paneId: targetPaneId,
@@ -1878,36 +1894,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
 
-  setPendingStartupCommand: (workspacePath: string, command: string) =>
-    set((state) => ({
-      pendingStartupCommands: {
-        ...state.pendingStartupCommands,
-        [workspacePath]: command,
-      },
-    })),
-
-  consumePendingStartupCommand: (workspacePath: string) => {
-    const cmd = get().pendingStartupCommands[workspacePath] ?? null;
-    if (cmd) {
-      set((state) => {
-        const { [workspacePath]: _, ...rest } = state.pendingStartupCommands;
-        return { pendingStartupCommands: rest };
-      });
-    }
-    return cmd;
-  },
-
-  consumePendingPaneCommand: (paneId: string) => {
-    const cmd = get().pendingPaneCommands[paneId] ?? null;
-    if (cmd) {
-      set((state) => {
-        const { [paneId]: _, ...rest } = state.pendingPaneCommands;
-        return { pendingPaneCommands: rest };
-      });
-    }
-    return cmd;
-  },
-
   /**
    * Forget a workspace whose worktree is going away.
    *
@@ -1935,14 +1921,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const paneAgentStatus = { ...state.paneAgentStatus };
       const paneContentType = { ...state.paneContentType };
       const paneUrl = { ...state.paneUrl };
-      const pendingPaneCommands = { ...state.pendingPaneCommands };
       for (const paneId of layoutPaneIds(removed)) {
         delete paneCwd[paneId];
         delete paneTitle[paneId];
         delete paneAgentStatus[paneId];
         delete paneContentType[paneId];
         delete paneUrl[paneId];
-        delete pendingPaneCommands[paneId];
       }
       return {
         workspaceLayouts,
@@ -1953,7 +1937,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAgentStatus,
         paneContentType,
         paneUrl,
-        pendingPaneCommands,
       };
     });
 
@@ -2298,7 +2281,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAudioMuted = { ...s.paneAudioMuted };
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
       for (const pid of paneIds) {
         delete newCwd[pid];
         delete newTitle[pid];
@@ -2309,7 +2291,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete newAudioMuted[pid];
         delete newPaneUrl[pid];
         delete newPickedElement[pid];
-        delete newPendingCommands[pid];
       }
 
       const sideMaps = {
@@ -2322,7 +2303,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAudioMuted: newAudioMuted,
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
       };
 
       // Collapse an emptied panel exactly the way closeTab does.
@@ -2477,7 +2457,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newAudioMuted = { ...s.paneAudioMuted };
       const newPaneUrl = { ...s.paneUrl };
       const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
       delete newCwd[paneId];
       delete newTitle[paneId];
       delete newAgentStatus[paneId];
@@ -2487,7 +2466,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete newAudioMuted[paneId];
       delete newPaneUrl[paneId];
       delete newPickedElement[paneId];
-      delete newPendingCommands[paneId];
 
       const sideMaps = {
         paneCwd: newCwd,
@@ -2499,7 +2477,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         paneAudioMuted: newAudioMuted,
         paneUrl: newPaneUrl,
         panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
       };
 
       // Collapse an emptied panel exactly the way removeDetachedTabLocally does.

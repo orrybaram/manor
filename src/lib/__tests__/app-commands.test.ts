@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { appCommandHandlers } from "../app-commands";
 import {
   useAppStore,
@@ -7,9 +7,6 @@ import {
 import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
-import { usePreferencesStore } from "../../store/preferences-store";
-import { HOME_PATH } from "../home-path";
-import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
 import {
@@ -93,8 +90,6 @@ function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -249,234 +244,14 @@ describe("set-active-workspace", () => {
   });
 });
 
-/**
- * `start-agent` is the ADR-176 fix: every read and write keys off the
- * requested `workspacePath`, so a launch aimed at one workspace can no longer
- * seed its prompt onto whichever workspace happened to be active. ADR-179 D5
- * keeps it on this channel: the launch seeds a pending startup command into
- * this renderer's own store, which only this renderer's mount effect reads.
- */
-describe("start-agent", () => {
-  const WS_AGENT_CMD = "claude --workspace";
-  const OTHER_AGENT_CMD = "codex --other";
-
-  let selectWorkspace: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    // `launchAgentInWorkspace` (agent-prompt-launch.ts) selects the target
-    // workspace through the project store before it does anything else, so
-    // the sidebar highlight follows — that store action calls out to main.
-    selectWorkspace = vi.fn();
-    vi.stubGlobal("window", {
-      ...window,
-      electronAPI: {
-        ...(window as unknown as { electronAPI: Record<string, unknown> })
-          .electronAPI,
-        projects: { selectWorkspace },
-      },
-    });
-  });
-
-  /** Two workspaces with different agent commands, the *other* one active. */
-  function setupTwoWorkspaces() {
-    useProjectStore.setState({
-      projects: [
-        {
-          id: "p1",
-          name: "manor",
-          path: "/repo",
-          agentCommand: WS_AGENT_CMD,
-          workspaces: [{ path: WS_PATH }],
-        },
-        {
-          id: "p2",
-          name: "other",
-          path: "/other",
-          agentCommand: OTHER_AGENT_CMD,
-          workspaces: [{ path: OTHER_WS_PATH }],
-        },
-      ] as unknown as ProjectInfo[],
-      selectedProjectIndex: 1,
-    });
-    useAppStore.setState({
-      activeWorkspacePath: OTHER_WS_PATH,
-      workspaceLayouts: {
-        [WS_PATH]: makeLayout(singlePaneTab()),
-        [OTHER_WS_PATH]: makeLayout(tabWithId("tab-other", "pane-other")),
-      },
-    });
-  }
-
-  const start = (args: Record<string, unknown>) =>
-    run("start-agent", args) as Promise<{
-      tabId: string;
-      paneId: string;
-      workspacePath: string;
-    }>;
-
-  const pending = () => useAppStore.getState().pendingStartupCommands;
-
-  it("seeds the prompt on the requested workspace, not the active one", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "fix the bug" });
-
-    // The regression: the pending command used to land on OTHER_WS_PATH,
-    // while the tab opened in WS_PATH.
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "fix the bug"`);
-    expect(pending()[OTHER_WS_PATH]).toBeUndefined();
-    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
-  });
-
-  it("resolves the command from the requested workspace's project", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(pending()[WS_PATH]).toContain(WS_AGENT_CMD);
-    expect(pending()[WS_PATH]).not.toContain(OTHER_AGENT_CMD);
-  });
-
-  it("falls back to the default command for a project without one", async () => {
-    setupTwoWorkspaces();
-    useProjectStore.setState({
-      projects: [
-        {
-          id: "p1",
-          name: "manor",
-          path: "/repo",
-          workspaces: [{ path: WS_PATH }],
-        },
-      ] as unknown as ProjectInfo[],
-    });
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(pending()[WS_PATH]).toBe(`${DEFAULT_AGENT_COMMAND} "go"`);
-  });
-
-  it("prefers an explicit agentCommand over the project's", async () => {
-    setupTwoWorkspaces();
-
-    await start({
-      workspacePath: WS_PATH,
-      prompt: "go",
-      agentCommand: "my-agent --flag",
-    });
-
-    expect(pending()[WS_PATH]).toBe('my-agent --flag "go"');
-  });
-
-  it("uses the configured home harness for the home surface", async () => {
-    setupTwoWorkspaces();
-    usePreferencesStore.setState((s) => ({
-      preferences: {
-        ...s.preferences,
-        homeHarness: "custom",
-        homeCustomCommand: "my-harness --go",
-        homeCustomInterrupt: "",
-      },
-    }));
-
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
-
-    expect(pending()[HOME_PATH]).toBe('my-harness --go "go"');
-  });
-
-  it("escapes shell metacharacters in the prompt", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: 'say "hi" $NOW' });
-
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "say \\"hi\\" \\$NOW"`);
-  });
-
-  it("flattens a multi-line prompt to a single line before seeding it", async () => {
-    setupTwoWorkspaces();
-
-    // The exact shape `renderPrompt` (electron/routes/projects.ts) produces
-    // for the default batch-create-workspaces prompt: title, blank line,
-    // body. An unflattened newline either stalls the shell on a continuation
-    // prompt or submits the turn early on the blank line.
-    await start({
-      workspacePath: WS_PATH,
-      prompt: "Work on GitHub issue #1: title\n\nbody",
-    });
-
-    const seeded = pending()[WS_PATH];
-    expect(seeded).not.toContain("\n");
-    expect(seeded).toBe(
-      `${WS_AGENT_CMD} "Work on GitHub issue #1: title body"`,
-    );
-  });
-
-  it("selects the target workspace through the project store, so the sidebar follows", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(selectWorkspace).toHaveBeenCalledWith("p1", 0);
-  });
-
-  it("seeds the bare launch command when no prompt is given", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH });
-
-    // A pane with no pending command boots a plain shell, so the base agent
-    // command still has to be seeded — only the prompt argument is absent.
-    expect(pending()[WS_PATH]).toBe(WS_AGENT_CMD);
-  });
-
-  it("returns the created tab and pane", async () => {
-    setupTwoWorkspaces();
-
-    const result = await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(result.workspacePath).toBe(WS_PATH);
-    const tab = tabHolding(result.paneId);
-    expect(tab?.id).toBe(result.tabId);
-  });
-
-  it("refetches projects only when the workspace is unknown", async () => {
-    setupTwoWorkspaces();
-    const loadProjects = vi.fn(async () => {});
-    useProjectStore.setState({ loadProjects });
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-    expect(loadProjects).not.toHaveBeenCalled();
-
-    // A worktree created moments ago over the control server is not in the
-    // store yet, so its agent command cannot resolve without a refetch.
-    useAppStore.setState({
-      workspaceLayouts: {
-        ...useAppStore.getState().workspaceLayouts,
-        "/test/fresh": makeLayout(tabWithId("tab-fresh", "pane-fresh")),
-      },
-    });
-    await start({ workspacePath: "/test/fresh", prompt: "go" });
-    expect(loadProjects).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not refetch projects for the home surface", async () => {
-    setupTwoWorkspaces();
-    const loadProjects = vi.fn(async () => {});
-    useProjectStore.setState({ loadProjects });
-
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
-
-    expect(loadProjects).not.toHaveBeenCalled();
-  });
-
-  it("requires a workspacePath", async () => {
-    await expect(start({ prompt: "go" })).rejects.toThrow(
-      /Missing required string argument: workspacePath/,
-    );
-  });
-});
-
 describe("dispatch table", () => {
-  it("exposes exactly the viewport and start-agent commands (ADR-179 D5)", () => {
+  /**
+   * Viewport and nothing else (ADR-179 D5). `start-agent` was the last
+   * non-viewport entry and left for `electron/routes/agents.ts` in ticket 11,
+   * once the launch line it had to seed had a server-side home — see
+   * `agents-launch.test.ts` for what it does there.
+   */
+  it("exposes exactly the viewport commands (ADR-179 D5)", () => {
     expect(Object.keys(appCommandHandlers).sort()).toEqual([
       "focus-next-pane",
       "focus-pane",
@@ -485,7 +260,6 @@ describe("dispatch table", () => {
       "prev-tab",
       "select-tab",
       "set-active-workspace",
-      "start-agent",
     ]);
   });
 

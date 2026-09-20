@@ -101,6 +101,40 @@ export function layout(
   return getJson<LayoutSnapshot>(request, tempHome, "/panes");
 }
 
+/**
+ * Open a tab through the control server, the way the CLI and MCP do.
+ *
+ * `command` is the interesting argument (ADR-179 ticket 11): the route has no
+ * renderer to hand it to, so it queues the line on the server and whichever
+ * renderer mounts the pane types it once the shell is ready.
+ */
+export async function newTab(
+  request: APIRequestContext,
+  tempHome: string,
+  body: Record<string, unknown>,
+): Promise<{ tabId: string; paneId: string }> {
+  const res = await request.post(localApiUrl(tempHome, "/tabs"), { data: body });
+  if (!res.ok()) {
+    throw new Error(`POST /tabs → ${res.status()} ${await res.text()}`);
+  }
+  return (await res.json()) as { tabId: string; paneId: string };
+}
+
+/** Split a pane through the control server, optionally with a command to run. */
+export async function splitPane(
+  request: APIRequestContext,
+  tempHome: string,
+  body: Record<string, unknown>,
+): Promise<{ paneId: string }> {
+  const res = await request.post(localApiUrl(tempHome, "/panes/split"), {
+    data: body,
+  });
+  if (!res.ok()) {
+    throw new Error(`POST /panes/split → ${res.status()} ${await res.text()}`);
+  }
+  return (await res.json()) as { paneId: string };
+}
+
 /** The id of the tab holding `paneId`, from the app's own layout snapshot. */
 export async function tabIdForPane(
   request: APIRequestContext,

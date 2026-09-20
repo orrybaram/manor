@@ -3,12 +3,11 @@
  *
  * ADR-179 D5 shrank this to exactly the commands that still need a window:
  * **viewport** — focus, select, next/prev tab, activate a workspace — because
- * the server has no answer to "which window?" (D3), and **start-agent**,
- * because launching one still means resolving this renderer's project store
- * and seeding a pending startup command only *this* renderer's mount effect
- * reads. Every structural command (split, close, move, new tab, reopen, …)
- * moved to `electron/routes/panes.ts`, which drives `LayoutStore` directly and
- * needs no renderer at all.
+ * the server has no answer to "which window?" (D3). Every structural command
+ * (split, close, move, new tab, reopen, …) moved to
+ * `electron/routes/panes.ts`, which drives `LayoutStore` directly and needs no
+ * renderer at all; `start-agent` followed it into `electron/routes/agents.ts`
+ * once the pending launch line had a server-side home (ticket 11).
  *
  * Main cannot mutate the pane/layout store, so it sends a command and awaits a
  * reply (see `requestRenderer` in electron/renderer-bridge.ts). This module is
@@ -34,8 +33,6 @@ import {
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { hasPaneId } from "./layout/pane-tree";
-import { isHomePath } from "./home-path";
-import { launchAgentInWorkspace } from "./agent-prompt-launch";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
@@ -47,18 +44,6 @@ function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`Missing required string argument: ${key}`);
-  }
-  return value;
-}
-
-function optionalString(
-  args: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = args[key];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") {
-    throw new Error(`Argument ${key} must be a string`);
   }
   return value;
 }
@@ -188,66 +173,6 @@ function setActiveWorkspace(args: Record<string, unknown>): {
   return { workspacePath };
 }
 
-// ---------------------------------------------------------------------------
-// Agent handlers
-// ---------------------------------------------------------------------------
-
-/** True when a loaded project already claims `workspacePath`. */
-function projectsKnowWorkspace(workspacePath: string): boolean {
-  return useProjectStore
-    .getState()
-    .projects.some((p) => p.workspaces.some((w) => w.path === workspacePath));
-}
-
-/**
- * Open an agent pane in an explicitly named workspace, optionally seeded with
- * a first prompt.
- *
- * Every store read and every store write keys off the `workspacePath`
- * argument. The predecessor lived in `App.tsx` and closed over React's
- * `activeWorkspacePath`, which a same-microtask `setActiveWorkspace` could not
- * refresh: the pending command landed on the *previous* workspace while the
- * tab opened in the new one (ADR-176).
- *
- * The launch itself — selecting the workspace, resolving its command,
- * flattening and seeding the prompt, opening the tab — is
- * `launchAgentInWorkspace` in `agent-prompt-launch.ts`, shared with
- * `startAgentWithPrompt`. This handler only owns what is specific to a
- * correlated, control-server-initiated launch: refetching projects for a
- * workspace created moments ago, and reporting the created tab/pane back to
- * main.
- *
- * ADR-179 D5 kept this on the renderer channel rather than moving it beside
- * `/panes/split` and `/tabs`: `launchAgentInWorkspace` seeds a *pending
- * startup command* into this renderer's own store, read back by the pane's
- * mount effect once the broadcast lands (`useTerminalLifecycle.ts`). A route
- * that minted the tab through `LayoutStore.apply()` directly would create the
- * tab, but nothing would ever type the agent's launch command into it — that
- * seed has no server-side home. Until that gap has one, `start-agent`
- * without a window open still 503s, same as before this ticket.
- */
-async function startAgent(args: Record<string, unknown>): Promise<{
-  tabId: string;
-  paneId: string;
-  workspacePath: string;
-}> {
-  const workspacePath = requireString(args, "workspacePath");
-  const prompt = optionalString(args, "prompt");
-  const agentCommand = optionalString(args, "agentCommand");
-
-  // A workspace created moments ago over the control server is not in the
-  // store yet, and the command resolution below needs it. Refetch only when
-  // the path is genuinely unknown: `requestRenderer` times out at 5s, so an
-  // unconditional refetch risks reporting a successful launch as a failure.
-  if (!isHomePath(workspacePath) && !projectsKnowWorkspace(workspacePath)) {
-    await useProjectStore.getState().loadProjects();
-  }
-
-  const tab = launchAgentInWorkspace(workspacePath, { prompt, agentCommand });
-  if (!tab) throw new Error("No active panel to open an agent in");
-  return { tabId: tab.tabId, paneId: tab.paneId, workspacePath };
-}
-
 /**
  * Every correlated command main may send. An unrecognised `cmd` must be
  * rejected by the caller, not silently resolved — see `App.tsx`.
@@ -260,5 +185,4 @@ export const appCommandHandlers: Record<string, Handler> = {
   "focus-next-pane": focusNextPane,
   "focus-prev-pane": focusPrevPane,
   "set-active-workspace": setActiveWorkspace,
-  "start-agent": startAgent,
 };

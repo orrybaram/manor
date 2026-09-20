@@ -58,8 +58,6 @@ function setupStore(layout?: WorkspaceLayout) {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,

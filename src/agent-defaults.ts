@@ -3,8 +3,13 @@ import { usePreferencesStore } from "./store/preferences-store";
 import { isHomePath } from "./lib/home-path";
 import { homeLaunchCommand } from "./lib/home";
 
-/** Default agent command used when no project-specific command is configured */
-export const DEFAULT_AGENT_COMMAND = "claude --dangerously-skip-permissions";
+/**
+ * Default agent command used when no project-specific command is configured.
+ * Defined in the import-free `lib/agent-command` leaf so the main process can
+ * read it too; re-exported here, which is where renderer code expects it.
+ */
+export { DEFAULT_AGENT_COMMAND } from "./lib/agent-command";
+import { DEFAULT_AGENT_COMMAND } from "./lib/agent-command";
 
 /** Known agent kinds — must mirror AgentKind in electron/terminal-host/types.ts */
 const AGENT_KIND_TOKENS: Array<{ kind: string; tokens: string[] }> = [

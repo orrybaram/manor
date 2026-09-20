@@ -12,6 +12,16 @@ export class PrewarmManager {
   private currentAgentCommand: string | null = null;
   private currentKind: string | null = null;
   private commandInjected = false;
+  /**
+   * Panes handed out by `consume()` whose `pty.create` has not arrived yet.
+   *
+   * A prewarmed session already exists when the pane that adopted it is
+   * created, so that create looks like a warm reattach — which is exactly
+   * when `ptyCreate` does *not* type a pending command (ADR-179 ticket 11).
+   * This is how it tells the one create that is really a cold start in
+   * disguise from a second viewer attaching to a live pane.
+   */
+  private readonly adopted = new Set<string>();
   private defaultCols = 80;
   private defaultRows = 24;
 
@@ -89,6 +99,7 @@ export class PrewarmManager {
 
     const paneId = this.prewarmPaneId;
     const commandInjected = this.commandInjected;
+    this.adopted.add(paneId);
     this.prewarmPaneId = null;
     this.state = "idle";
     this.commandInjected = false;
@@ -97,6 +108,15 @@ export class PrewarmManager {
     this.warm().catch(() => {});
 
     return { paneId, commandInjected };
+  }
+
+  /**
+   * True for the first `pty.create` of a pane that adopted a prewarmed
+   * session, false for every create after it. Claimed, not merely read: the
+   * second viewer of that pane must get `false`.
+   */
+  claimAdopted(paneId: string): boolean {
+    return this.adopted.delete(paneId);
   }
 
   /** Update CWD, agent command, and/or kind (e.g. on workspace switch) — kill stale, warm fresh */

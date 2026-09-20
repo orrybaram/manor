@@ -47,6 +47,7 @@ import {
   layoutGetLastActive,
   layoutRemove,
   layoutReportViewport,
+  layoutSetPendingCommand,
 } from "../ipc/layout";
 import {
   projectsGetAll,
@@ -83,6 +84,7 @@ import { notificationsGetAll } from "../ipc/notifications";
 import { processesList } from "../ipc/processes";
 import type { IpcDeps } from "../ipc/types";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
+import type { PendingCommandKind } from "../layout/pending-commands";
 import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
 import type { LayoutOrigin } from "../layout/layout-store";
 
@@ -252,6 +254,17 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
       command,
       origin ?? { kind: "bridge", id: "web" },
     ),
+  /**
+   * A browser opening "a new tab running `pnpm dev`" queues the line the same
+   * way the desktop does (ticket 11) — the pane it names is the server's, and
+   * so is the map the line waits in.
+   */
+  "layout.setPendingCommand": (
+    deps: IpcDeps,
+    paneId: string,
+    text: string,
+    kind?: PendingCommandKind,
+  ) => layoutSetPendingCommand(deps, paneId, text, kind),
   "layout.remove": (deps: IpcDeps, workspacePath: string) =>
     layoutRemove(deps, workspacePath),
   "layout.reportViewport": (
@@ -356,6 +369,7 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "pty.reset",
   "pty.close",
   "layout.apply",
+  "layout.setPendingCommand",
   "layout.remove",
   "projects.select",
   "projects.selectWorkspace",

@@ -52,6 +52,7 @@ import {
 } from "../../src/lib/layout/workspace-layout";
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { LocalBackend } from "../backend/local-backend";
+import { PendingCommands } from "./pending-commands";
 import {
   type LayoutPersistence,
   type PersistedDefaultViewport,
@@ -215,6 +216,15 @@ export class LayoutStore {
   private readonly windowViewports = new Map<string, WorkspaceViewport>();
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
+  /**
+   * Commands queued for panes whose shells do not exist yet (ticket 11).
+   *
+   * Here because every producer of one already holds the store — the
+   * structural routes, `POST /agents`, `layout.setPendingCommand` — and
+   * because a pane that leaves the tree must drop its command, which is
+   * something only this class hears about. See `pending-commands.ts`.
+   */
+  readonly pendingCommands = new PendingCommands();
   private lastActiveWorkspacePath: string | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
@@ -460,6 +470,9 @@ export class LayoutStore {
     // at once, though — a terminal pane's shell stays warm for the grace, so
     // "reopen closed pane" is a real undo (see REOPEN_GRACE_MS).
     for (const paneId of result.effects.killPanes) {
+      // A pane that never mounted can still be closed — by another window, or
+      // by the CLI. Whatever was queued for it has nowhere left to go.
+      this.pendingCommands.clear(paneId);
       if ((metadata[paneId]?.contentType ?? "terminal") !== "terminal") {
         delete state.paneSessions[paneId];
         continue;

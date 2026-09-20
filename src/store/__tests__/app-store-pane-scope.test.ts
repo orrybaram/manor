@@ -16,6 +16,7 @@ import type { Panel, Tab, WorkspaceLayout } from "../app-store";
 import { allPaneIds, hasPaneId } from "../../lib/layout/pane-tree";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import {
+  queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
   sentCommands,
@@ -87,8 +88,6 @@ function setupStore(layout: WorkspaceLayout) {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -251,8 +250,10 @@ describe("tab actions return their IDs", () => {
     const created = useAppStore.getState().addTerminalTab("pnpm dev");
 
     expect(created).not.toBeNull();
-    expect(useAppStore.getState().pendingPaneCommands[created!.paneId]).toBe(
-      "pnpm dev",
+    // Queued on the server against the pane the tab minted (ADR-179 ticket
+    // 11), so whichever renderer mounts it runs the command.
+    expect(queuedCommands).toContainEqual(
+      expect.objectContaining({ paneId: created!.paneId, text: "pnpm dev" }),
     );
     expect(tabHolding(created!.paneId)?.tab.id).toBe(created!.tabId);
   });
@@ -269,10 +270,17 @@ describe("tab actions return their IDs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Part C — pendingPaneCommands does not outlive its pane
+// Part C — a pane's queued command does not outlive it
 // ---------------------------------------------------------------------------
 
-describe("pendingPaneCommands pruning", () => {
+/**
+ * Pruning moved with the map (ADR-179 ticket 11): a pending command lives on
+ * the server, and the server drops it when the reducer says the pane left the
+ * tree — see `electron/layout/__tests__/layout-store.test.ts`. There is
+ * nothing left in this store to prune, which is the point: a pane closed from
+ * a *different* renderer used to leave the command behind here forever.
+ */
+describe("a split's queued command", () => {
   beforeEach(() => {
     setupStore(
       twoPanelLayout(
@@ -282,45 +290,20 @@ describe("pendingPaneCommands pruning", () => {
     );
   });
 
-  it("prunes the pending command when the pane is closed", () => {
+  it("is queued on the server for the pane the split minted", () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt("pane-a1", "horizontal", "second", {
         contentType: "agent",
         paneCommand: "pnpm test",
       })!;
-    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("pnpm test");
 
-    useAppStore.getState().closePaneById(newPane);
-
-    expect(useAppStore.getState().pendingPaneCommands).not.toHaveProperty(newPane);
-  });
-
-  it("keeps sibling panes' pending commands when one pane is closed", () => {
-    useAppStore.setState({
-      pendingPaneCommands: { "pane-a1": "keep me", "pane-a2": "drop me" },
-    });
-
-    useAppStore.getState().closePaneById("pane-a2");
-
-    expect(useAppStore.getState().pendingPaneCommands).toEqual({
-      "pane-a1": "keep me",
-    });
-  });
-
-  it("prunes pending commands for every pane in a closed tab", () => {
-    useAppStore.setState({
-      pendingPaneCommands: {
-        "pane-a1": "drop me",
-        "pane-a2": "drop me too",
-        "pane-b": "keep me",
-      },
-    });
-
-    useAppStore.getState().closeTab("tab-a");
-
-    expect(useAppStore.getState().pendingPaneCommands).toEqual({
-      "pane-b": "keep me",
-    });
+    expect(queuedCommands).toContainEqual(
+      expect.objectContaining({
+        paneId: newPane,
+        text: "pnpm test",
+        kind: "agent-startup",
+      }),
+    );
   });
 });

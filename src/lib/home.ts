@@ -24,14 +24,8 @@ export function homeLaunchCommand(prefs: HomeHarnessPreferences): string {
 
 /**
  * Escape a prompt for interpolation inside a double-quoted shell argument.
- * Used by `handleNewAgentWithPrompt` in `App.tsx`, which builds a launch command
- * as `<harness> "<escaped prompt>"` to seed the harness's first prompt.
+ * Lives in the import-free `agent-command` leaf, because main builds the same
+ * line (ADR-179 ticket 11); re-exported here so renderer code has one place
+ * to import its home/launch helpers from.
  */
-export function escapeShellDoubleQuoted(text: string): string {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, "\\$")
-    .replace(/`/g, "\\`")
-    .replace(/!/g, "\\!");
-}
+export { escapeShellDoubleQuoted } from "./agent-command";

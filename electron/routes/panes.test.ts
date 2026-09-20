@@ -181,6 +181,78 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    /**
+     * What MCP's `split_pane` and the agent fan-out (ADR-176) actually ask
+     * for. Between ticket 5 and ticket 11 the argument was validated and then
+     * silently dropped, because the only home for it was a renderer's own map.
+     */
+    it("records a pending command for the pane it minted", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        body: {
+          paneId,
+          direction: "horizontal",
+          contentType: "agent",
+          command: "claude",
+          workspacePath: WS,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(store.pendingCommands.take(res.body.paneId)).toEqual({
+        text: "claude",
+        kind: "agent-startup",
+      });
+    });
+
+    it("records a plain shell command for a terminal split", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        body: {
+          paneId,
+          direction: "horizontal",
+          command: "pnpm dev",
+          workspacePath: WS,
+        },
+      });
+
+      expect(store.pendingCommands.take(res.body.paneId)).toEqual({
+        text: "pnpm dev",
+        kind: "shell",
+      });
+    });
+
+    it("leaves nothing queued when the split is refused", async () => {
+      await seedTab(WS);
+      const res = await call(route, deps, {
+        body: {
+          paneId: "no-such-pane",
+          direction: "horizontal",
+          command: "pnpm dev",
+          workspacePath: WS,
+        },
+      });
+
+      expect(res.status).toBe(400);
+      expect(store.pendingCommands.size).toBe(0);
+    });
+
+    it("400s a command on a browser split, and queues nothing", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        body: {
+          paneId,
+          direction: "horizontal",
+          contentType: "browser",
+          command: "pnpm dev",
+          workspacePath: WS,
+        },
+      });
+
+      expect(res.status).toBe(400);
+      expect(store.pendingCommands.size).toBe(0);
+    });
   });
 
   describe("POST /panes/reopen", () => {
@@ -271,6 +343,50 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
         body: { contentType: "browser", workspacePath: WS },
       });
       expect(res.status).toBe(400);
+    });
+
+    /**
+     * `command` is why this route could not be trusted between ticket 5 and
+     * ticket 11: it was validated and then dropped, because the only place to
+     * put it was the *sending renderer's* map and a route has no renderer.
+     */
+    it("queues a command for the pane the tab minted", async () => {
+      const res = await call(route, deps, {
+        body: {
+          contentType: "terminal",
+          workspacePath: WS,
+          command: "echo hello",
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(store.pendingCommands.take(res.body.paneId)).toEqual({
+        text: "echo hello",
+        kind: "shell",
+      });
+    });
+
+    it("queues nothing when no command is given", async () => {
+      const res = await call(route, deps, {
+        body: { contentType: "terminal", workspacePath: WS },
+      });
+
+      expect(res.status).toBe(200);
+      expect(store.pendingCommands.take(res.body.paneId)).toBeNull();
+    });
+
+    it("400s a command on a browser tab, and queues nothing", async () => {
+      const res = await call(route, deps, {
+        body: {
+          contentType: "browser",
+          url: "https://example.com",
+          workspacePath: WS,
+          command: "echo hello",
+        },
+      });
+
+      expect(res.status).toBe(400);
+      expect(store.pendingCommands.size).toBe(0);
     });
   });
 

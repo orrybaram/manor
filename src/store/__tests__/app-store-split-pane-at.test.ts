@@ -3,6 +3,7 @@ import { useAppStore, selectFocusedPaneId } from "../app-store";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, WorkspaceLayout } from "../app-store";
 import {
+  queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
 } from "./fake-layout-server";
@@ -53,8 +54,6 @@ function setupStore(layout?: WorkspaceLayout) {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -162,6 +161,10 @@ describe("splitPaneAt", () => {
     if (tab.rootNode.type !== "split") throw new Error("Expected split");
     expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: newPane });
     expect(useAppStore.getState().paneContentType[newPane]).toBeUndefined();
-    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("npm test");
+    // The command is queued on the server for the minted pane (ADR-179
+    // ticket 11), not held in this store.
+    expect(queuedCommands).toEqual([
+      { paneId: newPane, text: "npm test", kind: "agent-startup" },
+    ]);
   });
 });

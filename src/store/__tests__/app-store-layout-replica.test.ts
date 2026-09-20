@@ -62,7 +62,6 @@ function setup(layout: WorkspaceLayout) {
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
-    pendingPaneCommands: {},
   });
 }
 
@@ -190,14 +189,14 @@ describe("broadcasts set the state", () => {
     setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
     useAppStore.setState({
       paneCwd: { "pane-1": "/repo", "pane-2": "/repo/sub" },
-      pendingPaneCommands: { "pane-2": "pnpm dev" },
+      paneTitle: { "pane-1": "one", "pane-2": "two" },
     });
 
     broadcastLayout(WS_PATH, layoutOf([tab("tab-1", "pane-1")]), 2);
 
     const state = useAppStore.getState();
     expect(state.paneCwd).toEqual({ "pane-1": "/repo" });
-    expect(state.pendingPaneCommands).toEqual({});
+    expect(state.paneTitle).toEqual({ "pane-1": "one" });
   });
 
   it("seeds the side maps of the panes a reopen brought back", () => {

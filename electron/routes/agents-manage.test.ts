@@ -1,6 +1,7 @@
 /**
  * `/agents/:agentId/*` management routes — rename, delete, mark-seen, and
- * resume-command — plus `POST /agents` itself, the launch route. Mirrors
+ * resume-command. `POST /agents`, the launch route, has its own file
+ * (`agents-launch.test.ts`) now that it opens the tab itself. Mirrors
  * `agents:update`/`agents:delete`/`agents:markSeen`/`agents:buildResumeCommand`
  * in `../ipc/agents.ts`; modeled on `agents-read.test.ts`.
  */
@@ -21,22 +22,11 @@ vi.mock("../notifications", () => ({
   unseenRespondedAgents: new Set<string>(),
 }));
 
-// `POST /agents` delegates the actual round-trip to `proxyToRenderer`
-// (ADR-176) — the round-trip itself (success/timeout/handler-error mapping)
-// is covered where `requestRenderer` lives (`mcp-webview-server.test.ts`);
-// here we only need to check this route wires its body into it correctly.
-vi.mock("../renderer-bridge", () => ({
-  proxyToRenderer: vi.fn(async (json: (status: number, body: unknown) => void) => {
-    json(200, { tabId: "tab-1", paneId: "pane-1", workspacePath: "/ws" });
-  }),
-}));
-
 import {
   markAgentNotificationsRead,
   unseenInputAgents,
   unseenRespondedAgents,
 } from "../notifications";
-import { proxyToRenderer } from "../renderer-bridge";
 import { agentRoutes } from "./agents";
 import type { ControlDeps, Route } from "./types";
 
@@ -49,7 +39,6 @@ function findRoute(method: Route["method"], path: string): Route {
 const renameRoute = findRoute("POST", "/agents/:agentId/rename");
 const deleteRoute = findRoute("DELETE", "/agents/:agentId");
 const seenRoute = findRoute("POST", "/agents/:agentId/seen");
-const launchRoute = findRoute("POST", "/agents");
 const resumeRoute = findRoute("GET", "/agents/:agentId/resume-command");
 
 /** An AgentManager stub over a single mutable agent record, keyed by id/paneId. */
@@ -100,7 +89,6 @@ beforeEach(() => {
   unseenRespondedAgents.clear();
   unseenInputAgents.clear();
   vi.mocked(markAgentNotificationsRead).mockClear();
-  vi.mocked(proxyToRenderer).mockClear();
 });
 
 describe("POST /agents/:agentId/rename", () => {
@@ -275,41 +263,6 @@ describe("GET /agents/:agentId/resume-command", () => {
     expect(res.status).toBe(200);
     expect(res.body.command).toBe(
       "claude --dangerously-skip-permissions --resume sess-1",
-    );
-  });
-});
-
-describe("POST /agents", () => {
-  it("400s when 'workspacePath' is missing, without calling the renderer", async () => {
-    const res = await call(launchRoute, { deps: {} });
-
-    expect(res.status).toBe(400);
-    expect(proxyToRenderer).not.toHaveBeenCalled();
-  });
-
-  it("forwards workspacePath and prompt to proxyToRenderer as the start-agent command", async () => {
-    await call(launchRoute, {
-      deps: {},
-      body: { workspacePath: "/repos/demo-ws", prompt: "do the thing" },
-    });
-
-    expect(proxyToRenderer).toHaveBeenCalledWith(
-      expect.any(Function),
-      "start-agent",
-      { workspacePath: "/repos/demo-ws", prompt: "do the thing" },
-    );
-  });
-
-  it("omits prompt when the body doesn't include one", async () => {
-    await call(launchRoute, {
-      deps: {},
-      body: { workspacePath: "/repos/demo-ws" },
-    });
-
-    expect(proxyToRenderer).toHaveBeenCalledWith(
-      expect.any(Function),
-      "start-agent",
-      { workspacePath: "/repos/demo-ws", prompt: undefined },
     );
   });
 });

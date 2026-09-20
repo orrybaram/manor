@@ -5,13 +5,24 @@
  * regardless of which project or workspace it belongs to.
  *
  * Entirely main-served — `agentManager` already lives in the main process, so
- * unlike the pane/tab routes there is no renderer round-trip here.
+ * unlike the viewport routes there is no renderer round-trip here. `POST
+ * /agents` joined them: it opens the tab through `LayoutStore` and queues the
+ * launch line beside it, so an agent can be started with no window open
+ * (ADR-179 ticket 11).
  */
 
 import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import { proxyToRenderer } from "../renderer-bridge";
+import {
+  DEFAULT_AGENT_COMMAND,
+  agentCommandWithPrompt,
+} from "../../src/lib/agent-command";
+import { isHomePath } from "../../src/lib/home-path";
+import { homeLaunchCommand } from "../../src/lib/home";
+import { createTab } from "../../src/lib/layout/ids";
+import { allPaneIds } from "../../src/lib/layout/pane-tree";
+import type { LayoutOrigin } from "../layout/layout-store";
 import { interruptSequenceFor } from "../harness-interrupt";
 import {
   getUnseenFlagsForAgent,
@@ -246,6 +257,110 @@ function resolveAgentParam(deps: ControlDeps, agentId: string): ResolvedAgent {
   return { ok: true, agentManager: deps.agentManager, agent };
 }
 
+
+/** What a caller gets back once an agent's tab exists. */
+export interface StartedAgent {
+  tabId: string;
+  paneId: string;
+  workspacePath: string;
+}
+
+export type StartAgentResult =
+  | { ok: true; data: StartedAgent }
+  | { ok: false; status: number; error: string };
+
+const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
+
+/**
+ * The launch command for one workspace, most specific source first.
+ *
+ * The main-process twin of `getAgentCommand` (`src/agent-defaults.ts`), which
+ * reads the same three sources out of Zustand stores instead of out of the
+ * managers: an explicit override, the home harness for the Home surface, the
+ * owning project's `agentCommand`, then the default.
+ */
+async function resolveAgentCommand(
+  deps: ControlDeps,
+  workspacePath: string,
+  override?: string,
+): Promise<string> {
+  if (override) return override;
+  if (isHomePath(workspacePath)) {
+    const prefs = deps.preferencesManager?.getAll();
+    return prefs
+      ? homeLaunchCommand({
+          homeHarness: prefs.homeHarness,
+          homeCustomCommand: prefs.homeCustomCommand,
+          homeCustomInterrupt: prefs.homeCustomInterrupt,
+        })
+      : DEFAULT_AGENT_COMMAND;
+  }
+  const projects = (await deps.projectManager?.getProjects()) ?? [];
+  const owner = projects.find((project) =>
+    project.workspaces.some((workspace) => workspace.path === workspacePath),
+  );
+  return owner?.agentCommand ?? DEFAULT_AGENT_COMMAND;
+}
+
+/**
+ * Open an agent tab in `workspacePath` and queue its launch line — entirely on
+ * the server (ADR-179 ticket 11).
+ *
+ * This used to be a correlated round-trip to a window (`start-agent` in
+ * `src/lib/app-commands.ts`), for one reason: the launch line had to be seeded
+ * into the *sending renderer's* pending-command map, which only that
+ * renderer's pane mount effect read back. Now the map is the server's, so both
+ * halves of a launch — the tab and the line typed into it — happen here, and
+ * `manor start-agent` works with the desktop window closed like every other
+ * structural command.
+ *
+ * Everything ADR-176 asked for still holds, and holds more simply: the target
+ * is explicit (`workspacePath`, never "whatever is active"), the prompt is
+ * flattened before it is quoted, and the answer names the pane that was
+ * actually created, so a caller can retry a launch that did not happen. What
+ * is deliberately *not* reproduced is the renderer's sidebar selection: which
+ * workspace a window is looking at is that window's viewport (D3), and a route
+ * does not move it.
+ */
+export async function startAgentInWorkspace(
+  deps: ControlDeps,
+  workspacePath: string,
+  options: { prompt?: string; agentCommand?: string } = {},
+): Promise<StartAgentResult> {
+  const store = deps.layoutStore;
+  if (!store) {
+    return { ok: false, status: 503, error: "Layout store is not available" };
+  }
+
+  const base = await resolveAgentCommand(
+    deps,
+    workspacePath,
+    options.agentCommand,
+  );
+  const tab = createTab();
+  const paneId = allPaneIds(tab.rootNode)[0];
+
+  // Queued before the tab exists, for the ordering `pendingCommands` spells
+  // out: the apply broadcasts, a renderer mounts the pane, and its
+  // `pty.create` is what types this.
+  store.pendingCommands.set(
+    paneId,
+    agentCommandWithPrompt(base, options.prompt),
+    "agent-startup",
+  );
+
+  const result = await store.apply(
+    workspacePath,
+    { type: "new-tab", tab, select: true },
+    AGENT_ORIGIN,
+  );
+  if ("error" in result) {
+    store.pendingCommands.clear(paneId);
+    return { ok: false, status: 400, error: result.error };
+  }
+  return { ok: true, data: { tabId: tab.id, paneId, workspacePath } };
+}
+
 export const agentRoutes: Route[] = [
   {
     method: "GET",
@@ -285,13 +400,13 @@ export const agentRoutes: Route[] = [
   },
 
   {
-    // Launch an agent pane in a workspace. Correlated round-trip (ADR-176):
-    // the response is the renderer's actual outcome — a `StartedAgent` pane
-    // on success, or the mapped failure `proxyToRenderer` already knows how
-    // to produce — not a fire-and-forget dispatch reported as success.
+    // Launch an agent pane in a workspace, server-side (ADR-179 ticket 11).
+    // The answer is the outcome, not a dispatch: the `StartedAgent` names the
+    // pane that now exists, so a caller can tell a launch that happened from
+    // one that did not and retry it (ADR-176).
     method: "POST",
     path: "/agents",
-    async handler({ json, readBody }) {
+    async handler({ deps, json, readBody }) {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
@@ -299,7 +414,17 @@ export const agentRoutes: Route[] = [
         return;
       }
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      await proxyToRenderer(json, "start-agent", { workspacePath, prompt });
+      const agentCommand =
+        typeof body.agentCommand === "string" ? body.agentCommand : undefined;
+      const result = await startAgentInWorkspace(deps, workspacePath, {
+        prompt,
+        agentCommand,
+      });
+      if (!result.ok) {
+        json(result.status, { error: result.error });
+        return;
+      }
+      json(200, result.data);
     },
   },
 

@@ -359,46 +359,15 @@ export function useTerminalLifecycle(
             }
           }
 
-          // Check for pending startup command (e.g. worktree start script)
-          const store = useAppStore.getState();
-          const wsPath = store.activeWorkspacePath;
-
-          // Pane-specific command (e.g. split-with-agent) takes priority
-          const paneCmd = store.consumePendingPaneCommand(paneId);
-          const startupCmd =
-            !paneCmd && wsPath && cwd === wsPath
-              ? store.consumePendingStartupCommand(wsPath)
-              : null;
-          const pendingCmd = paneCmd || startupCmd;
-          if (pendingCmd) {
-            // `prewarmed` only means the daemon session already existed — NOT
-            // that its shell has reached a prompt. React StrictMode (dev)
-            // double-mounts the pane: the first mount spawns the shell, then
-            // the second mount's create() sees the session already exists and
-            // reports prewarmed=true even though the shell is still sourcing
-            // rc files (~30ms old). Writing then lands the command in a
-            // not-yet-initialized ZLE, so the trailing \r is swallowed and the
-            // command sits in the buffer unsubmitted. Only take the
-            // immediate-write shortcut once we've actually observed the shell
-            // reach a prompt — paneCwd is populated from its OSC 7 event and
-            // persists across the remount. Otherwise wait like a cold start.
-            const shellReady = !!useAppStore.getState().paneCwd[paneId];
-            if (result.prewarmed && shellReady) {
-              // Shell is already at a prompt — write immediately.
-              // Submit with \r (Enter); \n is not reliably accept-line in zsh.
-              write(pendingCmd + "\r");
-            } else {
-              // Cold start (or a freshly-spawned session mislabelled as
-              // prewarmed) — wait for the shell prompt (CWD/OSC 7 event from
-              // the precmd hook) before sending the command. Sending on first
-              // output is too early: the shell may still be sourcing .zshrc,
-              // and ZLE discards buffered input when it initializes.
-              sendOnShellReady(pendingCmd);
-            }
-          } else if (!result.snapshot) {
-            // No pending command and no warm-restore snapshot → cold or fresh session.
-            // Check for an active agent that was interrupted (e.g. version upgrade,
-            // app crash) and auto-relaunch its agent command.
+          // A pane opened "with a command" — a new agent, a split with an
+          // agent, `POST /tabs { command }` — has its line waiting on the
+          // server, and `pty.create` typed it on the way in (ADR-179 ticket
+          // 11). Nothing to read back here: the queue is not this renderer's
+          // any more, which is what lets a route open such a pane at all.
+          if (!result.snapshot) {
+            // No warm-restore snapshot → cold or fresh session. Check for an
+            // active agent that was interrupted (e.g. version upgrade, app
+            // crash) and auto-relaunch its agent command.
             void (async () => {
               const activeAgents = await window.electronAPI.agents.getAll({ status: "active" });
               const resumeAgent = activeAgents.find(

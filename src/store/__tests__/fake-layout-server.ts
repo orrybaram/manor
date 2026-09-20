@@ -96,6 +96,23 @@ export const sentCommands: Array<{
   command: LayoutCommand;
 }> = [];
 
+/** Every pending pane command the store has queued, newest last. */
+export const queuedCommands: Array<{
+  paneId: string;
+  text: string;
+  kind: string;
+}> = [];
+
+/**
+ * Everything the store sent, in the order it sent it — `"pending"` for a
+ * queued pane command, `"apply"` for a layout command.
+ *
+ * Exists for one assertion: a pending command must be queued *before* the
+ * command that creates its pane, or a renderer can mount the pane and reach
+ * `pty.create` with nothing waiting (ADR-179 ticket 11).
+ */
+export const serverCalls: Array<"pending" | "apply"> = [];
+
 /** Give the server a workspace to start from — what `getAll` will answer. */
 export function seedLayout(
   workspacePath: string,
@@ -143,6 +160,8 @@ export function resetFakeLayoutServer(): void {
   reportedViewports.length = 0;
   viewportFile = null;
   sentCommands.length = 0;
+  queuedCommands.length = 0;
+  serverCalls.length = 0;
 }
 
 /** The `viewport` namespace of `window.electronAPI`, served from memory. */
@@ -176,6 +195,7 @@ export function fakeLayoutApi(): Record<string, unknown> {
     getLastActive: async () => null,
     apply: async (workspacePath: string, command: LayoutCommand) => {
       sentCommands.push({ workspacePath, command });
+      serverCalls.push("apply");
       const version = versions.get(workspacePath) ?? 0;
       // A workspace the server has never heard of gets one, panel and all —
       // `LayoutStore.ensure` does the same, and it is how the first tab of a
@@ -199,6 +219,10 @@ export function fakeLayoutApi(): Record<string, unknown> {
         ...(Object.keys(hint).length > 0 && { hint }),
       });
       return { version: version + 1 };
+    },
+    setPendingCommand: async (paneId: string, text: string, kind: string) => {
+      queuedCommands.push({ paneId, text, kind });
+      serverCalls.push("pending");
     },
     remove: async (workspacePath: string) => {
       layouts.delete(workspacePath);

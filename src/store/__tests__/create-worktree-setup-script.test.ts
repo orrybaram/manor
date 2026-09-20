@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
+import { queuedCommands } from "./fake-layout-server";
 
 // Mock electronAPI
 vi.stubGlobal("window", {
@@ -66,12 +67,11 @@ describe("createWorktree setup script", () => {
     useAppStore.setState({
       workspaceLayouts: {},
       activeWorkspacePath: null,
-      pendingStartupCommands: {},
     });
     vi.clearAllMocks();
   });
 
-  it("stores start script in worktree setup state (not pending startup commands)", async () => {
+  it("stores start script in worktree setup state and queues nothing", async () => {
     const worktreePath = "/worktrees/test-project/my-feature";
 
     const projectWithScript = makeProject({
@@ -109,15 +109,14 @@ describe("createWorktree setup script", () => {
     // The workspace should be activated
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
 
-    // Start script is stored in worktreeSetupState, not pendingStartupCommands
+    // Start script is stored in worktreeSetupState, and nowhere else
     const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
     expect(setupState).toBeDefined();
     expect(setupState.startScript).toBe("npm install");
 
-    // No pending startup command is set (setup view handles execution)
-    expect(
-      useAppStore.getState().pendingStartupCommands[worktreePath],
-    ).toBeUndefined();
+    // Nothing is queued for a new pane: the setup view runs the script in a
+    // session of its own (ADR-179 ticket 11 moved that queue to the server).
+    expect(queuedCommands).toEqual([]);
   });
 
   it("stores setup-script step as pending when both start script and agent command provided", async () => {

@@ -4,7 +4,7 @@ import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Bot from "lucide-react/dist/esm/icons/bot";
-import { useAppStore } from "../../store/app-store";
+import { sendPendingCommand, useAppStore } from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
@@ -38,11 +38,11 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
                     // Terminal already mounted — write directly
                     window.electronAPI.pty.write(paneId, command + "\n");
                   } else {
-                    // Switching from browser/diff — terminal will mount fresh
+                    // Switching from browser/diff — the terminal mounts
+                    // fresh, and the server types the command into it once
+                    // its shell is ready (ADR-179 ticket 11).
+                    sendPendingCommand(paneId, command, "agent-startup");
                     setPaneContentType(paneId, "terminal");
-                    useAppStore.setState((state) => ({
-                      pendingPaneCommands: { ...state.pendingPaneCommands, [paneId]: command },
-                    }));
                   }
                 } else {
                   setPaneContentType(paneId, type);

@@ -6,6 +6,7 @@ import type {
   LayoutOrigin,
 } from "../layout/layout-store";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
+import type { PendingCommandKind } from "../layout/pending-commands";
 import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
@@ -38,6 +39,34 @@ export function layoutApply(
 ): Promise<LayoutApplyResult> {
   assertString(workspacePath, "workspacePath");
   return deps.layoutStore.apply(workspacePath, command, origin);
+}
+
+/**
+ * Queue a command for a pane whose shell does not exist yet (ticket 11).
+ *
+ * The desktop's "new tab running `pnpm dev`", "split with agent" and agent
+ * launches all land here, so they take the same road as `POST /tabs
+ * { command }`: the line waits on the server and `pty.create` types it into
+ * whichever renderer mounts the pane first. It used to wait in the sending
+ * renderer's own store, which is why a route could not queue one at all.
+ *
+ * Ordering matters and is free: a producer sends this immediately before the
+ * `layout.apply` that creates the pane, both over the same ordered channel,
+ * and this handler is synchronous — so the entry is always in place before
+ * the broadcast that makes a renderer mount the pane goes out.
+ */
+export function layoutSetPendingCommand(
+  deps: IpcDeps,
+  paneId: string,
+  text: string,
+  kind: PendingCommandKind = "shell",
+): void {
+  assertString(paneId, "paneId");
+  assertString(text, "text");
+  if (kind !== "shell" && kind !== "agent-startup") {
+    throw new Error(`Unknown pending command kind: ${String(kind)}`);
+  }
+  deps.layoutStore.pendingCommands.set(paneId, text, kind);
 }
 
 /** Forget a workspace's layout — its worktree is gone. */
@@ -78,6 +107,12 @@ export function register(deps: IpcDeps): void {
         kind: "window",
         id: String(event.sender.id),
       }),
+  );
+
+  ipcMain.handle(
+    "layout:setPendingCommand",
+    (_event, paneId: string, text: string, kind?: PendingCommandKind) =>
+      layoutSetPendingCommand(deps, paneId, text, kind),
   );
 
   ipcMain.handle("layout:remove", (_event, workspacePath: string) =>

@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
+import { DEFAULT_AGENT_COMMAND } from "./agent-command";
 
 /**
  * Agent-agnostic harness kinds the Home surface (and, later, `send_to_session`)

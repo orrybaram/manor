@@ -540,15 +540,16 @@ function App() {
           agent.agentCommand ??
           agentProject?.agentCommand ??
           DEFAULT_AGENT_COMMAND;
+        // Don't consume prewarmed — resume needs a specific --resume command.
         useAppStore
           .getState()
-          .setPendingStartupCommand(
-            activePath,
+          .addTerminalTab(
             `${agentCommand} --resume ${agent.agentSessionId}`,
+            "agent-startup",
           );
+      } else {
+        addTab();
       }
-      // Don't consume prewarmed — resume needs a specific --resume command
-      addTab();
     },
     [setActiveWorkspace, addTab, projects],
   );
@@ -563,18 +564,18 @@ function App() {
 
   const handleNewAgentWithPrompt = useCallback(
     (prompt: string) => {
-      if (activeWorkspacePath) {
-        const escaped = escapeShellDoubleQuoted(prompt);
-        const command = `${activeWorkspaceCommand} "${escaped}"`;
-        useAppStore
-          .getState()
-          .setPendingStartupCommand(activeWorkspacePath, command);
-      }
+      if (!activeWorkspacePath) return;
+      const escaped = escapeShellDoubleQuoted(prompt);
       // Don't consume prewarmed — it has the base agent command running,
       // but we need a different command with the prompt argument.
-      addTab();
+      useAppStore
+        .getState()
+        .addTerminalTab(
+          `${activeWorkspaceCommand} "${escaped}"`,
+          "agent-startup",
+        );
     },
-    [addTab, activeWorkspacePath, activeWorkspaceCommand],
+    [activeWorkspacePath, activeWorkspaceCommand],
   );
 
   if (!appReady) {

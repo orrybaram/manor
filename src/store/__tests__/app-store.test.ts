@@ -12,8 +12,11 @@ import { allPaneIds } from "../../lib/layout/pane-tree";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import {
   broadcastLayout,
+  queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
+  sentCommands,
+  serverCalls,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
@@ -148,8 +151,6 @@ function setupStore(layout?: WorkspaceLayout) {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -485,8 +486,6 @@ describe("Workspace management", () => {
       paneContentType: {},
       paneUrl: {},
       panePickedElement: {},
-      pendingStartupCommands: {},
-      pendingPaneCommands: {},
     });
   });
 
@@ -581,30 +580,47 @@ describe("Metadata tracking", () => {
   });
 });
 
-describe("Startup commands", () => {
+/**
+ * A tab whose terminal runs a command (ADR-179 ticket 11). The command is no
+ * longer a store field: it is queued on the server against the pane the tab
+ * mints, *before* the layout command that creates it, so whichever renderer
+ * mounts the pane runs it — including one that is not this window.
+ */
+/**
+ * A tab whose terminal runs a command (ADR-179 ticket 11). The command is no
+ * longer a store field: it is queued on the server against the pane the tab
+ * mints, *before* the layout command that creates it, so whichever renderer
+ * mounts the pane runs it — including one that is not this window.
+ */
+describe("addTerminalTab", () => {
   beforeEach(() => setupStore());
 
-  it("setPendingStartupCommand stores the command", () => {
-    useAppStore.getState().setPendingStartupCommand(WS_PATH, "npm start");
-    expect(useAppStore.getState().pendingStartupCommands[WS_PATH]).toBe(
-      "npm start",
+  it("queues the command for the new tab's pane before creating the tab", () => {
+    const created = useAppStore.getState().addTerminalTab("npm start");
+
+    expect(created).not.toBeNull();
+    expect(queuedCommands).toEqual([
+      { paneId: created!.paneId, text: "npm start", kind: "shell" },
+    ]);
+    // Queued first, tab second — a renderer that mounted the pane before the
+    // entry landed would open a bare shell.
+    expect(serverCalls).toEqual(["pending", "apply"]);
+    expect(sentCommands[sentCommands.length - 1].command.type).toBe("new-tab");
+  });
+
+  it("passes the kind through for an agent launch", () => {
+    useAppStore.getState().addTerminalTab("claude", "agent-startup");
+
+    expect(queuedCommands[queuedCommands.length - 1].kind).toBe(
+      "agent-startup",
     );
   });
 
-  it("consumePendingStartupCommand returns it once then null", () => {
-    useAppStore.getState().setPendingStartupCommand(WS_PATH, "npm start");
+  it("queues nothing when there is no workspace to open a tab in", () => {
+    useAppStore.setState({ activeWorkspacePath: null });
 
-    const first = useAppStore.getState().consumePendingStartupCommand(WS_PATH);
-    expect(first).toBe("npm start");
-
-    const second = useAppStore.getState().consumePendingStartupCommand(WS_PATH);
-    expect(second).toBeNull();
-  });
-
-  it("consumePendingStartupCommand returns null when nothing set", () => {
-    const result =
-      useAppStore.getState().consumePendingStartupCommand("/nonexistent");
-    expect(result).toBeNull();
+    expect(useAppStore.getState().addTerminalTab("npm start")).toBeNull();
+    expect(queuedCommands).toHaveLength(0);
   });
 });
 

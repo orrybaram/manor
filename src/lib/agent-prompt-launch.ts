@@ -1,18 +1,7 @@
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { getAgentCommand } from "../agent-defaults";
-import { escapeShellDoubleQuoted } from "./home";
-
-/**
- * Flatten a prompt to a single line. Prompts here are typed into an
- * interactive shell or a harness's prompt box, and a bare newline either
- * leaves the shell waiting on a continuation prompt or submits the turn
- * early — so every whitespace run that spans a newline collapses to one
- * space before the text is sent.
- */
-export function flattenPrompt(prompt: string): string {
-  return prompt.replace(/\s*\n\s*/g, " ").trim();
-}
+import { agentCommandWithPrompt } from "./agent-command";
 
 /**
  * Open a new agent tab in `workspacePath`, optionally seeded with `prompt` as
@@ -22,16 +11,16 @@ export function flattenPrompt(prompt: string): string {
  * active: the workspace is selected first — through the project store, so the
  * sidebar highlight and main's persisted selection follow — the launch
  * command is resolved home-harness-aware via `getAgentCommand`, the prompt
- * (if any) is flattened before it is queued as that workspace's pending
- * startup command, and a new tab is opened for it. Prewarmed sessions are not
- * consumed: they run the bare agent command, and a seeded launch needs the
- * command-with-prompt argument.
+ * (if any) is flattened before it is queued for the new tab's pane on the
+ * server (ADR-179 ticket 11), and the tab is opened. Prewarmed sessions are
+ * not consumed: they run the bare agent command, and a seeded launch needs
+ * the command-with-prompt argument.
  *
  * Shared by `startAgentWithPrompt` (fire-and-forget, no override, no return
- * value) and the correlated `start-agent` app-command in `app-commands.ts`
- * (which reports the created tab/pane back to main and may carry an explicit
- * `agentCommand`) — the two callers that used to hand-roll this sequence with
- * different gaps (ADR-176).
+ * value) and the agent-resume/new-agent surfaces — the callers that used to
+ * hand-roll this sequence with different gaps (ADR-176). Launches that arrive
+ * over the control server do not come through here at all any more: `POST
+ * /agents` does the same two steps on the server and needs no window.
  */
 export function launchAgentInWorkspace(
   workspacePath: string,
@@ -52,12 +41,12 @@ export function launchAgentInWorkspace(
   }
 
   const base = getAgentCommand(workspacePath, options.agentCommand);
-  const command = options.prompt
-    ? `${base} "${escapeShellDoubleQuoted(flattenPrompt(options.prompt))}"`
-    : base;
-  useAppStore.getState().setPendingStartupCommand(workspacePath, command);
-
-  return useAppStore.getState().addTab();
+  return useAppStore
+    .getState()
+    .addTerminalTab(
+      agentCommandWithPrompt(base, options.prompt),
+      "agent-startup",
+    );
 }
 
 /**

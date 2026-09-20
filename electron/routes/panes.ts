@@ -21,6 +21,11 @@
  * Argument validation that used to live in `src/lib/app-commands.ts` moves
  * here with the routes it guarded — a bad argument is still a 400, just
  * thrown before the store is touched rather than inside a renderer.
+ *
+ * `command` / `paneCommand` — "open this tab and run `pnpm dev` in it" — is
+ * queued on the server's `pendingCommands` map and typed by `pty.create` when
+ * the pane first gets a shell (ticket 11). It cannot be sent from here,
+ * because the pane does not exist yet and no renderer has mounted it.
  */
 
 import { BrowserWindow } from "electron";
@@ -199,6 +204,32 @@ async function applyOrError(
   return true;
 }
 
+/**
+ * Queue a route's `command` for the pane it is about to mint (ticket 11).
+ *
+ * Before the `apply`, never after: the broadcast the apply sends is what makes
+ * a renderer mount the pane, and a mount that reached `pty.create` first would
+ * find nothing waiting and open a bare shell. If the command is then refused,
+ * the caller clears the entry again.
+ *
+ * This is the whole of what `command` / `paneCommand` used to mean and stopped
+ * meaning when these routes left the renderer: it seeded the *sender's* own
+ * pending map, and a route has no sender to seed.
+ */
+function queuePendingCommand(
+  store: LayoutStore,
+  paneId: string,
+  command: string | undefined,
+  contentType?: SplitContentType | TabContentType,
+): void {
+  if (!command) return;
+  store.pendingCommands.set(
+    paneId,
+    command,
+    contentType === "agent" ? "agent-startup" : "shell",
+  );
+}
+
 /** Every pane a workspace renders, across every panel and tab. */
 function paneIdsOf(layout: WorkspaceLayout): Set<string> {
   const ids = new Set<string>();
@@ -299,11 +330,6 @@ export const paneRoutes: Route[] = [
           "contentType",
         );
         const url = optionalString(body, "url");
-        // `command` (auto-run) is accepted for backward compatibility but not
-        // acted on: it used to work by seeding the *sending renderer's* local
-        // `pendingPaneCommands`, read back when the pane mounted there. A
-        // route sends no renderer anything, so there is nothing to seed
-        // (ADR-179 follow-up).
         const command = optionalString(body, "command");
         if (url && contentType !== "browser") {
           throw new Error("url applies only to contentType 'browser'");
@@ -345,6 +371,7 @@ export const paneRoutes: Route[] = [
         const treeContentType: PaneContentType | undefined =
           contentType === "agent" ? undefined : contentType;
         const mintedPaneId = newPaneId();
+        queuePendingCommand(store, mintedPaneId, command, contentType);
         const ok = await applyOrError(
           store,
           workspacePath,
@@ -359,7 +386,10 @@ export const paneRoutes: Route[] = [
           },
           json,
         );
-        if (!ok) return;
+        if (!ok) {
+          store.pendingCommands.clear(mintedPaneId);
+          return;
+        }
         json(200, { paneId: mintedPaneId });
       } catch (err) {
         badRequest(json, err);
@@ -656,10 +686,12 @@ export const tabRoutes: Route[] = [
           "contentType",
         );
         const url = optionalString(body, "url");
-        // See the note on `/panes/split`: `command` is accepted, unused.
-        optionalString(body, "command");
+        const command = optionalString(body, "command");
         const background = optionalBoolean(body, "background");
 
+        if (command && contentType === "browser") {
+          throw new Error("command applies only to a terminal tab");
+        }
         if (contentType === "browser" && !url) {
           throw new Error('new-tab with contentType "browser" requires a url');
         }
@@ -681,6 +713,8 @@ export const tabRoutes: Route[] = [
             ? browserTab(url!)
             : createTab();
         const select = contentType === "browser" ? !(background ?? false) : true;
+        const tabPaneId = allPaneIds(tab.rootNode)[0];
+        queuePendingCommand(store, tabPaneId, command);
 
         const ok = await applyOrError(
           store,
@@ -688,8 +722,11 @@ export const tabRoutes: Route[] = [
           { type: "new-tab", tab, select },
           json,
         );
-        if (!ok) return;
-        json(200, { tabId: tab.id, paneId: allPaneIds(tab.rootNode)[0] });
+        if (!ok) {
+          store.pendingCommands.clear(tabPaneId);
+          return;
+        }
+        json(200, { tabId: tab.id, paneId: tabPaneId });
       } catch (err) {
         badRequest(json, err);
       }

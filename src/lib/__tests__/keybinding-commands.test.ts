@@ -21,6 +21,7 @@ import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import type { ProjectInfo } from "../../store/project-store";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 import {
+  queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
 } from "../../store/__tests__/fake-layout-server";
@@ -96,8 +97,6 @@ beforeEach(() => {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -198,7 +197,7 @@ describe("resolveWorkspaceCommand", () => {
 });
 
 describe("startNewAgent", () => {
-  it("seeds the workspace's agent command and adds a tab without prewarm", async () => {
+  it("queues the workspace's agent command on the new tab's pane without prewarm", async () => {
     useProjectStore.setState({ projects: [makeProject("my-agent")] });
     const consumePrewarmed = vi.fn();
     vi.stubGlobal("window", {
@@ -209,11 +208,18 @@ describe("startNewAgent", () => {
     await startNewAgent({ prewarm: false });
 
     expect(consumePrewarmed).not.toHaveBeenCalled();
-    expect(useAppStore.getState().pendingStartupCommands[WS_PATH]).toBe(
-      "my-agent",
-    );
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    expect(layout.panels["panel-1"].tabs).toHaveLength(2);
+    const tabs = layout.panels["panel-1"].tabs;
+    expect(tabs).toHaveLength(2);
+    // The launch line waits on the server now (ADR-179 ticket 11), keyed by
+    // the pane the new tab minted.
+    expect(queuedCommands).toEqual([
+      {
+        paneId: allPaneIds(tabs[1].rootNode)[0],
+        text: "my-agent",
+        kind: "agent-startup",
+      },
+    ]);
     vi.unstubAllGlobals();
   });
 
@@ -234,12 +240,38 @@ describe("startNewAgent", () => {
     await startNewAgent({ prewarm: true });
 
     // The command already ran in the prewarmed session — don't queue it again.
-    expect(
-      useAppStore.getState().pendingStartupCommands[WS_PATH],
-    ).toBeUndefined();
+    expect(queuedCommands).toEqual([]);
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
     const tabs = layout.panels["panel-1"].tabs;
     expect(allPaneIds(tabs[1].rootNode)).toEqual(["pane-warm"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("queues the command against the prewarmed pane when it was not injected", async () => {
+    useProjectStore.setState({ projects: [makeProject("my-agent")] });
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: {
+        ...window.electronAPI,
+        pty: {
+          consumePrewarmed: vi
+            .fn()
+            .mockResolvedValue({ paneId: "pane-warm", commandInjected: false }),
+        },
+      },
+    });
+
+    await startNewAgent({ prewarm: true });
+
+    // The pane id is known before the tab is, so the line is queued straight
+    // against the warm session the tab adopts.
+    expect(queuedCommands).toEqual([
+      {
+        paneId: "pane-warm",
+        text: "my-agent",
+        kind: "agent-startup",
+      },
+    ]);
     vi.unstubAllGlobals();
   });
 });

@@ -156,6 +156,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getLastActive: () => ipcRenderer.invoke("layout:getLastActive"),
     apply: (workspacePath: string, command: unknown) =>
       ipcRenderer.invoke("layout:apply", workspacePath, command),
+    setPendingCommand: (paneId: string, text: string, kind?: string) =>
+      ipcRenderer.invoke("layout:setPendingCommand", paneId, text, kind),
     remove: (workspacePath: string) =>
       ipcRenderer.invoke("layout:remove", workspacePath),
     reportViewport: (

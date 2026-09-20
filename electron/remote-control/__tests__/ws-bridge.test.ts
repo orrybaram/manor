@@ -438,6 +438,42 @@ describe("WsBridgeServer", () => {
       ).toHaveLength(1);
     });
 
+    /**
+     * ADR-179 ticket 11: "a new tab running `pnpm dev`" from a browser is two
+     * calls — the line, then the tab — and the line waits in the server's map
+     * until whichever renderer mounts the pane reaches `pty.create`.
+     */
+    it("queues a pending command for a pane the browser is about to create", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(
+        client,
+        "pc1",
+        "layout",
+        "setPendingCommand",
+        ["pane-new", "pnpm dev", "shell"],
+      );
+
+      expect(result).toMatchObject({ ok: true });
+      expect(layoutStore.pendingCommands.take("pane-new")).toEqual({
+        text: "pnpm dev",
+        kind: "shell",
+      });
+    });
+
+    it("refuses a pending command with an unknown kind", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(
+        client,
+        "pc2",
+        "layout",
+        "setPendingCommand",
+        ["pane-new", "pnpm dev", "sudo"],
+      );
+
+      expect(result).toMatchObject({ ok: false, code: "failed" });
+      expect(layoutStore.pendingCommands.size).toBe(0);
+    });
+
     it("reports a handler that threw without claiming to be unavailable", async () => {
       const client = await greet(FULL_TOKEN);
       // `assertString` rejects the number, from inside the lifted handler —

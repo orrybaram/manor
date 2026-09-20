@@ -49,8 +49,6 @@ function seedStore(overrides?: Partial<AppState>) {
     paneFavicon: {},
     paneAudioPlaying: {},
     paneAudioMuted: {},
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,

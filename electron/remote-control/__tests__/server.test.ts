@@ -175,6 +175,15 @@ describe("RemoteControlServer", () => {
     } as unknown as ControlDeps["backend"];
   }
 
+  /**
+   * Which workspaces a launch actually reached. `POST /agents` opens the tab
+   * on the server now (ADR-179 ticket 11), so "nothing was launched" is a
+   * question for the layout store rather than for a renderer mock.
+   */
+  function launchedWorkspaces(): string[] {
+    return Object.keys(deps.layoutStore?.getAll() ?? {});
+  }
+
   /** Give the deps one project, so `KNOWN_WORKSPACE` is a launchable target. */
   function withKnownWorkspace(): void {
     deps.projectManager = {
@@ -509,7 +518,7 @@ describe("RemoteControlServer", () => {
       });
       // 404, not 403: the row was never in that device's table.
       expect(res.status).toBe(404);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
       expect(audit.read()).toEqual([]);
     });
 
@@ -521,12 +530,21 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ paneId: "pane-9" });
-      expect(proxyToRenderer).toHaveBeenCalledWith(
-        expect.any(Function),
-        "start-agent",
-        { workspacePath: KNOWN_WORKSPACE, prompt: "fix the login flake" },
-      );
+      const started = (await res.json()) as {
+        tabId: string;
+        paneId: string;
+        workspacePath: string;
+      };
+      expect(started.workspacePath).toBe(KNOWN_WORKSPACE);
+      // The tab is the server's own doing (ADR-179 ticket 11) — no window is
+      // open in this test — and the prompt is waiting for the pane's shell.
+      const entry = deps.layoutStore!.get(KNOWN_WORKSPACE)!;
+      const panel = entry.layout.panels[Object.keys(entry.layout.panels)[0]];
+      expect(panel.tabs.map((t) => t.id)).toContain(started.tabId);
+      expect(deps.layoutStore!.pendingCommands.take(started.paneId)).toEqual({
+        text: 'claude --dangerously-skip-permissions "fix the login flake"',
+        kind: "agent-startup",
+      });
     });
 
     it("rejects a launch that is not confirmed", async () => {
@@ -536,7 +554,7 @@ describe("RemoteControlServer", () => {
         prompt: "fix the login flake",
       });
       expect(res.status).toBe(400);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
 
       const entries = audit.read();
       expect(entries).toHaveLength(1);
@@ -557,7 +575,7 @@ describe("RemoteControlServer", () => {
       });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "Unknown workspace" });
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
 
       const entries = audit.read();
       expect(entries).toHaveLength(1);
@@ -583,7 +601,7 @@ describe("RemoteControlServer", () => {
         });
         expect(res.status).toBe(403);
       }
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("403s a launch with no workspacePath at all", async () => {
@@ -593,7 +611,7 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(403);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("403s every launch when there is no project manager", async () => {
@@ -602,7 +620,7 @@ describe("RemoteControlServer", () => {
         confirmed: true,
       });
       expect(res.status).toBe(403);
-      expect(proxyToRenderer).not.toHaveBeenCalled();
+      expect(launchedWorkspaces()).toEqual([]);
     });
 
     it("never reveals which workspaces would have worked", async () => {

@@ -1,6 +1,6 @@
 ---
 title: The renderer becomes a replica — actions send commands, broadcasts set state
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [2]

@@ -199,6 +199,17 @@ describe("RemoteControlController", () => {
     expect(f.controller.pair("phone", "read").pairingUrl).toBeNull();
   });
 
+  it("names the page even without a tunnel, so the loopback link is right", async () => {
+    // The pairing dialog builds the no-tunnel link itself, from the port and
+    // this field. Without it the dialog guessed, and guessed `/` for every
+    // tier — so a `full` device testing over loopback was sent to the phone
+    // client instead of the web app.
+    await f.controller.setEnabled(true);
+    expect(f.controller.pair("PC browser", "full").page).toBe("/app");
+    expect(f.controller.pair("phone", "send").page).toBe("/");
+    expect(f.controller.pair("watcher", "read").page).toBe("/");
+  });
+
   it("notifies listeners on every state change", async () => {
     const seen: boolean[] = [];
     f.controller.onChange((s) => seen.push(s.enabled));

@@ -1172,6 +1172,8 @@ export interface RemotePairResult {
   /** Shown once. Never retrievable again. */
   rawToken: string;
   pairingUrl: string | null;
+  /** The page this device's link opens: `/app` for `full`, `/` otherwise. */
+  page: string;
 }
 
 declare global {

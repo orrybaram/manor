@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { windowBoundsFile, zoomLevelFile } from "./paths";
+import { isUnattended } from "./unattended";
 
 interface WindowBounds {
   x: number;
@@ -147,6 +148,8 @@ export function createWindow(): BrowserWindow {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",
+    // Unattended runs never put a window on screen; see ./unattended.ts.
+    show: !isUnattended(),
     webPreferences: buildWebPreferences(),
   });
 
@@ -229,6 +232,8 @@ export function createDetachedWindow(
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",
+    // Unattended runs never put a window on screen; see ./unattended.ts.
+    show: !isUnattended(),
     webPreferences: buildWebPreferences(windowId, claim),
   });
 

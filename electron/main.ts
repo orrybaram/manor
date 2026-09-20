@@ -3,6 +3,7 @@ import { app, crashReporter } from "electron";
 import { execFileSync } from "node:child_process";
 import { readBranchSync } from "./ipc/pty";
 import { initApp } from "./app-lifecycle";
+import { applyUnattendedSwitches, isUnattended } from "./unattended";
 
 // Local minidumps, uploaded nowhere. A browser-process crash leaves nothing
 // usable in Apple's report — the release Electron framework symbolicates to the
@@ -33,6 +34,15 @@ if (app.isPackaged) {
       process.env.PATH = [...missing, current].join(":");
     }
   }
+}
+
+// Launched by the e2e harness: keep the app off the developer's screen, and
+// keep a hidden window scheduling frames like a visible one.
+if (isUnattended()) {
+  applyUnattendedSwitches(app.commandLine);
+  app.whenReady().then(() => {
+    app.dock?.hide();
+  });
 }
 
 /**

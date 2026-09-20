@@ -31,11 +31,26 @@ Useful environment variables:
 | Variable                   | Effect                                                                                                                                         |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MANOR_E2E_LOG=1`          | Forward the launched app's stdout/stderr into the test output. The app is a separate process, so this is the only way to see what main logged. |
-| `MANOR_E2E_HEADED=1`       | Show the browser that plays the phone. The Electron window is always visible.                                                                  |
+| `MANOR_E2E_HEADED=1`       | Put the run on screen: the app's windows are shown, it gets a dock icon, and the browser that plays the phone is not headless.                  |
 | `MANOR_E2E_HOLD=<seconds>` | Pause the remote-control test at the point where a phone is paired and live, so you can drive both by hand.                                    |
 | `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                |
 
 `pnpm e2e:remote:watch` is those last two together.
+
+## Runs stay out of your way
+
+The suite drives the real app on your own desktop, so by default it launches
+it with `--manor-unattended` (`electron/unattended.ts`): windows are created
+hidden, the dock icon is hidden so the app can never become the active one,
+and native notification banners and their sound are suppressed. Playwright
+talks to the renderer over CDP, which never needed a window on screen — so a
+run no longer steals focus mid-keystroke or covers what you were doing.
+
+Hidden windows would normally be backgrounded by Chromium (throttled timers,
+no frames), which would turn anything driven by rAF into a hang rather than a
+failure, so the mode also turns renderer backgrounding off.
+
+Set `MANOR_E2E_HEADED=1` when you actually want to watch a run.
 
 ## Fixtures
 

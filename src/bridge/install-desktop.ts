@@ -20,9 +20,14 @@
  * module whose evaluation does the work, and not a function somebody has to
  * remember to call early enough.
  *
- * (The browser has the same hazard and lives with it: `web-main.tsx` installs
- * its bridge after `import App` for want of anywhere earlier to do it.
- * Fixing that is not this ticket's; moving the desktop *into* it would be.)
+ * The browser holds the same invariant the same way: `install-web.ts` is
+ * `web-main.tsx`'s copy of this module, imported first for the identical
+ * reason (ADR-180 ticket 14 — the bug this file's comment used to note the
+ * browser "lived with"). The two differ only in how they find their
+ * transport — this one waits for the preload's `window.manorHost`,
+ * `install-web.ts` reads the pairing token out of the URL fragment — never
+ * in *when* they install it. If you touch one of these files, check the
+ * other still answers "before any store" the same way.
  */
 
 import { createBridge } from "./client";

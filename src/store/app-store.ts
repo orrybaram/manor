@@ -2304,22 +2304,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 // store holding a tab of its own, so it hears about the workspace exactly
 // like the primary does and shows the one tab it holds.
 //
-// Deferred one microtask rather than called bare: on the desktop
-// `window.electronAPI` is the preload's, already there before this module's
-// first line runs, but on the web it is `web-main.tsx`'s own last statement —
-// and ES module evaluation runs `import App from "./App"` (and everything it
-// pulls in, this file included) *before* that statement, no matter where it
-// sits in the file. Called bare, this line's `window.electronAPI` is
-// `undefined` on every browser tab, silently, forever — every other
-// `window.electronAPI.*` call in the app is safe because it runs from a
-// mounted effect, after `web-main.tsx` has finished; this is the one call at
-// module scope. `queueMicrotask` costs nothing here (`web-main.tsx` awaits
-// `loadTerminalFonts()` right after installing the bridge, which is time
-// enough) and turns this into the same "runs after the bridge exists"
-// guarantee every other call site already has for free.
-queueMicrotask(() => {
-  window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
-});
+// Called bare, not deferred: both entry points install `window.electronAPI`
+// as the side effect of a module imported *before* `./App` —
+// `bridge/install-desktop.ts` on the desktop, `bridge/install-web.ts` on the
+// web (ADR-180 ticket 14) — and this file is only ever reached through
+// `./App`. By the time this line runs, on either platform,
+// `window.electronAPI` already exists. (This call used to be wrapped in a
+// `queueMicrotask` to paper over the web side of that not being true yet;
+// ticket 14 made it true, so the wrapper is dead weight now.)
+window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 
 // ── This renderer's viewport, out to its file and to the host (D3) ──
 //

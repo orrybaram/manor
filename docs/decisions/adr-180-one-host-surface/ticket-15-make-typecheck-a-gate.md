@@ -1,6 +1,6 @@
 ---
 title: Make typecheck a gate, so D7 is real
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [12]

@@ -1,6 +1,6 @@
 ---
 title: E2E, docs and the vocabulary
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [12]
@@ -129,3 +129,20 @@ next person will look.
 - **`electron/preload.ts` is 480 lines, not the "well under 300" D8 claimed.**
   Correct D8 rather than the code: `webview`'s 27 methods are ~250 lines on
   their own, and splitting `preload.ts` is a different change from this one.
+
+## Folded in from ticket 15
+
+**The gate changed; say so in the docs.** `pnpm build` now runs `pnpm
+typecheck` (both tsconfigs, zero baseline) before Vite, so a green build is a
+build in which D7's surface check ran. Before ticket 15 nothing in the repo
+ran `tsc`. `tests/e2e/README.md`, and wherever the repo tells a contributor how
+to check their work, should name `pnpm typecheck` and say that adding an
+`ElectronAPI` method without placing it fails the build by name.
+
+Note for the E2E run: ticket 15's agent stalled after its build went green and
+before it ran E2E. The orchestrator finished the unit, lint and typecheck runs
+and verified the gate by planting `stats.frobnicate`, but **E2E was not run
+after `4ebaeac`.** Ticket 15's runtime change is small — a dead parameter
+removed from `sendAgentUpdate` and `handleStreamEvent` — but it is on the
+agent-update path, so run `agent-rename.spec.ts` and `read-state.spec.ts`
+with that in mind.

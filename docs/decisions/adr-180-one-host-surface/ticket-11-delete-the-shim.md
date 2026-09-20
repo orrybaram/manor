@@ -62,3 +62,17 @@ console, not a crash — read the console.
 - `electron/preload.ts` — final shape
 - `electron/main.ts`, `electron/app-lifecycle.ts` — drop the deleted registrations
 - `src/electron.d.ts` — no interface change; the comment on `platform` gets the new story
+
+## Folded in from ticket 6
+
+Every crossing so far has left its lifted bodies in `electron/ipc/<ns>.ts` and
+deleted only the `register()` — ticket 5's `pty` template, followed by every
+ticket since. So this ticket's move is not a tidy-up of one module: it is
+**every crossed namespace's implementation** relocating to
+`electron/bridge/handlers/`, and `electron/ipc/` keeping only the six native
+survivors. Budget for that.
+
+A small thing to decide while you are there: `projects.onWorktreeProgress` and
+`projects.onRemoveWorktreeProgress` are two addressed progress channels doing
+one job. They could collapse. Only do it if it is free; it is not this ADR's
+business.

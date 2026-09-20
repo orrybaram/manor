@@ -92,3 +92,20 @@ one, so `MANOR_AGENT_KIND` was silently dropped between them — ADR-135 ticket
 `electron/ipc/pty.ts:127` compile, so agent hooks for codex and pi panes now
 report their real kind instead of defaulting to `claude`. The doc still lists
 that as an open flaw.
+
+## Folded in from ticket 6
+
+Two more stale specs, both verified against a stashed and rebuilt clean tree,
+bringing the pre-existing total to five:
+
+- `tests/e2e/sidebar-pr-tweaks.spec.ts:197` — a PR popover expects 4 comment
+  authors and gets 0.
+- `tests/e2e/pr-badge-matrix.spec.ts:208` — `lucide-shield-question` vs
+  `lucide-shield-question-mark`, a lucide rename.
+
+Also worth a line in the E2E README: ticket 6 shipped a bug that typecheck and
+2968 unit tests were all green for — `layout.reportViewport` stripped `claim`
+from every caller, so detach-to-window silently stopped working — and
+`detach.spec.ts` was the only thing that caught it. That is the argument for
+running the suite on every crossing, and it should be written down where the
+next person will look.

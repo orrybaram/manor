@@ -6,7 +6,13 @@ import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { isContextMenuKey } from "../../../lib/keyboard-context-menu";
-import { useAppStore, selectActiveWorkspace } from "../../../store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  selectFocusedPaneId,
+  useSelectedTab,
+} from "../../../store/app-store";
+import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import {
@@ -107,7 +113,7 @@ export function TabBar(props: TabBarProps) {
     return selectActiveWorkspace(s);
   });
   const tabs = useMemo(() => panel?.tabs ?? [], [panel?.tabs]);
-  const selectedTabId = panel?.selectedTabId ?? null;
+  const selectedTabId = useSelectedTab(panel?.id, workspacePath);
   const selectTab = useAppStore((s) => s.selectTab);
   const addTab = useAppStore((s) => s.addTab);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
@@ -230,10 +236,13 @@ export function TabBar(props: TabBarProps) {
       // The single OS-rendered drag visual (VS Code-style). Rendered off-screen
       // just long enough for the OS to snapshot it.
       const st = useAppStore.getState();
+      const focusedPaneId =
+        selectFocusedPaneId(st, tab.id, workspacePath) ??
+        allPaneIds(tab.rootNode)[0];
       const img = buildTabDragImage(
-        deriveTabTitle(tab.focusedPaneId),
-        st.paneContentType[tab.focusedPaneId],
-        st.paneFavicon[tab.focusedPaneId] ?? undefined,
+        deriveTabTitle(focusedPaneId),
+        st.paneContentType[focusedPaneId],
+        st.paneFavicon[focusedPaneId] ?? undefined,
       );
       document.body.appendChild(img);
       e.dataTransfer.setDragImage(img, grabX, grabY);
@@ -260,7 +269,7 @@ export function TabBar(props: TabBarProps) {
         })
         .catch(() => {});
     },
-    [tabs, panelId, startDrag],
+    [tabs, panelId, workspacePath, startDrag],
   );
 
   // ── drag: fires continuously on the source, even outside the window ─────────

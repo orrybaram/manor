@@ -16,7 +16,7 @@ import * as crypto from "node:crypto";
 import {
   LayoutStore,
   REOPEN_GRACE_MS,
-  type LayoutClaim,
+  type LayoutBroadcast,
 } from "../layout-store";
 import {
   LayoutPersistence,
@@ -24,22 +24,12 @@ import {
   type PersistedLayoutV2,
 } from "../../terminal-host/layout-persistence";
 import type { LocalBackend } from "../../backend/local-backend";
-import type { PersistedPaneSession } from "../../terminal-host/layout-persistence";
-import type { WorkspaceLayout } from "../../../src/lib/layout/workspace-layout";
 import type { Tab } from "../../../src/lib/layout/workspace-layout";
 
 const WS = "/project/main";
 
-interface Broadcast {
-  workspacePath: string;
-  version: number;
-  layout: WorkspaceLayout;
-  claims: LayoutClaim[];
-  restored?: Record<string, PersistedPaneSession>;
-}
-
 function leafTab(id: string, paneId: string, title = "Terminal"): Tab {
-  return { id, title, rootNode: { type: "leaf", paneId }, focusedPaneId: paneId };
+  return { id, title, rootNode: { type: "leaf", paneId } };
 }
 
 /** A v2 file with one workspace, one panel, one split tab and a diff pane. */
@@ -93,17 +83,23 @@ describe("LayoutStore", () => {
   let tmpDir: string;
   let layoutFile: string;
   let persistence: LayoutPersistence;
-  let broadcasts: Broadcast[];
+  let broadcasts: LayoutBroadcast[];
   let kill: ReturnType<typeof vi.fn>;
   let store: LayoutStore;
 
   function makeStore(): LayoutStore {
     return new LayoutStore(
       persistence,
-      (workspacePath, version, layout, claims, restored) =>
-        broadcasts.push({ workspacePath, version, layout, claims, restored }),
+      (payload) => {
+        broadcasts.push(payload);
+      },
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
     );
+  }
+
+  /** The most recent broadcast — `Array.prototype.at` is out of this lib. */
+  function lastBroadcast(): LayoutBroadcast {
+    return broadcasts[broadcasts.length - 1];
   }
 
   function readFile(): PersistedLayout {
@@ -142,6 +138,12 @@ describe("LayoutStore", () => {
         selectedTabIds: { "panel-1": "tab-1" },
         focusedPaneIds: { "tab-1": "pane-1" },
       });
+      // v3 strips the focus fields from the tree (ADR-179 ticket 4): they
+      // live in `defaultViewport` and in each renderer's own file.
+      const savedPanel = readFile().workspaces[0].panels["panel-1"];
+      expect(savedPanel.selectedTabId).toBeUndefined();
+      expect(savedPanel.tabs[0].focusedPaneId).toBeUndefined();
+      expect(readFile().workspaces[0].activePanelId).toBeUndefined();
       // Per-tab in the file, one map per workspace in memory.
       expect(entry!.paneSessions["pane-1"].lastCwd).toBe("/project/main");
       expect(readFile().version).toBe(3);
@@ -218,16 +220,16 @@ describe("LayoutStore", () => {
       );
 
       // Still warm: the whole point of the grace is that a reopen can have
-      // this shell back (ticket 10).
+      // this shell back (ticket 10). The row stays in memory for that, but
+      // the snapshot only lists panes the tree holds (ticket 4).
       expect(kill).not.toHaveBeenCalled();
-      expect(store.get(WS)!.paneSessions["pane-1"]).toBeDefined();
+      expect(store.get(WS)!.paneSessions["pane-1"]).toBeUndefined();
       expect(broadcasts[0].restored).toBeUndefined();
 
       vi.advanceTimersByTime(REOPEN_GRACE_MS);
 
       expect(kill).toHaveBeenCalledTimes(1);
       expect(kill).toHaveBeenCalledWith("pane-1");
-      expect(store.get(WS)!.paneSessions["pane-1"]).toBeUndefined();
 
       vi.advanceTimersByTime(REOPEN_GRACE_MS);
       expect(kill).toHaveBeenCalledTimes(1);
@@ -394,7 +396,7 @@ describe("LayoutStore", () => {
       vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
 
       expect(kill).not.toHaveBeenCalled();
-      const restored = broadcasts.at(-1)!.restored;
+      const restored = lastBroadcast().restored;
       expect(restored).toEqual({
         "pane-1": {
           daemonSessionId: "pane-1",
@@ -418,7 +420,7 @@ describe("LayoutStore", () => {
       await reopen();
 
       expect(kill).toHaveBeenCalledTimes(1);
-      expect(broadcasts.at(-1)!.restored).toBeUndefined();
+      expect(lastBroadcast().restored).toBeUndefined();
     });
 
     it("a reopened tab takes back every pane it had", async () => {
@@ -433,7 +435,7 @@ describe("LayoutStore", () => {
       vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
 
       expect(kill).not.toHaveBeenCalled();
-      expect(Object.keys(broadcasts.at(-1)!.restored ?? {})).toEqual(["pane-1"]);
+      expect(Object.keys(lastBroadcast().restored ?? {})).toEqual(["pane-1"]);
     });
 
     it("flush runs every pending kill, once", async () => {
@@ -529,7 +531,7 @@ describe("LayoutStore", () => {
         sessionId: "pane-1",
         agent: {
           kind: "claude",
-          status: "busy",
+          status: "working",
           processName: "claude",
           since: 1,
           title: "refactoring",
@@ -539,7 +541,7 @@ describe("LayoutStore", () => {
       const session = store.get(WS)!.paneSessions["pane-1"];
       expect(session.lastCwd).toBe("/tmp/other");
       expect(session.lastTitle).toBe("refactoring");
-      expect(session.lastAgentStatus?.status).toBe("busy");
+      expect(session.lastAgentStatus?.status).toBe("working");
       // Every renderer already receives the PTY event itself (D3).
       expect(broadcasts).toHaveLength(0);
 
@@ -564,16 +566,120 @@ describe("LayoutStore", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
 
-      store.reportViewport(WS, "window-1", {
-        activePanelId: "panel-1",
-        selectedTabIds: { "panel-1": "tab-1" },
-        focusedPaneIds: { "tab-1": "pane-diff" },
-      });
+      store.reportViewport(
+        WS,
+        { kind: "window", id: "window-1" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+        },
+      );
       store.flush();
 
       expect(readFile().workspaces[0].defaultViewport.focusedPaneIds).toEqual({
         "tab-1": "pane-diff",
       });
+    });
+
+    it("stands in for the primary only when a window reported it", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      store.reportViewport(
+        WS,
+        { kind: "bridge", id: "phone" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+        },
+      );
+      expect(store.primaryViewport(WS)).toBeNull();
+
+      store.reportViewport(
+        WS,
+        { kind: "window", id: "window-1" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-1" },
+        },
+      );
+      expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
+        "tab-1": "pane-1",
+      });
+    });
+  });
+
+  describe("remove", () => {
+    it("ends the pending kills of a workspace that is going away", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      await store.apply(
+        WS,
+        { type: "close-pane", paneId: "pane-1" },
+        { kind: "window", id: "1" },
+      );
+      expect(kill).not.toHaveBeenCalled();
+
+      // A removed worktree is a directory about to be deleted; a shell left
+      // warm inside it for ten seconds is an orphan (ticket 10's report).
+      store.remove(WS);
+
+      expect(kill).toHaveBeenCalledWith("pane-1");
+      expect(store.get(WS)).toBeNull();
+    });
+
+    it("leaves another workspace's pending kills alone", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      await store.apply(
+        "/project/other",
+        { type: "new-tab", tab: leafTab("tab-o", "pane-o") },
+        { kind: "window", id: "1" },
+      );
+      await store.apply(
+        "/project/other",
+        { type: "close-pane", paneId: "pane-o" },
+        { kind: "window", id: "1" },
+      );
+
+      store.remove(WS);
+
+      expect(kill).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the broadcast", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+    });
+
+    it("carries the sender's origin and the command's selection hint", async () => {
+      await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "bridge", id: "phone-7" },
+      );
+
+      const sent = lastBroadcast();
+      expect(sent.origin).toEqual({ kind: "bridge", id: "phone-7" });
+      expect(sent.hint).toEqual({
+        selectTab: { panelId: "panel-1", tabId: "tab-2" },
+        focusPane: { tabId: "tab-2", paneId: "pane-2" },
+      });
+    });
+
+    it("omits the hint for a command that implies no selection", async () => {
+      await store.apply(
+        WS,
+        { type: "update-split-ratio", firstPaneId: "pane-1", ratio: 0.7 },
+        { kind: "window", id: "1" },
+      );
+
+      expect(lastBroadcast().hint).toBeUndefined();
     });
   });
 
@@ -587,7 +693,7 @@ describe("LayoutStore", () => {
         type: "leaf",
         panelId: panelIds[0],
       });
-      expect(entry.layout.activePanelId).toBe(panelIds[0]);
+      expect(entry.defaultViewport.activePanelId).toBe(panelIds[0]);
       expect(entry.version).toBe(0);
       expect(store.ensure("/project/unseen").layout).toBe(entry.layout);
     });

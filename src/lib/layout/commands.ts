@@ -13,13 +13,17 @@
  * 1. **Ids come in the command.** The sender mints every new pane/tab/panel id
  *    before sending, so it can focus the new pane when the broadcast lands.
  * 2. **"Current" is resolved by the sender.** "Split the focused pane" is
- *    `{ type: "split-pane", paneId }` — the reducer never reads
- *    `focusedPaneId` / `selectedTabId` / `activePanelId` to *decide* anything.
- *    It still *updates* them, because they live in the structural types until
- *    ADR-179 ticket 4 moves them to the viewport slice. The handful of
- *    optional command fields documented as "viewport default" exist only so a
- *    command is still applicable when a sender omits them; the desktop store
- *    always passes them.
+ *    `{ type: "split-pane", paneId }`. The reducer cannot read a selection
+ *    and does not have one: selection is viewport, per renderer (D3). The
+ *    handful of optional command fields documented as "viewport default"
+ *    exist only so a command is still applicable when a sender omits them;
+ *    the desktop store always passes them.
+ *
+ * What a command *implies* about the sender's selection — a new tab is
+ * selected, a closed tab hands over to a neighbour, a split focuses the pane
+ * it made — comes back as a {@link LayoutHint} in `effects`. Only the
+ * renderer that sent the command applies it; every other one keeps looking
+ * where it was looking.
  *
  * A command naming an id that is not in the tree is a no-op, not a throw: a
  * stale command from a slow renderer is normal.
@@ -46,6 +50,7 @@ import {
   removePanel as removePanelFromTree,
   updatePanelRatio,
 } from "./panel-tree";
+import type { LayoutHint } from "./viewport";
 import {
   type PaneContentType,
   type Panel,
@@ -237,7 +242,7 @@ export type LayoutCommand =
     }
   | { type: "update-split-ratio"; firstPaneId: string; ratio: number };
 
-export interface LayoutEffects {
+export interface LayoutEffects extends LayoutHint {
   /** Terminal panes that left the tree; the host ends their sessions. */
   killPanes: string[];
   /** Panes that left the tree but must stay alive (moved, extracted). */
@@ -274,17 +279,35 @@ function result(
     layout,
     closedStack,
     effects: {
+      ...effects,
       killPanes: effects?.killPanes ?? [],
       releasedPanes: effects?.releasedPanes ?? [],
     },
   };
 }
 
+/** Later wins for the hint; the pane lists accumulate. */
 function mergeEffects(a: LayoutEffects, b: LayoutEffects): LayoutEffects {
   return {
+    ...a,
+    ...b,
     killPanes: [...a.killPanes, ...b.killPanes],
     releasedPanes: [...a.releasedPanes, ...b.releasedPanes],
   };
+}
+
+/**
+ * The panel a command lands in when it names none.
+ *
+ * "The active panel" is the sender's viewport and never reaches here, so the
+ * reducer falls back to the leftmost panel in the tree — which is the right
+ * answer for the one case that matters, a workspace with a single panel.
+ */
+function firstPanelId(layout: WorkspaceLayout): string | undefined {
+  const inTree = allPanelIds(layout.panelTree).filter(
+    (id) => layout.panels[id] !== undefined,
+  );
+  return inTree[0] ?? Object.keys(layout.panels)[0];
 }
 
 /** Replace one panel, leaving the rest of the layout by reference. */
@@ -344,29 +367,15 @@ function detachTabFromPanel(
     if (pruned) nextTree = pruned;
     delete nextPanels[sourcePanel.id];
   } else if (remainingTabs.length === 0) {
-    if (fallbackTab) {
-      nextPanels[sourcePanel.id] = {
-        ...sourcePanel,
-        tabs: [fallbackTab],
-        selectedTabId: fallbackTab.id,
-        pinnedTabIds: [],
-      };
-    } else {
-      nextPanels[sourcePanel.id] = {
-        ...sourcePanel,
-        tabs: [],
-        selectedTabId: "",
-        pinnedTabIds: [],
-      };
-    }
+    nextPanels[sourcePanel.id] = {
+      ...sourcePanel,
+      tabs: fallbackTab ? [fallbackTab] : [],
+      pinnedTabIds: [],
+    };
   } else {
     nextPanels[sourcePanel.id] = {
       ...sourcePanel,
       tabs: remainingTabs,
-      selectedTabId:
-        sourcePanel.selectedTabId === tabId
-          ? remainingTabs[0].id
-          : sourcePanel.selectedTabId,
       pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
         (id) => id !== tabId,
       ),
@@ -466,17 +475,25 @@ function newTab(
   command: Extract<LayoutCommand, { type: "new-tab" }>,
 ): LayoutResult {
   const { layout, closedStack } = state;
-  const panelId = command.panelId ?? layout.activePanelId;
-  const panel = layout.panels[panelId];
-  if (!panel) return unchanged(state);
+  const panelId = command.panelId ?? firstPanelId(layout);
+  const panel = panelId ? layout.panels[panelId] : undefined;
+  if (!panel || !panelId) return unchanged(state);
   const select = command.select ?? true;
   return result(
     withPanel(layout, panelId, (p) => ({
       ...p,
       tabs: [...p.tabs, command.tab],
-      selectedTabId: select ? command.tab.id : p.selectedTabId,
     })),
     closedStack,
+    select
+      ? {
+          selectTab: { panelId, tabId: command.tab.id },
+          focusPane: {
+            tabId: command.tab.id,
+            paneId: allPaneIds(command.tab.rootNode)[0],
+          },
+        }
+      : undefined,
   );
 }
 
@@ -494,12 +511,10 @@ function closeTab(
 
   const idx = panel.tabs.findIndex((t) => t.id === tabId);
   const newTabs = panel.tabs.filter((t) => t.id !== tabId);
-  const newSelected =
+  const neighbour =
     newTabs.length === 0
-      ? ""
-      : tabId === panel.selectedTabId
-        ? newTabs[Math.min(idx, newTabs.length - 1)].id
-        : panel.selectedTabId;
+      ? undefined
+      : newTabs[Math.min(idx, newTabs.length - 1)].id;
 
   const snapshotMetadata: PaneMetadataMap = {};
   for (const pid of deadPaneIds) snapshotMetadata[pid] = paneMetadata?.[pid] ?? {};
@@ -519,31 +534,33 @@ function closeTab(
     }),
   };
   const nextStack = pushClosed(closedStack, entry);
-  const effects = { killPanes: deadPaneIds };
+  const effects: Partial<LayoutEffects> = {
+    killPanes: deadPaneIds,
+    ...(neighbour !== undefined && {
+      selectTab: { panelId: panel.id, tabId: neighbour },
+    }),
+  };
 
   if (willRemovePanel) {
     const panelTree = removePanelFromTree(layout.panelTree, panel.id);
     const { [panel.id]: _removed, ...remainingPanels } = layout.panels;
-    const remainingIds = Object.keys(remainingPanels);
-    return result(
-      {
-        ...layout,
-        panelTree: panelTree ?? layout.panelTree,
-        panels: remainingPanels,
-        activePanelId: remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0],
-      },
-      nextStack,
-      effects,
-    );
+    const next = {
+      ...layout,
+      panelTree: panelTree ?? layout.panelTree,
+      panels: remainingPanels,
+    };
+    return result(next, nextStack, {
+      killPanes: deadPaneIds,
+      ...(firstPanelId(next) !== undefined && {
+        activatePanel: firstPanelId(next),
+      }),
+    });
   }
 
   return result(
     withPanel(layout, panel.id, (p) => ({
       ...p,
       tabs: newTabs,
-      selectedTabId: newSelected,
       pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
     })),
     nextStack,
@@ -586,7 +603,15 @@ function closeManyTabs(
       effects: mergeEffects(acc.effects, step.effects),
     };
   }
-  return acc;
+  // The tab the user kept is the one to look at, whatever the last close of
+  // the chain happened to hand its neighbour.
+  return {
+    ...acc,
+    effects: {
+      ...acc.effects,
+      selectTab: { panelId: panel.id, tabId: command.tabId },
+    },
+  };
 }
 
 function duplicateTab(
@@ -599,9 +624,15 @@ function duplicateTab(
     withPanel(state.layout, found.panel.id, (p) => ({
       ...p,
       tabs: [...p.tabs, command.newTab],
-      selectedTabId: command.newTab.id,
     })),
     state.closedStack,
+    {
+      selectTab: { panelId: found.panel.id, tabId: command.newTab.id },
+      focusPane: {
+        tabId: command.newTab.id,
+        paneId: allPaneIds(command.newTab.rootNode)[0],
+      },
+    },
   );
 }
 
@@ -675,12 +706,9 @@ function splitPaneAt(
     command.url,
   );
   return result(
-    withTab(state.layout, panel.id, tab.id, (t) => ({
-      ...t,
-      rootNode,
-      focusedPaneId: command.newPaneId,
-    })),
+    withTab(state.layout, panel.id, tab.id, (t) => ({ ...t, rootNode })),
     state.closedStack,
+    { focusPane: { tabId: tab.id, paneId: command.newPaneId } },
   );
 }
 
@@ -695,7 +723,10 @@ function movePaneToTarget(
   if (!src || !tgt) return unchanged(state);
   const { panel: sourcePanel, tab: sourceTab } = src;
   const { panel: targetPanel, tab: targetTab } = tgt;
-  const effects = { releasedPanes: [sourcePaneId] };
+  const effects: Partial<LayoutEffects> = {
+    releasedPanes: [sourcePaneId],
+    focusPane: { tabId: targetTab.id, paneId: sourcePaneId },
+  };
 
   // Same tab — a reshuffle inside one tree.
   if (sourcePanel.id === targetPanel.id && sourceTab.id === targetTab.id) {
@@ -708,11 +739,7 @@ function movePaneToTarget(
     );
     if (rootNode === null) return unchanged(state);
     return result(
-      withTab(layout, sourcePanel.id, sourceTab.id, (t) => ({
-        ...t,
-        rootNode,
-        focusedPaneId: sourcePaneId,
-      })),
+      withTab(layout, sourcePanel.id, sourceTab.id, (t) => ({ ...t, rootNode })),
       closedStack,
       effects,
     );
@@ -734,46 +761,34 @@ function movePaneToTarget(
       newTabs = sourcePanel.tabs
         .filter((t) => t.id !== sourceTab.id)
         .map((t) =>
-          t.id === targetTab.id
-            ? { ...t, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
-            : t,
+          t.id === targetTab.id ? { ...t, rootNode: newTargetRoot } : t,
         );
     } else {
-      const ids = allPaneIds(sourceRootAfterRemove);
       newTabs = sourcePanel.tabs.map((t) => {
         if (t.id === sourceTab.id) {
-          return {
-            ...t,
-            rootNode: sourceRootAfterRemove,
-            focusedPaneId:
-              t.focusedPaneId === sourcePaneId ? ids[0] : t.focusedPaneId,
-          };
+          return { ...t, rootNode: sourceRootAfterRemove };
         }
         if (t.id === targetTab.id) {
-          return { ...t, rootNode: newTargetRoot, focusedPaneId: sourcePaneId };
+          return { ...t, rootNode: newTargetRoot };
         }
         return t;
       });
     }
 
-    const newSelectedTabId =
-      sourcePanel.selectedTabId === sourceTab.id &&
-      sourceRootAfterRemove === null
-        ? targetTab.id
-        : sourcePanel.selectedTabId;
-
     return result(
       withPanel(layout, sourcePanel.id, (p) => ({
         ...p,
         tabs: newTabs,
-        selectedTabId: newSelectedTabId,
         pinnedTabIds:
           sourceRootAfterRemove === null
             ? (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id)
             : p.pinnedTabIds,
       })),
       closedStack,
-      effects,
+      {
+        ...effects,
+        selectTab: { panelId: sourcePanel.id, tabId: targetTab.id },
+      },
     );
   }
 
@@ -783,11 +798,8 @@ function movePaneToTarget(
     [targetPanel.id]: {
       ...targetPanel,
       tabs: targetPanel.tabs.map((t) =>
-        t.id === targetTab.id
-          ? { ...t, rootNode: newTargetRoot, focusedPaneId: sourcePaneId }
-          : t,
+        t.id === targetTab.id ? { ...t, rootNode: newTargetRoot } : t,
       ),
-      selectedTabId: targetTab.id,
     },
   };
   let panelTree = layout.panelTree;
@@ -803,27 +815,19 @@ function movePaneToTarget(
     panels = detached.panels;
     panelTree = detached.panelTree;
   } else {
-    const ids = allPaneIds(sourceRootAfterRemove);
     panels[sourcePanel.id] = {
       ...sourcePanel,
       tabs: sourcePanel.tabs.map((t) =>
-        t.id === sourceTab.id
-          ? {
-              ...t,
-              rootNode: sourceRootAfterRemove,
-              focusedPaneId:
-                t.focusedPaneId === sourcePaneId ? ids[0] : t.focusedPaneId,
-            }
-          : t,
+        t.id === sourceTab.id ? { ...t, rootNode: sourceRootAfterRemove } : t,
       ),
     };
   }
 
-  return result(
-    { ...layout, panelTree, panels, activePanelId: targetPanel.id },
-    closedStack,
-    effects,
-  );
+  return result({ ...layout, panelTree, panels }, closedStack, {
+    ...effects,
+    selectTab: { panelId: targetPanel.id, tabId: targetTab.id },
+    activatePanel: targetPanel.id,
+  });
 }
 
 function moveTabToPane(
@@ -861,24 +865,20 @@ function moveTabToPane(
       position,
     );
   }
-  const effects = { releasedPanes: allPaneIds(sourceTab.rootNode) };
+  const effects: Partial<LayoutEffects> = {
+    releasedPanes: allPaneIds(sourceTab.rootNode),
+    selectTab: { panelId: targetPanel.id, tabId: targetTab.id },
+    focusPane: { tabId: targetTab.id, paneId: focusPaneId },
+  };
 
   if (sourcePanel.id === targetPanel.id) {
     const newTabs = sourcePanel.tabs
       .filter((t) => t.id !== sourceTab.id)
-      .map((t) =>
-        t.id === targetTab.id
-          ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId }
-          : t,
-      );
+      .map((t) => (t.id === targetTab.id ? { ...t, rootNode: newTargetRoot } : t));
     return result(
       withPanel(layout, sourcePanel.id, (p) => ({
         ...p,
         tabs: newTabs,
-        selectedTabId:
-          sourcePanel.selectedTabId === sourceTab.id
-            ? targetTab.id
-            : sourcePanel.selectedTabId,
         pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
       })),
       closedStack,
@@ -891,11 +891,8 @@ function moveTabToPane(
     [targetPanel.id]: {
       ...targetPanel,
       tabs: targetPanel.tabs.map((t) =>
-        t.id === targetTab.id
-          ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId }
-          : t,
+        t.id === targetTab.id ? { ...t, rootNode: newTargetRoot } : t,
       ),
-      selectedTabId: targetTab.id,
     },
   };
   const detached = detachTabFromPanel(
@@ -907,14 +904,9 @@ function moveTabToPane(
   );
 
   return result(
-    {
-      ...layout,
-      panelTree: detached.panelTree,
-      panels: detached.panels,
-      activePanelId: targetPanel.id,
-    },
+    { ...layout, panelTree: detached.panelTree, panels: detached.panels },
     closedStack,
-    effects,
+    { ...effects, activatePanel: targetPanel.id },
   );
 }
 
@@ -934,28 +926,17 @@ function extractPaneToTab(
   const isSoleLeaf =
     sourceTab.rootNode.type === "leaf" && sourceTab.rootNode.paneId === paneId;
 
-  // Already a tab of its own in the destination panel — just surface it.
-  if (isSoleLeaf && sourcePanel.id === destPanelId) {
-    return result(
-      withPanel(layout, sourcePanel.id, (p) => ({
-        ...p,
-        selectedTabId: sourceTab.id,
-      })),
-      closedStack,
-    );
-  }
+  // Already a tab of its own in the destination panel — nothing structural to
+  // do at all. Selecting it is viewport, and the sender does it itself.
+  if (isSoleLeaf && sourcePanel.id === destPanelId) return unchanged(state);
 
-  const effects = { releasedPanes: [paneId] };
+  const effects: Partial<LayoutEffects> = { releasedPanes: [paneId] };
 
   // Already a tab of its own — move the whole tab across.
   if (isSoleLeaf) {
     const withDest: Record<string, Panel> = {
       ...layout.panels,
-      [destPanelId]: {
-        ...destPanel,
-        tabs: [...destPanel.tabs, sourceTab],
-        selectedTabId: sourceTab.id,
-      },
+      [destPanelId]: { ...destPanel, tabs: [...destPanel.tabs, sourceTab] },
     };
     const detached = detachTabFromPanel(
       withDest,
@@ -965,28 +946,28 @@ function extractPaneToTab(
       command.fallbackTab,
     );
     return result(
-      {
-        ...layout,
-        panelTree: detached.panelTree,
-        panels: detached.panels,
-        activePanelId: destPanelId,
-      },
+      { ...layout, panelTree: detached.panelTree, panels: detached.panels },
       closedStack,
-      effects,
+      {
+        ...effects,
+        selectTab: { panelId: destPanelId, tabId: sourceTab.id },
+        activatePanel: destPanelId,
+      },
     );
   }
 
   const remaining = removePane(sourceTab.rootNode, paneId);
   if (!remaining) return unchanged(state);
-  const ids = allPaneIds(remaining);
-  const newFocused =
-    sourceTab.focusedPaneId === paneId ? ids[0] : sourceTab.focusedPaneId;
 
   const newTab: Tab = {
     id: command.newTabId,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
+  };
+  const selection: Partial<LayoutEffects> = {
+    selectTab: { panelId: destPanelId, tabId: newTab.id },
+    focusPane: { tabId: newTab.id, paneId },
+    activatePanel: destPanelId,
   };
 
   if (sourcePanel.id === destPanelId) {
@@ -995,16 +976,13 @@ function extractPaneToTab(
         ...p,
         tabs: [
           ...p.tabs.map((t) =>
-            t.id === sourceTab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
+            t.id === sourceTab.id ? { ...t, rootNode: remaining } : t,
           ),
           newTab,
         ],
-        selectedTabId: newTab.id,
       })),
       closedStack,
-      effects,
+      { ...effects, ...selection },
     );
   }
 
@@ -1016,21 +994,14 @@ function extractPaneToTab(
         [sourcePanel.id]: {
           ...sourcePanel,
           tabs: sourcePanel.tabs.map((t) =>
-            t.id === sourceTab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
+            t.id === sourceTab.id ? { ...t, rootNode: remaining } : t,
           ),
         },
-        [destPanelId]: {
-          ...destPanel,
-          tabs: [...destPanel.tabs, newTab],
-          selectedTabId: newTab.id,
-        },
+        [destPanelId]: { ...destPanel, tabs: [...destPanel.tabs, newTab] },
       },
-      activePanelId: destPanelId,
     },
     closedStack,
-    effects,
+    { ...effects, ...selection },
   );
 }
 
@@ -1059,18 +1030,13 @@ function closePane(
     ...meta,
   };
 
-  const ids = allPaneIds(remaining);
-  const newFocused =
-    tab.focusedPaneId === command.paneId ? ids[0] : tab.focusedPaneId;
-
   return result(
-    withTab(layout, panel.id, tab.id, (t) => ({
-      ...t,
-      rootNode: remaining,
-      focusedPaneId: newFocused,
-    })),
+    withTab(layout, panel.id, tab.id, (t) => ({ ...t, rootNode: remaining })),
     pushClosed(closedStack, entry),
-    { killPanes: [command.paneId] },
+    {
+      killPanes: [command.paneId],
+      focusPane: { tabId: tab.id, paneId: allPaneIds(remaining)[0] },
+    },
   );
 }
 
@@ -1083,21 +1049,21 @@ function reopenClosedPane(
   if (!entry) return unchanged(state);
   const nextStack = closedStack.slice(1);
 
-  const fallbackPanelId = command.panelId ?? layout.activePanelId;
+  const fallbackPanelId = command.panelId ?? firstPanelId(layout);
   const targetPanelId = layout.panels[entry.panelId]
     ? entry.panelId
     : fallbackPanelId;
-  const targetPanel = layout.panels[targetPanelId];
-  if (!targetPanel) return unchanged(state);
+  const targetPanel = targetPanelId ? layout.panels[targetPanelId] : undefined;
+  if (!targetPanel || !targetPanelId) return unchanged(state);
 
   if (entry.kind === "tab") {
+    const firstPane = allPaneIds(entry.tab.rootNode)[0];
     // The tab's panel went with it — rebuild the panel where it stood.
     const sc = entry.panelSplitContext;
     if (!layout.panels[entry.panelId] && sc && layout.panels[sc.siblingId]) {
       const restoredPanel: Panel = {
         id: entry.panelId,
         tabs: [entry.tab],
-        selectedTabId: entry.tab.id,
         pinnedTabIds: [],
       };
       return result(
@@ -1112,9 +1078,13 @@ function reopenClosedPane(
             sc.ratio,
           ),
           panels: { ...layout.panels, [entry.panelId]: restoredPanel },
-          activePanelId: entry.panelId,
         },
         nextStack,
+        {
+          selectTab: { panelId: entry.panelId, tabId: entry.tab.id },
+          focusPane: { tabId: entry.tab.id, paneId: firstPane },
+          activatePanel: entry.panelId,
+        },
       );
     }
 
@@ -1122,9 +1092,12 @@ function reopenClosedPane(
       withPanel(layout, targetPanelId, (p) => ({
         ...p,
         tabs: [...p.tabs, entry.tab],
-        selectedTabId: entry.tab.id,
       })),
       nextStack,
+      {
+        selectTab: { panelId: targetPanelId, tabId: entry.tab.id },
+        focusPane: { tabId: entry.tab.id, paneId: firstPane },
+      },
     );
   }
 
@@ -1132,7 +1105,8 @@ function reopenClosedPane(
   // grace period) is reattached rather than a fresh shell spawned.
   const originalTab = targetPanel.tabs.find((t) => t.id === entry.tabId);
   if (originalTab) {
-    const anchorPaneId = command.anchorPaneId ?? originalTab.focusedPaneId;
+    const anchorPaneId =
+      command.anchorPaneId ?? allPaneIds(originalTab.rootNode)[0];
     const rootNode = insertSplitAt(
       originalTab.rootNode,
       anchorPaneId,
@@ -1144,14 +1118,15 @@ function reopenClosedPane(
     return result(
       withPanel(layout, targetPanelId, (p) => ({
         ...p,
-        selectedTabId: originalTab.id,
         tabs: p.tabs.map((t) =>
-          t.id === originalTab.id
-            ? { ...t, rootNode, focusedPaneId: entry.paneId }
-            : t,
+          t.id === originalTab.id ? { ...t, rootNode } : t,
         ),
       })),
       nextStack,
+      {
+        selectTab: { panelId: targetPanelId, tabId: originalTab.id },
+        focusPane: { tabId: originalTab.id, paneId: entry.paneId },
+      },
     );
   }
 
@@ -1159,15 +1134,17 @@ function reopenClosedPane(
     id: command.newTabId,
     title: entry.title ?? "Terminal",
     rootNode: { type: "leaf", paneId: entry.paneId },
-    focusedPaneId: entry.paneId,
   };
   return result(
     withPanel(layout, targetPanelId, (p) => ({
       ...p,
-      selectedTabId: restoredTab.id,
       tabs: [...p.tabs, restoredTab],
     })),
     nextStack,
+    {
+      selectTab: { panelId: targetPanelId, tabId: restoredTab.id },
+      focusPane: { tabId: restoredTab.id, paneId: entry.paneId },
+    },
   );
 }
 
@@ -1217,30 +1194,22 @@ function splitPanel(
   const panel = layout.panels[command.panelId];
   if (!panel) return unchanged(state);
 
-  const movedTabId = command.tabId ?? panel.selectedTabId;
+  const movedTabId = command.tabId ?? panel.tabs[0]?.id;
   const movedTab = panel.tabs.find((t) => t.id === movedTabId);
 
   let sourceTabs: Tab[];
-  let sourceSelected: string;
   let targetTabs: Tab[];
-  let targetSelected: string;
 
   if (movedTab) {
     sourceTabs = panel.tabs.filter((t) => t.id !== movedTab.id);
     if (sourceTabs.length === 0 && command.fallbackTab) {
       sourceTabs = [command.fallbackTab];
-      sourceSelected = command.fallbackTab.id;
-    } else {
-      sourceSelected = sourceTabs.length === 0 ? "" : sourceTabs[0].id;
     }
     targetTabs = [movedTab];
-    targetSelected = movedTab.id;
   } else {
     // Nothing to move — the split just adds an empty panel.
     sourceTabs = panel.tabs;
-    sourceSelected = panel.selectedTabId;
     targetTabs = [];
-    targetSelected = "";
   }
 
   return result(
@@ -1254,21 +1223,21 @@ function splitPanel(
       ),
       panels: {
         ...layout.panels,
-        [panel.id]: {
-          ...panel,
-          tabs: sourceTabs,
-          selectedTabId: sourceSelected,
-        },
+        [panel.id]: { ...panel, tabs: sourceTabs },
         [command.newPanelId]: {
           id: command.newPanelId,
           tabs: targetTabs,
-          selectedTabId: targetSelected,
           pinnedTabIds: [],
         },
       },
-      activePanelId: command.newPanelId,
     },
     closedStack,
+    {
+      activatePanel: command.newPanelId,
+      ...(movedTab && {
+        selectTab: { panelId: command.newPanelId, tabId: movedTab.id },
+      }),
+    },
   );
 }
 
@@ -1287,28 +1256,21 @@ function closePanel(
   // Last panel standing — leave an empty one behind so the workspace still
   // has somewhere to put a tab.
   if (panelTree === null) {
+    const fallbackPanelId = command.fallbackPanelId ?? command.panelId;
     return result(
-      createSinglePanelLayout(
-        command.fallbackPanelId ?? command.panelId,
-        [],
-        "",
-        [],
-      ),
+      createSinglePanelLayout(fallbackPanelId, [], []),
       closedStack,
-      effects,
+      { ...effects, activatePanel: fallbackPanelId },
     );
   }
 
-  let activePanelId = layout.activePanelId;
-  if (command.panelId === layout.activePanelId) {
-    activePanelId =
-      nextPanelId(panelTree, command.panelId) ?? allPanelIds(panelTree)[0];
-  }
+  const activatePanel =
+    nextPanelId(panelTree, command.panelId) ?? allPanelIds(panelTree)[0];
 
   return result(
-    { ...layout, panelTree, panels: remainingPanels, activePanelId },
+    { ...layout, panelTree, panels: remainingPanels },
     closedStack,
-    effects,
+    { ...effects, ...(activatePanel && { activatePanel }) },
   );
 }
 
@@ -1325,12 +1287,15 @@ function moveTabToPanel(
     return unchanged(state);
   }
 
-  const effects = { releasedPanes: allPaneIds(tab.rootNode) };
+  const effects: Partial<LayoutEffects> = {
+    releasedPanes: allPaneIds(tab.rootNode),
+    selectTab: { panelId: command.targetPanelId, tabId: tab.id },
+    activatePanel: command.targetPanelId,
+  };
   const sourceTabs = sourcePanel.tabs.filter((t) => t.id !== command.tabId);
   const movedTarget: Panel = {
     ...targetPanel,
     tabs: [...targetPanel.tabs, tab],
-    selectedTabId: tab.id,
   };
 
   if (sourceTabs.length === 0) {
@@ -1342,7 +1307,6 @@ function moveTabToPanel(
         ...layout,
         panelTree,
         panels: { ...remainingPanels, [command.targetPanelId]: movedTarget },
-        activePanelId: command.targetPanelId,
       },
       closedStack,
       effects,
@@ -1357,17 +1321,12 @@ function moveTabToPanel(
         [sourcePanel.id]: {
           ...sourcePanel,
           tabs: sourceTabs,
-          selectedTabId:
-            command.tabId === sourcePanel.selectedTabId
-              ? sourceTabs[0].id
-              : sourcePanel.selectedTabId,
           pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
             (id) => id !== command.tabId,
           ),
         },
         [command.targetPanelId]: movedTarget,
       },
-      activePanelId: command.targetPanelId,
     },
     closedStack,
     effects,
@@ -1385,15 +1344,8 @@ function splitPanelWithTab(
   if (!layout.panels[command.targetPanelId]) return unchanged(state);
 
   let sourceTabs = sourcePanel.tabs.filter((t) => t.id !== command.tabId);
-  let sourceSelected =
-    sourceTabs.length === 0
-      ? ""
-      : command.tabId === sourcePanel.selectedTabId
-        ? sourceTabs[0].id
-        : sourcePanel.selectedTabId;
   if (sourceTabs.length === 0 && command.fallbackTab) {
     sourceTabs = [command.fallbackTab];
-    sourceSelected = command.fallbackTab.id;
   }
 
   return result(
@@ -1410,7 +1362,6 @@ function splitPanelWithTab(
         [sourcePanel.id]: {
           ...sourcePanel,
           tabs: sourceTabs,
-          selectedTabId: sourceSelected,
           pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter(
             (id) => id !== command.tabId,
           ),
@@ -1418,14 +1369,16 @@ function splitPanelWithTab(
         [command.newPanelId]: {
           id: command.newPanelId,
           tabs: [tab],
-          selectedTabId: tab.id,
           pinnedTabIds: [],
         },
       },
-      activePanelId: command.newPanelId,
     },
     closedStack,
-    { releasedPanes: allPaneIds(tab.rootNode) },
+    {
+      releasedPanes: allPaneIds(tab.rootNode),
+      selectTab: { panelId: command.newPanelId, tabId: tab.id },
+      activatePanel: command.newPanelId,
+    },
   );
 }
 
@@ -1454,17 +1407,20 @@ function mergeTabIntoTab(
     second: position === "second" ? sourceTab.rootNode : targetTab.rootNode,
   };
   const focusedPaneId = allPaneIds(sourceTab.rootNode)[0];
-  const effects = { releasedPanes: allPaneIds(sourceTab.rootNode) };
+  const effects: Partial<LayoutEffects> = {
+    releasedPanes: allPaneIds(sourceTab.rootNode),
+    selectTab: { panelId: targetPanel.id, tabId: targetTabId },
+    focusPane: { tabId: targetTabId, paneId: focusedPaneId },
+  };
 
   if (sourcePanel.id === targetPanel.id) {
     const tabs = sourcePanel.tabs
       .filter((t) => t.id !== sourceTabId)
-      .map((t) => (t.id === targetTabId ? { ...t, rootNode, focusedPaneId } : t));
+      .map((t) => (t.id === targetTabId ? { ...t, rootNode } : t));
     return result(
       withPanel(layout, sourcePanel.id, (p) => ({
         ...p,
         tabs,
-        selectedTabId: targetTabId,
         pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
       })),
       closedStack,
@@ -1477,9 +1433,8 @@ function mergeTabIntoTab(
     [targetPanel.id]: {
       ...targetPanel,
       tabs: targetPanel.tabs.map((t) =>
-        t.id === targetTabId ? { ...t, rootNode, focusedPaneId } : t,
+        t.id === targetTabId ? { ...t, rootNode } : t,
       ),
-      selectedTabId: targetTabId,
     },
   };
   const detached = detachTabFromPanel(
@@ -1491,14 +1446,9 @@ function mergeTabIntoTab(
   );
 
   return result(
-    {
-      ...layout,
-      panelTree: detached.panelTree,
-      panels: detached.panels,
-      activePanelId: targetPanel.id,
-    },
+    { ...layout, panelTree: detached.panelTree, panels: detached.panels },
     closedStack,
-    effects,
+    { ...effects, activatePanel: targetPanel.id },
   );
 }
 
@@ -1523,12 +1473,18 @@ function splitPanelWithNewTab(
         [command.newPanelId]: {
           id: command.newPanelId,
           tabs: [command.tab],
-          selectedTabId: command.tab.id,
           pinnedTabIds: [],
         },
       },
-      activePanelId: command.newPanelId,
     },
     closedStack,
+    {
+      selectTab: { panelId: command.newPanelId, tabId: command.tab.id },
+      focusPane: {
+        tabId: command.tab.id,
+        paneId: allPaneIds(command.tab.rootNode)[0],
+      },
+      activatePanel: command.newPanelId,
+    },
   );
 }

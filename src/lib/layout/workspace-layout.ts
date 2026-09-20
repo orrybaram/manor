@@ -6,9 +6,9 @@
  * in `src/store/app-store.ts` until ADR-179 moved it here so the Manor server
  * — not the renderer — can own it.
  *
- * Three fields are *viewport*, not structure: they say what one window is
- * looking at rather than what exists (ADR-179 D3). They still sit in these
- * types for now; ticket 4 moves them into a per-renderer viewport slice.
+ * What one window is *looking at* is deliberately not here: the selected tab,
+ * the focused pane and the active panel are viewport, and live in
+ * `./viewport.ts`, keyed by workspace and persisted per renderer (D3).
  */
 
 import type { PaneNode } from "./pane-tree";
@@ -23,23 +23,17 @@ export interface Tab {
   id: string;
   title: string;
   rootNode: PaneNode;
-  /** viewport — moves in ADR-179 ticket 4 */
-  focusedPaneId: string;
 }
 
 export interface Panel {
   id: string;
   tabs: Tab[];
-  /** viewport — moves in ADR-179 ticket 4 */
-  selectedTabId: string;
   pinnedTabIds: string[];
 }
 
 export interface WorkspaceLayout {
   panelTree: PanelNode;
   panels: Record<string, Panel>;
-  /** viewport — moves in ADR-179 ticket 4 */
-  activePanelId: string;
 }
 
 /**
@@ -50,15 +44,13 @@ export interface WorkspaceLayout {
 export function createSinglePanelLayout(
   panelId: string,
   tabs: Tab[],
-  selectedTabId: string,
   pinnedTabIds: string[],
 ): WorkspaceLayout {
   return {
     panelTree: { type: "leaf", panelId },
     panels: {
-      [panelId]: { id: panelId, tabs, selectedTabId, pinnedTabIds },
+      [panelId]: { id: panelId, tabs, pinnedTabIds },
     },
-    activePanelId: panelId,
   };
 }
 

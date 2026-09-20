@@ -7,20 +7,17 @@
  * outside the render cycle.
  */
 
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectFocusedPaneOfActiveTab,
+} from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
 
 export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
 
 /** The focused pane of the active workspace's selected tab, if any. */
 export function getFocusedPaneId(): string | null {
-  const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  if (!layout) return null;
-  const panel = layout.panels[layout.activePanelId];
-  if (!panel) return null;
-  const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-  return tab?.focusedPaneId ?? null;
+  return selectFocusedPaneOfActiveTab(useAppStore.getState());
 }
 
 /**

@@ -12,7 +12,11 @@ import Lock from "lucide-react/dist/esm/icons/lock";
 import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
-import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  selectFocusedPaneOfActiveTab,
+} from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
 import {
   isOutsideWindow,
@@ -52,11 +56,7 @@ type LeafPaneProps = {
 export function LeafPane(props: LeafPaneProps) {
   const { paneId, workspacePath } = props;
 
-  const focusedPaneId = useAppStore((s) => {
-    const ws = selectActiveWorkspace(s);
-    const tab = ws?.tabs.find((t) => t.id === ws.selectedTabId);
-    return tab?.focusedPaneId;
-  });
+  const focusedPaneId = useAppStore(selectFocusedPaneOfActiveTab);
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = useAppStore((s) => s.paneContentType[paneId]);

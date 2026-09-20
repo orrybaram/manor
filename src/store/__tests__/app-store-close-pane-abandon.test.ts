@@ -19,18 +19,15 @@ function makeLayout(): WorkspaceLayout {
     id: tabId,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: tabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -46,18 +43,15 @@ function makeTwoPaneLayout(): WorkspaceLayout {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-2" },
     },
-    focusedPaneId: "pane-1",
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: "tab-1",
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 

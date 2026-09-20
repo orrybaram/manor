@@ -102,13 +102,7 @@ describe("WsBridgeServer", () => {
     // only interesting if it ends in a broadcast the socket can hear.
     layoutStore = new LayoutStore(
       new LayoutPersistence(path.join(auditDir, "layout.json")),
-      (workspacePath, version, layout, claims) =>
-        publishRendererBroadcast("layout", "changed", {
-          workspacePath,
-          version,
-          layout,
-          claims,
-        }),
+      (payload) => publishRendererBroadcast("layout", "changed", payload),
       { pty: { kill: async () => {} } } as never,
     );
 
@@ -434,7 +428,6 @@ describe("WsBridgeServer", () => {
             id: "tab-1",
             title: "Terminal",
             rootNode: { type: "leaf", paneId: "pane-1" },
-            focusedPaneId: "pane-1",
           },
         },
       ]);
@@ -596,7 +589,6 @@ describe("WsBridgeServer", () => {
             id: "tab-1",
             title: "Terminal",
             rootNode: { type: "leaf", paneId: "pane-1" },
-            focusedPaneId: "pane-1",
           },
         },
       ]);
@@ -614,6 +606,21 @@ describe("WsBridgeServer", () => {
         claims: [],
       });
       expect(JSON.stringify(payload.layout)).toContain("pane-1");
+      // The origin is the socket's, not the frame's: a browser cannot claim
+      // to be another renderer and collect its selection hints (ADR-179 D3).
+      const origin = payload.origin as { kind: string; id: string };
+      expect(origin.kind).toBe("bridge");
+      expect(origin.id).toMatch(/^bridge-/);
+      expect(payload.hint).toMatchObject({ selectTab: { tabId: "tab-1" } });
+    });
+
+    it("names the socket in its hello reply", async () => {
+      const client = await greet(FULL_TOKEN);
+
+      // The same id every `layout.apply` from this socket carries, so the tab
+      // can tell its own broadcast from every other viewer's (ADR-179 D3).
+      const hello = await client.next((f) => f.type === "hello");
+      expect(hello.rendererId).toMatch(/^bridge-/);
     });
   });
 

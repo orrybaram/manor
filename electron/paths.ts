@@ -142,6 +142,15 @@ export function layoutFile(): string {
   return path.join(manorHomeDir(), "layout.json");
 }
 
+/**
+ * One renderer's viewport — what the primary desktop window is looking at
+ * (ADR-179 D3). Beside `layout.json` because it is read at the same moment,
+ * and separate from it because layout is the host's and this is one window's.
+ */
+export function viewportFile(): string {
+  return path.join(manorHomeDir(), "viewport.json");
+}
+
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }

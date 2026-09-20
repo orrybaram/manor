@@ -16,6 +16,7 @@ import { layoutFile } from "../paths";
 // precedent as app-menu.ts importing src/lib/menu-commands.
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { PanelNode } from "../../src/lib/layout/panel-tree";
+import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
 
 export const LAYOUT_FILE = layoutFile();
 
@@ -36,12 +37,20 @@ export interface PersistedPaneSession {
   lastAgentStatus?: PersistedAgentState | null;
 }
 
-/** Persisted tab layout */
+/**
+ * Persisted tab layout.
+ *
+ * `focusedPaneId` is optional and, as of ADR-179 ticket 4, never written: it
+ * is viewport, it lives in `defaultViewport` and in each renderer's own file,
+ * and it survives in this type only so a v2 (or an early-v3) file can be read
+ * and migrated.
+ */
 export interface PersistedTab {
   id: string;
   title: string;
   rootNode: PaneNode;
-  focusedPaneId: string;
+  /** @deprecated read-only, for migration — see above. */
+  focusedPaneId?: string;
   paneSessions: Record<string, PersistedPaneSession>;
 }
 
@@ -59,11 +68,12 @@ export interface PersistedLayoutV1 {
   workspaces: PersistedWorkspaceV1[];
 }
 
-/** Persisted panel (v2 and v3) */
+/** Persisted panel (v2 and v3). `selectedTabId` is viewport: migration only. */
 export interface PersistedPanel {
   id: string;
   tabs: PersistedTab[];
-  selectedTabId: string;
+  /** @deprecated read-only, for migration — see {@link PersistedTab}. */
+  selectedTabId?: string;
   pinnedTabIds: string[];
 }
 
@@ -72,7 +82,8 @@ export interface PersistedWorkspaceV2 {
   workspacePath: string;
   panelTree: PanelNode;
   panels: Record<string, PersistedPanel>;
-  activePanelId: string;
+  /** @deprecated read-only, for migration — see {@link PersistedTab}. */
+  activePanelId?: string;
 }
 
 /** V2 full persisted layout (kept for migration) */
@@ -90,21 +101,15 @@ export interface PersistedLayoutV2 {
  * handed to a renderer that has none of its own. A renderer's live viewport is
  * persisted per renderer (`viewport.json`, `localStorage`), not here.
  */
-export interface PersistedDefaultViewport {
-  activePanelId: string;
-  /** panelId → tabId */
-  selectedTabIds: Record<string, string>;
-  /** tabId → paneId */
-  focusedPaneIds: Record<string, string>;
-}
+export type PersistedDefaultViewport = WorkspaceViewport;
 
 /**
  * Persisted workspace state (v3).
  *
- * The focus fields still sit on the tree (`activePanelId`, `panels[].
- * selectedTabId`, `tabs[].focusedPaneId`) *and* in `defaultViewport`. That
- * duplication is deliberate and temporary: ADR-179 ticket 4 strips them from
- * the tree once every renderer reads its selection from the viewport slice.
+ * Structure plus one **default viewport** — and nothing else. The focus
+ * fields left the tree in ADR-179 ticket 4; a v3 file written before that
+ * still carries them, still loads (they are optional), and is rewritten
+ * clean the first time the server saves.
  */
 export interface PersistedWorkspace extends PersistedWorkspaceV2 {
   defaultViewport: PersistedDefaultViewport;
@@ -145,6 +150,29 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayoutV2 {
   };
 }
 
+/** A v3 workspace with the focus fields stripped from its tree (ticket 4). */
+function withoutTreeFocus(workspace: PersistedWorkspace): PersistedWorkspace {
+  const panels: Record<string, PersistedPanel> = {};
+  for (const [panelId, panel] of Object.entries(workspace.panels ?? {})) {
+    panels[panelId] = {
+      id: panel.id,
+      tabs: panel.tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        rootNode: tab.rootNode,
+        paneSessions: tab.paneSessions ?? {},
+      })),
+      pinnedTabIds: panel.pinnedTabIds ?? [],
+    };
+  }
+  return {
+    workspacePath: workspace.workspacePath,
+    panelTree: workspace.panelTree,
+    panels,
+    defaultViewport: workspace.defaultViewport,
+  };
+}
+
 /**
  * Read a workspace's default viewport out of its tree (ADR-179 D3).
  *
@@ -165,7 +193,7 @@ export function defaultViewportFromTree(
     }
   }
   return {
-    activePanelId: workspace.activePanelId,
+    activePanelId: workspace.activePanelId ?? null,
     selectedTabIds,
     focusedPaneIds,
   };
@@ -176,10 +204,10 @@ export function migrateWorkspaceV2toV3(
   workspace: PersistedWorkspaceV2 | PersistedWorkspace,
 ): PersistedWorkspace {
   const existing = (workspace as PersistedWorkspace).defaultViewport;
-  return {
+  return withoutTreeFocus({
     ...workspace,
     defaultViewport: existing ?? defaultViewportFromTree(workspace),
-  };
+  });
 }
 
 function migrateV2toV3(v2: PersistedLayoutV2): PersistedLayout {

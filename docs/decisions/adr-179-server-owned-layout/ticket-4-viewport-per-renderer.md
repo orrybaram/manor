@@ -1,6 +1,6 @@
 ---
 title: Viewport is per renderer — selected tab, focused pane, active panel and workspace
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

@@ -24,7 +24,6 @@ function twoPaneTab(): Tab {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-2" },
     },
-    focusedPaneId: "pane-1",
   };
 }
 
@@ -32,13 +31,11 @@ function makeLayout(tab: Tab): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs: [tab],
-    selectedTabId: tab.id,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 

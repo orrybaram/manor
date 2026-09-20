@@ -56,7 +56,13 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
  *    writes to the machine's clipboard through main; from a browser the
  *    clipboard the user means is the one in front of them. (Every other call
  *    site in `src/` already reaches for `navigator.clipboard` directly.)
- * 2. **Fire-and-forget calls with nothing to forget.** Each of these is an
+ * 2. **The browser's own memory.** `viewport.*` is what *this tab* was
+ *    looking at (ADR-179 D3). Asking the host would be asking the wrong
+ *    machine: the selection a phone remembers is the phone's, and the desk
+ *    keeps its own in `~/.manor/viewport.json`. `localStorage` is exactly the
+ *    right store for it, and serving it here means the store code that calls
+ *    `viewport.load()` / `viewport.save()` is identical on both platforms.
+ * 3. **Fire-and-forget calls with nothing to forget.** Each of these is an
  *    `ipcRenderer.send` in `preload.ts` — declared `=> void`, never awaited by
  *    its caller — answering a native surface that does not exist here. A
  *    rejected promise from a call site that ignores the return value is not an
@@ -64,10 +70,36 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
  *    rejection per keystroke. `menu.setContext` alone fires on every focus
  *    change (`useMenuContextSync`).
  */
+/** Where a browser tab keeps its viewport (ADR-179 D3). */
+const VIEWPORT_KEY = "manor.web.viewport";
+
 export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> = {
   "clipboard.writeText": (text: unknown) =>
     navigator.clipboard?.writeText(String(text)) ??
     Promise.reject(new Error("This browser has no clipboard access")),
+
+  /**
+   * This tab's viewport. A private-mode browser with no `localStorage` reads
+   * as "never saved one", which is the same answer a first visit gives, and
+   * the host's default viewport covers both.
+   */
+  "viewport.load": () => {
+    try {
+      const raw = localStorage.getItem(VIEWPORT_KEY);
+      return Promise.resolve(raw === null ? null : JSON.parse(raw));
+    } catch {
+      return Promise.resolve(null);
+    }
+  },
+  "viewport.save": (file: unknown) => {
+    try {
+      localStorage.setItem(VIEWPORT_KEY, JSON.stringify(file));
+    } catch {
+      // Quota, private mode, a blocked third-party context: the tab simply
+      // reopens on the host's default viewport.
+    }
+    return Promise.resolve();
+  },
 
   /** Labels for a menu bar that is not on screen. */
   "menu.setContext": () => undefined,

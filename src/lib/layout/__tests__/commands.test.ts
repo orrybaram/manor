@@ -21,12 +21,7 @@ import type { Panel, Tab, WorkspaceLayout } from "../workspace-layout";
 // ---------------------------------------------------------------------------
 
 function leafTab(id: string, paneId: string, title = "Terminal"): Tab {
-  return {
-    id,
-    title,
-    rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
-  };
+  return { id, title, rootNode: { type: "leaf", paneId } };
 }
 
 function splitTab(id: string, first: string, second: string): Tab {
@@ -40,12 +35,11 @@ function splitTab(id: string, first: string, second: string): Tab {
       first: { type: "leaf", paneId: first },
       second: { type: "leaf", paneId: second },
     },
-    focusedPaneId: first,
   };
 }
 
 function panel(id: string, tabs: Tab[], pinnedTabIds: string[] = []): Panel {
-  return { id, tabs, selectedTabId: tabs[0]?.id ?? "", pinnedTabIds };
+  return { id, tabs, pinnedTabIds };
 }
 
 /** One panel, one tab, one pane. */
@@ -56,7 +50,6 @@ function onePanel(
   return {
     panelTree: { type: "leaf", panelId: "panel-1" },
     panels: { "panel-1": panel("panel-1", tabs, pinnedTabIds) },
-    activePanelId: "panel-1",
   };
 }
 
@@ -77,7 +70,6 @@ function twoPanels(
       "panel-1": panel("panel-1", firstTabs),
       "panel-2": panel("panel-2", secondTabs),
     },
-    activePanelId: "panel-1",
   };
 }
 
@@ -116,19 +108,35 @@ describe("new-tab", () => {
       "tab-2",
       "tab-new",
     ]);
-    expect(panelOf(layout, "panel-2").selectedTabId).toBe("tab-new");
     expect(panelOf(layout, "panel-1").tabs).toHaveLength(1);
   });
 
-  it("leaves the selection alone for a background tab", () => {
-    const { layout } = applyLayoutCommand(stateOf(onePanel()), {
+  it("hints the sender to select the tab it just opened", () => {
+    const { effects } = applyLayoutCommand(stateOf(twoPanels()), {
+      type: "new-tab",
+      tab: leafTab("tab-new", "pane-new"),
+      panelId: "panel-2",
+    });
+
+    expect(effects.selectTab).toEqual({
+      panelId: "panel-2",
+      tabId: "tab-new",
+    });
+    expect(effects.focusPane).toEqual({
+      tabId: "tab-new",
+      paneId: "pane-new",
+    });
+  });
+
+  it("hints nothing for a background tab", () => {
+    const { effects } = applyLayoutCommand(stateOf(onePanel()), {
       type: "new-tab",
       tab: leafTab("tab-new", "pane-new"),
       panelId: "panel-1",
       select: false,
     });
 
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-1");
+    expect(effects.selectTab).toBeUndefined();
   });
 
   it("falls back to the active panel when none is named", () => {
@@ -153,7 +161,8 @@ describe("close-tab", () => {
     });
 
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-2"]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-2");
+    // Viewport, so it comes back as a hint the sender applies to itself (D3).
+    expect(effects.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-2" });
     expect(effects.killPanes).toEqual(["pane-1"]);
   });
 
@@ -172,14 +181,14 @@ describe("close-tab", () => {
   });
 
   it("takes the panel with the last tab while another panel remains", () => {
-    const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
+    const { layout, effects } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "close-tab",
       tabId: "tab-1",
     });
 
     expect(layout.panels["panel-1"]).toBeUndefined();
     expect(allPanelIds(layout.panelTree)).toEqual(["panel-2"]);
-    expect(layout.activePanelId).toBe("panel-2");
+    expect(effects.activatePanel).toBe("panel-2");
   });
 
   it("keeps the last panel of all, empty", () => {
@@ -189,7 +198,6 @@ describe("close-tab", () => {
     });
 
     expect(panelOf(layout, "panel-1").tabs).toEqual([]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("");
   });
 
   it("pushes an undo entry carrying the tab and the host's metadata", () => {
@@ -252,7 +260,10 @@ describe("duplicate-tab", () => {
       "tab-1",
       "tab-clone",
     ]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-clone");
+    expect(effects.selectTab).toEqual({
+      panelId: "panel-1",
+      tabId: "tab-clone",
+    });
     expect(effects.killPanes).toEqual([]);
   });
 });
@@ -384,7 +395,7 @@ describe("toggle-pin-tab", () => {
 
 describe("split-pane", () => {
   it("splits the named pane and focuses the new one", () => {
-    const { layout } = applyLayoutCommand(stateOf(onePanel()), {
+    const { layout, effects } = applyLayoutCommand(stateOf(onePanel()), {
       type: "split-pane",
       paneId: "pane-1",
       direction: "horizontal",
@@ -399,7 +410,10 @@ describe("split-pane", () => {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-new" },
     });
-    expect(tab.focusedPaneId).toBe("pane-new");
+    expect(effects.focusPane).toEqual({
+      tabId: "tab-1",
+      paneId: "pane-new",
+    });
   });
 
   it("reaches a pane in a non-active panel", () => {
@@ -414,7 +428,6 @@ describe("split-pane", () => {
       "pane-2",
       "pane-new",
     ]);
-    expect(layout.activePanelId).toBe("panel-1");
   });
 });
 
@@ -497,7 +510,7 @@ describe("move-pane", () => {
     ]);
     expect(effects.releasedPanes).toEqual(["pane-a"]);
     expect(effects.killPanes).toEqual([]);
-    expect(layout.activePanelId).toBe("panel-2");
+    expect(effects.activatePanel).toBe("panel-2");
   });
 
   it("seeds an emptied last panel with the sender's fallback tab", () => {
@@ -579,7 +592,10 @@ describe("extract-pane-to-tab", () => {
       "tab-1",
       "tab-new",
     ]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-new");
+    expect(effects.selectTab).toEqual({
+      panelId: "panel-1",
+      tabId: "tab-new",
+    });
     expect(allPaneIds(tabOf(layout, "panel-1", "tab-1").rootNode)).toEqual([
       "pane-a",
     ]);
@@ -725,7 +741,10 @@ describe("reopen-closed-pane", () => {
 
     const tab = tabOf(reopened.layout, "panel-1", "tab-1");
     expect(allPaneIds(tab.rootNode)).toEqual(["pane-a", "pane-b"]);
-    expect(tab.focusedPaneId).toBe("pane-b");
+    expect(reopened.effects.focusPane).toEqual({
+      tabId: "tab-1",
+      paneId: "pane-b",
+    });
   });
 
   it("gives a closed pane a new tab when its own tab is gone", () => {
@@ -747,7 +766,6 @@ describe("reopen-closed-pane", () => {
           "panel-1": {
             ...panelOf(withoutTab.layout, "panel-1"),
             tabs: [leafTab("tab-2", "pane-2")],
-            selectedTabId: "tab-2",
           },
         },
       },
@@ -807,7 +825,6 @@ describe("set-pane-content-type", () => {
           contentType: "browser",
           url: "https://example.com",
         },
-        focusedPaneId: "pane-1",
       },
     ]);
     const { layout } = applyLayoutCommand(stateOf(browser), {
@@ -860,7 +877,7 @@ describe("split-panel", () => {
       leafTab("tab-1", "pane-1"),
       leafTab("tab-2", "pane-2"),
     ]);
-    const { layout } = applyLayoutCommand(stateOf(start), {
+    const { layout, effects } = applyLayoutCommand(stateOf(start), {
       type: "split-panel",
       panelId: "panel-1",
       direction: "horizontal",
@@ -873,7 +890,7 @@ describe("split-panel", () => {
     expect(panelOf(layout, "panel-new").tabs.map((t) => t.id)).toEqual([
       "tab-1",
     ]);
-    expect(layout.activePanelId).toBe("panel-new");
+    expect(effects.activatePanel).toBe("panel-new");
   });
 
   it("leaves the emptied source panel with the sender's fallback tab", () => {
@@ -889,7 +906,6 @@ describe("split-panel", () => {
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual([
       "tab-fresh",
     ]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-fresh");
   });
 });
 
@@ -909,12 +925,12 @@ describe("close-panel", () => {
   });
 
   it("moves focus off a closed active panel", () => {
-    const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
+    const { effects } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "close-panel",
       panelId: "panel-1",
     });
 
-    expect(layout.activePanelId).toBe("panel-2");
+    expect(effects.activatePanel).toBe("panel-2");
   });
 
   it("leaves an empty panel behind when it was the last one", () => {
@@ -961,7 +977,7 @@ describe("move-tab-to-panel", () => {
       "tab-2",
       "tab-1",
     ]);
-    expect(layout.activePanelId).toBe("panel-2");
+    expect(effects.activatePanel).toBe("panel-2");
     expect(effects.killPanes).toEqual([]);
     expect(effects.releasedPanes).toEqual(["pane-1"]);
   });
@@ -998,7 +1014,7 @@ describe("split-panel-with-tab", () => {
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual([
       "tab-extra",
     ]);
-    expect(layout.activePanelId).toBe("panel-new");
+    expect(effects.activatePanel).toBe("panel-new");
     expect(effects.releasedPanes).toEqual(["pane-1"]);
   });
 });
@@ -1017,10 +1033,10 @@ describe("merge-tab-into-tab", () => {
 
     const panelAfter = panelOf(layout, "panel-1");
     expect(panelAfter.tabs.map((t) => t.id)).toEqual(["tab-1"]);
-    expect(panelAfter.selectedTabId).toBe("tab-1");
+    expect(effects.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-1" });
     const merged = tabOf(layout, "panel-1", "tab-1");
     expect(allPaneIds(merged.rootNode)).toEqual(["pane-1", "pane-2", "pane-3"]);
-    expect(merged.focusedPaneId).toBe("pane-2");
+    expect(effects.focusPane).toEqual({ tabId: "tab-1", paneId: "pane-2" });
     // The panes moved; none of them died.
     expect(effects.killPanes).toEqual([]);
     expect(effects.releasedPanes).toEqual(["pane-2", "pane-3"]);
@@ -1051,7 +1067,6 @@ describe("merge-tab-into-tab", () => {
 
     expect(Object.keys(layout.panels)).toEqual(["panel-2"]);
     expect(allPanelIds(layout.panelTree)).toEqual(["panel-2"]);
-    expect(layout.activePanelId).toBe("panel-2");
     expect(allPaneIds(tabOf(layout, "panel-2", "tab-2").rootNode)).toEqual([
       "pane-2",
       "pane-1",
@@ -1114,14 +1129,17 @@ describe("split-panel-with-new-tab", () => {
       "tab-1",
       "tab-2",
     ]);
-    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-1");
     expect(panelOf(layout, "panel-new").tabs.map((t) => t.id)).toEqual([
       "tab-diff",
     ]);
-    expect(panelOf(layout, "panel-new").selectedTabId).toBe("tab-diff");
-    expect(layout.activePanelId).toBe("panel-new");
     expect(allPanelIds(layout.panelTree)).toEqual(["panel-1", "panel-new"]);
-    expect(effects).toEqual({ killPanes: [], releasedPanes: [] });
+    expect(effects.killPanes).toEqual([]);
+    expect(effects.releasedPanes).toEqual([]);
+    expect(effects.activatePanel).toBe("panel-new");
+    expect(effects.selectTab).toEqual({
+      panelId: "panel-new",
+      tabId: "tab-diff",
+    });
   });
 });
 

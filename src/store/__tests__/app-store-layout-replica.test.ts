@@ -8,7 +8,8 @@
  * survives.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore } from "../app-store";
+import { useAppStore, selectFocusedPaneId, selectSelectedTabId } from "../app-store";
+import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, Tab, WorkspaceLayout } from "../app-store";
 import {
   broadcastLayout,
@@ -24,20 +25,27 @@ function tab(id: string, paneId: string, title = "Terminal"): Tab {
     id,
     title,
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
 }
 
-function panel(id: string, tabs: Tab[], selected = tabs[0]?.id ?? ""): Panel {
-  return { id, tabs, selectedTabId: selected, pinnedTabIds: [] };
+function panel(id: string, tabs: Tab[]): Panel {
+  return { id, tabs, pinnedTabIds: [] };
 }
 
-function layoutOf(tabs: Tab[], selected?: string): WorkspaceLayout {
+function layoutOf(tabs: Tab[]): WorkspaceLayout {
   return {
     panelTree: { type: "leaf", panelId: "panel-1" },
-    panels: { "panel-1": panel("panel-1", tabs, selected) },
-    activePanelId: "panel-1",
+    panels: { "panel-1": panel("panel-1", tabs) },
   };
+}
+
+/** This renderer's selection, which is where it now lives (ADR-179 D3). */
+function selectedTabId(): string | null {
+  return selectSelectedTabId(useAppStore.getState(), "panel-1");
+}
+
+function focusedPaneId(tabId: string): string | null {
+  return selectFocusedPaneId(useAppStore.getState(), tabId);
 }
 
 function setup(layout: WorkspaceLayout) {
@@ -46,6 +54,7 @@ function setup(layout: WorkspaceLayout) {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: layout },
+    viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -168,7 +177,6 @@ describe("broadcasts set the state", () => {
         contentType: "browser",
         url: "https://example.com",
       },
-      focusedPaneId: "pane-2",
     };
 
     broadcastLayout(WS_PATH, withExtraTab(replica(), browserTab), 2);
@@ -242,29 +250,49 @@ describe("this window's selection survives a broadcast", () => {
     setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
     useAppStore.getState().selectTab("tab-2");
 
-    // The server's copy of `selectedTabId` is whatever the last command left
-    // there — tab-1 — because selecting a tab never reached it.
+    // The selection is this renderer's and never reached the server, so a
+    // structural change elsewhere cannot move it (ADR-179 D3).
     useAppStore.getState().splitPane("horizontal");
 
-    expect(replica().panels["panel-1"].selectedTabId).toBe("tab-2");
+    expect(selectedTabId()).toBe("tab-2");
   });
 
-  it("follows the server when the change moved the selection", () => {
+  it("takes the hint from a command it sent itself", () => {
     setup(layoutOf([tab("tab-1", "pane-1")]));
 
     const created = useAppStore.getState().addTab()!;
 
-    // A new tab is a new tab set: the selection the reducer made wins.
-    expect(replica().panels["panel-1"].selectedTabId).toBe(created.tabId);
+    // `new-tab` implies "select it", and the hint came back tagged with this
+    // renderer's id.
+    expect(selectedTabId()).toBe(created.tabId);
   });
 
-  it("follows the server when the selected tab is gone", () => {
+  it("ignores a hint addressed to another renderer", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    useAppStore.getState().selectTab("tab-2");
+
+    // Exactly what the server sends when *another* window opens a tab.
+    const next = layoutOf([
+      tab("tab-1", "pane-1"),
+      tab("tab-2", "pane-2"),
+      tab("tab-3", "pane-3"),
+    ]);
+    broadcastLayout(WS_PATH, next, 99, undefined, {
+      origin: { kind: "window", id: "some-other-window" },
+      hint: { selectTab: { panelId: "panel-1", tabId: "tab-3" } },
+    });
+
+    expect(replica().panels["panel-1"].tabs).toHaveLength(3);
+    expect(selectedTabId()).toBe("tab-2");
+  });
+
+  it("repairs a selection whose tab is gone", () => {
     setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
     useAppStore.getState().selectTab("tab-2");
 
     useAppStore.getState().closeTab("tab-2");
 
-    expect(replica().panels["panel-1"].selectedTabId).toBe("tab-1");
+    expect(selectedTabId()).toBe("tab-1");
   });
 
   it("keeps the focused pane when the tab's panes did not change", () => {
@@ -280,7 +308,6 @@ describe("this window's selection survives a broadcast", () => {
             first: { type: "leaf", paneId: "pane-1" },
             second: { type: "leaf", paneId: "pane-2" },
           },
-          focusedPaneId: "pane-2",
         },
       ]),
     );
@@ -290,17 +317,17 @@ describe("this window's selection survives a broadcast", () => {
     useAppStore.getState().updateSplitRatio("pane-1", 0.7);
 
     const current = replica().panels["panel-1"].tabs[0];
-    expect(current.focusedPaneId).toBe("pane-1");
+    expect(focusedPaneId("tab-1")).toBe("pane-1");
     expect(current.rootNode).toMatchObject({ ratio: 0.7 });
   });
 
-  it("follows the server's focus into a pane it just created", () => {
+  it("takes the focus hint into a pane it just created", () => {
     setup(layoutOf([tab("tab-1", "pane-1")]));
 
     const paneId = useAppStore
       .getState()
       .splitPaneAt("pane-1", "horizontal", "second")!;
 
-    expect(replica().panels["panel-1"].tabs[0].focusedPaneId).toBe(paneId);
+    expect(focusedPaneId("tab-1")).toBe(paneId);
   });
 });

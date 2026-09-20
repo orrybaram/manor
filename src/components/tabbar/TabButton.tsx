@@ -8,7 +8,11 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
-import { useAppStore } from "../../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneId,
+} from "../../store/app-store";
 import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
@@ -136,16 +140,14 @@ export function TabButton(props: TabButtonProps) {
     if (!wsPath) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const layout = s.workspaceLayouts[wsPath];
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
-    for (const panel of Object.values(layout.panels)) {
-      const tab = panel.tabs.find((t) => t.id === tabId);
-      if (tab) return {
-        contentType: s.paneContentType[tab.focusedPaneId] as string | undefined,
-        favicon: s.paneFavicon[tab.focusedPaneId] as string | undefined,
-        audioPlaying: !!s.paneAudioPlaying[tab.focusedPaneId],
-        audioMuted: !!s.paneAudioMuted[tab.focusedPaneId],
-        focusedPaneId: tab.focusedPaneId,
-      };
-    }
+    const paneId = selectFocusedPaneId(s, tabId);
+    if (paneId) return {
+      contentType: s.paneContentType[paneId] as string | undefined,
+      favicon: s.paneFavicon[paneId] as string | undefined,
+      audioPlaying: !!s.paneAudioPlaying[paneId],
+      audioMuted: !!s.paneAudioMuted[paneId],
+      focusedPaneId: paneId,
+    };
     return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
   }));
   const { hasOtherClosableTabs, hasClosableTabsToRight } = useAppStore(useShallow((s) => {
@@ -332,7 +334,9 @@ export function TabButton(props: TabButtonProps) {
                 const layout = state.workspaceLayouts[wsPath];
                 if (!layout) return;
                 const panelIds = Object.keys(layout.panels);
-                const currentIdx = panelIds.indexOf(layout.activePanelId);
+                const currentIdx = panelIds.indexOf(
+                  selectActivePanelId(state) ?? "",
+                );
                 const nextPanelId = panelIds[(currentIdx + 1) % panelIds.length];
                 state.moveTabToPanel(tabId, nextPanelId);
               }}

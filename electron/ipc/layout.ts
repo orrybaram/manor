@@ -22,7 +22,7 @@ export function layoutGetAll(deps: IpcDeps): Record<string, LayoutEntry> {
   return deps.layoutStore.getAll();
 }
 
-/** The surface to reopen on relaunch — viewport, until ticket 4 moves it. */
+/** The fallback surface for a renderer with no viewport file of its own. */
 export function layoutGetLastActive(deps: IpcDeps): string | null {
   return deps.layoutStore.getLastActiveWorkspacePath();
 }
@@ -47,16 +47,24 @@ export function layoutRemove(deps: IpcDeps, workspacePath: string): void {
   deps.layoutStore.remove(workspacePath);
 }
 
-/** What one renderer is looking at (ADR-179 D3; ticket 4 gives it teeth). */
+/**
+ * What one renderer is looking at (ADR-179 D3).
+ *
+ * `rendererId` is what the *caller* calls itself and `origin` is what the
+ * transport saw; the transport wins, because "was this a window or a
+ * browser?" decides whether the report stands in for the primary's viewport
+ * and a client cannot be trusted to answer it about itself.
+ */
 export function layoutReportViewport(
   deps: IpcDeps,
   workspacePath: string,
   rendererId: string,
   viewport: PersistedDefaultViewport,
+  origin: LayoutOrigin = { kind: "route", id: rendererId },
 ): void {
   assertString(workspacePath, "workspacePath");
   assertString(rendererId, "rendererId");
-  deps.layoutStore.reportViewport(workspacePath, rendererId, viewport);
+  deps.layoutStore.reportViewport(workspacePath, origin, viewport);
 }
 
 export async function layoutGetRestoredSessions(deps: IpcDeps): Promise<{
@@ -97,11 +105,15 @@ export function register(deps: IpcDeps): void {
   ipcMain.handle(
     "layout:reportViewport",
     (
-      _event,
+      event,
       workspacePath: string,
       rendererId: string,
       viewport: PersistedDefaultViewport,
-    ) => layoutReportViewport(deps, workspacePath, rendererId, viewport),
+    ) =>
+      layoutReportViewport(deps, workspacePath, rendererId, viewport, {
+        kind: "window",
+        id: String(event.sender.id),
+      }),
   );
 
   ipcMain.handle("layout:getRestoredSessions", () =>

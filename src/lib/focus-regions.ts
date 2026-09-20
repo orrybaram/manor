@@ -12,7 +12,11 @@
  * `.focus()` on an element.
  */
 
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectSelectedTabId,
+} from "../store/app-store";
 import { SIDEBAR_ROW_SELECTOR } from "./sidebar-row";
 
 export type FocusRegion = "sidebar" | "tabbar" | "pane" | "statusbar";
@@ -99,8 +103,10 @@ function tabbarTarget(roots: HTMLElement[]): HTMLElement | null {
   );
   if (tabs.length === 0) return null;
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  const selectedTabId = layout?.panels[layout.activePanelId]?.selectedTabId;
+  const selectedTabId = selectSelectedTabId(
+    state,
+    selectActivePanelId(state),
+  );
   return (
     tabs.find((tab) => tab.getAttribute("data-tab-id") === selectedTabId) ??
     tabs[0]

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore } from "../app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneId,
+  selectSelectedTabId,
+} from "../app-store";
+import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, WorkspaceLayout } from "../app-store";
 import {
   resetFakeLayoutServer,
@@ -22,18 +28,15 @@ function makeLayout(): WorkspaceLayout {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf" as const, paneId },
-    focusedPaneId: paneId,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: "tab-1",
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -46,6 +49,7 @@ function setupStore(layout?: WorkspaceLayout) {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: start },
+    viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -64,8 +68,13 @@ function setupStore(layout?: WorkspaceLayout) {
 
 function getActivePanel(): Panel {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[WS_PATH];
-  return layout.panels[layout.activePanelId];
+  return state.workspaceLayouts[WS_PATH].panels[selectActivePanelId(state)!];
+}
+
+/** This renderer's selected tab in the active panel (ADR-179 D3). */
+function selectedTabId(): string | null {
+  const state = useAppStore.getState();
+  return selectSelectedTabId(state, selectActivePanelId(state));
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +86,7 @@ describe("addBrowserTab", () => {
 
   it("creates a new browser tab in the active panel (foreground by default)", () => {
     const panelBefore = getActivePanel();
-    const originalSelectedTabId = panelBefore.selectedTabId;
+    const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com");
@@ -88,13 +97,13 @@ describe("addBrowserTab", () => {
     const newTab = panel.tabs[1];
     expect(newTab.rootNode.type).toBe("leaf");
     // The new tab becomes selected (foreground)
-    expect(panel.selectedTabId).toBe(newTab.id);
-    expect(panel.selectedTabId).not.toBe(originalSelectedTabId);
+    expect(selectedTabId()).toBe(newTab.id);
+    expect(selectedTabId()).not.toBe(originalSelectedTabId);
   });
 
   it("creates a browser tab WITHOUT changing selection when background: true", () => {
     const panelBefore = getActivePanel();
-    const originalSelectedTabId = panelBefore.selectedTabId;
+    const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com", { background: true });
@@ -103,7 +112,7 @@ describe("addBrowserTab", () => {
     expect(panel.tabs).toHaveLength(2);
 
     // Selection must remain on the original tab
-    expect(panel.selectedTabId).toBe(originalSelectedTabId);
+    expect(selectedTabId()).toBe(originalSelectedTabId);
 
     // The new tab is appended but not selected
     const newTab = panel.tabs[1];
@@ -112,7 +121,7 @@ describe("addBrowserTab", () => {
 
   it("creates a browser tab AND selects it when background: false (explicit)", () => {
     const panelBefore = getActivePanel();
-    const originalSelectedTabId = panelBefore.selectedTabId;
+    const originalSelectedTabId = selectedTabId();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addBrowserTab("https://example.com", { background: false });
@@ -122,8 +131,8 @@ describe("addBrowserTab", () => {
 
     const newTab = panel.tabs[1];
     // Selection moves to the new tab
-    expect(panel.selectedTabId).toBe(newTab.id);
-    expect(panel.selectedTabId).not.toBe(originalSelectedTabId);
+    expect(selectedTabId()).toBe(newTab.id);
+    expect(selectedTabId()).not.toBe(originalSelectedTabId);
   });
 
   it("sets paneContentType to 'browser' for the new pane", () => {
@@ -176,7 +185,7 @@ describe("addBrowserTab", () => {
     if (newTab.rootNode.type !== "leaf") throw new Error("Expected leaf");
     expect(newTab.id).toBe(tabId);
     expect(newTab.rootNode.paneId).toBe(paneId);
-    expect(newTab.focusedPaneId).toBe(paneId);
+    expect(selectFocusedPaneId(useAppStore.getState(), newTab.id)).toBe(paneId);
     expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
     expect(useAppStore.getState().paneUrl[paneId]).toBe("https://example.com");
   });
@@ -193,7 +202,7 @@ describe("addBrowserTab", () => {
     // Add a foreground tab first so we start with 2 tabs
     useAppStore.getState().addBrowserTab("https://first.com");
     const panelMid = getActivePanel();
-    const selectedAfterFirst = panelMid.selectedTabId;
+    const selectedAfterFirst = selectedTabId();
     expect(panelMid.tabs).toHaveLength(2);
 
     // Now add a background tab — selection must remain on the second tab
@@ -201,6 +210,6 @@ describe("addBrowserTab", () => {
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(3);
-    expect(panel.selectedTabId).toBe(selectedAfterFirst);
+    expect(selectedTabId()).toBe(selectedAfterFirst);
   });
 });

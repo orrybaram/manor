@@ -19,8 +19,9 @@
  *   the one time they are broadcast.
  * - **the closed-pane stack** — server memory, not persisted (D3), and the
  *   grace that keeps its panes' shells alive long enough to be reopened.
- * - **the default viewport** — one per workspace, handed to a renderer that
- *   has none of its own. Ticket 4 gives `reportViewport` its real shape.
+ * - **the default viewport** — one per workspace, last writer wins, handed
+ *   to a renderer that has none of its own (D3). Nothing here *decides*
+ *   anything from it: which tab a window is showing is that window's.
  *
  * One writer: this store owns `~/.manor/layout.json` and writes it whole from
  * its own memory. No renderer writes layout at all (ADR-179 D1) — the desktop
@@ -37,6 +38,10 @@ import {
   type PaneMetadataMap,
 } from "../../src/lib/layout/commands";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
+import type {
+  LayoutHint,
+  WorkspaceViewport,
+} from "../../src/lib/layout/viewport";
 import {
   type Panel,
   type PaneContentType,
@@ -104,13 +109,19 @@ export interface LayoutClaim {
  * brand new. Every *other* change to `paneSessions` stays unbroadcast — a
  * renderer hears the PTY events it is made of.
  */
-export type LayoutBroadcaster = (
-  workspacePath: string,
-  version: number,
-  layout: WorkspaceLayout,
-  claims: LayoutClaim[],
-  restored?: Record<string, PersistedPaneSession>,
-) => void;
+export interface LayoutBroadcast {
+  workspacePath: string;
+  version: number;
+  layout: WorkspaceLayout;
+  claims: LayoutClaim[];
+  /** Who sent the command. A renderer compares it with its own id (D3). */
+  origin: LayoutOrigin;
+  /** What the command implies about the *sender's* selection (D3). */
+  hint?: LayoutHint;
+  restored?: Record<string, PersistedPaneSession>;
+}
+
+export type LayoutBroadcaster = (payload: LayoutBroadcast) => void;
 
 export type LayoutApplyResult = { version: number } | { error: string };
 
@@ -193,8 +204,15 @@ export class LayoutStore {
   private readonly entries = new Map<string, WorkspaceState>();
   /** Per-workspace tail of the apply chain: two commands never interleave. */
   private readonly queues = new Map<string, Promise<unknown>>();
-  /** Which workspace each renderer last reported a viewport for (ticket 6). */
-  private readonly viewportReporters = new Map<string, string>();
+  /**
+   * The last viewport each *window* reported, per workspace.
+   *
+   * Ticket 5 builds `list_panes` from structure plus the primary window's
+   * viewport, and "which window?" has no server-side answer beyond this —
+   * so the most recent window report for a workspace stands in for the
+   * primary until ticket 6's claims name windows properly.
+   */
+  private readonly windowViewports = new Map<string, WorkspaceViewport>();
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
   private lastActiveWorkspacePath: string | null = null;
@@ -224,9 +242,11 @@ export class LayoutStore {
   }
 
   /**
-   * The workspace the last command touched — the surface to reopen on
-   * relaunch. Viewport, strictly (D3), and it lives here only until ticket 4
-   * gives each renderer a viewport file of its own.
+   * The workspace the last command touched.
+   *
+   * A renderer reopens on its *own* last surface, out of its own viewport
+   * file (D3); this is the fallback for one that has never saved a viewport —
+   * a first launch, a browser that has just been paired.
    */
   getLastActiveWorkspacePath(): string | null {
     return this.lastActiveWorkspacePath;
@@ -277,13 +297,21 @@ export class LayoutStore {
     return run;
   }
 
-  /** Forget a workspace's layout entirely — the worktree is gone. */
+  /**
+   * Forget a workspace's layout entirely — the worktree is gone.
+   *
+   * Its pending kills run now rather than serving out the reopen grace: a
+   * removed worktree is a directory about to be deleted, and there is
+   * nothing left to reopen a pane *into* (ADR-179 ticket 10's report).
+   */
   remove(workspacePath: string): void {
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
+    this.windowViewports.delete(workspacePath);
     if (this.lastActiveWorkspacePath === workspacePath) {
       this.lastActiveWorkspacePath = null;
     }
+    this.runPendingKills(workspacePath);
     // Filters this one workspace out of the file rather than rewriting the
     // whole thing from memory, which is what the renderer's parallel writer
     // (see the header) makes the safer of the two for one more ticket.
@@ -315,20 +343,37 @@ export class LayoutStore {
   }
 
   /**
-   * What one renderer is looking at. Ticket 4 gives this its real shape — a
-   * per-renderer viewport slice with claims; for now the last report wins and
-   * becomes the workspace's default viewport.
+   * What one renderer is looking at (ADR-179 D3).
+   *
+   * Last writer wins, and that is the whole policy: this is the **default
+   * viewport**, the answer handed to a renderer that has never seen this
+   * workspace, not an authority over anyone's selection. A renderer that has
+   * a viewport of its own never reads it.
    */
   reportViewport(
     workspacePath: string,
-    rendererId: string,
-    viewport: PersistedDefaultViewport,
+    origin: LayoutOrigin,
+    viewport: WorkspaceViewport,
   ): void {
     const state = this.entries.get(workspacePath);
     if (!state) return;
-    this.viewportReporters.set(rendererId, workspacePath);
     state.defaultViewport = viewport;
+    if (origin.kind === "window") {
+      this.windowViewports.set(workspacePath, viewport);
+    }
     this.schedulePersist();
+  }
+
+  /**
+   * The primary window's view of a workspace, for the MCP snapshot (D5).
+   *
+   * "The primary" is the most recent *window* report: a browser's selection
+   * is not what `list_panes` means by "the focused pane", and until ticket 6
+   * gives windows claims there is nothing finer to key on. Null when no
+   * desktop window has reported one — the caller falls back to the default.
+   */
+  primaryViewport(workspacePath: string): WorkspaceViewport | null {
+    return this.windowViewports.get(workspacePath) ?? null;
   }
 
   /**
@@ -392,6 +437,12 @@ export class LayoutStore {
       return { version: state.version };
     }
 
+    // What the command implies about the *sender's* selection, to travel back
+    // with the broadcast (D3). Extracted from `effects` rather than being a
+    // second return value, so the reducer has one output.
+    const { killPanes: _k, releasedPanes: _r, ...rest } = result.effects;
+    const hint = Object.keys(rest).length > 0 ? rest : undefined;
+
     state.layout = result.layout;
     state.version += 1;
     this.lastActiveWorkspacePath = workspacePath;
@@ -417,7 +468,15 @@ export class LayoutStore {
     }
 
     this.schedulePersist();
-    this.broadcast(workspacePath, state.version, state.layout, [], restored);
+    this.broadcast({
+      workspacePath,
+      version: state.version,
+      layout: state.layout,
+      claims: [],
+      origin,
+      ...(hint && { hint }),
+      ...(restored && { restored }),
+    });
 
     return { version: state.version };
   }
@@ -464,10 +523,14 @@ export class LayoutStore {
     this.pendingKills.delete(paneId);
   }
 
-  private runPendingKills(): void {
-    const pending = [...this.pendingKills];
-    this.pendingKills.clear();
+  /** Run every pending kill, or only one workspace's. */
+  private runPendingKills(onlyWorkspace?: string): void {
+    const pending = [...this.pendingKills].filter(
+      ([, kill]) =>
+        onlyWorkspace === undefined || kill.workspacePath === onlyWorkspace,
+    );
     for (const [paneId, { workspacePath, timer }] of pending) {
+      this.pendingKills.delete(paneId);
       clearTimeout(timer);
       void this.killNow(workspacePath, paneId);
     }
@@ -494,7 +557,7 @@ export class LayoutStore {
     const panelId = `panel-${crypto.randomUUID()}`;
     const state: WorkspaceState = {
       version: 0,
-      layout: createSinglePanelLayout(panelId, [], "", []),
+      layout: createSinglePanelLayout(panelId, [], []),
       defaultViewport: {
         activePanelId: panelId,
         selectedTabIds: {},
@@ -541,11 +604,14 @@ export class LayoutStore {
   private toPersisted(): PersistedLayout {
     const workspaces: PersistedWorkspace[] = [];
     for (const [workspacePath, state] of this.entries) {
+      // v3 with the focus fields gone from the tree (ADR-179 ticket 4): the
+      // selection lives in `defaultViewport` and in each renderer's own file.
+      // A v3 file written before this still loads — the fields are optional
+      // and simply ignored — and is rewritten clean the first time this runs.
       workspaces.push({
         workspacePath,
         panelTree: state.layout.panelTree,
         panels: persistedPanels(state),
-        activePanelId: state.layout.activePanelId,
         defaultViewport: state.defaultViewport,
       });
     }
@@ -559,12 +625,25 @@ export class LayoutStore {
 
 // ──────────────────────────── shape conversion ────────────────────────────
 
+/**
+ * One workspace as a reader sees it.
+ *
+ * `paneSessions` is filtered to the panes the tree actually holds: a pane
+ * closed inside the reopen grace keeps its row in memory — that is what makes
+ * `restored` possible — but no tree holds it, and handing it to a renderer
+ * would seed side maps for a pane that will never mount (ticket 10's report).
+ */
 function snapshot(state: WorkspaceState): LayoutEntry {
+  const alive = layoutPaneIds(state.layout);
+  const paneSessions: Record<string, PersistedPaneSession> = {};
+  for (const [paneId, session] of Object.entries(state.paneSessions)) {
+    if (alive.has(paneId)) paneSessions[paneId] = session;
+  }
   return {
     version: state.version,
     layout: state.layout,
     defaultViewport: state.defaultViewport,
-    paneSessions: state.paneSessions,
+    paneSessions,
   };
 }
 
@@ -597,6 +676,8 @@ function paneMetadata(
   return metadata;
 }
 
+/** Structure only: a v2 or early-v3 file's focus fields are read out into
+ *  `defaultViewport` by the migration and dropped here (ADR-179 D3). */
 function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {
   const panels: Record<string, Panel> = {};
   for (const [panelId, panel] of Object.entries(workspace.panels ?? {})) {
@@ -607,18 +688,12 @@ function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {
           id: tab.id,
           title: tab.title,
           rootNode: tab.rootNode,
-          focusedPaneId: tab.focusedPaneId,
         }),
       ),
-      selectedTabId: panel.selectedTabId,
       pinnedTabIds: panel.pinnedTabIds ?? [],
     };
   }
-  return {
-    panelTree: workspace.panelTree,
-    panels,
-    activePanelId: workspace.activePanelId,
-  };
+  return { panelTree: workspace.panelTree, panels };
 }
 
 /** The file keeps `paneSessions` per tab; the server keeps one map per
@@ -654,11 +729,9 @@ function persistedPanels(
           id: tab.id,
           title: tab.title,
           rootNode: tab.rootNode,
-          focusedPaneId: tab.focusedPaneId,
           paneSessions,
         };
       }),
-      selectedTabId: panel.selectedTabId,
       pinnedTabIds: panel.pinnedTabIds ?? [],
     };
   }

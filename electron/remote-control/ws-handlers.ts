@@ -85,6 +85,7 @@ import { processesList } from "../ipc/processes";
 import type { IpcDeps } from "../ipc/types";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
 import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
+import type { LayoutOrigin } from "../layout/layout-store";
 
 /**
  * The `code` on a rejected result frame for anything the bridge does not do.
@@ -246,7 +247,14 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
     deps: IpcDeps,
     workspacePath: string,
     command: LayoutCommand,
-  ) => layoutApply(deps, workspacePath, command, { kind: "bridge", id: "web" }),
+    origin?: LayoutOrigin,
+  ) =>
+    layoutApply(
+      deps,
+      workspacePath,
+      command,
+      origin ?? { kind: "bridge", id: "web" },
+    ),
   "layout.remove": (deps: IpcDeps, workspacePath: string) =>
     layoutRemove(deps, workspacePath),
   "layout.reportViewport": (
@@ -254,7 +262,8 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
     workspacePath: string,
     rendererId: string,
     viewport: PersistedDefaultViewport,
-  ) => layoutReportViewport(deps, workspacePath, rendererId, viewport),
+    origin?: LayoutOrigin,
+  ) => layoutReportViewport(deps, workspacePath, rendererId, viewport, origin),
 
   // ── projects: the sidebar's reads, plus the two selection writes ──
   "projects.getAll": (deps: IpcDeps) => projectsGetAll(deps),
@@ -332,6 +341,19 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
  * What is in: anything that starts or ends a session, and anything that moves
  * state the *other* viewers of this host will see.
  */
+/**
+ * Methods whose last argument is the caller's identity, supplied by the
+ * transport rather than by the frame (ADR-179 D3).
+ *
+ * The number is how many arguments come off the wire; the bridge truncates to
+ * it and appends the socket's `LayoutOrigin`, so a browser cannot claim to be
+ * another renderer and pick up its selection hints.
+ */
+export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
+  ["layout.apply", 2],
+  ["layout.reportViewport", 3],
+]);
+
 export const MUTATING: ReadonlySet<string> = new Set([
   "pty.create",
   "pty.reset",

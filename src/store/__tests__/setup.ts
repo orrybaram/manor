@@ -4,7 +4,11 @@
  * subscription among it — finds a host to talk to instead of throwing.
  */
 import { vi } from "vitest";
-import { fakeLayoutApi } from "./fake-layout-server";
+import {
+  FAKE_RENDERER_ID,
+  fakeLayoutApi,
+  fakeViewportApi,
+} from "./fake-layout-server";
 
 // Provide a minimal window-like object before any store module is imported.
 // Individual test files can override specific properties via vi.stubGlobal.
@@ -13,6 +17,11 @@ if (typeof globalThis.window === "undefined") {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     electronAPI: {
+      // ADR-179 D3: the store compares a broadcast's origin with this to
+      // decide whether a command's selection hint is its own.
+      rendererId: FAKE_RENDERER_ID,
+      isDetached: false,
+      viewport: fakeViewportApi(),
       // The Manor server's layout store, in-process (ADR-179 D1): `app-store`
       // subscribes to it at import time and every layout action goes through
       // it. See `fake-layout-server.ts`.

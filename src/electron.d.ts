@@ -297,15 +297,25 @@ export interface PersistedPaneSession {
 }
 
 /**
- * What one renderer is looking at (ADR-179 D3). The file keeps one per
+ * What one renderer is looking at (ADR-179 D3). The layout file keeps one per
  * workspace — the default viewport, handed to a renderer that has none.
  */
-export interface PersistedDefaultViewport {
-  activePanelId: string;
-  /** panelId → tabId */
-  selectedTabIds: Record<string, string>;
-  /** tabId → paneId */
-  focusedPaneIds: Record<string, string>;
+export type PersistedDefaultViewport =
+  import("./lib/layout/viewport").WorkspaceViewport;
+
+/**
+ * One renderer's viewport file: `~/.manor/viewport.json` for the desktop's
+ * primary window, `localStorage` for a browser tab (ADR-179 D3).
+ *
+ * Per renderer, deliberately — the whole point is that two windows of one
+ * host reopen on the tabs each of them had, not on the tabs the last command
+ * happened to touch.
+ */
+export interface PersistedViewportFile {
+  version: 1;
+  /** The surface this renderer was last on, Home included. */
+  activeWorkspacePath: string | null;
+  workspaces: Record<string, PersistedDefaultViewport>;
 }
 
 /** One workspace, as the Manor server holds it (ADR-179 D1). */
@@ -329,6 +339,15 @@ export interface LayoutChangedPayload {
   version: number;
   layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
   claims: LayoutClaim[];
+  /**
+   * Who sent the command this broadcast is the result of, and what that
+   * command implies about *their* selection (ADR-179 D3). A renderer applies
+   * `hint` only when `origin.id` is its own `rendererId`; everybody else
+   * keeps looking where they were looking. Absent on a broadcast no command
+   * produced.
+   */
+  origin?: { kind: "window" | "bridge" | "route"; id: string };
+  hint?: import("./lib/layout/viewport").LayoutHint;
   /**
    * What the server knows about the panes a `reopen-closed-pane` just put
    * back, and only those (ADR-179 ticket 10). Their sessions were still
@@ -364,6 +383,17 @@ export interface ElectronAPI {
    * native dialogs) — never to guess at a capability the bridge can report.
    */
   platform: "electron" | "web";
+
+  /**
+   * This renderer's id, as the Manor server names it in a command's origin
+   * (ADR-179 D3): the desktop's `webContents.id`, a browser's bridge
+   * connection id. Null in a browser until the socket has said hello.
+   *
+   * Its one job is telling a renderer's own `layout.changed` from everybody
+   * else's, so a command's selection hint lands only on the window that sent
+   * it.
+   */
+  rendererId: string | null;
 
   env: {
     isPackaged: boolean;
@@ -452,6 +482,18 @@ export interface ElectronAPI {
       viewport: PersistedDefaultViewport,
     ) => Promise<void>;
     onChanged: (callback: (payload: LayoutChangedPayload) => void) => () => void;
+  };
+
+  /**
+   * This renderer's own viewport file (ADR-179 D3).
+   *
+   * Deliberately *not* in the bridge handler table: a browser answers both
+   * calls itself out of `localStorage` (`src/web/unavailable.ts`), because
+   * the selection a phone remembers is the phone's, not the host's.
+   */
+  viewport: {
+    load: () => Promise<PersistedViewportFile | null>;
+    save: (file: PersistedViewportFile) => Promise<void>;
   };
 
   projects: {

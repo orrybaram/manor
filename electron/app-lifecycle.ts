@@ -56,6 +56,7 @@ import {
 } from "./notifications";
 import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
+import * as viewportIpc from "./ipc/viewport";
 import * as projectsIpc from "./ipc/projects";
 import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
@@ -249,14 +250,7 @@ export function initApp(devTitle: string | null): void {
    */
   const layoutStore = new LayoutStore(
     layoutPersistence,
-    (workspacePath, version, layout, claims, restored) => {
-      const payload = {
-        workspacePath,
-        version,
-        layout,
-        claims,
-        ...(restored && { restored }),
-      };
+    (payload) => {
       publishRendererBroadcast("layout", "changed", payload);
       for (const win of getRendererWindows()) {
         if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
@@ -516,6 +510,7 @@ export function initApp(devTitle: string | null): void {
 
   ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);
+  viewportIpc.register(ipcDeps);
   projectsIpc.register(ipcDeps);
   themeIpc.register(ipcDeps);
   portsIpc.register(ipcDeps);

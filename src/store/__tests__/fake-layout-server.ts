@@ -32,13 +32,24 @@ import {
   createSinglePanelLayout,
   type WorkspaceLayout,
 } from "../../lib/layout/workspace-layout";
-import type { PersistedPaneSession } from "../../electron.d";
+import {
+  emptyViewport,
+  reconcileViewport,
+  type LayoutHint,
+  type WorkspaceViewport,
+} from "../../lib/layout/viewport";
+import type { PersistedPaneSession, PersistedViewportFile } from "../../electron.d";
+
+/** What the fake calls the renderer under test — matching `rendererId`. */
+export const FAKE_RENDERER_ID = "test-renderer";
 
 interface Broadcast {
   workspacePath: string;
   version: number;
   layout: WorkspaceLayout;
   claims: never[];
+  origin?: { kind: "window" | "bridge" | "route"; id: string };
+  hint?: LayoutHint;
   /** Only a `reopen-closed-pane` carries this (ADR-179 ticket 10). */
   restored?: Record<string, PersistedPaneSession>;
 }
@@ -49,6 +60,35 @@ const listeners = new Set<Listener>();
 const layouts = new Map<string, WorkspaceLayout>();
 const versions = new Map<string, number>();
 const closedStacks = new Map<string, ClosedPane[]>();
+const defaultViewports = new Map<string, WorkspaceViewport>();
+
+/** Every viewport report the store has made, newest last. */
+export const reportedViewports: Array<{
+  workspacePath: string;
+  rendererId: string;
+  viewport: WorkspaceViewport;
+}> = [];
+
+/** The renderer's own viewport file, as `viewport.load()` will answer it. */
+let viewportFile: PersistedViewportFile | null = null;
+
+/** What `viewport.save()` was last handed. */
+export function savedViewportFile(): PersistedViewportFile | null {
+  return viewportFile;
+}
+
+/** Seed the renderer's viewport file — a relaunch with a remembered tab. */
+export function seedViewportFile(file: PersistedViewportFile | null): void {
+  viewportFile = file;
+}
+
+/** Give the server a workspace's default viewport, for a renderer with none. */
+export function seedDefaultViewport(
+  workspacePath: string,
+  viewport: WorkspaceViewport,
+): void {
+  defaultViewports.set(workspacePath, viewport);
+}
 
 /** Every command the store has sent since the last reset, newest last. */
 export const sentCommands: Array<{
@@ -77,6 +117,7 @@ export function broadcastLayout(
   layout: WorkspaceLayout,
   version?: number,
   restored?: Record<string, PersistedPaneSession>,
+  extra?: { origin?: Broadcast["origin"]; hint?: LayoutHint },
 ): void {
   const next = version ?? (versions.get(workspacePath) ?? 0) + 1;
   versions.set(workspacePath, Math.max(next, versions.get(workspacePath) ?? 0));
@@ -87,6 +128,8 @@ export function broadcastLayout(
       version: next,
       layout,
       claims: [],
+      ...(extra?.origin && { origin: extra.origin }),
+      ...(extra?.hint && { hint: extra.hint }),
       ...(restored && { restored }),
     });
   }
@@ -96,7 +139,20 @@ export function resetFakeLayoutServer(): void {
   layouts.clear();
   versions.clear();
   closedStacks.clear();
+  defaultViewports.clear();
+  reportedViewports.length = 0;
+  viewportFile = null;
   sentCommands.length = 0;
+}
+
+/** The `viewport` namespace of `window.electronAPI`, served from memory. */
+export function fakeViewportApi(): Record<string, unknown> {
+  return {
+    load: async () => viewportFile,
+    save: async (file: PersistedViewportFile) => {
+      viewportFile = file;
+    },
+  };
 }
 
 /** The `layout` namespace of `window.electronAPI`, served from memory. */
@@ -108,11 +164,10 @@ export function fakeLayoutApi(): Record<string, unknown> {
         all[workspacePath] = {
           version: versions.get(workspacePath) ?? 0,
           layout,
-          defaultViewport: {
-            activePanelId: layout.activePanelId,
-            selectedTabIds: {},
-            focusedPaneIds: {},
-          },
+          defaultViewport: reconcileViewport(
+            layout,
+            defaultViewports.get(workspacePath) ?? emptyViewport(),
+          ),
           paneSessions: {},
         };
       }
@@ -131,7 +186,7 @@ export function fakeLayoutApi(): Record<string, unknown> {
       // brand-new workspace lands anywhere.
       const layout =
         layouts.get(workspacePath) ??
-        createSinglePanelLayout(`panel-${sentCommands.length}`, [], "", []);
+        createSinglePanelLayout(`panel-${sentCommands.length}`, [], []);
 
       const result = applyLayoutCommand(
         { layout, closedStack: closedStacks.get(workspacePath) ?? [] },
@@ -140,7 +195,13 @@ export function fakeLayoutApi(): Record<string, unknown> {
       closedStacks.set(workspacePath, result.closedStack);
       if (result.layout === layout) return { version };
 
-      broadcastLayout(workspacePath, result.layout, version + 1);
+      // The command's selection hint rides back with the broadcast, tagged
+      // with the renderer that sent it, exactly as the server does it.
+      const { killPanes: _k, releasedPanes: _r, ...hint } = result.effects;
+      broadcastLayout(workspacePath, result.layout, version + 1, undefined, {
+        origin: { kind: "window", id: FAKE_RENDERER_ID },
+        ...(Object.keys(hint).length > 0 && { hint }),
+      });
       return { version: version + 1 };
     },
     remove: async (workspacePath: string) => {
@@ -148,7 +209,14 @@ export function fakeLayoutApi(): Record<string, unknown> {
       versions.delete(workspacePath);
       closedStacks.delete(workspacePath);
     },
-    reportViewport: async () => undefined,
+    reportViewport: async (
+      workspacePath: string,
+      rendererId: string,
+      viewport: WorkspaceViewport,
+    ) => {
+      reportedViewports.push({ workspacePath, rendererId, viewport });
+      defaultViewports.set(workspacePath, viewport);
+    },
     onChanged: (listener: Listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

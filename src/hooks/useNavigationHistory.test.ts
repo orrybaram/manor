@@ -30,18 +30,15 @@ function makeLayout(panelId: string, tabId: string): WorkspaceLayout {
     id: tabId,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: tabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -232,11 +229,9 @@ describe("navigator bridge — prune", () => {
         "panel-empty": {
           id: "panel-empty",
           tabs: [],
-          selectedTabId: "",
           pinnedTabIds: [],
         },
       },
-      activePanelId: "panel-empty",
     };
     const emptyLoc: Location = {
       kind: "workspace",

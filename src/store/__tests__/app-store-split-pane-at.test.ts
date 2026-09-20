@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore } from "../app-store";
+import { useAppStore, selectFocusedPaneId } from "../app-store";
+import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, WorkspaceLayout } from "../app-store";
 import {
   resetFakeLayoutServer,
@@ -22,18 +23,15 @@ function makeLayout(): WorkspaceLayout {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf" as const, paneId: ORIGINAL_PANE_ID },
-    focusedPaneId: ORIGINAL_PANE_ID,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: "tab-1",
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
@@ -46,6 +44,7 @@ function setupStore(layout?: WorkspaceLayout) {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: start },
+    viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -64,9 +63,9 @@ function setupStore(layout?: WorkspaceLayout) {
 
 function getActiveTab() {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[WS_PATH];
-  const panel = layout.panels[layout.activePanelId];
-  return panel.tabs.find((t) => t.id === "tab-1")!;
+  return state.workspaceLayouts[WS_PATH].panels["panel-1"].tabs.find(
+    (t) => t.id === "tab-1",
+  )!;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ describe("splitPaneAt", () => {
     expect(newPane).not.toBe(ORIGINAL_PANE_ID);
 
     const tab = getActiveTab();
-    expect(tab.focusedPaneId).toBe(newPane);
+    expect(selectFocusedPaneId(useAppStore.getState(), tab.id)).toBe(newPane);
     expect(tab.rootNode).toEqual({
       type: "split",
       direction: "horizontal",

@@ -54,11 +54,26 @@ const detachedWindowId = detachedArg
   : null;
 const isDetached = detachedWindowId !== null;
 
+// Who this renderer is, as the Manor server names it in a layout command's
+// origin (ADR-179 D3): `webContents.id`, which main knows and a page cannot
+// be told through `additionalArguments` — the id does not exist until the
+// window that owns this preload does. Synchronous for the same reason
+// `isPackaged` is: the store reads it while handling a broadcast.
+let rendererId: string | null = null;
+try {
+  rendererId = String(ipcRenderer.sendSync("viewport:rendererId"));
+} catch {
+  // No handler yet (a window opened before `registerIpcHandlers`): a null id
+  // matches no origin, so selection hints are simply not applied.
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   // Which implementation of this interface answers (ADR-178 D8). The web
   // bridge reports "web"; a component that has to hide a native-only action
   // reads this rather than sniffing the user agent.
   platform: "electron",
+
+  rendererId,
 
   env: {
     isPackaged,
@@ -163,6 +178,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on("layout:changed", listener);
       return () => ipcRenderer.removeListener("layout:changed", listener);
     },
+  },
+
+  // This renderer's own viewport file (ADR-179 D3) — never the bridge's.
+  viewport: {
+    load: () => ipcRenderer.invoke("viewport:load"),
+    save: (file: unknown) => ipcRenderer.invoke("viewport:save", file),
   },
 
   projects: {

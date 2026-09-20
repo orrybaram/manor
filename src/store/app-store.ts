@@ -10,6 +10,7 @@ import {
   prevPaneId,
 } from "../lib/layout/pane-tree";
 import {
+  type PanelNode,
   allPanelIds,
   removePanel as removePanelFromTree,
   nextPanelId,
@@ -24,10 +25,19 @@ import {
   findPanelWithTab,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
+import {
+  type WorkspaceViewport,
+  EMPTY_VIEWPORT,
+  applyHint,
+  emptyViewport,
+  reconcileViewport,
+} from "../lib/layout/viewport";
+import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   AgentState,
   LayoutChangedPayload,
   PersistedPaneSession,
+  PersistedViewportFile,
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
@@ -52,8 +62,12 @@ function createTab(title?: string, paneId?: string): Tab {
     id: newTabId(),
     title: title ?? "Terminal",
     rootNode: { type: "leaf", paneId: id },
-    focusedPaneId: id,
   };
+}
+
+/** A fresh tab's only pane — the one a caller wants to run a command in. */
+function firstPaneOfTab(tab: Tab): string {
+  return allPaneIds(tab.rootNode)[0];
 }
 
 function newPanelId(): string {
@@ -80,6 +94,16 @@ export interface AppState {
    * had read.
    */
   serverLayouts: Record<string, WorkspaceLayout>;
+  /**
+   * What *this* renderer is looking at, per workspace (ADR-179 D3).
+   *
+   * The tab set is shared and the server owns it; the selection is not. Every
+   * write here is local — no command goes anywhere — and the whole slice is
+   * persisted per renderer (`viewport.json` on the desktop, `localStorage` in
+   * a browser) and reported to the host as the workspace's default viewport
+   * for renderers that have none.
+   */
+  viewports: Record<string, WorkspaceViewport>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
@@ -353,13 +377,100 @@ export interface AppState {
 }
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
-export function selectActiveWorkspace(
-  state: AppState,
-): Panel | null {
-  if (!state.activeWorkspacePath) return null;
-  const layout = state.workspaceLayouts[state.activeWorkspacePath];
+export function selectActiveWorkspace(state: AppState): Panel | null {
+  return getActivePanelContext(state)?.panel ?? null;
+}
+
+/** The panel this window has the keyboard in, or null. */
+export function selectActivePanelId(
+  state: Pick<
+    AppState,
+    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
+  >,
+): string | null {
+  return getActivePanelContext(state)?.panel.id ?? null;
+}
+
+/**
+ * The tab a panel is showing.
+ *
+ * Falls back to the panel's first tab rather than to nothing: a workspace
+ * whose viewport has not been reconciled yet (a layout adopted this tick, a
+ * test that seeded only the structure) still has to render something, and
+ * "the first tab" is what `reconcileViewport` would have written anyway.
+ */
+export function selectSelectedTabId(
+  state: Pick<AppState, "workspaceLayouts" | "viewports" | "activeWorkspacePath">,
+  panelId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  const path = workspacePath ?? state.activeWorkspacePath;
+  if (!path || !panelId) return null;
+  const panel = state.workspaceLayouts[path]?.panels[panelId];
+  if (!panel) return null;
+  const chosen = state.viewports[path]?.selectedTabIds[panelId];
+  if (chosen !== undefined && panel.tabs.some((t) => t.id === chosen)) {
+    return chosen;
+  }
+  return panel.tabs[0]?.id ?? null;
+}
+
+/** The pane a tab focuses, falling back to its first pane. */
+export function selectFocusedPaneId(
+  state: Pick<AppState, "workspaceLayouts" | "viewports" | "activeWorkspacePath">,
+  tabId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  const path = workspacePath ?? state.activeWorkspacePath;
+  if (!path || !tabId) return null;
+  const layout = state.workspaceLayouts[path];
   if (!layout) return null;
-  return layout.panels[layout.activePanelId] ?? null;
+  const found = findPanelWithTab(layout, tabId);
+  if (!found) return null;
+  const chosen = state.viewports[path]?.focusedPaneIds[tabId];
+  if (chosen !== undefined && hasPaneId(found.tab.rootNode, chosen)) {
+    return chosen;
+  }
+  return allPaneIds(found.tab.rootNode)[0] ?? null;
+}
+
+/** The pane the keyboard is in: active panel → selected tab → focused pane. */
+export function selectFocusedPaneOfActiveTab(state: AppState): string | null {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return null;
+  const tabId = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  return selectFocusedPaneId(state, tabId, ctx.path);
+}
+
+/** `useActivePanel()` — the panel id this window has the keyboard in. */
+export function useActivePanel(workspacePath?: string | null): string | null {
+  return useAppStore((state) =>
+    workspacePath === undefined
+      ? selectActivePanelId(state)
+      : workspacePath
+        ? activePanelIdOf(state, workspacePath)
+        : null,
+  );
+}
+
+/** `useSelectedTab(panelId)` — the tab that panel is showing. */
+export function useSelectedTab(
+  panelId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  return useAppStore((state) =>
+    selectSelectedTabId(state, panelId, workspacePath),
+  );
+}
+
+/** `useFocusedPane(tabId)` — the pane that tab focuses. */
+export function useFocusedPane(
+  tabId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  return useAppStore((state) =>
+    selectFocusedPaneId(state, tabId, workspacePath),
+  );
 }
 
 /**
@@ -374,7 +485,8 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
   const ctx = getActiveLayoutContext(state);
   if (!ctx) return false;
   return Object.values(ctx.layout.panels).some((panel) => {
-    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    const tabId = selectSelectedTabId(state, panel.id, ctx.path);
+    const tab = panel.tabs.find((t) => t.id === tabId);
     return tab ? hasPaneId(tab.rootNode, paneId) : false;
   });
 }
@@ -392,7 +504,10 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * clicking the agent, switching tabs, focusing a pane, or changing workspace.
  */
 export function selectVisiblePaneIds(
-  state: Pick<AppState, "activeWorkspacePath" | "workspaceLayouts">,
+  state: Pick<
+    AppState,
+    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
+  >,
 ): Set<string> {
   const ids = new Set<string>();
   const path = state.activeWorkspacePath;
@@ -400,7 +515,8 @@ export function selectVisiblePaneIds(
   const layout = state.workspaceLayouts[path];
   if (!layout) return ids;
   for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    const tabId = selectSelectedTabId(state, panel.id, path);
+    const tab = panel.tabs.find((t) => t.id === tabId);
     if (!tab) continue;
     for (const id of allPaneIds(tab.rootNode)) ids.add(id);
   }
@@ -429,19 +545,85 @@ export function selectCurrentLocation(state: AppState): Location {
     kind: "workspace",
     workspacePath: ctx.path,
     panelId: ctx.panel.id,
-    tabId: ctx.panel.selectedTabId,
+    tabId: selectSelectedTabId(state, ctx.panel.id, ctx.path) ?? "",
   };
 }
 
-// Internal helpers for active panel context
-function getActivePanelContext(state: AppState): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
+/** This window's viewport for a workspace; empty rather than absent. */
+function viewportOf(
+  state: Pick<AppState, "viewports">,
+  path: string,
+): WorkspaceViewport {
+  return state.viewports[path] ?? EMPTY_VIEWPORT;
+}
+
+/**
+ * The panel this window has the keyboard in, for one workspace.
+ *
+ * Falls back to the leftmost panel: a viewport can name a panel another
+ * renderer has since closed, and a workspace adopted this tick has no
+ * viewport entry at all.
+ */
+function activePanelIdOf(
+  state: Pick<AppState, "workspaceLayouts" | "viewports">,
+  path: string,
+): string | null {
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return null;
+  const chosen = viewportOf(state, path).activePanelId;
+  if (chosen !== null && layout.panels[chosen]) return chosen;
+  const inTree = allPanelIds(layout.panelTree).find(
+    (id) => layout.panels[id] !== undefined,
+  );
+  return inTree ?? Object.keys(layout.panels)[0] ?? null;
+}
+
+function getActivePanelContext(
+  state: Pick<
+    AppState,
+    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
+  >,
+): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
   const path = state.activeWorkspacePath;
   if (!path) return null;
   const layout = state.workspaceLayouts[path];
   if (!layout) return null;
-  const panel = layout.panels[layout.activePanelId];
+  const panelId = activePanelIdOf(state, path);
+  const panel = panelId ? layout.panels[panelId] : undefined;
   if (!panel) return null;
   return { path, layout, panel };
+}
+
+/** The tab the active panel shows, with the context that found it. */
+function getActiveTabContext(state: AppState): {
+  path: string;
+  layout: WorkspaceLayout;
+  panel: Panel;
+  tab: Tab;
+} | null {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return null;
+  const tabId = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  const tab = ctx.panel.tabs.find((t) => t.id === tabId);
+  return tab ? { ...ctx, tab } : null;
+}
+
+/**
+ * Write this window's viewport for one workspace, reconciled against the
+ * layout it is about. Every viewport action goes through here, so no action
+ * can leave a selection pointing at a tab that is not there.
+ */
+function withViewport(
+  state: AppState,
+  path: string,
+  update: (viewport: WorkspaceViewport) => WorkspaceViewport,
+): Partial<AppState> {
+  const layout = state.workspaceLayouts[path];
+  const current = viewportOf(state, path);
+  const next = update(current);
+  const reconciled = layout ? reconcileViewport(layout, next) : next;
+  if (reconciled === current) return {};
+  return { viewports: { ...state.viewports, [path]: reconciled } };
 }
 
 /**
@@ -477,6 +659,22 @@ function globalTabList(layout: WorkspaceLayout): Array<{ tabId: string; panelId:
   return result;
 }
 
+/**
+ * Move the selection one tab along, wrapping, across every panel of the
+ * active workspace. `cmd+shift+]` is a workspace-wide walk, not a per-panel
+ * one, so the panel changes with it.
+ */
+function stepTab(state: AppState, step: 1 | -1): Partial<AppState> {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return {};
+  const tabs = globalTabList(ctx.layout);
+  if (tabs.length === 0) return {};
+  const current = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  const currentIdx = tabs.findIndex((t) => t.tabId === current);
+  const nextIdx = (currentIdx + step + tabs.length) % tabs.length;
+  return selectTabLocally(state, ctx.path, tabs[nextIdx].tabId);
+}
+
 function updatePanel(
   state: AppState,
   path: string,
@@ -503,7 +701,6 @@ function diffTab(paneId: string): Tab {
     id: newTabId(),
     title: "Diff",
     rootNode: { type: "leaf", paneId, contentType: "diff" },
-    focusedPaneId: paneId,
   };
 }
 
@@ -527,8 +724,8 @@ function findDiffPane(
 
 /**
  * Put this window's attention on a pane: its panel active, its tab selected,
- * the pane focused. Viewport, so it is written straight into the replica and
- * no command goes anywhere (ADR-179 D3; ticket 4 gives it its own slice).
+ * the pane focused. Viewport, so it is written into this renderer's own slice
+ * and no command goes anywhere (ADR-179 D3).
  */
 function focusPaneLocally(
   state: AppState,
@@ -540,37 +737,86 @@ function focusPaneLocally(
   for (const [panelId, panel] of Object.entries(layout.panels)) {
     const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
     if (!tab) continue;
-    return {
-      workspaceLayouts: {
-        ...state.workspaceLayouts,
-        [path]: {
-          ...layout,
-          activePanelId: panelId,
-          panels: {
-            ...layout.panels,
-            [panelId]: {
-              ...panel,
-              selectedTabId: tab.id,
-              tabs: panel.tabs.map((t) =>
-                t.id === tab.id ? { ...t, focusedPaneId: paneId } : t,
-              ),
-            },
-          },
-        },
-      },
-    };
+    return withViewport(state, path, (vp) => ({
+      ...vp,
+      activePanelId: panelId,
+      selectedTabIds: { ...vp.selectedTabIds, [panelId]: tab.id },
+      focusedPaneIds: { ...vp.focusedPaneIds, [tab.id]: paneId },
+    }));
   }
   return {};
 }
 
-/** A viewport-only patch: the panel the user is looking at, in one workspace. */
-function updateActivePanel(
+/**
+ * Repair the viewport after a *local* structural write.
+ *
+ * The three detach helpers are the last places a renderer changes its own
+ * layout without a command (ADR-179 ticket 6 removes them); their patch has
+ * to take the viewport with it, or the selection is left pointing at a tab
+ * that no longer exists.
+ */
+function reconcileAfter(
   state: AppState,
-  updater: (panel: Panel) => Panel,
+  path: string,
+  patch: Partial<AppState>,
+): Partial<AppState> {
+  const layout = patch.workspaceLayouts?.[path];
+  if (!layout) return {};
+  const current = viewportOf(state, path);
+  const next = reconcileViewport(layout, current);
+  if (next === current) return {};
+  return { viewports: { ...state.viewports, [path]: next } };
+}
+
+/** Walk the keyboard one panel along the panel tree. */
+function stepPanel(
+  state: AppState,
+  step: (tree: PanelNode, from: string) => string | null,
 ): Partial<AppState> {
   const ctx = getActivePanelContext(state);
   if (!ctx) return {};
-  return updatePanel(state, ctx.path, ctx.layout, ctx.panel.id, updater);
+  const next = step(ctx.layout.panelTree, ctx.panel.id);
+  if (!next) return {};
+  return withViewport(state, ctx.path, (vp) => ({
+    ...vp,
+    activePanelId: next,
+  }));
+}
+
+/**
+ * Walk the focus one pane along inside the tab the active panel is showing.
+ */
+function stepPane(
+  state: AppState,
+  step: (node: PaneNode, from: string) => string | null,
+): Partial<AppState> {
+  const ctx = getActiveTabContext(state);
+  if (!ctx) return {};
+  const current = selectFocusedPaneId(state, ctx.tab.id, ctx.path);
+  if (!current) return {};
+  const next = step(ctx.tab.rootNode, current);
+  if (!next) return {};
+  return withViewport(state, ctx.path, (vp) => ({
+    ...vp,
+    focusedPaneIds: { ...vp.focusedPaneIds, [ctx.tab.id]: next },
+  }));
+}
+
+/** Select a tab, wherever it is: its panel shows it and takes the keyboard. */
+function selectTabLocally(
+  state: AppState,
+  path: string,
+  tabId: string,
+): Partial<AppState> {
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return {};
+  const found = findPanelWithTab(layout, tabId);
+  if (!found) return {};
+  return withViewport(state, path, (vp) => ({
+    ...vp,
+    activePanelId: found.panel.id,
+    selectedTabIds: { ...vp.selectedTabIds, [found.panel.id]: tabId },
+  }));
 }
 
 // ── Layout, owned by the Manor server (ADR-179 D1) ──
@@ -584,12 +830,10 @@ function updateActivePanel(
 // apply and no second reducer, which is what makes two renderers of one host
 // impossible to desynchronise rather than merely unlikely to.
 //
-// One exception, for one more ticket: the *viewport* fields
-// (`panels[].selectedTabId`, `tabs[].focusedPaneId`, `activePanelId`) still
-// live inside the structural types, so the actions that only move this
-// window's attention write them into the replica directly, and
-// `reconcileViewport` carries them across a broadcast. ADR-179 ticket 4 moves
-// them into a slice of their own and this paragraph goes with it.
+// The actions that only move *this window's* attention — select a tab, focus
+// a pane, activate a panel — send nothing at all. They are viewport (D3),
+// they write the `viewports` slice, and the server has no answer to "which
+// window?" to give them.
 
 /**
  * Send one command for one workspace, and forget it.
@@ -616,96 +860,6 @@ function sendLayoutCommand(
     });
 }
 
-/** Every pane of one tab, as a set. */
-function tabPaneIds(tab: Tab): Set<string> {
-  return new Set(allPaneIds(tab.rootNode));
-}
-
-function sameMembers(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const value of a) if (!b.has(value)) return false;
-  return true;
-}
-
-/**
- * Keep this window's selection across a broadcast (ADR-179 D3, until ticket 4).
- *
- * The server's copy of the focus fields is whatever the last *command* left
- * there, which is not what this window is looking at: selecting a tab or
- * focusing a pane is viewport, sends nothing, and so never reaches the
- * server. Replacing the replica wholesale would therefore yank the user back
- * to some other renderer's tab on every split.
- *
- * So the local value wins — unless the change that just landed is one that
- * moves the selection on purpose. That is decided structurally, with no
- * memory of who sent what: a panel whose tab set changed (a tab opened,
- * closed or moved) takes the server's selected tab, as does a panel whose
- * selected tab just gained or lost panes; a tab whose pane set changed (a
- * split, a close) takes the server's focused pane. Everything else keeps what
- * this window had, and anything naming an id that no longer exists falls back
- * to the server's.
- */
-function reconcileViewport(
-  next: WorkspaceLayout,
-  local: WorkspaceLayout | undefined,
-): WorkspaceLayout {
-  if (!local) return next;
-
-  const panels: Record<string, Panel> = {};
-  for (const [panelId, nextPanel] of Object.entries(next.panels)) {
-    const localPanel = local.panels[panelId];
-    const tabs = nextPanel.tabs.map((nextTab) => {
-      const localTab = localPanel?.tabs.find((t) => t.id === nextTab.id);
-      if (!localTab) return nextTab;
-      const keepFocus =
-        sameMembers(tabPaneIds(localTab), tabPaneIds(nextTab)) &&
-        hasPaneId(nextTab.rootNode, localTab.focusedPaneId);
-      return keepFocus
-        ? { ...nextTab, focusedPaneId: localTab.focusedPaneId }
-        : nextTab;
-    });
-
-    const sameTabs =
-      localPanel !== undefined &&
-      sameMembers(
-        new Set(localPanel.tabs.map((t) => t.id)),
-        new Set(nextPanel.tabs.map((t) => t.id)),
-      );
-    const serverTab = nextPanel.tabs.find(
-      (t) => t.id === nextPanel.selectedTabId,
-    );
-    const localOfServerTab = localPanel?.tabs.find(
-      (t) => t.id === nextPanel.selectedTabId,
-    );
-    // Something landed *in* the tab the server points at — a tab dropped onto
-    // its pane tree, say. That is a change worth following.
-    const serverTabGrew =
-      serverTab !== undefined &&
-      localOfServerTab !== undefined &&
-      !sameMembers(tabPaneIds(localOfServerTab), tabPaneIds(serverTab));
-    const keepSelection =
-      sameTabs &&
-      !serverTabGrew &&
-      nextPanel.tabs.some((t) => t.id === localPanel.selectedTabId);
-
-    panels[panelId] = {
-      ...nextPanel,
-      tabs,
-      ...(keepSelection && { selectedTabId: localPanel.selectedTabId }),
-    };
-  }
-
-  const samePanels = sameMembers(
-    new Set(Object.keys(local.panels)),
-    new Set(Object.keys(next.panels)),
-  );
-  const activePanelId =
-    samePanels && panels[local.activePanelId]
-      ? local.activePanelId
-      : next.activePanelId;
-
-  return { ...next, panels, activePanelId };
-}
 
 /** Every pane the layout renders, across every panel and tab. */
 function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
@@ -786,7 +940,7 @@ const removingWorkspaces = new Set<string>();
  * both normal, and neither has anything new to say.
  */
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
-  const { workspacePath, version, layout, restored } = payload;
+  const { workspacePath, version, layout, restored, origin, hint } = payload;
   if (removingWorkspaces.has(workspacePath)) return;
   useAppStore.setState((state) => {
     if (version <= (state.layoutVersions[workspacePath] ?? 0)) return {};
@@ -795,14 +949,24 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
       serverLayouts: { ...state.serverLayouts, [workspacePath]: layout },
       layoutVersions: { ...state.layoutVersions, [workspacePath]: version },
     };
-    // A workspace this window has never opened stays unopened: its panes
-    // would otherwise mount — and spawn shells — behind the user's back.
     if (!local && workspacePath !== state.activeWorkspacePath) return seen;
 
-    const merged = reconcileViewport(layout, local);
+    const merged = layout;
+    // Structure is replaced wholesale; the selection is this window's and
+    // survives, repaired against the tree that just arrived. The command's
+    // selection hint applies only to the renderer that sent it (D3).
+    const own = hint && origin && origin.id === rendererId();
+    const before = viewportOf(state, workspacePath);
+    const viewport = own
+      ? applyHint(merged, reconcileViewport(merged, before), hint)
+      : reconcileViewport(merged, before);
+
     const patch: Partial<AppState> = {
       ...seen,
       workspaceLayouts: { ...state.workspaceLayouts, [workspacePath]: merged },
+      ...(viewport !== before && {
+        viewports: { ...state.viewports, [workspacePath]: viewport },
+      }),
     };
 
     const { contentTypes, urls } = leafSideMaps(merged);
@@ -869,12 +1033,13 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
 }
 
 /**
- * The workspace/surface that was active when the layout last changed — the
- * surface the boot sequence restores (including Home's `HOME_PATH`).
+ * The surface to reopen on relaunch (including Home's `HOME_PATH`).
  *
- * Read from the server by `loadPersistedLayout`; null until it resolves, and
- * null when nothing has ever been persisted. Viewport, strictly speaking, and
- * ADR-179 ticket 4 moves it into the per-renderer viewport file.
+ * This renderer's own, out of its viewport file — which is the point of
+ * ADR-179 D3: two windows of one host reopen where each of them was, not
+ * where the last command happened to land. The server's
+ * `layout.getLastActive()` is the fallback for a renderer that has never
+ * saved a viewport, and for the very first launch it is null too.
  */
 let lastActiveWorkspacePath: string | null = null;
 
@@ -882,10 +1047,104 @@ export function getPersistedActiveWorkspacePath(): string | null {
   return lastActiveWorkspacePath;
 }
 
+// ──────────────────────── viewport, per renderer ─────────────────────────
+
+/**
+ * Who this renderer is, as the server names it in a command's origin: the
+ * desktop's `webContents.id`, a browser's bridge connection id. Read fresh
+ * every time — the web bridge only learns it once the socket says hello, and
+ * learns a new one after a reconnect.
+ */
+function rendererId(): string | null {
+  return window.electronAPI?.rendererId ?? null;
+}
+
+/** How long a selection waits before it reaches this renderer's file. */
+const VIEWPORT_DEBOUNCE_MS = 300;
+
+/**
+ * A detached window is a second renderer looking at one tab; persisting its
+ * viewport would fight the primary's on the way back in. ADR-179 ticket 6
+ * makes it a claim and this goes away.
+ */
+function persistsViewport(): boolean {
+  return window.electronAPI?.isDetached !== true;
+}
+
+let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Write this renderer's whole viewport file, debounced. */
+function scheduleViewportSave(): void {
+  if (!persistsViewport()) return;
+  if (viewportTimer) return;
+  viewportTimer = setTimeout(() => {
+    viewportTimer = null;
+    const { viewports, activeWorkspacePath } = useAppStore.getState();
+    const api = window.electronAPI;
+    if (!api?.viewport) return;
+    void api.viewport
+      .save({ version: 1, activeWorkspacePath, workspaces: viewports })
+      ?.catch(
+        handleBridgeUnavailable(
+          "viewport-save",
+          "This browser cannot remember which tabs you had selected.",
+        ),
+      );
+  }, VIEWPORT_DEBOUNCE_MS);
+  viewportTimer.unref?.();
+}
+
+/**
+ * Tell the host what this renderer is looking at.
+ *
+ * Fire-and-forget: the server keeps the last report as the workspace's
+ * **default viewport**, which is what a renderer that has never seen this
+ * workspace is handed (D3). Nothing here waits for it and nothing reads it
+ * back.
+ */
+/**
+ * This renderer's viewport file, or null when it has none — a first launch,
+ * a detached window, a browser whose `localStorage` is empty. A failure to
+ * read it is a first launch too: booting without a remembered selection is a
+ * great deal better than not booting.
+ */
+async function loadOwnViewport(): Promise<PersistedViewportFile | null> {
+  if (!persistsViewport()) return null;
+  try {
+    return (await window.electronAPI?.viewport?.load()) ?? null;
+  } catch (err) {
+    console.error("[viewport] failed to read the viewport file:", err);
+    return null;
+  }
+}
+
+function reportViewport(
+  workspacePath: string,
+  viewport: WorkspaceViewport,
+): void {
+  // A detached window holds one handed-off tab under the *source* workspace's
+  // path; its viewport is not an answer to "what is this workspace showing",
+  // and making it the default would hand the next renderer a window of one
+  // tab. ADR-179 ticket 6 makes it a claim and this guard goes.
+  if (!persistsViewport()) return;
+  const api = window.electronAPI;
+  const id = rendererId();
+  if (!api?.layout?.reportViewport || id === null) return;
+  void api.layout
+    .reportViewport(workspacePath, id, viewport)
+    ?.catch(
+      handleBridgeUnavailable(
+        "viewport-report",
+        "This browser cannot tell Manor which tabs it is showing.",
+      ),
+    );
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
   layoutVersions: {},
   serverLayouts: {},
+  viewports: {},
   activeWorkspacePath: null,
   paneCwd: {},
   paneTitle: {},
@@ -909,11 +1168,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadPersistedLayout: async () => {
     try {
       const api = window.electronAPI;
-      const [entries, lastActive] = await Promise.all([
+      const [entries, lastActive, ownViewport] = await Promise.all([
         api?.layout.getAll() ?? {},
         api?.layout.getLastActive() ?? null,
+        loadOwnViewport(),
       ]);
-      lastActiveWorkspacePath = lastActive;
+      lastActiveWorkspacePath = ownViewport?.activeWorkspacePath ?? lastActive;
 
       // Every workspace's version lands now; its *layout* lands when the
       // workspace is first opened (`setActiveWorkspace`). Adopting them all
@@ -927,9 +1187,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       const urls: Record<string, string> = {};
 
       const fromServer: Record<string, WorkspaceLayout> = {};
+      // This renderer's own selection where it has one; the host's default
+      // viewport where it does not — then reconciled against the tree the
+      // server just handed over, which may have moved on since either was
+      // written (ADR-179 D3).
+      const viewports: Record<string, WorkspaceViewport> = {};
       for (const [workspacePath, entry] of Object.entries(entries)) {
         versions[workspacePath] = entry.version;
         fromServer[workspacePath] = entry.layout;
+        const own = ownViewport?.workspaces?.[workspacePath];
+        viewports[workspacePath] = reconcileViewport(
+          entry.layout,
+          own ?? entry.defaultViewport ?? emptyViewport(),
+        );
         // What the server derived from the PTY events it forwards (D3): the
         // cwd a restored pane reopens in, the title its tab shows.
         const sessions = sessionSideMaps(entry.paneSessions);
@@ -945,6 +1215,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         layoutLoaded: true,
         layoutVersions: { ...state.layoutVersions, ...versions },
         serverLayouts: { ...state.serverLayouts, ...fromServer },
+        viewports: { ...viewports, ...state.viewports },
         paneCwd: { ...state.paneCwd, ...cwds },
         paneTitle: { ...state.paneTitle, ...titles },
         paneAgentStatus: { ...state.paneAgentStatus, ...agents },
@@ -973,6 +1244,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         activeWorkspacePath: path,
         workspaceLayouts: { ...state.workspaceLayouts, [path]: server },
+        viewports: {
+          ...state.viewports,
+          [path]: reconcileViewport(server, viewportOf(state, path)),
+        },
       };
     }),
 
@@ -989,23 +1264,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         activeWorkspacePath: workspacePath,
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [workspacePath]: {
-            ...layout,
-            activePanelId: panel.id,
-            panels: {
-              ...layout.panels,
-              [panel.id]: {
-                ...panel,
-                selectedTabId: tabId,
-                tabs: panel.tabs.map((t) =>
-                  t.id === tabId ? { ...t, focusedPaneId: paneId } : t,
-                ),
-              },
-            },
-          },
-        },
+        ...withViewport(state, workspacePath, (vp) => ({
+          ...vp,
+          activePanelId: panel.id,
+          selectedTabIds: { ...vp.selectedTabIds, [panel.id]: tabId },
+          focusedPaneIds: { ...vp.focusedPaneIds, [tabId]: paneId },
+        })),
       };
     }),
 
@@ -1014,14 +1278,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!path) return null;
     const tab = createTab(undefined, adoptPaneId);
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
-    return { tabId: tab.id, paneId: tab.focusedPaneId };
+    return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
   },
 
   addTerminalTab: (command: string) => {
     const path = get().activeWorkspacePath;
     if (!path) return null;
     const tab = createTab();
-    const tabPaneId = tab.focusedPaneId;
+    const tabPaneId = firstPaneOfTab(tab);
     // The pane's own state first, the command second: the pane mounts when
     // the broadcast lands, and it reads these on the way up.
     set((state) => ({
@@ -1049,7 +1313,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: newTabId(),
       title,
       rootNode: { type: "leaf", paneId, contentType: "browser", url },
-      focusedPaneId: paneId,
     };
     // The pane's own state first: the broadcast brings the leaf back with the
     // same url, but the webview mounts from these maps and must not wait a
@@ -1075,7 +1338,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: newTabId(),
       title: "Diff",
       rootNode: { type: "leaf", paneId, contentType: "diff" },
-      focusedPaneId: paneId,
     };
     set((state) => ({
       paneContentType: { ...state.paneContentType, [paneId]: "diff" },
@@ -1103,8 +1365,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: newTabId(),
       title: sourceTab.title,
       rootNode: clonedRoot,
-      focusedPaneId:
-        idMap[sourceTab.focusedPaneId] ?? allPaneIds(clonedRoot)[0],
     };
     set((s) => {
       const paneContentType = { ...s.paneContentType };
@@ -1193,90 +1453,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   //
   // Selecting a tab, focusing a pane, activating a panel: what *this* window
   // is looking at. No command goes out — the server has no answer to "which
-  // window?" — so these write the replica directly, and `reconcileViewport`
-  // keeps them across the next broadcast. Ticket 4 moves them to a slice of
-  // their own and out of the layout entirely.
+  // window?" — so these write this renderer's own viewport slice, which is
+  // persisted per renderer and reconciled against every broadcast.
   selectTab: (tabId: string) =>
-    set((state) =>
-      updateActivePanel(state, (p) => ({ ...p, selectedTabId: tabId })),
-    ),
+    set((state) => {
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      return selectTabLocally(state, path, tabId);
+    }),
 
   selectTabByGlobalIndex: (index: number) =>
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
+      const tabs = globalTabList(ctx.layout);
       if (index < 0 || index >= tabs.length) return state;
-      const { tabId, panelId } = tabs[index];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
+      return selectTabLocally(state, ctx.path, tabs[index].tabId);
     }),
 
-  selectNextTab: () =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
-      if (tabs.length === 0) return state;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return state;
-      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
-      const nextIdx = (currentIdx + 1) % tabs.length;
-      const { tabId, panelId } = tabs[nextIdx];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
-    }),
+  selectNextTab: () => set((state) => stepTab(state, 1)),
 
-  selectPrevTab: () =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
-      if (tabs.length === 0) return state;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return state;
-      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
-      const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
-      const { tabId, panelId } = tabs[prevIdx];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
-    }),
+  selectPrevTab: () => set((state) => stepTab(state, -1)),
 
   reorderTabs: (tabIds: string[]) => {
     const state = get();
@@ -1298,13 +1495,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   // the command names a pane id, and the server never asks what anyone is
   // looking at (ADR-179 D1).
   splitPane: (direction: SplitDirection) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return;
-    const tab = ctx.panel.tabs.find((t) => t.id === ctx.panel.selectedTabId);
-    if (!tab) return;
-    sendLayoutCommand(ctx.path, {
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    const path = get().activeWorkspacePath;
+    if (!paneId || !path) return;
+    sendLayoutCommand(path, {
       type: "split-pane",
-      paneId: tab.focusedPaneId,
+      paneId,
       direction,
       newPaneId: newPaneId(),
     });
@@ -1405,6 +1601,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sole =
       found.tab.rootNode.type === "leaf" &&
       found.tab.rootNode.paneId === paneId;
+    // Already a tab of its own, staying where it is: nothing structural
+    // happens, so there is no command and no broadcast — only this window's
+    // selection moves (ADR-179 D3).
+    if (sole && (targetPanelId ?? found.panel.id) === found.panel.id) {
+      set(selectTabLocally(state, ctx.path, found.tab.id));
+      return found.tab.id;
+    }
     const mintedTabId = newTabId();
     sendLayoutCommand(ctx.path, {
       type: "extract-pane-to-tab",
@@ -1417,13 +1620,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closePane: () => {
-    const state = get();
-    const ctx = getActivePanelContext(state);
-    if (!ctx) return;
-    const { panel } = ctx;
-    const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-    if (!tab) return;
-    get().closePaneById(tab.focusedPaneId);
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    if (paneId) get().closePaneById(paneId);
   },
 
   closePaneById: (paneId: string) => {
@@ -1471,6 +1669,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const tab = panel.tabs.find((s) => s.id === tabId);
     if (!tab) return;
 
+
     const activeStatuses = ["thinking", "working", "requires_input"];
     const hasActiveAgent = allPaneIds(tab.rootNode).some((pid) => {
       const agentState = state.paneAgentStatus[pid];
@@ -1485,14 +1684,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   requestClosePane: () => {
-    const state = get();
-    const ctx = getActivePanelContext(state);
-    if (!ctx) return;
-    const { panel } = ctx;
-    const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-    if (!tab) return;
-    const focusedPaneId = tab.focusedPaneId;
-    get().requestClosePaneById(focusedPaneId);
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    if (paneId) get().requestClosePaneById(paneId);
   },
 
   requestClosePaneById: (paneId: string) => {
@@ -1515,39 +1708,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return focusPaneLocally(state, path, paneId);
     }),
 
-  focusNextPane: () =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-      if (!tab) return state;
-      const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!next) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id ? { ...s, focusedPaneId: next } : s,
-        ),
-      }));
-    }),
+  focusNextPane: () => set((state) => stepPane(state, nextPaneId)),
 
-  focusPrevPane: () =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-      if (!tab) return state;
-      const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!prev) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id ? { ...s, focusedPaneId: prev } : s,
-        ),
-      }));
-    }),
+  focusPrevPane: () => set((state) => stepPane(state, prevPaneId)),
 
   // Which pane is focused does not change — only the demand that it actually
   // hold the keyboard. The nonce is the whole message; the pane's auto-focus
@@ -1848,7 +2011,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       newPanelId: newPanelId(),
       // The selected tab moves into the new panel; if that empties the
       // source panel, it gets a fresh terminal rather than nothing.
-      tabId: ctx.panel.selectedTabId,
+      tabId: selectSelectedTabId(get(), ctx.panel.id, ctx.path) ?? undefined,
       fallbackTab: createTab(),
     });
   },
@@ -1867,47 +2030,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout || !layout.panels[panelId]) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: panelId },
-        },
-      };
+      if (!state.workspaceLayouts[path]?.panels[panelId]) return state;
+      return withViewport(state, path, (vp) => ({
+        ...vp,
+        activePanelId: panelId,
+      }));
     }),
 
-  focusNextPanel: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      const next = nextPanelId(layout.panelTree, layout.activePanelId);
-      if (!next) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: next },
-        },
-      };
-    }),
+  focusNextPanel: () => set((state) => stepPanel(state, nextPanelId)),
 
-  focusPrevPanel: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      const prev = prevPanelId(layout.panelTree, layout.activePanelId);
-      if (!prev) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: prev },
-        },
-      };
-    }),
+  focusPrevPanel: () => set((state) => stepPanel(state, prevPanelId)),
 
   updatePanelSplitRatio: (firstPanelId: string, ratio: number) => {
     const path = get().activeWorkspacePath;
@@ -2130,7 +2262,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: foundTab.id,
         title: foundTab.title,
         rootNode: foundTab.rootNode,
-        focusedPaneId: foundTab.focusedPaneId,
+        focusedPaneId:
+          selectFocusedPaneId(state, foundTab.id) ??
+          allPaneIds(foundTab.rootNode)[0],
       },
       paneState,
       sourceWorkspacePath,
@@ -2172,14 +2306,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!currentFound) return s;
       const { panel } = currentFound;
 
-      const idx = panel.tabs.findIndex((t) => t.id === tabId);
       const newTabs = panel.tabs.filter((t) => t.id !== tabId);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tabId === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
 
       // Drop the tab's entries from every per-pane side-map.
       const newCwd = { ...s.paneCwd };
@@ -2224,32 +2351,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (willRemovePanel) {
         const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
         const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const remainingIds = Object.keys(remainingPanels);
-        const newActivePanelId = remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0];
+        const nextLayout = {
+          ...layout,
+          panelTree: newPanelTree ?? layout.panelTree,
+          panels: remainingPanels,
+        };
         return {
           ...sideMaps,
-          workspaceLayouts: {
-            ...s.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree ?? layout.panelTree,
-              panels: remainingPanels,
-              activePanelId: newActivePanelId,
-            },
+          workspaceLayouts: { ...s.workspaceLayouts, [path]: nextLayout },
+          viewports: {
+            ...s.viewports,
+            [path]: reconcileViewport(nextLayout, viewportOf(s, path)),
           },
         };
       }
 
+      const withoutTab = updatePanel(s, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: newTabs,
+        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
+      }));
       return {
         ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelected,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
-        })),
+        ...withoutTab,
+        ...reconcileAfter(s, path, withoutTab),
       };
     });
   },
@@ -2350,29 +2475,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Pane was one of several — collapse the split and keep the tab.
       if (remaining) {
-        const ids = allPaneIds(remaining);
-        const newFocused =
-          tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
-        return updatePanel(s, path, layout, panel.id, (p) => ({
+        const patch = updatePanel(s, path, layout, panel.id, (p) => ({
           ...p,
           tabs: p.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
+            t.id === tab.id ? { ...t, rootNode: remaining } : t,
           ),
         }));
+        return { ...patch, ...reconcileAfter(s, path, patch) };
       }
 
       // Pane was the tab's sole leaf — remove the whole tab exactly as
       // removeDetachedTabLocally does, and drop this pane's side-map entries.
-      const idx = panel.tabs.findIndex((t) => t.id === tab.id);
       const newTabs = panel.tabs.filter((t) => t.id !== tab.id);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tab.id === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
 
       const newCwd = { ...s.paneCwd };
       const newTitle = { ...s.paneTitle };
@@ -2414,32 +2528,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (willRemovePanel) {
         const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
         const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const remainingIds = Object.keys(remainingPanels);
-        const newActivePanelId = remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0];
+        const nextLayout = {
+          ...layout,
+          panelTree: newPanelTree ?? layout.panelTree,
+          panels: remainingPanels,
+        };
         return {
           ...sideMaps,
-          workspaceLayouts: {
-            ...s.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree ?? layout.panelTree,
-              panels: remainingPanels,
-              activePanelId: newActivePanelId,
-            },
+          workspaceLayouts: { ...s.workspaceLayouts, [path]: nextLayout },
+          viewports: {
+            ...s.viewports,
+            [path]: reconcileViewport(nextLayout, viewportOf(s, path)),
           },
         };
       }
 
+      const withoutTab = updatePanel(s, path, layout, panel.id, (p) => ({
+        ...p,
+        tabs: newTabs,
+        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tab.id),
+      }));
       return {
         ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelected,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tab.id),
-        })),
+        ...withoutTab,
+        ...reconcileAfter(s, path, withoutTab),
       };
     });
   },
@@ -2450,9 +2562,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: payload.tab.id,
         title: payload.tab.title,
         rootNode: payload.tab.rootNode,
-        focusedPaneId: payload.tab.focusedPaneId,
       };
-      const layout = createSinglePanelLayout(newPanelId(), [tab], tab.id, []);
+      const layout = createSinglePanelLayout(newPanelId(), [tab], []);
       const key = payload.sourceWorkspacePath;
       const ps = payload.paneState;
 
@@ -2470,6 +2581,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
+        viewports: {
+          ...state.viewports,
+          [key]: reconcileViewport(layout, {
+            activePanelId: null,
+            selectedTabIds: {},
+            focusedPaneIds: { [tab.id]: payload.tab.focusedPaneId },
+          }),
+        },
         activeWorkspacePath: key,
         layoutLoaded: true,
         paneCwd: mergeDefined(state.paneCwd, ps.cwd),
@@ -2490,14 +2609,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!ctx) return state;
       const { path, layout } = ctx;
 
-      const targetPanel = layout.panels[layout.activePanelId];
-      if (!targetPanel) return state;
+      const targetPanelId = activePanelIdOf(state, path);
+      const targetPanel = targetPanelId
+        ? layout.panels[targetPanelId]
+        : undefined;
+      if (!targetPanel || !targetPanelId) return state;
 
       const tab: Tab = {
         id: payload.tab.id,
         title: payload.tab.title,
         rootNode: payload.tab.rootNode,
-        focusedPaneId: payload.tab.focusedPaneId,
       };
 
       // Insert into the active panel the same way moveTabToPanel does: append to
@@ -2517,20 +2638,29 @@ export const useAppStore = create<AppState>((set, get) => ({
         return out;
       };
 
+      const nextLayout: WorkspaceLayout = {
+        ...layout,
+        panels: {
+          ...layout.panels,
+          [targetPanelId]: { ...targetPanel, tabs: targetTabs },
+        },
+      };
       return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panels: {
-              ...layout.panels,
-              [layout.activePanelId]: {
-                ...targetPanel,
-                tabs: targetTabs,
-                selectedTabId: tab.id,
-              },
+        workspaceLayouts: { ...state.workspaceLayouts, [path]: nextLayout },
+        viewports: {
+          ...state.viewports,
+          [path]: reconcileViewport(nextLayout, {
+            ...viewportOf(state, path),
+            activePanelId: targetPanelId,
+            selectedTabIds: {
+              ...viewportOf(state, path).selectedTabIds,
+              [targetPanelId]: tab.id,
             },
-          },
+            focusedPaneIds: {
+              ...viewportOf(state, path).focusedPaneIds,
+              [tab.id]: payload.tab.focusedPaneId,
+            },
+          }),
         },
         paneCwd: mergeDefined(state.paneCwd, ps.cwd),
         paneTitle: mergeDefined(state.paneTitle, ps.title),
@@ -2560,3 +2690,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 if (!window.electronAPI?.isDetached) {
   window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 }
+
+// ── This renderer's viewport, out to its file and to the host (D3) ──
+//
+// One subscription for both: the file is what this renderer reopens on, the
+// report is what the *host* hands a renderer that has never seen the
+// workspace. Both are debounced or fire-and-forget, because a selection
+// changes on every arrow key and neither destination is on the render path.
+useAppStore.subscribe((state, previous) => {
+  if (
+    state.viewports === previous.viewports &&
+    state.activeWorkspacePath === previous.activeWorkspacePath
+  ) {
+    return;
+  }
+  scheduleViewportSave();
+  for (const [workspacePath, viewport] of Object.entries(state.viewports)) {
+    if (previous.viewports[workspacePath] === viewport) continue;
+    reportViewport(workspacePath, viewport);
+  }
+});

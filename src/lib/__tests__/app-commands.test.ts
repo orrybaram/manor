@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { appCommandHandlers } from "../app-commands";
-import { useAppStore } from "../../store/app-store";
+import {
+  useAppStore,
+  selectFocusedPaneId,
+  selectSelectedTabId,
+} from "../../store/app-store";
+import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
 import { usePreferencesStore } from "../../store/preferences-store";
@@ -20,13 +25,11 @@ function makeLayout(tab: Tab): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs: [tab],
-    selectedTabId: tab.id,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -35,7 +38,6 @@ function singlePaneTab(): Tab {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf", paneId: "pane-1" },
-    focusedPaneId: "pane-1",
   };
 }
 
@@ -44,25 +46,19 @@ function tabWithId(id: string, paneId: string): Tab {
     id,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
 }
 
 /** A single-panel layout with an arbitrary number of tabs, for tab commands. */
-function makeLayoutWithTabs(
-  tabs: Tab[],
-  selectedTabId: string = tabs[0].id,
-): WorkspaceLayout {
+function makeLayoutWithTabs(tabs: Tab[]): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs,
-    selectedTabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -77,7 +73,6 @@ function twoPaneTab(): Tab {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-2" },
     },
-    focusedPaneId: "pane-2",
   };
 }
 
@@ -86,19 +81,16 @@ function makeMultiPanelLayout(): WorkspaceLayout {
   const activePanel: Panel = {
     id: "panel-1",
     tabs: [activeTab],
-    selectedTabId: activeTab.id,
     pinnedTabIds: [],
   };
   const otherTab: Tab = {
     id: "tab-2",
     title: "Terminal",
     rootNode: { type: "leaf", paneId: "pane-9" },
-    focusedPaneId: "pane-9",
   };
   const otherPanel: Panel = {
     id: "panel-2",
     tabs: [otherTab],
-    selectedTabId: otherTab.id,
     pinnedTabIds: [],
   };
   return {
@@ -110,7 +102,6 @@ function makeMultiPanelLayout(): WorkspaceLayout {
       second: { type: "leaf", panelId: otherPanel.id },
     },
     panels: { [activePanel.id]: activePanel, [otherPanel.id]: otherPanel },
-    activePanelId: activePanel.id,
   };
 }
 
@@ -123,6 +114,7 @@ function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
   useAppStore.setState({
     activeWorkspacePath: activePath,
     workspaceLayouts: { [WS_PATH]: layout },
+    viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -150,6 +142,17 @@ function tabHolding(paneId: string): Tab | undefined {
   return undefined;
 }
 
+/** This renderer's focused pane for the tab holding `paneId` (ADR-179 D3). */
+function focusOfTabHolding(paneId: string): string | null {
+  const tab = tabHolding(paneId);
+  return tab ? selectFocusedPaneId(useAppStore.getState(), tab.id) : null;
+}
+
+/** This renderer's selected tab in a panel of the active workspace. */
+function selectedTabId(panelId = "panel-1"): string | null {
+  return selectSelectedTabId(useAppStore.getState(), panelId);
+}
+
 const run = (cmd: string, args: Record<string, unknown> = {}) =>
   appCommandHandlers[cmd](args);
 
@@ -161,6 +164,8 @@ beforeEach(() => {
 describe("list-panes", () => {
   it("returns the layout snapshot", () => {
     setupStore(makeLayout(twoPaneTab()));
+    // Focus is viewport now, so the snapshot's answer is this renderer's.
+    useAppStore.getState().focusPane("pane-2");
     useAppStore.setState({
       paneContentType: { "pane-2": "browser" },
       paneUrl: { "pane-2": "https://example.com" },
@@ -197,6 +202,7 @@ describe("list-panes", () => {
 describe("split-pane", () => {
   it("defaults the target to the active tab's focused pane", () => {
     setupStore(makeLayout(twoPaneTab()));
+    useAppStore.getState().focusPane("pane-2");
 
     const result = run("split-pane", { direction: "vertical" }) as {
       paneId: string;
@@ -223,7 +229,7 @@ describe("split-pane", () => {
     }) as { paneId: string };
 
     expect(paneId).toMatch(/^pane-/);
-    expect(tabHolding(paneId)?.focusedPaneId).toBe(paneId);
+    expect(focusOfTabHolding(paneId)).toBe(paneId);
   });
 
   it("honours position: first", () => {
@@ -291,7 +297,7 @@ describe("split-pane", () => {
       direction: "horizontal",
     }) as { paneId: string };
 
-    expect(tabHolding(paneId)?.focusedPaneId).toBe(paneId);
+    expect(focusOfTabHolding(paneId)).toBe(paneId);
   });
 
   it("throws on an unknown paneId", () => {
@@ -366,7 +372,7 @@ describe("new-tab", () => {
 
     const state = useAppStore.getState();
     const panel = state.workspaceLayouts[WS_PATH].panels["panel-1"];
-    expect(panel.selectedTabId).toBe("tab-1");
+    expect(selectedTabId()).toBe("tab-1");
     expect(panel.tabs.some((t) => t.id === tabId)).toBe(true);
   });
 
@@ -473,7 +479,7 @@ describe("focus-pane", () => {
     setupStore(makeLayout(twoPaneTab()));
 
     expect(run("focus-pane", { paneId: "pane-1" })).toEqual({ ok: true });
-    expect(tabHolding("pane-1")?.focusedPaneId).toBe("pane-1");
+    expect(focusOfTabHolding("pane-1")).toBe("pane-1");
   });
 
   it("throws on an unknown paneId", () => {
@@ -531,10 +537,7 @@ describe("select-tab", () => {
     );
 
     expect(run("select-tab", { tabId: "tab-2" })).toEqual({ tabId: "tab-2" });
-    expect(
-      useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"]
-        .selectedTabId,
-    ).toBe("tab-2");
+    expect(selectedTabId()).toBe("tab-2");
   });
 
   it("throws on an unknown tabId", () => {
@@ -553,22 +556,26 @@ describe("select-tab", () => {
 describe("next-tab / prev-tab", () => {
   it("selects the next tab, wrapping around", () => {
     setupStore(
-      makeLayoutWithTabs(
-        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
-        "tab-2",
-      ),
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
     );
+    // The selection is this renderer's, so it is set the way a user would
+    // set it rather than baked into the layout (ADR-179 D3).
+    useAppStore.getState().selectTab("tab-2");
 
     expect(run("next-tab")).toEqual({ tabId: "tab-1" });
   });
 
   it("selects the previous tab", () => {
     setupStore(
-      makeLayoutWithTabs(
-        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
-        "tab-2",
-      ),
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
     );
+    useAppStore.getState().selectTab("tab-2");
 
     expect(run("prev-tab")).toEqual({ tabId: "tab-1" });
   });
@@ -765,11 +772,10 @@ describe("open-diff", () => {
 
     const panel =
       useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"];
-    expect(panel.selectedTabId).toBe(result.tabId);
+    expect(selectedTabId()).toBe(result.tabId);
     const diffTab = panel.tabs[panel.tabs.length - 1];
-    expect(useAppStore.getState().paneContentType[diffTab.focusedPaneId]).toBe(
-      "diff",
-    );
+    const diffPane = selectFocusedPaneId(useAppStore.getState(), diffTab.id)!;
+    expect(useAppStore.getState().paneContentType[diffPane]).toBe("diff");
   });
 });
 
@@ -893,7 +899,8 @@ describe("reopen-closed-pane", () => {
 
 describe("focus-next-pane / focus-prev-pane", () => {
   it("cycles focus forward and back through the panes in the active tab", () => {
-    setupStore(makeLayout(twoPaneTab())); // focusedPaneId starts at pane-2
+    setupStore(makeLayout(twoPaneTab()));
+    useAppStore.getState().focusPane("pane-2");
 
     expect(run("focus-next-pane")).toEqual({ paneId: "pane-1" });
     expect(run("focus-prev-pane")).toEqual({ paneId: "pane-2" });

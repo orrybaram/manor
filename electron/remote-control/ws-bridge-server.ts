@@ -28,6 +28,7 @@
 
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { randomUUID } from "node:crypto";
 
 import { WebSocket, WebSocketServer } from "ws";
 
@@ -39,9 +40,11 @@ import {
   type RendererBroadcast,
 } from "../renderer-broadcast";
 import type { AuthenticatedDevice } from "./server";
+import type { LayoutOrigin } from "../layout/layout-store";
 import {
   BridgeRefusal,
   MUTATING,
+  ORIGIN_ARGS,
   UNAVAILABLE_CODE,
   WS_HANDLERS,
   type BridgeHandler,
@@ -84,6 +87,13 @@ const PTY_EVENT_NAMES: Record<StreamEvent["type"], string> = {
 
 interface Connection {
   socket: WebSocket;
+  /**
+   * This socket's id, and so this browser's *renderer* id (ADR-179 D3): it
+   * goes back in the hello reply, rides out as the origin of every layout
+   * command from here, and is what lets the tab tell its own
+   * `layout.changed` from every other viewer's.
+   */
+  readonly id: string;
   device: AuthenticatedDevice | null;
   helloTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -199,6 +209,7 @@ export class WsBridgeServer {
   private accept(socket: WebSocket, authenticate: BridgeAuthenticator): void {
     const connection: Connection = {
       socket,
+      id: `bridge-${randomUUID()}`,
       device: null,
       helloTimer: null,
       subscriptions: new Map(),
@@ -279,6 +290,7 @@ export class WsBridgeServer {
       type: "hello",
       ok: true,
       v: BRIDGE_PROTOCOL_VERSION,
+      rendererId: connection.id,
     });
   }
 
@@ -317,8 +329,20 @@ export class WsBridgeServer {
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
     const call = handler as (deps: IpcDeps, ...args: unknown[]) => unknown;
+    // Who sent it, appended by the transport rather than taken from the
+    // frame: a socket does not get to say which socket it is (ADR-179 D3).
+    // The wire arguments are truncated to the declared count first, so an
+    // extra argument cannot land where the origin goes.
+    const wireArgs = ORIGIN_ARGS.get(key);
+    const callArgs =
+      wireArgs === undefined
+        ? args
+        : [
+            ...args.slice(0, wireArgs),
+            { kind: "bridge", id: connection.id } satisfies LayoutOrigin,
+          ];
     try {
-      const result = await call(this.deps, ...args);
+      const result = await call(this.deps, ...callArgs);
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       this.send(connection, { id, kind: "result", ok: true, result });
     } catch (err) {

@@ -19,6 +19,9 @@
 
 import {
   useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneOfActiveTab,
+  selectSelectedTabId,
   type AppState,
   type Panel,
   type WorkspaceLayout,
@@ -125,9 +128,17 @@ function requireActiveLayout(state: AppState): WorkspaceLayout {
 
 function requireActivePanel(state: AppState): Panel {
   const layout = requireActiveLayout(state);
-  const panel = layout.panels[layout.activePanelId];
+  const panelId = selectActivePanelId(state);
+  const panel = panelId ? layout.panels[panelId] : undefined;
   if (!panel) throw new Error("No active panel");
   return panel;
+}
+
+/** The pane this window has the keyboard in, or a throw. */
+function requireFocusedPaneId(state: AppState): string {
+  const paneId = selectFocusedPaneOfActiveTab(state);
+  if (!paneId) throw new Error("No focused pane");
+  return paneId;
 }
 
 /** True when `paneId` lives anywhere in the workspace, across every panel. */
@@ -174,12 +185,11 @@ function splitPane(args: Record<string, unknown>): { paneId: string } {
   // pane itself may legitimately live in any panel. This is the fallback
   // default for non-MCP callers — the MCP layer supplies the caller's own
   // pane (electron/mcp/tools-panes.ts) before reaching here.
-  const panel = requireActivePanel(state);
+  requireActivePanel(state);
 
   const requestedPaneId = optionalString(args, "paneId");
   const target =
-    requestedPaneId ??
-    panel.tabs.find((t) => t.id === panel.selectedTabId)?.focusedPaneId;
+    requestedPaneId ?? selectFocusedPaneOfActiveTab(state) ?? undefined;
   if (!target) throw new Error("No focused pane to split");
 
   const direction = parseEnum<SplitDirection>(
@@ -307,9 +317,10 @@ function selectTab(args: Record<string, unknown>): { tabId: string } {
   const tabId = requireString(args, "tabId");
   const state = useAppStore.getState();
   const panel = requireActivePanel(state);
-  // `selectTab` only ever touches the active panel's `selectedTabId`, so a
-  // tabId from a different panel would silently write an id the panel never
-  // renders — validate against the active panel specifically, not the layout.
+  // `selectTab` selects a tab wherever it is, so a tabId from another panel
+  // would move the keyboard to that panel — which is not what an MCP
+  // `select_tab` against "the active panel" means. Validate against the
+  // active panel specifically, not the layout.
   if (!panel.tabs.some((t) => t.id === tabId)) {
     throw new Error(`Unknown tabId: ${tabId}`);
   }
@@ -322,8 +333,8 @@ function selectAdjacentTab(direction: "next" | "prev"): { tabId: string } {
   requireActivePanel(state);
   if (direction === "next") state.selectNextTab();
   else state.selectPrevTab();
-  const panel = requireActivePanel(useAppStore.getState());
-  const tabId = panel.tabs.find((t) => t.id === panel.selectedTabId)?.id;
+  const fresh = useAppStore.getState();
+  const tabId = selectSelectedTabId(fresh, selectActivePanelId(fresh));
   if (!tabId) throw new Error("No tabs in the active panel");
   return { tabId };
 }
@@ -514,18 +525,10 @@ function reopenClosedPane(): { ok: true } {
 
 function focusAdjacentPane(direction: "next" | "prev"): { paneId: string } {
   const state = useAppStore.getState();
-  const panel = requireActivePanel(state);
-  const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-  if (!tab) throw new Error("No active tab");
+  requireFocusedPaneId(state);
   if (direction === "next") state.focusNextPane();
   else state.focusPrevPane();
-  const freshPanel = requireActivePanel(useAppStore.getState());
-  const freshTab = freshPanel.tabs.find(
-    (t) => t.id === freshPanel.selectedTabId,
-  );
-  const paneId = freshTab?.focusedPaneId;
-  if (!paneId) throw new Error("No focused pane");
-  return { paneId };
+  return { paneId: requireFocusedPaneId(useAppStore.getState()) };
 }
 
 function focusNextPane(): { paneId: string } {

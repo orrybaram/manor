@@ -13,6 +13,8 @@ import {
 import type { BrowserPaneRef } from "../../components/workspace-panes/BrowserPane/BrowserPane";
 import { MAIN_WINDOW_KEYBINDINGS } from "../menu-commands";
 import { useAppStore } from "../../store/app-store";
+import { allPaneIds } from "../layout/pane-tree";
+import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
@@ -29,13 +31,11 @@ function makeLayout(tab: Tab): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs: [tab],
-    selectedTabId: tab.id,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -44,7 +44,6 @@ function singlePaneTab(): Tab {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf", paneId: "pane-1" },
-    focusedPaneId: "pane-1",
   };
 }
 
@@ -88,6 +87,7 @@ beforeEach(() => {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: layout },
+    viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -179,9 +179,9 @@ describe("createSharedKeybindingHandlers", () => {
   it("new-browser opens a browser tab in the active panel", () => {
     createSharedKeybindingHandlers()["new-browser"]();
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    const panel = layout.panels[layout.activePanelId];
+    const panel = layout.panels["panel-1"];
     expect(panel.tabs).toHaveLength(2);
-    const paneId = panel.tabs[1].focusedPaneId;
+    const paneId = allPaneIds(panel.tabs[1].rootNode)[0];
     expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
   });
 });
@@ -213,7 +213,7 @@ describe("startNewAgent", () => {
       "my-agent",
     );
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    expect(layout.panels[layout.activePanelId].tabs).toHaveLength(2);
+    expect(layout.panels["panel-1"].tabs).toHaveLength(2);
     vi.unstubAllGlobals();
   });
 
@@ -238,8 +238,8 @@ describe("startNewAgent", () => {
       useAppStore.getState().pendingStartupCommands[WS_PATH],
     ).toBeUndefined();
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    const tabs = layout.panels[layout.activePanelId].tabs;
-    expect(tabs[1].focusedPaneId).toBe("pane-warm");
+    const tabs = layout.panels["panel-1"].tabs;
+    expect(allPaneIds(tabs[1].rootNode)).toEqual(["pane-warm"]);
     vi.unstubAllGlobals();
   });
 });

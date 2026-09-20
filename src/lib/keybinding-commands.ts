@@ -1,4 +1,9 @@
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneOfActiveTab,
+  selectSelectedTabId,
+} from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
@@ -35,13 +40,7 @@ import { isWebApp } from "./platform";
 /** The focused pane's id when that pane is a browser, else undefined. */
 function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  if (!layout) return;
-  const panel = layout.panels[layout.activePanelId];
-  if (!panel) return;
-  const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-  if (!tab) return;
-  const focusedPaneId = tab.focusedPaneId;
+  const focusedPaneId = selectFocusedPaneOfActiveTab(state);
   if (!focusedPaneId) return;
   if (state.paneContentType[focusedPaneId] !== "browser") return;
   return focusedPaneId;
@@ -148,9 +147,8 @@ export function createSharedKeybindingHandlers(
     "reopen-pane": () => store().reopenClosedPane(),
     "close-tab": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      const panel = layout?.panels[layout.activePanelId];
-      if (panel?.selectedTabId) state.requestCloseTab(panel.selectedTabId);
+      const tabId = selectSelectedTabId(state, selectActivePanelId(state));
+      if (tabId) state.requestCloseTab(tabId);
     },
     "next-tab": () => store().selectNextTab(),
     "prev-tab": () => store().selectPrevTab(),
@@ -177,21 +175,21 @@ export function createSharedKeybindingHandlers(
     "focus-prev-panel": () => store().focusPrevPanel(),
     "close-panel": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      if (!layout) return;
-      state.closePanel(layout.activePanelId);
+      const panelId = selectActivePanelId(state);
+      if (panelId) state.closePanel(panelId);
     },
     "move-tab-to-next-panel": () => {
       const state = store();
       const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      if (!layout) return;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return;
+      const panelId = selectActivePanelId(state);
+      if (!layout || !panelId) return;
+      const tabId = selectSelectedTabId(state, panelId);
+      if (!tabId) return;
       const panelIds = Object.keys(layout.panels);
       if (panelIds.length < 2) return;
-      const idx = panelIds.indexOf(layout.activePanelId);
+      const idx = panelIds.indexOf(panelId);
       const nextId = panelIds[(idx + 1) % panelIds.length];
-      state.moveTabToPanel(panel.selectedTabId, nextId);
+      state.moveTabToPanel(tabId, nextId);
     },
     "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
     "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
@@ -199,11 +197,7 @@ export function createSharedKeybindingHandlers(
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      const panel = layout?.panels[layout.activePanelId];
-      if (!panel) return;
-      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-      const focusedPaneId = tab?.focusedPaneId;
+      const focusedPaneId = selectFocusedPaneOfActiveTab(state);
       if (
         !focusedPaneId ||
         state.paneContentType[focusedPaneId] !== "browser"

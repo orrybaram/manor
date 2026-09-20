@@ -7,9 +7,14 @@
  * prune that keeps an undrained command from outliving its pane.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore } from "../app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneId,
+} from "../app-store";
 import type { Panel, Tab, WorkspaceLayout } from "../app-store";
-import { hasPaneId } from "../../lib/layout/pane-tree";
+import { allPaneIds, hasPaneId } from "../../lib/layout/pane-tree";
+import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import {
   resetFakeLayoutServer,
   seedLayout,
@@ -26,7 +31,6 @@ function leafTab(id: string, paneId: string): Tab {
     id,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
 }
 
@@ -41,12 +45,11 @@ function splitTab(id: string, firstPane: string, secondPane: string): Tab {
       first: { type: "leaf", paneId: firstPane },
       second: { type: "leaf", paneId: secondPane },
     },
-    focusedPaneId: firstPane,
   };
 }
 
 function panel(id: string, tabs: Tab[]): Panel {
-  return { id, tabs, selectedTabId: tabs[0].id, pinnedTabIds: [] };
+  return { id, tabs, pinnedTabIds: [] };
 }
 
 /** Two panels side by side. `panel-active` is active; `panel-other` is not. */
@@ -63,7 +66,6 @@ function twoPanelLayout(activeTabs: Tab[], otherTabs: Tab[]): WorkspaceLayout {
       [ACTIVE_PANEL]: panel(ACTIVE_PANEL, activeTabs),
       [OTHER_PANEL]: panel(OTHER_PANEL, otherTabs),
     },
-    activePanelId: ACTIVE_PANEL,
   };
 }
 
@@ -76,6 +78,7 @@ function setupStore(layout: WorkspaceLayout) {
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
     workspaceLayouts: { [WS_PATH]: start },
+    viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
     paneCwd: {},
@@ -125,7 +128,9 @@ describe("splitPaneAt across panels", () => {
     expect(tabHolding(newPane!)?.panelId).toBe(OTHER_PANEL);
 
     const otherTab = getPanel(OTHER_PANEL).tabs[0];
-    expect(otherTab.focusedPaneId).toBe(newPane);
+    expect(selectFocusedPaneId(useAppStore.getState(), otherTab.id)).toBe(
+      newPane,
+    );
     expect(otherTab.rootNode).toEqual({
       type: "split",
       direction: "horizontal",
@@ -141,9 +146,7 @@ describe("splitPaneAt across panels", () => {
     useAppStore.getState().splitPaneAt("pane-b", "horizontal", "second");
 
     expect(getPanel(ACTIVE_PANEL)).toEqual(before);
-    expect(
-      useAppStore.getState().workspaceLayouts[WS_PATH].activePanelId,
-    ).toBe(ACTIVE_PANEL);
+    expect(selectActivePanelId(useAppStore.getState())).toBe(ACTIVE_PANEL);
   });
 });
 
@@ -179,9 +182,7 @@ describe("closePaneById across panels", () => {
 
     useAppStore.getState().closePaneById("pane-b1");
 
-    expect(
-      useAppStore.getState().workspaceLayouts[WS_PATH].activePanelId,
-    ).toBe(ACTIVE_PANEL);
+    expect(selectActivePanelId(useAppStore.getState())).toBe(ACTIVE_PANEL);
     expect(getPanel(ACTIVE_PANEL)).toEqual(activeBefore);
   });
 
@@ -236,7 +237,7 @@ describe("tab actions return their IDs", () => {
     expect(created).not.toBeNull();
     const tab = getPanel(ACTIVE_PANEL).tabs.find((t) => t.id === created!.tabId);
     expect(tab).toBeDefined();
-    expect(tab!.focusedPaneId).toBe(created!.paneId);
+    expect(allPaneIds(tab!.rootNode)).toEqual([created!.paneId]);
   });
 
   it("addTab adopts a caller-supplied paneId (prewarmed PTY session)", () => {

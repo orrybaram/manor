@@ -17,7 +17,10 @@ import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { openExternal } from "../lib/open-external";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectFocusedPaneOfActiveTab,
+} from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { getAgentKindForCommand } from "../agent-defaults";
@@ -103,13 +106,9 @@ export function useTerminalLifecycle(
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
   // (the container's visibility must be "visible" before focus can succeed).
-  const isFocusedPane = useAppStore((state) => {
-    const path = state.activeWorkspacePath;
-    const layout = path ? state.workspaceLayouts[path] : undefined;
-    const panel = layout ? layout.panels[layout.activePanelId] : undefined;
-    const tab = panel?.tabs.find((t) => t.id === panel?.selectedTabId);
-    return tab?.focusedPaneId === paneId;
-  });
+  const isFocusedPane = useAppStore(
+    (state) => selectFocusedPaneOfActiveTab(state) === paneId,
+  );
 
   // An explicit refocusActivePane() — Escape out of the sidebar, say — bumps
   // this nonce; the bump is the only thing that overrides the sidebar guard

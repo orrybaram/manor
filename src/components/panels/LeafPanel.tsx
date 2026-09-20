@@ -1,4 +1,4 @@
-import { useAppStore } from "../../store/app-store";
+import { useAppStore, useActivePanel, useSelectedTab } from "../../store/app-store";
 import { TabBar } from "../tabbar/TabBar/TabBar";
 import { PaneLayout } from "../workspace-panes/PaneLayout/PaneLayout";
 import { TAB_VISIBLE_STYLE, TAB_HIDDEN_STYLE } from "../../lib/tab-styles";
@@ -12,9 +12,8 @@ interface LeafPanelProps {
 
 export function LeafPanel({ panelId, workspacePath, onNewAgent }: LeafPanelProps) {
   const panel = useAppStore((s) => s.workspaceLayouts[workspacePath]?.panels[panelId]);
-  const isActivePanel = useAppStore(
-    (s) => s.workspaceLayouts[workspacePath]?.activePanelId === panelId,
-  );
+  const isActivePanel = useActivePanel(workspacePath) === panelId;
+  const selectedTabId = useSelectedTab(panelId, workspacePath);
   const focusPanel = useAppStore((s) => s.focusPanel);
 
   if (!panel) return null;
@@ -29,7 +28,7 @@ export function LeafPanel({ panelId, workspacePath, onNewAgent }: LeafPanelProps
         {panel.tabs.map((tab) => (
           <div
             key={tab.id}
-            style={tab.id === panel.selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
+            style={tab.id === selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
           >
             <PaneLayout node={tab.rootNode} workspacePath={workspacePath} />
           </div>

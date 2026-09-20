@@ -83,14 +83,11 @@ function makeLayout(): WorkspaceLayout {
             id: "tab-1",
             title: "Terminal",
             rootNode: { type: "leaf", paneId: PANE_ID },
-            focusedPaneId: PANE_ID,
           },
         ],
-        selectedTabId: "tab-1",
         pinnedTabIds: [],
       },
     },
-    activePanelId: "panel-1",
   };
 }
 

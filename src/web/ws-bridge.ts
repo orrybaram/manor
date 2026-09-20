@@ -207,6 +207,16 @@ function looksLikeSubscription(method: string): boolean {
 class BridgeConnection {
   private socket: WebSocket | null = null;
   private ready = false;
+  /**
+   * What the host calls this socket, from the hello reply (ADR-179 D3).
+   *
+   * Null until the first hello, and a *different* value after a reconnect —
+   * which is correct: it names a connection, and a layout command's origin is
+   * the connection that sent it. A hint addressed to the previous id simply
+   * does not apply, and the reconcile that runs on every broadcast leaves the
+   * tab looking where it was looking.
+   */
+  rendererId: string | null = null;
   /** Set by a 4401/4403: this token will not work, so stop dialling. */
   private stopped = false;
   private attempt = 0;
@@ -324,7 +334,11 @@ class BridgeConnection {
     }
 
     if (!this.ready) {
-      if (frame.type === "hello" && frame.ok === true) this.onReady();
+      if (frame.type === "hello" && frame.ok === true) {
+        this.rendererId =
+          typeof frame.rendererId === "string" ? frame.rendererId : null;
+        this.onReady();
+      }
       return;
     }
 
@@ -606,6 +620,10 @@ export function createWsBridge(options: WsBridgeOptions): ElectronAPI {
         if (typeof prop !== "string" || NOT_MEMBERS.has(prop)) {
           return undefined;
         }
+        // Not in `ROOT_VALUES`: it is not a constant. The host names the
+        // connection in its hello reply, and names it again after a
+        // reconnect (ADR-179 D3).
+        if (prop === "rendererId") return connection.rendererId;
         if (hasOwn(ROOT_VALUES, prop)) return ROOT_VALUES[prop];
         if (hasOwn(ROOT_SUBSCRIPTIONS, prop) || hasOwn(LOCALLY_SERVED, prop)) {
           const existing = rootMembers.get(prop);

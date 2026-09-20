@@ -194,7 +194,11 @@ describe("LayoutPersistence", () => {
 
       const panels = Object.values(loaded!.workspaces[0].panels);
       expect(panels[0].tabs).toHaveLength(3);
-      expect(panels[0].selectedTabId).toBe(s2.id);
+      // The selection is not on the tree any more (ADR-179 ticket 4); what
+      // survives a save is the default viewport.
+      expect(
+        Object.values(loaded!.workspaces[0].defaultViewport.selectedTabIds),
+      ).toEqual([s2.id]);
     });
 
     it("preserves lastCwd in pane sessions", () => {
@@ -465,12 +469,13 @@ describe("LayoutPersistence", () => {
       });
     });
 
-    it("leaves the focus fields on the tree for now", () => {
-      // Ticket 4 strips them; until then a v2-era renderer still reads them.
+    it("strips the focus fields off the tree (ADR-179 ticket 4)", () => {
+      // They are viewport, not structure: they live in `defaultViewport` and
+      // in each renderer's own file, and nowhere else.
       const main = loadFixture().workspaces[0];
-      expect(main.activePanelId).toBe("panel-b");
-      expect(main.panels["panel-a"].selectedTabId).toBe("tab-2");
-      expect(main.panels["panel-a"].tabs[0].focusedPaneId).toBe("pane-2");
+      expect(main.activePanelId).toBeUndefined();
+      expect(main.panels["panel-a"].selectedTabId).toBeUndefined();
+      expect(main.panels["panel-a"].tabs[0].focusedPaneId).toBeUndefined();
     });
 
     it("never drops a tab, a pin, a pane session or a browser pane", () => {
@@ -563,7 +568,9 @@ describe("LayoutPersistence", () => {
       const panels = Object.values(ws.panels);
       expect(panels).toHaveLength(1);
       expect(panels[0].tabs).toHaveLength(1);
-      expect(panels[0].selectedTabId).toBe(tab.id);
+      expect(Object.values(ws.defaultViewport.selectedTabIds)).toEqual([
+        tab.id,
+      ]);
       expect(panels[0].pinnedTabIds).toEqual(["pin1"]);
     });
 

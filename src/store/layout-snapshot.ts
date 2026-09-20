@@ -10,7 +10,12 @@
  * it were the active tab — and is not a claim about global focus.
  */
 
-import type { AppState } from "./app-store";
+import {
+  type AppState,
+  selectActivePanelId,
+  selectFocusedPaneId,
+  selectSelectedTabId,
+} from "./app-store";
 import { allPaneIds } from "../lib/layout/pane-tree";
 import { allPanelIds } from "../lib/layout/panel-tree";
 
@@ -53,10 +58,11 @@ export function layoutSnapshot(state: AppState): LayoutSnapshot | null {
   const layout = state.workspaceLayouts[workspacePath];
   if (!layout) return null;
 
-  const activePanel = layout.panels[layout.activePanelId];
-  const activeTabId = activePanel?.selectedTabId ?? null;
-  const activeTab = activePanel?.tabs.find((tab) => tab.id === activeTabId);
-  const focusedPaneId = activeTab?.focusedPaneId ?? null;
+  // Focus is viewport — this renderer's (ADR-179 D3). ADR-179 ticket 5 builds
+  // this snapshot server-side instead, from structure plus the primary
+  // window's reported viewport.
+  const activeTabId = selectSelectedTabId(state, selectActivePanelId(state));
+  const focusedPaneId = selectFocusedPaneId(state, activeTabId);
 
   const tabs: TabSnapshot[] = [];
   for (const panelId of allPanelIds(layout.panelTree)) {
@@ -66,7 +72,8 @@ export function layoutSnapshot(state: AppState): LayoutSnapshot | null {
       tabs.push({
         tabId: tab.id,
         title: tab.title,
-        focusedPaneId: tab.focusedPaneId,
+        focusedPaneId:
+          selectFocusedPaneId(state, tab.id) ?? allPaneIds(tab.rootNode)[0],
         panes: allPaneIds(tab.rootNode).map((paneId) => {
           const contentType = state.paneContentType[paneId] ?? "terminal";
           const url = state.paneUrl[paneId];

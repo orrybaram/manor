@@ -11,8 +11,8 @@
  */
 
 import type { AppState } from "./app-store";
-import { allPaneIds } from "./pane-tree";
-import { allPanelIds } from "./panel-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
+import { allPanelIds } from "../lib/layout/panel-tree";
 
 /** Serializable snapshot of a single pane. */
 export interface PaneSnapshot {

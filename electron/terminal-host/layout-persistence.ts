@@ -11,20 +11,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { layoutFile } from "../paths";
-/**
- * Duplicated from src/store/pane-tree.ts — the terminal-host is a separate
- * Vite entry point and cannot import from the renderer bundle.
- */
-type PaneNode =
-  | { type: "leaf"; paneId: string; contentType?: "terminal" | "browser" | "diff"; url?: string }
-  | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PaneNode; second: PaneNode };
-
-/**
- * Duplicated from src/store/panel-tree.ts — same reason as PaneNode above.
- */
-type PanelNode =
-  | { type: "leaf"; panelId: string }
-  | { type: "split"; direction: "horizontal" | "vertical"; ratio: number; first: PanelNode; second: PanelNode };
+// One layout model, shared with the renderer (ADR-179 D2). These are types
+// only, so nothing from src/ lands in the terminal-host bundle — the same
+// precedent as app-menu.ts importing src/lib/menu-commands.
+import type { PaneNode } from "../../src/lib/layout/pane-tree";
+import type { PanelNode } from "../../src/lib/layout/panel-tree";
 
 
 type LeafInfo = { paneId: string; contentType?: string };

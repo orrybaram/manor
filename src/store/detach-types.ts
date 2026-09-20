@@ -1,4 +1,4 @@
-import type { PaneNode } from "./pane-tree";
+import type { PaneNode } from "../lib/layout/pane-tree";
 import type { AgentState, PickedElementResult } from "../electron.d";
 
 /**

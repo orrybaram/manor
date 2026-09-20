@@ -101,3 +101,14 @@ render a plain fatal message rather than a blank screen.
 - `src/web-main.tsx`, `src/web/screens.tsx` — import paths
 - `electron/preload.ts` — expose `native: { … }` on `manorHost`
 - `src/bridge/__tests__/client.test.ts` — moved from `src/web/__tests__/ws-bridge.test.ts`
+
+## Folded in from ticket 1
+
+`src/web/ws-bridge.ts` hand-mirrors the protocol: `UNAVAILABLE_CODE`, the two
+close codes, the frame shapes. Ticket 1 repointed its comments at
+`electron/bridge/types.ts` and left the duplication, because this is the
+ticket that resolves it. Import the constants and the frame types from
+`electron/bridge/types.ts` rather than restating them — a type-only import
+across that boundary is already precedent (`electron/mcp/tools-panes.ts`
+imports `LayoutSnapshot` from `src/store/`), and `types.ts` was deliberately
+written to import nothing so it can be imported from anywhere.

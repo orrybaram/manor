@@ -80,3 +80,15 @@ desktop window exactly as it does in a browser.
 - `electron/preload.ts` — remove the `pty` namespace and the `onWinsizeOwner` stub
 - `src/hooks/useTerminalStream.ts`, `src/hooks/useTerminalResize.ts` — follower flag now applies on the desktop
 - `electron/__tests__/pty-attachments.test.ts` — local-vs-local ownership
+
+## Folded in from ticket 1
+
+- **`releaseViewer(id, "bridge")` on every dropped connection.** Ticket 1 left
+  it verbatim. It is harmless through tickets 2–4 (the desktop's panes still
+  attach through `ipcMain.handle("pty:create")` with a `webContents.id`), and
+  it becomes wrong the moment `pty` crosses — a closing desktop window would
+  release nothing. Fix it here, with the `Viewer` shape, not before.
+- **`electron/ipc/pty.ts:127` has a real pre-existing type error**
+  (`Expected 4-5 arguments, but got 6`) in the electron tsconfig's baseline.
+  It is in the module this ticket lifts, so fix it here rather than carrying
+  it into `electron/bridge/handlers/`.

@@ -77,3 +77,12 @@ instead. This ticket leaves the `pty-*` channels alone.
 - `electron/branch-watcher.ts`, `electron/diff-watcher.ts`, `electron/ports.ts` — publish instead of send
 - `electron/preload.ts` — the matching `on*` methods move to `manorHost.subscribe`
 - `electron/bridge/__tests__/events.test.ts` — new
+
+## Folded in from ticket 1
+
+Publishing used to `JSON.stringify` a frame once and write the same string to
+every socket. Frames are objects now and the WS transport serialises per
+connection, so a pane's output does N stringifies for N browsers. Correct but
+wasteful on the hottest path in the app. Serialise once per frame in the WS
+transport and write the string to each socket — the IPC transport must *not*
+serialise at all (structured clone, ticket 5's throughput note).

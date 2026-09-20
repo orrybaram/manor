@@ -1,10 +1,11 @@
 /**
  * What `ns.method` means on the bridge (ADR-178 D8, ADR-180 D1).
  *
- * One table, every caller: a paired `full` device over the WebSocket today,
- * and every Electron renderer window too once ADR-180 D2's IPC transport
- * joins them. It lives in `electron/bridge/` rather than in
- * `remote-control/` because it was never about remote control; being
+ * **One table, two transports, every caller.** A paired `full` device over
+ * the WebSocket and every Electron renderer window over `bridge:*` IPC reach
+ * the same entry, with the same validation, and this file cannot tell them
+ * apart except where it says so. It lives in `electron/bridge/` rather than
+ * in `remote-control/` because it was never about remote control; being
  * reachable from a phone was the first use it had, not the shape of it.
  *
  * A flat table of plain functions over `IpcDeps` — the same deps object the
@@ -14,28 +15,38 @@
  * into Electron's private handler map would silently hand a browser every
  * method any module ever registered, including `webview:*` and the dialog
  * calls, and the whole point of a table is that what is absent from it cannot
- * be reached. The lifted functions keep their `assert*` validation, and both
- * callers go through it.
+ * be reached. Those wrappers are gone now: the lifted functions live in
+ * `./handlers/`, `electron/ipc/` is the six modules that genuinely need
+ * Electron (D8), and a method that is not here and not in the preload does
+ * not exist. Everything not on the table answers `unavailable:web` — an
+ * honest refusal the renderer can render an empty state from, rather than a
+ * hang or a silent no-op.
  *
- * Slice 1 started deliberately small — the reads the sidebar and the stores
- * make on mount, the PTY calls a live terminal makes, and two selection
- * writes — and grew as later tickets closed gaps that only showed up once a
- * browser was actually driving the app: `pty.reset` (ticket 5, so the pane
- * menu's reset action works over the bridge, decorated with a winsize exactly
- * as `pty.create` is), `preferences.set` and `remoteControl.getStatus`
- * (ticket 9, so a `full` device's own settings pages aren't lying about the
- * surface they're on), and `agents.setPaneContext` (ticket 10, so a pane
- * opened from a browser gets the same per-pane agent metadata a desktop pane
- * does). What is below is the table as it stands, not the slice-1 table
- * anymore. Everything not in it answers `unavailable:web` — an honest refusal
- * the renderer can render an empty state from, rather than a hang or a
- * silent no-op.
+ * **`LOCAL_ONLY` is the one place the two callers differ**, and it is a
+ * decision rather than an absence (D4): a `local` caller is an Electron
+ * renderer window on this machine, authenticated by being one, and may call
+ * anything here; a `device` calling a method named in `LOCAL_ONLY` is
+ * refused with the same `unavailable:web` an absent method gets, because the
+ * difference is none of a device's business. The reasons are two — "this
+ * names a resource only the machine has" and "this is a key, or the lock it
+ * turns" — and they are spelled out at the set itself.
  *
  * Adding a *write* here is a security decision, not a convenience one. A
  * `full` device already reaches the whole HTTP route table (D3), so nothing
  * here is a new grant of power — but every method in this table is one more
  * thing a stolen `full` token can do without an audit line unless it is also
  * named in `MUTATING`.
+ *
+ * **What keeps this honest is a compile error.** `./surface.ts` derives every
+ * `ns.method` of `ElectronAPI` and asserts that each one is served by this
+ * table, by the preload, by the tab, or by an event (D7) — so a method added
+ * to the contract and forgotten here is a type error naming the method, not
+ * an `unavailable:web` discovered by whoever next opened a browser. The
+ * literal keys below are what that check reads: `HandlerMethod` is `keyof`
+ * this object, and `MUTATING`, `LOCAL_ONLY` and `ORIGIN_ARGS` are all typed
+ * by it, so a typo in any of the three is a compile error rather than a
+ * silently unaudited write, a silently reachable method, or a call whose
+ * caller has no identity.
  */
 
 import {
@@ -326,7 +337,7 @@ async function createShaped<T extends { ok: boolean }>(
   };
 }
 
-export const HANDLERS: Record<string, BridgeHandler> = {
+export const HANDLERS = {
   // ── pty: the terminal itself ──
   // `create` and `reset` answer with who owns the winsize, and attach the
   // calling connection as a viewer once they succeed. Every caller comes
@@ -934,21 +945,20 @@ export const HANDLERS: Record<string, BridgeHandler> = {
    */
   "appCommands.result": (_deps: IpcDeps, result: AppCommandResult) =>
     appCommandResult(result),
-};
+  // `satisfies` rather than an annotation: the values are checked exactly as
+  // they were, and the keys survive as literals, which is what `surface.ts`'s
+  // D7 check and every set below are typed against.
+} satisfies Record<string, BridgeHandler>;
 
 /**
- * Which invokes leave an audit line.
- *
- * `pty.write` is not here, and that is the one exclusion worth arguing about:
- * it is the keyboard. ADR-161 chose to audit *sends* — a whole prompt handed
- * to an agent through `POST /sessions/send` — and not keystrokes, because a
- * line per character is not a trail, it is a keylogger with a rotation policy.
- * `pty.resize` and `pty.detach` are out for the same reason: they are what a
- * viewer does to its own view.
- *
- * What is in: anything that starts or ends a session, and anything that moves
- * state the *other* viewers of this host will see.
+ * One key of the table above — the vocabulary of everything that describes
+ * it. `surface.ts` checks this against `ElectronAPI`; `MUTATING`,
+ * `LOCAL_ONLY`, `SECRET_FIRST_ARG` and `ORIGIN_ARGS` are all drawn from it,
+ * so naming a method that is not on the table is a compile error wherever it
+ * happens.
  */
+export type HandlerMethod = keyof typeof HANDLERS;
+
 /**
  * Methods whose last argument is the caller's identity, supplied by the
  * transport rather than by the frame (ADR-179 D3).
@@ -961,7 +971,7 @@ export const HANDLERS: Record<string, BridgeHandler> = {
  * renderer and pick up its selection hints, or attach as another
  * connection's pane viewer and take the winsize with it (D6).
  */
-export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
+const ORIGIN_ARG_COUNTS = [
   ["layout.apply", 2],
   ["layout.reportViewport", 3],
   ["pty.create", 5],
@@ -982,9 +992,27 @@ export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   // (D5) — one argument, the `{ wsPath, setUpstream }` envelope, then the
   // origin.
   ["git.push.start", 1],
-]);
+] as const satisfies readonly (readonly [HandlerMethod, number])[];
 
-export const MUTATING: ReadonlySet<string> = new Set([
+export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map(
+  ORIGIN_ARG_COUNTS,
+);
+
+/**
+ * Which invokes leave an audit line.
+ *
+ * `pty.write` is not here, and that is the one exclusion worth arguing about:
+ * it is the keyboard. ADR-161 chose to audit *sends* — a whole prompt handed
+ * to an agent through `POST /sessions/send` — and not keystrokes, because a
+ * line per character is not a trail, it is a keylogger with a rotation policy.
+ * `pty.resize` and `pty.detach` are out for the same reason: they are what a
+ * viewer does to its own view.
+ *
+ * What is in: anything that starts or ends a session, and anything that moves
+ * state the *other* viewers of this host will see. A `local` call is never
+ * audited whatever is named here — it is the user at the machine (D4).
+ */
+const MUTATING_METHODS = [
   "pty.create",
   "pty.reset",
   "pty.close",
@@ -1093,7 +1121,39 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "linear.linkIssueToWorkspace",
   "linear.unlinkIssueFromWorkspace",
   "linear.autoMatch",
-]);
+] as const satisfies readonly HandlerMethod[];
+
+export const MUTATING: ReadonlySet<string> = new Set(MUTATING_METHODS);
+
+/** A method named in `MUTATING`, for `surface.ts`'s credential check. */
+export type MutatingMethod = (typeof MUTATING_METHODS)[number];
+
+/**
+ * Methods whose first argument is a credential, and which may therefore
+ * never be `MUTATING`.
+ *
+ * `bridgeTarget` records an audited call's first string argument in the
+ * `target` field of `remote-audit.log` — the paneId, the project id, the
+ * workspace — which for a method that *takes* a key would be the key. There
+ * is one such method in the whole surface, `linear.connect`: everything else
+ * Linear does hands back the result of using the stored key and never the key
+ * itself. It is `LOCAL_ONLY` besides, so no device can reach it and no audit
+ * line is written for the user at the machine — but a future reader tidying
+ * `linear.connect` into `MUTATING` alongside its siblings would be writing a
+ * credential to a log file, which is why this set exists rather than a
+ * comment: `surface.ts` asserts the two sets are disjoint, so that edit is a
+ * compile error.
+ */
+const SECRET_FIRST_ARG_METHODS = [
+  "linear.connect",
+] as const satisfies readonly HandlerMethod[];
+
+export const SECRET_FIRST_ARG: ReadonlySet<string> = new Set(
+  SECRET_FIRST_ARG_METHODS,
+);
+
+/** A method whose first argument is a secret. */
+export type SecretFirstArgMethod = (typeof SECRET_FIRST_ARG_METHODS)[number];
 
 /**
  * Methods a paired device may not call, however `full` its tier (ADR-180 D4).
@@ -1121,7 +1181,7 @@ export const MUTATING: ReadonlySet<string> = new Set([
  * key, or the lock it turns", and they are the only entries whose absence
  * would be a security bug rather than a wrong answer.
  */
-export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
+const LOCAL_ONLY_METHODS = [
   "pty.consumePrewarmed",
   "pty.updatePrewarmCwd",
   /**
@@ -1184,4 +1244,6 @@ export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
    * hold the key.
    */
   "linear.connect",
-]);
+] as const satisfies readonly HandlerMethod[];
+
+export const LOCAL_ONLY: ReadonlySet<string> = new Set(LOCAL_ONLY_METHODS);

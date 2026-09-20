@@ -40,7 +40,7 @@
  * perfectly sensible thing to want, and it is absent from the handler table
  * rather than from the platform.
  */
-export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
+const UNAVAILABLE = [
   "webview",
   "window",
   "menu",
@@ -48,7 +48,16 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
   "shell",
   "updater",
   "clipboard",
-]);
+] as const;
+
+export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set(UNAVAILABLE);
+
+/**
+ * One of them, as a literal. `electron/bridge/surface.ts` reads it: a method
+ * in a namespace named here needs no other placement for the web, because
+ * refusing it *is* the answer (ADR-180 D7).
+ */
+export type UnavailableNamespace = (typeof UNAVAILABLE)[number];
 
 /**
  * `ns.method` entries the tab answers itself.
@@ -78,7 +87,7 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
 /** Where a browser tab keeps its viewport (ADR-179 D3). */
 const VIEWPORT_KEY = "manor.web.viewport";
 
-export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> = {
+const SERVED_HERE = {
   "clipboard.writeText": (text: unknown) =>
     navigator.clipboard?.writeText(String(text)) ??
     Promise.reject(new Error("This browser has no clipboard access")),
@@ -116,4 +125,13 @@ export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> = {
   "keybindings.runInMainWindow": () => undefined,
   /** Answers an `onAppCommand`, which nothing on the web can deliver. */
   sendAppCommandResult: () => undefined,
-};
+  // `satisfies` rather than an annotation, so the keys stay literal for
+  // `electron/bridge/surface.ts`: this is one of the four places a method of
+  // `ElectronAPI` may be served, and the check reads it (ADR-180 D7).
+} satisfies Record<string, (...args: never[]) => unknown>;
+
+export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> =
+  SERVED_HERE;
+
+/** One `ns.method` the tab answers itself. */
+export type LocallyServedMethod = keyof typeof SERVED_HERE;

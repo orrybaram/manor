@@ -126,6 +126,14 @@ try {
  * The synchronous facts (`platform`, `rendererId`, `isDetached`,
  * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
  * above for that reason, and are the same values `ElectronAPI` reports.
+ *
+ * **This object is the list.** ADR-180 D7's check needs to know which methods
+ * the preload serves, and a tuple of their names kept beside it would be one
+ * more thing to keep in step — so `NativeMethod` in `electron/bridge/
+ * surface.ts` is derived from `NativeApi` below instead, and writing a method
+ * here *is* placing it. The type is exported; nothing about this file's
+ * runtime crosses that import, which is why the check can read it without
+ * dragging the main process into the renderer's bundle.
  */
 const nativeApi = {
   dialog: {
@@ -313,6 +321,12 @@ const nativeApi = {
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
   },
 };
+
+/**
+ * The shape of `manorHost.native`, for the D7 surface check. A type, so the
+ * import that reads it disappears at build time.
+ */
+export type NativeApi = typeof nativeApi;
 
 /**
  * `window.manorHost` — the one concrete object the page builds a host client

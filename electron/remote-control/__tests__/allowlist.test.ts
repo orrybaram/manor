@@ -25,7 +25,12 @@ import {
   unresolvedAllowlistEntries,
 } from "../allowlist";
 import { LISTENER_OWN_ROUTES } from "../listener-routes";
-import { LOCAL_ONLY, MUTATING } from "../../bridge/handlers";
+import {
+  HANDLERS,
+  LOCAL_ONLY,
+  MUTATING,
+  SECRET_FIRST_ARG,
+} from "../../bridge/handlers";
 
 const keys = (table: readonly Route[]) => table.map(routeKey);
 
@@ -285,8 +290,52 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
    * `MUTATING` decides what lands in the audit log, and `bridgeTarget` puts
    * the first string argument of an audited call in its `target` field. For
    * `linear.connect` that argument is the API key.
+   *
+   * Asserted over `SECRET_FIRST_ARG` rather than over that one name, because
+   * the rule is about the class and not about Linear: a method that *takes* a
+   * credential goes in that set, and this is what the set is for.
+   * `surface.ts` makes the same assertion at compile time; this one is here
+   * because this is the file somebody reads when they want to know what a
+   * device may do.
    */
-  it("never audits the method whose first argument is a credential", () => {
-    expect(MUTATING.has("linear.connect")).toBe(false);
+  it("never audits a method whose first argument is a credential", () => {
+    expect([...SECRET_FIRST_ARG]).toEqual(["linear.connect"]);
+    for (const method of SECRET_FIRST_ARG) {
+      expect(MUTATING.has(method)).toBe(false);
+    }
+  });
+
+  /**
+   * The other direction, and the one that would rot silently: every name in
+   * `LOCAL_ONLY` has to be a method the table actually has. A refusal for a
+   * method that no longer exists refuses nothing, and reads in a diff exactly
+   * like one that does.
+   */
+  it("names only methods that are on the table", () => {
+    for (const method of LOCAL_ONLY) {
+      expect(Object.keys(HANDLERS)).toContain(method);
+    }
+  });
+
+  /**
+   * What a `full` device's bridge surface *is*, said once: the table, minus
+   * the refusals. There is no third list and no per-method gate — `dispatch`
+   * looks the method up and asks `LOCAL_ONLY` about the caller's class, and
+   * that is the whole of it (ADR-180 D4). The HTTP tiers above are a
+   * different mechanism for a different surface; this is the bridge's.
+   */
+  it("is the whole of what a full device may not reach on the bridge", () => {
+    const table = Object.keys(HANDLERS);
+    const reachable = table.filter((method) => !LOCAL_ONLY.has(method));
+    const refused = table.filter((method) => LOCAL_ONLY.has(method));
+
+    expect(refused.sort()).toEqual([...LOCAL_ONLY].sort());
+    expect(reachable).toHaveLength(table.length - LOCAL_ONLY.size);
+    // Not a token subset: the reads, the writes and the whole of `pty` are in
+    // it, which is ADR-178 D3 as written.
+    expect(reachable).toContain("pty.create");
+    expect(reachable).toContain("projects.removeWorktree");
+    expect(reachable).toContain("git.commit");
+    expect(reachable).toContain("remoteControl.getStatus");
   });
 });

@@ -155,50 +155,18 @@ const nativeApi = {
   // it is `keybindings.onForwardedCommand` a `<webview>` guest's key press
   // has always fed.
 
-  ports: {
-    startScanner: () => ipcRenderer.invoke("ports:startScanner"),
-    stopScanner: () => ipcRenderer.invoke("ports:stopScanner"),
-    updateWorkspacePaths: (paths: string[]) =>
-      ipcRenderer.invoke("ports:updateWorkspacePaths", paths),
-    updateWorkspaceMetadata: (
-      meta: Array<{
-        path: string;
-        projectName: string | null;
-        branch: string | null;
-        isMain: boolean;
-        portlessEnabled: boolean;
-      }>,
-    ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
-    killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
-    scanNow: () => ipcRenderer.invoke("ports:scanNow"),
-  },
-
-  processes: {
-    list: () => ipcRenderer.invoke("processes:list"),
-    killSession: (sessionId: string) =>
-      ipcRenderer.invoke("processes:killSession", sessionId),
-    cleanupDead: () => ipcRenderer.invoke("processes:cleanupDead"),
-    killDaemon: () => ipcRenderer.invoke("processes:killDaemon"),
-    killAll: () => ipcRenderer.invoke("processes:killAll"),
-    restartPortless: () => ipcRenderer.invoke("processes:restartPortless"),
-  },
-
-  branches: {
-    start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
-    stop: () => ipcRenderer.invoke("branches:stop"),
-  },
-
-  diffs: {
-    start: (workspaces: Record<string, string>) =>
-      ipcRenderer.invoke("diffs:start", workspaces),
-    stop: () => ipcRenderer.invoke("diffs:stop"),
-    getFullDiff: (wsPath: string, defaultBranch: string) =>
-      ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
-    getLocalDiff: (wsPath: string) =>
-      ipcRenderer.invoke("diffs:getLocalDiff", wsPath),
-    getStagedFiles: (wsPath: string) =>
-      ipcRenderer.invoke("diffs:getStagedFiles", wsPath) as Promise<string[]>,
-  },
+  // `ports`, `processes`, `branches` and `diffs` are gone the same way
+  // (ADR-180 ticket 8) — twenty `ipcMain.handle` wrappers across three
+  // files, replaced by table entries. `processes.killSession`, `killAll`,
+  // `killDaemon` and `restartPortless` were deliberately absent from the
+  // slice-1 table because they kill things; under D4 a `full` device already
+  // reaches the same power through the route table, so they cross as
+  // ordinary (`MUTATING`) entries rather than staying a hole. `ports.onChange`
+  // and `branches`/`diffs`.`onChange` were already subscriptions to
+  // `ports.changed`/`branches.changed`/`diffs.changed` before this ticket
+  // (ADR-180 ticket 4), so there was no legacy send left to delete for them.
+  // `git.*` stays here — it crosses with `github`/`linear`/`remoteControl`
+  // under ticket 10.
 
   git: {
     stage: (wsPath: string, files: string[]) =>

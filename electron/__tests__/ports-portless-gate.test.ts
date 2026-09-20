@@ -1,17 +1,14 @@
+/**
+ * The portless per-project gate, exercised through `ports.scanNow` and
+ * `ports.updateWorkspaceMetadata`.
+ *
+ * No `ipcMain` here any more: `ports` crossed to the handler table in
+ * ADR-180 ticket 8, so these are plain functions over `IpcDeps` — the same
+ * functions the table calls, and a paired `full` device now reaches them the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn(
-      (channel: string, handler: (...args: unknown[]) => unknown) => {
-        handlers.set(channel, handler);
-      },
-    ),
-  },
-}));
 
 // ── Mock the portless proxy ────────────────────────────────────────────────────
 const updateRoutes = vi.fn();
@@ -39,7 +36,7 @@ vi.mock("../ipc-validate", () => ({
   assertStringArray: vi.fn(),
 }));
 
-import { register } from "../ipc/ports";
+import { portsScanNow, portsUpdateWorkspaceMetadata } from "../ipc/ports";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -79,8 +76,8 @@ function makeDeps(
   };
 }
 
-async function scan() {
-  return (await handlers.get("ports:scanNow")!()) as {
+async function scan(deps: ReturnType<typeof makeDeps>) {
+  return (await portsScanNow(deps as never)) as {
     port: number;
     hostname?: string;
   }[];
@@ -90,14 +87,13 @@ async function scan() {
 
 describe("portless per-project gate", () => {
   beforeEach(() => {
-    handlers.clear();
     updateRoutes.mockClear();
   });
 
   it("assigns a named hostname and a proxy route when enabled", async () => {
-    register(makeDeps([meta()]) as never);
+    const deps = makeDeps([meta()]);
 
-    const ports = await scan();
+    const ports = await scan(deps);
 
     expect(ports[0].hostname).toBe("acme.localhost:7999");
     expect(updateRoutes).toHaveBeenLastCalledWith([
@@ -106,9 +102,9 @@ describe("portless per-project gate", () => {
   });
 
   it("leaves the port on plain localhost and registers no route when disabled", async () => {
-    register(makeDeps([meta({ portlessEnabled: false })]) as never);
+    const deps = makeDeps([meta({ portlessEnabled: false })]);
 
-    const ports = await scan();
+    const ports = await scan(deps);
 
     expect(ports[0].hostname).toBeUndefined();
     expect(updateRoutes).toHaveBeenLastCalledWith([]);
@@ -118,42 +114,38 @@ describe("portless per-project gate", () => {
   it("treats a missing portlessEnabled as enabled", async () => {
     const legacy = meta();
     delete (legacy as Partial<WorkspaceMeta>).portlessEnabled;
-    register(makeDeps([legacy]) as never);
+    const deps = makeDeps([legacy]);
 
-    const ports = await scan();
+    const ports = await scan(deps);
 
     expect(ports[0].hostname).toBe("acme.localhost:7999");
   });
 
   it("drops the hostname and the route once the toggle is flipped off", async () => {
-    register(makeDeps([meta()]) as never);
-    expect((await scan())[0].hostname).toBe("acme.localhost:7999");
+    const deps = makeDeps([meta()]);
+    expect((await scan(deps))[0].hostname).toBe("acme.localhost:7999");
 
     // What the renderer pushes when the settings switch changes.
-    handlers.get("ports:updateWorkspaceMetadata")!({} as never, [
-      meta({ portlessEnabled: false }),
-    ]);
+    portsUpdateWorkspaceMetadata(deps as never, [meta({ portlessEnabled: false })]);
 
-    const ports = await scan();
+    const ports = await scan(deps);
     expect(ports[0].hostname).toBeUndefined();
     expect(updateRoutes).toHaveBeenLastCalledWith([]);
   });
 
   it("gates per project — a disabled project does not affect an enabled one", async () => {
-    register(
-      makeDeps(
-        [
-          meta(),
-          meta({ path: "/other", projectName: "other", portlessEnabled: false }),
-        ],
-        [
-          { port: 3000, workspacePath: "/repo" },
-          { port: 4000, workspacePath: "/other" },
-        ],
-      ) as never,
+    const deps = makeDeps(
+      [
+        meta(),
+        meta({ path: "/other", projectName: "other", portlessEnabled: false }),
+      ],
+      [
+        { port: 3000, workspacePath: "/repo" },
+        { port: 4000, workspacePath: "/other" },
+      ],
     );
 
-    const ports = await scan();
+    const ports = await scan(deps);
 
     expect(ports.find((p) => p.port === 3000)!.hostname).toBe(
       "acme.localhost:7999",

@@ -56,7 +56,6 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
@@ -64,7 +63,6 @@ import * as webviewIpc from "./ipc/webview";
 import * as agentsIpc from "./ipc/agents";
 import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
-import * as processesIpc from "./ipc/processes";
 import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
@@ -531,7 +529,10 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  portsIpc.register(ipcDeps);
+  // `ports` and `processes` have no `register()` left either (ADR-180
+  // ticket 8): every `ipcMain.handle` they had is a table entry now.
+  // `branches-diffs.ts` keeps a thinned `register()` for `git.*` alone —
+  // `branches`/`diffs` crossed, `git` waits for ticket 10.
   branchesDiffsIpc.register(ipcDeps);
   integrationsIpc.register(ipcDeps);
   webviewIpc.register(ipcDeps);
@@ -542,7 +543,6 @@ export function initApp(devTitle: string | null): void {
   // file that was never an IPC handler.
   statsIpc.wireStatsBroadcast(ipcDeps);
   miscIpc.register(ipcDeps);
-  processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
   remoteControlIpc.register(ipcDeps);
   menuIpc.register(ipcDeps);

@@ -12,48 +12,62 @@ export function killAllActivePushes(): void {
   }
 }
 
+/**
+ * The branch and diff watchers, lifted for the ADR-180 ticket 8 crossing —
+ * the two of the four `git:*` families this file used to register that are
+ * not `git.*` itself. `git.*` (stage, unstage, commit, push, discard, stash,
+ * the diff reads) stays behind `register()` below: it crosses with
+ * `github`/`linear`/`remoteControl` under ADR-180 ticket 10, not here.
+ */
+export function branchesStart(deps: IpcDeps, paths: string[]): void {
+  deps.branchWatcher.start(paths);
+}
+
+export function branchesStop(deps: IpcDeps): void {
+  deps.branchWatcher.stop();
+}
+
+export function diffsStart(
+  deps: IpcDeps,
+  workspaces: Record<string, string>,
+): void {
+  deps.diffWatcher.start(workspaces);
+}
+
+export function diffsStop(deps: IpcDeps): void {
+  deps.diffWatcher.stop();
+}
+
+export function diffsGetFullDiff(
+  deps: IpcDeps,
+  wsPath: string,
+  defaultBranch: string,
+): Promise<string | null> {
+  return deps.backend.git.getFullDiff(wsPath, defaultBranch);
+}
+
+export function diffsGetLocalDiff(
+  deps: IpcDeps,
+  wsPath: string,
+): Promise<string | null> {
+  return deps.backend.git.getLocalDiff(wsPath);
+}
+
+export function diffsGetStagedFiles(
+  deps: IpcDeps,
+  wsPath: string,
+): Promise<string[]> {
+  assertString(wsPath, "wsPath");
+  return deps.backend.git.getStagedFiles(wsPath);
+}
+
+/**
+ * What is left once `branches` and `diffs` cross (ADR-180 ticket 8): the
+ * `git:*` writes and the push-progress stream, which stay `ipcMain.handle`
+ * wrappers until ticket 10 lifts them alongside `github` and `linear`.
+ */
 export function register(deps: IpcDeps): void {
-  const { branchWatcher, diffWatcher, backend } = deps;
-
-  // ── Branch Watcher ──
-  ipcMain.handle("branches:start", (_event, paths: string[]) => {
-    branchWatcher.start(paths);
-  });
-
-  ipcMain.handle("branches:stop", () => {
-    branchWatcher.stop();
-  });
-
-  // ── Diff Watcher ──
-  ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
-    diffWatcher.start(workspaces);
-  });
-
-  ipcMain.handle("diffs:stop", () => {
-    diffWatcher.stop();
-  });
-
-  ipcMain.handle(
-    "diffs:getFullDiff",
-    async (_event, wsPath: string, defaultBranch: string) => {
-      return backend.git.getFullDiff(wsPath, defaultBranch);
-    },
-  );
-
-  ipcMain.handle(
-    "diffs:getLocalDiff",
-    async (_event, wsPath: string) => {
-      return backend.git.getLocalDiff(wsPath);
-    },
-  );
-
-  ipcMain.handle(
-    "diffs:getStagedFiles",
-    async (_event, wsPath: string) => {
-      assertString(wsPath, "wsPath");
-      return backend.git.getStagedFiles(wsPath);
-    },
-  );
+  const { backend } = deps;
 
   // ── Git Operations ──
   ipcMain.handle("git:stage", async (_event, wsPath: string, files: string[]) => {

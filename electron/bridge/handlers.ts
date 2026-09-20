@@ -132,7 +132,32 @@ import {
   notificationsClear,
   notificationsShow,
 } from "../ipc/notifications";
-import { processesList } from "../ipc/processes";
+import {
+  processesList,
+  processesKillSession,
+  processesCleanupDead,
+  processesKillDaemon,
+  processesRestartPortless,
+  processesKillAll,
+} from "../ipc/processes";
+import {
+  portsStartScanner,
+  portsStopScanner,
+  portsUpdateWorkspacePaths,
+  portsUpdateWorkspaceMetadata,
+  portsScanNow,
+  portsKillPort,
+} from "../ipc/ports";
+import {
+  branchesStart,
+  branchesStop,
+  diffsStart,
+  diffsStop,
+  diffsGetFullDiff,
+  diffsGetLocalDiff,
+  diffsGetStagedFiles,
+} from "../ipc/branches-diffs";
+import type { WorkspaceMeta } from "../ipc/types";
 import {
   appCommandResult,
   type AppCommandResult,
@@ -654,8 +679,44 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "stats.getSummary": (deps: IpcDeps) => statsGetSummary(deps),
   "stats.reset": (deps: IpcDeps) => statsReset(deps),
 
-  // ── daemon status. The rest of `processes.*` kills things; it is absent. ──
+  // ── ports: the scanner the sidebar's port badges read ──
+  "ports.startScanner": (deps: IpcDeps) => portsStartScanner(deps),
+  "ports.stopScanner": (deps: IpcDeps) => portsStopScanner(deps),
+  "ports.updateWorkspacePaths": (deps: IpcDeps, paths: string[]) =>
+    portsUpdateWorkspacePaths(deps, paths),
+  "ports.updateWorkspaceMetadata": (deps: IpcDeps, meta: WorkspaceMeta[]) =>
+    portsUpdateWorkspaceMetadata(deps, meta),
+  "ports.scanNow": (deps: IpcDeps) => portsScanNow(deps),
+  "ports.killPort": (deps: IpcDeps, pid: number) => portsKillPort(deps, pid),
+
+  // ── processes: daemon status, plus everything that kills something ──
+  // (ADR-180 ticket 8). `list` was already reachable; the rest was
+  // deliberately absent from the slice-1 table because it kills things. A
+  // `full` device already reaches `POST /processes/kill`-shaped power
+  // through the route table (ADR-178 D3), so under D4 these are ordinary
+  // entries — every one of them is in `MUTATING`.
   "processes.list": (deps: IpcDeps) => processesList(deps),
+  "processes.killSession": (deps: IpcDeps, sessionId: string) =>
+    processesKillSession(deps, sessionId),
+  "processes.cleanupDead": (deps: IpcDeps) => processesCleanupDead(deps),
+  "processes.killDaemon": () => processesKillDaemon(),
+  "processes.restartPortless": () => processesRestartPortless(),
+  "processes.killAll": (deps: IpcDeps) => processesKillAll(deps),
+
+  // ── branches, diffs: the watchers behind the sidebar's badges. `git.*`
+  // stays off the table — it crosses with `github`/`linear` under ticket 10. ──
+  "branches.start": (deps: IpcDeps, paths: string[]) =>
+    branchesStart(deps, paths),
+  "branches.stop": (deps: IpcDeps) => branchesStop(deps),
+  "diffs.start": (deps: IpcDeps, workspaces: Record<string, string>) =>
+    diffsStart(deps, workspaces),
+  "diffs.stop": (deps: IpcDeps) => diffsStop(deps),
+  "diffs.getFullDiff": (deps: IpcDeps, wsPath: string, defaultBranch: string) =>
+    diffsGetFullDiff(deps, wsPath, defaultBranch),
+  "diffs.getLocalDiff": (deps: IpcDeps, wsPath: string) =>
+    diffsGetLocalDiff(deps, wsPath),
+  "diffs.getStagedFiles": (deps: IpcDeps, wsPath: string) =>
+    diffsGetStagedFiles(deps, wsPath),
 
   /**
    * The renderer answering an `appCommands.command` that carried a
@@ -752,6 +813,20 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "notifications.markAllRead",
   "notifications.clear",
   "stats.reset",
+  // ADR-180 ticket 8: a port, a session, the daemon or the portless proxy
+  // dying is exactly "moves state the other viewers of this host will see" —
+  // every device watching the ports panel or the process list finds out.
+  // `cleanupDead` joins them for the same reason: it changes what that list
+  // shows next. The watcher lifecycle (`ports.startScanner`/`stopScanner`,
+  // `branches.start`/`stop`, `diffs.start`/`stop`) and the reads are not
+  // here, the same way `pty.resize` is not — they are what a viewer does to
+  // its own view.
+  "ports.killPort",
+  "processes.killSession",
+  "processes.cleanupDead",
+  "processes.killDaemon",
+  "processes.killAll",
+  "processes.restartPortless",
 ]);
 
 /**

@@ -1,6 +1,6 @@
 ---
 title: git, github, linear and remoteControl cross
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [6]

@@ -1,6 +1,6 @@
 ---
 title: Delete the shim — preload's final shape
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [7, 8, 9, 10]

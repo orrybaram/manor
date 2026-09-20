@@ -73,3 +73,24 @@ object literal's keys be checked by assignment.
 - `electron/remote-control/__tests__/allowlist.test.ts` — the full-tier assertion
 - `electron/bridge/__tests__/caller-class.test.ts` — new
 - `src/bridge/__tests__/resolution.test.ts` — new
+
+## Folded in from ticket 10
+
+Two shapes the exhaustiveness check should be aware of, both introduced while
+the namespaces crossed:
+
+- **`linear.connect` is `LOCAL_ONLY`, not native.** It is the one method whose
+  *argument* is a credential. Keeping it in the preload would have meant
+  keeping one `ipcMain.handle` alive in a file D8 says to empty, so it is on
+  the table and refused to every device instead. It is deliberately out of
+  `MUTATING`, because `bridgeTarget` records an audited call's first string
+  argument — which for `connect` is the API key. Assert that: a method whose
+  first argument is a secret must never be in `MUTATING`, and this is the one
+  place that rule is written down.
+- **Optional arguments arrive as `undefined` over IPC and `null` over the
+  socket**, and a default parameter only fires for `undefined`. Ticket 10 hit
+  this in `github.getMyIssues`/`getAllIssues`, where without a `?? undefined`
+  the first browser to open the issue picker asks `gh` for `--limit null`. It
+  is a whole class of bug the type system cannot see, because both callers
+  satisfy the same signature. If the check can catch it, catch it; if not,
+  say so here so the next person knows it is unguarded.

@@ -1,6 +1,6 @@
 ---
 title: Every push becomes a bridge event
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [2]

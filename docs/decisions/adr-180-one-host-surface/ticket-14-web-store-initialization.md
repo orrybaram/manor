@@ -1,6 +1,6 @@
 ---
 title: The web app's stores initialise before the bridge exists
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

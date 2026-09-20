@@ -1,6 +1,6 @@
 ---
 title: MCP and CLI layout routes hit the server, not a window
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [4]
@@ -39,6 +39,16 @@ ADR-179 D5. `manor split-pane` works with the desktop window closed.
   launches: the tab creation becomes a `new-tab` command through the store;
   the launch part stays as it is (it already goes through the renderer for the
   prompt injection — leave that).
+
+## Carried over from ticket 4's report
+
+- `LayoutStore.primaryViewport()` is currently "the most recent window
+  report", which is what `GET /panes` has to build on until ticket 6 gives
+  windows claims. Use it, name the limitation in a comment, and leave a
+  `// ticket 6` marker where the primary's id should be preferred.
+- `LayoutStore.lastActiveWorkspacePath` / `layout.getLastActive()` is now
+  only a boot fallback for a renderer with no `viewport.json`. Keep it for
+  the routes' "no `workspacePath` given" default; do not widen it.
 
 ## Renderer
 

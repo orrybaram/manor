@@ -37,6 +37,14 @@ ADR-179 D6, closing ADR-178's recorded slice-1 gaps.
   `applyWinsize` from ADR-178 ticket 5 is the seam.
 - `TerminalPane` badge updates live.
 
+## Carried over from ticket 4's report
+
+- The web bridge's `rendererId` (connection id) changes on reconnect, so a
+  selection hint addressed to the previous id is dropped. Make the id stable
+  across reconnects: the client sends its previous id in `hello`, the server
+  reuses it if unclaimed. This also keeps `pty-attachments` viewer identity
+  stable across a blip, which the ownership rules below need.
+
 ## Theme
 
 - `electron/ipc/theme.ts` — after `theme:setSelected` (and per-project

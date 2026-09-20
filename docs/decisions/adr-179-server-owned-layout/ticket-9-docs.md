@@ -27,6 +27,10 @@ blocked_by: [8]
 - `electron/layout/layout-store.ts` and `src/lib/layout/commands.ts` module
   docstrings say what they own and cite ADR-179.
 
+- `src/lib/app-commands.ts` / `electron/routes/panes.ts` — one line noting
+  `extract-pane-to-tab` on an already-sole tab is a pure viewport op (the
+  reducer returns unchanged; the sender selects locally).
+
 ## Files to touch
 - `docs/remote-control.md`
 - `docs/decisions/adr-15{2,6,7}-*/index.md`, `docs/decisions/adr-178-*/index.md`

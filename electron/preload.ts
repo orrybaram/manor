@@ -319,57 +319,14 @@ const nativeApi = {
     ) => updaterEvent("error", callback),
   },
 
-  agents: {
-    getAll: (opts?: {
-      projectId?: string;
-      status?: string;
-      limit?: number;
-      offset?: number;
-    }) => ipcRenderer.invoke("agents:getAll", opts),
-    getActive: () => ipcRenderer.invoke("agents:getActive"),
-    getRecent: (opts?: { limit?: number }) =>
-      ipcRenderer.invoke("agents:getRecent", opts),
-    getUnseen: () => ipcRenderer.invoke("agents:getUnseen"),
-    consumePruneNotice: () => ipcRenderer.invoke("agents:consumePruneNotice"),
-    get: (agentId: string) => ipcRenderer.invoke("agents:get", agentId),
-    update: (
-      agentId: string,
-      updates: { name?: string | null; namePinned?: boolean },
-    ) => ipcRenderer.invoke("agents:update", agentId, updates),
-    delete: (agentId: string) => ipcRenderer.invoke("agents:delete", agentId),
-    setPaneContext: (
-      paneId: string,
-      context: {
-        projectId: string;
-        projectName: string;
-        workspacePath: string;
-        agentCommand: string | null;
-      },
-    ) => ipcRenderer.invoke("agents:setPaneContext", paneId, context),
-    markSeen: (agentId: string) =>
-      ipcRenderer.invoke("agents:markSeen", agentId),
-    markResumed: (agentId: string) =>
-      ipcRenderer.invoke("agents:markResumed", agentId),
-    buildResumeCommand: (agentId: string) =>
-      ipcRenderer.invoke("agents:buildResumeCommand", agentId),
-    reconcileStale: () => ipcRenderer.invoke("agents:reconcileStale"),
-    abandonForPane: (paneId: string, title?: string | null) =>
-      ipcRenderer.invoke("agents:abandonForPane", paneId, title),
-    onUpdate: (
-      callback: (
-        agent: unknown,
-        unseen: { responded: boolean; requires_input: boolean },
-      ) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        agent: unknown,
-        unseen: { responded: boolean; requires_input: boolean },
-      ) => callback(agent, unseen);
-      ipcRenderer.on("agent-updated", listener);
-      return () => ipcRenderer.removeListener("agent-updated", listener);
-    },
-  },
+  // `agents` is gone the same way (ADR-180 ticket 9) — fourteen
+  // `ipcMain.handle` wrappers, replaced by table entries, none of them
+  // `LOCAL_ONLY`: "check on my agents from anywhere" is the sentence
+  // ADR-178 started from. `onUpdate` is `agents.onUpdate`, a subscription to
+  // `agents.updated` now (already mapped in `src/bridge/client.ts`'s
+  // `SUBSCRIPTION_EVENTS`), so the `agent-updated` channel it listened on is
+  // gone from main too — the last of its three send-sites, alongside
+  // `electron/routes/agents.ts` and `electron/routes/panes.ts`.
 
   menu: {
     /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */

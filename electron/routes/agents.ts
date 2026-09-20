@@ -30,6 +30,7 @@ import {
   unseenInputAgents,
   unseenRespondedAgents,
 } from "../notifications";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 import { stripAnsi } from "../terminal-host/output-pattern-matcher";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import type { ControlDeps, Route } from "./types";
@@ -120,25 +121,24 @@ export function resolveTarget(
 }
 
 /**
- * Broadcast an `agent-updated` event to the renderer, mirroring the main
- * send-site in `../notifications.ts` (`sendAgentUpdate`). `ControlDeps` has no
+ * Broadcast an `agents`/`updated` event, mirroring the main send-site in
+ * `../notifications.ts` (`sendAgentUpdate`). `ControlDeps` has no
  * `preferencesManager`, so the dock-badge refresh that function also does is
  * skipped here — the renderer still gets the authoritative unseen flags in
  * the broadcast itself, which is what every consumer (sidebar, palette,
  * toasts) actually reads.
+ *
+ * `publishRendererBroadcast` reaches every desktop window and every browser
+ * on the bridge alike (ADR-180 ticket 9) — no `BrowserWindow` lookup, and no
+ * legacy `webContents.send` left beside it.
  */
 function broadcastAgentUpdate(agent: AgentInfo): void {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-  try {
-    win.webContents.send(
-      "agent-updated",
-      agent,
-      getUnseenFlagsForAgent(agent.id),
-    );
-  } catch {
-    // Render frame disposed — safe to ignore
-  }
+  publishRendererBroadcast(
+    "agents",
+    "updated",
+    agent,
+    getUnseenFlagsForAgent(agent.id),
+  );
 }
 
 /**

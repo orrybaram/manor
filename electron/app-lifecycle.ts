@@ -60,7 +60,6 @@ import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
-import * as agentsIpc from "./ipc/agents";
 import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
 import * as windowIpc from "./ipc/window";
@@ -86,14 +85,16 @@ import * as menuIpc from "./ipc/menu";
  * event types say anything about that, which is why the other four are
  * absent rather than empty.
  *
- * It still takes a window because `sendAgentUpdate` does: `agents.updated` is
- * published to the bridge *and* sent on the legacy `agent-updated` channel
- * until the `agents` namespace crosses too, and this is where the per-window
- * loop in the caller comes from.
+ * `window` used to be required and the caller looped over every renderer
+ * window to feed it — `sendAgentUpdate` addressed the legacy `agent-updated`
+ * channel to whichever window it was handed. Now that `agents` has crossed
+ * (ADR-180 ticket 9) `sendAgentUpdate` only publishes to the bridge, which
+ * already reaches every window and every browser on its own, so the caller
+ * calls this once with `null` rather than once per window.
  */
 export function handleStreamEvent(
   event: StreamEvent,
-  window: BrowserWindow,
+  window: BrowserWindow | null,
   agentManager: AgentManager,
   preferencesManager: PreferencesManager,
   notifyAgentDetectorGone?: (sessionId: string) => void,
@@ -426,28 +427,18 @@ export function initApp(devTitle: string | null): void {
     // status reach the layout file from the stream, not from a renderer
     // reporting what it saw.
     layoutStore.onPtyEvent(event);
-    // Still per window, and only because `sendAgentUpdate` still writes to
-    // the legacy `agent-updated` channel, which is addressed rather than
-    // broadcast. The bookkeeping itself is idempotent — the second window's
-    // pass finds the agent already carrying the new cwd or title and does
-    // nothing — so this is one send to the first window that can take it, not
-    // one per window. The loop goes when `agents` crosses to the table.
-    for (const win of getRendererWindows()) {
-      // Check that the main frame is still available (avoids "Render frame was
-      // disposed" errors during window reload/close).
-      try {
-        if (!win.webContents.mainFrame) continue;
-      } catch {
-        continue;
-      }
-      handleStreamEvent(
-        event,
-        win,
-        agentManager,
-        preferencesManager,
-        notifyAgentDetectorGone,
-      );
-    }
+    // One call, not one per window (ADR-180 ticket 9): `sendAgentUpdate`
+    // only publishes to the bridge now, which already reaches every window
+    // and every browser on its own, so the per-window loop this used to be
+    // — kept alive only by the legacy `agent-updated` channel it addressed —
+    // is gone with it.
+    handleStreamEvent(
+      event,
+      null,
+      agentManager,
+      preferencesManager,
+      notifyAgentDetectorGone,
+    );
   });
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
@@ -536,7 +527,8 @@ export function initApp(devTitle: string | null): void {
   branchesDiffsIpc.register(ipcDeps);
   integrationsIpc.register(ipcDeps);
   webviewIpc.register(ipcDeps);
-  agentsIpc.register(ipcDeps);
+  // `agents` has no `register()` left either (ADR-180 ticket 9): every
+  // `ipcMain.handle` it had is a table entry now.
   // `theme` and `notifications` have no `register()` left (ADR-180 ticket 7):
   // every `ipcMain.handle` they had is a table entry now. `stats` still needs
   // its debounced broadcast wired once, at boot — the one thing left in this

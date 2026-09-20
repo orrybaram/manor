@@ -1,17 +1,14 @@
+/**
+ * `agentsReconcileStale`.
+ *
+ * No `ipcMain` here any more: `agents` crossed to the handler table in
+ * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
+ * function the table calls, and a paired `full` device now reaches it the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-// ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
@@ -19,14 +16,11 @@ vi.mock("../notifications", () => ({
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
-// ── Mock ipc-validate ──────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/agents";
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
+import { agentsReconcileStale } from "../ipc/agents";
 
 function makeAgent(
   overrides: Partial<{
@@ -70,15 +64,11 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
-
-describe("agents:reconcileStale handler", () => {
+describe("agents.reconcileStale", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
   it("marks active agents with dead sessions as abandoned", async () => {
@@ -86,11 +76,9 @@ describe("agents:reconcileStale handler", () => {
       makeAgent({ id: "t1", status: "active", paneId: "pane-1" }), // dead
       makeAgent({ id: "t2", status: "active", paneId: "pane-2" }), // alive
     ]);
-    // listSessions() returns pane IDs — only pane-2 is live
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-2" }]);
 
-    const handler = handlers.get("agents:reconcileStale")!;
-    await handler({} as never);
+    await agentsReconcileStale(deps as never);
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
@@ -105,8 +93,7 @@ describe("agents:reconcileStale handler", () => {
   it("does nothing when daemon is unreachable", async () => {
     deps.backend.pty.listSessions.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const handler = handlers.get("agents:reconcileStale")!;
-    await handler({} as never);
+    await agentsReconcileStale(deps as never);
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
@@ -118,8 +105,7 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    const handler = handlers.get("agents:reconcileStale")!;
-    await handler({} as never);
+    await agentsReconcileStale(deps as never);
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -130,17 +116,12 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([]);
 
-    const handler = handlers.get("agents:reconcileStale")!;
-    await handler({} as never);
+    await agentsReconcileStale(deps as never);
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("regression: does not abandon an agent when paneId is live but agentSessionId is not", async () => {
-    // This is the original namespace bug: the old code compared agentSessionId
-    // against listSessions().sessionId, which actually returns pane IDs.
-    // An agent with paneId "pane-1" should be considered live when listSessions()
-    // returns [{ sessionId: "pane-1" }], even if agentSessionId is a different UUID.
     deps.agentManager.getAllAgents.mockReturnValue([
       makeAgent({
         id: "t1",
@@ -151,10 +132,8 @@ describe("agents:reconcileStale handler", () => {
     ]);
     deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "pane-1" }]);
 
-    const handler = handlers.get("agents:reconcileStale")!;
-    await handler({} as never);
+    await agentsReconcileStale(deps as never);
 
-    // paneId "pane-1" is live → agent must NOT be abandoned
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 });

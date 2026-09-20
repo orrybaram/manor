@@ -110,6 +110,13 @@ import {
   agentsGetUnseen,
   agentsBuildResumeCommand,
   agentsSetPaneContext,
+  agentsConsumePruneNotice,
+  agentsUpdate,
+  agentsDelete,
+  agentsMarkSeen,
+  agentsMarkResumed,
+  agentsAbandonForPane,
+  agentsReconcileStale,
   type AgentQuery,
   type PaneContext,
 } from "../ipc/agents";
@@ -632,7 +639,10 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   // on web (ticket 6) ──
   "remoteControl.getStatus": (deps: IpcDeps) => remoteControlGetStatus(deps),
 
-  // ── agents: reads, plus the one write a pane needs to get an agent context ──
+  // ── agents: whole (ADR-180 ticket 9). "Check on my agents from anywhere"
+  // is the sentence ADR-178 started from, so none of this namespace is
+  // `LOCAL_ONLY` — a browser that could watch an agent but not mark it seen
+  // was exactly the read-and-type state this ADR exists to end. ──
   "agents.getAll": (deps: IpcDeps, opts?: AgentQuery) =>
     agentsGetAll(deps, opts),
   "agents.get": (deps: IpcDeps, agentId: string) => agentsGet(deps, agentId),
@@ -640,6 +650,8 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "agents.getRecent": (deps: IpcDeps, opts?: { limit?: number }) =>
     agentsGetRecent(deps, opts),
   "agents.getUnseen": () => agentsGetUnseen(),
+  "agents.consumePruneNotice": (deps: IpcDeps) =>
+    agentsConsumePruneNotice(deps),
   "agents.buildResumeCommand": (deps: IpcDeps, agentId: string) =>
     agentsBuildResumeCommand(deps, agentId),
   /**
@@ -652,6 +664,20 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     paneId: string,
     context: PaneContext,
   ) => agentsSetPaneContext(deps, paneId, context),
+  "agents.update": (deps: IpcDeps, agentId: string, updates: unknown) =>
+    agentsUpdate(deps, agentId, updates),
+  "agents.delete": (deps: IpcDeps, agentId: string) =>
+    agentsDelete(deps, agentId),
+  "agents.markSeen": (deps: IpcDeps, agentId: string) =>
+    agentsMarkSeen(deps, agentId),
+  "agents.markResumed": (deps: IpcDeps, agentId: string) =>
+    agentsMarkResumed(deps, agentId),
+  "agents.abandonForPane": (
+    deps: IpcDeps,
+    paneId: string,
+    title?: string | null,
+  ) => agentsAbandonForPane(deps, paneId, title),
+  "agents.reconcileStale": (deps: IpcDeps) => agentsReconcileStale(deps),
 
   // ── the two logs the chrome reads on mount ──
   "notifications.getAll": (deps: IpcDeps) => notificationsGetAll(deps),
@@ -827,6 +853,19 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "processes.killDaemon",
   "processes.killAll",
   "processes.restartPortless",
+  // ADR-180 ticket 9: everything else in `agents.*` that writes a record
+  // another viewer's sidebar, palette or dock badge reads. `update`
+  // renames/pins, `delete` and `abandonForPane`/`reconcileStale` end a
+  // session, `markSeen` and `markResumed` move the unseen flags and the
+  // pulse state every window shares — `setPaneContext` is already above,
+  // added with its own entry. `consumePruneNotice` stays out — it is a
+  // one-time per-boot notice no other viewer reads.
+  "agents.update",
+  "agents.delete",
+  "agents.markSeen",
+  "agents.markResumed",
+  "agents.abandonForPane",
+  "agents.reconcileStale",
 ]);
 
 /**

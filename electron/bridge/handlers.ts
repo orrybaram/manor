@@ -1036,17 +1036,25 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "processes.restartPortless",
   // ADR-180 ticket 9: everything else in `agents.*` that writes a record
   // another viewer's sidebar, palette or dock badge reads. `update`
-  // renames/pins, `delete` and `abandonForPane`/`reconcileStale` end a
-  // session, `markSeen` and `markResumed` move the unseen flags and the
-  // pulse state every window shares — `setPaneContext` is already above,
-  // added with its own entry. `consumePruneNotice` stays out — it is a
-  // one-time per-boot notice no other viewer reads.
+  // renames/pins, `delete` and `abandonForPane` end a session, `markSeen`
+  // and `markResumed` move the unseen flags and the pulse state every window
+  // shares — `setPaneContext` is already above, added with its own entry.
+  //
+  // `consumePruneNotice` and `reconcileStale` stay out, and `reconcileStale`
+  // is the one worth arguing about: it does end sessions, which is this
+  // set's own definition of auditable. But `App.tsx` calls it unconditionally
+  // on mount — every desktop window, every detached window, every browser
+  // tab — so auditing it writes a line nobody asked for on every page load.
+  // That is ADR-161's keystroke argument again: a line per mount is not a
+  // trail, it is noise that buries the lines that are. And what it ends was
+  // already dead; it is bookkeeping catching up with reality, not a viewer
+  // changing it. A human ending a session goes through `delete` or
+  // `abandonForPane`, both above.
   "agents.update",
   "agents.delete",
   "agents.markSeen",
   "agents.markResumed",
   "agents.abandonForPane",
-  "agents.reconcileStale",
   // ADR-180 ticket 10: `git.commit` and `git.push.start` are the clearest
   // case this set's wording has — a commit rewrites what every sidebar badge
   // and diff pane on this machine is looking at, and a push does it on the

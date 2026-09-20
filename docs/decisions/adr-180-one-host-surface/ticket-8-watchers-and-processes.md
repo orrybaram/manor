@@ -1,6 +1,6 @@
 ---
 title: ports, processes, branches and diffs cross
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [6]

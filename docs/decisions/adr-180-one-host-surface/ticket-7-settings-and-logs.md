@@ -1,6 +1,6 @@
 ---
 title: theme, preferences, keybindings, notifications, stats cross
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [6]

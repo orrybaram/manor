@@ -60,3 +60,22 @@ connection id. That is what `ORIGIN_ARGS` is for — add the entry.
 - `electron/app-lifecycle.ts` — drop the `layout:changed` send
 - `electron/preload.ts` — remove the `layout`, `viewport` and `projects` namespaces
 - `electron/bridge/__tests__/layout-origin.test.ts` — new; a desktop command's origin is its window
+
+## Folded in from ticket 4
+
+**A namespace crossing takes its legacy send with it.** Ticket 4 converted the
+pushes its tables named and left nine `webContents.send` broadcasts standing,
+each already publishing alongside — because each belongs to a namespace that
+crosses in a later ticket, and deleting a send without moving its `on*` is how
+a feature stops updating silently. The rule from here: **when a namespace
+crosses, delete its legacy `webContents.send` and the matching preload `on*`
+in the same commit.** This ticket owns `projects-changed`
+(`renderer-bridge.ts`) and `layout:changed` (`app-lifecycle.ts`).
+
+**`appCommands.result` goes in `LOCAL_ONLY`.** Ticket 4 left it open and
+flagged it. It should be closed: `appCommands.command` is addressed to the
+*primary window* only, so a browser never receives one and has nothing to
+reply to. Exploiting it means guessing a v4 UUID main told exactly one
+connection — not a real attack, but a method no device needs is a method no
+device should have, and D4's list is the place that argument is settled
+rather than rediscovered.

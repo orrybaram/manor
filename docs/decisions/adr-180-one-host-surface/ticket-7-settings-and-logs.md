@@ -59,3 +59,11 @@ sends.
 - `electron/ipc/misc.ts` — lift the preferences and keybindings halves; the dialog/shell/clipboard half stays
 - `electron/preload.ts` — remove the five namespaces
 - `electron/remote-control/__tests__/allowlist.test.ts` — assert the `LOCAL_ONLY` list
+
+## Folded in from ticket 4
+
+Ticket 6's rule applies here: when a namespace crosses, its legacy
+`webContents.send` and the matching preload `on*` go in the same commit. This
+ticket owns `theme:changed` (`ipc/theme.ts`), `preferences-changed`,
+`keybindings-changed` and `keybinding-command` (`ipc/misc.ts`), `stats:changed`
+(`ipc/stats.ts`) and `notifications:changed` (`notifications.ts`).

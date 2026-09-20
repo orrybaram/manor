@@ -46,3 +46,9 @@ ADR-178's "what can never mirror" table names the keychain, and `manorHost`'s
 - `electron/ipc/remote-control.ts` — lift, delete `register()`; the pairing path stays reachable from the desktop only
 - `electron/preload.ts` — remove the `git`, `github`, `linear` and `remoteControl` namespaces
 - `electron/remote-control/__tests__/allowlist.test.ts` — the `LOCAL_ONLY` list now includes pairing
+
+## Folded in from ticket 4
+
+Ticket 6's rule applies: this ticket owns `remoteControl:status`
+(`ipc/remote-control.ts`) — delete the legacy send and the matching preload
+`on*` in the same commit as the crossing.

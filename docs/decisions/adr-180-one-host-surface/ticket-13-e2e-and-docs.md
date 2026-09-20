@@ -59,3 +59,12 @@ a sibling:
 - `docs/agents/domain.md` — the bridge's new shape
 - `CONTEXT.md` — Bridge reworded; Host surface, Transport, Caller class added
 - `docs/decisions/adr-178-web-app-and-single-bridge/index.md` — D8/D10 amendment
+
+## Folded in from ticket 4
+
+A pre-existing flake to kill while you are in the tests:
+`src/store/__tests__/agent-status-store.test.ts` → "deduplicates: same
+status+kind produces no state update" fails when two `Date.now()` calls
+straddle a millisecond boundary, because the store's dedupe compares `since`.
+`vi.useFakeTimers()` or a fixed `since` in the fixture. Unrelated to ADR-180,
+but it will be blamed on it the first time it fails in CI.

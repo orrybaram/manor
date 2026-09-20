@@ -51,3 +51,11 @@ this for the viewport path; do not reintroduce it.
 - `electron/notifications.ts` — `agent-updated` publishes only
 - `electron/preload.ts` — remove the `agents` namespace
 - `electron/__tests__/agents-unseen-source-of-truth.test.ts` — extend to the bridge caller
+
+## Folded in from ticket 4
+
+Ticket 6's rule applies: delete the legacy `webContents.send` and the matching
+preload `on*` in the same commit as the crossing. **`agent-updated` has three
+send-sites, not one** — `electron/notifications.ts`, `electron/routes/agents.ts`
+and `electron/routes/panes.ts`. Miss one and the badge updates from some paths
+and not others, which is worse than it not working at all.

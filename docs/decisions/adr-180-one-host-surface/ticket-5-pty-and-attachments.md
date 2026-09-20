@@ -1,6 +1,6 @@
 ---
 title: pty moves to the table, and viewers become connections
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [3, 4]

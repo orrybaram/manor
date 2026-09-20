@@ -1,6 +1,6 @@
 ---
 title: Reopen grace period lives on the server; restored panes get their cwd and title back
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

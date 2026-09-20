@@ -1,6 +1,6 @@
 ---
 title: Viewport is per renderer — selected tab, focused pane, active panel and workspace
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3]
@@ -69,6 +69,16 @@ host-kept default for renderers that have none.
 - `src/store/layout-snapshot.ts` (MCP `list_panes` shape) records focus once
   at the top level already; ticket 5 builds it server-side from structure +
   the primary window's reported viewport.
+
+## Carried over from ticket 10's report
+
+- `LayoutStore.getAll()`/`snapshot()` currently includes `paneSessions` rows
+  for panes closed within the reopen grace (no tree holds them). Filter the
+  snapshot to panes present in the tree; keep the rows in memory for
+  `restored`.
+- `LayoutStore.remove(workspacePath)` should run that workspace's pending
+  kills eagerly (a removed worktree's shells should not live 10 s inside a
+  directory being deleted).
 
 ## Tests
 

@@ -19,6 +19,9 @@ database:
 
 # ADR-157: Detach a pane into a popout window
 
+_Amended by [ADR-179](../adr-179-server-owned-layout/index.md): detached
+windows are viewport claims; the hand-off payload is gone._
+
 ## Context
 
 ADR-156 rebuilt **tab** dragging on the native HTML5 Drag-and-Drop API (VS Code

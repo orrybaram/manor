@@ -124,17 +124,21 @@ the same first frame the HTTP paths check, and closed on any device below
 version of the bridge.
 
 You can watch and drive any session from a browser exactly as you would at the
-desk, and arrange it too: a split, a new tab, a close or a move from the
-browser is the same **layout command** the desktop sends, so it is applied by
-Manor itself and shows up on the desk a frame later — layout belongs to the
+desk, and arrange it too: a split, a new tab, a pin, a close, or a move from
+the browser is the same **layout command** the desktop sends, so it is applied
+by Manor itself and shows up on the desk a frame later — layout belongs to the
 Manor server, not to whichever window changed it
-([ADR-179](decisions/adr-179-server-owned-layout/index.md)). What each window
-is *looking at* stays its own: flipping tabs on a phone does not flip the desk.
+([ADR-179](decisions/adr-179-server-owned-layout/index.md)). A browser sees
+every tab in a workspace, including ones popped out into their own window on
+the desk — a detached window is just a desktop window's claim on a tab, not a
+place the tab moves to. What each window is *looking at* stays its own:
+flipping tabs on a phone does not flip the desk, and that selection is per
+device, never shared.
 
 Creating a workspace is still desktop-only, and the handful of features with no
-browser equivalent (browser panes, detaching a window, the native app menu,
-opening a file in an editor) show a stated empty state instead of failing
-silently — see
+browser equivalent (embedded browser panes, detaching a tab or pane into its
+own window, the native app menu, opening a file in an editor, revealing a file
+in Finder) show a stated empty state instead of failing silently — see
 [ADR-178](decisions/adr-178-web-app-and-single-bridge/index.md).
 
 One more thing worth knowing about a browser tab open next to the desktop app:

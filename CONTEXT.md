@@ -74,7 +74,7 @@ A named, argument-carrying request to change layout structure — split, close, 
 _Avoid_: action (the zustand word), mutation, app-command (the ADR-156-era server→renderer channel, which is only for viewport now)
 
 **Viewport**:
-What one renderer is currently looking at — active workspace, active panel, selected tab per panel, focused pane per tab, drawer and sidebar state — persisted per renderer (the desktop in its own file, a browser in its storage), never authoritative on the host.
+What one renderer is currently looking at — active workspace, active panel, selected tab per panel, focused pane per tab — persisted per renderer (the desktop in its own file, a browser in its storage), never authoritative on the host.
 _Avoid_: view state, UI state, selection
 
 **Claim**:

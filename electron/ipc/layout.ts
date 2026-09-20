@@ -1,4 +1,3 @@
-import { ipcMain } from "electron";
 import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
 import type {
   LayoutApplyResult,
@@ -11,12 +10,21 @@ import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 /**
- * Layout, as every renderer sees it (ADR-179 D1).
+ * Layout, as every renderer sees it (ADR-179 D1, ADR-180 D8).
  *
- * Lifted out of the `ipcMain.handle` wrappers below so the ADR-178 WebSocket
- * bridge calls the same code the desktop renderer does. There is no `save`
- * and no `load`: the Manor server owns `~/.manor/layout.json`, a renderer
- * reads the whole thing with `getAll` and changes it with `apply`.
+ * All seven of these were already on the bridge handler table when ADR-179
+ * put them there; what ADR-180 ticket 6 removed is the second caller — the
+ * `ipcMain.handle("layout:*")` wrappers that used to sit at the bottom of
+ * this file. A desktop window reaches the same entries a browser does, so
+ * the `origin` each of them carries comes from the transport either way
+ * (`ORIGIN_ARGS`, D3): a window's is its connection id, which is its
+ * `webContents.id` as a string — the id the wrappers used to read off
+ * `event.sender`, so a command's selection hint still lands on the window
+ * that sent it.
+ *
+ * There is no `save` and no `load`: the Manor server owns
+ * `~/.manor/layout.json`, a renderer reads the whole thing with `getAll` and
+ * changes it with `apply`.
  */
 export function layoutGetAll(deps: IpcDeps): Record<string, LayoutEntry> {
   return deps.layoutStore.getAll();
@@ -93,43 +101,4 @@ export function layoutReportViewport(
   assertString(workspacePath, "workspacePath");
   assertString(rendererId, "rendererId");
   deps.layoutStore.reportViewport(workspacePath, origin, viewport);
-}
-
-export function register(deps: IpcDeps): void {
-  ipcMain.handle("layout:getAll", () => layoutGetAll(deps));
-
-  ipcMain.handle("layout:getLastActive", () => layoutGetLastActive(deps));
-
-  ipcMain.handle(
-    "layout:apply",
-    (event, workspacePath: string, command: LayoutCommand) =>
-      layoutApply(deps, workspacePath, command, {
-        kind: "window",
-        id: String(event.sender.id),
-      }),
-  );
-
-  ipcMain.handle(
-    "layout:setPendingCommand",
-    (_event, paneId: string, text: string, kind?: PendingCommandKind) =>
-      layoutSetPendingCommand(deps, paneId, text, kind),
-  );
-
-  ipcMain.handle("layout:remove", (_event, workspacePath: string) =>
-    layoutRemove(deps, workspacePath),
-  );
-
-  ipcMain.handle(
-    "layout:reportViewport",
-    (
-      event,
-      workspacePath: string,
-      rendererId: string,
-      viewport: PersistedDefaultViewport,
-    ) =>
-      layoutReportViewport(deps, workspacePath, rendererId, viewport, {
-        kind: "window",
-        id: String(event.sender.id),
-      }),
-  );
 }

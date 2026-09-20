@@ -56,9 +56,6 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import * as layoutIpc from "./ipc/layout";
-import * as viewportIpc from "./ipc/viewport";
-import * as projectsIpc from "./ipc/projects";
 import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
@@ -249,22 +246,17 @@ export function initApp(devTitle: string | null): void {
   const layoutPersistence = new LayoutPersistence();
   /**
    * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
-   * feeds both audiences from the one place the layout changes — the windows
-   * by `webContents.send`, a browser through the bridge's sink.
+   * feeds every audience from the one place the layout changes.
+   *
+   * It used to be two — a publish for the bridge, and a `layout:changed`
+   * send around every live window. The second one went with the namespace
+   * (ADR-180 ticket 6): a desktop window is a bridge connection now, so the
+   * sink reaches the windows and the sockets alike, and a renderer hears
+   * `layout.changed` by subscription rather than by having a `webContents`.
    */
   const layoutStore = new LayoutStore(
     layoutPersistence,
-    (payload) => {
-      publishRendererBroadcast("layout", "changed", payload);
-      for (const win of getRendererWindows()) {
-        if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
-        try {
-          win.webContents.send("layout:changed", payload);
-        } catch {
-          // Render frame disposed — safe to ignore.
-        }
-      }
-    },
+    (payload) => publishRendererBroadcast("layout", "changed", payload),
     backend,
     // Which renderer is the primary window's (ADR-179 D4). Read at call time,
     // not captured: `mainWindow` is nulled on close and set again on reopen,
@@ -541,9 +533,6 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  layoutIpc.register(ipcDeps);
-  viewportIpc.register(ipcDeps);
-  projectsIpc.register(ipcDeps);
   themeIpc.register(ipcDeps);
   portsIpc.register(ipcDeps);
   branchesDiffsIpc.register(ipcDeps);

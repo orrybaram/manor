@@ -20,6 +20,10 @@
  * worth sharing, not the pipe — so this file carries the same frames and
  * nothing else changes.
  *
+ * A fifth channel carries no frame: `bridge:rendererId` answers "who am I?"
+ * synchronously, because the preload has to know before the page's first
+ * line runs and the answer — `webContents.id` — is already in hand.
+ *
  * **What is on this side of `BridgeConnection`.** The channel names, the
  * sender check, the one `webContents.send` that `send(frame)` becomes, and
  * turning a window into a connection id (`connectionIdFor`, D5) — which no
@@ -66,6 +70,18 @@ export const BRIDGE_SUBSCRIBE = "bridge:subscribe";
 export const BRIDGE_UNSUBSCRIBE = "bridge:unsubscribe";
 /** Main → renderer: one `EventFrame`. The only channel this transport sends on. */
 export const BRIDGE_EVENT = "bridge:event";
+/**
+ * "Who am I?", answered synchronously (ADR-179 D3, ADR-180 ticket 6).
+ *
+ * The one channel here that carries no frame. The preload has to answer
+ * `rendererId` before the page's first line runs — a component branching on
+ * it is rendering — and there is nothing to wait for, because
+ * `webContents.id` is already in hand. It lived on `viewport:rendererId`
+ * until `viewport` crossed to the table; it belongs here, with
+ * `connectionIdFor`, because "a connection is its `webContents.id`" is this
+ * transport's arrangement and this is the same sentence said to the page.
+ */
+export const BRIDGE_RENDERER_ID = "bridge:rendererId";
 
 /**
  * A failed invoke, as a *value*.
@@ -178,6 +194,7 @@ export class IpcBridgeTransport {
     ipcMain.handle(BRIDGE_INVOKE, this.onInvoke);
     ipcMain.on(BRIDGE_SUBSCRIBE, this.onSubscribe);
     ipcMain.on(BRIDGE_UNSUBSCRIBE, this.onUnsubscribe);
+    ipcMain.on(BRIDGE_RENDERER_ID, this.onRendererId);
     setRendererWindowResolver(this.connectionIdFor);
   }
 
@@ -187,6 +204,7 @@ export class IpcBridgeTransport {
       ipcMain.removeHandler(BRIDGE_INVOKE);
       ipcMain.removeListener(BRIDGE_SUBSCRIBE, this.onSubscribe);
       ipcMain.removeListener(BRIDGE_UNSUBSCRIBE, this.onUnsubscribe);
+      ipcMain.removeListener(BRIDGE_RENDERER_ID, this.onRendererId);
       setRendererWindowResolver(null);
       this.started = false;
     }
@@ -249,6 +267,25 @@ export class IpcBridgeTransport {
     const asked = readSubscribeFrame(asRecord(payload), "subscribe");
     if (!asked) return;
     this.server.subscribe(connection, asked.ns, asked.event, asked.key);
+  };
+
+  /**
+   * The id this window will be known by, before it has said anything.
+   *
+   * Synchronous, so the sender blocks until this returns — which it does
+   * without touching the connection registry: asking is not connecting, and
+   * a window that never speaks a frame never gets one. An unrecognised
+   * sender is answered `null` rather than left to hang, because a `sendSync`
+   * with no `returnValue` set is a value the caller cannot distinguish from
+   * a real one; null is the same answer the preload turns into "no id".
+   */
+  private readonly onRendererId = (event: IpcMainEvent): void => {
+    event.returnValue = isRendererSender(
+      event.sender,
+      this.deps.getRendererWindows(),
+    )
+      ? String(event.sender.id)
+      : null;
   };
 
   private readonly onUnsubscribe = (

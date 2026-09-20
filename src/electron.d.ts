@@ -521,11 +521,13 @@ export interface ElectronAPI {
   };
 
   /**
-   * This renderer's own viewport file (ADR-179 D3).
+   * This renderer's own viewport file (ADR-179 D3, ADR-180 D4).
    *
-   * Deliberately *not* in the bridge handler table: a browser answers both
-   * calls itself out of `localStorage` (`src/bridge/unavailable.ts`), because
-   * the selection a phone remembers is the phone's, not the host's.
+   * `LOCAL_ONLY` on the handler table: a window at the machine reads and
+   * writes `~/.manor/viewport.json`, and a paired device is refused — the
+   * selection a phone remembers is the phone's, not the desk's. A browser
+   * never asks at all, answering both calls out of `localStorage`
+   * (`src/bridge/unavailable.ts`).
    */
   viewport: {
     load: () => Promise<PersistedViewportFile | null>;

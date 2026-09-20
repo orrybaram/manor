@@ -1,13 +1,18 @@
 /**
- * One renderer's viewport file (ADR-179 D3).
+ * One renderer's viewport file (ADR-179 D3, ADR-180 D4).
  *
  * `~/.manor/viewport.json` is *not* layout. Layout is the Manor server's, one
  * copy for every renderer on the host; this is the primary desktop window's
  * answer to "which tab was I on", and a browser keeps its own in
  * `localStorage` without ever touching this (see `src/bridge/unavailable.ts`).
- * That is why these two calls are deliberately absent from the bridge handler
- * table: a phone that asked the host where it had been would be handed the
- * desk's answer.
+ *
+ * Both calls are on the handler table as of ADR-180 ticket 6, and both are
+ * `LOCAL_ONLY`: a window at the machine may read and write the desk's file,
+ * and a paired device gets `unavailable:web` — which is exactly what it got
+ * when they were absent, now written down as a decision. A browser never
+ * asks in the first place; `LOCALLY_SERVED` answers it out of `localStorage`
+ * before a frame is built, because the selection a phone remembers is the
+ * phone's.
  *
  * Read and written whole, the way `layout-persistence.ts` does it, because it
  * is a few hundred bytes and there is exactly one writer.
@@ -15,10 +20,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ipcMain } from "electron";
 import { viewportFile } from "../paths";
 import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
-import type { IpcDeps } from "./types";
 
 export const VIEWPORT_FILE = viewportFile();
 
@@ -62,18 +65,8 @@ export function viewportSave(
   fs.writeFileSync(filePath, JSON.stringify(file, null, 2));
 }
 
-export function register(_deps: IpcDeps): void {
-  ipcMain.handle("viewport:load", () => viewportLoad());
-
-  ipcMain.handle("viewport:save", (_event, file: PersistedViewportFile) => {
-    viewportSave(file);
-  });
-
-  // Who this renderer is, as `layout:apply` names it in a command's origin.
-  // Synchronous because the preload has to answer `rendererId` before the app
-  // can ask for it, and there is nothing to wait for: `webContents.id` is
-  // already in hand (ADR-179 D3).
-  ipcMain.on("viewport:rendererId", (event) => {
-    event.returnValue = String(event.sender.id);
-  });
-}
+// `register()` is gone (ADR-180 ticket 6). `viewport:load` and `viewport:save`
+// are table entries; `viewport:rendererId` — the synchronous "who am I" the
+// preload asks before the page's first line runs — moved to
+// `bridge/transports/ipc.ts`, which is the file that decides a connection is
+// its `webContents.id` and so the only one that should be answering it.

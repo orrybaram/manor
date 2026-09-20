@@ -65,11 +65,35 @@ import {
   layoutSetPendingCommand,
 } from "../ipc/layout";
 import {
+  projectsAdd,
+  projectsCanQuickMerge,
+  projectsConvertMainToWorktree,
+  projectsCreateWorkspaceFolder,
+  projectsCreateWorktree,
+  projectsDeleteWorkspaceFolder,
   projectsGetAll,
   projectsGetSelectedIndex,
+  projectsListLocalBranches,
+  projectsListRemoteBranches,
+  projectsQuickMergeWorktree,
+  projectsRemove,
+  projectsRemoveWorktree,
+  projectsRenameWorkspace,
+  projectsRenameWorkspaceFolder,
+  projectsReorder,
+  projectsReorderWorkspaces,
   projectsSelect,
   projectsSelectWorkspace,
+  projectsSetFolderParent,
+  projectsSetWorkspaceFolder,
+  projectsSetWorkspaceHidden,
+  projectsUpdate,
 } from "../ipc/projects";
+import {
+  viewportLoad,
+  viewportSave,
+  type PersistedViewportFile,
+} from "../ipc/viewport";
 import {
   themeGet,
   themeGetSelectedName,
@@ -106,6 +130,8 @@ import type { LayoutCommand } from "../../src/lib/layout/commands";
 import type { PendingCommandKind } from "../layout/pending-commands";
 import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
 import type { LayoutOrigin } from "../layout/layout-store";
+import type { ProjectUpdatableFields } from "../persistence";
+import type { LinkedIssue } from "../linear";
 
 /**
  * A handler the bridge may call.
@@ -341,12 +367,22 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "layout.remove": (deps: IpcDeps, workspacePath: string) =>
     layoutRemove(deps, workspacePath),
   /**
-   * A browser's viewport report, minus any `claim` it carried (ADR-179 D4).
+   * A viewport report, minus any `claim` that did not come from a window
+   * (ADR-179 D4).
    *
-   * A claim is a *desktop window's* hold on a tab, and honouring one from a
-   * socket would let a phone make a tab vanish from the desk. Stripped here
-   * rather than refused, so a browser running the same renderer code as a
-   * detached window still gets its selection remembered.
+   * A claim is a *desktop window's* hold on a tab — it is how a detached
+   * window tells the primary to stop showing the tab it took (ADR-156/179
+   * D4) — and honouring one from a socket would let a phone make a tab
+   * vanish from the desk. So it is stripped for a `bridge` caller and kept
+   * for a `window` one, which since ADR-180 ticket 6 reaches this same entry
+   * rather than an `ipcMain.handle` of its own. Stripped rather than
+   * refused, so a browser running the same renderer code as a detached
+   * window still gets its selection remembered.
+   *
+   * `LayoutStore.reportViewport` makes the same distinction for itself and
+   * would ignore the claim anyway; doing it here as well keeps "what a
+   * device may say about this host" readable in the table, which is where
+   * D4 says to look for it.
    */
   "layout.reportViewport": (
     deps: IpcDeps,
@@ -355,6 +391,15 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     viewport: PersistedDefaultViewport,
     origin?: LayoutOrigin,
   ) => {
+    if (origin?.kind === "window") {
+      return layoutReportViewport(
+        deps,
+        workspacePath,
+        rendererId,
+        viewport,
+        origin,
+      );
+    }
     const { claim: _claim, ...unclaimed } = viewport ?? {};
     return layoutReportViewport(
       deps,
@@ -366,6 +411,32 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   },
 
   // ── projects: the sidebar's reads, plus the two selection writes ──
+  /**
+   * This machine's primary window's viewport file, `LOCAL_ONLY` (D4).
+   *
+   * On the table so that the desktop has one door rather than two, and
+   * refused to a device so that a phone asking the host where it had been is
+   * not handed the desk's answer. A browser never reaches the frame at all:
+   * `LOCALLY_SERVED` answers both out of `localStorage`, which is the tab's
+   * own memory and the right one (ADR-179 D3).
+   */
+  "viewport.load": () => viewportLoad(),
+  "viewport.save": (_deps: IpcDeps, file: PersistedViewportFile) =>
+    viewportSave(file),
+
+  /**
+   * Projects and workspaces, whole (ADR-180 ticket 6).
+   *
+   * Nineteen of these twenty-three were desktop-only until this ticket, and
+   * every one of them is now reachable by a paired `full` device — ADR-178
+   * D3 as written, and as the pairing dialog's label already warns. The
+   * mutating ones are in `MUTATING`, so a device's call leaves an audit line
+   * naming what it pointed at.
+   *
+   * The two that make and unmake a worktree carry the caller's origin
+   * (`ORIGIN_ARGS`): their progress is a running commentary addressed to
+   * whoever asked for it, not a broadcast every window has to ignore.
+   */
   "projects.getAll": (deps: IpcDeps) => projectsGetAll(deps),
   "projects.getSelectedIndex": (deps: IpcDeps) =>
     projectsGetSelectedIndex(deps),
@@ -376,6 +447,110 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     projectId: string,
     workspaceIndex: number,
   ) => projectsSelectWorkspace(deps, projectId, workspaceIndex),
+  "projects.add": (deps: IpcDeps, name: string, path: string) =>
+    projectsAdd(deps, name, path),
+  "projects.remove": (deps: IpcDeps, projectId: string) =>
+    projectsRemove(deps, projectId),
+  "projects.removeWorktree": (
+    deps: IpcDeps,
+    projectId: string,
+    worktreePath: string,
+    deleteBranch?: boolean,
+    origin?: LayoutOrigin,
+  ) =>
+    projectsRemoveWorktree(deps, projectId, worktreePath, deleteBranch, origin),
+  "projects.canQuickMerge": (
+    deps: IpcDeps,
+    projectId: string,
+    worktreePath: string,
+  ) => projectsCanQuickMerge(deps, projectId, worktreePath),
+  "projects.quickMergeWorktree": (
+    deps: IpcDeps,
+    projectId: string,
+    worktreePath: string,
+  ) => projectsQuickMergeWorktree(deps, projectId, worktreePath),
+  "projects.createWorktree": (
+    deps: IpcDeps,
+    projectId: string,
+    name: string,
+    branch?: string,
+    linkedIssue?: LinkedIssue,
+    baseBranch?: string,
+    useExistingBranch?: boolean,
+    origin?: LayoutOrigin,
+  ) =>
+    projectsCreateWorktree(
+      deps,
+      projectId,
+      name,
+      branch,
+      linkedIssue,
+      baseBranch,
+      useExistingBranch,
+      origin,
+    ),
+  "projects.convertMainToWorktree": (
+    deps: IpcDeps,
+    projectId: string,
+    name: string,
+  ) => projectsConvertMainToWorktree(deps, projectId, name),
+  "projects.listRemoteBranches": (deps: IpcDeps, projectId: string) =>
+    projectsListRemoteBranches(deps, projectId),
+  "projects.listLocalBranches": (deps: IpcDeps, projectId: string) =>
+    projectsListLocalBranches(deps, projectId),
+  "projects.renameWorkspace": (
+    deps: IpcDeps,
+    projectId: string,
+    workspacePath: string,
+    newName: string,
+  ) => projectsRenameWorkspace(deps, projectId, workspacePath, newName),
+  "projects.setWorkspaceHidden": (
+    deps: IpcDeps,
+    projectId: string,
+    workspacePath: string,
+    hidden: boolean,
+  ) => projectsSetWorkspaceHidden(deps, projectId, workspacePath, hidden),
+  "projects.createWorkspaceFolder": (
+    deps: IpcDeps,
+    projectId: string,
+    name: string,
+    parentId?: string | null,
+  ) => projectsCreateWorkspaceFolder(deps, projectId, name, parentId ?? null),
+  "projects.setFolderParent": (
+    deps: IpcDeps,
+    projectId: string,
+    folderId: string,
+    parentId: string | null,
+  ) => projectsSetFolderParent(deps, projectId, folderId, parentId),
+  "projects.renameWorkspaceFolder": (
+    deps: IpcDeps,
+    projectId: string,
+    folderId: string,
+    name: string,
+  ) => projectsRenameWorkspaceFolder(deps, projectId, folderId, name),
+  "projects.deleteWorkspaceFolder": (
+    deps: IpcDeps,
+    projectId: string,
+    folderId: string,
+  ) => projectsDeleteWorkspaceFolder(deps, projectId, folderId),
+  "projects.setWorkspaceFolder": (
+    deps: IpcDeps,
+    projectId: string,
+    workspacePath: string,
+    folderId: string | null,
+  ) => projectsSetWorkspaceFolder(deps, projectId, workspacePath, folderId),
+  "projects.reorderWorkspaces": (
+    deps: IpcDeps,
+    projectId: string,
+    orderedKeys: string[],
+  ) => projectsReorderWorkspaces(deps, projectId, orderedKeys),
+  "projects.reorder": (deps: IpcDeps, orderedIds: string[]) =>
+    projectsReorder(deps, orderedIds),
+  "projects.update": (
+    deps: IpcDeps,
+    projectId: string,
+    updates: ProjectUpdatableFields,
+  ) => projectsUpdate(deps, projectId, updates),
 
   // ── theme, preferences, keybindings: what the stores read on mount ──
   "theme.get": (deps: IpcDeps) => themeGet(deps),
@@ -475,6 +650,11 @@ export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   ["pty.resize", 3],
   ["pty.close", 1],
   ["pty.detach", 1],
+  // Both report their progress to the caller and nobody else (D5). The counts
+  // include every optional argument, so a client that omits `deleteBranch` or
+  // `useExistingBranch` still gets the origin in the slot after it.
+  ["projects.createWorktree", 6],
+  ["projects.removeWorktree", 3],
 ]);
 
 export const MUTATING: ReadonlySet<string> = new Set([
@@ -486,6 +666,26 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "layout.remove",
   "projects.select",
   "projects.selectWorkspace",
+  // Everything that creates, renames, moves or destroys a project, a
+  // workspace or a folder (ADR-180 ticket 6). `canQuickMerge` and the two
+  // branch listings are absent because they read; `getAll` and
+  // `getSelectedIndex` likewise.
+  "projects.add",
+  "projects.remove",
+  "projects.removeWorktree",
+  "projects.quickMergeWorktree",
+  "projects.createWorktree",
+  "projects.convertMainToWorktree",
+  "projects.renameWorkspace",
+  "projects.setWorkspaceHidden",
+  "projects.createWorkspaceFolder",
+  "projects.setFolderParent",
+  "projects.renameWorkspaceFolder",
+  "projects.deleteWorkspaceFolder",
+  "projects.setWorkspaceFolder",
+  "projects.reorderWorkspaces",
+  "projects.reorder",
+  "projects.update",
   "preferences.set",
   "agents.setPaneContext",
 ]);
@@ -502,13 +702,31 @@ export const MUTATING: ReadonlySet<string> = new Set([
  * and `allowlist.test.ts` can assert the list instead of asserting silence.
  *
  * The prewarm pair is the first entry, and arrived with `pty` (ADR-180
- * ticket 5). The rest of the list this is for — `keybindings.set`/`reset`/
- * `resetAll`, `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` and
- * `viewport.load`/`save` — joins it as each of those namespaces crosses;
- * naming them before they exist would be a list of methods that refuse
- * nothing.
+ * ticket 5); `viewport` and `appCommands.result` joined with ticket 6. The
+ * rest of the list this is for — `keybindings.set`/`reset`/`resetAll` and
+ * `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` — joins it as each of
+ * those namespaces crosses; naming them before they exist would be a list of
+ * methods that refuse nothing.
  */
 export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
   "pty.consumePrewarmed",
   "pty.updatePrewarmCwd",
+  /**
+   * The desk's own viewport file. A device asking the host which tab it had
+   * been on would be handed the answer for a different screen; the browser
+   * answers itself out of `localStorage` and never asks.
+   */
+  "viewport.load",
+  "viewport.save",
+  /**
+   * The reply half of the app-command round trip (ticket 4 left this open).
+   *
+   * `appCommands.command` is addressed to the *primary window* and nowhere
+   * else, so a device never receives one and has nothing to answer.
+   * Exploiting the gap would mean guessing a v4 UUID main told exactly one
+   * connection — not a real attack, and not the point: a method no device
+   * needs is a method no device should have, and this list is where that
+   * argument gets settled once instead of rediscovered.
+   */
+  "appCommands.result",
 ]);

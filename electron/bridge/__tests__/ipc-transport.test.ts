@@ -82,7 +82,9 @@ vi.mock("electron", () => ({
       electronMock.invoked.push([channel, payload]);
       return Promise.resolve(undefined);
     },
-    sendSync: () => 7,
+    // `bridge:rendererId`, which main answers with `String(webContents.id)`
+    // — a string, and the preload takes nothing else (ADR-180 ticket 6).
+    sendSync: () => "7",
   },
 }));
 

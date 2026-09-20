@@ -81,11 +81,10 @@ import type { LocalBackend } from "../backend/local-backend";
 function bridgeHarness() {
   const frames: RendererBroadcast[] = [];
   const stops = [addRendererBroadcastSink((frame) => frames.push(frame))];
-  // `webContents.send` is still here because `projects-changed` has not moved
-  // to the bridge yet (a later ADR-180 ticket); the window is otherwise only
-  // ever looked at for its id.
+  // The window is only ever looked at for its id now: every push main
+  // makes to a renderer is a broadcast frame (ADR-180 D5).
   (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-    { webContents: { id: 1, send: vi.fn() } },
+    { webContents: { id: 1 } },
   ]);
   setRendererWindowResolver(() => "1");
 
@@ -549,30 +548,39 @@ describe("WebviewServer project/workspace routes", () => {
     bridge.stop();
   });
 
-  it("POST /projects/:id/workspaces tells the renderer its project list is stale", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+  it("POST /projects/:id/workspaces tells every renderer its project list is stale", async () => {
+    const bridge = bridgeHarness();
 
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
     });
 
-    expect(send).toHaveBeenCalledWith("projects-changed");
+    // A broadcast rather than a `webContents.send` to the first window
+    // (ADR-180 ticket 6): every renderer that subscribed hears it, windows
+    // and browsers alike.
+    expect(bridge.frames).toContainEqual({
+      ns: "projects",
+      event: "changed",
+      args: [],
+      to: null,
+    });
+    bridge.stop();
   });
 
-  it("DELETE /projects/:id/workspaces tells the renderer its project list is stale", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+  it("DELETE /projects/:id/workspaces tells every renderer its project list is stale", async () => {
+    const bridge = bridgeHarness();
 
     await mcpHttpDelete(baseUrl, "/projects/proj-1/workspaces", {
       worktreePath: "/repos/demo-ws",
     });
 
-    expect(send).toHaveBeenCalledWith("projects-changed");
+    expect(bridge.frames).toContainEqual({
+      ns: "projects",
+      event: "changed",
+      args: [],
+      to: null,
+    });
+    bridge.stop();
   });
 
   it("DELETE /projects/:id/workspaces removes a workspace", async () => {

@@ -86,9 +86,15 @@ const claim = (() => {
 // be told through `additionalArguments` — the id does not exist until the
 // window that owns this preload does. Synchronous for the same reason
 // `isPackaged` is: the store reads it while handling a broadcast.
+//
+// Asked on `bridge:rendererId` since `viewport` crossed to the handler table
+// (ADR-180 ticket 6). It is the same question with the same answer — the
+// window's connection id — put to the file that decides what a connection id
+// is.
 let rendererId: string | null = null;
 try {
-  rendererId = String(ipcRenderer.sendSync("viewport:rendererId"));
+  const answer: unknown = ipcRenderer.sendSync("bridge:rendererId");
+  rendererId = typeof answer === "string" ? answer : null;
 } catch {
   // No handler yet (a window opened before `registerIpcHandlers`): a null id
   // matches no origin, so selection hints are simply not applied.
@@ -130,195 +136,14 @@ const nativeApi = {
   // another window of its own (D6) — and the subscription that tells it so
   // is the same one a browser has always had.
 
-  layout: {
-    // ADR-179 D1: the server owns the layout. A renderer reads it with
-    // `getAll`, changes it with `apply`, and hears every change — its own
-    // included — on `onChanged`. There is no `save`.
-    getAll: () => ipcRenderer.invoke("layout:getAll"),
-    getLastActive: () => ipcRenderer.invoke("layout:getLastActive"),
-    apply: (workspacePath: string, command: unknown) =>
-      ipcRenderer.invoke("layout:apply", workspacePath, command),
-    setPendingCommand: (paneId: string, text: string, kind?: string) =>
-      ipcRenderer.invoke("layout:setPendingCommand", paneId, text, kind),
-    remove: (workspacePath: string) =>
-      ipcRenderer.invoke("layout:remove", workspacePath),
-    reportViewport: (
-      workspacePath: string,
-      rendererId: string,
-      viewport: unknown,
-    ) =>
-      ipcRenderer.invoke(
-        "layout:reportViewport",
-        workspacePath,
-        rendererId,
-        viewport,
-      ),
-    onChanged: (callback: (payload: unknown) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        payload: unknown,
-      ) => callback(payload);
-      ipcRenderer.on("layout:changed", listener);
-      return () => ipcRenderer.removeListener("layout:changed", listener);
-    },
-  },
-
-  // This renderer's own viewport file (ADR-179 D3) — never the bridge's.
-  viewport: {
-    load: () => ipcRenderer.invoke("viewport:load"),
-    save: (file: unknown) => ipcRenderer.invoke("viewport:save", file),
-  },
-
-  projects: {
-    getAll: () => ipcRenderer.invoke("projects:getAll"),
-    getSelectedIndex: () => ipcRenderer.invoke("projects:getSelectedIndex"),
-    select: (index: number) => ipcRenderer.invoke("projects:select", index),
-    add: (name: string, path: string) =>
-      ipcRenderer.invoke("projects:add", name, path),
-    remove: (projectId: string) =>
-      ipcRenderer.invoke("projects:remove", projectId),
-    selectWorkspace: (projectId: string, workspaceIndex: number) =>
-      ipcRenderer.invoke("projects:selectWorkspace", projectId, workspaceIndex),
-    removeWorktree: (
-      projectId: string,
-      worktreePath: string,
-      deleteBranch?: boolean,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:removeWorktree",
-        projectId,
-        worktreePath,
-        deleteBranch,
-      ),
-    onRemoveWorktreeProgress: (callback: (step: string) => void) =>
-      onChannel<string>("projects:removeWorktree:progress", callback),
-    canQuickMerge: (projectId: string, worktreePath: string) =>
-      ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
-    quickMergeWorktree: (projectId: string, worktreePath: string) =>
-      ipcRenderer.invoke(
-        "projects:quickMergeWorktree",
-        projectId,
-        worktreePath,
-      ),
-    createWorktree: (
-      projectId: string,
-      name: string,
-      branch?: string,
-      linkedIssue?: {
-        id: string;
-        identifier: string;
-        title: string;
-        url: string;
-      },
-      baseBranch?: string,
-      useExistingBranch?: boolean,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:createWorktree",
-        projectId,
-        name,
-        branch,
-        linkedIssue,
-        baseBranch,
-        useExistingBranch,
-      ),
-    convertMainToWorktree: (projectId: string, name: string) =>
-      ipcRenderer.invoke("projects:convertMainToWorktree", projectId, name),
-    listRemoteBranches: (projectId: string) =>
-      ipcRenderer.invoke("projects:listRemoteBranches", projectId),
-    listLocalBranches: (projectId: string) =>
-      ipcRenderer.invoke("projects:listLocalBranches", projectId),
-    renameWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      newName: string,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:renameWorkspace",
-        projectId,
-        workspacePath,
-        newName,
-      ),
-    setWorkspaceHidden: (
-      projectId: string,
-      workspacePath: string,
-      hidden: boolean,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:setWorkspaceHidden",
-        projectId,
-        workspacePath,
-        hidden,
-      ),
-    createWorkspaceFolder: (
-      projectId: string,
-      name: string,
-      parentId?: string | null,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:createWorkspaceFolder",
-        projectId,
-        name,
-        parentId ?? null,
-      ),
-    // Resolves false when the move would create a folder cycle (ADR-172).
-    setFolderParent: (
-      projectId: string,
-      folderId: string,
-      parentId: string | null,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:setFolderParent",
-        projectId,
-        folderId,
-        parentId,
-      ),
-    renameWorkspaceFolder: (
-      projectId: string,
-      folderId: string,
-      name: string,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:renameWorkspaceFolder",
-        projectId,
-        folderId,
-        name,
-      ),
-    deleteWorkspaceFolder: (projectId: string, folderId: string) =>
-      ipcRenderer.invoke("projects:deleteWorkspaceFolder", projectId, folderId),
-    setWorkspaceFolder: (
-      projectId: string,
-      workspacePath: string,
-      folderId: string | null,
-    ) =>
-      ipcRenderer.invoke(
-        "projects:setWorkspaceFolder",
-        projectId,
-        workspacePath,
-        folderId,
-      ),
-    // orderedKeys entries may be workspace paths or folder ids (ADR-167).
-    reorderWorkspaces: (projectId: string, orderedKeys: string[]) =>
-      ipcRenderer.invoke("projects:reorderWorkspaces", projectId, orderedKeys),
-    reorder: (orderedIds: string[]) =>
-      ipcRenderer.invoke("projects:reorder", orderedIds),
-    update: (
-      projectId: string,
-      updates: Partial<{
-        name: string;
-        defaultRunCommand: string | null;
-        worktreePath: string | null;
-        worktreeStartScript: string | null;
-        worktreeTeardownScript: string | null;
-        linearAssociations: Array<{
-          teamId: string;
-          teamName: string;
-          teamKey: string;
-        }>;
-        color: string | null;
-      }>,
-    ) => ipcRenderer.invoke("projects:update", projectId, updates),
-  },
+  // `layout`, `viewport` and `projects` are not here either (ADR-180 ticket
+  // 6). Seven layout methods that were already on the table lost their
+  // `ipcMain.handle` wrappers; the viewport pair joined it as `LOCAL_ONLY`,
+  // and every one of the twenty-three `projects` calls crossed with them.
+  // `layout.onChanged` and `onProjectsChanged` are subscriptions to
+  // `layout.changed` and `projects.changed` now, so the `layout:changed` and
+  // `projects-changed` channels they listened on are gone from main too — a
+  // namespace takes its legacy sends with it when it crosses.
 
   theme: {
     get: () => ipcRenderer.invoke("theme:get"),
@@ -680,10 +505,6 @@ const nativeApi = {
     writeText: (text: string) =>
       ipcRenderer.invoke("clipboard:writeText", text),
   },
-
-  /** Main mutated the project list out-of-band (MCP, CLI) — refetch it. */
-  onProjectsChanged: (callback: () => void) =>
-    onChannel("projects-changed", callback),
 
   webview: {
     register: (paneId: string, webContentsId: number) =>

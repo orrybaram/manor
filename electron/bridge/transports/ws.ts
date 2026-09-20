@@ -107,6 +107,35 @@ export interface WsBridgeServerOptions extends BridgeServerOptions {
   server?: BridgeServer;
 }
 
+/**
+ * One `JSON.stringify` per frame, not per socket (ADR-180 ticket 4).
+ *
+ * `BridgeServer.publish` hands the *same* frame object to every subscribed
+ * connection in one synchronous loop, so a pane's output was serialised once
+ * per attached browser — N stringifies for N viewers, on the hottest path in
+ * the app. A one-entry memo keyed by object *identity* collapses that back to
+ * once: the loop is synchronous and nothing mutates a frame after building
+ * it, so the next call is either the same object or a genuinely new one. One
+ * entry rather than a cache because that is the whole of the pattern; a map
+ * would only be a leak.
+ *
+ * Deliberately here and not in `BridgeServer`: the IPC transport must not
+ * serialise at all — Electron's structured clone carries the object across as
+ * it is — so what a frame looks like on the wire is each transport's own
+ * question.
+ */
+export class FrameSerialiser {
+  private last: unknown = null;
+  private text = "";
+
+  of(frame: unknown): string {
+    if (frame === this.last && this.last !== null) return this.text;
+    this.text = JSON.stringify(frame);
+    this.last = frame;
+    return this.text;
+  }
+}
+
 export class WsBridgeServer {
   private readonly wss = new WebSocketServer({
     noServer: true,
@@ -116,6 +145,8 @@ export class WsBridgeServer {
   private readonly server: BridgeServer;
   /** Whether `dispose` also disposes the surface, or only this transport. */
   private readonly ownsServer: boolean;
+  /** One `JSON.stringify` per frame rather than per socket. See the class. */
+  private readonly json = new FrameSerialiser();
 
   constructor(deps: IpcDeps, options: WsBridgeServerOptions = {}) {
     this.server = options.server ?? new BridgeServer(deps, options);
@@ -314,7 +345,7 @@ export class WsBridgeServer {
   private send(entry: Socket, frame: unknown): void {
     if (entry.socket.readyState !== WebSocket.OPEN) return;
     try {
-      entry.socket.send(JSON.stringify(frame));
+      entry.socket.send(this.json.of(frame));
     } catch {
       // A socket that died between the readyState check and the send is a
       // socket the 'close' handler is about to clean up.

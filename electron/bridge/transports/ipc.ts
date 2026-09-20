@@ -21,10 +21,13 @@
  * nothing else changes.
  *
  * **What is on this side of `BridgeConnection`.** The channel names, the
- * sender check, and the one `webContents.send` that `send(frame)` becomes.
- * What `ns.method` means, who is subscribed to what, and what to do when a
- * pane's owner changes are `../server.ts`'s, shared verbatim with the
- * WebSocket transport. That sharing is the whole of D1.
+ * sender check, the one `webContents.send` that `send(frame)` becomes, and
+ * turning a window into a connection id (`connectionIdFor`, D5) — which no
+ * other file may do, because "a connection is its `webContents.id`" is this
+ * transport's own arrangement. What `ns.method` means, who is subscribed to
+ * what, and what to do when a pane's owner changes are `../server.ts`'s,
+ * shared verbatim with the WebSocket transport. That sharing is the whole of
+ * D1.
  *
  * **Authentication is being a window.** A connection from here is
  * `callerClass: "local"` — the user at the machine — so `LOCAL_ONLY` (D4)
@@ -44,6 +47,10 @@ import {
 } from "electron";
 
 import type { IpcDeps } from "../../ipc/types";
+import {
+  setRendererWindowResolver,
+  type RendererWindowLike,
+} from "../../renderer-broadcast";
 import { BridgeServer, type BridgeServerOptions } from "../server";
 import {
   readInvokeFrame,
@@ -171,6 +178,7 @@ export class IpcBridgeTransport {
     ipcMain.handle(BRIDGE_INVOKE, this.onInvoke);
     ipcMain.on(BRIDGE_SUBSCRIBE, this.onSubscribe);
     ipcMain.on(BRIDGE_UNSUBSCRIBE, this.onUnsubscribe);
+    setRendererWindowResolver(this.connectionIdFor);
   }
 
   /** The process is exiting; there is no restart. */
@@ -179,11 +187,40 @@ export class IpcBridgeTransport {
       ipcMain.removeHandler(BRIDGE_INVOKE);
       ipcMain.removeListener(BRIDGE_SUBSCRIBE, this.onSubscribe);
       ipcMain.removeListener(BRIDGE_UNSUBSCRIBE, this.onUnsubscribe);
+      setRendererWindowResolver(null);
       this.started = false;
     }
     for (const id of [...this.connections.keys()]) this.dropWindow(id);
     if (this.ownsServer) this.server.dispose();
   }
+
+  /**
+   * That window's connection id, or null if it has none (ADR-180 D5).
+   *
+   * The addressed half of the event migration — `appCommands.command` to the
+   * primary window, `menu.command` to the focused one — is all "tell *that
+   * one* renderer", and `BridgeServer.sendTo` wants an id rather than a
+   * window. Turning one into the other is this
+   * transport's private business: a connection id happens to be
+   * `String(webContents.id)` today, and a send-site that spelled that out for
+   * itself would be a second copy of a fact only this file should hold.
+   *
+   * Null when the window has never spoken a frame, which is not a hedge: a
+   * connection is made lazily on a window's first `bridge:*` frame, so no
+   * connection means a renderer that has not installed the bridge yet, and
+   * nothing addressed to it could arrive anyway. Callers that used to check
+   * "is there a window" check this instead and get a better answer.
+   *
+   * Bound as a field because it is handed to `setRendererWindowResolver` as a
+   * bare function.
+   */
+  readonly connectionIdFor = (
+    win: RendererWindowLike | null | undefined,
+  ): string | null => {
+    if (!win) return null;
+    const id = win.webContents.id;
+    return this.connections.has(id) ? String(id) : null;
+  };
 
   /**
    * A call from a window. Bound as a field so `removeHandler` has the same

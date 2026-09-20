@@ -2,14 +2,11 @@ import { ipcMain } from "electron";
 import type { ActivePort } from "../ports";
 import { portlessManager } from "../portless";
 import { assertPositiveInt, assertStringArray } from "../ipc-validate";
+import { publishRendererBroadcast } from "../renderer-broadcast";
 import type { IpcDeps, WorkspaceMeta } from "./types";
 
 export function register(deps: IpcDeps): void {
   const { portScanner, backend } = deps;
-
-  function getMainWindow() {
-    return deps.mainWindow;
-  }
 
   // Local copy that can be reassigned when renderer sends updates
   let workspaceMeta: WorkspaceMeta[] = deps.workspaceMeta;
@@ -38,7 +35,7 @@ export function register(deps: IpcDeps): void {
   }
 
   ipcMain.handle("ports:startScanner", () => {
-    portScanner.start(getMainWindow()!, enrichPorts);
+    portScanner.start(enrichPorts);
   });
 
   ipcMain.handle("ports:stopScanner", () => {
@@ -71,7 +68,8 @@ export function register(deps: IpcDeps): void {
     }
     // Re-scan immediately so UI updates
     const ports = await portScanner.scanNow();
-    const enriched = enrichPorts(ports);
-    getMainWindow()?.webContents.send("ports-changed", enriched);
+    // Same signal the scanner's own tick publishes (ADR-180 D5), so a kill
+    // reaches every renderer rather than only the primary window.
+    publishRendererBroadcast("ports", "changed", enrichPorts(ports));
   });
 }

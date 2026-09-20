@@ -259,8 +259,11 @@ function presentNotification(
     mainWindow.focus();
     // One click path for banners and in-app rows alike: the renderer resolves
     // the record's target through `navigateToNotification` (ADR-162 §4).
+    // ADR-180 D5: broadcast rather than addressed, because "show me that
+    // notification" is a place in the app, and every renderer looking at it
+    // — a second window, a paired phone — should end up there too.
     if (record) {
-      mainWindow.webContents.send("notifications:navigate", record.id);
+      publishRendererBroadcast("notifications", "navigate", record.id);
     }
   });
   notification.show();

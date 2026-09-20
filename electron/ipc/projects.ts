@@ -95,8 +95,11 @@ export function register(deps: IpcDeps): void {
 
   ipcMain.handle(
     "projects:createWorktree",
-    async (_event, projectId: string, name: string, branch?: string, linkedIssue?: LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
-      const result = await projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch);
+    async (event, projectId: string, name: string, branch?: string, linkedIssue?: LinkedIssue, baseBranch?: string, useExistingBranch?: boolean) => {
+      // The setup progress goes back to the window that asked, and a desktop
+      // connection is named after its `webContents` (ADR-180 D2/D5) — the
+      // same id `ipc/layout.ts` already sends as a layout command's origin.
+      const result = await projectManager.createWorktree(projectId, name, branch, linkedIssue, baseBranch, useExistingBranch, String(event.sender.id));
       statsStore.record("worktreesCreated");
       return result;
     },

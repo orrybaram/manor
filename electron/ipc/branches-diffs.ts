@@ -15,13 +15,9 @@ export function killAllActivePushes(): void {
 export function register(deps: IpcDeps): void {
   const { branchWatcher, diffWatcher, backend } = deps;
 
-  function getMainWindow() {
-    return deps.mainWindow;
-  }
-
   // ── Branch Watcher ──
   ipcMain.handle("branches:start", (_event, paths: string[]) => {
-    branchWatcher.start(getMainWindow()!, paths);
+    branchWatcher.start(paths);
   });
 
   ipcMain.handle("branches:stop", () => {
@@ -30,7 +26,7 @@ export function register(deps: IpcDeps): void {
 
   // ── Diff Watcher ──
   ipcMain.handle("diffs:start", (_event, workspaces: Record<string, string>) => {
-    diffWatcher.start(getMainWindow()!, workspaces);
+    diffWatcher.start(workspaces);
   });
 
   ipcMain.handle("diffs:stop", () => {

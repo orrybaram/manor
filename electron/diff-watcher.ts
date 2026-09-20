@@ -1,5 +1,5 @@
-import type { BrowserWindow } from "electron";
 import type { GitBackend } from "./backend/types";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 export interface DiffStats {
   added: number;
@@ -20,7 +20,8 @@ export class DiffWatcher {
     this.git = git;
   }
 
-  start(window: BrowserWindow, workspaces: Record<string, string>): void {
+  /** ADR-180 D5: publishes `diffs.changed` instead of pushing at a window. */
+  start(workspaces: Record<string, string>): void {
     this.stop();
     this.scanning = false;
     // Force the first tick to emit so a fresh/reloaded renderer gets stats.
@@ -36,7 +37,7 @@ export class DiffWatcher {
         const json = JSON.stringify(stats);
         if (json !== JSON.stringify(this.lastStats)) {
           console.log("[DiffWatcher] emitting diffs-changed:", stats);
-          window.webContents.send("diffs-changed", stats);
+          publishRendererBroadcast("diffs", "changed", stats);
           this.lastStats = stats;
         }
       } catch (err) {

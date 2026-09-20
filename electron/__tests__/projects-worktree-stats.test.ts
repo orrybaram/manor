@@ -56,7 +56,13 @@ describe("projects worktree stats", () => {
       deps.projectManager.createWorktree.mockResolvedValue(info);
 
       const handler = handlers.get("projects:createWorktree")!;
-      const result = await handler({} as never, "p1", "feature");
+      // The sender's id is the connection the setup progress goes back to
+      // (ADR-180 D5), so the event is no longer ignorable here.
+      const result = await handler(
+        { sender: { id: 7 } } as never,
+        "p1",
+        "feature",
+      );
 
       expect(result).toBe(info);
       expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
@@ -67,7 +73,9 @@ describe("projects worktree stats", () => {
       deps.projectManager.createWorktree.mockRejectedValue(new Error("boom"));
 
       const handler = handlers.get("projects:createWorktree")!;
-      await expect(handler({} as never, "p1", "feature")).rejects.toThrow("boom");
+      await expect(
+        handler({ sender: { id: 7 } } as never, "p1", "feature"),
+      ).rejects.toThrow("boom");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });

@@ -1,5 +1,5 @@
-import type { BrowserWindow } from "electron";
 import type { ActivePort, PortsBackend } from "./backend/types";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 export type { ActivePort };
 
@@ -14,10 +14,8 @@ export class PortScanner {
     this.backend = backend;
   }
 
-  start(
-    window: BrowserWindow,
-    onScan?: (ports: ActivePort[]) => ActivePort[],
-  ): void {
+  /** ADR-180 D5: publishes `ports.changed` instead of pushing at a window. */
+  start(onScan?: (ports: ActivePort[]) => ActivePort[]): void {
     this.stop();
 
     this.timer = setInterval(async () => {
@@ -27,7 +25,7 @@ export class PortScanner {
         const ports = await this.backend.scan(this.workspacePaths);
         const enriched = onScan ? onScan(ports) : ports;
         if (JSON.stringify(enriched) !== JSON.stringify(this.lastPorts)) {
-          window.webContents.send("ports-changed", enriched);
+          publishRendererBroadcast("ports", "changed", enriched);
           this.lastPorts = enriched;
         }
       } finally {

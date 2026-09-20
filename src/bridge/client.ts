@@ -151,13 +151,24 @@ export class BridgeDisconnectedError extends Error {
  * `changed`, and the renderer asked to be told `onChange`. The list is short
  * and closed — it is the full set of non-`pty` events the host publishes
  * (see `onRendererBroadcast` in `electron/bridge/server.ts`) whose preload
- * name does not already match. `notifications.onChanged` and
- * `stats.onChanged` are absent because they need no help.
+ * name does not already match. `notifications.onChanged`,
+ * `notifications.onNavigate` and `stats.onChanged` are absent because they
+ * need no help.
+ *
+ * The four `ports`/`branches`/`diffs`/`projects` entries arrived with
+ * ADR-180 D5, when those pushes stopped being `webContents.send` channels.
+ * `worktreeProgress` is the one that is a rename rather than a tense: the
+ * channel was `worktree:setup-progress` and the frame is not about a setup
+ * script, it is about the whole of making a worktree.
  */
 const SUBSCRIPTION_EVENTS: Record<string, string> = {
   "agents.onUpdate": "updated",
   "preferences.onChange": "changed",
   "keybindings.onChange": "changed",
+  "ports.onChange": "changed",
+  "branches.onChange": "changed",
+  "diffs.onChange": "changed",
+  "projects.onWorktreeSetupProgress": "worktreeProgress",
 };
 
 /**
@@ -167,6 +178,21 @@ const SUBSCRIPTION_EVENTS: Record<string, string> = {
  */
 const ROOT_SUBSCRIPTIONS: Record<string, { ns: string; event: string }> = {
   onProjectsChanged: { ns: "projects", event: "changed" },
+  onAppCommand: { ns: "appCommands", event: "command" },
+};
+
+/**
+ * The root-level *calls*, the same way `ROOT_SUBSCRIPTIONS` holds the
+ * root-level listens.
+ *
+ * One entry: answering an app-command (ADR-180 D5). It has no namespace for
+ * the same reason `onProjectsChanged` has none — it predates them — and on
+ * the wire it is `appCommands.result` like anything else. A transport that
+ * serves it locally still wins, which is how the browser keeps its no-op
+ * (`./unavailable.ts`) for a command nothing can deliver to it.
+ */
+const ROOT_INVOKES: Record<string, { ns: string; method: string }> = {
+  sendAppCommandResult: { ns: "appCommands", method: "result" },
 };
 
 /**
@@ -302,9 +328,16 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
         );
       }
       if (ns === null) {
-        return Promise.reject(
-          new BridgeUnavailableError(`${name} is not available in the browser`),
-        );
+        const root = hasOwn(ROOT_INVOKES, name) ? ROOT_INVOKES[name] : null;
+        if (!root) {
+          return Promise.reject(
+            new BridgeUnavailableError(
+              `${name} is not available in the browser`,
+            ),
+          );
+        }
+        transport.start();
+        return transport.invoke(root.ns, root.method, args);
       }
       transport.start();
       return transport.invoke(ns, name, args);
@@ -386,6 +419,7 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
         }
         if (
           hasOwn(ROOT_SUBSCRIPTIONS, prop) ||
+          hasOwn(ROOT_INVOKES, prop) ||
           hasOwn(transport.locallyServed, prop)
         ) {
           const existing = rootMembers.get(prop);

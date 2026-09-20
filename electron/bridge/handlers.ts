@@ -88,6 +88,10 @@ import { remoteControlGetStatus } from "../ipc/remote-control";
 import { statsGetSummary } from "../ipc/stats";
 import { notificationsGetAll } from "../ipc/notifications";
 import { processesList } from "../ipc/processes";
+import {
+  appCommandResult,
+  type AppCommandResult,
+} from "../renderer-bridge";
 import type { IpcDeps } from "../ipc/types";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
 import type { PendingCommandKind } from "../layout/pending-commands";
@@ -362,6 +366,20 @@ export const HANDLERS: Record<string, BridgeHandler> = {
 
   // ── daemon status. The rest of `processes.*` kills things; it is absent. ──
   "processes.list": (deps: IpcDeps) => processesList(deps),
+
+  /**
+   * The renderer answering an `appCommands.command` that carried a
+   * `requestId` (ADR-180 D5).
+   *
+   * The only entry here that is a *reply* rather than a request, and it is on
+   * the table for the same reason everything else is: it used to be an
+   * `ipcRenderer.send("app-command-result")` on a channel of its own, which
+   * made it a second way for a renderer to talk to main. A `requestId` is a
+   * UUID main generated and told exactly one connection, so an answer to one
+   * is an answer from the renderer that was asked.
+   */
+  "appCommands.result": (_deps: IpcDeps, result: AppCommandResult) =>
+    appCommandResult(result),
 };
 
 /**

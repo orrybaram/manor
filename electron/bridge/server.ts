@@ -372,8 +372,24 @@ export class BridgeServer {
    * document as missing: `theme:setSelected` used to answer only the window
    * that asked, so a second desktop window and every browser on the bridge
    * kept the old theme until they next remounted.
+   *
+   * ADR-180 D5 adds the addressed half: a broadcast carrying a `to` is for
+   * exactly one connection — `appCommands.command` to the primary window,
+   * `menu.command` to the focused one, `projects.worktreeProgress` to
+   * whoever asked for the worktree. Broadcast cannot express those, and a
+   * second mechanism for them would be a second thing to keep honest, so
+   * they arrive here and take the one-connection door instead.
    */
   private onRendererBroadcast(broadcast: RendererBroadcast): void {
+    if (broadcast.to !== null) {
+      this.sendTo(broadcast.to, {
+        kind: "event",
+        ns: broadcast.ns,
+        event: broadcast.event,
+        args: broadcast.args,
+      });
+      return;
+    }
     this.publish(broadcast.ns, broadcast.event, broadcast.args, null);
   }
 

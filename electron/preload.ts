@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppCommand, AppCommandResult } from "./renderer-bridge";
 import type {
   ForwardedCommandPayload,
   MenuCommandPayload,
@@ -37,6 +36,19 @@ function onChannel<T>(
     callback(value);
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.removeListener(channel, listener);
+}
+
+/**
+ * `onChannel`'s replacement for a push that is now a bridge event: one
+ * `updater.<event>` subscription, typed at the call site (ADR-180 D5).
+ */
+function updaterEvent<T>(
+  event: string,
+  callback: (value: T) => void,
+): () => void {
+  return bridgeSubscribe("updater", event, null, (value) =>
+    callback(value as T),
+  );
 }
 
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
@@ -249,13 +261,6 @@ const nativeApi = {
       ),
     onRemoveWorktreeProgress: (callback: (step: string) => void) =>
       onChannel<string>("projects:removeWorktree:progress", callback),
-    onWorktreeSetupProgress: (callback: (event: unknown) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
-        callback(data);
-      ipcRenderer.on("worktree:setup-progress", handler);
-      return () =>
-        ipcRenderer.removeListener("worktree:setup-progress", handler);
-    },
     canQuickMerge: (projectId: string, worktreePath: string) =>
       ipcRenderer.invoke("projects:canQuickMerge", projectId, worktreePath),
     quickMergeWorktree: (projectId: string, worktreePath: string) =>
@@ -427,8 +432,6 @@ const nativeApi = {
     ) => ipcRenderer.invoke("ports:updateWorkspaceMetadata", meta),
     killPort: (pid: number) => ipcRenderer.invoke("ports:killPort", pid),
     scanNow: () => ipcRenderer.invoke("ports:scanNow"),
-    onChange: (callback: (ports: unknown[]) => void) =>
-      onChannel("ports-changed", callback),
   },
 
   processes: {
@@ -444,19 +447,12 @@ const nativeApi = {
   branches: {
     start: (paths: string[]) => ipcRenderer.invoke("branches:start", paths),
     stop: () => ipcRenderer.invoke("branches:stop"),
-    onChange: (callback: (branches: Record<string, string>) => void) =>
-      onChannel("branches-changed", callback),
   },
 
   diffs: {
     start: (workspaces: Record<string, string>) =>
       ipcRenderer.invoke("diffs:start", workspaces),
     stop: () => ipcRenderer.invoke("diffs:stop"),
-    onChange: (
-      callback: (
-        diffs: Record<string, { added: number; removed: number }>,
-      ) => void,
-    ) => onChannel("diffs-changed", callback),
     getFullDiff: (wsPath: string, defaultBranch: string) =>
       ipcRenderer.invoke("diffs:getFullDiff", wsPath, defaultBranch),
     getLocalDiff: (wsPath: string) =>
@@ -587,15 +583,22 @@ const nativeApi = {
   updater: {
     checkForUpdates: () => ipcRenderer.invoke("updater:checkForUpdates"),
     quitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
+    /**
+     * The six `updater.*` broadcasts (ADR-180 D5), which `electron/updater.
+     * ts` publishes instead of pushing at the primary window. Written out
+     * here for the same reason `menu.onMenuCommand` is: `updater` is a
+     * namespace the client refuses outright in a browser, so its
+     * subscriptions have to be members of the native namespace.
+     */
     onChecking: (callback: (payload: { manual: boolean }) => void) =>
-      onChannel("updater:checking-for-update", callback),
+      updaterEvent("checking", callback),
     onUpdateAvailable: (callback: (info: { version: string }) => void) =>
-      onChannel("updater:update-available", callback),
+      updaterEvent("updateAvailable", callback),
     onUpdateDownloaded: (callback: (info: { version: string }) => void) =>
-      onChannel("updater:update-downloaded", callback),
+      updaterEvent("updateDownloaded", callback),
     onUpdateNotAvailable: (
       callback: (info: { version: string; manual: boolean }) => void,
-    ) => onChannel("updater:update-not-available", callback),
+    ) => updaterEvent("updateNotAvailable", callback),
     onDownloadProgress: (
       callback: (progress: {
         percent: number;
@@ -603,10 +606,10 @@ const nativeApi = {
         transferred: number;
         total: number;
       }) => void,
-    ) => onChannel("updater:download-progress", callback),
+    ) => updaterEvent("downloadProgress", callback),
     onError: (
       callback: (payload: { message: string; manual: boolean }) => void,
-    ) => onChannel("updater:error", callback),
+    ) => updaterEvent("error", callback),
   },
 
   agents: {
@@ -696,9 +699,20 @@ const nativeApi = {
     /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
     setContext: (context: MenuContext) =>
       ipcRenderer.send("menu:setContext", context),
-    /** A native menu item was clicked; fire-and-forget, like a keybinding. */
+    /**
+     * A native menu item was clicked; fire-and-forget, like a keybinding.
+     *
+     * A `menu.command` bridge event (ADR-180 D5), addressed by main to this
+     * window's connection. It stays written out here rather than falling
+     * through to `manorHost.subscribe` because `menu` is a namespace the
+     * client refuses outright in a browser (`src/bridge/unavailable.ts`) —
+     * the *invokes* are native forever, so the subscription has to be a
+     * member of the native namespace too or the refusal would swallow it.
+     */
     onMenuCommand: (callback: (payload: MenuCommandPayload) => void) =>
-      onChannel("menu-command", callback),
+      bridgeSubscribe("menu", "command", null, (payload) =>
+        callback(payload as MenuCommandPayload),
+      ),
   },
 
   notifications: {
@@ -721,9 +735,6 @@ const nativeApi = {
     /** Main re-broadcasts the whole list on every mutation (ADR-162 §3). */
     onChanged: (callback: (list: unknown[]) => void) =>
       onChannel("notifications:changed", callback),
-    /** A native banner was clicked; the payload is the record id. */
-    onNavigate: (callback: (id: string) => void) =>
-      onChannel("notifications:navigate", callback),
   },
 
   stats: {
@@ -742,21 +753,6 @@ const nativeApi = {
   /** Main mutated the project list out-of-band (MCP, CLI) — refetch it. */
   onProjectsChanged: (callback: () => void) =>
     onChannel("projects-changed", callback),
-
-  onAppCommand: (callback: (payload: AppCommand) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: AppCommand) =>
-      callback(payload);
-    ipcRenderer.on("app-command", listener);
-    return () => ipcRenderer.removeListener("app-command", listener);
-  },
-
-  /**
-   * Answer an "app-command" that carried a `requestId`. Commands without one
-   * are fire-and-forget and must not be answered — main has no pending entry
-   * for them and will drop the reply.
-   */
-  sendAppCommandResult: (result: AppCommandResult) =>
-    ipcRenderer.send("app-command-result", result),
 
   webview: {
     register: (paneId: string, webContentsId: number) =>

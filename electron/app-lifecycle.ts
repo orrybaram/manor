@@ -577,7 +577,7 @@ export function initApp(devTitle: string | null): void {
     // Initialize auto-updater. It reads the primary window on each event rather
     // than capturing one — the window it started with may since have been closed
     // and replaced.
-    initAutoUpdater(() => mainWindow);
+    initAutoUpdater();
 
     // Start agent hook server FIRST to get the port number.
     // The port must be in process.env BEFORE the daemon spawns,

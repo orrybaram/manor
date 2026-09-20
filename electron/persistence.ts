@@ -4,12 +4,15 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import { BrowserWindow } from "electron";
 
 import type { LinearAssociation, LinkedIssue } from "./linear";
 import type { GitBackend } from "./backend/types";
 import { manorDataDir, worktreesDir } from "./paths";
 import { sanitizeBranchName, toDirSlug } from "./branch-name";
+import {
+  publishRendererBroadcast,
+  publishToRenderer,
+} from "./renderer-broadcast";
 
 const execAsync = promisify(exec);
 
@@ -285,11 +288,28 @@ export class ProjectManager {
     );
   }
 
-  private emitSetupProgress(step: string, status: string, message?: string) {
-    const wins = BrowserWindow.getAllWindows();
-    for (const win of wins) {
-      win.webContents.send("worktree:setup-progress", { step, status, message });
+  /**
+   * How far along a worktree's setup is (ADR-180 D5).
+   *
+   * Addressed to the connection that asked for the worktree when there is
+   * one: this is a progress bar in one dialog, in one window, and a second
+   * desktop window has no business being told about it. `origin` is null for
+   * the callers that have no renderer behind them — the CLI, MCP, the
+   * issue-batch path — and then it is a broadcast, which is what every
+   * window used to get unconditionally.
+   */
+  private emitSetupProgress(
+    origin: string | null,
+    step: string,
+    status: string,
+    message?: string,
+  ) {
+    const event = { step, status, message };
+    if (origin === null) {
+      publishRendererBroadcast("projects", "worktreeProgress", event);
+      return;
     }
+    publishToRenderer(origin, "projects", "worktreeProgress", event);
   }
 
   private findProject(projectId: string): PersistedProject | undefined {
@@ -1180,6 +1200,11 @@ export class ProjectManager {
     return results;
   }
 
+  /**
+   * @param origin  The bridge connection that asked, so its own window gets
+   *   the setup progress (ADR-180 D5). Null — the default, and what the CLI,
+   *   MCP and the issue-batch path pass — broadcasts it instead.
+   */
   async createWorktree(
     projectId: string,
     name: string,
@@ -1187,7 +1212,10 @@ export class ProjectManager {
     linkedIssue?: LinkedIssue,
     baseBranch?: string,
     useExistingBranch?: boolean,
+    origin: string | null = null,
   ): Promise<ProjectInfo | null> {
+    const progress = (step: string, status: string, message?: string) =>
+      this.emitSetupProgress(origin, step, status, message);
     const project = this.findProject(projectId);
     if (!project) return null;
 
@@ -1195,7 +1223,7 @@ export class ProjectManager {
     const worktreePath = this.worktreePathFor(project, name);
 
     // Prune stale worktree entries (e.g. leftover from a previous failed creation)
-    this.emitSetupProgress("prune", "in-progress");
+    progress("prune", "in-progress");
     try {
       await this.git.exec(project.path, ["worktree", "prune"]);
     } catch (err) {
@@ -1204,10 +1232,10 @@ export class ProjectManager {
         err instanceof Error ? err.message : err,
       );
     }
-    this.emitSetupProgress("prune", "done");
+    progress("prune", "done");
 
     // If an existing branch was selected, fetch first so local refs are up-to-date
-    this.emitSetupProgress("fetch", "in-progress");
+    progress("fetch", "in-progress");
     if (branch) {
       try {
         await this.git.exec(project.path, ["fetch", "origin", branchName]);
@@ -1228,13 +1256,13 @@ export class ProjectManager {
         );
       }
     }
-    this.emitSetupProgress("fetch", "done");
+    progress("fetch", "done");
 
     const defaultBranchRef = baseBranch ?? `origin/${project.defaultBranch || "main"}`;
 
     if (useExistingBranch) {
       // Check out an existing remote branch without creating a new one
-      this.emitSetupProgress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
+      progress("create-worktree", "in-progress", `Checking out branch ${branchName}`);
       try {
         // Try checking out as a local branch first
         await this.git.worktreeAdd(project.path, worktreePath, branchName);
@@ -1254,7 +1282,7 @@ export class ProjectManager {
         }
       }
     } else {
-      this.emitSetupProgress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
+      progress("create-worktree", "in-progress", branch ? `Checking out branch ${branchName}` : `Creating new branch ${branchName} from ${defaultBranchRef}`);
       try {
         await this.git.worktreeAdd(project.path, worktreePath, branchName, {
           createBranch: true,
@@ -1286,7 +1314,7 @@ export class ProjectManager {
         }
       }
     }
-    this.emitSetupProgress("create-worktree", "done");
+    progress("create-worktree", "done");
 
     // Set custom name only if it differs from the branch
     if (name !== branchName) {
@@ -1303,9 +1331,9 @@ export class ProjectManager {
       }
     }
 
-    this.emitSetupProgress("persist", "in-progress");
+    progress("persist", "in-progress");
     this.saveState();
-    this.emitSetupProgress("persist", "done");
+    progress("persist", "done");
 
     return this.buildProjectInfo(project);
   }

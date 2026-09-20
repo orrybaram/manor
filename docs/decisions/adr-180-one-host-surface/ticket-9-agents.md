@@ -1,6 +1,6 @@
 ---
 title: agents crosses
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [6]

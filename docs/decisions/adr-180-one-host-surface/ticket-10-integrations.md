@@ -52,3 +52,12 @@ ADR-178's "what can never mirror" table names the keychain, and `manorHost`'s
 Ticket 6's rule applies: this ticket owns `remoteControl:status`
 (`ipc/remote-control.ts`) — delete the legacy send and the matching preload
 `on*` in the same commit as the crossing.
+
+## Correction from ticket 8
+
+**`git.*` does not live in `electron/ipc/integrations.ts`.** The seven `git:*`
+handlers — `stage`, `unstage`, `discard`, `stash`, `commit`, `push:start`,
+`push:cancel` — are in `electron/ipc/branches-diffs.ts`, whose `register()`
+ticket 8 thinned down to exactly them. Lift them from there, and delete that
+`register()` entirely when you do; `branches-diffs.ts` has no other reason to
+exist afterwards.

@@ -9,11 +9,15 @@ vi.stubGlobal("window", {
   electronAPI: undefined,
 });
 
+// A fixed `since`: the store's dedupe compares it, so two `Date.now()` calls
+// straddling a millisecond would make "the same state" look like a new one.
+const SINCE = 1_700_000_000_000;
+
 function makeAgentState(
   status: AgentStatus,
   kind: "claude" | "opencode" | "codex" | null = "claude",
 ): AgentState {
-  return { kind, status, processName: kind, since: Date.now(), title: null };
+  return { kind, status, processName: kind, since: SINCE, title: null };
 }
 
 describe("setPaneAgentStatus", () => {

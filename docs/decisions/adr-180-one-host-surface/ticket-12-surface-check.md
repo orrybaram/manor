@@ -1,6 +1,6 @@
 ---
 title: The surface is checked at compile time
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [11]
@@ -94,3 +94,22 @@ the namespaces crossed:
   is a whole class of bug the type system cannot see, because both callers
   satisfy the same signature. If the check can catch it, catch it; if not,
   say so here so the next person knows it is unguarded.
+
+## Folded in from ticket 11
+
+**`electron/bridge/handlers.ts`'s header is now stale, and you are the ticket
+that rewrites it.** It still says the table will be reached by "every Electron
+renderer window too *once* ADR-180 D2's IPC transport joins them" — that
+happened seven tickets ago — and its middle paragraph narrates which ADR-*178*
+ticket added which entry, which now reads as if it meant this ADR's tickets.
+Replace the narration with the final state: one table, two transports, every
+caller; what `LOCAL_ONLY` means and why; and the D7 check as the thing that
+keeps it honest. The security paragraph at the end is still exactly right —
+keep it.
+
+**`electron/preload.ts` ended at 480 lines, not the "well under 300" this
+ADR's D8 asked for.** Ticket 11 judged the gap honestly: `webview`'s 27
+methods are ~250 lines on their own, plus the argv facts and the
+bridge-event plumbing. Getting under 300 means splitting `preload.ts` into
+several files, which is a different change. Do not chase the number; ticket 13
+corrects D8's claim instead.

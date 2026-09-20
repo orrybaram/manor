@@ -97,7 +97,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 
 - A session has exactly one **Winsize owner** and any number of **Followers**; the remote client is always a **Follower**.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
-- Layout *structure* (panels, tabs, pane trees) is shared across all renderers of a host; *viewport* (which pane a phone is showing, sidebar collapsed) is per renderer.
+- Layout *structure* (panels, tabs, pane trees) is shared across all renderers of a host; *viewport* (which panel, tab and pane each one is looking at) is per renderer.
 
 - The **Desktop app** issues tokens; a **Paired device** holds exactly one.
 - The **Web app** and the **Remote client** are both served to a **Paired device**, over the same tunnel.

@@ -1,6 +1,15 @@
 /**
  * Renderer-side handlers for the correlated "app-command" channel.
  *
+ * ADR-179 D5 shrank this to exactly the commands that still need a window:
+ * **viewport** — focus, select, next/prev tab, activate a workspace — because
+ * the server has no answer to "which window?" (D3), and **start-agent**,
+ * because launching one still means resolving this renderer's project store
+ * and seeding a pending startup command only *this* renderer's mount effect
+ * reads. Every structural command (split, close, move, new tab, reopen, …)
+ * moved to `electron/routes/panes.ts`, which drives `LayoutStore` directly and
+ * needs no renderer at all.
+ *
  * Main cannot mutate the pane/layout store, so it sends a command and awaits a
  * reply (see `requestRenderer` in electron/renderer-bridge.ts). This module is
  * the dispatch table for those commands: a pure map over
@@ -8,10 +17,7 @@
  * unit-testable and so `App.tsx` does not grow a branch per MCP tool.
  *
  * Handlers **throw** on bad input. `App.tsx` converts a throw into
- * `{ ok: false, error }`, which main maps onto an HTTP status. Several store
- * actions no-op silently when their target does not exist (`splitPaneAt`'s
- * `if (!tab) return state;`); a tool that does nothing and reports success is
- * worse than one that errors, so every handler validates before it writes.
+ * `{ ok: false, error }`, which main maps onto an HTTP status.
  *
  * Note the one legacy command `run-setup-script` is *not* here: it is
  * fire-and-forget, and it depends on `App.tsx`'s callback refs.
@@ -27,24 +33,11 @@ import {
   type WorkspaceLayout,
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import { layoutSnapshot } from "../store/layout-snapshot";
-import { hasPaneId, type SplitDirection } from "./layout/pane-tree";
+import { hasPaneId } from "./layout/pane-tree";
 import { isHomePath } from "./home-path";
 import { launchAgentInWorkspace } from "./agent-prompt-launch";
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
-
-/** Content types a pane may hold. "agent" is a terminal that auto-runs a command. */
-const SPLIT_CONTENT_TYPES = ["terminal", "browser", "diff", "agent"] as const;
-type SplitContentType = (typeof SPLIT_CONTENT_TYPES)[number];
-
-/** Tabs can only be created as terminals or browsers (diff tabs have `addDiffTab`). */
-const TAB_CONTENT_TYPES = ["terminal", "browser"] as const;
-type TabContentType = (typeof TAB_CONTENT_TYPES)[number];
-
-const SPLIT_DIRECTIONS = ["horizontal", "vertical"] as const;
-const SPLIT_POSITIONS = ["first", "second"] as const;
-type SplitPosition = (typeof SPLIT_POSITIONS)[number];
 
 // ---------------------------------------------------------------------------
 // Argument parsing. Main's body parsing is untyped JSON — validate here.
@@ -68,51 +61,6 @@ function optionalString(
     throw new Error(`Argument ${key} must be a string`);
   }
   return value;
-}
-
-function optionalBoolean(
-  args: Record<string, unknown>,
-  key: string,
-): boolean | undefined {
-  const value = args[key];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "boolean") {
-    throw new Error(`Argument ${key} must be a boolean`);
-  }
-  return value;
-}
-
-function requireStringArray(
-  args: Record<string, unknown>,
-  key: string,
-): string[] {
-  const value = args[key];
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
-    throw new Error(`Argument ${key} must be an array of strings`);
-  }
-  return value as string[];
-}
-
-function parseEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  key: string,
-): T {
-  if (typeof value !== "string" || !allowed.includes(value as T)) {
-    throw new Error(
-      `Argument ${key} must be one of: ${allowed.join(", ")} (got ${JSON.stringify(value)})`,
-    );
-  }
-  return value as T;
-}
-
-function parseOptionalEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  key: string,
-): T | undefined {
-  if (value === undefined || value === null) return undefined;
-  return parseEnum(value, allowed, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -148,13 +96,6 @@ function layoutHasPane(layout: WorkspaceLayout, paneId: string): boolean {
   );
 }
 
-/** True when `tabId` lives anywhere in the workspace, across every panel. */
-function layoutHasTab(layout: WorkspaceLayout, tabId: string): boolean {
-  return Object.values(layout.panels).some((panel) =>
-    panel.tabs.some((tab) => tab.id === tabId),
-  );
-}
-
 /**
  * A workspace is addressable if the store already holds a layout for it, or a
  * loaded project claims it. `setActiveWorkspace` happily invents an empty
@@ -170,122 +111,9 @@ function isKnownWorkspace(state: AppState, path: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Handlers
+// Viewport handlers (ADR-179 D3) — what this window is looking at. No
+// `LayoutCommand` goes out; the server has no notion of "which window?".
 // ---------------------------------------------------------------------------
-
-function listPanes(): unknown {
-  const snapshot = layoutSnapshot(useAppStore.getState());
-  if (!snapshot) throw new Error("No active workspace");
-  return snapshot;
-}
-
-function splitPane(args: Record<string, unknown>): { paneId: string } {
-  const state = useAppStore.getState();
-  // Only used to default `paneId` to the active panel's focused pane; the
-  // pane itself may legitimately live in any panel. This is the fallback
-  // default for non-MCP callers — the MCP layer supplies the caller's own
-  // pane (electron/mcp/tools-panes.ts) before reaching here.
-  requireActivePanel(state);
-
-  const requestedPaneId = optionalString(args, "paneId");
-  const target =
-    requestedPaneId ?? selectFocusedPaneOfActiveTab(state) ?? undefined;
-  if (!target) throw new Error("No focused pane to split");
-
-  const direction = parseEnum<SplitDirection>(
-    args.direction,
-    SPLIT_DIRECTIONS,
-    "direction",
-  );
-  const position =
-    parseOptionalEnum<SplitPosition>(
-      args.position,
-      SPLIT_POSITIONS,
-      "position",
-    ) ?? "second";
-  const contentType = parseOptionalEnum<SplitContentType>(
-    args.contentType,
-    SPLIT_CONTENT_TYPES,
-    "contentType",
-  );
-  const url = optionalString(args, "url");
-  const paneCommand = optionalString(args, "command");
-
-  if (url && contentType !== "browser") {
-    throw new Error("url applies only to contentType 'browser'");
-  }
-  if (paneCommand && (contentType === "browser" || contentType === "diff")) {
-    throw new Error("command applies only to a terminal or agent pane");
-  }
-
-  const paneId = state.splitPaneAt(target, direction, position, {
-    contentType,
-    paneCommand,
-    url,
-  });
-  if (!paneId) throw new Error(`Unknown paneId: ${target}`);
-  return { paneId };
-}
-
-function newTab(args: Record<string, unknown>): {
-  tabId: string;
-  paneId: string;
-} {
-  // 1. Parse and validate everything — no store writes above this line.
-  const workspacePath = optionalString(args, "workspacePath");
-  const contentType = parseEnum<TabContentType>(
-    args.contentType,
-    TAB_CONTENT_TYPES,
-    "contentType",
-  );
-  const url = optionalString(args, "url");
-  const command = optionalString(args, "command");
-  const background = optionalBoolean(args, "background");
-
-  if (contentType === "browser" && !url) {
-    throw new Error('new-tab with contentType "browser" requires a url');
-  }
-  if (contentType !== "browser" && url) {
-    throw new Error("url applies only to contentType 'browser'");
-  }
-  if (contentType !== "browser" && background !== undefined) {
-    throw new Error("background applies only to contentType 'browser'");
-  }
-
-  const state = useAppStore.getState();
-  if (workspacePath && !isKnownWorkspace(state, workspacePath)) {
-    throw new Error(`Unknown workspace: ${workspacePath}`);
-  }
-
-  // 2. Act. Switch workspace only if requested, and always switch back —
-  // `new-tab` is MCP-only; an agent that wants the user looking at its tab
-  // calls `focus_pane` instead.
-  const previous = state.activeWorkspacePath;
-  if (workspacePath) state.setActiveWorkspace(workspacePath);
-  try {
-    // `setActiveWorkspace` is a synchronous `set()`; re-read to see it. There
-    // may be no layout for it at all — a workspace nobody has opened yet has
-    // none until the Manor server makes one for this very command (ADR-179
-    // D1), so the panel is not required here, only the workspace.
-    const fresh = useAppStore.getState();
-
-    let created: { tabId: string; paneId: string } | null;
-    if (contentType === "browser") {
-      created = fresh.addBrowserTab(url!, { background });
-    } else if (command) {
-      created = fresh.addTerminalTab(command);
-    } else {
-      created = fresh.addTab();
-    }
-
-    if (!created) throw new Error("Tab was not created");
-    return created;
-  } finally {
-    if (workspacePath && previous && previous !== workspacePath) {
-      useAppStore.getState().setActiveWorkspace(previous);
-    }
-  }
-}
 
 function focusPane(args: Record<string, unknown>): { ok: true } {
   const paneId = requireString(args, "paneId");
@@ -297,21 +125,6 @@ function focusPane(args: Record<string, unknown>): { ok: true } {
   state.focusPane(paneId);
   return { ok: true };
 }
-
-function closePane(args: Record<string, unknown>): { ok: true } {
-  const paneId = requireString(args, "paneId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasPane(layout, paneId)) {
-    throw new Error(`Unknown paneId: ${paneId}`);
-  }
-  state.closePaneById(paneId);
-  return { ok: true };
-}
-
-// ---------------------------------------------------------------------------
-// Tab handlers
-// ---------------------------------------------------------------------------
 
 function selectTab(args: Record<string, unknown>): { tabId: string } {
   const tabId = requireString(args, "tabId");
@@ -345,182 +158,6 @@ function nextTab(): { tabId: string } {
 
 function prevTab(): { tabId: string } {
   return selectAdjacentTab("prev");
-}
-
-function closeTab(args: Record<string, unknown>): { ok: true } {
-  const tabId = requireString(args, "tabId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasTab(layout, tabId)) {
-    throw new Error(`Unknown tabId: ${tabId}`);
-  }
-  // Not `requestCloseTab`: that opens a confirm dialog when the tab has an
-  // active agent, and there is nobody on the other end of an HTTP request to
-  // answer it. `closeTab` closes unconditionally.
-  state.closeTab(tabId);
-  return { ok: true };
-}
-
-function closeOtherTabs(args: Record<string, unknown>): { ok: true } {
-  const tabId = requireString(args, "tabId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasTab(layout, tabId)) {
-    throw new Error(`Unknown tabId: ${tabId}`);
-  }
-  state.closeOtherTabs(tabId);
-  return { ok: true };
-}
-
-function closeTabsToRight(args: Record<string, unknown>): { ok: true } {
-  const tabId = requireString(args, "tabId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasTab(layout, tabId)) {
-    throw new Error(`Unknown tabId: ${tabId}`);
-  }
-  state.closeTabsToRight(tabId);
-  return { ok: true };
-}
-
-function pinTab(args: Record<string, unknown>): {
-  tabId: string;
-  pinned: boolean;
-} {
-  const tabId = requireString(args, "tabId");
-  const state = useAppStore.getState();
-  const panel = requireActivePanel(state);
-  // `togglePinTab` only operates on the active panel, same as `selectTab`.
-  if (!panel.tabs.some((t) => t.id === tabId)) {
-    throw new Error(`Unknown tabId: ${tabId}`);
-  }
-  const wasPinned = (panel.pinnedTabIds ?? []).includes(tabId);
-  state.togglePinTab(tabId);
-  return { tabId, pinned: !wasPinned };
-}
-
-function duplicateTab(args: Record<string, unknown>): { tabId: string } {
-  const tabId = requireString(args, "tabId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasTab(layout, tabId)) {
-    throw new Error(`Unknown tabId: ${tabId}`);
-  }
-  // The id comes back from the action, not from re-reading the layout: the
-  // layout is the Manor server's now, and its answer arrives on
-  // `layout.changed` a moment after this returns (ADR-179 D1).
-  const newTabId = state.duplicateTab(tabId);
-  if (!newTabId) throw new Error(`Failed to duplicate tab: ${tabId}`);
-  return { tabId: newTabId };
-}
-
-function reorderTabs(args: Record<string, unknown>): { ok: true } {
-  const tabIds = requireStringArray(args, "tabIds");
-  const state = useAppStore.getState();
-  const panel = requireActivePanel(state);
-  const current = panel.tabs.map((t) => t.id);
-  const sameSet =
-    tabIds.length === current.length &&
-    new Set(tabIds).size === tabIds.length &&
-    current.every((id) => tabIds.includes(id));
-  if (!sameSet) {
-    throw new Error(
-      "reorder-tabs: tabIds must contain exactly the active panel's current tabs",
-    );
-  }
-  state.reorderTabs(tabIds);
-  return { ok: true };
-}
-
-function openDiff(): { tabId: string } {
-  const state = useAppStore.getState();
-  requireActiveLayout(state);
-  const tabId = state.openOrFocusDiff();
-  if (!tabId) throw new Error("Failed to open diff tab");
-  return { tabId };
-}
-
-// ---------------------------------------------------------------------------
-// Pane / workspace handlers
-// ---------------------------------------------------------------------------
-
-function setPaneTitle(args: Record<string, unknown>): {
-  paneId: string;
-  title: string;
-} {
-  const paneId = requireString(args, "paneId");
-  const title = requireString(args, "title");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasPane(layout, paneId)) {
-    throw new Error(`Unknown paneId: ${paneId}`);
-  }
-  state.setPaneTitle(paneId, title);
-  return { paneId, title };
-}
-
-function clearPaneTitle(args: Record<string, unknown>): { paneId: string } {
-  const paneId = requireString(args, "paneId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasPane(layout, paneId)) {
-    throw new Error(`Unknown paneId: ${paneId}`);
-  }
-  state.clearPaneTitle(paneId);
-  return { paneId };
-}
-
-function movePane(args: Record<string, unknown>): { paneId: string } {
-  const paneId = requireString(args, "paneId");
-  const targetPaneId = requireString(args, "targetPaneId");
-  const direction = parseEnum<SplitDirection>(
-    args.direction,
-    SPLIT_DIRECTIONS,
-    "direction",
-  );
-  const position =
-    parseOptionalEnum<SplitPosition>(
-      args.position,
-      SPLIT_POSITIONS,
-      "position",
-    ) ?? "second";
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasPane(layout, paneId)) {
-    throw new Error(`Unknown paneId: ${paneId}`);
-  }
-  if (!layoutHasPane(layout, targetPaneId)) {
-    throw new Error(`Unknown paneId: ${targetPaneId}`);
-  }
-  state.movePaneToTarget(paneId, targetPaneId, direction, position);
-  return { paneId };
-}
-
-function extractPaneToTab(args: Record<string, unknown>): { tabId: string } {
-  const paneId = requireString(args, "paneId");
-  const targetPanelId = optionalString(args, "targetPanelId");
-  const state = useAppStore.getState();
-  const layout = requireActiveLayout(state);
-  if (!layoutHasPane(layout, paneId)) {
-    throw new Error(`Unknown paneId: ${paneId}`);
-  }
-  if (targetPanelId && !layout.panels[targetPanelId]) {
-    throw new Error(`Unknown panelId: ${targetPanelId}`);
-  }
-  const tabId = state.extractPaneToTab(paneId, targetPanelId);
-  if (!tabId) throw new Error(`Failed to extract pane to tab: ${paneId}`);
-  return { tabId };
-}
-
-function reopenClosedPane(): { ok: true } {
-  const state = useAppStore.getState();
-  if (!state.activeWorkspacePath) throw new Error("No active workspace");
-  // Whether there *is* anything to reopen is the server's to know — the
-  // closed-pane stack is its memory now (ADR-179 D3) and a command with an
-  // empty stack behind it is a no-op there. ADR-179 ticket 5 moves this route
-  // to the server, where the answer can be real again.
-  state.reopenClosedPane();
-  return { ok: true };
 }
 
 function focusAdjacentPane(direction: "next" | "prev"): { paneId: string } {
@@ -579,6 +216,15 @@ function projectsKnowWorkspace(workspacePath: string): boolean {
  * correlated, control-server-initiated launch: refetching projects for a
  * workspace created moments ago, and reporting the created tab/pane back to
  * main.
+ *
+ * ADR-179 D5 kept this on the renderer channel rather than moving it beside
+ * `/panes/split` and `/tabs`: `launchAgentInWorkspace` seeds a *pending
+ * startup command* into this renderer's own store, read back by the pane's
+ * mount effect once the broadcast lands (`useTerminalLifecycle.ts`). A route
+ * that minted the tab through `LayoutStore.apply()` directly would create the
+ * tab, but nothing would ever type the agent's launch command into it — that
+ * seed has no server-side home. Until that gap has one, `start-agent`
+ * without a window open still 503s, same as before this ticket.
  */
 async function startAgent(args: Record<string, unknown>): Promise<{
   tabId: string;
@@ -607,26 +253,10 @@ async function startAgent(args: Record<string, unknown>): Promise<{
  * rejected by the caller, not silently resolved — see `App.tsx`.
  */
 export const appCommandHandlers: Record<string, Handler> = {
-  "list-panes": listPanes,
-  "split-pane": splitPane,
-  "new-tab": newTab,
   "focus-pane": focusPane,
-  "close-pane": closePane,
   "select-tab": selectTab,
   "next-tab": nextTab,
   "prev-tab": prevTab,
-  "close-tab": closeTab,
-  "close-other-tabs": closeOtherTabs,
-  "close-tabs-to-right": closeTabsToRight,
-  "pin-tab": pinTab,
-  "duplicate-tab": duplicateTab,
-  "reorder-tabs": reorderTabs,
-  "open-diff": openDiff,
-  "set-pane-title": setPaneTitle,
-  "clear-pane-title": clearPaneTitle,
-  "move-pane": movePane,
-  "extract-pane-to-tab": extractPaneToTab,
-  "reopen-closed-pane": reopenClosedPane,
   "focus-next-pane": focusNextPane,
   "focus-prev-pane": focusPrevPane,
   "set-active-workspace": setActiveWorkspace,

@@ -1,5 +1,4 @@
 import { ipcMain } from "electron";
-import { ScrollbackWriter } from "../terminal-host/scrollback";
 import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
 import type {
   LayoutApplyResult,
@@ -67,23 +66,6 @@ export function layoutReportViewport(
   deps.layoutStore.reportViewport(workspacePath, origin, viewport);
 }
 
-export async function layoutGetRestoredSessions(deps: IpcDeps): Promise<{
-  daemonSessions: unknown[];
-  persistedSessionIds: string[];
-}> {
-  try {
-    // Get live daemon sessions and persisted scrollback sessions
-    const daemonSessions = await deps.backend.pty.listSessions();
-    const persistedSessionIds = ScrollbackWriter.listPersistedSessions();
-    return {
-      daemonSessions,
-      persistedSessionIds,
-    };
-  } catch {
-    return { daemonSessions: [], persistedSessionIds: [] };
-  }
-}
-
 export function register(deps: IpcDeps): void {
   ipcMain.handle("layout:getAll", () => layoutGetAll(deps));
 
@@ -114,9 +96,5 @@ export function register(deps: IpcDeps): void {
         kind: "window",
         id: String(event.sender.id),
       }),
-  );
-
-  ipcMain.handle("layout:getRestoredSessions", () =>
-    layoutGetRestoredSessions(deps),
   );
 }

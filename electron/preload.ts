@@ -149,7 +149,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   layout: {
-    getRestoredSessions: () => ipcRenderer.invoke("layout:getRestoredSessions"),
     // ADR-179 D1: the server owns the layout. A renderer reads it with
     // `getAll`, changes it with `apply`, and hears every change — its own
     // included — on `onChanged`. There is no `save`.

@@ -360,17 +360,6 @@ export interface LayoutChangedPayload {
 /** `layout.apply` answers with the new version, never with a layout. */
 export type LayoutApplyResult = { version: number } | { error: string };
 
-export interface RestoredSessionsInfo {
-  daemonSessions: Array<{
-    sessionId: string;
-    cwd: string | null;
-    cols: number;
-    rows: number;
-    alive: boolean;
-  }>;
-  persistedSessionIds: string[];
-}
-
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
@@ -461,7 +450,6 @@ export interface ElectronAPI {
   };
 
   layout: {
-    getRestoredSessions: () => Promise<RestoredSessionsInfo>;
     /**
      * ADR-179 D1. Layout belongs to the Manor server: read it whole, change it
      * by command, and replace the replica whenever `onChanged` fires — the

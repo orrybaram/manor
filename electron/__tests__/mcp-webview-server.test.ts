@@ -52,12 +52,15 @@ import { projectsModule } from "../mcp/tools-projects";
 import { agentsModule } from "../mcp/tools-agents";
 import { panesModule } from "../mcp/tools-panes";
 import type {
+  LayoutPersistence,
   PersistedLayout,
   PersistedWorkspace,
   PersistedPanel,
   PersistedTab,
   PersistedPaneSession,
 } from "../terminal-host/layout-persistence";
+import { LayoutStore } from "../layout/layout-store";
+import type { LocalBackend } from "../backend/local-backend";
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -1330,6 +1333,24 @@ describe("WebviewServer pane routes", () => {
   let server: WebviewServer;
   let baseUrl: string;
   let send: ReturnType<typeof vi.fn>;
+  let layoutStore: LayoutStore;
+
+  /** Seed a workspace with one plain terminal tab/pane, for the structural
+   *  routes (ADR-179 D5) that need something real to act on. */
+  async function seedPane(
+    workspacePath: string,
+    tabId: string,
+    paneId: string,
+  ): Promise<void> {
+    await layoutStore.apply(
+      workspacePath,
+      {
+        type: "new-tab",
+        tab: { id: tabId, title: "Terminal", rootNode: { type: "leaf", paneId } },
+      },
+      { kind: "route", id: "test" },
+    );
+  }
 
   /**
    * The single "app-command-result" listener `requestRenderer` installs, once,
@@ -1366,17 +1387,6 @@ describe("WebviewServer pane routes", () => {
     });
   }
 
-  /** Play a renderer handler that throws. */
-  function respondWithError(error: string): void {
-    send.mockImplementation((_channel: string, command: AppCommand) => {
-      rendererListener()(null, {
-        requestId: command.requestId!,
-        ok: false,
-        error,
-      });
-    });
-  }
-
   function openWindow(): void {
     (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
       { webContents: { send } },
@@ -1386,7 +1396,22 @@ describe("WebviewServer pane routes", () => {
   beforeEach(async () => {
     send = vi.fn();
     openWindow();
+    layoutStore = new LayoutStore(
+      {
+        load: () => null,
+        save: () => {},
+        removeWorkspace: () => {},
+      } as unknown as LayoutPersistence,
+      () => {},
+      { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as Pick<
+        LocalBackend,
+        "pty"
+      >,
+    );
     server = new WebviewServer(new Map<string, number>());
+    // ADR-179 D5: the structural pane/tab routes drive this directly now, no
+    // renderer round-trip — only `/panes/:paneId/focus` below still proxies.
+    server.setControlDeps({ layoutStore });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -1396,39 +1421,39 @@ describe("WebviewServer pane routes", () => {
     vi.useRealTimers();
   });
 
+  // ADR-179 D5: `GET /panes`, `POST /panes/split`, `DELETE /panes/:paneId`
+  // and `POST /tabs` drive `LayoutStore` directly now — no renderer, no
+  // "app-command" round-trip. `POST /panes/:paneId/focus` below is the one
+  // pane route left that still proxies (viewport, D3).
   it("GET /panes returns the layout snapshot", async () => {
-    respondWith({ workspacePath: "/repos/demo", tabs: [] });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
-    const result = await mcpHttpGet(baseUrl, "/panes");
+    const result = await mcpHttpGet(
+      baseUrl,
+      `/panes?workspacePath=${encodeURIComponent("/repos/demo")}`,
+    );
 
-    expect(result).toEqual({ workspacePath: "/repos/demo", tabs: [] });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "list-panes",
-      requestId: expect.any(String),
+    expect(result).toMatchObject({
+      workspacePath: "/repos/demo",
+      tabs: [{ tabId: "tab-1", panes: [{ paneId: "pane-1" }] }],
     });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /panes/split returns the new paneId", async () => {
-    respondWith({ paneId: "pane-2" });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
-    const result = await mcpHttpPost(baseUrl, "/panes/split", {
+    const result = (await mcpHttpPost(baseUrl, "/panes/split", {
       paneId: "pane-1",
       direction: "horizontal",
       contentType: "browser",
       url: "https://example.com",
-    });
+      workspacePath: "/repos/demo",
+    })) as { paneId: string };
 
-    expect(result).toEqual({ paneId: "pane-2" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "split-pane",
-      requestId: expect.any(String),
-      args: {
-        paneId: "pane-1",
-        direction: "horizontal",
-        contentType: "browser",
-        url: "https://example.com",
-      },
-    });
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(result.paneId).not.toBe("pane-1");
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /panes/:paneId/focus focuses the pane", async () => {
@@ -1445,52 +1470,38 @@ describe("WebviewServer pane routes", () => {
   });
 
   it("DELETE /panes/:paneId closes the pane", async () => {
-    respondWith({ ok: true });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
     const result = await mcpHttpDelete(baseUrl, "/panes/pane-1");
 
     expect(result).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "close-pane",
-      requestId: expect.any(String),
-      args: { paneId: "pane-1" },
-    });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /tabs creates a new terminal tab", async () => {
-    respondWith({ tabId: "tab-1", paneId: "pane-1" });
-
-    const result = await mcpHttpPost(baseUrl, "/tabs", {
+    const result = (await mcpHttpPost(baseUrl, "/tabs", {
       contentType: "terminal",
-    });
+      workspacePath: "/repos/demo",
+    })) as { tabId: string; paneId: string };
 
-    expect(result).toEqual({ tabId: "tab-1", paneId: "pane-1" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "new-tab",
-      requestId: expect.any(String),
-      args: { contentType: "terminal" },
-    });
+    expect(result.tabId).toEqual(expect.any(String));
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /tabs creates a new browser tab given a url", async () => {
-    respondWith({ tabId: "tab-2", paneId: "pane-2" });
-
-    const result = await mcpHttpPost(baseUrl, "/tabs", {
+    const result = (await mcpHttpPost(baseUrl, "/tabs", {
       contentType: "browser",
       url: "https://example.com",
-    });
+      workspacePath: "/repos/demo",
+    })) as { tabId: string; paneId: string };
 
-    expect(result).toEqual({ tabId: "tab-2", paneId: "pane-2" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "new-tab",
-      requestId: expect.any(String),
-      args: { contentType: "browser", url: "https://example.com" },
-    });
+    expect(result.tabId).toEqual(expect.any(String));
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it("returns 400 when a renderer handler throws", async () => {
-    respondWithError("Unknown paneId: pane-404");
-
+  it("returns 400 for an unknown paneId", async () => {
     await expect(mcpHttpDelete(baseUrl, "/panes/pane-404")).rejects.toThrow(
       "HTTP 400",
     );
@@ -1509,7 +1520,11 @@ describe("WebviewServer pane routes", () => {
       [],
     );
 
-    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+    // `/panes/:paneId/focus` is the viewport route left that still needs a
+    // window (D3); the structural routes above no longer do.
+    await expect(mcpHttpPost(baseUrl, "/panes/pane-1/focus")).rejects.toThrow(
+      "HTTP 503",
+    );
   });
 
   it("returns 503 on renderer timeout", async () => {
@@ -1518,7 +1533,9 @@ describe("WebviewServer pane routes", () => {
     // timers here would also have to fake the real socket I/O `fetch`
     // depends on, which the `requestRenderer` describe block below already
     // covers directly and more precisely.
-    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+    await expect(mcpHttpPost(baseUrl, "/panes/pane-1/focus")).rejects.toThrow(
+      "HTTP 503",
+    );
   }, 7000);
 });
 

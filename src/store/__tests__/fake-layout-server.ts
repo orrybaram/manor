@@ -174,10 +174,6 @@ export function fakeLayoutApi(): Record<string, unknown> {
       return all;
     },
     getLastActive: async () => null,
-    getRestoredSessions: async () => ({
-      daemonSessions: [],
-      persistedSessionIds: [],
-    }),
     apply: async (workspacePath: string, command: LayoutCommand) => {
       sentCommands.push({ workspacePath, command });
       const version = versions.get(workspacePath) ?? 0;

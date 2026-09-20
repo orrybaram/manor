@@ -37,6 +37,9 @@ import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
 import type { ControlDeps } from "../../routes/types";
+import { LayoutStore } from "../../layout/layout-store";
+import type { LayoutPersistence } from "../../terminal-host/layout-persistence";
+import type { LocalBackend } from "../../backend/local-backend";
 
 const READ_TOKEN = "read-token";
 const WRITE_TOKEN = "write-token";
@@ -102,6 +105,21 @@ describe("RemoteControlServer", () => {
       githubManager: null,
       linearManager: null,
       layoutPersistence: null,
+      // ADR-179 D5: `POST /tabs` and `DELETE /panes/:paneId` now drive this
+      // directly, no renderer round-trip — a real (unpersisted) store, same
+      // trick `layout-store.test.ts` uses.
+      layoutStore: new LayoutStore(
+        {
+          load: () => null,
+          save: () => {},
+          removeWorkspace: () => {},
+        } as unknown as LayoutPersistence,
+        () => {},
+        { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as Pick<
+          LocalBackend,
+          "pty"
+        >,
+      ),
       // Enough of an AgentManager for `GET /agents` to answer and for the
       // "did a handler run?" assertions to have something to observe.
       agentManager: {
@@ -654,19 +672,40 @@ describe("RemoteControlServer", () => {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
 
+    /**
+     * ADR-179 D5: `DELETE /panes/:paneId` drives the layout store directly
+     * now, no renderer round-trip — so, unlike the other full-tier routes
+     * here, it needs a real pane to close.
+     */
+    async function withPaneSeven(): Promise<void> {
+      await deps.layoutStore!.apply(
+        "/ws-with-pane-7",
+        {
+          type: "new-tab",
+          tab: {
+            id: "tab-7",
+            title: "Terminal",
+            rootNode: { type: "leaf", paneId: "pane-7" },
+          },
+        },
+        { kind: "route", id: "test" },
+      );
+    }
+
     it("reaches a DELETE route that is absent for a send device", async () => {
+      await withPaneSeven();
       expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
 
       const res = await del("/panes/pane-7", FULL_TOKEN);
       expect(res.status).toBe(200);
-      expect(proxyToRenderer).toHaveBeenCalledWith(
-        expect.any(Function),
-        "close-pane",
-        { paneId: "pane-7" },
-      );
+      // No renderer to observe a proxied command any more — the mutation
+      // itself is the proof the full tier actually reached the handler:
+      // closing the same pane again 400s because it is genuinely gone.
+      expect((await del("/panes/pane-7", FULL_TOKEN)).status).toBe(400);
     });
 
     it("needs no confirmed:true, and audits the write anyway", async () => {
+      await withPaneSeven();
       const res = await del("/panes/pane-7", FULL_TOKEN);
       expect(res.status).toBe(200);
 
@@ -693,6 +732,7 @@ describe("RemoteControlServer", () => {
       ).toBe(404);
 
       const res = await post("/tabs", FULL_TOKEN, {
+        contentType: "terminal",
         workspacePath: KNOWN_WORKSPACE,
       });
       expect(res.status).toBe(200);

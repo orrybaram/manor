@@ -25,6 +25,7 @@ import {
   findPanelWithTab,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
+import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
 import {
   type WorkspaceViewport,
   EMPTY_VIEWPORT,
@@ -46,32 +47,11 @@ import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
 import { useProjectStore } from "./project-store";
 
-function newPaneId(): string {
-  return `pane-${crypto.randomUUID()}`;
-}
-
-function newTabId(): string {
-  return `tab-${crypto.randomUUID()}`;
-}
-
 export type { Panel, Tab, WorkspaceLayout };
-
-function createTab(title?: string, paneId?: string): Tab {
-  const id = paneId ?? newPaneId();
-  return {
-    id: newTabId(),
-    title: title ?? "Terminal",
-    rootNode: { type: "leaf", paneId: id },
-  };
-}
 
 /** A fresh tab's only pane — the one a caller wants to run a command in. */
 function firstPaneOfTab(tab: Tab): string {
   return allPaneIds(tab.rootNode)[0];
-}
-
-function newPanelId(): string {
-  return `panel-${crypto.randomUUID()}`;
 }
 
 export interface AppState {

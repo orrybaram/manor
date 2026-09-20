@@ -45,7 +45,6 @@ import {
   layoutApply,
   layoutGetAll,
   layoutGetLastActive,
-  layoutGetRestoredSessions,
   layoutRemove,
   layoutReportViewport,
 } from "../ipc/layout";
@@ -234,8 +233,6 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   "pty.detach": (deps: IpcDeps, paneId: string) => ptyDetach(deps, paneId),
 
   // ── layout: the same commands the desktop sends ──
-  "layout.getRestoredSessions": (deps: IpcDeps) =>
-    layoutGetRestoredSessions(deps),
   /**
    * ADR-179 D1: a browser arranges panes by sending the same commands the
    * desktop sends. `workspacePath` first, so the audit line's target is the

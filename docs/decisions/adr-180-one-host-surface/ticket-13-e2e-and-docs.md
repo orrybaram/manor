@@ -1,12 +1,18 @@
 ---
-title: E2E, docs and the vocabulary
+title: E2E — prove the desktop is still the desktop
 status: in-progress
 priority: high
-assignee: sonnet
-blocked_by: [12]
+assignee: opus
+blocked_by: [12, 15]
 ---
 
-# E2E, docs and the vocabulary
+# E2E — prove the desktop is still the desktop
+
+> **Scope, after the split.** This ticket is the E2E half: the four new
+> scenarios, the stale specs, the `markSeen` investigation, the flake. The
+> **Docs** section below and every docs item in the "Folded in" sections
+> (`AGENT-SYSTEM.md`, the ADR-178 amendment, D8's preload claim,
+> `CONTEXT.md`, the transport header) moved to **ticket 16**. Leave them.
 
 ADR-180's closing ticket: prove the desktop still is the desktop, and write
 down what changed for the people who read the docs instead of the diff.

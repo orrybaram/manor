@@ -1750,15 +1750,20 @@ function contextTab(
     id,
     title: id,
     rootNode: { type: "leaf", paneId: firstPaneId },
-    focusedPaneId: firstPaneId,
     paneSessions,
   };
 }
 
 function contextPanel(id: string, tabs: PersistedTab[]): PersistedPanel {
-  return { id, tabs, selectedTabId: tabs[0]?.id ?? "", pinnedTabIds: [] };
+  return { id, tabs, pinnedTabIds: [] };
 }
 
+/**
+ * A v3 workspace: structure, plus the one default viewport that carries the
+ * selection the tree used to (ADR-179 D3). `/context` never reads the
+ * viewport — it walks panes — but a fixture that still put focus in the tree
+ * would be describing a file this version cannot write.
+ */
 function contextWorkspace(
   workspacePath: string,
   panels: Record<string, PersistedPanel>,
@@ -1768,7 +1773,22 @@ function contextWorkspace(
     workspacePath,
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
-    activePanelId: firstPanelId,
+    defaultViewport: {
+      activePanelId: firstPanelId,
+      selectedTabIds: Object.fromEntries(
+        Object.values(panels).flatMap((panel) =>
+          panel.tabs[0] ? [[panel.id, panel.tabs[0].id]] : [],
+        ),
+      ),
+      focusedPaneIds: Object.fromEntries(
+        Object.values(panels).flatMap((panel) =>
+          panel.tabs.flatMap((tab) => {
+            const firstPaneId = Object.keys(tab.paneSessions)[0];
+            return firstPaneId ? [[tab.id, firstPaneId]] : [];
+          }),
+        ),
+      ),
+    },
   };
 }
 
@@ -1776,7 +1796,7 @@ function contextWorkspace(
 // tab — a naive "check the first hit" implementation would resolve the wrong
 // workspace (or nothing) here.
 const CONTEXT_LAYOUT_FIXTURE: PersistedLayout = {
-  version: 2,
+  version: 3,
   workspaces: [
     contextWorkspace("/unrelated/project", {
       "panel-a": contextPanel("panel-a", [

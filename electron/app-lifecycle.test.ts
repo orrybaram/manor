@@ -75,7 +75,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       // Verify agent was updated in agentManager
       const updated = agentManager.getAgentByPaneId(paneId);
@@ -98,7 +98,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       // Verify an agents.updated broadcast was NOT sent (no change)
       expect(agentUpdatedFrames().length).toBe(0);
@@ -114,7 +114,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       // Verify agent was NOT updated
       const updated = agentManager.getAgentByPaneId(paneId);
@@ -133,7 +133,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       // Verify an agents.updated broadcast was NOT sent
       expect(agentUpdatedFrames().length).toBe(0);
@@ -157,7 +157,7 @@ describe("handleStreamEvent", () => {
       ];
 
       for (const event of events) {
-        handleStreamEvent(event, null, agentManager, preferencesManager);
+        handleStreamEvent(event, agentManager, preferencesManager);
       }
 
       expect(frames.length).toBe(0);
@@ -181,7 +181,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/src",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       expect(errorSpy).toHaveBeenCalledWith(
         "Error in stream event handler:",
@@ -203,7 +203,7 @@ describe("handleStreamEvent", () => {
         cwd: "/project/main/nested/dir",
       };
 
-      handleStreamEvent(event, null, agentManager, preferencesManager);
+      handleStreamEvent(event, agentManager, preferencesManager);
 
       // Wait for debounced save
       await new Promise((r) => setTimeout(r, 600));

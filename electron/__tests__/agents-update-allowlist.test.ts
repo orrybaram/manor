@@ -82,7 +82,6 @@ describe("agents.update allowlist", () => {
     });
     const { sendAgentUpdate } = await import("../notifications");
     expect(sendAgentUpdate).toHaveBeenCalledWith(
-      null,
       expect.objectContaining({ id: "agent-1", name: "Fix login", namePinned: true }),
       deps.preferencesManager,
     );

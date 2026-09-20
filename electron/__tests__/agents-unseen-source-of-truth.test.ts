@@ -65,12 +65,8 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("agents.getUnseen (ADR-136)", () => {
-  let deps: ReturnType<typeof makeDeps>;
-
-  beforeEach(() => {
-    deps = makeDeps();
-  });
-
+  // No `deps` here on purpose: `agentsGetUnseen` reads the module-level
+  // snapshot helper and takes no arguments at all.
   it("returns the snapshot helper's output verbatim", () => {
     const result = agentsGetUnseen();
     expect(result).toEqual({
@@ -104,7 +100,6 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
     expect(deps.unseenInputAgents.has("t1")).toBe(false);
     expect(sendAgentUpdate).toHaveBeenCalledTimes(1);
     expect(sendAgentUpdate).toHaveBeenCalledWith(
-      deps.mainWindow,
       agent,
       deps.preferencesManager,
     );

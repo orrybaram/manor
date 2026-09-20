@@ -87,16 +87,15 @@ import * as menuIpc from "./ipc/menu";
  * event types say anything about that, which is why the other four are
  * absent rather than empty.
  *
- * `window` used to be required and the caller looped over every renderer
- * window to feed it — `sendAgentUpdate` addressed the legacy `agent-updated`
- * channel to whichever window it was handed. Now that `agents` has crossed
- * (ADR-180 ticket 9) `sendAgentUpdate` only publishes to the bridge, which
- * already reaches every window and every browser on its own, so the caller
- * calls this once with `null` rather than once per window.
+ * There is no `window` parameter. This used to take one and the caller
+ * looped over every renderer window to feed it, because `sendAgentUpdate`
+ * addressed the legacy `agent-updated` channel to whichever window it was
+ * handed. The loop went when `agents` crossed (ADR-180 ticket 9); the
+ * argument every caller still passed and nobody read went with ticket 15.
+ * The bridge reaches every window and every browser on its own.
  */
 export function handleStreamEvent(
   event: StreamEvent,
-  window: BrowserWindow | null,
   agentManager: AgentManager,
   preferencesManager: PreferencesManager,
   notifyAgentDetectorGone?: (sessionId: string) => void,
@@ -112,7 +111,7 @@ export function handleStreamEvent(
               cwd: event.cwd,
             });
             if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
+              sendAgentUpdate(updated, preferencesManager);
             }
           }
         }
@@ -128,7 +127,7 @@ export function handleStreamEvent(
               name: cleaned,
             });
             if (updated) {
-              sendAgentUpdate(window, updated, preferencesManager);
+              sendAgentUpdate(updated, preferencesManager);
             }
           }
         }
@@ -436,7 +435,6 @@ export function initApp(devTitle: string | null): void {
     // is gone with it.
     handleStreamEvent(
       event,
-      null,
       agentManager,
       preferencesManager,
       notifyAgentDetectorGone,
@@ -598,7 +596,7 @@ export function initApp(devTitle: string | null): void {
     // Hook events route through the daemon's AgentDetector state machine.
 
     function broadcastAgent(agent: AgentInfo): void {
-      sendAgentUpdate(mainWindow, agent, preferencesManager);
+      sendAgentUpdate(agent, preferencesManager);
     }
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)

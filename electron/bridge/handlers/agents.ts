@@ -140,7 +140,7 @@ export function agentsUpdate(
   assertRendererAgentUpdate(updates);
   const updated = deps.agentManager.updateAgent(agentId, updates);
   if (updated) {
-    sendAgentUpdate(deps.mainWindow, updated, deps.preferencesManager);
+    sendAgentUpdate(updated, deps.preferencesManager);
   }
   return updated;
 }
@@ -173,7 +173,7 @@ export function agentsMarkSeen(deps: IpcDeps, agentId: string): void {
   markAgentNotificationsRead(agentId, deps.mainWindow);
   const agent = deps.agentManager.getAgentById(agentId);
   if (agent) {
-    sendAgentUpdate(deps.mainWindow, agent, preferencesManager);
+    sendAgentUpdate(agent, preferencesManager);
   } else {
     // Agent is gone (deleted before markSeen reached us) — at least refresh
     // the dock badge since the Sets just shrank.
@@ -211,7 +211,7 @@ export function agentsAbandonForPane(
     ...(nameUpdate ? { name: nameUpdate } : {}),
   });
   if (updated) {
-    sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
+    sendAgentUpdate(updated, preferencesManager);
   }
 }
 
@@ -245,7 +245,7 @@ export async function agentsReconcileStale(deps: IpcDeps): Promise<void> {
       completedAt: new Date().toISOString(),
     });
     if (updated) {
-      sendAgentUpdate(deps.mainWindow, updated, preferencesManager);
+      sendAgentUpdate(updated, preferencesManager);
     }
   }
 }

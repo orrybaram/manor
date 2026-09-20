@@ -6,10 +6,11 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node scripts/patch-electron-name.mjs && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts && vite",
-    "build": "vite build && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
+    "build": "pnpm typecheck && vite build && vite build --config vite.remote.config.ts && vite build --config vite.web.config.ts",
     "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",
-    "package": "source .env && vite build && electron-builder",
+    "package": "source .env && pnpm typecheck && vite build && electron-builder",
     "test": "vitest run && pnpm knip:ci",
     "test:unit": "vitest run",
     "knip": "knip",

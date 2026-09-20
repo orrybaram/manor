@@ -67,10 +67,13 @@
  * type, so a browser bundle that reads the catalogue does not pull the main
  * process in behind it.
  *
- * **Nothing runs `tsc` in CI today** (`pnpm build` is Vite, which strips
- * types; `pnpm test` is Vitest, which does not typecheck), so this check
- * bites in an editor and under `npx tsc -p tsconfig.electron.json`. Making it
- * bite in CI means clearing that config's error baseline first.
+ * **Where it runs.** `pnpm typecheck` — `tsc --noEmit` over `tsconfig.json`
+ * and `tsconfig.electron.json` — and `pnpm build` runs that first, so a green
+ * build is a build in which this check ran. It did not always: until ADR-180
+ * ticket 15 nothing in the repo ran `tsc` at all (Vite strips types, Vitest
+ * does not check them), and `tsconfig.electron.json` carried a 15-error
+ * baseline that made turning it on impossible. Both are gone; keep them gone,
+ * because a check nothing runs is a comment.
  */
 
 import type { ElectronAPI } from "../../src/electron";

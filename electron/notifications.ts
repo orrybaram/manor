@@ -138,18 +138,17 @@ export function getUnseenSnapshot(): {
 }
 
 /**
- * Broadcast an `agents`/`updated` event to the renderer with the current
- * unseen flags, then refresh the dock badge. This is the single send-site
- * for `agent-updated`; do not call `webContents.send("agent-updated", ...)`
- * directly.
+ * Broadcast an `agents`/`updated` event with the current unseen flags, then
+ * refresh the dock badge. This is the single send-site for the event; do not
+ * call `webContents.send("agent-updated", ...)` directly.
  *
- * `mainWindow` is a vestige of the desktop-only `webContents.send` this
- * replaced (ADR-180 ticket 9): `publishRendererBroadcast`'s sink now reaches
- * every window and every browser alike, so no caller needs to change what it
- * passes to keep working.
+ * It took a `mainWindow` until ADR-180 ticket 15: a vestige of the
+ * desktop-only `webContents.send` this replaced (ticket 9). Every caller
+ * still threaded a window through to it and none of them needed one, because
+ * `publishRendererBroadcast`'s sink reaches every window and every browser on
+ * its own — so the parameter is gone rather than ignored.
  */
 export function sendAgentUpdate(
-  mainWindow: BrowserWindow | null,
   agent: AgentInfo,
   preferencesManager: PreferencesManager,
 ): void {

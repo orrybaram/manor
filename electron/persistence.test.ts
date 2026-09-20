@@ -271,12 +271,20 @@ describe("ProjectManager", () => {
 
       manager.renameWorkspace(project.id, "/tmp/proj", "My Workspace");
 
-      // Persists across reload
-      const _reloaded = new ProjectManager(tmpDir);
       const state = JSON.parse(
         fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"),
       );
       expect(state.projects[0].workspaceNames["/tmp/proj"]).toBe(
+        "My Workspace",
+      );
+
+      // Persists across reload: a fresh manager over the same data dir reads
+      // the name back. (This reload used to be `new ProjectManager(tmpDir)` —
+      // the path in the `git` slot, so it read the *real* ~/.manor and its
+      // result was never asserted on.)
+      const reloaded = new ProjectManager(stubGit, tmpDir);
+      const workspaces = (await reloaded.getProjects())[0].workspaces;
+      expect(workspaces.find((ws) => ws.path === "/tmp/proj")?.name).toBe(
         "My Workspace",
       );
     });

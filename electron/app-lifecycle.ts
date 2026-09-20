@@ -56,14 +56,12 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import * as themeIpc from "./ipc/theme";
 import * as portsIpc from "./ipc/ports";
 import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import { killAllActivePushes } from "./ipc/branches-diffs";
 import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as agentsIpc from "./ipc/agents";
-import * as notificationsIpc from "./ipc/notifications";
 import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
 import * as processesIpc from "./ipc/processes";
@@ -533,14 +531,16 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  themeIpc.register(ipcDeps);
   portsIpc.register(ipcDeps);
   branchesDiffsIpc.register(ipcDeps);
   integrationsIpc.register(ipcDeps);
   webviewIpc.register(ipcDeps);
   agentsIpc.register(ipcDeps);
-  notificationsIpc.register(ipcDeps);
-  statsIpc.register(ipcDeps);
+  // `theme` and `notifications` have no `register()` left (ADR-180 ticket 7):
+  // every `ipcMain.handle` they had is a table entry now. `stats` still needs
+  // its debounced broadcast wired once, at boot — the one thing left in this
+  // file that was never an IPC handler.
+  statsIpc.wireStatsBroadcast(ipcDeps);
   miscIpc.register(ipcDeps);
   processesIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);

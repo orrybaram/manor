@@ -1,9 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type {
-  ForwardedCommandPayload,
-  MenuCommandPayload,
-  MenuContext,
-} from "../src/lib/menu-commands";
+import type { MenuCommandPayload, MenuContext } from "../src/lib/menu-commands";
 
 interface WindowBounds {
   x: number;
@@ -145,32 +141,19 @@ const nativeApi = {
   // `projects-changed` channels they listened on are gone from main too — a
   // namespace takes its legacy sends with it when it crosses.
 
-  theme: {
-    get: () => ipcRenderer.invoke("theme:get"),
-    setSelected: (name: string) =>
-      ipcRenderer.invoke("theme:setSelected", name),
-    getSelectedName: () => ipcRenderer.invoke("theme:getSelectedName"),
-    hasGhosttyConfig: () => ipcRenderer.invoke("theme:hasGhosttyConfig"),
-    preview: (name: string) => ipcRenderer.invoke("theme:preview", name),
-    allColors: () => ipcRenderer.invoke("theme:allColors"),
-    /**
-     * The selected theme changed — in this window, another desktop window, or
-     * a browser on the bridge (ADR-179 ticket 7). The payload is the same
-     * `{ name, theme }` shape `setSelected` itself resolves with, so a
-     * listener can apply it directly instead of a round trip back to
-     * `theme:get`.
-     */
-    onChanged: (
-      callback: (payload: { name: string; theme: unknown }) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        payload: { name: string; theme: unknown },
-      ) => callback(payload);
-      ipcRenderer.on("theme:changed", listener);
-      return () => ipcRenderer.removeListener("theme:changed", listener);
-    },
-  },
+  // `theme`, `preferences`, `keybindings`, `notifications` and `stats` are
+  // gone the same way (ADR-180 ticket 7) — eighteen `ipcMain.handle`/`.on`
+  // wrappers across four files, replaced by table entries and (for
+  // `keybindings.set`/`reset`/`resetAll`/`runInMainWindow`) the first real
+  // use `LOCAL_ONLY` gets. `theme.onChanged`, `preferences.onChange`,
+  // `keybindings.onChange`, `keybindings.onForwardedCommand`,
+  // `notifications.onChanged`, `notifications.onNavigate` and
+  // `stats.onChanged` are subscriptions now, so `theme:changed`,
+  // `preferences-changed`, `keybindings-changed`, `keybinding-command`,
+  // `notifications:changed` and `stats:changed` are gone from main too —
+  // `webview-keys.ts`'s forwarded "app" shortcut takes the same road, since
+  // it is `keybindings.onForwardedCommand` a `<webview>` guest's key press
+  // has always fed.
 
   ports: {
     startScanner: () => ipcRenderer.invoke("ports:startScanner"),
@@ -420,37 +403,6 @@ const nativeApi = {
     },
   },
 
-  preferences: {
-    getAll: () => ipcRenderer.invoke("preferences:getAll"),
-    set: (key: string, value: unknown) =>
-      ipcRenderer.invoke("preferences:set", key, value),
-    onChange: (callback: (prefs: unknown) => void) =>
-      onChannel("preferences-changed", callback),
-    playSound: (name: string) =>
-      ipcRenderer.invoke("preferences:playSound", name),
-  },
-
-  keybindings: {
-    getAll: () => ipcRenderer.invoke("keybindings:getAll"),
-    set: (commandId: string, combo: string) =>
-      ipcRenderer.invoke("keybindings:set", commandId, combo),
-    reset: (commandId: string) =>
-      ipcRenderer.invoke("keybindings:reset", commandId),
-    resetAll: () => ipcRenderer.invoke("keybindings:resetAll"),
-    onChange: (callback: (overrides: Record<string, string>) => void) =>
-      onChannel("keybindings-changed", callback),
-    /**
-     * A bound combo pressed where this window's key handler can't see it — in
-     * a web page, or a primary-only command pressed in a popout.
-     */
-    onForwardedCommand: (
-      callback: (payload: ForwardedCommandPayload) => void,
-    ) => onChannel("keybinding-command", callback),
-    /** Popout → main: focus the primary window and run `commandId` there. */
-    runInMainWindow: (commandId: string) =>
-      ipcRenderer.send("keybindings:runInMainWindow", commandId),
-  },
-
   menu: {
     /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
     setContext: (context: MenuContext) =>
@@ -469,36 +421,6 @@ const nativeApi = {
       bridgeSubscribe("menu", "command", null, (payload) =>
         callback(payload as MenuCommandPayload),
       ),
-  },
-
-  notifications: {
-    show: (payload: {
-      kind: "comment" | "approved" | "changes-requested" | "checks-failed";
-      title: string;
-      body: string;
-      url?: string;
-      comment?: {
-        author: string;
-        body: string;
-        url: string;
-        createdAt: string;
-      };
-    }) => ipcRenderer.invoke("notifications:show", payload) as Promise<boolean>,
-    getAll: () => ipcRenderer.invoke("notifications:getAll"),
-    markRead: (id: string) => ipcRenderer.invoke("notifications:markRead", id),
-    markAllRead: () => ipcRenderer.invoke("notifications:markAllRead"),
-    clear: () => ipcRenderer.invoke("notifications:clear"),
-    /** Main re-broadcasts the whole list on every mutation (ADR-162 §3). */
-    onChanged: (callback: (list: unknown[]) => void) =>
-      onChannel("notifications:changed", callback),
-  },
-
-  stats: {
-    getSummary: () => ipcRenderer.invoke("stats:getSummary"),
-    reset: () => ipcRenderer.invoke("stats:reset"),
-    /** Main re-broadcasts the full summary after every settled burst (ADR-168 §5). */
-    onChanged: (callback: (summary: unknown) => void) =>
-      onChannel("stats:changed", callback),
   },
 
   clipboard: {

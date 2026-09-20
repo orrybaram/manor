@@ -62,36 +62,26 @@ export function setStatsStore(store: StatsStore | null): void {
 
 /**
  * Broadcast the full notification list to the renderer. This is the single
- * send-site for `notifications:changed`; do not call
+ * send-site for `notifications.changed`; do not call
  * `webContents.send("notifications:changed", ...)` directly.
  *
  * The list is capped at 200 records, so shipping all of it on every mutation
  * is deliberate — it makes renderer drift impossible (ADR-162 §3).
+ *
+ * `_mainWindow` is a vestige of the desktop-only `webContents.send` this
+ * replaced (ADR-180 ticket 7): `publishRendererBroadcast`'s sink now reaches
+ * every window and every browser alike, so no caller needs to change what it
+ * passes to keep working.
  */
-export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void {
+export function sendNotificationsUpdate(
+  _mainWindow: BrowserWindow | null,
+): void {
   if (!notificationStore) return;
-  // Browser renderers (ADR-178) hear the same list on the same signal; the
-  // window check below is about `webContents`, and they have none.
   publishRendererBroadcast(
     "notifications",
     "changed",
     notificationStore.getAll(),
   );
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    mainWindow.webContents.isDestroyed()
-  ) {
-    return;
-  }
-  try {
-    mainWindow.webContents.send(
-      "notifications:changed",
-      notificationStore.getAll(),
-    );
-  } catch {
-    // Render frame disposed — safe to ignore
-  }
 }
 
 /**

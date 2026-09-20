@@ -1,12 +1,15 @@
-import { ipcMain } from "electron";
 import { assertString } from "../ipc-validate";
 import { publishRendererBroadcast } from "../renderer-broadcast";
 import type { IpcDeps } from "./types";
 import type { ThemeManager } from "../theme";
 
 /**
- * The reads, lifted out of their `ipcMain.handle` wrappers so the ADR-178
- * WebSocket bridge calls the same code the desktop renderer does.
+ * Theme, whole (ADR-180 ticket 7). Every one of these was already an
+ * `ipcMain.handle` wrapper around a plain function; the wrappers are gone
+ * now, and the handler table (`electron/bridge/handlers.ts`) is the only
+ * caller left. `setSelected` is not `LOCAL_ONLY` — a paired `full` device
+ * setting the theme is ADR-179 D6's broadcast working as designed, and the
+ * browser already re-renders on it.
  */
 export function themeGet(deps: IpcDeps): unknown {
   return deps.themeManager.getTheme();
@@ -36,45 +39,21 @@ export function themeAllColors(deps: IpcDeps): Promise<unknown> {
  * fan-out a second desktop window and every browser on the bridge kept the
  * old theme until they next remounted (ADR-179 ticket 7). Lifted out of the
  * IPC handler so the `POST /theme` route (CLI, MCP) reaches the same viewers
- * the IPC path does — the route used to change the theme silently.
+ * the IPC path does — the route used to change the theme silently, and the
+ * handler table reaches it the same way (ADR-180 ticket 7).
  *
- * The caller learns the new theme from the return value; these two cover
- * everybody else, the same split `preferences:set` uses — one sink for the
- * bridge, one channel for every other desktop window.
+ * The caller learns the new theme from the return value; `publishRendererBroadcast`
+ * covers everybody else now — the bridge's one sink reaches every other
+ * window and every browser alike, so there is no second `webContents.send`
+ * loop beside it any more.
  */
 export function themeSetSelected(
-  deps: Pick<IpcDeps, "themeManager" | "getRendererWindows">,
+  deps: Pick<IpcDeps, "themeManager">,
   name: string,
 ): ReturnType<ThemeManager["getTheme"]> {
+  assertString(name, "name");
   deps.themeManager.setSelectedThemeName(name);
   const theme = deps.themeManager.getTheme();
   publishRendererBroadcast("theme", "changed", { name, theme });
-  for (const win of deps.getRendererWindows()) {
-    if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
-    try {
-      win.webContents.send("theme:changed", { name, theme });
-    } catch {
-      // A torn-down webContents mid-send is not worth crashing over.
-    }
-  }
   return theme;
-}
-
-export function register(deps: IpcDeps): void {
-  ipcMain.handle("theme:get", () => themeGet(deps));
-
-  ipcMain.handle("theme:setSelected", (_event, name: string) => {
-    assertString(name, "name");
-    return themeSetSelected(deps, name);
-  });
-
-  ipcMain.handle("theme:getSelectedName", () => themeGetSelectedName(deps));
-
-  ipcMain.handle("theme:hasGhosttyConfig", () => themeHasGhosttyConfig(deps));
-
-  ipcMain.handle("theme:preview", (_event, name: string) =>
-    themePreview(deps, name),
-  );
-
-  ipcMain.handle("theme:allColors", () => themeAllColors(deps));
 }

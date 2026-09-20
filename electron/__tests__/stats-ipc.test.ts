@@ -1,38 +1,29 @@
+/**
+ * `stats.getSummary` and `stats.reset`, plus the debounced `stats.changed`
+ * broadcast.
+ *
+ * No `ipcMain` here any more: `stats` crossed to the handler table in
+ * ADR-180 ticket 7, so `statsGetSummary`/`statsReset` are plain functions
+ * over `IpcDeps`, and the debounce subscription (`wireStatsBroadcast`) is
+ * what is left of `register()` — wired once at boot rather than behind an
+ * `ipcMain.handle`.
+ */
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-import { register, BROADCAST_DEBOUNCE_MS } from "../ipc/stats";
+import { statsGetSummary, statsReset, wireStatsBroadcast, BROADCAST_DEBOUNCE_MS } from "../ipc/stats";
 import { StatsStore } from "../stats-store";
+import {
+  addRendererBroadcastSink,
+  type RendererBroadcast,
+} from "../renderer-broadcast";
 
-function makeWindow() {
-  return {
-    isDestroyed: vi.fn().mockReturnValue(false),
-    webContents: {
-      isDestroyed: vi.fn().mockReturnValue(false),
-      send: vi.fn(),
-    },
-  };
-}
-
-describe("stats:getSummary / stats:reset handlers", () => {
-  beforeEach(() => {
-    handlers.clear();
-  });
-
-  it("stats:getSummary returns the store's summary", () => {
+describe("stats.getSummary / stats.reset", () => {
+  it("stats.getSummary returns the store's summary", () => {
     const summary = { today: {}, last7Days: {}, allTime: {}, streakWeeks: 0, badges: {}, enabled: true };
     const statsStore = {
       getSummary: vi.fn().mockReturnValue(summary),
@@ -40,87 +31,71 @@ describe("stats:getSummary / stats:reset handlers", () => {
       onChange: vi.fn(() => () => {}),
     };
 
-    register({ statsStore, getRendererWindows: () => [] } as never);
-
-    const handler = handlers.get("stats:getSummary")!;
-    expect(handler()).toBe(summary);
+    expect(statsGetSummary({ statsStore } as never)).toBe(summary);
   });
 
-  it("stats:reset delegates to the store", () => {
+  it("stats.reset delegates to the store", () => {
     const statsStore = {
       getSummary: vi.fn(),
       reset: vi.fn(),
       onChange: vi.fn(() => () => {}),
     };
 
-    register({ statsStore, getRendererWindows: () => [] } as never);
-
-    const handler = handlers.get("stats:reset")!;
-    handler();
+    statsReset({ statsStore } as never);
 
     expect(statsStore.reset).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("stats:changed broadcast (debounced)", () => {
+describe("stats.changed broadcast (debounced)", () => {
   let tmpDir: string;
   let statsStore: StatsStore;
+  let frames: RendererBroadcast[];
+  let stopSink: () => void;
 
   beforeEach(() => {
-    handlers.clear();
     vi.useFakeTimers();
     tmpDir = path.join(os.tmpdir(), `manor-stats-ipc-test-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     statsStore = new StatsStore(tmpDir, { isEnabled: () => true });
+    frames = [];
+    stopSink = addRendererBroadcastSink((frame) => frames.push(frame));
   });
 
   afterEach(() => {
+    stopSink();
     vi.useRealTimers();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("sends exactly one stats:changed per live window after the debounce settles", () => {
-    const win1 = makeWindow();
-    const win2 = makeWindow();
-
-    register({
-      statsStore,
-      getRendererWindows: () => [win1, win2],
-    } as never);
+  it("broadcasts exactly one stats.changed after the debounce settles", () => {
+    wireStatsBroadcast({ statsStore });
 
     statsStore.record("prompts");
     statsStore.record("prompts");
     statsStore.record("toolCalls");
 
-    // Still within the debounce window: nothing sent yet.
     vi.advanceTimersByTime(BROADCAST_DEBOUNCE_MS - 1);
-    expect(win1.webContents.send).not.toHaveBeenCalled();
-    expect(win2.webContents.send).not.toHaveBeenCalled();
+    expect(frames).toEqual([]);
 
     vi.advanceTimersByTime(1);
 
-    expect(win1.webContents.send).toHaveBeenCalledTimes(1);
-    expect(win1.webContents.send).toHaveBeenCalledWith(
-      "stats:changed",
-      statsStore.getSummary(),
-    );
-    expect(win2.webContents.send).toHaveBeenCalledTimes(1);
+    expect(frames).toEqual([
+      {
+        ns: "stats",
+        event: "changed",
+        args: [statsStore.getSummary()],
+        to: null,
+      },
+    ]);
   });
 
-  it("skips destroyed windows", () => {
-    const live = makeWindow();
-    const destroyed = makeWindow();
-    destroyed.isDestroyed.mockReturnValue(true);
+  it("collapses a burst of recording into a single broadcast", () => {
+    wireStatsBroadcast({ statsStore });
 
-    register({
-      statsStore,
-      getRendererWindows: () => [live, destroyed],
-    } as never);
-
-    statsStore.record("prompts");
+    for (let i = 0; i < 5; i++) statsStore.record("prompts");
     vi.advanceTimersByTime(BROADCAST_DEBOUNCE_MS);
 
-    expect(live.webContents.send).toHaveBeenCalledTimes(1);
-    expect(destroyed.webContents.send).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(1);
   });
 });

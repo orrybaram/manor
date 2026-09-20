@@ -1,16 +1,15 @@
 import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import type { PrComment } from "../../src/lib/pr-info";
 import { assertString } from "../ipc-validate";
-import {
-  playNotificationSound,
-  showPrNotification,
-  type PrNotifyEventKind,
-} from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { openInEditor } from "../editor";
-import { publishRendererBroadcast } from "../renderer-broadcast";
+import { playNotificationSound } from "../notifications";
+import {
+  connectionIdForWindow,
+  publishRendererBroadcast,
+  publishToRenderer,
+} from "../renderer-broadcast";
 import type { IpcDeps } from "./types";
 import {
   MAIN_WINDOW_KEYBINDINGS,
@@ -18,25 +17,20 @@ import {
 } from "../../src/lib/menu-commands";
 
 /**
- * The two settings reads the web app needs at boot, lifted out of their
- * `ipcMain.handle` wrappers so the ADR-178 WebSocket bridge calls the same
- * code the desktop renderer does. `preferences.set` (below) joined them in
- * ticket 9; `keybindingsSet`/`reset`/`resetAll` stay desktop-only.
+ * Preferences and keybindings, lifted out of their `ipcMain.handle` wrappers
+ * so the handler table calls the same code the desktop renderer does
+ * (ADR-180 ticket 7). What is left of `register()` below is the half of this
+ * file only Electron can do — the dialog, the shell escape hatches, the
+ * clipboard and the updater — which is what `electron/ipc/` means from here
+ * on (ADR-180 D8).
  */
 export function preferencesGetAll(deps: IpcDeps): unknown {
   return deps.preferencesManager.getAll();
 }
 
-export function keybindingsGetAll(deps: IpcDeps): Record<string, string> {
-  return deps.keybindingsManager.getAll();
-}
-
 /**
- * `preferences.set`, lifted the same way, for a `full` device (ADR-178
- * ticket 9). This was off the slice-1 table for scope, not policy: D3 lets a
- * `full` device write preferences, so theme, notifications and general
- * toggles work from a browser instead of rejecting. `keybindings.set` stays
- * off the table — ticket 6 made that page read-only on web.
+ * A `full` device may write preferences (D3); this was off the slice-1 table
+ * for scope, not policy.
  */
 export function preferencesSet(
   deps: IpcDeps,
@@ -48,6 +42,68 @@ export function preferencesSet(
     key as keyof import("../preferences").AppPreferences,
     value as never,
   );
+}
+
+/** Takes `_deps` only to match every other entry's `(deps, ...args)` shape. */
+export function preferencesPlaySound(_deps: IpcDeps, soundName: string): void {
+  assertString(soundName, "soundName");
+  playNotificationSound(soundName);
+}
+
+export function keybindingsGetAll(deps: IpcDeps): Record<string, string> {
+  return deps.keybindingsManager.getAll();
+}
+
+/**
+ * `keybindings.set`/`reset`/`resetAll` are `LOCAL_ONLY` on the table — ticket
+ * 6 made that page read-only on web, and this is where that decision lives
+ * as code (ADR-180 D4). They still cross to the table rather than staying an
+ * `ipcMain.handle`, because a desktop window reaches them the same way it
+ * reaches everything else now.
+ */
+export function keybindingsSet(
+  deps: IpcDeps,
+  commandId: string,
+  combo: string,
+): void {
+  assertString(commandId, "commandId");
+  assertString(combo, "combo");
+  deps.keybindingsManager.set(commandId, combo);
+}
+
+export function keybindingsReset(deps: IpcDeps, commandId: string): void {
+  assertString(commandId, "commandId");
+  deps.keybindingsManager.reset(commandId);
+}
+
+export function keybindingsResetAll(deps: IpcDeps): void {
+  deps.keybindingsManager.resetAll();
+}
+
+/**
+ * A popout pressed a primary-only shortcut (⌘, ⌘K, ⌘⇧N, …): bring the
+ * primary window forward and run the command there (ADR-175).
+ *
+ * `LOCAL_ONLY` (D4) — it names a window, and a paired device has none of its
+ * own to run a command in. What was `mw.webContents.send("keybinding-command",
+ * …)` is a `keybindings.forwardedCommand` event addressed to the primary's
+ * connection now (ADR-180 D5); `App.tsx`'s `onForwardedCommand` hears it the
+ * same way it hears one forwarded out of a `<webview>` (`webview-keys.ts`).
+ */
+export function keybindingsRunInMainWindow(
+  deps: Pick<IpcDeps, "mainWindow">,
+  commandId: string,
+): void {
+  assertString(commandId, "commandId");
+  if (!MAIN_WINDOW_KEYBINDINGS.has(commandId)) return;
+  const mw = deps.mainWindow;
+  if (!mw || mw.isDestroyed() || mw.webContents.isDestroyed()) return;
+  if (mw.isMinimized()) mw.restore();
+  mw.focus();
+  const to = connectionIdForWindow(mw);
+  if (to === null) return;
+  const payload: ForwardedCommandPayload = { commandId, source: "popout" };
+  publishToRenderer(to, "keybindings", "forwardedCommand", payload);
 }
 
 export function register(deps: IpcDeps): void {
@@ -151,112 +207,18 @@ export function register(deps: IpcDeps): void {
     clipboard.writeText(text);
   });
 
-  // ── Preferences ──
-  ipcMain.handle("preferences:getAll", () => preferencesGetAll(deps));
-
-  ipcMain.handle("preferences:set", (_event, key: string, value: unknown) =>
-    preferencesSet(deps, key, value),
-  );
-
-  ipcMain.handle("preferences:playSound", (_event, soundName: string) => {
-    playNotificationSound(soundName);
-  });
-
-  // ── Notifications ──
-  /**
-   * Returns whether a native notification was presented. `false` means the
-   * calling window is focused, so the renderer should show an in-app toast
-   * instead — the renderer must not make that call itself, see
-   * `presentNotification`.
-   */
-  ipcMain.handle(
-    "notifications:show",
-    (
-      event,
-      payload: {
-        kind: PrNotifyEventKind;
-        title: string;
-        body: string;
-        url?: string;
-        comment?: PrComment;
-      },
-    ): boolean => {
-      assertString(payload.title, "title");
-      assertString(payload.body, "body");
-      if (payload.comment !== undefined) {
-        assertString(payload.comment.author, "comment.author");
-        assertString(payload.comment.body, "comment.body");
-        assertString(payload.comment.url, "comment.url");
-        assertString(payload.comment.createdAt, "comment.createdAt");
-      }
-      // Focus is judged against the window that asked, not the primary one:
-      // the poller may live in a detached window (ADR-156).
-      const callerWindow =
-        BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
-      return showPrNotification(payload, callerWindow, preferencesManager);
-    },
-  );
-
   // `PreferencesManager.onChange` holds exactly one callback, so this is the
   // only place a preferences change can be observed — hence the bridge sink
-  // here rather than a second subscription of its own.
+  // here rather than a second subscription of its own. Every caller of
+  // `preferencesSet` shares it, table and route alike (ADR-180 ticket 7
+  // dropped the `webContents.send` that used to run beside it).
   preferencesManager.onChange((prefs) => {
     publishRendererBroadcast("preferences", "changed", prefs);
-    const mw = getMainWindow();
-    if (mw && !mw.isDestroyed() && !mw.webContents.isDestroyed()) {
-      try {
-        mw.webContents.send("preferences-changed", prefs);
-      } catch {
-        // Render frame disposed — safe to ignore
-      }
-    }
-  });
-
-  // ── Keybindings ──
-  ipcMain.handle("keybindings:getAll", () => keybindingsGetAll(deps));
-
-  ipcMain.handle(
-    "keybindings:set",
-    (_event, commandId: string, combo: string) => {
-      assertString(commandId, "commandId");
-      assertString(combo, "combo");
-      keybindingsManager.set(commandId, combo);
-    },
-  );
-
-  ipcMain.handle("keybindings:reset", (_event, commandId: string) => {
-    assertString(commandId, "commandId");
-    keybindingsManager.reset(commandId);
-  });
-
-  ipcMain.handle("keybindings:resetAll", () => {
-    keybindingsManager.resetAll();
   });
 
   // Every window dispatches keybindings (popouts included), so every window
-  // needs the edit.
+  // needs the edit — a broadcast, same as preferences above.
   keybindingsManager.onChange((overrides) => {
     publishRendererBroadcast("keybindings", "changed", overrides);
-    for (const win of deps.getRendererWindows()) {
-      if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
-      try {
-        win.webContents.send("keybindings-changed", overrides);
-      } catch {
-        // Render frame disposed — safe to ignore
-      }
-    }
-  });
-
-  // A popout pressed a primary-only shortcut (⌘, ⌘K, ⌘⇧N, …): bring the
-  // primary window forward and run the command there (ADR-175).
-  ipcMain.on("keybindings:runInMainWindow", (_event, commandId: unknown) => {
-    if (typeof commandId !== "string") return;
-    if (!MAIN_WINDOW_KEYBINDINGS.has(commandId)) return;
-    const mw = getMainWindow();
-    if (!mw || mw.isDestroyed() || mw.webContents.isDestroyed()) return;
-    if (mw.isMinimized()) mw.restore();
-    mw.focus();
-    const payload: ForwardedCommandPayload = { commandId, source: "popout" };
-    mw.webContents.send("keybinding-command", payload);
   });
 }

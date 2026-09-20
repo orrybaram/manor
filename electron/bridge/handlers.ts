@@ -100,6 +100,7 @@ import {
   themeHasGhosttyConfig,
   themePreview,
   themeAllColors,
+  themeSetSelected,
 } from "../ipc/theme";
 import {
   agentsGetAll,
@@ -115,11 +116,22 @@ import {
 import {
   preferencesGetAll,
   preferencesSet,
+  preferencesPlaySound,
   keybindingsGetAll,
+  keybindingsSet,
+  keybindingsReset,
+  keybindingsResetAll,
+  keybindingsRunInMainWindow,
 } from "../ipc/misc";
 import { remoteControlGetStatus } from "../ipc/remote-control";
-import { statsGetSummary } from "../ipc/stats";
-import { notificationsGetAll } from "../ipc/notifications";
+import { statsGetSummary, statsReset } from "../ipc/stats";
+import {
+  notificationsGetAll,
+  notificationsMarkRead,
+  notificationsMarkAllRead,
+  notificationsClear,
+  notificationsShow,
+} from "../ipc/notifications";
 import { processesList } from "../ipc/processes";
 import {
   appCommandResult,
@@ -132,6 +144,8 @@ import type { PersistedDefaultViewport } from "../terminal-host/layout-persisten
 import type { LayoutOrigin } from "../layout/layout-store";
 import type { ProjectUpdatableFields } from "../persistence";
 import type { LinkedIssue } from "../linear";
+import type { PrNotifyEventKind } from "../notifications";
+import type { PrComment } from "../../src/lib/pr-info";
 
 /**
  * A handler the bridge may call.
@@ -558,16 +572,35 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "theme.hasGhosttyConfig": (deps: IpcDeps) => themeHasGhosttyConfig(deps),
   "theme.preview": (deps: IpcDeps, name: string) => themePreview(deps, name),
   "theme.allColors": (deps: IpcDeps) => themeAllColors(deps),
+  /**
+   * Not `LOCAL_ONLY` (D4, ticket 7): a `full` device setting the theme is
+   * ADR-179 D6's `theme.changed` broadcast working exactly as designed, and
+   * the browser already re-renders on it.
+   */
+  "theme.setSelected": (deps: IpcDeps, name: string) =>
+    themeSetSelected(deps, name),
   "preferences.getAll": (deps: IpcDeps) => preferencesGetAll(deps),
   /**
    * A `full` device may write preferences (D3); the reason this was off the
-   * slice-1 table was scope, not policy. `keybindings.set`/`reset`/`resetAll`
-   * stay off — ticket 6 made that page read-only on web — and are absent on
-   * purpose, not merely unimplemented.
+   * slice-1 table was scope, not policy.
    */
   "preferences.set": (deps: IpcDeps, key: string, value: unknown) =>
     preferencesSet(deps, key, value),
+  "preferences.playSound": (deps: IpcDeps, soundName: string) =>
+    preferencesPlaySound(deps, soundName),
   "keybindings.getAll": (deps: IpcDeps) => keybindingsGetAll(deps),
+  /**
+   * `LOCAL_ONLY` (D4): ticket 6 made the keybindings page read-only on web,
+   * and this is where that decision lives as code rather than as an absence.
+   */
+  "keybindings.set": (deps: IpcDeps, commandId: string, combo: string) =>
+    keybindingsSet(deps, commandId, combo),
+  "keybindings.reset": (deps: IpcDeps, commandId: string) =>
+    keybindingsReset(deps, commandId),
+  "keybindings.resetAll": (deps: IpcDeps) => keybindingsResetAll(deps),
+  /** `LOCAL_ONLY` (D4) — it names a window, and a device has none of its own. */
+  "keybindings.runInMainWindow": (deps: IpcDeps, commandId: string) =>
+    keybindingsRunInMainWindow(deps, commandId),
 
   // ── remoteControl: the one read, so the settings page isn't lying to the
   // device that let it in. setEnabled/pair/revoke/tunnel stay off — read-only
@@ -597,7 +630,29 @@ export const HANDLERS: Record<string, BridgeHandler> = {
 
   // ── the two logs the chrome reads on mount ──
   "notifications.getAll": (deps: IpcDeps) => notificationsGetAll(deps),
+  "notifications.markRead": (deps: IpcDeps, id: string) =>
+    notificationsMarkRead(deps, id),
+  "notifications.markAllRead": (deps: IpcDeps) =>
+    notificationsMarkAllRead(deps),
+  "notifications.clear": (deps: IpcDeps) => notificationsClear(deps),
+  /**
+   * The window a caller is asking on behalf of decides the focus check
+   * (`windowForOrigin` in `ipc/notifications.ts`) — a device gets the
+   * primary's, a window gets its own (`ORIGIN_ARGS`).
+   */
+  "notifications.show": (
+    deps: IpcDeps,
+    payload: {
+      kind: PrNotifyEventKind;
+      title: string;
+      body: string;
+      url?: string;
+      comment?: PrComment;
+    },
+    origin?: LayoutOrigin,
+  ) => notificationsShow(deps, payload, origin),
   "stats.getSummary": (deps: IpcDeps) => statsGetSummary(deps),
+  "stats.reset": (deps: IpcDeps) => statsReset(deps),
 
   // ── daemon status. The rest of `processes.*` kills things; it is absent. ──
   "processes.list": (deps: IpcDeps) => processesList(deps),
@@ -655,6 +710,10 @@ export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   // `useExistingBranch` still gets the origin in the slot after it.
   ["projects.createWorktree", 6],
   ["projects.removeWorktree", 3],
+  // The window a caller is asking on behalf of — a device gets the primary's
+  // focus check, a window gets its own (`ipc/notifications.ts`'s
+  // `windowForOrigin`).
+  ["notifications.show", 1],
 ]);
 
 export const MUTATING: ReadonlySet<string> = new Set([
@@ -688,6 +747,11 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "projects.update",
   "preferences.set",
   "agents.setPaneContext",
+  // ADR-180 ticket 7: the ordinary writes in the last two namespaces to cross.
+  "notifications.markRead",
+  "notifications.markAllRead",
+  "notifications.clear",
+  "stats.reset",
 ]);
 
 /**
@@ -702,10 +766,12 @@ export const MUTATING: ReadonlySet<string> = new Set([
  * and `allowlist.test.ts` can assert the list instead of asserting silence.
  *
  * The prewarm pair is the first entry, and arrived with `pty` (ADR-180
- * ticket 5); `viewport` and `appCommands.result` joined with ticket 6. The
- * rest of the list this is for — `keybindings.set`/`reset`/`resetAll` and
- * `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` — joins it as each of
- * those namespaces crosses; naming them before they exist would be a list of
+ * ticket 5); `viewport` and `appCommands.result` joined with ticket 6, and
+ * `keybindings.set`/`reset`/`resetAll`/`runInMainWindow` with ticket 7 — the
+ * page ticket 6 made read-only on web finally has that read-only-ness as a
+ * row in this table rather than as four methods that simply were never
+ * written. `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` join it as
+ * that namespace crosses; naming them before they exist would be a list of
  * methods that refuse nothing.
  */
 export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
@@ -729,4 +795,14 @@ export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
    * argument gets settled once instead of rediscovered.
    */
   "appCommands.result",
+  /**
+   * The keybindings page is read-only on web (ADR-178 ticket 6). `set`,
+   * `reset` and `resetAll` refuse a device outright rather than accepting an
+   * edit the settings UI never offered it a way to make.
+   */
+  "keybindings.set",
+  "keybindings.reset",
+  "keybindings.resetAll",
+  /** Names a window; a device has none of its own to run a command in. */
+  "keybindings.runInMainWindow",
 ]);

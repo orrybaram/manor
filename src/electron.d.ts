@@ -917,6 +917,11 @@ export interface ElectronAPI {
 
   keybindings: {
     getAll: () => Promise<Record<string, string>>;
+    /**
+     * `LOCAL_ONLY` on the handler table (ADR-178 ticket 6, ADR-180 D4): the
+     * keybindings page is read-only on web, and this is where that decision
+     * lives as code rather than as an absence.
+     */
     set: (commandId: string, combo: string) => Promise<void>;
     reset: (commandId: string) => Promise<void>;
     resetAll: () => Promise<void>;
@@ -930,8 +935,12 @@ export interface ElectronAPI {
     onForwardedCommand: (
       callback: (payload: ForwardedCommandPayload) => void,
     ) => () => void;
-    /** Popout → main: focus the primary window and run `commandId` there. */
-    runInMainWindow: (commandId: string) => void;
+    /**
+     * Popout → main: focus the primary window and run `commandId` there.
+     * `LOCAL_ONLY` — it names a window, and a paired device has none of its
+     * own to run a command in.
+     */
+    runInMainWindow: (commandId: string) => Promise<void>;
   };
 
   menu: {

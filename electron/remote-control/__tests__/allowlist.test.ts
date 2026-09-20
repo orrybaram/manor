@@ -25,6 +25,7 @@ import {
   unresolvedAllowlistEntries,
 } from "../allowlist";
 import { LISTENER_OWN_ROUTES } from "../listener-routes";
+import { LOCAL_ONLY } from "../../bridge/handlers";
 
 const keys = (table: readonly Route[]) => table.map(routeKey);
 
@@ -218,5 +219,38 @@ describe("the launch route", () => {
 
   it("does not put the read half behind the capability", () => {
     expect(keys(remoteRouteTable(routes, "read"))).toContain("GET /agents");
+  });
+});
+
+/**
+ * The handler table's own refusal list (ADR-180 D4). Not a route — a paired
+ * `full` device already reaches every route here — but the same idea one
+ * layer down: a method absent from `HANDLERS` is refused by not existing, and
+ * a method present but named here is refused on purpose, in writing, instead
+ * of by an accident of the preload never implementing it. This is the file
+ * that already tests "what a device may not do", so it is where that written
+ * refusal gets pinned too.
+ */
+describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
+  it("is exactly the methods that name a window or a per-host resource", () => {
+    expect([...LOCAL_ONLY].sort()).toEqual(
+      [
+        // ADR-180 ticket 5: one prewarmed session per host.
+        "pty.consumePrewarmed",
+        "pty.updatePrewarmCwd",
+        // ADR-180 ticket 6: the desk's own viewport file, and the reply half
+        // of an app-command addressed to the primary window only.
+        "viewport.load",
+        "viewport.save",
+        "appCommands.result",
+        // ADR-180 ticket 7: the keybindings page is read-only on web
+        // (ADR-178 ticket 6), and a popout's forwarded command names a
+        // window a device does not have.
+        "keybindings.set",
+        "keybindings.reset",
+        "keybindings.resetAll",
+        "keybindings.runInMainWindow",
+      ].sort(),
+    );
   });
 });

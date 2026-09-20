@@ -20,8 +20,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { viewportFile } from "../paths";
-import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
+import { viewportFile } from "../../paths";
+import type { WorkspaceViewport } from "../../../src/lib/layout/viewport";
 
 export const VIEWPORT_FILE = viewportFile();
 

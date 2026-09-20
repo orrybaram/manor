@@ -1,10 +1,10 @@
 import type { BrowserWindow } from "electron";
-import { assertString } from "../ipc-validate";
-import { sendNotificationsUpdate, showPrNotification } from "../notifications";
-import type { PrNotifyEventKind } from "../notifications";
-import type { PrComment } from "../../src/lib/pr-info";
-import type { IpcDeps } from "./types";
-import type { LayoutOrigin } from "../layout/layout-store";
+import { assertString } from "../../ipc-validate";
+import { sendNotificationsUpdate, showPrNotification } from "../../notifications";
+import type { PrNotifyEventKind } from "../../notifications";
+import type { PrComment } from "../../../src/lib/pr-info";
+import type { IpcDeps } from "../../ipc/types";
+import type { LayoutOrigin } from "../../layout/layout-store";
 
 /**
  * The durable notification log (ADR-162, ADR-180 ticket 7). Main owns the

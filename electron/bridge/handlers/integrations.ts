@@ -18,9 +18,9 @@
  * which holds its own credential, and `checkStatus` reports a username.
  */
 
-import { assertString } from "../ipc-validate";
-import type { LinkedIssue } from "../linear";
-import type { IpcDeps } from "./types";
+import { assertString } from "../../ipc-validate";
+import type { LinkedIssue } from "../../linear";
+import type { IpcDeps } from "../../ipc/types";
 
 type IssueState = "open" | "closed" | "all";
 type LinearIssueOptions = { stateTypes?: string[]; limit?: number };

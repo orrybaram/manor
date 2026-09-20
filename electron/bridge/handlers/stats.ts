@@ -1,5 +1,5 @@
-import { publishRendererBroadcast } from "../renderer-broadcast";
-import type { IpcDeps } from "./types";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
+import type { IpcDeps } from "../../ipc/types";
 
 /**
  * ADR-168's usage-stats surface, whole (ADR-180 ticket 7). `statsStore` is

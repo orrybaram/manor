@@ -27,7 +27,7 @@ import { openInEditor } from "../editor";
 import { sendNotificationsUpdate } from "../notifications";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { listWindows } from "../ipc/window";
-import { themeSetSelected } from "../ipc/theme";
+import { themeSetSelected } from "../bridge/handlers/theme";
 import { isPreferenceKey } from "../preferences";
 import type { TunnelKind } from "../remote-control/tunnel";
 import type { ControlDeps, Json, Route } from "./types";

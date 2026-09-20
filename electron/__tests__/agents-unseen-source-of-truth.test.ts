@@ -32,7 +32,7 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import * as notifications from "../notifications";
-import { agentsGetUnseen, agentsMarkSeen } from "../ipc/agents";
+import { agentsGetUnseen, agentsMarkSeen } from "../bridge/handlers/agents";
 
 const sendAgentUpdate = vi.mocked(notifications.sendAgentUpdate);
 const updateDockBadge = vi.mocked(notifications.updateDockBadge);

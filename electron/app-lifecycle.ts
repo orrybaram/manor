@@ -56,12 +56,16 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import { killAllActivePushes } from "./ipc/branches-diffs";
+import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
+import { wireStatsBroadcast } from "./bridge/handlers/stats";
+import {
+  wirePreferencesBroadcast,
+  wireKeybindingsBroadcast,
+} from "./bridge/handlers/preferences";
+import { wireRemoteControlStatus } from "./bridge/handlers/remote-control";
 import * as webviewIpc from "./ipc/webview";
-import * as statsIpc from "./ipc/stats";
-import * as miscIpc from "./ipc/misc";
+import * as nativeIpc from "./ipc/native";
 import * as windowIpc from "./ipc/window";
-import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
 
 /**
@@ -518,24 +522,27 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  // `ports`, `processes`, `branches-diffs` and `integrations` have no
-  // `register()` left either (ADR-180 tickets 8 and 10): every
-  // `ipcMain.handle` they had is a table entry now, `git.*` and
-  // `github`/`linear` included.
+  // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):
+  // `webview`/`webview-keys`, `window`, `popups`, `menu` and the native
+  // remnant of `misc.ts` (dialog/shell/clipboard/updater), renamed
+  // `native.ts`. Everything else that used to `register()` here — layout,
+  // viewport, projects, pty, theme, agents, notifications, stats, ports,
+  // processes, branches/diffs, integrations, remote control — is a handler
+  // table entry now, and its implementation lives under
+  // `electron/bridge/handlers/`.
   webviewIpc.register(ipcDeps);
-  // `agents` has no `register()` left either (ADR-180 ticket 9): every
-  // `ipcMain.handle` it had is a table entry now.
-  // `theme` and `notifications` have no `register()` left (ADR-180 ticket 7):
-  // every `ipcMain.handle` they had is a table entry now. `stats` still needs
-  // its debounced broadcast wired once, at boot — the one thing left in this
-  // file that was never an IPC handler.
-  statsIpc.wireStatsBroadcast(ipcDeps);
-  miscIpc.register(ipcDeps);
+  nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
-  // `remoteControl` crossed with them (ticket 10); what is left of its
-  // `register()` is the status push, which was never an IPC handler.
-  remoteControlIpc.wireRemoteControlStatus(ipcDeps);
   menuIpc.register(ipcDeps);
+  // What is left of a few crossed namespaces' `register()` is a broadcast
+  // subscription that has to run once, at boot, and was never an
+  // `ipcMain.handle` — `wireStatsBroadcast`, `wirePreferencesBroadcast` and
+  // `wireKeybindingsBroadcast` debounce or fan out a manager's `onChange`,
+  // and `wireRemoteControlStatus` does the same for the controller.
+  wireStatsBroadcast(ipcDeps);
+  wirePreferencesBroadcast(ipcDeps);
+  wireKeybindingsBroadcast(ipcDeps);
+  wireRemoteControlStatus(ipcDeps);
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {

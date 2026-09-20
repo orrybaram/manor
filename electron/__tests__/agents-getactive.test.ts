@@ -24,7 +24,7 @@ import {
   agentsGetActive,
   agentsGetRecent,
   agentsConsumePruneNotice,
-} from "../ipc/agents";
+} from "../bridge/handlers/agents";
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {

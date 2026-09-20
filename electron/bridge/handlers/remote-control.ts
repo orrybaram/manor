@@ -20,16 +20,16 @@
  * subscription that turns a controller change into a push.
  */
 
-import { assertBoolean, assertString } from "../ipc-validate";
+import { assertBoolean, assertString } from "../../ipc-validate";
 import type {
   PairResult,
   RemoteControlStatus,
-} from "../remote-control/controller";
-import { CAPABILITIES, isCapability } from "../remote-control/devices";
-import type { Capability } from "../remote-control/devices";
-import type { TunnelKind } from "../remote-control/tunnel";
-import { publishRendererBroadcast } from "../renderer-broadcast";
-import type { IpcDeps } from "./types";
+} from "../../remote-control/controller";
+import { CAPABILITIES, isCapability } from "../../remote-control/devices";
+import type { Capability } from "../../remote-control/devices";
+import type { TunnelKind } from "../../remote-control/tunnel";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
+import type { IpcDeps } from "../../ipc/types";
 
 /**
  * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`

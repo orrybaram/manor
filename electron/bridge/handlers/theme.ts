@@ -1,7 +1,7 @@
-import { assertString } from "../ipc-validate";
-import { publishRendererBroadcast } from "../renderer-broadcast";
-import type { IpcDeps } from "./types";
-import type { ThemeManager } from "../theme";
+import { assertString } from "../../ipc-validate";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
+import type { IpcDeps } from "../../ipc/types";
+import type { ThemeManager } from "../../theme";
 
 /**
  * Theme, whole (ADR-180 ticket 7). Every one of these was already an

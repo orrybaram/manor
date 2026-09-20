@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
-import { statsGetSummary, statsReset, wireStatsBroadcast, BROADCAST_DEBOUNCE_MS } from "../ipc/stats";
+import { statsGetSummary, statsReset, wireStatsBroadcast, BROADCAST_DEBOUNCE_MS } from "../bridge/handlers/stats";
 import { StatsStore } from "../stats-store";
 import {
   addRendererBroadcastSink,

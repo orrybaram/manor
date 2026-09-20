@@ -24,13 +24,13 @@
  * progress bar.
  */
 
-import { assertString } from "../ipc-validate";
+import { assertString } from "../../ipc-validate";
 import {
   publishRendererBroadcast,
   publishToRenderer,
-} from "../renderer-broadcast";
-import type { LayoutOrigin } from "../layout/layout-store";
-import type { IpcDeps } from "./types";
+} from "../../renderer-broadcast";
+import type { LayoutOrigin } from "../../layout/layout-store";
+import type { IpcDeps } from "../../ipc/types";
 
 /** What one `git.push.progress` frame carries. */
 export type PushProgressEvent =

@@ -22,19 +22,19 @@
  * window used to get unconditionally.
  */
 
-import { assertString } from "../ipc-validate";
+import { assertString } from "../../ipc-validate";
 import {
   publishRendererBroadcast,
   publishToRenderer,
-} from "../renderer-broadcast";
+} from "../../renderer-broadcast";
 import type {
   ProjectInfo,
   ProjectUpdatableFields,
   WorkspaceFolder,
-} from "../persistence";
-import type { LinkedIssue } from "../linear";
-import type { LayoutOrigin } from "../layout/layout-store";
-import type { IpcDeps } from "./types";
+} from "../../persistence";
+import type { LinkedIssue } from "../../linear";
+import type { LayoutOrigin } from "../../layout/layout-store";
+import type { IpcDeps } from "../../ipc/types";
 
 /** The four the sidebar needs to paint itself. */
 export function projectsGetAll(deps: IpcDeps): unknown {

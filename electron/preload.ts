@@ -30,6 +30,17 @@ function onChannel<T>(
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
+/** `onChannel`'s variant for a `webContents.send` with more than one argument. */
+function onChannelArgs<Args extends unknown[]>(
+  channel: string,
+  callback: (...args: Args) => void,
+): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, ...args: Args) =>
+    callback(...args);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 /**
  * `onChannel`'s replacement for a push that is now a bridge event: one
  * `updater.<event>` subscription, typed at the call site (ADR-180 D5).
@@ -93,90 +104,30 @@ try {
 }
 
 /**
- * Everything the preload still answers itself (ADR-180 D3).
- *
- * This object used to *be* `window.electronAPI`, exposed straight to the page
- * — 211 methods in 26 namespaces, every one of them written twice, once here
- * and once as a bridge handler table entry. It is now handed to the page as
- * `manorHost.native` and the page builds `electronAPI` over it
- * (`src/bridge/client.ts`), because a `Proxy` cannot cross `contextBridge`:
- * the bridge copies the shape it is handed, and a proxy's members are not
+ * `manorHost.native` — the namespaces `electron/ipc/` still answers itself
+ * (ADR-180 D8, ticket 11): what ADR-178's "what can never leave the preload"
+ * table named from the start, and nothing else. `src/bridge/client.ts` calls
+ * straight through to these and reaches `invoke` for everything else —
+ * `window.electronAPI` is built *over* this in the page, not exposed
+ * straight from here, because a `Proxy` cannot cross `contextBridge`: the
+ * bridge copies the shape it is handed, and a proxy's dynamic members are not
  * there to copy.
  *
- * Nothing has left yet, so every call still lands here and the desktop
- * behaves exactly as it did. The later ADR-180 tickets take a group out at a
- * time; what remains at the end is the set that can never leave — `webview`,
- * `window`, `menu`, `dialog`, `shell`, `clipboard`, `updater` — plus the
- * root-level functions below, which the client serves the same way.
+ * Every other namespace this object used to carry — `pty`, `layout`,
+ * `viewport`, `projects`, `theme`, `preferences`, `keybindings`,
+ * `notifications`, `stats`, `ports`, `processes`, `branches`, `diffs`, `git`,
+ * `github`, `linear`, `agents`, `remoteControl` — is a `bridge:invoke`/
+ * `bridge:subscribe` frame now, answered by the same handler table entry a
+ * paired device reaches (`electron/bridge/handlers.ts`). A method written in
+ * this file is a method that exists on one transport only, which is why
+ * nothing is added here without also being named in
+ * `src/bridge/unavailable.ts`.
  *
  * The synchronous facts (`platform`, `rendererId`, `isDetached`,
  * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
- * and live on `manorHost` itself, which is the only place the page needs them
- * and the only place that can answer them before the first invoke.
+ * above for that reason, and are the same values `ElectronAPI` reports.
  */
 const nativeApi = {
-  // `pty` is not here. It was the first namespace to cross (ADR-180 ticket
-  // 5): eight methods that were `ipcRenderer.invoke("pty:*")` and six
-  // subscriptions that were per-pane `webContents.send` channels are now
-  // `bridge:invoke` and `bridge:subscribe` frames, keyed by paneId, answered
-  // by the same table entries a paired device reaches. Nothing replaced them
-  // here, and nothing should: a method written in this file is a method that
-  // exists on one transport only (D8).
-  //
-  // `onWinsizeOwner` used to be a stub returning a no-op unsubscribe,
-  // because the desktop could never lose the winsize. It can now — to
-  // another window of its own (D6) — and the subscription that tells it so
-  // is the same one a browser has always had.
-
-  // `layout`, `viewport` and `projects` are not here either (ADR-180 ticket
-  // 6). Seven layout methods that were already on the table lost their
-  // `ipcMain.handle` wrappers; the viewport pair joined it as `LOCAL_ONLY`,
-  // and every one of the twenty-three `projects` calls crossed with them.
-  // `layout.onChanged` and `onProjectsChanged` are subscriptions to
-  // `layout.changed` and `projects.changed` now, so the `layout:changed` and
-  // `projects-changed` channels they listened on are gone from main too — a
-  // namespace takes its legacy sends with it when it crosses.
-
-  // `theme`, `preferences`, `keybindings`, `notifications` and `stats` are
-  // gone the same way (ADR-180 ticket 7) — eighteen `ipcMain.handle`/`.on`
-  // wrappers across four files, replaced by table entries and (for
-  // `keybindings.set`/`reset`/`resetAll`/`runInMainWindow`) the first real
-  // use `LOCAL_ONLY` gets. `theme.onChanged`, `preferences.onChange`,
-  // `keybindings.onChange`, `keybindings.onForwardedCommand`,
-  // `notifications.onChanged`, `notifications.onNavigate` and
-  // `stats.onChanged` are subscriptions now, so `theme:changed`,
-  // `preferences-changed`, `keybindings-changed`, `keybinding-command`,
-  // `notifications:changed` and `stats:changed` are gone from main too —
-  // `webview-keys.ts`'s forwarded "app" shortcut takes the same road, since
-  // it is `keybindings.onForwardedCommand` a `<webview>` guest's key press
-  // has always fed.
-
-  // `ports`, `processes`, `branches` and `diffs` are gone the same way
-  // (ADR-180 ticket 8) — twenty `ipcMain.handle` wrappers across three
-  // files, replaced by table entries. `processes.killSession`, `killAll`,
-  // `killDaemon` and `restartPortless` were deliberately absent from the
-  // slice-1 table because they kill things; under D4 a `full` device already
-  // reaches the same power through the route table, so they cross as
-  // ordinary (`MUTATING`) entries rather than staying a hole. `ports.onChange`
-  // and `branches`/`diffs`.`onChange` were already subscriptions to
-  // `ports.changed`/`branches.changed`/`diffs.changed` before this ticket
-  // (ADR-180 ticket 4), so there was no legacy send left to delete for them.
-  // `git`, `github`, `linear` and `remoteControl` are gone the same way
-  // (ADR-180 ticket 10) — the last namespace group, thirty-eight
-  // `ipcMain.handle` wrappers across three files, replaced by table entries.
-  // Two of them are refusals written down rather than methods left unwritten
-  // (`LOCAL_ONLY`): `remoteControl.setEnabled`/`pair`/`revoke`/`startTunnel`/
-  // `stopTunnel`, because a stolen `full` token that can pair more devices is
-  // a token that survives its own revocation; and `linear.connect`, the one
-  // method in the surface that takes a raw credential as an argument rather
-  // than handing back the result of using one.
-  //
-  // `git.push.onProgress` is a subscription to `git.push.progress` now,
-  // addressed to the connection that started the push (D5), and
-  // `remoteControl.onStatus` to `remoteControl.status` — so the
-  // `git:push:progress` and `remoteControl:status` channels are gone from
-  // main too.
-
   dialog: {
     openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),
   },
@@ -230,15 +181,6 @@ const nativeApi = {
     ) => updaterEvent("error", callback),
   },
 
-  // `agents` is gone the same way (ADR-180 ticket 9) — fourteen
-  // `ipcMain.handle` wrappers, replaced by table entries, none of them
-  // `LOCAL_ONLY`: "check on my agents from anywhere" is the sentence
-  // ADR-178 started from. `onUpdate` is `agents.onUpdate`, a subscription to
-  // `agents.updated` now (already mapped in `src/bridge/client.ts`'s
-  // `SUBSCRIPTION_EVENTS`), so the `agent-updated` channel it listened on is
-  // gone from main too — the last of its three send-sites, alongside
-  // `electron/routes/agents.ts` and `electron/routes/panes.ts`.
-
   menu: {
     /** Pushes a fresh `MenuContext` snapshot so main can label/enable menu items. */
     setContext: (context: MenuContext) =>
@@ -277,23 +219,10 @@ const nativeApi = {
     zoomOut: (paneId: string) => ipcRenderer.invoke("webview:zoom-out", paneId),
     zoomReset: (paneId: string) =>
       ipcRenderer.invoke("webview:zoom-reset", paneId),
-    onPickerResult: (callback: (paneId: string, result: unknown) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        result: unknown,
-      ) => callback(paneId, result);
-      ipcRenderer.on("webview:picker-result", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:picker-result", listener);
-    },
-    onPickerCancel: (callback: (paneId: string) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, paneId: string) =>
-        callback(paneId);
-      ipcRenderer.on("webview:picker-cancel", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:picker-cancel", listener);
-    },
+    onPickerResult: (callback: (paneId: string, result: unknown) => void) =>
+      onChannelArgs("webview:picker-result", callback),
+    onPickerCancel: (callback: (paneId: string) => void) =>
+      onChannelArgs("webview:picker-cancel", callback),
     onEscape: (callback: (paneId: string) => void) =>
       onChannel("webview:escape", callback),
     onFocusUrl: (callback: (paneId: string) => void) =>
@@ -304,16 +233,7 @@ const nativeApi = {
         url: string,
         opts?: { background?: boolean },
       ) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        url: string,
-        opts?: { background?: boolean },
-      ) => callback(paneId, url, opts);
-      ipcRenderer.on("webview:new-window", listener);
-      return () => ipcRenderer.removeListener("webview:new-window", listener);
-    },
+    ) => onChannelArgs("webview:new-window", callback),
     stop: (paneId: string) => ipcRenderer.invoke("webview:stop", paneId),
     findInPage: (
       paneId: string,
@@ -324,28 +244,10 @@ const nativeApi = {
       ipcRenderer.invoke("webview:stop-find-in-page", paneId),
     onLoadingChanged: (
       callback: (paneId: string, isLoading: boolean) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        isLoading: boolean,
-      ) => callback(paneId, isLoading);
-      ipcRenderer.on("webview:loading-changed", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:loading-changed", listener);
-    },
+    ) => onChannelArgs("webview:loading-changed", callback),
     onFaviconUpdated: (
       callback: (paneId: string, faviconUrl: string) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        faviconUrl: string,
-      ) => callback(paneId, faviconUrl);
-      ipcRenderer.on("webview:favicon-updated", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:favicon-updated", listener);
-    },
+    ) => onChannelArgs("webview:favicon-updated", callback),
     onFindResult: (
       callback: (
         paneId: string,
@@ -355,19 +257,7 @@ const nativeApi = {
           finalUpdate: boolean;
         },
       ) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        result: {
-          activeMatchOrdinal: number;
-          matches: number;
-          finalUpdate: boolean;
-        },
-      ) => callback(paneId, result);
-      ipcRenderer.on("webview:find-result", listener);
-      return () => ipcRenderer.removeListener("webview:find-result", listener);
-    },
+    ) => onChannelArgs("webview:find-result", callback),
     onFind: (callback: (paneId: string) => void) =>
       onChannel("webview:find", callback),
     onGoBack: (callback: (paneId: string) => void) =>
@@ -395,16 +285,7 @@ const nativeApi = {
       ipcRenderer.invoke("webview:stop-recording", paneId) as Promise<void>,
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
-    ) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        paneId: string,
-        audible: boolean,
-      ) => callback(paneId, audible);
-      ipcRenderer.on("webview:audio-state-changed", listener);
-      return () =>
-        ipcRenderer.removeListener("webview:audio-state-changed", listener);
-    },
+    ) => onChannelArgs("webview:audio-state-changed", callback),
   },
 
   // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this
@@ -435,29 +316,13 @@ const nativeApi = {
 
 /**
  * `window.manorHost` — the one concrete object the page builds a host client
- * over (ADR-180 D3).
+ * over (ADR-180 D1–D3), and the only thing this file exposes. `ElectronAPI`
+ * is not built here: `contextBridge` copies the shape it is handed, and the
+ * `ns.method(...)` proxy `src/bridge/client.ts` builds over `invoke` has no
+ * members to copy, so the page builds it the same way the web renderer
+ * builds one over a WebSocket.
  *
- * `electronAPI` above is 200-odd methods, each one an `ipcRenderer.invoke` or
- * an `ipcRenderer.on` written out by hand, and every host feature has had to
- * be written twice: once here, once as a bridge handler table entry. D1 makes
- * the table the one host surface and D2 gives it a second transport; what is
- * left for the preload is to hand the page a door onto that transport. The
- * page builds the `ns.method(...)` proxy over it (`src/bridge/client.ts`),
- * exactly as the web renderer already builds one over a WebSocket — which it
- * must, because `contextBridge` copies the shape it is handed and a `Proxy`'s
- * members are not there to copy.
- *
- * This is now the *only* thing the preload exposes. `electronAPI` is built in
- * the page over it and `native` above is what is left of the preload's own
- * methods — every namespace, for now, so every call still lands where it
- * always did. Later tickets hollow `native` out group by group, and each
- * group that leaves starts going over `invoke` on its very next call.
- *
- * The facts on it are the ones a renderer needs *synchronously*, before it
- * can invoke anything — they are read off argv above for that reason, and are
- * the same values `electronAPI` reports.
- *
- * The four channel names are written out rather than imported from
+ * The four channel names below are written out rather than imported from
  * `electron/bridge/transports/ipc.ts`, which exports them as constants: that
  * module reaches for `ipcMain` and, through the handler table, the whole main
  * process. Importing it here would drag all of it into the renderer's bundle

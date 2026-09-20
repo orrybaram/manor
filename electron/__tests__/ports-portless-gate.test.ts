@@ -36,7 +36,7 @@ vi.mock("../ipc-validate", () => ({
   assertStringArray: vi.fn(),
 }));
 
-import { portsScanNow, portsUpdateWorkspaceMetadata } from "../ipc/ports";
+import { portsScanNow, portsUpdateWorkspaceMetadata } from "../bridge/handlers/ports";
 import type { WorkspaceMeta } from "../ipc/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

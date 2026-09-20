@@ -15,7 +15,7 @@ import {
   processesKillSession,
   processesKillAll,
   processesKillDaemon,
-} from "../ipc/processes";
+} from "../bridge/handlers/processes";
 
 // ── Mock ipc-validate ────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({

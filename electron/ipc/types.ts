@@ -1,3 +1,11 @@
+/**
+ * `IpcDeps` — the one deps object every host-side handler runs over (ADR-180
+ * D8, ticket 11). `electron/bridge/handlers.ts` and
+ * `electron/bridge/handlers/*` are the handler table's implementation and
+ * take this as their first argument; the six modules left in `electron/ipc/`
+ * — what only Electron can do — take it too, so there has only ever been one
+ * shape of deps to build and one place (`app-lifecycle.ts`) that builds it.
+ */
 import type { BrowserWindow } from "electron";
 import type { LocalBackend } from "../backend/local-backend";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";

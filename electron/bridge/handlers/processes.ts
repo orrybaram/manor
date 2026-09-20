@@ -1,13 +1,13 @@
-import { assertString } from "../ipc-validate";
-import { killCounters } from "../stats-signals";
-import type { IpcDeps } from "./types";
+import { assertString } from "../../ipc-validate";
+import { killCounters } from "../../stats-signals";
+import type { IpcDeps } from "../../ipc/types";
 import {
   listProcesses,
   cleanupDeadProcesses,
   killDaemon,
   restartPortless,
   killAllProcesses,
-} from "../process-control";
+} from "../../process-control";
 
 /**
  * Daemon/process control, whole (ADR-180 ticket 8). `list` was already

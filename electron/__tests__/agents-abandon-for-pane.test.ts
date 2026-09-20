@@ -22,7 +22,7 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { agentsAbandonForPane } from "../ipc/agents";
+import { agentsAbandonForPane } from "../bridge/handlers/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

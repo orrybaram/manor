@@ -7,16 +7,11 @@
  * already running.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-// `pty.ts` reaches for `ipcMain` at module scope to register its handlers.
-vi.mock("electron", () => ({
-  ipcMain: { handle: vi.fn() },
-}));
+import { describe, it, expect, beforeEach } from "vitest";
 
 import { ptyCreate } from "../pty";
-import type { IpcDeps } from "../types";
-import { PendingCommands } from "../../layout/pending-commands";
+import type { IpcDeps } from "../../../ipc/types";
+import { PendingCommands } from "../../../layout/pending-commands";
 
 const PANE = "pane-1";
 

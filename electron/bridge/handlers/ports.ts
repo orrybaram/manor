@@ -1,8 +1,8 @@
-import type { ActivePort } from "../ports";
-import { portlessManager } from "../portless";
-import { assertPositiveInt, assertStringArray } from "../ipc-validate";
-import { publishRendererBroadcast } from "../renderer-broadcast";
-import type { IpcDeps, WorkspaceMeta } from "./types";
+import type { ActivePort } from "../../ports";
+import { portlessManager } from "../../portless";
+import { assertPositiveInt, assertStringArray } from "../../ipc-validate";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
+import type { IpcDeps, WorkspaceMeta } from "../../ipc/types";
 
 /**
  * The port scanner, whole (ADR-180 ticket 8). Every one of these was already

@@ -47,7 +47,7 @@ import {
   ptyDetach,
   ptyConsumePrewarmed,
   ptyUpdatePrewarmCwd,
-} from "../ipc/pty";
+} from "./handlers/pty";
 import {
   attach,
   isDesktopAttached,
@@ -63,7 +63,7 @@ import {
   layoutRemove,
   layoutReportViewport,
   layoutSetPendingCommand,
-} from "../ipc/layout";
+} from "./handlers/layout";
 import {
   projectsAdd,
   projectsCanQuickMerge,
@@ -88,12 +88,12 @@ import {
   projectsSetWorkspaceFolder,
   projectsSetWorkspaceHidden,
   projectsUpdate,
-} from "../ipc/projects";
+} from "./handlers/projects";
 import {
   viewportLoad,
   viewportSave,
   type PersistedViewportFile,
-} from "../ipc/viewport";
+} from "./handlers/viewport";
 import {
   themeGet,
   themeGetSelectedName,
@@ -101,7 +101,7 @@ import {
   themePreview,
   themeAllColors,
   themeSetSelected,
-} from "../ipc/theme";
+} from "./handlers/theme";
 import {
   agentsGetAll,
   agentsGet,
@@ -119,7 +119,7 @@ import {
   agentsReconcileStale,
   type AgentQuery,
   type PaneContext,
-} from "../ipc/agents";
+} from "./handlers/agents";
 import {
   preferencesGetAll,
   preferencesSet,
@@ -129,7 +129,7 @@ import {
   keybindingsReset,
   keybindingsResetAll,
   keybindingsRunInMainWindow,
-} from "../ipc/misc";
+} from "./handlers/preferences";
 import {
   remoteControlGetStatus,
   remoteControlRefreshDetection,
@@ -138,15 +138,15 @@ import {
   remoteControlRevoke,
   remoteControlStartTunnel,
   remoteControlStopTunnel,
-} from "../ipc/remote-control";
-import { statsGetSummary, statsReset } from "../ipc/stats";
+} from "./handlers/remote-control";
+import { statsGetSummary, statsReset } from "./handlers/stats";
 import {
   notificationsGetAll,
   notificationsMarkRead,
   notificationsMarkAllRead,
   notificationsClear,
   notificationsShow,
-} from "../ipc/notifications";
+} from "./handlers/notifications";
 import {
   processesList,
   processesKillSession,
@@ -154,7 +154,7 @@ import {
   processesKillDaemon,
   processesRestartPortless,
   processesKillAll,
-} from "../ipc/processes";
+} from "./handlers/processes";
 import {
   portsStartScanner,
   portsStopScanner,
@@ -162,7 +162,7 @@ import {
   portsUpdateWorkspaceMetadata,
   portsScanNow,
   portsKillPort,
-} from "../ipc/ports";
+} from "./handlers/ports";
 import {
   branchesStart,
   branchesStop,
@@ -178,7 +178,7 @@ import {
   gitCommit,
   gitPushStart,
   gitPushCancel,
-} from "../ipc/branches-diffs";
+} from "./handlers/branches-diffs";
 import {
   githubGetPrForBranch,
   githubGetPrsForBranches,
@@ -204,7 +204,7 @@ import {
   linearUnlinkIssueFromWorkspace,
   linearProxyImage,
   linearAutoMatch,
-} from "../ipc/integrations";
+} from "./handlers/integrations";
 import type { WorkspaceMeta } from "../ipc/types";
 import {
   appCommandResult,

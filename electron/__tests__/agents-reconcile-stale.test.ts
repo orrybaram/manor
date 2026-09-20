@@ -20,7 +20,7 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { agentsReconcileStale } from "../ipc/agents";
+import { agentsReconcileStale } from "../bridge/handlers/agents";
 
 function makeAgent(
   overrides: Partial<{

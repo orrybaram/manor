@@ -381,9 +381,16 @@ export type PushProgressEvent =
 export interface ElectronAPI {
   /**
    * Which transport the client in the page is built over (ADR-180 D3): the
-   * preload's IPC channels, or a WebSocket to a host. Read it to
-   * hide what a browser genuinely cannot do (webview panes, detached windows,
-   * native dialogs) — never to guess at a capability the bridge can report.
+   * preload's IPC channels, or a WebSocket to a host. Read it to hide what a
+   * browser genuinely cannot do — never to guess at a capability the bridge
+   * can report.
+   *
+   * What that is, exactly, is `electron/ipc/`'s six survivors (D8, ticket
+   * 11): `<webview>` panes and their pickers, detach-to-window, the native
+   * app menu, native dialogs, the shell escape hatches, the clipboard and the
+   * updater. Everything else answers the same way on both platforms, which
+   * is the whole point of the handler table this `platform` check is an
+   * exception to.
    */
   platform: "electron" | "web";
 

@@ -17,9 +17,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { assertString, assertPositiveInt } from "../ipc-validate";
-import { resolveSpawnCwd } from "../paths";
-import type { IpcDeps } from "./types";
+import { assertString, assertPositiveInt } from "../../ipc-validate";
+import { resolveSpawnCwd } from "../../paths";
+import type { IpcDeps } from "../../ipc/types";
 
 /** Read git branch synchronously from a repo or worktree root. */
 export function readBranchSync(repoPath: string): string | null {

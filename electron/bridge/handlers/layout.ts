@@ -1,13 +1,13 @@
-import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
+import type { PersistedDefaultViewport } from "../../terminal-host/layout-persistence";
 import type {
   LayoutApplyResult,
   LayoutEntry,
   LayoutOrigin,
-} from "../layout/layout-store";
-import type { LayoutCommand } from "../../src/lib/layout/commands";
-import type { PendingCommandKind } from "../layout/pending-commands";
-import { assertString } from "../ipc-validate";
-import type { IpcDeps } from "./types";
+} from "../../layout/layout-store";
+import type { LayoutCommand } from "../../../src/lib/layout/commands";
+import type { PendingCommandKind } from "../../layout/pending-commands";
+import { assertString } from "../../ipc-validate";
+import type { IpcDeps } from "../../ipc/types";
 
 /**
  * Layout, as every renderer sees it (ADR-179 D1, ADR-180 D8).

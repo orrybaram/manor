@@ -14,7 +14,7 @@ import {
   projectsCreateWorktree,
   projectsQuickMergeWorktree,
   projectsRemoveWorktree,
-} from "../ipc/projects";
+} from "../bridge/handlers/projects";
 import {
   addRendererBroadcastSink,
   type RendererBroadcast,

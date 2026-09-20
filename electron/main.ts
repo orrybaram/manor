@@ -1,7 +1,7 @@
 // electron/main.ts — Thin entry point
 import { app, crashReporter } from "electron";
 import { execFileSync } from "node:child_process";
-import { readBranchSync } from "./ipc/pty";
+import { readBranchSync } from "./bridge/handlers/pty";
 import { initApp } from "./app-lifecycle";
 import { applyUnattendedSwitches, isUnattended } from "./unattended";
 

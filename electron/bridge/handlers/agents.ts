@@ -1,14 +1,14 @@
-import { getConnector } from "../agent-connectors";
-import { assertString } from "../ipc-validate";
+import { getConnector } from "../../agent-connectors";
+import { assertString } from "../../ipc-validate";
 import {
   getUnseenSnapshot,
   markAgentNotificationsRead,
   sendAgentUpdate,
   updateDockBadge,
-} from "../notifications";
-import { killCounters } from "../stats-signals";
-import { cleanAgentTitle } from "../title-utils";
-import type { IpcDeps } from "./types";
+} from "../../notifications";
+import { killCounters } from "../../stats-signals";
+import { cleanAgentTitle } from "../../title-utils";
+import type { IpcDeps } from "../../ipc/types";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",

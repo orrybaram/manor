@@ -1,6 +1,6 @@
 ---
 title: Winsize ownership transfers live; followers are told; theme broadcasts
-status: in-progress
+status: done
 priority: medium
 assignee: opus
 blocked_by: [3]

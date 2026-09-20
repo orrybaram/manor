@@ -1,6 +1,6 @@
 ---
 title: The renderer becomes a replica — actions send commands, broadcasts set state
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [2]
@@ -43,6 +43,25 @@ ticket 4, detach is ticket 6.
   `electron.d.ts`. `src/lib/bridge-unavailable-toast.ts` stays (other callers).
 - Remove the `src/store/pane-tree.ts` / `panel-tree.ts` shims from ticket 1
   and fix imports.
+
+## Carried over from ticket 2's report
+
+- `layout.getAll()` / `layout.get()` return `paneSessions` per tab — that is
+  where the renderer now gets `daemonSessionId`/`lastCwd`/`lastTitle`/
+  `lastAgentStatus` for the restore path once `layout.load` goes.
+- The server fills `paneMetadata` on closing commands from its own
+  `paneSessions`; delete the field from the command types and from the
+  senders — the desktop store no longer runs the reducer locally after this
+  ticket, so nothing needs it.
+- `LayoutPersistence.reconcile` and `getActiveSessionIds` have no production
+  callers. Decide: the restore path in `loadPersistedLayout` already derives
+  warm/cold/fresh from `layout.getRestoredSessions` client-side — if that
+  stays, delete `reconcile`/`getActiveSessionIds` and their tests; if you move
+  reconciliation server-side, use them. Prefer deleting; note which.
+- `set-pane-title` is a reducer no-op the server turns into a `paneSessions`
+  write; the store's `setPaneTitle`/`clearPaneTitle` should send it (and keep
+  updating the local `paneTitle` side map immediately, since no broadcast
+  follows).
 
 ## Pane mount/unmount
 

@@ -1,6 +1,6 @@
 ---
 title: LayoutStore on the Manor server — apply, persist, broadcast
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

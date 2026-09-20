@@ -13,13 +13,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
-import { LayoutStore, type LayoutClaim } from "../layout-store";
+import {
+  LayoutStore,
+  REOPEN_GRACE_MS,
+  type LayoutClaim,
+} from "../layout-store";
 import {
   LayoutPersistence,
   type PersistedLayout,
   type PersistedLayoutV2,
 } from "../../terminal-host/layout-persistence";
 import type { LocalBackend } from "../../backend/local-backend";
+import type { PersistedPaneSession } from "../../terminal-host/layout-persistence";
 import type { WorkspaceLayout } from "../../../src/lib/layout/workspace-layout";
 import type { Tab } from "../../../src/lib/layout/workspace-layout";
 
@@ -30,6 +35,7 @@ interface Broadcast {
   version: number;
   layout: WorkspaceLayout;
   claims: LayoutClaim[];
+  restored?: Record<string, PersistedPaneSession>;
 }
 
 function leafTab(id: string, paneId: string, title = "Terminal"): Tab {
@@ -94,8 +100,8 @@ describe("LayoutStore", () => {
   function makeStore(): LayoutStore {
     return new LayoutStore(
       persistence,
-      (workspacePath, version, layout, claims) =>
-        broadcasts.push({ workspacePath, version, layout, claims }),
+      (workspacePath, version, layout, claims, restored) =>
+        broadcasts.push({ workspacePath, version, layout, claims, restored }),
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
     );
   }
@@ -204,16 +210,27 @@ describe("LayoutStore", () => {
       ).toEqual(["tab-1", "tab-2", "tab-3"]);
     });
 
-    it("kills a closed terminal pane exactly once", async () => {
+    it("kills a closed terminal pane exactly once, after the grace", async () => {
       await store.apply(
         WS,
         { type: "close-pane", paneId: "pane-1" },
         { kind: "window", id: "1" },
       );
 
+      // Still warm: the whole point of the grace is that a reopen can have
+      // this shell back (ticket 10).
+      expect(kill).not.toHaveBeenCalled();
+      expect(store.get(WS)!.paneSessions["pane-1"]).toBeDefined();
+      expect(broadcasts[0].restored).toBeUndefined();
+
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+
       expect(kill).toHaveBeenCalledTimes(1);
       expect(kill).toHaveBeenCalledWith("pane-1");
       expect(store.get(WS)!.paneSessions["pane-1"]).toBeUndefined();
+
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledTimes(1);
     });
 
     it("never kills a closed diff pane", async () => {
@@ -223,8 +240,11 @@ describe("LayoutStore", () => {
         { kind: "window", id: "1" },
       );
 
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+
       expect(kill).not.toHaveBeenCalled();
       expect(store.get(WS)!.version).toBe(1);
+      expect(store.get(WS)!.paneSessions["pane-diff"]).toBeUndefined();
     });
 
     it("fills the reopen stack's metadata from the server, not the sender", async () => {
@@ -327,6 +347,105 @@ describe("LayoutStore", () => {
         lastTitle: "Diff",
       });
       expect(store.get(WS)!.paneSessions["pane-gone"]).toBeUndefined();
+    });
+  });
+
+  /**
+   * The reopen grace (ADR-179 ticket 10).
+   *
+   * "Reopen closed pane" is an undo, so the session a close ends has to still
+   * be there to be undone — the shell, its scrollback, its cwd. The kill is
+   * therefore scheduled, a reopen cancels it, and what the server knows about
+   * the panes that came back rides along on that one broadcast.
+   */
+  describe("the reopen grace", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+    });
+
+    async function close(paneId: string): Promise<void> {
+      await store.apply(
+        WS,
+        { type: "close-pane", paneId },
+        { kind: "window", id: "1" },
+      );
+    }
+
+    async function reopen(): Promise<void> {
+      await store.apply(
+        WS,
+        { type: "reopen-closed-pane", newTabId: "tab-restored" },
+        { kind: "window", id: "1" },
+      );
+    }
+
+    it("a reopen inside the grace cancels the kill and hands the session back", async () => {
+      store.onPtyEvent({ type: "cwd", sessionId: "pane-1", cwd: "/tmp/deep" });
+      await store.apply(
+        WS,
+        { type: "set-pane-title", paneId: "pane-1", title: "build" },
+        { kind: "window", id: "1" },
+      );
+
+      await close("pane-1");
+      vi.advanceTimersByTime(REOPEN_GRACE_MS - 1);
+      await reopen();
+      vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
+
+      expect(kill).not.toHaveBeenCalled();
+      const restored = broadcasts.at(-1)!.restored;
+      expect(restored).toEqual({
+        "pane-1": {
+          daemonSessionId: "pane-1",
+          lastCwd: "/tmp/deep",
+          lastTitle: "build",
+        },
+      });
+      // And the pane is back in the tree with the same id, so the renderer
+      // reattaches the shell rather than spawning one.
+      expect(store.get(WS)!.paneSessions["pane-1"].lastCwd).toBe("/tmp/deep");
+      expect(
+        JSON.stringify(store.get(WS)!.layout.panels["panel-1"].tabs[0]),
+      ).toContain("pane-1");
+    });
+
+    it("a reopen after the grace comes back fresh", async () => {
+      await close("pane-1");
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledTimes(1);
+
+      await reopen();
+
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(broadcasts.at(-1)!.restored).toBeUndefined();
+    });
+
+    it("a reopened tab takes back every pane it had", async () => {
+      // Closing the tab closes both its panes; only the terminal one has a
+      // session to wait out a grace.
+      await store.apply(
+        WS,
+        { type: "close-tab", tabId: "tab-1" },
+        { kind: "window", id: "1" },
+      );
+      await reopen();
+      vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
+
+      expect(kill).not.toHaveBeenCalled();
+      expect(Object.keys(broadcasts.at(-1)!.restored ?? {})).toEqual(["pane-1"]);
+    });
+
+    it("flush runs every pending kill, once", async () => {
+      await close("pane-1");
+
+      store.flush();
+
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledWith("pane-1");
+
+      vi.advanceTimersByTime(REOPEN_GRACE_MS);
+      expect(kill).toHaveBeenCalledTimes(1);
     });
   });
 

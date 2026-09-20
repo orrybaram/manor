@@ -249,8 +249,14 @@ export function initApp(devTitle: string | null): void {
    */
   const layoutStore = new LayoutStore(
     layoutPersistence,
-    (workspacePath, version, layout, claims) => {
-      const payload = { workspacePath, version, layout, claims };
+    (workspacePath, version, layout, claims, restored) => {
+      const payload = {
+        workspacePath,
+        version,
+        layout,
+        claims,
+        ...(restored && { restored }),
+      };
       publishRendererBroadcast("layout", "changed", payload);
       for (const win of getRendererWindows()) {
         if (win.isDestroyed() || win.webContents.isDestroyed()) continue;

@@ -192,6 +192,35 @@ describe("broadcasts set the state", () => {
     expect(state.pendingPaneCommands).toEqual({});
   });
 
+  it("seeds the side maps of the panes a reopen brought back", () => {
+    // The server's grace kept the shell alive, so the pane reattaches with
+    // the cwd and title it had (ADR-179 ticket 10) rather than looking new.
+    broadcastLayout(
+      WS_PATH,
+      withExtraTab(replica(), tab("tab-2", "pane-2")),
+      2,
+      {
+        "pane-2": {
+          daemonSessionId: "pane-2",
+          lastCwd: "/repo/sub",
+          lastTitle: "build",
+          lastAgentStatus: {
+            kind: "claude",
+            status: "working",
+            processName: "claude",
+            since: 1,
+            title: "build",
+          },
+        },
+      },
+    );
+
+    const state = useAppStore.getState();
+    expect(state.paneCwd["pane-2"]).toBe("/repo/sub");
+    expect(state.paneTitle["pane-2"]).toBe("build");
+    expect(state.paneAgentStatus["pane-2"]?.status).toBe("working");
+  });
+
   it("does not open a workspace this window has never looked at", () => {
     broadcastLayout("/other/workspace", layoutOf([tab("tab-9", "pane-9")]), 1);
 

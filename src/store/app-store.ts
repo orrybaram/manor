@@ -27,6 +27,7 @@ import type { LayoutCommand } from "../lib/layout/commands";
 import type {
   AgentState,
   LayoutChangedPayload,
+  PersistedPaneSession,
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
@@ -743,6 +744,32 @@ function leafSideMaps(layout: WorkspaceLayout): {
 }
 
 /**
+ * What the server derived about a set of panes, as this store's side maps.
+ *
+ * The same shape arrives by two roads — `layout.getAll()` at boot, and a
+ * reopen's `restored` — so both seed through here. An agent status that says
+ * nothing (idle, no agent) is left out rather than written as a fact.
+ */
+function sessionSideMaps(sessions: Record<string, PersistedPaneSession>): {
+  cwds: Record<string, string>;
+  titles: Record<string, string>;
+  agents: Record<string, AgentState>;
+} {
+  const cwds: Record<string, string> = {};
+  const titles: Record<string, string> = {};
+  const agents: Record<string, AgentState> = {};
+  for (const [paneId, session] of Object.entries(sessions)) {
+    if (session.lastCwd) cwds[paneId] = session.lastCwd;
+    if (session.lastTitle) titles[paneId] = session.lastTitle;
+    const agent = session.lastAgentStatus;
+    if (agent && !(agent.status === "idle" && agent.kind === null)) {
+      agents[paneId] = agent;
+    }
+  }
+  return { cwds, titles, agents };
+}
+
+/**
  * Workspaces whose removal is in flight (`removeWorkspaceLayout`).
  *
  * Removing a worktree closes its panels first, so the sessions inside them
@@ -759,7 +786,7 @@ const removingWorkspaces = new Set<string>();
  * both normal, and neither has anything new to say.
  */
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
-  const { workspacePath, version, layout } = payload;
+  const { workspacePath, version, layout, restored } = payload;
   if (removingWorkspaces.has(workspacePath)) return;
   useAppStore.setState((state) => {
     if (version <= (state.layoutVersions[workspacePath] ?? 0)) return {};
@@ -819,6 +846,22 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
           pendingPaneCommands,
         });
       }
+    }
+
+    // A reopen inside the server's grace hands the pane back its still-warm
+    // session (ADR-179 ticket 10). Seed what the server knew about it, the
+    // way `loadPersistedLayout` does at boot, so the pane mounts in the cwd
+    // it was in and under the title it had rather than looking brand new.
+    if (restored) {
+      const { cwds, titles, agents } = sessionSideMaps(restored);
+      Object.assign(patch, {
+        paneCwd: { ...(patch.paneCwd ?? state.paneCwd), ...cwds },
+        paneTitle: { ...(patch.paneTitle ?? state.paneTitle), ...titles },
+        paneAgentStatus: {
+          ...(patch.paneAgentStatus ?? state.paneAgentStatus),
+          ...agents,
+        },
+      });
     }
 
     return patch;
@@ -889,14 +932,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         fromServer[workspacePath] = entry.layout;
         // What the server derived from the PTY events it forwards (D3): the
         // cwd a restored pane reopens in, the title its tab shows.
-        for (const [paneId, session] of Object.entries(entry.paneSessions)) {
-          if (session.lastCwd) cwds[paneId] = session.lastCwd;
-          if (session.lastTitle) titles[paneId] = session.lastTitle;
-          const agent = session.lastAgentStatus;
-          if (agent && !(agent.status === "idle" && agent.kind === null)) {
-            agents[paneId] = agent as AgentState;
-          }
-        }
+        const sessions = sessionSideMaps(entry.paneSessions);
+        Object.assign(cwds, sessions.cwds);
+        Object.assign(titles, sessions.titles);
+        Object.assign(agents, sessions.agents);
         const leaves = leafSideMaps(entry.layout);
         Object.assign(contentTypes, leaves.contentTypes);
         Object.assign(urls, leaves.urls);

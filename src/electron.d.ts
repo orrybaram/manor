@@ -329,6 +329,13 @@ export interface LayoutChangedPayload {
   version: number;
   layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
   claims: LayoutClaim[];
+  /**
+   * What the server knows about the panes a `reopen-closed-pane` just put
+   * back, and only those (ADR-179 ticket 10). Their sessions were still
+   * inside the reopen grace, so the pane reattaches a warm shell and this is
+   * the cwd and title to mount it with.
+   */
+  restored?: Record<string, PersistedPaneSession>;
 }
 
 /** `layout.apply` answers with the new version, never with a layout. */

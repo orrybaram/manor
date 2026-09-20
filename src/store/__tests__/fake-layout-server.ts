@@ -32,12 +32,15 @@ import {
   createSinglePanelLayout,
   type WorkspaceLayout,
 } from "../../lib/layout/workspace-layout";
+import type { PersistedPaneSession } from "../../electron.d";
 
 interface Broadcast {
   workspacePath: string;
   version: number;
   layout: WorkspaceLayout;
   claims: never[];
+  /** Only a `reopen-closed-pane` carries this (ADR-179 ticket 10). */
+  restored?: Record<string, PersistedPaneSession>;
 }
 
 type Listener = (payload: Broadcast) => void;
@@ -61,17 +64,31 @@ export function seedLayout(
   layouts.set(workspacePath, layout);
 }
 
-/** Push a layout at the store as if another renderer had changed it. */
+/**
+ * Push a layout at the store as if another renderer had changed it.
+ *
+ * `restored` is what the real server sends when a reopen lands inside its
+ * grace: the sessions of the panes that came back. Nothing here can produce
+ * one on its own — this fake keeps no `paneSessions` — so a test that cares
+ * about it passes it in.
+ */
 export function broadcastLayout(
   workspacePath: string,
   layout: WorkspaceLayout,
   version?: number,
+  restored?: Record<string, PersistedPaneSession>,
 ): void {
   const next = version ?? (versions.get(workspacePath) ?? 0) + 1;
   versions.set(workspacePath, Math.max(next, versions.get(workspacePath) ?? 0));
   layouts.set(workspacePath, layout);
   for (const listener of listeners) {
-    listener({ workspacePath, version: next, layout, claims: [] });
+    listener({
+      workspacePath,
+      version: next,
+      layout,
+      claims: [],
+      ...(restored && { restored }),
+    });
   }
 }
 

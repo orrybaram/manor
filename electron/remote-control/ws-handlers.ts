@@ -267,13 +267,30 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   ) => layoutSetPendingCommand(deps, paneId, text, kind),
   "layout.remove": (deps: IpcDeps, workspacePath: string) =>
     layoutRemove(deps, workspacePath),
+  /**
+   * A browser's viewport report, minus any `claim` it carried (ADR-179 D4).
+   *
+   * A claim is a *desktop window's* hold on a tab, and honouring one from a
+   * socket would let a phone make a tab vanish from the desk. Stripped here
+   * rather than refused, so a browser running the same renderer code as a
+   * detached window still gets its selection remembered.
+   */
   "layout.reportViewport": (
     deps: IpcDeps,
     workspacePath: string,
     rendererId: string,
     viewport: PersistedDefaultViewport,
     origin?: LayoutOrigin,
-  ) => layoutReportViewport(deps, workspacePath, rendererId, viewport, origin),
+  ) => {
+    const { claim: _claim, ...unclaimed } = viewport ?? {};
+    return layoutReportViewport(
+      deps,
+      workspacePath,
+      rendererId,
+      unclaimed as PersistedDefaultViewport,
+      origin,
+    );
+  },
 
   // ── projects: the sidebar's reads, plus the two selection writes ──
   "projects.getAll": (deps: IpcDeps) => projectsGetAll(deps),

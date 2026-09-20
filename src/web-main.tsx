@@ -19,10 +19,9 @@ import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
  * pairing token rides in the URL fragment, which browsers never send to a
  * server, so the page has to load before it can authenticate anything.
  *
- * Deliberately not `src/main.tsx` with a flag: that file also boots
- * `DetachedApp` for popup windows (ADR-156), which has no meaning in a
- * browser tab, and it reads `window.electronAPI` as something the preload
- * script already installed — here this module has to install it first.
+ * Deliberately not `src/main.tsx` with a flag: that file reads
+ * `window.electronAPI` as something the preload script already installed —
+ * here this module has to install it first.
  */
 
 /**

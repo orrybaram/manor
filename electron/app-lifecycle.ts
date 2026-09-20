@@ -167,8 +167,8 @@ export function initApp(devTitle: string | null): void {
   // ── Window registry ────────────────────────────────────────────────────
   // All live renderer windows (primary + any detached popup windows) are
   // tracked here so stream events can be broadcast to every window that might
-  // host a pane. Detached windows are additionally keyed by their windowId so
-  // ticket 2 can associate a handoff payload with the right window.
+  // host a pane. Detached windows are additionally keyed by their windowId,
+  // which is how one is reached after it was created.
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
 
@@ -183,6 +183,9 @@ export function initApp(devTitle: string | null): void {
       // otherwise every pane it held stays desktop-owned forever and a browser
       // on the bridge follows a grid nothing is driving (ADR-178 D5).
       releaseViewer(viewerId);
+      // And whatever tab it held comes back to the primary (ADR-179 D4): a
+      // claim that outlives its window is a tab no renderer shows.
+      layoutStore.releaseWindow(String(viewerId));
     });
   }
 
@@ -262,6 +265,14 @@ export function initApp(devTitle: string | null): void {
       }
     },
     backend,
+    // Which renderer is the primary window's (ADR-179 D4). Read at call time,
+    // not captured: `mainWindow` is nulled on close and set again on reopen,
+    // and a stale answer here would make `list_panes` describe a popout.
+    (rendererId) =>
+      mainWindow !== null &&
+      !mainWindow.isDestroyed() &&
+      !mainWindow.webContents.isDestroyed() &&
+      String(mainWindow.webContents.id) === rendererId,
   );
   // Before any window exists: the first thing a renderer asks for is
   // `layout.getAll()`, and a cold read of the file is not worth racing.

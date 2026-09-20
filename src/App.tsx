@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  lazy,
+  Suspense,
+} from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { PanelLayout } from "./components/panels/PanelLayout";
@@ -26,6 +34,7 @@ import {
   useAppStore,
   selectActiveWorkspace,
   getPersistedActiveWorkspacePath,
+  OWN_CLAIM,
 } from "./store/app-store";
 import { useProjectStore, runWorkspaceSetupScript } from "./store/project-store";
 import { appCommandHandlers } from "./lib/app-commands";
@@ -41,6 +50,8 @@ import {
   dispatchMenuCommand,
   type MenuHandler,
 } from "./lib/menu-handlers";
+import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
+import { findPanelWithTab } from "./lib/layout/workspace-layout";
 import { useThemeStore } from "./store/theme-store";
 import { useAgentStore } from "./store/agent-store";
 import { usePreferencesStore } from "./store/preferences-store";
@@ -81,6 +92,15 @@ function App() {
     // imported — well before this runs, so a change that lands in the gap is
     // delivered rather than lost (ADR-179 D1).
     Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
+      // A detached window opens on the workspace holding the tab it claims,
+      // whatever this renderer would otherwise have reopened on (ADR-179 D4).
+      if (OWN_CLAIM) {
+        setActiveWorkspace(OWN_CLAIM.workspacePath);
+        useProjectStore.setState({ sidebarVisible: false });
+        setAppReady(true);
+        window.electronAPI.agents.reconcileStale().catch(console.error);
+        return;
+      }
       // If the Home surface was the last-active surface, restore it directly —
       // it isn't a project workspace, so the project-based restore below can't
       // reach it. Other workspaces are restored via project selection.
@@ -341,26 +361,6 @@ function App() {
     void loadProjects();
   }), [loadProjects]);
 
-  // A detached window sent its tab back to this primary window (ADR-156). Insert
-  // it into the active panel; PTYs re-attach and webviews re-mount by paneId.
-  useEffect(
-    () =>
-      window.electronAPI.window.onTabReattached((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
-    [],
-  );
-
-  // A tab was dragged out of another window and dropped onto this one. Same
-  // insertion path as a reattach — only the gesture that triggered it differs.
-  useEffect(
-    () =>
-      window.electronAPI.window.onTabReceived((payload) => {
-        useAppStore.getState().receiveReattachedTab(payload);
-      }),
-    [],
-  );
-
   // Webview recording (ADR-158). Main owns the file and the lifecycle, but only
   // a renderer can call `getUserMedia`, so it drives the `MediaRecorder` here.
   // The store mirrors the same state so the pane can show a "Recording"
@@ -463,9 +463,36 @@ function App() {
     showGhosts: triggerGhosts,
   });
 
+  // A detached window shows one tab and none of the primary's chrome (D4), so
+  // a combo bound to the sidebar, the palette or settings runs in the primary
+  // window instead of silently doing nothing here. Both halves are needed: the
+  // handler is withheld so the dispatcher looks for a fallback, and the
+  // fallback forwards the command.
+  const localHandlers = useCallback((): Record<string, MenuHandler> => {
+    if (!OWN_CLAIM) return menuHandlersRef.current;
+    const handlers: Record<string, MenuHandler> = {};
+    for (const [id, handler] of Object.entries(menuHandlersRef.current)) {
+      if (!MAIN_WINDOW_KEYBINDINGS.has(id)) handlers[id] = handler;
+    }
+    return handlers;
+  }, []);
+  const dispatchOptions = useMemo(
+    () =>
+      OWN_CLAIM
+        ? {
+            fallback: (commandId: string) => {
+              if (!MAIN_WINDOW_KEYBINDINGS.has(commandId)) return false;
+              window.electronAPI.keybindings.runInMainWindow(commandId);
+              return true;
+            },
+          }
+        : {},
+    [],
+  );
+
   useMountEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      dispatchKeybinding(e, menuHandlersRef.current);
+      dispatchKeybinding(e, localHandlers(), dispatchOptions);
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -476,7 +503,7 @@ function App() {
   // in a popout, arrive from main and run like a local key press (ADR-175).
   useMountEffect(() =>
     window.electronAPI.keybindings.onForwardedCommand((payload) =>
-      runForwardedCommand(payload, menuHandlersRef.current),
+      runForwardedCommand(payload, localHandlers(), dispatchOptions),
     ),
   );
 
@@ -484,7 +511,7 @@ function App() {
   // command here, so nothing is filtered on this side.
   useMountEffect(() =>
     window.electronAPI.menu.onMenuCommand((payload) =>
-      dispatchMenuCommand(payload, menuHandlersRef.current),
+      dispatchMenuCommand(payload, localHandlers()),
     ),
   );
 
@@ -585,6 +612,72 @@ function App() {
           <ManorLogo />
         </div>
       </div>
+    );
+  }
+
+  // A detached window: one panel, one tab, and none of the primary's chrome
+  // (ADR-179 D4). The tab bar it renders is the claimed tab's own — which is
+  // where "Move Back to Main Window" lives — and the panel tree around it
+  // belongs to the primary, which is still showing every other tab of the
+  // same workspace.
+  if (OWN_CLAIM) {
+    const claimLayout = workspaceLayouts[OWN_CLAIM.workspacePath];
+    const claimPanel = claimLayout
+      ? findPanelWithTab(claimLayout, OWN_CLAIM.tabId)?.panel
+      : undefined;
+    return (
+      <TooltipProvider>
+        <div className="app">
+          {claimPanel ? (
+            <div className="app-body">
+              <PaneDragProvider>
+                <div className="main-content">
+                  <PanelLayout
+                    node={{ type: "leaf", panelId: claimPanel.id }}
+                    workspacePath={OWN_CLAIM.workspacePath}
+                    onNewAgent={handleNewAgent}
+                  />
+                </div>
+              </PaneDragProvider>
+            </div>
+          ) : (
+            // The tab is not here yet (the first broadcast is in flight) or
+            // not here any more — in which case the store has already asked
+            // this window to close.
+            <div className="splash-screen" style={{ flex: 1 }}>
+              <div className="drag-region" />
+              <div className="splash-logo">
+                <ManorLogo />
+              </div>
+            </div>
+          )}
+          <CloseAgentPaneDialog
+            open={pendingCloseConfirmPaneId !== null}
+            onOpenChange={(open) => {
+              if (!open) setPendingCloseConfirmPaneId(null);
+            }}
+            onConfirm={() => {
+              if (pendingCloseConfirmPaneId !== null) {
+                closePaneById(pendingCloseConfirmPaneId);
+                setPendingCloseConfirmPaneId(null);
+              }
+            }}
+          />
+          <CloseAgentPaneDialog
+            open={pendingCloseConfirmTabId !== null}
+            onOpenChange={(open) => {
+              if (!open) setPendingCloseConfirmTabId(null);
+            }}
+            onConfirm={() => {
+              if (pendingCloseConfirmTabId !== null) {
+                closeTab(pendingCloseConfirmTabId);
+                setPendingCloseConfirmTabId(null);
+              }
+            }}
+          />
+          <ToastContainer />
+        </div>
+      </TooltipProvider>
     );
   }
 

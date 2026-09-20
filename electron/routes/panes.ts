@@ -296,9 +296,8 @@ export const paneRoutes: Route[] = [
         json(400, { error: `Unknown workspace: ${workspacePath}` });
         return;
       }
-      // "The primary" is the most recent *window* report, not a claim about
-      // which window is really primary — see `LayoutStore.primaryViewport`.
-      // ticket 6: prefer the primary's own id once windows carry claims.
+      // The primary window's own report, with the most recent window report
+      // as the fallback — see `LayoutStore.primaryViewport`.
       const viewport = store.primaryViewport(workspacePath);
       json(200, buildLayoutSnapshot(workspacePath, entry.layout, viewport));
     },

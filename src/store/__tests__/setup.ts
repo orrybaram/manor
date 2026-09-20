@@ -21,6 +21,9 @@ if (typeof globalThis.window === "undefined") {
       // decide whether a command's selection hint is its own.
       rendererId: FAKE_RENDERER_ID,
       isDetached: false,
+      // No claim: the store under test is a primary window, which shows every
+      // tab of the workspace (ADR-179 D4).
+      claim: null,
       viewport: fakeViewportApi(),
       // The Manor server's layout store, in-process (ADR-179 D1): `app-store`
       // subscribes to it at import time and every layout action goes through

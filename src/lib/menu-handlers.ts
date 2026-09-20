@@ -37,7 +37,7 @@ import {
   splitFocusedPaneWith,
   type PaneContentType,
 } from "./pane-actions";
-import { detachTabToNewWindow, movePaneToNewWindow } from "./window-handoff";
+import { detachTabToNewWindow, movePaneToNewWindow } from "./detach";
 import { openInEditor } from "./editor";
 import { focusRegion, focusRegionWhenReady } from "./focus-regions";
 import { HOME_PATH } from "./home";

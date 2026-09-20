@@ -8,7 +8,12 @@
  * survives.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore, selectFocusedPaneId, selectSelectedTabId } from "../app-store";
+import {
+  useAppStore,
+  selectFocusedPaneId,
+  selectSelectedTabId,
+  selectVisibleTabs,
+} from "../app-store";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, Tab, WorkspaceLayout } from "../app-store";
 import {
@@ -57,6 +62,7 @@ function setup(layout: WorkspaceLayout) {
     viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
     serverLayouts: {},
+    claims: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
@@ -164,6 +170,40 @@ describe("broadcasts set the state", () => {
     broadcastLayout(WS_PATH, withExtraTab(after, tab("t3", "p3")), 3);
 
     expect(replica()).toBe(after);
+  });
+
+  it("applies an equal-version broadcast whose claims changed (D4)", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    const current = replica();
+    broadcastLayout(WS_PATH, current, 4);
+
+    // Popping tab-2 out changes no tree and bumps no version — the only new
+    // thing the server has to say is who is holding it.
+    broadcastLayout(WS_PATH, current, 4, undefined, {
+      claims: [{ windowId: "9", tabId: "tab-2" }],
+    });
+
+    expect(useAppStore.getState().claims[WS_PATH]).toEqual([
+      { windowId: "9", tabId: "tab-2" },
+    ]);
+    expect(selectVisibleTabs(useAppStore.getState(), WS_PATH, replica().panels["panel-1"]).map((t) => t.id)).toEqual(["tab-1"]);
+
+    // And releasing it, at the same version again, brings the tab back.
+    broadcastLayout(WS_PATH, current, 4, undefined, { claims: [] });
+    expect(useAppStore.getState().claims[WS_PATH]).toEqual([]);
+    expect(selectVisibleTabs(useAppStore.getState(), WS_PATH, replica().panels["panel-1"]).map((t) => t.id)).toEqual(["tab-1", "tab-2"]);
+  });
+
+  it("moves the selection off a tab that was just claimed (D4)", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    useAppStore.getState().selectTab("tab-2");
+    expect(selectedTabId()).toBe("tab-2");
+
+    broadcastLayout(WS_PATH, replica(), 2, undefined, {
+      claims: [{ windowId: "9", tabId: "tab-2" }],
+    });
+
+    expect(selectedTabId()).toBe("tab-1");
   });
 
   it("refreshes contentType and url from the leaves", () => {

@@ -25,8 +25,7 @@ import type { WorkspaceLayout } from "./workspace-layout";
  * `activePanelId` is nullable because a workspace with no panels is a real
  * state (a freshly created one, or the moment after the last panel closed);
  * the two maps simply have no entry for a panel or tab with nothing to point
- * at. Ticket 6 adds `claim?: tabId` here — a detached window is a viewport
- * that holds one tab.
+ * at.
  */
 export interface WorkspaceViewport {
   activePanelId: string | null;
@@ -34,6 +33,16 @@ export interface WorkspaceViewport {
   selectedTabIds: Record<string, string>;
   /** tabId → paneId */
   focusedPaneIds: Record<string, string>;
+  /**
+   * The one tab this renderer holds, if it is a detached window (D4).
+   *
+   * A detached window is not a second authority any more; it is a viewport
+   * with a **claim**. Set only by a non-primary desktop window — a browser is
+   * never a claimant, and the primary never claims, because it is the window
+   * that shows everything nobody else has. The server reads it out of the
+   * viewport report and tells every renderer who holds what.
+   */
+  claim?: string;
 }
 
 /** A viewport that has not looked at anything yet. */
@@ -90,6 +99,36 @@ function sameRecord(
   return aKeys.every((key) => a[key] === b[key]);
 }
 
+/** The panel holding a tab, or null when the layout no longer has it. */
+function panelOfTab(layout: WorkspaceLayout, tabId: string): string | null {
+  for (const [panelId, panel] of Object.entries(layout.panels)) {
+    if (panel.tabs.some((t) => t.id === tabId)) return panelId;
+  }
+  return null;
+}
+
+/**
+ * The tabs a claiming window does not show: all of them but its own (D4).
+ *
+ * Derived here rather than passed in, because the claim is already in the
+ * viewport — a window that holds one tab is showing exactly that tab, and
+ * every call site would otherwise have to say so again.
+ */
+function tabsHiddenByClaim(
+  layout: WorkspaceLayout,
+  claim: string,
+): ReadonlySet<string> {
+  const hidden = new Set<string>();
+  for (const panel of Object.values(layout.panels)) {
+    for (const tab of panel.tabs) {
+      if (tab.id !== claim) hidden.add(tab.id);
+    }
+  }
+  return hidden;
+}
+
+const NOTHING_HIDDEN: ReadonlySet<string> = new Set<string>();
+
 /**
  * Point a viewport back at a layout it may have drifted from.
  *
@@ -99,19 +138,37 @@ function sameRecord(
  * The active panel survives if it still exists and otherwise becomes the
  * first one.
  *
+ * `hiddenTabIds` is the third direction, and it is the one claims added (D4):
+ * a tab another window has popped out is still in the layout, still rendered
+ * by a browser, and simply not something *this* renderer may select. A
+ * viewport with a `claim` of its own derives its hidden set from the claim
+ * instead, and loses the claim when the tab it named leaves the tree — which
+ * is how a detached window learns its tab was closed elsewhere.
+ *
  * Returns the viewport it was given when nothing needed repairing, so a store
  * can skip the write — this runs on every broadcast.
  */
 export function reconcileViewport(
   layout: WorkspaceLayout,
   viewport: WorkspaceViewport,
+  hiddenTabIds: ReadonlySet<string> = NOTHING_HIDDEN,
 ): WorkspaceViewport {
   const panelIds = orderedPanelIds(layout);
 
+  const claim =
+    viewport.claim !== undefined && panelOfTab(layout, viewport.claim) !== null
+      ? viewport.claim
+      : undefined;
+  const hidden = claim !== undefined ? tabsHiddenByClaim(layout, claim) : hiddenTabIds;
+
+  // A claiming window has the keyboard in the panel its tab lives in; there is
+  // nothing else on its screen to have it in.
+  const claimPanelId = claim !== undefined ? panelOfTab(layout, claim) : null;
   const activePanelId =
-    viewport.activePanelId !== null && layout.panels[viewport.activePanelId]
+    claimPanelId ??
+    (viewport.activePanelId !== null && layout.panels[viewport.activePanelId]
       ? viewport.activePanelId
-      : (panelIds[0] ?? null);
+      : (panelIds[0] ?? null));
 
   const selectedTabIds: Record<string, string> = {};
   const focusedPaneIds: Record<string, string> = {};
@@ -119,10 +176,11 @@ export function reconcileViewport(
   for (const panelId of panelIds) {
     const panel = layout.panels[panelId];
     const current = viewport.selectedTabIds[panelId];
+    const selectable = panel.tabs.filter((t) => !hidden.has(t.id));
     const selected =
-      current !== undefined && panel.tabs.some((t) => t.id === current)
+      current !== undefined && selectable.some((t) => t.id === current)
         ? current
-        : panel.tabs[0]?.id;
+        : selectable[0]?.id;
     if (selected !== undefined) selectedTabIds[panelId] = selected;
 
     for (const tab of panel.tabs) {
@@ -136,13 +194,22 @@ export function reconcileViewport(
   }
 
   if (
+    claim === viewport.claim &&
     activePanelId === viewport.activePanelId &&
     sameRecord(selectedTabIds, viewport.selectedTabIds) &&
     sameRecord(focusedPaneIds, viewport.focusedPaneIds)
   ) {
     return viewport;
   }
-  return { ...viewport, activePanelId, selectedTabIds, focusedPaneIds };
+  const next: WorkspaceViewport = {
+    ...viewport,
+    activePanelId,
+    selectedTabIds,
+    focusedPaneIds,
+  };
+  if (claim === undefined) delete next.claim;
+  else next.claim = claim;
+  return next;
 }
 
 /**
@@ -156,6 +223,7 @@ export function applyHint(
   layout: WorkspaceLayout,
   viewport: WorkspaceViewport,
   hint: LayoutHint,
+  hiddenTabIds?: ReadonlySet<string>,
 ): WorkspaceViewport {
   let next = viewport;
 
@@ -189,7 +257,16 @@ export function applyHint(
     };
   }
 
-  return next === viewport ? viewport : reconcileViewport(layout, next);
+  return next === viewport
+    ? viewport
+    : reconcileViewport(layout, next, hiddenTabIds);
+}
+
+/** The tab a renderer holds, or null when it holds none. */
+export function claimOf(
+  viewport: WorkspaceViewport | undefined,
+): string | null {
+  return viewport?.claim ?? null;
 }
 
 /** The tab a panel is showing, or null while it has none. */

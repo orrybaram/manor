@@ -26,12 +26,12 @@ import { isWebApp } from "./platform";
  * Keybinding commands that are meaningful in ANY window — the primary window
  * and the detached popup windows of ADR-156 alike.
  *
- * Both renderers (`App` and `DetachedApp`) mount their own global key handler,
- * so anything defined only in `App` is silently dead in a popout. Keeping the
- * window-agnostic half here is what stops the two from drifting: a popout gets
- * new tab / new agent / new browser / pane / panel / browser commands for free,
- * and `App` layers the primary-only commands (settings, command palette,
- * sidebar, new workspace, navigation history) on top.
+ * Every window runs `App` (ADR-179 D4), but a detached one withholds the
+ * primary-only handlers and forwards those combos to the primary window
+ * instead — so what is defined here is what a popout can actually run: new
+ * tab / new agent / new browser / pane / panel / browser commands, with
+ * settings, the command palette, the sidebar, new workspace and navigation
+ * history layered on only where there is chrome for them.
  *
  * Every handler reads from `getState()` rather than React state so the map can
  * be built once, outside the render cycle.

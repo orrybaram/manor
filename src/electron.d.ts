@@ -1,6 +1,5 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
-import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
   ForwardedCommandPayload,
@@ -325,13 +324,12 @@ export interface LayoutEntry {
   defaultViewport: PersistedDefaultViewport;
   /** Server-derived; a restoring renderer reattaches sessions from it. */
   paneSessions: Record<string, PersistedPaneSession>;
+  /** Tabs held by a detached window of their own (ADR-179 D4). */
+  claims: LayoutClaim[];
 }
 
-/** A detached window's hold on a tab (ADR-179 D4). Empty until ticket 6. */
-export interface LayoutClaim {
-  windowId: string;
-  tabId: string;
-}
+/** A detached window's hold on a tab (ADR-179 D4). */
+export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
 
 /** The whole workspace layout, to every renderer at once. */
 export interface LayoutChangedPayload {
@@ -389,13 +387,22 @@ export interface ElectronAPI {
   };
 
   /**
-   * Multi-window detach (ADR-156). `isDetached` is true when this renderer was
-   * launched as a detached popup window; `detachedWindowId` carries that
-   * window's id (null in the primary window). Both are surfaced synchronously
-   * from the `--manor-detached=<id>` launch argument.
+   * Multi-window detach (ADR-156, ADR-179 D4). `isDetached` is true when this
+   * renderer was launched as a detached window; `detachedWindowId` carries
+   * that window's id (null in the primary window). Both are surfaced
+   * synchronously from the `--manor-detached=<id>` launch argument.
    */
   isDetached: boolean;
   detachedWindowId: string | null;
+
+  /**
+   * The one tab this window holds of the shared layout (ADR-179 D4), from
+   * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
+   * in a browser — a claim is a desktop window's, and a browser always sees
+   * the whole workspace. The renderer reports it as part of its viewport; the
+   * tab itself never leaves the workspace.
+   */
+  claim: { workspacePath: string; tabId: string } | null;
 
   pty: {
     create: (
@@ -1022,15 +1029,21 @@ export interface ElectronAPI {
     stopRecording: (paneId: string) => Promise<void>;
   };
 
-  /** Multi-window detach/reattach handoff (ADR-156). */
+  /** Multi-window detach (ADR-156, ADR-179 D4). */
   window: {
-    /** Create a detached popup window for `payload`; resolves its windowId. */
+    /**
+     * Pop a tab out into a window of its own; resolves that window's id.
+     *
+     * Nothing is handed over: the tab stays in the workspace, and the new
+     * window boots with a **claim** on it, which it reports as viewport. The
+     * primary hides the tab because the server told it who holds what, and a
+     * browser goes on seeing every tab (ADR-179 D4).
+     */
     detachTab: (
-      payload: DetachedTabPayload,
-      spawnBounds: { x: number; y: number; width: number; height: number },
+      workspacePath: string,
+      tabId: string,
+      spawnBounds?: { x: number; y: number; width: number; height: number },
     ) => Promise<string>;
-    /** Detached renderer pulls its one-shot handoff payload on boot. */
-    getDetachPayload: () => Promise<DetachedTabPayload | null>;
     /** Outer bounds of the calling window (used by the drag-out trigger). */
     getBounds: () => Promise<{
       x: number;
@@ -1056,42 +1069,11 @@ export interface ElectronAPI {
       }[]
     >;
     /**
-     * Hand a tab to an existing window (id from `listWindows`). Resolves false
-     * if that window is gone, so the caller can fall back to detaching.
+     * Close the calling window — and, in a detached window, give the tab back:
+     * the claim dies with the window and the tab reappears in the primary with
+     * its panes and sessions untouched (ADR-179 D4).
      */
-    transferTab: (
-      targetWindowId: number,
-      payload: DetachedTabPayload,
-    ) => Promise<boolean>;
-    /**
-     * Listener for a tab dropped into THIS window from another window.
-     * Returns an unsubscribe. Every renderer subscribes.
-     */
-    onTabReceived: (
-      callback: (payload: DetachedTabPayload) => void,
-    ) => () => void;
-    /** Close the calling window (a detached window that gave away its last tab). */
     closeSelf: () => void;
-    /**
-     * Send a detached window's tab back to the primary window and close this
-     * detached window. Called from the detached renderer after it has released
-     * its panes via `removeDetachedTabLocally`.
-     */
-    reattachTab: (payload: DetachedTabPayload) => Promise<void>;
-    /**
-     * Send ONE pane back to the primary window without closing this one — a
-     * popout may still hold other panes. Delivered to the same primary listener
-     * as `reattachTab`. When it was the last pane, the detached renderer closes
-     * itself via its empty-store subscription.
-     */
-    reattachPane: (payload: DetachedTabPayload) => Promise<void>;
-    /**
-     * Primary-window listener: fires when a detached window reattaches its tab.
-     * Returns an unsubscribe. Only the primary renderer subscribes.
-     */
-    onTabReattached: (
-      callback: (payload: DetachedTabPayload) => void,
-    ) => () => void;
   };
 }
 

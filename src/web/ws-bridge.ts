@@ -155,6 +155,8 @@ const ROOT_VALUES: Record<string, unknown> = {
   /** Detached windows are Electron's (ADR-156); a tab is never one. */
   isDetached: false,
   detachedWindowId: null,
+  /** And a browser never claims a tab either (ADR-179 D4): it sees them all. */
+  claim: null,
   /** The preload reads this off its own launch argv. A page has no argv. */
   env: { isPackaged: false },
 };

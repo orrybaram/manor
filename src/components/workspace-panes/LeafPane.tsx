@@ -35,7 +35,11 @@ import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
 import { PaneWindowMenuItems } from "./PaneWindowMenuItems";
-import { countPanesInWindow, trackHandoff } from "../../lib/window-handoff";
+import {
+  hasOwnClaim,
+  movePaneToNewWindow,
+  panesInOwnClaim,
+} from "../../lib/detach";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
@@ -237,25 +241,16 @@ export function LeafPane(props: LeafPaneProps) {
 
     // Sole pane of a detached window: tearing it off would orphan this window.
     // Leave that to the release path, which moves this window to the drop.
-    if (window.electronAPI?.isDetached && countPanesInWindow() === 1) return;
+    if (hasOwnClaim() && panesInOwnClaim() === 1) return;
 
-    // Commit the new-window tear-off NOW.
+    // Commit the new-window tear-off NOW. The pane becomes a tab of its own
+    // (one command) and the new window claims that tab (ADR-179 D4) — nothing
+    // is handed over and no session is released.
     tearOffCommitted.current = true;
     const grab = dragGrabOffset.current;
-    const store = useAppStore.getState();
-    const payload = store.serializePaneForDetach(paneId);
-    store.removeDetachedPaneLocally(paneId);
-    void trackHandoff(
-      window.electronAPI.window.detachTab(
-        payload,
-        spawnBoundsFor(sx, sy, grab),
-      ),
-    ).catch((err) => console.error("Failed to tear pane into new window", err));
+    void movePaneToNewWindow(paneId, spawnBoundsFor(sx, sy, grab));
 
     endDrag();
-    // Emptying a popout closes it — but that is `DetachedApp`'s store
-    // subscription's job, not ours. Closing the window from here would do it
-    // synchronously, inside the drag event Chromium is still dispatching.
   };
 
   // ── dragend: fires on the source; the whole drag is over here ───────────────
@@ -290,9 +285,7 @@ export function LeafPane(props: LeafPaneProps) {
     // window. Move this window to the drop point instead. (The primary window
     // is never an orphan: it falls back to Home.)
     const wouldOrphanWindow =
-      target === null &&
-      window.electronAPI?.isDetached === true &&
-      countPanesInWindow() === 1;
+      target === null && hasOwnClaim() && panesInOwnClaim() === 1;
 
     if (wouldOrphanWindow) {
       window.electronAPI.window.setPosition(
@@ -302,37 +295,17 @@ export function LeafPane(props: LeafPaneProps) {
       return;
     }
 
-    const store = useAppStore.getState();
-    const payload = store.serializePaneForDetach(paneId);
-    const spawnBounds = spawnBoundsFor(sx, sy, grab);
-    // Remove the pane from THIS window synchronously so the origin updates in
-    // the same frame, then fire the destination IPC without awaiting.
-    // (Serialize first: removeDetachedPaneLocally releases the panes.)
-    store.removeDetachedPaneLocally(paneId);
+    // Released over another manor window. There is nothing to hand over any
+    // more (ADR-179 D4): from a detached window the gesture means "put it
+    // back", which is this window closing, and from the primary the pane is
+    // already where it was dropped.
     if (target) {
-      void trackHandoff(
-        window.electronAPI.window
-          .transferTab(target.id, payload)
-          .then((accepted) => {
-            if (!accepted) {
-              return window.electronAPI.window.detachTab(payload, spawnBounds);
-            }
-          }),
-      ).catch((err) =>
-        console.error("Failed to move pane out of this window", err),
-      );
-    } else {
-      void trackHandoff(
-        window.electronAPI.window.detachTab(payload, spawnBounds),
-      ).catch((err) =>
-        console.error("Failed to move pane out of this window", err),
-      );
+      if (hasOwnClaim() && panesInOwnClaim() === 1) {
+        window.electronAPI.window.closeSelf();
+      }
+      return;
     }
-    // A detached window that just gave away its last pane has nothing left to
-    // show, and `DetachedApp`'s store subscription closes it — after the handoff
-    // above has actually left this renderer. Closing it here instead would race
-    // the payload and would run inside the `dragend` Chromium is still
-    // dispatching.
+    void movePaneToNewWindow(paneId, spawnBoundsFor(sx, sy, grab));
   };
 
   const isThisPaneDragging = drag?.type === "pane" && drag.paneId === paneId;

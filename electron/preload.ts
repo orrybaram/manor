@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
-import type { DetachedTabPayload } from "../src/store/detach-types";
 import type {
   ForwardedCommandPayload,
   MenuCommandPayload,
@@ -43,9 +42,9 @@ function onChannel<T>(
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
-// Detached-window flag (ADR-156). Mirrors the `--manor-packaged` pattern: main
-// injects `--manor-detached=<windowId>` via additionalArguments so the renderer
-// can boot in detached mode synchronously, without an IPC round-trip.
+// Detached-window flag (ADR-156, ADR-179 D4). Mirrors the `--manor-packaged`
+// pattern: main injects `--manor-detached=<windowId>` via additionalArguments
+// so the renderer knows synchronously, without an IPC round-trip.
 const detachedArg = process.argv.find((arg) =>
   arg.startsWith("--manor-detached="),
 );
@@ -53,6 +52,22 @@ const detachedWindowId = detachedArg
   ? detachedArg.slice("--manor-detached=".length)
   : null;
 const isDetached = detachedWindowId !== null;
+
+// The tab this window holds (ADR-179 D4), as `--manor-claim=<tabId>::<path>`.
+// Split on the FIRST separator: a tab id is `tab-<uuid>` and cannot contain
+// one, a workspace path can contain anything. Read here for the same reason
+// `isDetached` is — the store needs it before it loads anything.
+const claimArg = process.argv.find((arg) => arg.startsWith("--manor-claim="));
+const claim = (() => {
+  if (!claimArg) return null;
+  const raw = claimArg.slice("--manor-claim=".length);
+  const at = raw.indexOf("::");
+  if (at <= 0) return null;
+  const tabId = raw.slice(0, at);
+  const workspacePath = raw.slice(at + 2);
+  if (!workspacePath) return null;
+  return { workspacePath, tabId };
+})();
 
 // Who this renderer is, as the Manor server names it in a layout command's
 // origin (ADR-179 D3): `webContents.id`, which main knows and a page cannot
@@ -79,9 +94,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     isPackaged,
   },
 
-  // True when this renderer was launched as a detached popup window (ADR-156).
+  // True when this renderer was launched as a detached window (ADR-156), and
+  // the one tab it claims of the shared layout (ADR-179 D4).
   isDetached,
   detachedWindowId,
+  claim,
 
   pty: {
     create: (
@@ -863,19 +880,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel<unknown>("remoteControl:status", callback),
   },
 
-  // Multi-window (ADR-156). Named `window` on electronAPI — this does NOT shadow
-  // the global `window`, which is untouched here.
+  // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this
+  // does NOT shadow the global `window`, which is untouched here.
   window: {
-    detachTab: (payload: DetachedTabPayload, spawnBounds: WindowBounds) =>
+    detachTab: (
+      workspacePath: string,
+      tabId: string,
+      spawnBounds?: WindowBounds,
+    ) =>
       ipcRenderer.invoke(
         "window:detachTab",
-        payload,
+        workspacePath,
+        tabId,
         spawnBounds,
       ) as Promise<string>,
-    getDetachPayload: () =>
-      ipcRenderer.invoke(
-        "window:getDetachPayload",
-      ) as Promise<DetachedTabPayload | null>,
     getBounds: () =>
       ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
     setPosition: (x: number, y: number) =>
@@ -884,20 +902,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("window:listWindows") as Promise<
         { id: number; bounds: WindowBounds }[]
       >,
-    transferTab: (targetWindowId: number, payload: DetachedTabPayload) =>
-      ipcRenderer.invoke(
-        "window:transferTab",
-        targetWindowId,
-        payload,
-      ) as Promise<boolean>,
-    onTabReceived: (callback: (payload: DetachedTabPayload) => void) =>
-      onChannel<DetachedTabPayload>("window:tab-received", callback),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
-    reattachTab: (payload: DetachedTabPayload) =>
-      ipcRenderer.invoke("window:reattachTab", payload) as Promise<void>,
-    reattachPane: (payload: DetachedTabPayload) =>
-      ipcRenderer.invoke("window:reattachPane", payload) as Promise<void>,
-    onTabReattached: (callback: (payload: DetachedTabPayload) => void) =>
-      onChannel<DetachedTabPayload>("window:tab-reattached", callback),
   },
 });

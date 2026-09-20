@@ -72,17 +72,36 @@ function boundsAreVisible(bounds: WindowBounds): boolean {
 // persisted bounds/zoom, which are primary-only).
 
 /**
+ * How a claim rides in on `argv` (ADR-179 D4): `<tabId>::<workspacePath>`.
+ *
+ * The tab id comes first and the split is on the *first* separator, which is
+ * what makes this unambiguous — a tab id is `tab-<uuid>` and can hold neither
+ * a colon nor a slash, while a path can hold anything at all.
+ */
+const CLAIM_SEPARATOR = "::";
+
+export function formatClaimArg(workspacePath: string, tabId: string): string {
+  return `${tabId}${CLAIM_SEPARATOR}${workspacePath}`;
+}
+
+/**
  * Build the shared `webPreferences`. When `detachedWindowId` is provided the
  * renderer receives an extra `--manor-detached=<id>` argument (mirrors the
- * existing `--manor-packaged` arg) so it can boot in detached mode.
+ * existing `--manor-packaged` arg) so it can boot as a detached window, and
+ * `--manor-claim=<tabId>::<workspacePath>` names the tab it holds — the one
+ * thing that makes it different from the primary (ADR-179 D4).
  */
 function buildWebPreferences(
   detachedWindowId?: string,
+  claim?: string,
 ): Electron.WebPreferences {
   // Pass flags synchronously so preload can expose them without an IPC round-trip
   const additionalArguments = [`--manor-packaged=${app.isPackaged}`];
   if (detachedWindowId) {
     additionalArguments.push(`--manor-detached=${detachedWindowId}`);
+  }
+  if (claim) {
+    additionalArguments.push(`--manor-claim=${claim}`);
   }
   return {
     preload: path.join(__dirname, "preload.js"),
@@ -164,18 +183,23 @@ export function createWindow(): BrowserWindow {
 }
 
 /**
- * Create an ephemeral popup window that hosts a single detached tab. It loads
- * the same renderer as the primary window, tagged with `--manor-detached=<id>`
- * so the renderer can boot in detached mode (see ADR-156). Unlike the primary
- * window it does NOT read or write persisted bounds / zoom — detached windows
- * are session-only.
+ * Create an ephemeral window that shows a single tab of a workspace.
+ *
+ * It loads the same renderer as the primary window — the whole app, not a
+ * variant (ADR-179 D4) — tagged with `--manor-detached=<id>` and
+ * `--manor-claim=<tabId>::<workspacePath>`, which is the only thing that
+ * makes it different: it claims one tab and draws that. Unlike the primary
+ * window it does NOT read or write persisted bounds / zoom, and its viewport
+ * is never persisted either — a detached window is session-only.
  *
  * @param windowId  Stable id for this window; also forwarded to the renderer.
+ * @param claim  `formatClaimArg(workspacePath, tabId)` — the tab it holds.
  * @param spawnBounds  Where to open the window. When omitted, a default size is
  *   centered on the display under the cursor.
  */
 export function createDetachedWindow(
   windowId: string,
+  claim?: string,
   spawnBounds?: { x: number; y: number; width: number; height: number },
 ): BrowserWindow {
   let bounds: { x?: number; y?: number; width: number; height: number };
@@ -205,7 +229,7 @@ export function createDetachedWindow(
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 13 },
     backgroundColor: "#1e1e2e",
-    webPreferences: buildWebPreferences(windowId),
+    webPreferences: buildWebPreferences(windowId, claim),
   });
 
   attachWindowOpenHandler(win);

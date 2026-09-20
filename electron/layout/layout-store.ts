@@ -42,6 +42,7 @@ import type {
   LayoutHint,
   WorkspaceViewport,
 } from "../../src/lib/layout/viewport";
+import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
 import {
   type Panel,
   type PaneContentType,
@@ -87,19 +88,19 @@ interface PendingKill {
 }
 
 /**
- * Who sent a command. Recorded rather than acted on: the sender gets the same
- * broadcast as everybody else (D1). Claims make this load-bearing in ticket 6.
+ * Who sent a command, and — for a window — who is reporting a claim.
+ *
+ * A command's origin is recorded rather than acted on: the sender gets the
+ * same broadcast as everybody else (D1). A viewport report's origin is load
+ * bearing, because `kind` decides whether a `claim` in it is honoured at all
+ * and `id` is the window the claim belongs to (D4).
  */
 export interface LayoutOrigin {
   kind: "window" | "bridge" | "route";
   id: string;
 }
 
-/** A detached window's hold on a tab (D4). Always empty until ticket 6. */
-export interface LayoutClaim {
-  windowId: string;
-  tabId: string;
-}
+export type { LayoutClaim };
 
 /**
  * What `layout.changed` carries.
@@ -114,6 +115,13 @@ export interface LayoutBroadcast {
   workspacePath: string;
   version: number;
   layout: WorkspaceLayout;
+  /**
+   * Who is holding which tab of this workspace in a window of its own (D4).
+   *
+   * Travels on *every* broadcast, and a change to it is a broadcast in its own
+   * right — at the same version, because a claim is not structure. A renderer
+   * therefore compares `(version, claims)` rather than the version alone.
+   */
   claims: LayoutClaim[];
   /** Who sent the command. A renderer compares it with its own id (D3). */
   origin: LayoutOrigin;
@@ -133,9 +141,12 @@ export interface LayoutEntry {
   defaultViewport: PersistedDefaultViewport;
   /** Server-derived; a restoring renderer needs it to reattach sessions. */
   paneSessions: Record<string, PersistedPaneSession>;
+  /** Tabs held by a detached window right now (D4). Never persisted. */
+  claims: LayoutClaim[];
 }
 
-interface WorkspaceState extends LayoutEntry {
+interface WorkspaceState
+  extends Omit<LayoutEntry, "claims"> {
   closedStack: ClosedPane[];
 }
 
@@ -190,6 +201,15 @@ function treeMetadata(layout: WorkspaceLayout): Record<string, PaneMetadata> {
   return metadata;
 }
 
+/** Every tab a workspace holds, across every panel. */
+function layoutTabIds(layout: WorkspaceLayout): Set<string> {
+  const ids = new Set<string>();
+  for (const panel of Object.values(layout.panels)) {
+    for (const tab of panel.tabs) ids.add(tab.id);
+  }
+  return ids;
+}
+
 /** Every pane a workspace renders, across every panel and tab. */
 function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
   const ids = new Set<string>();
@@ -206,14 +226,29 @@ export class LayoutStore {
   /** Per-workspace tail of the apply chain: two commands never interleave. */
   private readonly queues = new Map<string, Promise<unknown>>();
   /**
-   * The last viewport each *window* reported, per workspace.
+   * The primary window's last viewport, per workspace, and the last one any
+   * window reported as the fallback.
    *
-   * Ticket 5 builds `list_panes` from structure plus the primary window's
-   * viewport, and "which window?" has no server-side answer beyond this —
-   * so the most recent window report for a workspace stands in for the
-   * primary until ticket 6's claims name windows properly.
+   * `list_panes` means "what is the desk showing" (D5), which is the primary's
+   * answer and nobody else's: a browser's selection is not it, and neither is
+   * a detached window's one tab. The fallback covers the window that reported
+   * before main could tell us it was primary, and the case of no primary at
+   * all (its window closed while popouts kept running).
    */
   private readonly windowViewports = new Map<string, WorkspaceViewport>();
+  private readonly primaryViewports = new Map<string, WorkspaceViewport>();
+  /**
+   * Which window holds which tab (D4), keyed by the window's renderer id.
+   *
+   * Exclusive by construction: one entry per window, and a second window
+   * claiming a tab evicts the first, which hears about it on the broadcast
+   * this makes and closes itself. Never persisted — a claim is a fact about a
+   * window that is open right now.
+   */
+  private readonly claims = new Map<
+    string,
+    { workspacePath: string; tabId: string }
+  >();
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
   /**
@@ -229,10 +264,17 @@ export class LayoutStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
+  /**
+   * @param isPrimary Whether a renderer id is the primary window's. Main owns
+   * that fact (`mainWindow.webContents.id`) and it changes as windows come and
+   * go, so it is asked rather than told. A store built without it has no
+   * primary and falls back to the most recent window report.
+   */
   constructor(
     private readonly persistence: LayoutPersistence,
     private readonly broadcast: LayoutBroadcaster,
     private readonly backend: Pick<LocalBackend, "pty">,
+    private readonly isPrimary: (rendererId: string) => boolean = () => false,
   ) {}
 
   /** Read `~/.manor/layout.json` into memory. Migration happens below it. */
@@ -265,14 +307,14 @@ export class LayoutStore {
   getAll(): Record<string, LayoutEntry> {
     const all: Record<string, LayoutEntry> = {};
     for (const [workspacePath, state] of this.entries) {
-      all[workspacePath] = snapshot(state);
+      all[workspacePath] = snapshot(state, this.claimsFor(workspacePath));
     }
     return all;
   }
 
   get(workspacePath: string): LayoutEntry | null {
     const state = this.entries.get(workspacePath);
-    return state ? snapshot(state) : null;
+    return state ? snapshot(state, this.claimsFor(workspacePath)) : null;
   }
 
   /**
@@ -281,7 +323,10 @@ export class LayoutStore {
    * nothing sent a command yet — every id in a *command* comes from its sender.
    */
   ensure(workspacePath: string): LayoutEntry {
-    return snapshot(this.ensureState(workspacePath));
+    return snapshot(
+      this.ensureState(workspacePath),
+      this.claimsFor(workspacePath),
+    );
   }
 
   /**
@@ -318,6 +363,10 @@ export class LayoutStore {
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
     this.windowViewports.delete(workspacePath);
+    this.primaryViewports.delete(workspacePath);
+    for (const [windowId, claim] of [...this.claims]) {
+      if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
+    }
     if (this.lastActiveWorkspacePath === workspacePath) {
       this.lastActiveWorkspacePath = null;
     }
@@ -353,37 +402,79 @@ export class LayoutStore {
   }
 
   /**
-   * What one renderer is looking at (ADR-179 D3).
+   * What one renderer is looking at (ADR-179 D3), and what it holds (D4).
    *
-   * Last writer wins, and that is the whole policy: this is the **default
-   * viewport**, the answer handed to a renderer that has never seen this
-   * workspace, not an authority over anyone's selection. A renderer that has
-   * a viewport of its own never reads it.
+   * Last writer wins for the **default viewport** — the answer handed to a
+   * renderer that has never seen this workspace, not an authority over
+   * anyone's selection. A *claiming* window is excluded from that: its
+   * viewport is one tab, and handing the next renderer a workspace of one tab
+   * is exactly the bug claims exist to avoid. Only a window may claim; a
+   * bridge socket's `claim` is dropped before it ever reaches here.
    */
   reportViewport(
     workspacePath: string,
     origin: LayoutOrigin,
     viewport: WorkspaceViewport,
   ): void {
-    const state = this.entries.get(workspacePath);
-    if (!state) return;
-    state.defaultViewport = viewport;
-    if (origin.kind === "window") {
-      this.windowViewports.set(workspacePath, viewport);
+    const isWindow = origin.kind === "window";
+    const claim = isWindow && typeof viewport.claim === "string"
+      ? viewport.claim
+      : undefined;
+    if (isWindow) {
+      this.setClaim(origin.id, workspacePath, claim, origin);
+      if (claim === undefined) {
+        this.windowViewports.set(workspacePath, viewport);
+        if (this.isPrimary(origin.id)) {
+          this.primaryViewports.set(workspacePath, viewport);
+        }
+      }
     }
+    const state = this.entries.get(workspacePath);
+    if (!state || claim !== undefined) return;
+    state.defaultViewport = viewport;
     this.schedulePersist();
   }
 
   /**
    * The primary window's view of a workspace, for the MCP snapshot (D5).
    *
-   * "The primary" is the most recent *window* report: a browser's selection
-   * is not what `list_panes` means by "the focused pane", and until ticket 6
-   * gives windows claims there is nothing finer to key on. Null when no
-   * desktop window has reported one — the caller falls back to the default.
+   * The primary's own report, because that is what `list_panes` means by "the
+   * focused pane" — not a browser's selection and not a popout's one tab. The
+   * most recent window report stands in while main has not named a primary
+   * (or no window is one), and null means no window has reported at all, so
+   * the caller falls back to the default viewport.
    */
   primaryViewport(workspacePath: string): WorkspaceViewport | null {
-    return this.windowViewports.get(workspacePath) ?? null;
+    return (
+      this.primaryViewports.get(workspacePath) ??
+      this.windowViewports.get(workspacePath) ??
+      null
+    );
+  }
+
+  /** Tabs of one workspace held by a window of their own (D4). */
+  claimsFor(workspacePath: string): LayoutClaim[] {
+    const claims: LayoutClaim[] = [];
+    for (const [windowId, claim] of this.claims) {
+      if (claim.workspacePath === workspacePath) {
+        claims.push({ windowId, tabId: claim.tabId });
+      }
+    }
+    return claims;
+  }
+
+  /**
+   * A window is gone: whatever it held comes back to the primary (D4).
+   *
+   * Called from `trackRendererWindow`'s `closed`, next to `releaseViewer` —
+   * a claim that outlives its window is a tab nobody can see, which is the one
+   * failure mode this design has (see the ADR's Risks).
+   */
+  releaseWindow(rendererId: string): void {
+    this.setClaim(rendererId, null, undefined, {
+      kind: "window",
+      id: rendererId,
+    });
   }
 
   /**
@@ -397,6 +488,94 @@ export class LayoutStore {
   }
 
   // ───────────────────────────── internals ──────────────────────────────
+
+  /**
+   * Record, move or release one window's claim, and tell everybody.
+   *
+   * Exclusive: a second window claiming a tab evicts the first, which is
+   * today's behaviour when a tab is torn off twice — the loser sees a
+   * `layout.changed` whose `claims` no longer name it and closes itself. The
+   * broadcast goes out at the *unchanged* version, because a claim is not
+   * structure and inventing a version for it would make every renderer think
+   * the tree moved.
+   *
+   * `workspacePath` is null for a release, where the claim itself says which
+   * workspace has to hear about it.
+   */
+  private setClaim(
+    windowId: string,
+    workspacePath: string | null,
+    tabId: string | undefined,
+    origin: LayoutOrigin,
+  ): void {
+    const held = this.claims.get(windowId);
+    const affected = new Set<string>();
+
+    if (tabId === undefined || workspacePath === null) {
+      if (!held) return;
+      this.claims.delete(windowId);
+      affected.add(held.workspacePath);
+    } else {
+      if (held?.workspacePath === workspacePath && held.tabId === tabId) return;
+      if (held) affected.add(held.workspacePath);
+      for (const [otherId, other] of [...this.claims]) {
+        if (
+          otherId !== windowId &&
+          other.workspacePath === workspacePath &&
+          other.tabId === tabId
+        ) {
+          this.claims.delete(otherId);
+        }
+      }
+      this.claims.set(windowId, { workspacePath, tabId });
+      affected.add(workspacePath);
+    }
+
+    for (const path of affected) this.broadcastClaims(path, origin);
+  }
+
+  /**
+   * Claims of a workspace, out to every renderer, at the version it is at.
+   *
+   * No hint and no `restored`: nothing structural happened, and the one thing
+   * this broadcast says that the last one did not is who is holding what.
+   */
+  private broadcastClaims(workspacePath: string, origin: LayoutOrigin): void {
+    const state = this.entries.get(workspacePath);
+    if (!state) return;
+    this.broadcast({
+      workspacePath,
+      version: state.version,
+      layout: state.layout,
+      claims: this.claimsFor(workspacePath),
+      origin,
+    });
+  }
+
+  /**
+   * Drop the claims on tabs that just left the tree.
+   *
+   * Told by difference rather than by looking the tab up: a claim on a tab
+   * that does not exist *yet* is normal — "move pane to new window" sends
+   * `extract-pane-to-tab` and spawns the window in the same breath — and only
+   * a tab that was there a moment ago and is gone now is a claim to release.
+   */
+  private dropClaimsOnGoneTabs(
+    workspacePath: string,
+    before: WorkspaceLayout,
+    after: WorkspaceLayout,
+  ): boolean {
+    const had = layoutTabIds(before);
+    const has = layoutTabIds(after);
+    let dropped = false;
+    for (const [windowId, claim] of [...this.claims]) {
+      if (claim.workspacePath !== workspacePath) continue;
+      if (!had.has(claim.tabId) || has.has(claim.tabId)) continue;
+      this.claims.delete(windowId);
+      dropped = true;
+    }
+    return dropped;
+  }
 
   private async applyNow(
     workspacePath: string,
@@ -480,12 +659,16 @@ export class LayoutStore {
       this.scheduleKill(workspacePath, paneId);
     }
 
+    // A tab that left the tree takes its claim with it: the window holding it
+    // has nothing to show and closes itself when this broadcast lands (D4).
+    this.dropClaimsOnGoneTabs(workspacePath, before, state.layout);
+
     this.schedulePersist();
     this.broadcast({
       workspacePath,
       version: state.version,
       layout: state.layout,
-      claims: [],
+      claims: this.claimsFor(workspacePath),
       origin,
       ...(hint && { hint }),
       ...(restored && { restored }),
@@ -646,7 +829,10 @@ export class LayoutStore {
  * `restored` possible — but no tree holds it, and handing it to a renderer
  * would seed side maps for a pane that will never mount (ticket 10's report).
  */
-function snapshot(state: WorkspaceState): LayoutEntry {
+function snapshot(
+  state: WorkspaceState,
+  claims: LayoutClaim[],
+): LayoutEntry {
   const alive = layoutPaneIds(state.layout);
   const paneSessions: Record<string, PersistedPaneSession> = {};
   for (const [paneId, session] of Object.entries(state.paneSessions)) {
@@ -657,6 +843,7 @@ function snapshot(state: WorkspaceState): LayoutEntry {
     layout: state.layout,
     defaultViewport: state.defaultViewport,
     paneSessions,
+    claims,
   };
 }
 

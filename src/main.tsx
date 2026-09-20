@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
-import DetachedApp from "./DetachedApp";
 import { loadTerminalFonts } from "./lib/terminal-font";
 
 const queryClient = new QueryClient({
@@ -15,10 +14,9 @@ const queryClient = new QueryClient({
   },
 });
 
-// Detached popup windows (ADR-156) boot a trimmed-down renderer that hosts a
-// single handed-off tab; every other window is the full primary app.
-const Root = window.electronAPI?.isDetached ? DetachedApp : App;
-
+// One renderer for every window (ADR-179 D4). A detached window is not a
+// different app: it is `App` with a claim on one tab of the shared layout,
+// which it reads from `window.electronAPI.claim` and reports as viewport.
 // Before the first pane exists, not after: a terminal measures its cell from
 // the font it can draw right now, and a pane that opens ahead of the webfont
 // keeps the wrong size for the session. See `lib/terminal-font`.
@@ -27,7 +25,7 @@ await loadTerminalFonts();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <Root />
+      <App />
     </QueryClientProvider>
   </React.StrictMode>,
 );

@@ -104,9 +104,9 @@ beforeEach(() => {
 });
 
 describe("createSharedKeybindingHandlers", () => {
-  // Regression guard for the popout gap: `DetachedApp` used to hand-roll a
-  // subset of the handler map, so commands like new-agent and new-browser were
-  // silently dead in a detached window. Both windows now build from this map.
+  // Regression guard for the popout gap: a detached window used to hand-roll
+  // a subset of the handler map, so commands like new-agent and new-browser
+  // were silently dead there. Every window builds from this map now.
   it("covers every command that is meaningful outside the primary window", () => {
     const handlers = createSharedKeybindingHandlers();
     for (const id of [

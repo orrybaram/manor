@@ -13,7 +13,11 @@ import {
   selectActivePanelId,
   selectFocusedPaneId,
 } from "../../store/app-store";
-import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
+import {
+  detachTabToNewWindow,
+  hasOwnClaim,
+  returnToPrimaryWindow,
+} from "../../lib/detach";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
@@ -344,58 +348,24 @@ export function TabButton(props: TabButtonProps) {
               Move Tab to Next Panel
             </ContextMenu.Item>
           )}
-          {/* A popout's sole tab offers no "new window": tearing it out empties
-              this window, which then closes itself — a no-op with extra steps.
-              A popout holding several tabs can still spawn another window.
-              `window.detachTab` has no browser meaning either (ADR-178) —
-              removed there, not disabled. */}
-          {!isWebApp() &&
-            !(window.electronAPI?.isDetached && countTabsInWindow() === 1) && (
+          {/* A detached window's one tab offers no "new window": popping it
+              out again would leave this window holding nothing, which closes
+              it — a no-op with extra steps. `window.detachTab` has no browser
+              meaning either (ADR-178) — removed there, not disabled. */}
+          {!isWebApp() && !hasOwnClaim() && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => {
-                void (async () => {
-                  try {
-                    const payload = useAppStore.getState().serializeTabForDetach(tabId);
-                    const bounds = await window.electronAPI.window.getBounds();
-                    const spawnBounds = {
-                      x: bounds.x + 40,
-                      y: bounds.y + 40,
-                      width: 900,
-                      height: 600,
-                    };
-                    await window.electronAPI.window.detachTab(payload, spawnBounds);
-                    useAppStore.getState().removeDetachedTabLocally(tabId);
-                  } catch (err) {
-                    console.error("Failed to detach tab to new window", err);
-                  }
-                })();
-              }}
+              onSelect={() => void detachTabToNewWindow(tabId)}
             >
               Move to New Window
             </ContextMenu.Item>
           )}
-          {window.electronAPI?.isDetached && (
+          {hasOwnClaim() && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => {
-                void (async () => {
-                  try {
-                    const store = useAppStore.getState();
-                    const payload = store.serializeTabForDetach(tabId);
-                    // Release panes and drop the tab from THIS store BEFORE the
-                    // window closes, so DetachedApp's beforeunload finds an empty
-                    // store and kills nothing (preserving the reattached panes).
-                    store.removeDetachedTabLocally(tabId);
-                    await trackHandoff(
-                      window.electronAPI.window.reattachTab(payload),
-                    );
-                    // Main closes this window after forwarding the payload.
-                  } catch (err) {
-                    console.error("Failed to reattach tab to main window", err);
-                  }
-                })();
-              }}
+              /* Closing is the whole operation: the claim dies with the
+                 window and the tab is already in the primary (ADR-179 D4). */
+              onSelect={() => returnToPrimaryWindow()}
             >
               Move Back to Main Window
             </ContextMenu.Item>

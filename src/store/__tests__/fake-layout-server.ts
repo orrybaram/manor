@@ -39,6 +39,7 @@ import {
   type WorkspaceViewport,
 } from "../../lib/layout/viewport";
 import type { PersistedPaneSession, PersistedViewportFile } from "../../electron.d";
+import type { LayoutClaim } from "../../lib/layout/visible-tabs";
 
 /** What the fake calls the renderer under test — matching `rendererId`. */
 export const FAKE_RENDERER_ID = "test-renderer";
@@ -47,7 +48,8 @@ interface Broadcast {
   workspacePath: string;
   version: number;
   layout: WorkspaceLayout;
-  claims: never[];
+  /** Who is holding which tab in a window of its own (ADR-179 D4). */
+  claims: LayoutClaim[];
   origin?: { kind: "window" | "bridge" | "route"; id: string };
   hint?: LayoutHint;
   /** Only a `reopen-closed-pane` carries this (ADR-179 ticket 10). */
@@ -134,7 +136,11 @@ export function broadcastLayout(
   layout: WorkspaceLayout,
   version?: number,
   restored?: Record<string, PersistedPaneSession>,
-  extra?: { origin?: Broadcast["origin"]; hint?: LayoutHint },
+  extra?: {
+    origin?: Broadcast["origin"];
+    hint?: LayoutHint;
+    claims?: LayoutClaim[];
+  },
 ): void {
   const next = version ?? (versions.get(workspacePath) ?? 0) + 1;
   versions.set(workspacePath, Math.max(next, versions.get(workspacePath) ?? 0));
@@ -144,12 +150,24 @@ export function broadcastLayout(
       workspacePath,
       version: next,
       layout,
-      claims: [],
+      claims: extra?.claims ?? [],
       ...(extra?.origin && { origin: extra.origin }),
       ...(extra?.hint && { hint: extra.hint }),
       ...(restored && { restored }),
     });
   }
+}
+
+/**
+ * Forget every `layout.changed` subscriber.
+ *
+ * For the one test file that imports a *second* `app-store` (a detached
+ * window reads its claim at import time, so it needs a fresh module): without
+ * this the module it replaced stays subscribed and answers broadcasts meant
+ * for its successor.
+ */
+export function clearLayoutListeners(): void {
+  listeners.clear();
 }
 
 export function resetFakeLayoutServer(): void {

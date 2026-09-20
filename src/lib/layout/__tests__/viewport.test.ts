@@ -230,6 +230,72 @@ describe("applyHint", () => {
   });
 });
 
+describe("reconcileViewport with claims (D4)", () => {
+  it("does not select a tab another window has popped out", () => {
+    const layout = singlePanel();
+    const viewport = reconcileViewport(
+      layout,
+      emptyViewport(),
+      new Set(["tab-1"]),
+    );
+
+    expect(viewport.selectedTabIds["panel-1"]).toBe("tab-2");
+  });
+
+  it("moves off a selected tab the moment it is claimed", () => {
+    const layout = singlePanel();
+    const before = reconcileViewport(layout, emptyViewport());
+    expect(before.selectedTabIds["panel-1"]).toBe("tab-1");
+
+    const after = reconcileViewport(layout, before, new Set(["tab-1"]));
+    expect(after.selectedTabIds["panel-1"]).toBe("tab-2");
+  });
+
+  it("leaves a panel with nothing showing rather than showing a claim", () => {
+    const layout = singlePanel();
+    const viewport = reconcileViewport(
+      layout,
+      emptyViewport(),
+      new Set(["tab-1", "tab-2"]),
+    );
+
+    expect(viewport.selectedTabIds["panel-1"]).toBeUndefined();
+  });
+
+  it("shows a claiming window its one tab, and the panel holding it", () => {
+    const layout = twoPanels();
+    const viewport = reconcileViewport(layout, {
+      ...emptyViewport(),
+      claim: "tab-9",
+    });
+
+    expect(viewport.claim).toBe("tab-9");
+    expect(viewport.activePanelId).toBe("panel-2");
+    expect(viewport.selectedTabIds["panel-2"]).toBe("tab-9");
+    expect(viewport.selectedTabIds["panel-1"]).toBeUndefined();
+  });
+
+  it("drops a claim on a tab that has left the layout", () => {
+    const viewport = reconcileViewport(singlePanel(), {
+      ...emptyViewport(),
+      claim: "tab-gone",
+    });
+
+    expect(viewport.claim).toBeUndefined();
+    expect(viewport.selectedTabIds["panel-1"]).toBe("tab-1");
+  });
+
+  it("is the identity when a claim already points where it should", () => {
+    const layout = singlePanel();
+    const settled = reconcileViewport(layout, {
+      ...emptyViewport(),
+      claim: "tab-2",
+    });
+
+    expect(reconcileViewport(layout, settled)).toBe(settled);
+  });
+});
+
 describe("selectedTabOf / focusedPaneOf", () => {
   it("read straight out of the maps", () => {
     const viewport = reconcileViewport(singlePanel(), emptyViewport());

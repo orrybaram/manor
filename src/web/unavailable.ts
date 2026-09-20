@@ -24,7 +24,7 @@
  * | namespace  | why |
  * | ---------- | --- |
  * | `webview`  | `<webview>` is Electron's; a page cannot embed *and* script arbitrary cross-origin sites (ADR-052/056/058/158) |
- * | `window`   | detach-to-window needs native chrome and survives no popup blocker (ADR-156) |
+ * | `window`   | detach-to-window needs native chrome and survives no popup blocker (ADR-156/179 D4) |
  * | `menu`     | there is no native app menu to label (ADR-170) |
  * | `dialog`   | no native file pickers |
  * | `shell`    | no "reveal in Finder", no "open in editor" (ADR-050) |

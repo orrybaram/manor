@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 import {
   type PaneNode,
@@ -5,14 +6,12 @@ import {
   allPaneIds,
   clonePaneTree,
   hasPaneId,
-  removePane,
   nextPaneId,
   prevPaneId,
 } from "../lib/layout/pane-tree";
 import {
   type PanelNode,
   allPanelIds,
-  removePanel as removePanelFromTree,
   nextPanelId,
   prevPanelId,
 } from "../lib/layout/panel-tree";
@@ -20,7 +19,6 @@ import {
   type Panel,
   type Tab,
   type WorkspaceLayout,
-  createSinglePanelLayout,
   findPanelWithPane,
   findPanelWithTab,
 } from "../lib/layout/workspace-layout";
@@ -33,6 +31,15 @@ import {
   emptyViewport,
   reconcileViewport,
 } from "../lib/layout/viewport";
+import {
+  type LayoutClaim,
+  type RendererPlatform,
+  hiddenTabIdsIn,
+  holdsClaim,
+  isTabVisible,
+  sameClaims,
+  visibleTabsFor,
+} from "../lib/layout/visible-tabs";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   AgentState,
@@ -43,9 +50,7 @@ import type {
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
-import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
-import { useProjectStore } from "./project-store";
 
 export type { Panel, Tab, WorkspaceLayout };
 
@@ -84,6 +89,15 @@ export interface AppState {
    * for renderers that have none.
    */
   viewports: Record<string, WorkspaceViewport>;
+  /**
+   * Who is holding which tab in a window of its own, per workspace (D4).
+   *
+   * The server's, like the layout: a detached window reports a claim as part
+   * of its viewport and every renderer is told the result. The primary hides
+   * the tabs in here, a claiming window shows only its own, and a browser
+   * ignores the whole map — see `visible-tabs.ts`.
+   */
+  claims: Record<string, LayoutClaim[]>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
@@ -306,54 +320,21 @@ export interface AppState {
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
 
-  // Multi-window detach / reattach (ADR-156)
-  /**
-   * Serialize a tab (by id) into a structured-clone-safe payload for handoff to
-   * a detached popup window. Copies the tab shape plus every per-pane side-map
-   * entry. Searches all workspace layouts; throws if the tab is not found.
-   */
-  serializeTabForDetach: (tabId: string) => DetachedTabPayload;
-  /**
-   * Remove a tab from its panel WITHOUT killing its panes: terminals are
-   * `pty.detach`ed (session survives in the daemon), browsers are
-   * `webview.unregister`ed, diffs need no teardown. Collapses an emptied panel
-   * the same way `closeTab` does, and drops the tab's per-pane side-map entries.
-   * Distinct from `closeTab`, which terminates the sessions.
-   */
-  removeDetachedTabLocally: (tabId: string) => void;
-  /**
-   * Serialize a single pane (by id) into a `DetachedTabPayload` for handoff to a
-   * detached popup window — a detached pane is just a tab whose rootNode is a
-   * single leaf. Mints a fresh tab id, copies only this pane's side-map entries,
-   * and resolves theme/workspace like `serializeTabForDetach`. Throws if the
-   * pane is not found in any workspace layout.
-   */
-  serializePaneForDetach: (paneId: string) => DetachedTabPayload;
-  /**
-   * Remove a single pane from its source tab WITHOUT killing it: terminals are
-   * `pty.detach`ed, browsers are `webview.unregister`ed, diffs need no teardown.
-   * Collapses the split via `removePane`; if the pane was the tab's sole leaf,
-   * removes the whole tab exactly as `removeDetachedTabLocally` does. Keeps the
-   * backend alive so the pane re-attaches in the destination window.
-   */
-  removeDetachedPaneLocally: (paneId: string) => void;
-  /**
-   * Rebuild a minimal one-panel/one-tab layout from a detach payload in a fresh
-   * (detached-window) store and repopulate every per-pane side-map, so the
-   * normal render path re-attaches PTYs / re-mounts webviews by paneId. Reuses
-   * the payload's original paneIds — never mints new ones.
-   */
-  hydrateDetachedTab: (payload: DetachedTabPayload) => void;
-  /**
-   * Receive a tab reattached from a detached window into THIS (primary) window.
-   * Inserts the tab into the active panel of the active workspace layout
-   * (appends to its tabs, selects it) and repopulates every per-pane side-map
-   * from the payload — so PTYs re-attach and webviews re-mount by paneId,
-   * exactly like `hydrateDetachedTab` but into the existing layout. The normal
-   * layout-save subscription then persists it, making the tab durable again.
-   */
-  receiveReattachedTab: (payload: DetachedTabPayload) => void;
 }
+
+/**
+ * Enough of the store to answer "what is this renderer showing".
+ *
+ * `claims` is optional so the slices that are built by hand — the menu
+ * context sync, the agents list — keep working without knowing about
+ * detached windows: no claims means nothing is popped out, which is the
+ * truth everywhere but the desktop with a popout open.
+ */
+type ViewportState = Pick<
+  AppState,
+  "workspaceLayouts" | "viewports" | "activeWorkspacePath"
+> &
+  Partial<Pick<AppState, "claims">>;
 
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
 export function selectActiveWorkspace(state: AppState): Panel | null {
@@ -361,12 +342,7 @@ export function selectActiveWorkspace(state: AppState): Panel | null {
 }
 
 /** The panel this window has the keyboard in, or null. */
-export function selectActivePanelId(
-  state: Pick<
-    AppState,
-    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
-  >,
-): string | null {
+export function selectActivePanelId(state: ViewportState): string | null {
   return getActivePanelContext(state)?.panel.id ?? null;
 }
 
@@ -379,7 +355,7 @@ export function selectActivePanelId(
  * "the first tab" is what `reconcileViewport` would have written anyway.
  */
 export function selectSelectedTabId(
-  state: Pick<AppState, "workspaceLayouts" | "viewports" | "activeWorkspacePath">,
+  state: ViewportState,
   panelId: string | null | undefined,
   workspacePath?: string | null,
 ): string | null {
@@ -387,16 +363,19 @@ export function selectSelectedTabId(
   if (!path || !panelId) return null;
   const panel = state.workspaceLayouts[path]?.panels[panelId];
   if (!panel) return null;
+  // Claimed tabs are not candidates: they are on screen in another window,
+  // and the fallback below must not hand this one a tab it does not render.
+  const visible = panel.tabs.filter((t) => tabVisibleHere(state, path, t.id));
   const chosen = state.viewports[path]?.selectedTabIds[panelId];
-  if (chosen !== undefined && panel.tabs.some((t) => t.id === chosen)) {
+  if (chosen !== undefined && visible.some((t) => t.id === chosen)) {
     return chosen;
   }
-  return panel.tabs[0]?.id ?? null;
+  return visible[0]?.id ?? null;
 }
 
 /** The pane a tab focuses, falling back to its first pane. */
 export function selectFocusedPaneId(
-  state: Pick<AppState, "workspaceLayouts" | "viewports" | "activeWorkspacePath">,
+  state: ViewportState,
   tabId: string | null | undefined,
   workspacePath?: string | null,
 ): string | null {
@@ -482,12 +461,7 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * agent whose pane is in this set has been seen, whether the user got there by
  * clicking the agent, switching tabs, focusing a pane, or changing workspace.
  */
-export function selectVisiblePaneIds(
-  state: Pick<
-    AppState,
-    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
-  >,
-): Set<string> {
+export function selectVisiblePaneIds(state: ViewportState): Set<string> {
   const ids = new Set<string>();
   const path = state.activeWorkspacePath;
   if (!path) return ids;
@@ -536,6 +510,120 @@ function viewportOf(
   return state.viewports[path] ?? EMPTY_VIEWPORT;
 }
 
+// ── Claims: who is holding which tab (ADR-179 D4) ──
+
+/** A stable empty list, so a selector reading it does not re-render forever. */
+const NO_CLAIMS: LayoutClaim[] = [];
+
+/**
+ * The tab this window holds, read out of the launch argument.
+ *
+ * Constant for the life of the renderer: a window is opened *as* the holder of
+ * one tab (`--manor-claim=`), and the claim is released by the window closing,
+ * never by it changing its mind. The store's copy of it lives in the
+ * viewport — that is how it reaches the server — and this is where that copy
+ * comes from.
+ */
+export const OWN_CLAIM: { workspacePath: string; tabId: string } | null =
+  (typeof window !== "undefined" && window.electronAPI?.claim) || null;
+
+/** Which bridge this renderer is on; a browser never hides a claimed tab. */
+function rendererPlatform(): RendererPlatform | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : window.electronAPI?.platform;
+}
+
+function claimsOf(
+  state: Partial<Pick<AppState, "claims">>,
+  path: string,
+): LayoutClaim[] {
+  return state.claims?.[path] ?? NO_CLAIMS;
+}
+
+/** Tabs of a workspace this renderer does not show (D4). */
+function hiddenTabsOf(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  layout: WorkspaceLayout,
+): ReadonlySet<string> {
+  return hiddenTabIdsIn(
+    layout,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/** Whether this renderer shows `tabId` of `path` at all (D4). */
+function tabVisibleHere(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  tabId: string,
+): boolean {
+  return isTabVisible(
+    tabId,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/**
+ * `reconcileViewport`, with what this renderer may not select folded in.
+ *
+ * Every viewport write in this store goes through here rather than through
+ * the pure function, so a selection can never land on a tab that is popped
+ * out into another window.
+ */
+function reconcileFor(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  layout: WorkspaceLayout,
+  viewport: WorkspaceViewport,
+): WorkspaceViewport {
+  return reconcileViewport(layout, viewport, hiddenTabsOf(state, path, layout));
+}
+
+/** The tabs of a panel this renderer shows, in the panel's own order (D4). */
+export function selectVisibleTabs(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string | null | undefined,
+  panel: Panel | null | undefined,
+): Tab[] {
+  if (!path || !panel) return [];
+  return visibleTabsFor(
+    panel,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/**
+ * `useVisibleTabs(panel)` — the tabs to render, claims applied.
+ *
+ * Memoised on the three things that decide it, because the filter builds a new
+ * array and a zustand selector returning one on every store change would
+ * re-render the tab bar on every keystroke.
+ */
+export function useVisibleTabs(
+  workspacePath: string | null | undefined,
+  panel: Panel | null | undefined,
+): Tab[] {
+  const claims = useAppStore((s) =>
+    workspacePath ? claimsOf(s, workspacePath) : NO_CLAIMS,
+  );
+  const ownClaim = useAppStore((s) =>
+    workspacePath ? (s.viewports[workspacePath]?.claim ?? null) : null,
+  );
+  const tabs = panel?.tabs;
+  return useMemo(
+    () => visibleTabsFor({ tabs: tabs ?? [] }, claims, rendererPlatform(), ownClaim),
+    [tabs, claims, ownClaim],
+  );
+}
+
 /**
  * The panel this window has the keyboard in, for one workspace.
  *
@@ -558,10 +646,7 @@ function activePanelIdOf(
 }
 
 function getActivePanelContext(
-  state: Pick<
-    AppState,
-    "activeWorkspacePath" | "workspaceLayouts" | "viewports"
-  >,
+  state: ViewportState,
 ): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
   const path = state.activeWorkspacePath;
   if (!path) return null;
@@ -600,7 +685,7 @@ function withViewport(
   const layout = state.workspaceLayouts[path];
   const current = viewportOf(state, path);
   const next = update(current);
-  const reconciled = layout ? reconcileViewport(layout, next) : next;
+  const reconciled = layout ? reconcileFor(state, path, layout, next) : next;
   if (reconciled === current) return {};
   return { viewports: { ...state.viewports, [path]: reconciled } };
 }
@@ -654,27 +739,6 @@ function stepTab(state: AppState, step: 1 | -1): Partial<AppState> {
   return selectTabLocally(state, ctx.path, tabs[nextIdx].tabId);
 }
 
-function updatePanel(
-  state: AppState,
-  path: string,
-  layout: WorkspaceLayout,
-  panelId: string,
-  updater: (panel: Panel) => Panel,
-): Partial<AppState> {
-  const panel = layout.panels[panelId];
-  if (!panel) return {};
-  return {
-    workspaceLayouts: {
-      ...state.workspaceLayouts,
-      [path]: {
-        ...layout,
-        panels: { ...layout.panels, [panelId]: updater(panel) },
-      },
-    },
-  };
-}
-
-/** A diff tab, ready to send: one leaf, marked as a diff in the tree. */
 function diffTab(paneId: string): Tab {
   return {
     id: newTabId(),
@@ -724,27 +788,6 @@ function focusPaneLocally(
     }));
   }
   return {};
-}
-
-/**
- * Repair the viewport after a *local* structural write.
- *
- * The three detach helpers are the last places a renderer changes its own
- * layout without a command (ADR-179 ticket 6 removes them); their patch has
- * to take the viewport with it, or the selection is left pointing at a tab
- * that no longer exists.
- */
-function reconcileAfter(
-  state: AppState,
-  path: string,
-  patch: Partial<AppState>,
-): Partial<AppState> {
-  const layout = patch.workspaceLayouts?.[path];
-  if (!layout) return {};
-  const current = viewportOf(state, path);
-  const next = reconcileViewport(layout, current);
-  if (next === current) return {};
-  return { viewports: { ...state.viewports, [path]: next } };
 }
 
 /** Walk the keyboard one panel along the panel tree. */
@@ -940,31 +983,56 @@ const removingWorkspaces = new Set<string>();
 /**
  * The server changed a workspace. Replace the replica with what it sent.
  *
- * A broadcast at or below the version already held is dropped: replays and
- * the overlap between `layout.getAll()` and the first broadcast after it are
- * both normal, and neither has anything new to say.
+ * A broadcast *below* the version already held is dropped: replays and the
+ * overlap between `layout.getAll()` and the first broadcast after it are both
+ * normal. One at the **same** version is not necessarily stale, though — a
+ * claim changing is a broadcast of its own and carries no new tree (D4), so
+ * the guard compares `(version, claims)` and lets an equal-version broadcast
+ * with different claims through.
  */
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
   const { workspacePath, version, layout, restored, origin, hint } = payload;
+  const claims = payload.claims ?? NO_CLAIMS;
   if (removingWorkspaces.has(workspacePath)) return;
   useAppStore.setState((state) => {
-    if (version <= (state.layoutVersions[workspacePath] ?? 0)) return {};
+    const held = state.layoutVersions[workspacePath] ?? 0;
+    const heldClaims = claimsOf(state, workspacePath);
+    if (version < held) return {};
+    if (version === held && sameClaims(claims, heldClaims)) return {};
     const local = state.workspaceLayouts[workspacePath];
     const seen = {
       serverLayouts: { ...state.serverLayouts, [workspacePath]: layout },
       layoutVersions: { ...state.layoutVersions, [workspacePath]: version },
+      claims: { ...state.claims, [workspacePath]: claims },
     };
     if (!local && workspacePath !== state.activeWorkspacePath) return seen;
 
     const merged = layout;
     // Structure is replaced wholesale; the selection is this window's and
-    // survives, repaired against the tree that just arrived. The command's
-    // selection hint applies only to the renderer that sent it (D3).
+    // survives, repaired against the tree that just arrived — and against the
+    // claims, which say which of its tabs are on screen somewhere else. The
+    // command's selection hint applies only to the renderer that sent it (D3).
     const own = hint && origin && origin.id === rendererId();
     const before = viewportOf(state, workspacePath);
+    const withClaims = { ...state, claims: seen.claims };
+    const hidden = hiddenTabsOf(withClaims, workspacePath, merged);
+    // A detached window's claim belongs in the viewport it reports, and this
+    // is where it is put — not only at boot, because the workspace may be
+    // adopted after it (D4). `reconcileViewport` drops it again if the tab is
+    // not in the tree, which is how this window learns the tab is gone.
+    const start =
+      OWN_CLAIM?.workspacePath === workspacePath &&
+      before.claim !== OWN_CLAIM.tabId
+        ? { ...before, claim: OWN_CLAIM.tabId }
+        : before;
     const viewport = own
-      ? applyHint(merged, reconcileViewport(merged, before), hint)
-      : reconcileViewport(merged, before);
+      ? applyHint(
+          merged,
+          reconcileViewport(merged, start, hidden),
+          hint,
+          hidden,
+        )
+      : reconcileViewport(merged, start, hidden);
 
     const patch: Partial<AppState> = {
       ...seen,
@@ -1032,6 +1100,39 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
 
     return patch;
   });
+
+  checkOwnClaim(workspacePath, claims, layout);
+}
+
+/**
+ * A window that no longer holds its tab has nothing to show, and closes (D4).
+ *
+ * Two ways to lose it, and they land the same: another window claimed the
+ * same tab (claims are exclusive, the newcomer wins), or the tab left the
+ * workspace entirely because somebody closed it. Either way this window is
+ * looking at nothing, which is what the old hand-off expressed by emptying
+ * the popout's store.
+ *
+ * Gated on having been *seen* in the claims at least once, so the broadcast
+ * that arrives between this window booting and its first viewport report —
+ * where nobody holds the tab yet — is not read as a loss.
+ */
+let sawOwnClaim = false;
+
+function checkOwnClaim(
+  workspacePath: string,
+  claims: readonly LayoutClaim[],
+  layout: WorkspaceLayout,
+): void {
+  if (!OWN_CLAIM || OWN_CLAIM.workspacePath !== workspacePath) return;
+  const mine = holdsClaim(claims, rendererId(), OWN_CLAIM.tabId);
+  if (mine) {
+    sawOwnClaim = true;
+    return;
+  }
+  const tabGone = !findPanelWithTab(layout, OWN_CLAIM.tabId);
+  if (!sawOwnClaim && !tabGone) return;
+  window.electronAPI?.window?.closeSelf?.();
 }
 
 /**
@@ -1065,12 +1166,15 @@ function rendererId(): string | null {
 const VIEWPORT_DEBOUNCE_MS = 300;
 
 /**
- * A detached window is a second renderer looking at one tab; persisting its
- * viewport would fight the primary's on the way back in. ADR-179 ticket 6
- * makes it a claim and this goes away.
+ * A claiming window's viewport is ephemeral (D4).
+ *
+ * It is one tab and the pane focused inside it — a fact about a window that
+ * exists only while it is open. Writing it to `viewport.json` would hand the
+ * primary a workspace of one tab on the next launch, which is precisely the
+ * state claims exist to stop happening.
  */
 function persistsViewport(): boolean {
-  return window.electronAPI?.isDetached !== true;
+  return OWN_CLAIM === null;
 }
 
 let viewportTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1124,11 +1228,9 @@ function reportViewport(
   workspacePath: string,
   viewport: WorkspaceViewport,
 ): void {
-  // A detached window holds one handed-off tab under the *source* workspace's
-  // path; its viewport is not an answer to "what is this workspace showing",
-  // and making it the default would hand the next renderer a window of one
-  // tab. ADR-179 ticket 6 makes it a claim and this guard goes.
-  if (!persistsViewport()) return;
+  // A claiming window reports too, and its report is the *only* way the host
+  // learns who is holding what (D4). The server keeps the claim and leaves the
+  // default viewport alone, so one tab never becomes the workspace's default.
   const api = window.electronAPI;
   const id = rendererId();
   if (!api?.layout?.reportViewport || id === null) return;
@@ -1147,6 +1249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   layoutVersions: {},
   serverLayouts: {},
   viewports: {},
+  claims: {},
   activeWorkspacePath: null,
   paneCwd: {},
   paneTitle: {},
@@ -1192,13 +1295,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       // server just handed over, which may have moved on since either was
       // written (ADR-179 D3).
       const viewports: Record<string, WorkspaceViewport> = {};
+      // Who is holding what right now (D4). Handed over with the layout so a
+      // window that opens while a tab is popped out hides it from the first
+      // paint, instead of showing it until the next broadcast.
+      const claims: Record<string, LayoutClaim[]> = {};
       for (const [workspacePath, entry] of Object.entries(entries)) {
         versions[workspacePath] = entry.version;
         fromServer[workspacePath] = entry.layout;
+        claims[workspacePath] = entry.claims ?? [];
         const own = ownViewport?.workspaces?.[workspacePath];
+        // This window's own claim goes in before the reconcile, so the
+        // viewport it produces is already the one-tab view this window has —
+        // and the report that follows is what tells the host about it.
+        const claimed =
+          OWN_CLAIM?.workspacePath === workspacePath
+            ? { claim: OWN_CLAIM.tabId }
+            : {};
         viewports[workspacePath] = reconcileViewport(
           entry.layout,
-          own ?? entry.defaultViewport ?? emptyViewport(),
+          { ...(own ?? entry.defaultViewport ?? emptyViewport()), ...claimed },
+          hiddenTabIdsIn(
+            entry.layout,
+            claims[workspacePath],
+            rendererPlatform(),
+            OWN_CLAIM?.workspacePath === workspacePath
+              ? OWN_CLAIM.tabId
+              : null,
+          ),
         );
         // What the server derived from the PTY events it forwards (D3): the
         // cwd a restored pane reopens in, the title its tab shows.
@@ -1215,6 +1338,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         layoutLoaded: true,
         layoutVersions: { ...state.layoutVersions, ...versions },
         serverLayouts: { ...state.serverLayouts, ...fromServer },
+        claims: { ...claims, ...state.claims },
         viewports: { ...viewports, ...state.viewports },
         paneCwd: { ...state.paneCwd, ...cwds },
         paneTitle: { ...state.paneTitle, ...titles },
@@ -1246,7 +1370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceLayouts: { ...state.workspaceLayouts, [path]: server },
         viewports: {
           ...state.viewports,
-          [path]: reconcileViewport(server, viewportOf(state, path)),
+          [path]: reconcileFor(state, path, server, viewportOf(state, path)),
         },
       };
     }),
@@ -2166,470 +2290,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  // ── Multi-window detach / reattach (ADR-156) ──
-
-  serializeTabForDetach: (tabId: string): DetachedTabPayload => {
-    const state = get();
-
-    // The tab may live in any workspace layout, not just the active one.
-    let foundTab: Tab | null = null;
-    for (const layout of Object.values(state.workspaceLayouts)) {
-      const res = findPanelWithTab(layout, tabId);
-      if (res) {
-        foundTab = res.tab;
-        break;
-      }
-    }
-    if (!foundTab) {
-      throw new Error(`serializeTabForDetach: tab ${tabId} not found`);
-    }
-
-    const paneIds = allPaneIds(foundTab.rootNode);
-    const paneState: DetachedTabPayload["paneState"] = {
-      cwd: {},
-      title: {},
-      contentType: {},
-      url: {},
-      favicon: {},
-      agentStatus: {},
-      audioPlaying: {},
-      audioMuted: {},
-      pickedElement: {},
-    };
-    for (const pid of paneIds) {
-      if (state.paneCwd[pid] !== undefined) paneState.cwd[pid] = state.paneCwd[pid];
-      if (state.paneTitle[pid] !== undefined) paneState.title[pid] = state.paneTitle[pid];
-      if (state.paneContentType[pid] !== undefined) paneState.contentType[pid] = state.paneContentType[pid];
-      if (state.paneUrl[pid] !== undefined) paneState.url[pid] = state.paneUrl[pid];
-      if (state.paneFavicon[pid] !== undefined) paneState.favicon[pid] = state.paneFavicon[pid];
-      if (state.paneAgentStatus[pid] !== undefined) paneState.agentStatus[pid] = state.paneAgentStatus[pid];
-      if (state.paneAudioPlaying[pid] !== undefined) paneState.audioPlaying[pid] = state.paneAudioPlaying[pid];
-      if (state.paneAudioMuted[pid] !== undefined) paneState.audioMuted[pid] = state.paneAudioMuted[pid];
-      if (state.panePickedElement[pid] !== undefined) paneState.pickedElement[pid] = state.panePickedElement[pid];
-    }
-
-    // Resolve the theme the tab is currently painted with — its owning
-    // project's override (or null = global). The detached window applies this so
-    // it matches the workspace instead of falling back to the global theme.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
-      ? null
-      : useProjectStore
-          .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
-
-    const payload: DetachedTabPayload = {
-      tab: {
-        id: foundTab.id,
-        title: foundTab.title,
-        rootNode: foundTab.rootNode,
-        focusedPaneId:
-          selectFocusedPaneId(state, foundTab.id) ??
-          allPaneIds(foundTab.rootNode)[0],
-      },
-      paneState,
-      sourceWorkspacePath,
-      themeName,
-    };
-
-    // Deep-copy so no live store references (rootNode, side-map objects) leak
-    // across the IPC boundary; guarantees a plain, structured-clone-safe value.
-    return structuredClone(payload);
-  },
-
-  removeDetachedTabLocally: (tabId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithTab(ctx.layout, tabId);
-    if (!found) return;
-    const paneIds = allPaneIds(found.tab.rootNode);
-
-    // Release each pane's backend WITHOUT terminating it, so it can re-attach in
-    // the destination window. (closeTab, by contrast, kills these sessions.)
-    for (const pid of paneIds) {
-      const contentType = state.paneContentType[pid];
-      if (contentType === "browser") {
-        window.electronAPI.webview.unregister(pid);
-      } else if (contentType === "diff") {
-        // Diff panes have no backend session to release.
-      } else {
-        // Terminal (default): detach releases the daemon session, keeping it alive.
-        window.electronAPI.pty.detach(pid);
-      }
-    }
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
-      const currentFound = findPanelWithTab(layout, tabId);
-      if (!currentFound) return s;
-      const { panel } = currentFound;
-
-      const newTabs = panel.tabs.filter((t) => t.id !== tabId);
-
-      // Drop the tab's entries from every per-pane side-map.
-      const newCwd = { ...s.paneCwd };
-      const newTitle = { ...s.paneTitle };
-      const newAgentStatus = { ...s.paneAgentStatus };
-      const newContentType = { ...s.paneContentType };
-      const newFavicon = { ...s.paneFavicon };
-      const newAudioPlaying = { ...s.paneAudioPlaying };
-      const newAudioMuted = { ...s.paneAudioMuted };
-      const newPaneUrl = { ...s.paneUrl };
-      const newPickedElement = { ...s.panePickedElement };
-      for (const pid of paneIds) {
-        delete newCwd[pid];
-        delete newTitle[pid];
-        delete newAgentStatus[pid];
-        delete newContentType[pid];
-        delete newFavicon[pid];
-        delete newAudioPlaying[pid];
-        delete newAudioMuted[pid];
-        delete newPaneUrl[pid];
-        delete newPickedElement[pid];
-      }
-
-      const sideMaps = {
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneFavicon: newFavicon,
-        paneAudioPlaying: newAudioPlaying,
-        paneAudioMuted: newAudioMuted,
-        paneUrl: newPaneUrl,
-        panePickedElement: newPickedElement,
-      };
-
-      // Collapse an emptied panel exactly the way closeTab does.
-      const willRemovePanel =
-        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
-      if (willRemovePanel) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const nextLayout = {
-          ...layout,
-          panelTree: newPanelTree ?? layout.panelTree,
-          panels: remainingPanels,
-        };
-        return {
-          ...sideMaps,
-          workspaceLayouts: { ...s.workspaceLayouts, [path]: nextLayout },
-          viewports: {
-            ...s.viewports,
-            [path]: reconcileViewport(nextLayout, viewportOf(s, path)),
-          },
-        };
-      }
-
-      const withoutTab = updatePanel(s, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
-        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
-      }));
-      return {
-        ...sideMaps,
-        ...withoutTab,
-        ...reconcileAfter(s, path, withoutTab),
-      };
-    });
-  },
-
-  serializePaneForDetach: (paneId: string): DetachedTabPayload => {
-    const state = get();
-
-    // The pane may live in any workspace layout, not just the active one.
-    let foundTab: Tab | null = null;
-    for (const layout of Object.values(state.workspaceLayouts)) {
-      const res = findPanelWithPane(layout, paneId);
-      if (res) {
-        foundTab = res.tab;
-        break;
-      }
-    }
-    if (!foundTab) {
-      throw new Error(`serializePaneForDetach: pane ${paneId} not found`);
-    }
-
-    // A detached pane is a single-leaf tab; copy only this pane's side-map
-    // entries into the payload.
-    const paneState: DetachedTabPayload["paneState"] = {
-      cwd: {},
-      title: {},
-      contentType: {},
-      url: {},
-      favicon: {},
-      agentStatus: {},
-      audioPlaying: {},
-      audioMuted: {},
-      pickedElement: {},
-    };
-    if (state.paneCwd[paneId] !== undefined) paneState.cwd[paneId] = state.paneCwd[paneId];
-    if (state.paneTitle[paneId] !== undefined) paneState.title[paneId] = state.paneTitle[paneId];
-    if (state.paneContentType[paneId] !== undefined) paneState.contentType[paneId] = state.paneContentType[paneId];
-    if (state.paneUrl[paneId] !== undefined) paneState.url[paneId] = state.paneUrl[paneId];
-    if (state.paneFavicon[paneId] !== undefined) paneState.favicon[paneId] = state.paneFavicon[paneId];
-    if (state.paneAgentStatus[paneId] !== undefined) paneState.agentStatus[paneId] = state.paneAgentStatus[paneId];
-    if (state.paneAudioPlaying[paneId] !== undefined) paneState.audioPlaying[paneId] = state.paneAudioPlaying[paneId];
-    if (state.paneAudioMuted[paneId] !== undefined) paneState.audioMuted[paneId] = state.paneAudioMuted[paneId];
-    if (state.panePickedElement[paneId] !== undefined) paneState.pickedElement[paneId] = state.panePickedElement[paneId];
-
-    // Resolve the theme/workspace exactly as serializeTabForDetach does.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
-      ? null
-      : useProjectStore
-          .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
-
-    const payload: DetachedTabPayload = {
-      tab: {
-        id: newTabId(),
-        title: "Terminal",
-        rootNode: { type: "leaf", paneId },
-        focusedPaneId: paneId,
-      },
-      paneState,
-      sourceWorkspacePath,
-      themeName,
-    };
-
-    // Deep-copy so no live store references leak across the IPC boundary.
-    return structuredClone(payload);
-  },
-
-  removeDetachedPaneLocally: (paneId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithPane(ctx.layout, paneId);
-    if (!found) return;
-
-    // Release this pane's backend WITHOUT terminating it, so it can re-attach in
-    // the destination window.
-    const contentType = state.paneContentType[paneId];
-    if (contentType === "browser") {
-      window.electronAPI.webview.unregister(paneId);
-    } else if (contentType === "diff") {
-      // Diff panes have no backend session to release.
-    } else {
-      // Terminal (default): detach releases the daemon session, keeping it alive.
-      window.electronAPI.pty.detach(paneId);
-    }
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
-      const currentFound = findPanelWithPane(layout, paneId);
-      if (!currentFound) return s;
-      const { panel, tab } = currentFound;
-
-      const remaining = removePane(tab.rootNode, paneId);
-
-      // Pane was one of several — collapse the split and keep the tab.
-      if (remaining) {
-        const patch = updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((t) =>
-            t.id === tab.id ? { ...t, rootNode: remaining } : t,
-          ),
-        }));
-        return { ...patch, ...reconcileAfter(s, path, patch) };
-      }
-
-      // Pane was the tab's sole leaf — remove the whole tab exactly as
-      // removeDetachedTabLocally does, and drop this pane's side-map entries.
-      const newTabs = panel.tabs.filter((t) => t.id !== tab.id);
-
-      const newCwd = { ...s.paneCwd };
-      const newTitle = { ...s.paneTitle };
-      const newAgentStatus = { ...s.paneAgentStatus };
-      const newContentType = { ...s.paneContentType };
-      const newFavicon = { ...s.paneFavicon };
-      const newAudioPlaying = { ...s.paneAudioPlaying };
-      const newAudioMuted = { ...s.paneAudioMuted };
-      const newPaneUrl = { ...s.paneUrl };
-      const newPickedElement = { ...s.panePickedElement };
-      delete newCwd[paneId];
-      delete newTitle[paneId];
-      delete newAgentStatus[paneId];
-      delete newContentType[paneId];
-      delete newFavicon[paneId];
-      delete newAudioPlaying[paneId];
-      delete newAudioMuted[paneId];
-      delete newPaneUrl[paneId];
-      delete newPickedElement[paneId];
-
-      const sideMaps = {
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneFavicon: newFavicon,
-        paneAudioPlaying: newAudioPlaying,
-        paneAudioMuted: newAudioMuted,
-        paneUrl: newPaneUrl,
-        panePickedElement: newPickedElement,
-      };
-
-      // Collapse an emptied panel exactly the way removeDetachedTabLocally does.
-      const willRemovePanel =
-        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
-      if (willRemovePanel) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const nextLayout = {
-          ...layout,
-          panelTree: newPanelTree ?? layout.panelTree,
-          panels: remainingPanels,
-        };
-        return {
-          ...sideMaps,
-          workspaceLayouts: { ...s.workspaceLayouts, [path]: nextLayout },
-          viewports: {
-            ...s.viewports,
-            [path]: reconcileViewport(nextLayout, viewportOf(s, path)),
-          },
-        };
-      }
-
-      const withoutTab = updatePanel(s, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
-        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tab.id),
-      }));
-      return {
-        ...sideMaps,
-        ...withoutTab,
-        ...reconcileAfter(s, path, withoutTab),
-      };
-    });
-  },
-
-  hydrateDetachedTab: (payload: DetachedTabPayload) =>
-    set((state) => {
-      const tab: Tab = {
-        id: payload.tab.id,
-        title: payload.tab.title,
-        rootNode: payload.tab.rootNode,
-      };
-      const layout = createSinglePanelLayout(newPanelId(), [tab], []);
-      const key = payload.sourceWorkspacePath;
-      const ps = payload.paneState;
-
-      // Side-map value types are non-null; skip any null entries when merging.
-      const mergeDefined = <T>(
-        base: Record<string, T>,
-        src: Record<string, T | null>,
-      ): Record<string, T> => {
-        const out = { ...base };
-        for (const [pid, value] of Object.entries(src)) {
-          if (value !== null && value !== undefined) out[pid] = value;
-        }
-        return out;
-      };
-
-      return {
-        workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
-        viewports: {
-          ...state.viewports,
-          [key]: reconcileViewport(layout, {
-            activePanelId: null,
-            selectedTabIds: {},
-            focusedPaneIds: { [tab.id]: payload.tab.focusedPaneId },
-          }),
-        },
-        activeWorkspacePath: key,
-        layoutLoaded: true,
-        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
-        paneTitle: mergeDefined(state.paneTitle, ps.title),
-        paneContentType: { ...state.paneContentType, ...ps.contentType },
-        paneUrl: mergeDefined(state.paneUrl, ps.url),
-        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
-        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
-        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
-        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
-        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
-      };
-    }),
-
-  receiveReattachedTab: (payload: DetachedTabPayload) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const targetPanelId = activePanelIdOf(state, path);
-      const targetPanel = targetPanelId
-        ? layout.panels[targetPanelId]
-        : undefined;
-      if (!targetPanel || !targetPanelId) return state;
-
-      const tab: Tab = {
-        id: payload.tab.id,
-        title: payload.tab.title,
-        rootNode: payload.tab.rootNode,
-      };
-
-      // Insert into the active panel the same way moveTabToPanel does: append to
-      // the panel's tabs and select the reattached tab.
-      const targetTabs = [...targetPanel.tabs, tab];
-      const ps = payload.paneState;
-
-      // Side-map value types are non-null; skip any null entries when merging.
-      const mergeDefined = <T>(
-        base: Record<string, T>,
-        src: Record<string, T | null>,
-      ): Record<string, T> => {
-        const out = { ...base };
-        for (const [pid, value] of Object.entries(src)) {
-          if (value !== null && value !== undefined) out[pid] = value;
-        }
-        return out;
-      };
-
-      const nextLayout: WorkspaceLayout = {
-        ...layout,
-        panels: {
-          ...layout.panels,
-          [targetPanelId]: { ...targetPanel, tabs: targetTabs },
-        },
-      };
-      return {
-        workspaceLayouts: { ...state.workspaceLayouts, [path]: nextLayout },
-        viewports: {
-          ...state.viewports,
-          [path]: reconcileViewport(nextLayout, {
-            ...viewportOf(state, path),
-            activePanelId: targetPanelId,
-            selectedTabIds: {
-              ...viewportOf(state, path).selectedTabIds,
-              [targetPanelId]: tab.id,
-            },
-            focusedPaneIds: {
-              ...viewportOf(state, path).focusedPaneIds,
-              [tab.id]: payload.tab.focusedPaneId,
-            },
-          }),
-        },
-        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
-        paneTitle: mergeDefined(state.paneTitle, ps.title),
-        paneContentType: { ...state.paneContentType, ...ps.contentType },
-        paneUrl: mergeDefined(state.paneUrl, ps.url),
-        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
-        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
-        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
-        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
-        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
-      };
-    }),
 }));
 
 // ── The server's broadcasts land here (ADR-179 D1) ──
@@ -2639,14 +2299,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 // resolution is delivered, and the version guard drops it if the read already
 // had it.
 //
-// Detached windows (ADR-156) are the one exception. They share a
-// `workspacePath` with the primary while holding a single handed-off tab, so
-// a broadcast for that workspace would replace their whole layout with the
-// primary's. ADR-179 ticket 6 makes a detached window a *claim* on a tab of
-// the shared layout and this exception goes with it.
-if (!window.electronAPI?.isDetached) {
-  window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
-}
+// Every renderer, detached windows included (ADR-179 D4): a detached window
+// is a viewport with a claim on one tab of the *shared* layout, not a second
+// store holding a tab of its own, so it hears about the workspace exactly
+// like the primary does and shows the one tab it holds.
+window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 
 // ── This renderer's viewport, out to its file and to the host (D3) ──
 //

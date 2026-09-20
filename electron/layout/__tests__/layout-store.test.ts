@@ -87,13 +87,28 @@ describe("LayoutStore", () => {
   let kill: ReturnType<typeof vi.fn>;
   let store: LayoutStore;
 
-  function makeStore(): LayoutStore {
+  function makeStore(primaryId = "primary"): LayoutStore {
     return new LayoutStore(
       persistence,
       (payload) => {
         broadcasts.push(payload);
       },
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
+      (rendererId) => rendererId === primaryId,
+    );
+  }
+
+  /** A window's viewport report, optionally holding one tab (ADR-179 D4). */
+  function report(windowId: string, claim?: string): void {
+    store.reportViewport(
+      WS,
+      { kind: "window", id: windowId },
+      {
+        activePanelId: "panel-1",
+        selectedTabIds: { "panel-1": "tab-1" },
+        focusedPaneIds: { "tab-1": "pane-1" },
+        ...(claim !== undefined && { claim }),
+      },
     );
   }
 
@@ -597,6 +612,45 @@ describe("LayoutStore", () => {
       });
     });
 
+    it("prefers the primary window's own report", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+
+      // A second window reports first; with no primary report yet it stands
+      // in, and it stops standing in the moment the primary speaks.
+      store.reportViewport(
+        WS,
+        { kind: "window", id: "other" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+        },
+      );
+      expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
+        "tab-1": "pane-diff",
+      });
+
+      report("primary");
+      expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
+        "tab-1": "pane-1",
+      });
+
+      // And a later report from the other window does not take it back.
+      store.reportViewport(
+        WS,
+        { kind: "window", id: "other" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+        },
+      );
+      expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
+        "tab-1": "pane-1",
+      });
+    });
+
     it("stands in for the primary only when a window reported it", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
@@ -624,6 +678,165 @@ describe("LayoutStore", () => {
       expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
         "tab-1": "pane-1",
       });
+    });
+  });
+
+  describe("claims (D4)", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      broadcasts = [];
+    });
+
+    it("records a window's claim and broadcasts it at the same version", () => {
+      report("window-2", "tab-1");
+
+      expect(store.claimsFor(WS)).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+      expect(broadcasts).toHaveLength(1);
+      // Nothing structural happened: the tree and its version are untouched,
+      // which is why a renderer's guard compares `(version, claims)`.
+      expect(lastBroadcast().version).toBe(0);
+      expect(lastBroadcast().layout).toBe(store.get(WS)!.layout);
+      expect(lastBroadcast().claims).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+    });
+
+    it("repeats itself silently — a report per keystroke is normal", () => {
+      report("window-2", "tab-1");
+      report("window-2", "tab-1");
+
+      expect(broadcasts).toHaveLength(1);
+    });
+
+    it("keeps a claiming window out of the default viewport", () => {
+      report("primary");
+      const primaryDefault = store.get(WS)!.defaultViewport;
+
+      store.reportViewport(
+        WS,
+        { kind: "window", id: "window-2" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: { "panel-1": "tab-1" },
+          focusedPaneIds: { "tab-1": "pane-diff" },
+          claim: "tab-1",
+        },
+      );
+
+      // A workspace of one tab is exactly what the next renderer must not be
+      // handed, so a claiming report leaves the default alone.
+      expect(store.get(WS)!.defaultViewport).toEqual(primaryDefault);
+      expect(store.primaryViewport(WS)).toEqual(primaryDefault);
+    });
+
+    it("ignores a claim from a bridge socket", () => {
+      store.reportViewport(
+        WS,
+        { kind: "bridge", id: "phone" },
+        {
+          activePanelId: "panel-1",
+          selectedTabIds: {},
+          focusedPaneIds: {},
+          claim: "tab-1",
+        },
+      );
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      expect(broadcasts).toHaveLength(0);
+    });
+
+    it("releases a claim when the window reports without one", () => {
+      report("window-2", "tab-1");
+      broadcasts = [];
+
+      report("window-2");
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      expect(lastBroadcast().claims).toEqual([]);
+    });
+
+    it("releases a claim when the window dies", () => {
+      report("window-2", "tab-1");
+      broadcasts = [];
+
+      store.releaseWindow("window-2");
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      expect(lastBroadcast().claims).toEqual([]);
+      // A window that never claimed anything says nothing on the way out.
+      broadcasts = [];
+      store.releaseWindow("window-3");
+      expect(broadcasts).toHaveLength(0);
+    });
+
+    it("gives the tab to the second window that claims it", () => {
+      report("window-2", "tab-1");
+      report("window-3", "tab-1");
+
+      expect(store.claimsFor(WS)).toEqual([
+        { windowId: "window-3", tabId: "tab-1" },
+      ]);
+      // The loser hears about it on a broadcast that no longer names it, and
+      // closes itself — today's behaviour when a tab is torn off twice.
+      expect(lastBroadcast().claims).toEqual([
+        { windowId: "window-3", tabId: "tab-1" },
+      ]);
+    });
+
+    it("drops a claim on a tab that leaves the tree", async () => {
+      report("window-2", "tab-1");
+      broadcasts = [];
+
+      await store.apply(
+        WS,
+        { type: "close-tab", tabId: "tab-1" },
+        { kind: "window", id: "primary" },
+      );
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      expect(lastBroadcast().claims).toEqual([]);
+      expect(lastBroadcast().version).toBe(1);
+    });
+
+    it("keeps a claim on a tab that does not exist yet", async () => {
+      // "Move pane to new window" claims the tab its command is about to
+      // create, and the window reports before or after the tree catches up.
+      report("window-2", "tab-later");
+      await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "window", id: "primary" },
+      );
+
+      expect(store.claimsFor(WS)).toEqual([
+        { windowId: "window-2", tabId: "tab-later" },
+      ]);
+    });
+
+    it("rides on every structural broadcast", async () => {
+      report("window-2", "tab-1");
+      await store.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "window", id: "primary" },
+      );
+
+      expect(lastBroadcast().claims).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+      expect(store.get(WS)!.claims).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+    });
+
+    it("forgets the claims of a workspace that is going away", () => {
+      report("window-2", "tab-1");
+      store.remove(WS);
+
+      expect(store.claimsFor(WS)).toEqual([]);
     });
   });
 

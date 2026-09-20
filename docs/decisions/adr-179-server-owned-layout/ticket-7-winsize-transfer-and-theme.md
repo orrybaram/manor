@@ -1,6 +1,6 @@
 ---
 title: Winsize ownership transfers live; followers are told; theme broadcasts
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [3]
@@ -44,6 +44,13 @@ ADR-179 D6, closing ADR-178's recorded slice-1 gaps.
   across reconnects: the client sends its previous id in `hello`, the server
   reuses it if unclaimed. This also keeps `pty-attachments` viewer identity
   stable across a blip, which the ownership rules below need.
+
+## Carried over from ticket 6's report
+
+- `LayoutStore.remove(workspacePath)` drops that workspace's claims without a
+  broadcast, so a popout whose worktree was deleted shows a splash instead of
+  closing. Broadcast the claim change (same version) from `remove` so
+  `checkOwnClaim` closes it.
 
 ## Theme
 

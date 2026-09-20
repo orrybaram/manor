@@ -1,6 +1,6 @@
 ---
 title: A detached window is a claim on one tab of the shared layout
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [4]

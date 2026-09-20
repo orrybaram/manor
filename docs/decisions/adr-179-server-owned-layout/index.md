@@ -194,6 +194,12 @@ therefore be sent only after the dialog, which is how the actions already
 behave. Claims are a new bit of server state that must be cleared on window
 death or a tab becomes invisible everywhere.
 
+**Deliberately dropped with the hand-off.** Dragging a tab or pane *into*
+another desktop window no longer transfers it: from a detached window the
+gesture closes it (the tab is already in the primary), from the primary it is
+a no-op. "Drop onto a specific window" would mean "that window claims this
+tab" — a small new IPC, not built here.
+
 **Amends.** ADR-156 and ADR-157 (detach semantics), ADR-152 (`list_panes`
 source), ADR-178 D10's intermediate state.
 

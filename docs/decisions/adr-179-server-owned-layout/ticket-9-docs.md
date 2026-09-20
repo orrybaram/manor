@@ -1,6 +1,6 @@
 ---
 title: Docs — read-and-type is over; ADR-156/157/152/178 amended
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [8]

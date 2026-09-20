@@ -1,6 +1,6 @@
 ---
 title: Pending pane commands live on the server; start-agent no longer needs a window
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [5]

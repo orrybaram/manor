@@ -31,6 +31,10 @@ blocked_by: [8]
   `extract-pane-to-tab` on an already-sole tab is a pure viewport op (the
   reducer returns unchanged; the sender selects locally).
 
+- `docs/remote-control.md` and any CLI/MCP docs that say `start-agent`,
+  `split_pane`, `new_tab` need a desktop window: they no longer do (tickets 5
+  and 11). Say so where the old caveat was.
+
 ## Files to touch
 - `docs/remote-control.md`
 - `docs/decisions/adr-15{2,6,7}-*/index.md`, `docs/decisions/adr-178-*/index.md`

@@ -12,7 +12,7 @@ import type { IpcDeps } from "./types";
  */
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
-/** Lifted for the ADR-178 bridge; see `electron/remote-control/ws-handlers.ts`. */
+/** Lifted for the ADR-178 bridge; see `electron/bridge/handlers.ts`. */
 export function statsGetSummary(deps: IpcDeps): unknown {
   return deps.statsStore.getSummary();
 }

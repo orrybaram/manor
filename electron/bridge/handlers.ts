@@ -1,5 +1,11 @@
 /**
- * What `ns.method` means on the ADR-178 bridge (D8).
+ * What `ns.method` means on the bridge (ADR-178 D8, ADR-180 D1).
+ *
+ * One table, every caller: a paired `full` device over the WebSocket today,
+ * and every Electron renderer window too once ADR-180 D2's IPC transport
+ * joins them. It lives in `electron/bridge/` rather than in
+ * `remote-control/` because it was never about remote control; being
+ * reachable from a phone was the first use it had, not the shape of it.
  *
  * A flat table of plain functions over `IpcDeps` — the same deps object the
  * `electron/ipc/*` modules get, because inventing a second one would be the
@@ -89,13 +95,6 @@ import type { PersistedDefaultViewport } from "../terminal-host/layout-persisten
 import type { LayoutOrigin } from "../layout/layout-store";
 
 /**
- * The `code` on a rejected result frame for anything the bridge does not do.
- * The client turns it into `BridgeUnavailableError` (ticket 4), which the
- * renderer renders as a stated empty state.
- */
-export const UNAVAILABLE_CODE = "unavailable:web";
-
-/**
  * A handler the bridge may call.
  *
  * `never[]` rather than `unknown[]`: the entries below declare the argument
@@ -105,23 +104,6 @@ export const UNAVAILABLE_CODE = "unavailable:web";
  * exactly why every entry runs the `assert*` validation the desktop path runs.
  */
 export type BridgeHandler = (deps: IpcDeps, ...args: never[]) => unknown;
-
-/**
- * A method that is in the table on purpose and refuses on purpose.
- *
- * Refusing beats silently dropping: a browser whose call is quietly discarded
- * has lost the user's work without being able to say so. No entry refuses
- * today — ADR-179 moved layout to the Manor server and `layout.save`, the
- * last one, went with it — but the shape stays, because the next method that
- * is deliberately unavailable should refuse rather than 404.
- */
-export class BridgeRefusal extends Error {
-  readonly code = UNAVAILABLE_CODE;
-  constructor(message: string) {
-    super(message);
-    this.name = "BridgeRefusal";
-  }
-}
 
 /** What a create-shaped call tells the browser about the winsize (D5). */
 export interface WinsizeDecoration {
@@ -137,7 +119,7 @@ export interface WinsizeDecoration {
  *
  * Never throws: a browser that cannot be told the owner's size is better off
  * with the size it asked for than with a failed `pty.create`. Exported for
- * `ws-bridge-server.ts`'s ownership-change push (D6), which needs the same
+ * `server.ts`'s ownership-change push (D6), which needs the same
  * "ask the daemon, shrug on failure" grid lookup outside of a create call.
  */
 export async function sessionGrid(
@@ -188,7 +170,7 @@ async function createShaped<T extends { ok: boolean }>(
   };
 }
 
-export const WS_HANDLERS: Record<string, BridgeHandler> = {
+export const HANDLERS: Record<string, BridgeHandler> = {
   // ── pty: the terminal itself ──
   // `create` and `reset` answer with who owns the winsize, and attach the
   // calling connection as a viewer once they succeed — the bridge's half of
@@ -428,3 +410,22 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "preferences.set",
   "agents.setPaneContext",
 ]);
+
+/**
+ * Methods a paired device may not call, however `full` its tier (ADR-180 D4).
+ *
+ * The other half of `BridgeRefusal`: that one is a handler refusing everyone,
+ * this is the table refusing one class of caller. `local` — an Electron
+ * renderer window on this machine — is authenticated by being one, and may
+ * call anything here; a `device` calling one of these gets `unavailable:web`,
+ * which is exactly what it gets today from a method simply being absent. The
+ * difference is that it becomes a decision written down rather than a hole,
+ * and `allowlist.test.ts` can assert the list instead of asserting silence.
+ *
+ * Empty until the desktop's own methods arrive on this table: the ones this
+ * is for — `keybindings.set`/`reset`/`resetAll`, `remoteControl.setEnabled`/
+ * `pair`/`revoke`/`tunnel.*`, `viewport.load`/`save` and the prewarm pair —
+ * are not on it yet, and naming them before they exist would be a list of
+ * methods that refuse nothing.
+ */
+export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>();

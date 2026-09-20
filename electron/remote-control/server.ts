@@ -62,7 +62,7 @@ import {
   CLOSE_UNAUTHORIZED,
   type BridgeAuthResult,
   type WsBridgeServer,
-} from "./ws-bridge-server";
+} from "../bridge/transports/ws";
 
 /** What the listener needs of a device. `RemoteDeviceStore` satisfies it. */
 export interface AuthenticatedDevice {

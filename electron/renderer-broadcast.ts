@@ -11,7 +11,7 @@
  * when a thing changed.
  *
  * Electron-free on purpose, and a leaf: `notifications.ts` and
- * `renderer-bridge.ts` publish into it, `remote-control/ws-bridge-server.ts`
+ * `renderer-bridge.ts` publish into it, `bridge/server.ts`
  * subscribes, and neither has to import the other.
  *
  * `ns`/`event` are the bridge's names for the channel, not Electron's:

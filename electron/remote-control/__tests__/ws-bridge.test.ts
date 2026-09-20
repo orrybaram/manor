@@ -15,7 +15,7 @@ import { WebSocket } from "ws";
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
-import { WsBridgeServer } from "../ws-bridge-server";
+import { WsBridgeServer } from "../../bridge/transports/ws";
 import { attach, release, resetAttachments } from "../../pty-attachments";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import { LayoutStore } from "../../layout/layout-store";

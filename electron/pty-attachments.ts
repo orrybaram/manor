@@ -63,8 +63,8 @@ const holders = new Map<string, Viewer[]>();
 /**
  * A sink told which panes just got a new answer to `ownerOf`.
  *
- * `ws-bridge-server.ts` is the one subscriber that exists today: it looks up
- * each changed pane's current grid and tells every socket watching it
+ * `bridge/server.ts` is the one subscriber that exists today: it looks up
+ * each changed pane's current grid and tells every connection watching it
  * `owner: boolean`, so a follower whose owner disappeared — or a follower who
  * just became the owner — hears about it without having to ask again. This
  * module stays Electron-free and ignorant of sockets, the same reason

@@ -1,6 +1,6 @@
 ---
 title: The bridge becomes a server with transports
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

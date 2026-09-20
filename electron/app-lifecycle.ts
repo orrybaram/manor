@@ -37,7 +37,8 @@ import { PrewarmManager } from "./prewarm-manager";
 import { releaseViewer } from "./pty-attachments";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
-import { WsBridgeServer } from "./remote-control/ws-bridge-server";
+import { BridgeServer } from "./bridge/server";
+import { WsBridgeServer } from "./bridge/transports/ws";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
@@ -366,10 +367,12 @@ export function initApp(devTitle: string | null): void {
     remotePush,
   );
   /**
-   * ADR-178's WebSocket bridge. Declared here and built below, once `ipcDeps`
-   * exists: its handler table runs against exactly that object, and the PTY
-   * forwarding below has to be able to see it before it is assigned.
+   * The host surface and its WebSocket transport (ADR-180 D1). Declared here
+   * and built below, once `ipcDeps` exists: the handler table runs against
+   * exactly that object, and the PTY forwarding below has to be able to see
+   * the bridge before it is assigned.
    */
+  let bridgeServer: BridgeServer | null = null;
   let wsBridge: WsBridgeServer | null = null;
 
   const paneContextMap = new Map<
@@ -495,9 +498,12 @@ export function initApp(devTitle: string | null): void {
     },
   };
 
-  // The web app's bridge (ADR-178 D8). Same deps the IPC handlers get, by
-  // design: one table of what this host can do, reachable two ways.
-  wsBridge = new WsBridgeServer(ipcDeps);
+  // The bridge (ADR-178 D8, ADR-180 D1). Same deps the IPC handlers get, by
+  // design: one table of what this host can do, reachable two ways. The
+  // surface is built here rather than inside the transport because it is the
+  // thing the *next* transport attaches to as well.
+  bridgeServer = new BridgeServer(ipcDeps);
+  wsBridge = new WsBridgeServer(ipcDeps, { server: bridgeServer });
   remoteControlServer.setBridge(wsBridge);
 
   // Give control routes (ADR-171) the same manager bag IPC handlers have.
@@ -664,9 +670,11 @@ export function initApp(devTitle: string | null): void {
     // Takes the tunnel down first, then the listener. A tunnel must never
     // outlive the app that opened it.
     void remoteControl.shutdown();
-    // Bridge sockets die with the listener above; this also releases the
-    // renderer-broadcast sink so nothing publishes into a dead socket set.
+    // Bridge sockets die with the listener above; disposing the surface then
+    // releases the renderer-broadcast and attachment sinks so nothing
+    // publishes into a connection set that is gone.
     wsBridge?.dispose();
+    bridgeServer?.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

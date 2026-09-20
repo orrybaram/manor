@@ -9,7 +9,7 @@ import type { IpcDeps } from "./types";
  * mutation here re-broadcasts the whole list through the single send-site in
  * `../notifications`.
  */
-/** Lifted for the ADR-178 bridge; see `electron/remote-control/ws-handlers.ts`. */
+/** Lifted for the ADR-178 bridge; see `electron/bridge/handlers.ts`. */
 export function notificationsGetAll(deps: IpcDeps): unknown {
   return deps.notificationStore.getAll();
 }

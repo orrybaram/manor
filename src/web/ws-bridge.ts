@@ -5,14 +5,14 @@
  * across 27 namespaces, each of them an `ipcRenderer.invoke` or an
  * `ipcRenderer.on`. The web renderer is the same 118 `.tsx` files with no
  * preload under them, so this module installs an object of the same shape
- * whose methods are frames on the `/ws` socket `ws-bridge-server.ts` answers.
+ * whose methods are frames on the `/ws` socket `electron/bridge/transports/ws.ts` answers.
  * Sixty-six files call into that object and not one of them changes.
  *
  * **A `Proxy` rather than 219 written-out methods.** The alternative is a
  * hand-maintained mirror of `src/electron.d.ts` that is wrong the first time
  * someone adds a method and does not notice this file. The proxy is not
  * clever about which methods exist — it cannot be, and it should not try: the
- * authority on what the host implements is `WS_HANDLERS`, and a method absent
+ * authority on what the host implements is `HANDLERS`, and a method absent
  * from it comes back as `unavailable:web` from the one place that knows.
  *
  * Two rules turn a property access into a frame:
@@ -36,15 +36,15 @@
 import type { ElectronAPI } from "../electron";
 import { LOCALLY_SERVED, UNAVAILABLE_NAMESPACES } from "./unavailable";
 
-/** Mirrors `UNAVAILABLE_CODE` in `electron/remote-control/ws-handlers.ts`. */
+/** Mirrors `UNAVAILABLE_CODE` in `electron/bridge/types.ts`. */
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /** Where `web-main.tsx` keeps the pairing token this bridge says hello with. */
 export const WEB_TOKEN_KEY = "manor.web.token";
 
-/** `ws-bridge-server.ts`'s `CLOSE_UNAUTHORIZED`: re-pair this device. */
+/** `bridge/transports/ws.ts`'s `CLOSE_UNAUTHORIZED`: re-pair this device. */
 const CLOSE_UNAUTHORIZED = 4401;
-/** `ws-bridge-server.ts`'s `CLOSE_FORBIDDEN`: paired, but below `full`. */
+/** `bridge/transports/ws.ts`'s `CLOSE_FORBIDDEN`: paired, but below `full`. */
 const CLOSE_FORBIDDEN = 4403;
 
 /** First reconnect delay, and the ceiling it doubles towards. */
@@ -129,7 +129,7 @@ interface Pending {
  * `renderer-broadcast.ts` named the *fact*: main broadcasts that preferences
  * `changed`, and the renderer asked to be told `onChange`. The list is short
  * and closed — it is the full set of non-`pty` events the server publishes
- * (see `onRendererBroadcast` in `ws-bridge-server.ts`) whose preload name does
+ * (see `onRendererBroadcast` in `bridge/server.ts`) whose preload name does
  * not already match. `notifications.onChanged` and `stats.onChanged` are
  * absent because they need no help.
  */

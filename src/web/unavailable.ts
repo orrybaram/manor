@@ -1,7 +1,7 @@
 /**
  * What the browser refuses without asking the host (ADR-178 D8).
  *
- * The bridge could let every one of these round-trip: `ws-handlers.ts` has no
+ * The bridge could let every one of these round-trip: `bridge/handlers.ts` has no
  * entry for `webview.*` or `dialog.*` either, so the server would answer
  * `unavailable:web` and the client would raise the same error. The table
  * exists anyway for two reasons. A `<webview>` is not missing from the web
@@ -15,7 +15,7 @@
  * Kept deliberately small. A namespace goes in here only when *no* method on
  * it could ever work in a browser; anything that is merely unimplemented today
  * stays out, so that implementing it server-side is one entry in
- * `WS_HANDLERS` and nothing here.
+ * `HANDLERS` and nothing here.
  */
 
 /**

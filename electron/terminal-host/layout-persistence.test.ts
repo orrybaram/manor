@@ -228,69 +228,6 @@ describe("LayoutPersistence", () => {
     });
   });
 
-  describe("saveWorkspace", () => {
-    it("adds workspace if layout doesn't exist yet", () => {
-      const workspace = makeV2Workspace(
-        "/project/main",
-        [makeLeafTab("p1", "ds1")],
-        "x",
-      );
-
-      persistence.saveWorkspace(workspace);
-
-      const loaded = persistence.load();
-      expect(loaded).not.toBeNull();
-      expect(loaded!.workspaces).toHaveLength(1);
-      expect(loaded!.workspaces[0].workspacePath).toBe("/project/main");
-    });
-
-    it("upserts by workspacePath", () => {
-      // Save initial
-      persistence.saveWorkspace(
-        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
-      );
-
-      // Update same workspace
-      persistence.saveWorkspace(
-        makeV2Workspace(
-          "/project/main",
-          [makeLeafTab("p1", "ds1"), makeLeafTab("p2", "ds2")],
-          "y",
-        ),
-      );
-
-      const loaded = persistence.load();
-      expect(loaded!.workspaces).toHaveLength(1);
-      const panels = Object.values(loaded!.workspaces[0].panels);
-      expect(panels[0].tabs).toHaveLength(2);
-    });
-
-    it("doesn't clobber other workspaces", () => {
-      persistence.saveWorkspace(
-        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
-      );
-
-      persistence.saveWorkspace(
-        makeV2Workspace("/project/feature", [makeLeafTab("p2", "ds2")], "y"),
-      );
-
-      const loaded = persistence.load();
-      expect(loaded!.workspaces).toHaveLength(2);
-    });
-
-    it("records the saved workspace as the last-active surface", () => {
-      persistence.saveWorkspace(
-        makeV2Workspace("/project/main", [makeLeafTab("p1", "ds1")], "x"),
-      );
-      persistence.saveWorkspace(
-        makeV2Workspace("__home__", [makeLeafTab("p2", "ds2")], "y"),
-      );
-
-      // The most recently saved workspace is the last-active surface.
-      expect(persistence.load()!.lastActiveWorkspacePath).toBe("__home__");
-    });
-  });
-
   describe("removeWorkspace", () => {
     it("removes a workspace", () => {
       const layout: PersistedLayout = {
@@ -322,151 +259,6 @@ describe("LayoutPersistence", () => {
 
       const loaded = persistence.load();
       expect(loaded!.workspaces).toHaveLength(1);
-    });
-  });
-
-  describe("reconcile", () => {
-    it("marks panes as warm when daemon has the session", () => {
-      const workspace = makeV2Workspace(
-        "/project",
-        [makeLeafTab("p1", "ds1")],
-        "s1",
-      );
-
-      const aliveDaemonSessions = new Set(["ds1"]);
-      const persistedSessions = new Set<string>();
-
-      const plan = persistence.reconcile(
-        workspace,
-        aliveDaemonSessions,
-        persistedSessions,
-      );
-
-      expect(plan.actions).toHaveLength(1);
-      expect(plan.actions[0].type).toBe("warm");
-      expect(plan.actions[0].paneId).toBe("p1");
-      if (plan.actions[0].type === "warm") {
-        expect(plan.actions[0].daemonSessionId).toBe("ds1");
-      }
-    });
-
-    it("marks panes as cold when daemon lost session but scrollback exists", () => {
-      const workspace = makeV2Workspace(
-        "/project",
-        [makeLeafTab("p1", "ds1")],
-        "s1",
-      );
-
-      const aliveDaemonSessions = new Set<string>(); // daemon lost it
-      const persistedSessions = new Set(["ds1"]); // but scrollback exists
-
-      const plan = persistence.reconcile(
-        workspace,
-        aliveDaemonSessions,
-        persistedSessions,
-      );
-
-      expect(plan.actions).toHaveLength(1);
-      expect(plan.actions[0].type).toBe("cold");
-      expect(plan.actions[0].paneId).toBe("p1");
-    });
-
-    it("marks panes as fresh when neither daemon nor scrollback has it", () => {
-      const workspace = makeV2Workspace(
-        "/project",
-        [makeLeafTab("p1", "ds1")],
-        "s1",
-      );
-
-      const aliveDaemonSessions = new Set<string>();
-      const persistedSessions = new Set<string>();
-
-      const plan = persistence.reconcile(
-        workspace,
-        aliveDaemonSessions,
-        persistedSessions,
-      );
-
-      expect(plan.actions).toHaveLength(1);
-      expect(plan.actions[0].type).toBe("fresh");
-      expect(plan.actions[0].paneId).toBe("p1");
-    });
-
-    it("handles split panes -- each pane gets its own action", () => {
-      const workspace = makeV2Workspace(
-        "/project",
-        [makeSplitTab(["p1", "p2"], ["ds1", "ds2"])],
-        "s1",
-      );
-
-      const aliveDaemonSessions = new Set(["ds1"]); // only ds1 alive
-      const persistedSessions = new Set(["ds2"]); // ds2 has scrollback
-
-      const plan = persistence.reconcile(
-        workspace,
-        aliveDaemonSessions,
-        persistedSessions,
-      );
-
-      expect(plan.actions).toHaveLength(2);
-
-      const warmAction = plan.actions.find((a) => a.paneId === "p1");
-      const coldAction = plan.actions.find((a) => a.paneId === "p2");
-
-      expect(warmAction?.type).toBe("warm");
-      expect(coldAction?.type).toBe("cold");
-    });
-
-    it("handles multiple tabs in workspace", () => {
-      const workspace = makeV2Workspace(
-        "/project",
-        [
-          makeLeafTab("p1", "ds1"),
-          makeLeafTab("p2", "ds2"),
-          makeLeafTab("p3", "ds3"),
-        ],
-        "s1",
-      );
-
-      const aliveDaemonSessions = new Set(["ds1", "ds3"]);
-      const persistedSessions = new Set(["ds2"]);
-
-      const plan = persistence.reconcile(
-        workspace,
-        aliveDaemonSessions,
-        persistedSessions,
-      );
-
-      expect(plan.actions).toHaveLength(3);
-      expect(plan.actions.find((a) => a.paneId === "p1")?.type).toBe("warm");
-      expect(plan.actions.find((a) => a.paneId === "p2")?.type).toBe("cold");
-      expect(plan.actions.find((a) => a.paneId === "p3")?.type).toBe("warm");
-    });
-
-    it("passes lastCwd to cold and fresh actions", () => {
-      const session: PersistedTab = {
-        id: "s1",
-        title: "Term",
-        rootNode: { type: "leaf", paneId: "p1" },
-        focusedPaneId: "p1",
-        paneSessions: {
-          p1: {
-            daemonSessionId: "ds1",
-            lastCwd: "/Users/test/code",
-            lastTitle: null,
-          },
-        },
-      };
-
-      const workspace = makeV2Workspace("/project", [session], "s1");
-
-      // Neither alive nor persisted -> fresh
-      const plan = persistence.reconcile(workspace, new Set(), new Set());
-
-      expect(plan.actions[0].type).toBe("fresh");
-      if (plan.actions[0].type === "fresh") {
-        expect(plan.actions[0].cwd).toBe("/Users/test/code");
-      }
     });
   });
 
@@ -724,15 +516,16 @@ describe("LayoutPersistence", () => {
       expect(fs.readFileSync(layoutFile, "utf-8")).toBe(afterFirstWrite);
     });
 
-    it("fills in a workspace the old renderer path saved without one", () => {
-      loadFixture();
-      // `layout:save` still sends a v2-shaped workspace until ticket 3.
-      persistence.saveWorkspace(V2_FIXTURE.workspaces[1]);
+    it("fills in a v3 workspace that has no defaultViewport", () => {
+      const half = {
+        ...V2_FIXTURE,
+        version: 3,
+        workspaces: [V2_FIXTURE.workspaces[1]],
+      };
+      fs.writeFileSync(layoutFile, JSON.stringify(half, null, 2));
 
-      const feature = new LayoutPersistence(layoutFile)
-        .load()!
-        .workspaces.find((w) => w.workspacePath === "/project/feature");
-      expect(feature!.defaultViewport).toEqual({
+      const feature = persistence.load()!.workspaces[0];
+      expect(feature.defaultViewport).toEqual({
         activePanelId: "panel-c",
         selectedTabIds: { "panel-c": "tab-4" },
         focusedPaneIds: { "tab-4": "pane-5" },

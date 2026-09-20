@@ -19,11 +19,9 @@
  * - **the default viewport** — one per workspace, handed to a renderer that
  *   has none of its own. Ticket 4 gives `reportViewport` its real shape.
  *
- * Two writers, for one ticket only: the desktop renderer still saves through
- * `layout:save`/`LayoutPersistence.saveWorkspace` while this store writes whole
- * files from its own memory. They are compared, not merged — ADR-179 ticket 3
- * deletes the renderer's writer, and until then a workspace changed through
- * *both* paths keeps whichever wrote last.
+ * One writer: this store owns `~/.manor/layout.json` and writes it whole from
+ * its own memory. No renderer writes layout at all (ADR-179 D1) — the desktop
+ * and a browser both change it by sending commands here.
  */
 
 import * as crypto from "node:crypto";
@@ -180,6 +178,15 @@ export class LayoutStore {
     }
   }
 
+  /**
+   * The workspace the last command touched — the surface to reopen on
+   * relaunch. Viewport, strictly (D3), and it lives here only until ticket 4
+   * gives each renderer a viewport file of its own.
+   */
+  getLastActiveWorkspacePath(): string | null {
+    return this.lastActiveWorkspacePath;
+  }
+
   getAll(): Record<string, LayoutEntry> {
     const all: Record<string, LayoutEntry> = {};
     for (const [workspacePath, state] of this.entries) {
@@ -334,7 +341,8 @@ export class LayoutStore {
     const metadata = treeMetadata(before);
     const result = applyLayoutCommand(
       { layout: before, closedStack: state.closedStack },
-      withServerMetadata(state, metadata, command),
+      command,
+      paneMetadata(state, metadata),
     );
     state.closedStack = result.closedStack;
 
@@ -437,40 +445,27 @@ function emptySession(paneId: string): PersistedPaneSession {
 }
 
 /**
- * Fill a closing command's `paneMetadata` from what the server knows.
+ * What the reopen stack needs about every pane, from what the server knows.
  *
- * The reopen stack needs a pane's content type, url, cwd and title, and the
- * server has all four — the first two in the tree it is about to change, the
- * last two in `paneSessions`. What the sender sent is kept underneath as a
- * fallback, because the desktop store still runs this reducer locally and
- * passes its own side maps (ADR-179 ticket 3 removes that).
+ * A pane's content type, url, cwd and title all live here — the first two in
+ * the tree the command is about to change, the last two in `paneSessions`. No
+ * sender is asked for them: `applyLayoutCommand` takes this map as its third
+ * argument, and the closing commands are the only ones that read it (D3).
  */
-function withServerMetadata(
+function paneMetadata(
   state: WorkspaceState,
   treeMeta: Record<string, PaneMetadata>,
-  command: LayoutCommand,
-): LayoutCommand {
-  switch (command.type) {
-    case "close-pane":
-    case "close-tab":
-    case "close-other-tabs":
-    case "close-tabs-to-right":
-      break;
-    default:
-      return command;
-  }
-
-  const paneMetadata: PaneMetadataMap = { ...command.paneMetadata };
+): PaneMetadataMap {
+  const metadata: PaneMetadataMap = {};
   for (const [paneId, tree] of Object.entries(treeMeta)) {
     const session = state.paneSessions[paneId];
-    paneMetadata[paneId] = {
-      ...paneMetadata[paneId],
+    metadata[paneId] = {
       ...tree,
       ...(session?.lastCwd != null && { cwd: session.lastCwd }),
       ...(session?.lastTitle != null && { title: session.lastTitle }),
     };
   }
-  return { ...command, paneMetadata };
+  return metadata;
 }
 
 function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {

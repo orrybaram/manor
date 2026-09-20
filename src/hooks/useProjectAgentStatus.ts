@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
 import { pickBestPaneStatus } from "./useTabAgentStatus";
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import type { AgentStatus } from "../electron.d";

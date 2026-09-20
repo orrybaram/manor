@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useAppStore, selectActiveWorkspace } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "../lib/layout/pane-tree";
 import { deriveStatus } from "./useAgentDisplay";
 import type { AgentInfo, AgentState, AgentStatus } from "../electron.d";
 

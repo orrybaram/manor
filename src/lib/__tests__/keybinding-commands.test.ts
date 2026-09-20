@@ -18,6 +18,10 @@ import { useKeybindingsStore } from "../../store/keybindings-store";
 import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import type { ProjectInfo } from "../../store/project-store";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
+import {
+  resetFakeLayoutServer,
+  seedLayout,
+} from "../../store/__tests__/fake-layout-server";
 
 const WS_PATH = "/test/workspace";
 
@@ -76,17 +80,22 @@ function keyEvent(key: string, mods: Partial<KeyboardEvent> = {}) {
 
 beforeEach(() => {
   useProjectStore.setState({ projects: [], selectedProjectIndex: 0 });
+  // The server starts from the same layout: a keybinding that changes the
+  // layout sends a command and reads the broadcast back (ADR-179 D1).
+  resetFakeLayoutServer();
+  const layout = makeLayout(singlePaneTab());
+  seedLayout(WS_PATH, layout);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: makeLayout(singlePaneTab()) },
+    workspaceLayouts: { [WS_PATH]: layout },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,

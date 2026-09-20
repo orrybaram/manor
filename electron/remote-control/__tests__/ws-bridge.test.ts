@@ -412,11 +412,11 @@ describe("WsBridgeServer", () => {
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
     });
 
-    it("refuses layout.save by name, pointing at layout.apply", async () => {
+    /** ADR-179 ticket 3 deleted the renderer's save path; nothing serves it. */
+    it("has no layout.save at all", async () => {
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "d", "layout", "save", [{}]);
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
-      expect(String(result.error)).toContain("layout.apply");
     });
 
     /**

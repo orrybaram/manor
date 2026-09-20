@@ -1,10 +1,10 @@
 /**
- * Layout persistence — saves/loads pane tree + session mapping to disk.
+ * Layout persistence — `~/.manor/layout.json`, read and written whole.
  *
- * Persists workspace session layout (pane trees, focused pane, titles)
- * along with the mapping from pane IDs to daemon session IDs.
- *
- * Stored in ~/.manor/layout.json
+ * The file holds every workspace's pane tree, its per-pane daemon session
+ * mapping and its default viewport, plus the migrations that bring a v1 or v2
+ * file up to v3. The one writer is the Manor server's `LayoutStore`
+ * (ADR-179 D1); this class knows nothing about commands or renderers.
  */
 
 import * as fs from "node:fs";
@@ -16,15 +16,6 @@ import { layoutFile } from "../paths";
 // precedent as app-menu.ts importing src/lib/menu-commands.
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { PanelNode } from "../../src/lib/layout/panel-tree";
-
-
-type LeafInfo = { paneId: string; contentType?: string };
-
-/** Collect paneId and contentType for every leaf in the tree. */
-function allLeaves(node: PaneNode): LeafInfo[] {
-  if (node.type === "leaf") return [{ paneId: node.paneId, contentType: node.contentType }];
-  return [...allLeaves(node.first), ...allLeaves(node.second)];
-}
 
 export const LAYOUT_FILE = layoutFile();
 
@@ -249,33 +240,6 @@ export class LayoutPersistence {
     }
   }
 
-  /**
-   * Save a single workspace's layout (upsert by workspacePath).
-   *
-   * The renderer's old `layout:save` path, and only that — the Manor server
-   * writes whole files through `save`. Deleted with the old path in ADR-179
-   * ticket 3.
-   */
-  saveWorkspace(workspace: PersistedWorkspaceV2 | PersistedWorkspace): void {
-    const layout = this.currentOrLoad() ?? { version: 3 as const, workspaces: [] };
-    const next = migrateWorkspaceV2toV3(workspace);
-
-    const idx = layout.workspaces.findIndex(
-      (w) => w.workspacePath === next.workspacePath,
-    );
-    if (idx >= 0) {
-      layout.workspaces[idx] = next;
-    } else {
-      layout.workspaces.push(next);
-    }
-
-    // The renderer only ever saves the currently-active workspace, so recording
-    // its path here captures the last-active surface for relaunch restore.
-    layout.lastActiveWorkspacePath = next.workspacePath;
-
-    this.save(layout);
-  }
-
   /** Remove a workspace's layout */
   removeWorkspace(workspacePath: string): void {
     const layout = this.currentOrLoad();
@@ -311,64 +275,4 @@ export class LayoutPersistence {
     }
     return ids;
   }
-
-  /**
-   * Reconcile persisted layout against running daemon sessions.
-   *
-   * For each pane in the persisted layout:
-   * - If daemon has the session → warm restore
-   * - If daemon lost it but scrollback exists → cold restore
-   * - If neither → fresh session
-   */
-  reconcile(
-    workspace: PersistedWorkspaceV2,
-    aliveDaemonSessionIds: Set<string>,
-    persistedSessionIds: Set<string>,
-  ): ReconciliationPlan {
-    const actions: PaneRestoreAction[] = [];
-
-    for (const panel of Object.values(workspace.panels)) {
-      for (const tab of panel.tabs) {
-        for (const { paneId, contentType } of allLeaves(tab.rootNode)) {
-          // Non-terminal panes (diff, browser, etc.) don't have daemon sessions —
-          // they are restored from the pane tree's contentType alone.
-          if (contentType && contentType !== "terminal") {
-            continue;
-          }
-
-          const paneSession = tab.paneSessions[paneId];
-          if (!paneSession) {
-            actions.push({ type: "fresh", paneId, cwd: null });
-            continue;
-          }
-
-          const { daemonSessionId, lastCwd } = paneSession;
-
-          if (aliveDaemonSessionIds.has(daemonSessionId)) {
-            actions.push({ type: "warm", paneId, daemonSessionId });
-          } else if (persistedSessionIds.has(daemonSessionId)) {
-            actions.push({ type: "cold", paneId, daemonSessionId, lastCwd });
-          } else {
-            actions.push({ type: "fresh", paneId, cwd: lastCwd });
-          }
-        }
-      }
-    }
-
-    return { actions };
-  }
-}
-
-export type PaneRestoreAction =
-  | { type: "warm"; paneId: string; daemonSessionId: string }
-  | {
-      type: "cold";
-      paneId: string;
-      daemonSessionId: string;
-      lastCwd: string | null;
-    }
-  | { type: "fresh"; paneId: string; cwd: string | null };
-
-export interface ReconciliationPlan {
-  actions: PaneRestoreAction[];
 }

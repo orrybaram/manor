@@ -184,12 +184,13 @@ describe("createWorktree setup script", () => {
       .getState()
       .createWorktree("proj-1", "plain", "plain");
 
-    // Workspace activated but no tabs created
+    // Workspace activated, and nothing was sent to create a tab in it: a
+    // workspace with no layout at all is what the empty state renders from
+    // (ADR-179 D1 — the server makes one for the first command, and there
+    // was no first command).
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
-    const layout = useAppStore.getState().workspaceLayouts[worktreePath];
-    expect(layout).toBeDefined();
-    const panel = layout!.panels[layout!.activePanelId];
-    expect(panel).toBeDefined();
-    expect(panel!.tabs.length).toBe(0);
+    expect(
+      useAppStore.getState().workspaceLayouts[worktreePath],
+    ).toBeUndefined();
   });
 });

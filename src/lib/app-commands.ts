@@ -25,7 +25,7 @@ import {
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { layoutSnapshot } from "../store/layout-snapshot";
-import { hasPaneId, type SplitDirection } from "../store/pane-tree";
+import { hasPaneId, type SplitDirection } from "./layout/pane-tree";
 import { isHomePath } from "./home-path";
 import { launchAgentInWorkspace } from "./agent-prompt-launch";
 
@@ -253,9 +253,11 @@ function newTab(args: Record<string, unknown>): {
   const previous = state.activeWorkspacePath;
   if (workspacePath) state.setActiveWorkspace(workspacePath);
   try {
-    // `setActiveWorkspace` is a synchronous `set()`; re-read to see it.
+    // `setActiveWorkspace` is a synchronous `set()`; re-read to see it. There
+    // may be no layout for it at all — a workspace nobody has opened yet has
+    // none until the Manor server makes one for this very command (ADR-179
+    // D1), so the panel is not required here, only the workspace.
     const fresh = useAppStore.getState();
-    requireActivePanel(fresh);
 
     let created: { tabId: string; paneId: string } | null;
     if (contentType === "browser") {
@@ -381,9 +383,9 @@ function pinTab(args: Record<string, unknown>): {
   if (!panel.tabs.some((t) => t.id === tabId)) {
     throw new Error(`Unknown tabId: ${tabId}`);
   }
+  const wasPinned = (panel.pinnedTabIds ?? []).includes(tabId);
   state.togglePinTab(tabId);
-  const fresh = requireActivePanel(useAppStore.getState());
-  return { tabId, pinned: (fresh.pinnedTabIds ?? []).includes(tabId) };
+  return { tabId, pinned: !wasPinned };
 }
 
 function duplicateTab(args: Record<string, unknown>): { tabId: string } {
@@ -393,16 +395,11 @@ function duplicateTab(args: Record<string, unknown>): { tabId: string } {
   if (!layoutHasTab(layout, tabId)) {
     throw new Error(`Unknown tabId: ${tabId}`);
   }
-  state.duplicateTab(tabId);
-  const freshLayout = requireActiveLayout(useAppStore.getState());
-  // `duplicateTab` selects the new tab in the panel that held the source tab.
-  const sourcePanel = Object.values(freshLayout.panels).find((p) =>
-    p.tabs.some((t) => t.id === tabId),
-  );
-  const newTabId = sourcePanel?.selectedTabId;
-  if (!newTabId || newTabId === tabId) {
-    throw new Error(`Failed to duplicate tab: ${tabId}`);
-  }
+  // The id comes back from the action, not from re-reading the layout: the
+  // layout is the Manor server's now, and its answer arrives on
+  // `layout.changed` a moment after this returns (ADR-179 D1).
+  const newTabId = state.duplicateTab(tabId);
+  if (!newTabId) throw new Error(`Failed to duplicate tab: ${tabId}`);
   return { tabId: newTabId };
 }
 
@@ -427,10 +424,9 @@ function reorderTabs(args: Record<string, unknown>): { ok: true } {
 function openDiff(): { tabId: string } {
   const state = useAppStore.getState();
   requireActiveLayout(state);
-  state.openOrFocusDiff();
-  const panel = requireActivePanel(useAppStore.getState());
-  if (!panel.selectedTabId) throw new Error("Failed to open diff tab");
-  return { tabId: panel.selectedTabId };
+  const tabId = state.openOrFocusDiff();
+  if (!tabId) throw new Error("Failed to open diff tab");
+  return { tabId };
 }
 
 // ---------------------------------------------------------------------------
@@ -500,23 +496,18 @@ function extractPaneToTab(args: Record<string, unknown>): { tabId: string } {
   if (targetPanelId && !layout.panels[targetPanelId]) {
     throw new Error(`Unknown panelId: ${targetPanelId}`);
   }
-  state.extractPaneToTab(paneId, targetPanelId);
-  const freshLayout = requireActiveLayout(useAppStore.getState());
-  for (const panel of Object.values(freshLayout.panels)) {
-    const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
-    if (tab) return { tabId: tab.id };
-  }
-  throw new Error(`Failed to extract pane to tab: ${paneId}`);
+  const tabId = state.extractPaneToTab(paneId, targetPanelId);
+  if (!tabId) throw new Error(`Failed to extract pane to tab: ${paneId}`);
+  return { tabId };
 }
 
 function reopenClosedPane(): { ok: true } {
   const state = useAppStore.getState();
-  const path = state.activeWorkspacePath;
-  if (!path) throw new Error("No active workspace");
-  const hasClosed = state.closedPaneStack.some((s) => s.workspacePath === path);
-  if (!hasClosed) {
-    throw new Error("Nothing to reopen");
-  }
+  if (!state.activeWorkspacePath) throw new Error("No active workspace");
+  // Whether there *is* anything to reopen is the server's to know — the
+  // closed-pane stack is its memory now (ADR-179 D3) and a command with an
+  // empty stack behind it is a no-op there. ADR-179 ticket 5 moves this route
+  // to the server, where the answer can be real again.
   state.reopenClosedPane();
   return { ok: true };
 }

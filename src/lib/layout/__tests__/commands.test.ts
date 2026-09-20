@@ -192,12 +192,12 @@ describe("close-tab", () => {
     expect(panelOf(layout, "panel-1").selectedTabId).toBe("");
   });
 
-  it("pushes an undo entry carrying the tab and the sender's metadata", () => {
-    const { closedStack } = applyLayoutCommand(stateOf(onePanel()), {
-      type: "close-tab",
-      tabId: "tab-1",
-      paneMetadata: { "pane-1": { cwd: "/tmp", contentType: "browser" } },
-    });
+  it("pushes an undo entry carrying the tab and the host's metadata", () => {
+    const { closedStack } = applyLayoutCommand(
+      stateOf(onePanel()),
+      { type: "close-tab", tabId: "tab-1" },
+      { "pane-1": { cwd: "/tmp", contentType: "browser" } },
+    );
 
     expect(closedStack).toHaveLength(1);
     const entry = closedStack[0];
@@ -631,13 +631,13 @@ describe("close-pane", () => {
     });
   });
 
-  it("carries the sender's metadata into the undo entry", () => {
+  it("carries the host's metadata into the undo entry", () => {
     const start = onePanel([splitTab("tab-1", "pane-a", "pane-b")]);
-    const { closedStack } = applyLayoutCommand(stateOf(start), {
-      type: "close-pane",
-      paneId: "pane-a",
-      paneMetadata: { "pane-a": { cwd: "/repo", title: "vim" } },
-    });
+    const { closedStack } = applyLayoutCommand(
+      stateOf(start),
+      { type: "close-pane", paneId: "pane-a" },
+      { "pane-a": { cwd: "/repo", title: "vim" } },
+    );
 
     expect(closedStack[0]).toMatchObject({ cwd: "/repo", title: "vim" });
   });
@@ -730,11 +730,11 @@ describe("reopen-closed-pane", () => {
 
   it("gives a closed pane a new tab when its own tab is gone", () => {
     const start = stateOf(onePanel([splitTab("tab-1", "pane-a", "pane-b")]));
-    const closed = applyLayoutCommand(start, {
-      type: "close-pane",
-      paneId: "pane-b",
-      paneMetadata: { "pane-b": { title: "logs" } },
-    });
+    const closed = applyLayoutCommand(
+      start,
+      { type: "close-pane", paneId: "pane-b" },
+      { "pane-b": { title: "logs" } },
+    );
     const withoutTab = applyLayoutCommand(closed, {
       type: "new-tab",
       tab: leafTab("tab-2", "pane-2"),

@@ -32,15 +32,10 @@ export function useTerminalConnection(paneId: string) {
     [],
   );
 
-  /** Kill the PTY session in the daemon (user explicitly closed pane) */
-  const close = useCallback(() => {
-    window.electronAPI.pty.close(paneIdRef.current);
-  }, []);
-
   /** Detach from the PTY session without killing it (effect cleanup / app quit) */
   const detach = useCallback(() => {
     window.electronAPI.pty.detach(paneIdRef.current);
   }, []);
 
-  return { write, resize, create, close, detach };
+  return { write, resize, create, detach };
 }

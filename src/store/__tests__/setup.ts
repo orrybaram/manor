@@ -1,9 +1,10 @@
 /**
- * Vitest setup that provides a minimal `window` global so that module-level
- * code in app-store.ts (e.g. `window.addEventListener("beforeunload", ...)`)
- * does not throw a ReferenceError during import.
+ * Vitest setup: a minimal `window` global, in place before any store module
+ * is imported, so module-level code in `app-store.ts` — the `layout.changed`
+ * subscription among it — finds a host to talk to instead of throwing.
  */
 import { vi } from "vitest";
+import { fakeLayoutApi } from "./fake-layout-server";
 
 // Provide a minimal window-like object before any store module is imported.
 // Individual test files can override specific properties via vi.stubGlobal.
@@ -12,10 +13,10 @@ if (typeof globalThis.window === "undefined") {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     electronAPI: {
-      layout: {
-        load: vi.fn().mockResolvedValue(null),
-        save: vi.fn(),
-      },
+      // The Manor server's layout store, in-process (ADR-179 D1): `app-store`
+      // subscribes to it at import time and every layout action goes through
+      // it. See `fake-layout-server.ts`.
+      layout: fakeLayoutApi(),
       // agent-store.ts subscribes to agents.onUpdate at module-init time, and
       // app-store.closePaneById calls agents.abandonForPane. Provide a minimal
       // agents surface so importing those stores does not throw. Individual

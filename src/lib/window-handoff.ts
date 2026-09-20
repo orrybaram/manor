@@ -9,7 +9,7 @@
  */
 
 import { useAppStore } from "../store/app-store";
-import { allPaneIds } from "../store/pane-tree";
+import { allPaneIds } from "./layout/pane-tree";
 
 // ── Outbound handoffs in flight ─────────────────────────────────────────────
 // A popout closes itself the moment its store empties (see `DetachedApp`), and

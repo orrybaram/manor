@@ -61,15 +61,13 @@ export const MAX_CLOSED_STACK = 10;
 
 /**
  * What a closed pane needs to come back. Content type, url, cwd and title are
- * per-pane side state the reducer does not own: the closing command carries
- * them in (`paneMetadata`) and the reopen hands them back.
+ * per-pane side state the reducer does not own: the host hands them in
+ * alongside the closing command and the reopen hands them back.
  *
- * On the Manor server the *sender* no longer has to be right about them —
- * `LayoutStore.apply` fills the map from the pane tree (contentType, url) and
- * from its own server-derived `paneSessions` (cwd, title) before the reducer
- * runs, and only falls back to what the sender sent (ADR-179 D3, ticket 2).
- * The field stays on the command because the desktop store still runs this
- * reducer locally until ticket 3.
+ * It is not part of the command, because a *sender* has no business being
+ * right about them: `LayoutStore.apply` builds the map from the pane tree
+ * (contentType, url) and from its own server-derived `paneSessions` (cwd,
+ * title) and passes it as `applyLayoutCommand`'s third argument (ADR-179 D3).
  */
 export interface PaneMetadata {
   contentType?: PaneContentType;
@@ -110,14 +108,10 @@ export type ClosedPane = ClosedPaneEntry | ClosedTabEntry;
 
 export type LayoutCommand =
   | { type: "new-tab"; tab: Tab; panelId?: string; select?: boolean }
-  | { type: "close-tab"; tabId: string; paneMetadata?: PaneMetadataMap }
+  | { type: "close-tab"; tabId: string }
   | { type: "duplicate-tab"; tabId: string; newTab: Tab }
-  | { type: "close-other-tabs"; tabId: string; paneMetadata?: PaneMetadataMap }
-  | {
-      type: "close-tabs-to-right";
-      tabId: string;
-      paneMetadata?: PaneMetadataMap;
-    }
+  | { type: "close-other-tabs"; tabId: string }
+  | { type: "close-tabs-to-right"; tabId: string }
   | { type: "reorder-tabs"; panelId: string; tabIds: string[] }
   | { type: "toggle-pin-tab"; tabId: string }
   | {
@@ -163,7 +157,7 @@ export type LayoutCommand =
       /** Used when the move empties the source panel and it is the last one. */
       fallbackTab?: Tab;
     }
-  | { type: "close-pane"; paneId: string; paneMetadata?: PaneMetadataMap }
+  | { type: "close-pane"; paneId: string }
   | {
       type: "reopen-closed-pane";
       /** Tab to restore a pane into when its original tab is gone. */
@@ -387,6 +381,12 @@ function detachTabFromPanel(
 export function applyLayoutCommand(
   state: LayoutState,
   command: LayoutCommand,
+  /**
+   * What the host knows about every pane, for the reopen stack (see
+   * `PaneMetadata`). Only the closing commands read it; a host that keeps no
+   * such state may omit it and lose nothing but a restored cwd.
+   */
+  paneMetadata?: PaneMetadataMap,
 ): LayoutResult {
   const { layout, closedStack } = state;
 
@@ -394,12 +394,12 @@ export function applyLayoutCommand(
     case "new-tab":
       return newTab(state, command);
     case "close-tab":
-      return closeTab(state, command.tabId, command.paneMetadata);
+      return closeTab(state, command.tabId, paneMetadata);
     case "duplicate-tab":
       return duplicateTab(state, command);
     case "close-other-tabs":
     case "close-tabs-to-right":
-      return closeManyTabs(state, command);
+      return closeManyTabs(state, command, paneMetadata);
     case "reorder-tabs":
       return reorderTabs(state, command);
     case "toggle-pin-tab":
@@ -423,7 +423,7 @@ export function applyLayoutCommand(
     case "extract-pane-to-tab":
       return extractPaneToTab(state, command);
     case "close-pane":
-      return closePane(state, command);
+      return closePane(state, command, paneMetadata);
     case "reopen-closed-pane":
       return reopenClosedPane(state, command);
     case "set-pane-title":
@@ -557,6 +557,7 @@ function closeManyTabs(
     LayoutCommand,
     { type: "close-other-tabs" | "close-tabs-to-right" }
   >,
+  paneMetadata: PaneMetadataMap | undefined,
 ): LayoutResult {
   const found = findPanelWithTab(state.layout, command.tabId);
   if (!found) return unchanged(state);
@@ -578,7 +579,7 @@ function closeManyTabs(
 
   let acc: LayoutResult = { ...state, effects: NO_EFFECTS };
   for (const id of toClose) {
-    const step = closeTab(acc, id, command.paneMetadata);
+    const step = closeTab(acc, id, paneMetadata);
     acc = {
       layout: step.layout,
       closedStack: step.closedStack,
@@ -1036,6 +1037,7 @@ function extractPaneToTab(
 function closePane(
   state: LayoutState,
   command: Extract<LayoutCommand, { type: "close-pane" }>,
+  paneMetadata: PaneMetadataMap | undefined,
 ): LayoutResult {
   const { layout, closedStack } = state;
   const found = findPanelWithPane(layout, command.paneId);
@@ -1045,10 +1047,10 @@ function closePane(
   const remaining = removePane(tab.rootNode, command.paneId);
   // Last pane in the tab — the tab goes, and with it a tab-shaped undo entry.
   if (remaining === null) {
-    return closeTab(state, tab.id, command.paneMetadata);
+    return closeTab(state, tab.id, paneMetadata);
   }
 
-  const meta = command.paneMetadata?.[command.paneId] ?? {};
+  const meta = paneMetadata?.[command.paneId] ?? {};
   const entry: ClosedPaneEntry = {
     kind: "pane",
     paneId: command.paneId,

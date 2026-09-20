@@ -9,7 +9,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAppStore } from "../app-store";
 import type { Panel, Tab, WorkspaceLayout } from "../app-store";
-import { hasPaneId } from "../pane-tree";
+import { hasPaneId } from "../../lib/layout/pane-tree";
+import {
+  resetFakeLayoutServer,
+  seedLayout,
+  sentCommands,
+} from "./fake-layout-server";
 
 const WS_PATH = "/test/workspace";
 
@@ -63,17 +68,22 @@ function twoPanelLayout(activeTabs: Tab[], otherTabs: Tab[]): WorkspaceLayout {
 }
 
 function setupStore(layout: WorkspaceLayout) {
+  // The server holds the same layout the store starts from: every
+  // structural action goes through it now (ADR-179 D1).
+  resetFakeLayoutServer();
+  const start = layout;
+  seedLayout(WS_PATH, start);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: layout },
+    workspaceLayouts: { [WS_PATH]: start },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
@@ -156,7 +166,12 @@ describe("closePaneById across panels", () => {
       type: "leaf",
       paneId: "pane-b2",
     });
-    expect(useAppStore.getState().closedPaneIds.has("pane-b1")).toBe(true);
+    // Ending the session is the server's, from `effects.killPanes` — the
+    // store sends the command and nothing else (ADR-179 D2).
+    expect(sentCommands[sentCommands.length - 1]).toEqual({
+      workspacePath: WS_PATH,
+      command: { type: "close-pane", paneId: "pane-b1" },
+    });
   });
 
   it("does not move focus to the panel it mutated", () => {
@@ -170,12 +185,15 @@ describe("closePaneById across panels", () => {
     expect(getPanel(ACTIVE_PANEL)).toEqual(activeBefore);
   });
 
-  it("records the pane's own panel in the undo snapshot", () => {
+  it("puts the pane back where it was when reopened", () => {
     useAppStore.getState().closePaneById("pane-b1");
+    expect(tabHolding("pane-b1")).toBeNull();
 
-    const snapshot = useAppStore.getState().closedPaneStack[0];
-    expect(snapshot.kind).toBe("pane");
-    expect(snapshot.panelId).toBe(OTHER_PANEL);
+    // The reopen stack is the server's (ADR-179 D3), and it remembers which
+    // panel the pane came from — not the one the window happens to be on.
+    useAppStore.getState().reopenClosedPane();
+
+    expect(tabHolding("pane-b1")?.panelId).toBe(OTHER_PANEL);
   });
 
   it("closes the tab when the pane was the last one in a non-active panel's tab", () => {

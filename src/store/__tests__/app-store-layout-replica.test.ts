@@ -1,0 +1,277 @@
+/**
+ * The renderer is a replica (ADR-179 D1).
+ *
+ * Every structural action sends a `LayoutCommand` and writes nothing; the
+ * layout arrives on `layout.changed` and replaces what was there. These are
+ * the rules the rest of the store tests rely on without restating: what goes
+ * out, what comes back, what is dropped, and what this window's selection
+ * survives.
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import { useAppStore } from "../app-store";
+import type { Panel, Tab, WorkspaceLayout } from "../app-store";
+import {
+  broadcastLayout,
+  resetFakeLayoutServer,
+  seedLayout,
+  sentCommands,
+} from "./fake-layout-server";
+
+const WS_PATH = "/test/workspace";
+
+function tab(id: string, paneId: string, title = "Terminal"): Tab {
+  return {
+    id,
+    title,
+    rootNode: { type: "leaf", paneId },
+    focusedPaneId: paneId,
+  };
+}
+
+function panel(id: string, tabs: Tab[], selected = tabs[0]?.id ?? ""): Panel {
+  return { id, tabs, selectedTabId: selected, pinnedTabIds: [] };
+}
+
+function layoutOf(tabs: Tab[], selected?: string): WorkspaceLayout {
+  return {
+    panelTree: { type: "leaf", panelId: "panel-1" },
+    panels: { "panel-1": panel("panel-1", tabs, selected) },
+    activePanelId: "panel-1",
+  };
+}
+
+function setup(layout: WorkspaceLayout) {
+  resetFakeLayoutServer();
+  seedLayout(WS_PATH, layout);
+  useAppStore.setState({
+    activeWorkspacePath: WS_PATH,
+    workspaceLayouts: { [WS_PATH]: layout },
+    layoutVersions: {},
+    serverLayouts: {},
+    paneCwd: {},
+    paneTitle: {},
+    paneAgentStatus: {},
+    paneContentType: {},
+    paneUrl: {},
+    pendingPaneCommands: {},
+  });
+}
+
+function replica(): WorkspaceLayout {
+  return useAppStore.getState().workspaceLayouts[WS_PATH];
+}
+
+/** A layout the server could send: same shape, different object identity. */
+function withExtraTab(base: WorkspaceLayout, extra: Tab): WorkspaceLayout {
+  const first = base.panels["panel-1"];
+  return {
+    ...base,
+    panels: {
+      "panel-1": { ...first, tabs: [...first.tabs, extra] },
+    },
+  };
+}
+
+describe("actions send commands", () => {
+  beforeEach(() => setup(layoutOf([tab("tab-1", "pane-1")])));
+
+  it("splitPane names the focused pane and mints the new one", () => {
+    useAppStore.getState().splitPane("vertical");
+
+    expect(sentCommands).toHaveLength(1);
+    const { workspacePath, command } = sentCommands[0];
+    expect(workspacePath).toBe(WS_PATH);
+    expect(command).toMatchObject({
+      type: "split-pane",
+      paneId: "pane-1",
+      direction: "vertical",
+    });
+    // The id is the sender's, so it can focus the pane when it lands (D1).
+    expect(command).toHaveProperty("newPaneId", expect.any(String));
+  });
+
+  it("closeTab sends the command and nothing else", () => {
+    useAppStore.getState().closeTab("tab-1");
+
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-tab", tabId: "tab-1" } },
+    ]);
+  });
+
+  it("selecting a tab sends nothing — viewport is local (D3)", () => {
+    useAppStore.getState().selectTab("tab-1");
+    useAppStore.getState().focusPane("pane-1");
+
+    expect(sentCommands).toEqual([]);
+  });
+
+  it("an action writes no layout of its own", () => {
+    // The fake server answers, so the *broadcast* changes the replica. What
+    // must not happen is the action changing it first, or at all on its own.
+    resetFakeLayoutServer();
+    const before = replica();
+
+    useAppStore.getState().splitPane("horizontal");
+    useAppStore.getState().closeTab("tab-1");
+    useAppStore.getState().togglePinTab("tab-1");
+
+    expect(sentCommands).toHaveLength(3);
+    expect(replica()).toBe(before);
+  });
+});
+
+describe("broadcasts set the state", () => {
+  beforeEach(() => setup(layoutOf([tab("tab-1", "pane-1")])));
+
+  it("replaces the workspace and records the version", () => {
+    const next = withExtraTab(replica(), tab("tab-2", "pane-2"));
+
+    broadcastLayout(WS_PATH, next, 7);
+
+    expect(replica().panels["panel-1"].tabs.map((t) => t.id)).toEqual([
+      "tab-1",
+      "tab-2",
+    ]);
+    expect(useAppStore.getState().layoutVersions[WS_PATH]).toBe(7);
+  });
+
+  it("drops a broadcast older than the one it has", () => {
+    const second = withExtraTab(replica(), tab("tab-2", "pane-2"));
+    broadcastLayout(WS_PATH, second, 5);
+
+    const stale = withExtraTab(replica(), tab("tab-stale", "pane-stale"));
+    broadcastLayout(WS_PATH, stale, 4);
+
+    expect(replica().panels["panel-1"].tabs.map((t) => t.id)).toEqual([
+      "tab-1",
+      "tab-2",
+    ]);
+    expect(useAppStore.getState().layoutVersions[WS_PATH]).toBe(5);
+  });
+
+  it("drops a repeat of the version it already has", () => {
+    broadcastLayout(WS_PATH, withExtraTab(replica(), tab("t2", "p2")), 3);
+    const after = replica();
+
+    broadcastLayout(WS_PATH, withExtraTab(after, tab("t3", "p3")), 3);
+
+    expect(replica()).toBe(after);
+  });
+
+  it("refreshes contentType and url from the leaves", () => {
+    const browserTab: Tab = {
+      id: "tab-2",
+      title: "example.com",
+      rootNode: {
+        type: "leaf",
+        paneId: "pane-2",
+        contentType: "browser",
+        url: "https://example.com",
+      },
+      focusedPaneId: "pane-2",
+    };
+
+    broadcastLayout(WS_PATH, withExtraTab(replica(), browserTab), 2);
+
+    const state = useAppStore.getState();
+    expect(state.paneContentType["pane-2"]).toBe("browser");
+    expect(state.paneUrl["pane-2"]).toBe("https://example.com");
+  });
+
+  it("drops the side maps of panes that left the tree", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    useAppStore.setState({
+      paneCwd: { "pane-1": "/repo", "pane-2": "/repo/sub" },
+      pendingPaneCommands: { "pane-2": "pnpm dev" },
+    });
+
+    broadcastLayout(WS_PATH, layoutOf([tab("tab-1", "pane-1")]), 2);
+
+    const state = useAppStore.getState();
+    expect(state.paneCwd).toEqual({ "pane-1": "/repo" });
+    expect(state.pendingPaneCommands).toEqual({});
+  });
+
+  it("does not open a workspace this window has never looked at", () => {
+    broadcastLayout("/other/workspace", layoutOf([tab("tab-9", "pane-9")]), 1);
+
+    const state = useAppStore.getState();
+    // Mounting its panes would create their PTYs behind the user's back.
+    expect(state.workspaceLayouts["/other/workspace"]).toBeUndefined();
+    expect(state.layoutVersions["/other/workspace"]).toBe(1);
+
+    // It is still there to adopt the moment the user goes looking.
+    state.setActiveWorkspace("/other/workspace");
+    expect(
+      useAppStore.getState().workspaceLayouts["/other/workspace"],
+    ).toBeDefined();
+  });
+});
+
+describe("this window's selection survives a broadcast", () => {
+  it("keeps the selected tab when the change was somewhere else", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    useAppStore.getState().selectTab("tab-2");
+
+    // The server's copy of `selectedTabId` is whatever the last command left
+    // there — tab-1 — because selecting a tab never reached it.
+    useAppStore.getState().splitPane("horizontal");
+
+    expect(replica().panels["panel-1"].selectedTabId).toBe("tab-2");
+  });
+
+  it("follows the server when the change moved the selection", () => {
+    setup(layoutOf([tab("tab-1", "pane-1")]));
+
+    const created = useAppStore.getState().addTab()!;
+
+    // A new tab is a new tab set: the selection the reducer made wins.
+    expect(replica().panels["panel-1"].selectedTabId).toBe(created.tabId);
+  });
+
+  it("follows the server when the selected tab is gone", () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    useAppStore.getState().selectTab("tab-2");
+
+    useAppStore.getState().closeTab("tab-2");
+
+    expect(replica().panels["panel-1"].selectedTabId).toBe("tab-1");
+  });
+
+  it("keeps the focused pane when the tab's panes did not change", () => {
+    setup(
+      layoutOf([
+        {
+          id: "tab-1",
+          title: "Terminal",
+          rootNode: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { type: "leaf", paneId: "pane-1" },
+            second: { type: "leaf", paneId: "pane-2" },
+          },
+          focusedPaneId: "pane-2",
+        },
+      ]),
+    );
+    useAppStore.getState().focusPane("pane-1");
+
+    // A ratio drag touches no pane set, so it must not move the keyboard.
+    useAppStore.getState().updateSplitRatio("pane-1", 0.7);
+
+    const current = replica().panels["panel-1"].tabs[0];
+    expect(current.focusedPaneId).toBe("pane-1");
+    expect(current.rootNode).toMatchObject({ ratio: 0.7 });
+  });
+
+  it("follows the server's focus into a pane it just created", () => {
+    setup(layoutOf([tab("tab-1", "pane-1")]));
+
+    const paneId = useAppStore
+      .getState()
+      .splitPaneAt("pane-1", "horizontal", "second")!;
+
+    expect(replica().panels["panel-1"].tabs[0].focusedPaneId).toBe(paneId);
+  });
+});

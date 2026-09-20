@@ -46,8 +46,6 @@ function seedStore(overrides?: Partial<AppState>) {
     paneFavicon: {},
     paneAudioPlaying: {},
     paneAudioMuted: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,

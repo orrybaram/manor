@@ -1,9 +1,6 @@
 import { ipcMain } from "electron";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type {
-  PersistedDefaultViewport,
-  PersistedWorkspace,
-} from "../terminal-host/layout-persistence";
+import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
 import type {
   LayoutApplyResult,
   LayoutEntry,
@@ -14,21 +11,20 @@ import { assertString } from "../ipc-validate";
 import type { IpcDeps } from "./types";
 
 /**
- * The read side, lifted out of its `ipcMain.handle` wrapper so the ADR-178
- * WebSocket bridge calls the same code the desktop renderer does.
+ * Layout, as every renderer sees it (ADR-179 D1).
  *
- * `layout:save` is deliberately *not* lifted, and stays refused on the bridge:
- * it is the renderer-owned path ADR-179 replaces. `layout:getAll` /
- * `layout:apply` are that replacement — the Manor server owns the layout and
- * every renderer, desktop or browser, drives it by command (D1).
+ * Lifted out of the `ipcMain.handle` wrappers below so the ADR-178 WebSocket
+ * bridge calls the same code the desktop renderer does. There is no `save`
+ * and no `load`: the Manor server owns `~/.manor/layout.json`, a renderer
+ * reads the whole thing with `getAll` and changes it with `apply`.
  */
-export function layoutLoad(deps: IpcDeps): unknown {
-  return deps.layoutPersistence.load();
-}
-
-/** Every workspace's structure, version and default viewport (ADR-179 D1). */
 export function layoutGetAll(deps: IpcDeps): Record<string, LayoutEntry> {
   return deps.layoutStore.getAll();
+}
+
+/** The surface to reopen on relaunch — viewport, until ticket 4 moves it. */
+export function layoutGetLastActive(deps: IpcDeps): string | null {
+  return deps.layoutStore.getLastActiveWorkspacePath();
 }
 
 /**
@@ -81,19 +77,9 @@ export async function layoutGetRestoredSessions(deps: IpcDeps): Promise<{
 }
 
 export function register(deps: IpcDeps): void {
-  const { layoutPersistence } = deps;
-
-  ipcMain.handle("layout:save", (_event, workspace: PersistedWorkspace) => {
-    try {
-      layoutPersistence.saveWorkspace(workspace);
-    } catch (err) {
-      console.error("Failed to save layout:", err);
-    }
-  });
-
-  ipcMain.handle("layout:load", () => layoutLoad(deps));
-
   ipcMain.handle("layout:getAll", () => layoutGetAll(deps));
+
+  ipcMain.handle("layout:getLastActive", () => layoutGetLastActive(deps));
 
   ipcMain.handle(
     "layout:apply",

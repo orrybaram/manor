@@ -13,7 +13,7 @@ import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import { useAppStore, selectActiveWorkspace } from "../../store/app-store";
-import { hasPaneId } from "../../store/pane-tree";
+import { hasPaneId } from "../../lib/layout/pane-tree";
 import {
   isOutsideWindow,
   findWindowAtPoint,

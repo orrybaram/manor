@@ -7,7 +7,11 @@ import { usePreferencesStore } from "../../store/preferences-store";
 import { HOME_PATH } from "../home-path";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
-import { hasPaneId } from "../../store/pane-tree";
+import { hasPaneId } from "../../lib/layout/pane-tree";
+import {
+  resetFakeLayoutServer,
+  seedLayout,
+} from "../../store/__tests__/fake-layout-server";
 
 const WS_PATH = "/test/workspace";
 const OTHER_WS_PATH = "/test/other";
@@ -111,17 +115,22 @@ function makeMultiPanelLayout(): WorkspaceLayout {
 }
 
 function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
+  // Every structural command these handlers issue lands on the Manor server
+  // and comes back as a broadcast (ADR-179 D1), so the server starts from the
+  // same layout the store does.
+  resetFakeLayoutServer();
+  seedLayout(WS_PATH, layout);
   useAppStore.setState({
     activeWorkspacePath: activePath,
     workspaceLayouts: { [WS_PATH]: layout },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
@@ -867,8 +876,9 @@ describe("reopen-closed-pane", () => {
     });
   });
 
-  it("throws when there is nothing to reopen", () => {
-    expect(() => run("reopen-closed-pane")).toThrow(/Nothing to reopen/);
+  it("throws when there is no active workspace", () => {
+    useAppStore.setState({ activeWorkspacePath: null });
+    expect(() => run("reopen-closed-pane")).toThrow(/No active workspace/);
   });
 
   it("reopens the most recently closed pane", () => {
@@ -1137,23 +1147,6 @@ describe("start-agent", () => {
   it("requires a workspacePath", async () => {
     await expect(start({ prompt: "go" })).rejects.toThrow(
       /Missing required string argument: workspacePath/,
-    );
-  });
-
-  it("throws when there is no panel to open the agent in", async () => {
-    setupTwoWorkspaces();
-    // A layout whose activePanelId names no panel — `addTab` returns null
-    // rather than throwing, and a silent no-op reported as success is worse
-    // than an error.
-    useAppStore.setState({
-      workspaceLayouts: {
-        ...useAppStore.getState().workspaceLayouts,
-        [WS_PATH]: { ...makeLayout(singlePaneTab()), activePanelId: "gone" },
-      },
-    });
-
-    await expect(start({ workspacePath: WS_PATH })).rejects.toThrow(
-      /No active panel to open an agent in/,
     );
   });
 });

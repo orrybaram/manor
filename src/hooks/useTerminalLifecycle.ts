@@ -36,29 +36,6 @@ import {
 } from "../lib/terminal-registry";
 import type { ITheme } from "@xterm/xterm";
 
-/** Grace period (ms) before a closed pane's PTY session is killed. */
-const CLOSE_GRACE_MS = 10_000;
-
-/** Pending kill timers for panes that were explicitly closed. */
-const pendingKillTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function schedulePtyKill(paneId: string) {
-  cancelPtyKill(paneId);
-  const timer = setTimeout(() => {
-    pendingKillTimers.delete(paneId);
-    window.electronAPI.pty.close(paneId);
-  }, CLOSE_GRACE_MS);
-  pendingKillTimers.set(paneId, timer);
-}
-
-function cancelPtyKill(paneId: string) {
-  const timer = pendingKillTimers.get(paneId);
-  if (timer != null) {
-    clearTimeout(timer);
-    pendingKillTimers.delete(paneId);
-  }
-}
-
 export function useTerminalLifecycle(
   containerRef: React.RefObject<HTMLDivElement | null>,
   paneId: string,
@@ -181,10 +158,6 @@ export function useTerminalLifecycle(
   useMountEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    // If this pane was recently closed and is being restored, cancel the
-    // pending kill so the daemon session stays alive for reattach.
-    cancelPtyKill(paneId);
 
     const t = new Terminal(
       terminalOptions({
@@ -478,15 +451,13 @@ export function useTerminalLifecycle(
       setSearchAddon(null);
       termRef.current = null;
       unregisterTerminal(paneId);
-      // Always detach (keep the PTY alive in the daemon).
-      // If the user explicitly closed the pane, schedule a delayed kill
-      // so they can undo within the grace period.
-      const { closedPaneIds } = useAppStore.getState();
+      // Detach, always: the session stays alive in the daemon and this pane
+      // may be about to mount again somewhere else. Ending a session is the
+      // Manor server's job — it kills the panes a `close-pane` orphaned
+      // (ADR-179 D2 `effects.killPanes`) — so a pane that unmounts *because*
+      // it was closed has already lost its session by the time we get here,
+      // and detaching from a session that is gone is quiet by design.
       detach();
-      if (closedPaneIds.has(paneId)) {
-        closedPaneIds.delete(paneId);
-        schedulePtyKill(paneId);
-      }
       t.dispose();
     };
   });

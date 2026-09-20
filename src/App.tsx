@@ -54,7 +54,7 @@ import {
 } from "./hooks/useNavigationHistory";
 import type { AgentInfo } from "./electron.d";
 import { navigateToAgent } from "./utils/agent-navigation";
-import { hasPaneId } from "./store/pane-tree";
+import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import {
   escapeShellDoubleQuoted,
@@ -76,6 +76,10 @@ function App() {
 
   useMountEffect(() => {
     loadTheme();
+    // `layout.getAll()` is a read of the Manor server's layout, and the
+    // subscription that keeps it current is installed when `app-store.ts` is
+    // imported — well before this runs, so a change that lands in the gap is
+    // delivered rather than lost (ADR-179 D1).
     Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
       // If the Home surface was the last-active surface, restore it directly —
       // it isn't a project workspace, so the project-based restore below can't

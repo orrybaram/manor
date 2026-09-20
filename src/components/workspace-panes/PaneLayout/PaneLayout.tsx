@@ -1,4 +1,4 @@
-import type { PaneNode } from "../../../store/pane-tree";
+import type { PaneNode } from "../../../lib/layout/pane-tree";
 import { LeafPane } from "../LeafPane";
 import { SplitLayout } from "../SplitLayout";
 

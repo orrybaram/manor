@@ -8,7 +8,7 @@ import {
   whenHandoffsIdle,
 } from "../window-handoff";
 import { useAppStore } from "../../store/app-store";
-import { hasPaneId } from "../../store/pane-tree";
+import { hasPaneId } from "../../lib/layout/pane-tree";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 
 const WS_PATH = "/test/workspace";
@@ -88,8 +88,6 @@ beforeEach(() => {
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,

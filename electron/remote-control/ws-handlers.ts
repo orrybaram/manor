@@ -44,8 +44,8 @@ import { isDesktopAttached } from "../pty-attachments";
 import {
   layoutApply,
   layoutGetAll,
+  layoutGetLastActive,
   layoutGetRestoredSessions,
-  layoutLoad,
   layoutRemove,
   layoutReportViewport,
 } from "../ipc/layout";
@@ -107,10 +107,11 @@ export type BridgeHandler = (deps: IpcDeps, ...args: never[]) => unknown;
 /**
  * A method that is in the table on purpose and refuses on purpose.
  *
- * Refusing beats silently dropping: a browser that calls `layout.save` and
- * gets nothing back has quietly lost the user's arrangement, while one that
- * gets this can say so. ADR-179 moved layout to the Manor server, so the one
- * remaining refusal names its replacement rather than a missing feature.
+ * Refusing beats silently dropping: a browser whose call is quietly discarded
+ * has lost the user's work without being able to say so. No entry refuses
+ * today — ADR-179 moved layout to the Manor server and `layout.save`, the
+ * last one, went with it — but the shape stays, because the next method that
+ * is deliberately unavailable should refuse rather than 404.
  */
 export class BridgeRefusal extends Error {
   readonly code = UNAVAILABLE_CODE;
@@ -231,8 +232,7 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
   "pty.close": (deps: IpcDeps, paneId: string) => ptyClose(deps, paneId),
   "pty.detach": (deps: IpcDeps, paneId: string) => ptyDetach(deps, paneId),
 
-  // ── layout: read now, write in slice 2 ──
-  "layout.load": (deps: IpcDeps) => layoutLoad(deps),
+  // ── layout: the same commands the desktop sends ──
   "layout.getRestoredSessions": (deps: IpcDeps) =>
     layoutGetRestoredSessions(deps),
   /**
@@ -241,6 +241,7 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
    * workspace the command moved — see `bridgeTarget`.
    */
   "layout.getAll": (deps: IpcDeps) => layoutGetAll(deps),
+  "layout.getLastActive": (deps: IpcDeps) => layoutGetLastActive(deps),
   "layout.apply": (
     deps: IpcDeps,
     workspacePath: string,
@@ -254,15 +255,6 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
     rendererId: string,
     viewport: PersistedDefaultViewport,
   ) => layoutReportViewport(deps, workspacePath, rendererId, viewport),
-  /**
-   * Still refused, and now for a shorter reason: `layout.apply` is the way in.
-   * ADR-179 ticket 3 deletes the renderer's save path and this entry with it.
-   */
-  "layout.save": () => {
-    throw new BridgeRefusal(
-      "Layout is saved by the Manor server; send layout.apply instead",
-    );
-  },
 
   // ── projects: the sidebar's reads, plus the two selection writes ──
   "projects.getAll": (deps: IpcDeps) => projectsGetAll(deps),

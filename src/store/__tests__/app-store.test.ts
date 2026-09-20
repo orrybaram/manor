@@ -5,7 +5,12 @@ import {
   selectWebviewFocusVisible,
 } from "../app-store";
 import type { Tab, Panel, WorkspaceLayout } from "../app-store";
-import { allPaneIds } from "../pane-tree";
+import { allPaneIds } from "../../lib/layout/pane-tree";
+import {
+  broadcastLayout,
+  resetFakeLayoutServer,
+  seedLayout,
+} from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 // with a minimal electronAPI mock. No additional stubbing needed here.
@@ -130,19 +135,26 @@ function makeTwoPanelLayout(): WorkspaceLayout {
   };
 }
 
-/** Set up the store with a known workspace layout. */
+/**
+ * Set up the store with a known workspace layout — and give the Manor server
+ * the same one, since that is where every layout action now lands (ADR-179
+ * D1). The store's copy is a replica of it.
+ */
 function setupStore(layout?: WorkspaceLayout) {
+  resetFakeLayoutServer();
+  const start = layout ?? makeLayout();
+  seedLayout(WS_PATH, start);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: layout ?? makeLayout() },
+    workspaceLayouts: { [WS_PATH]: start },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
     pendingStartupCommands: {},
     pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
@@ -315,25 +327,20 @@ describe("Pane operations", () => {
     expect(panel.selectedTabId).toBe("tab-2");
   });
 
-  it("reopenClosedPane restores from closedPaneStack", () => {
+  it("reopenClosedPane puts back what the last close took", () => {
     setupStore(makeTwoTabLayout());
     useAppStore.getState().selectTab("tab-1");
 
-    // Close tab-1 - it should be pushed to closedPaneStack
     useAppStore.getState().closeTab("tab-1");
+    expect(getActivePanel().tabs).toHaveLength(1);
 
-    const stackBefore = useAppStore.getState().closedPaneStack;
-    expect(stackBefore).toHaveLength(1);
-
-    // Reopen
+    // The stack is the server's (ADR-179 D3): the command pops it, and the
+    // broadcast is what puts the tab back here.
     useAppStore.getState().reopenClosedPane();
 
-    const stackAfter = useAppStore.getState().closedPaneStack;
-    expect(stackAfter).toHaveLength(0);
-
     const panel = getActivePanel();
-    // The restored tab should be back
     expect(panel.tabs).toHaveLength(2);
+    expect(panel.tabs.some((t) => t.id === "tab-1")).toBe(true);
   });
 
   it("focusPane updates focusedPaneId", () => {
@@ -448,32 +455,27 @@ describe("Panel operations", () => {
   it("moveTabToPanel moves tab between panels", () => {
     setupStore(makeTwoPanelLayout());
 
-    // Add a second tab to panel-1 so it is not left empty and removed
-    useAppStore.setState((state) => {
-      const layout = state.workspaceLayouts[WS_PATH];
-      const panel1 = layout.panels["panel-1"];
-      const extraTab: Tab = {
-        id: "tab-extra",
-        title: "Extra",
-        rootNode: { type: "leaf", paneId: "pane-extra" },
-        focusedPaneId: "pane-extra",
-      };
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [WS_PATH]: {
-            ...layout,
-            panels: {
-              ...layout.panels,
-              "panel-1": {
-                ...panel1,
-                tabs: [...panel1.tabs, extraTab],
-              },
-            },
-          },
-        },
-      };
-    });
+    // Add a second tab to panel-1 so it is not left empty and removed. Both
+    // sides get it: the server is the authority, the store is its replica.
+    const base = useAppStore.getState().workspaceLayouts[WS_PATH];
+    const source = base.panels["panel-1"];
+    const extraTab: Tab = {
+      id: "tab-extra",
+      title: "Extra",
+      rootNode: { type: "leaf", paneId: "pane-extra" },
+      focusedPaneId: "pane-extra",
+    };
+    const withExtra: WorkspaceLayout = {
+      ...base,
+      panels: {
+        ...base.panels,
+        "panel-1": { ...source, tabs: [...source.tabs, extraTab] },
+      },
+    };
+    seedLayout(WS_PATH, withExtra);
+    useAppStore.setState((state) => ({
+      workspaceLayouts: { ...state.workspaceLayouts, [WS_PATH]: withExtra },
+    }));
 
     useAppStore.getState().moveTabToPanel("tab-1", "panel-2");
 
@@ -488,35 +490,44 @@ describe("Panel operations", () => {
 
 describe("Workspace management", () => {
   beforeEach(() => {
+    resetFakeLayoutServer();
     useAppStore.setState({
       activeWorkspacePath: null,
       workspaceLayouts: {},
+      layoutVersions: {},
+      serverLayouts: {},
       paneCwd: {},
       paneTitle: {},
       paneAgentStatus: {},
       paneContentType: {},
       paneUrl: {},
       panePickedElement: {},
-      closedPaneIds: new Set(),
-      closedPaneStack: [],
       pendingStartupCommands: {},
       pendingPaneCommands: {},
     });
   });
 
-  it("setActiveWorkspace initializes layout if new", () => {
+  it("setActiveWorkspace leaves a workspace the server never saw empty", () => {
     useAppStore.getState().setActiveWorkspace(WS_PATH);
 
     const state = useAppStore.getState();
     expect(state.activeWorkspacePath).toBe(WS_PATH);
-    expect(state.workspaceLayouts[WS_PATH]).toBeDefined();
-    const layout = state.workspaceLayouts[WS_PATH];
-    expect(layout.panelTree.type).toBe("leaf");
-    expect(Object.keys(layout.panels)).toHaveLength(1);
+    // No layout at all, rather than an invented one: the empty state renders,
+    // and the first `new-tab` creates the panel on the server (ADR-179 D1).
+    expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
   });
 
-  it("setActiveWorkspace reuses existing layout", () => {
-    // Set up first
+  it("setActiveWorkspace adopts what the server already holds", () => {
+    const layout = makeLayout();
+    broadcastLayout(WS_PATH, layout);
+
+    useAppStore.getState().setActiveWorkspace(WS_PATH);
+
+    expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(layout);
+  });
+
+  it("setActiveWorkspace reuses the replica it already has", () => {
+    broadcastLayout(WS_PATH, makeLayout());
     useAppStore.getState().setActiveWorkspace(WS_PATH);
     const layoutRef = useAppStore.getState().workspaceLayouts[WS_PATH];
 
@@ -524,11 +535,10 @@ describe("Workspace management", () => {
     useAppStore.getState().setActiveWorkspace("/other");
     useAppStore.getState().setActiveWorkspace(WS_PATH);
 
-    // Should still be the same layout object
     expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(layoutRef);
   });
 
-  it("removeWorkspaceLayout cleans up", () => {
+  it("removeWorkspaceLayout drops the replica and its side maps", () => {
     setupStore();
     // Set some metadata
     useAppStore.setState({

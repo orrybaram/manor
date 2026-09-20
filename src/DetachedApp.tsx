@@ -18,7 +18,7 @@ import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
 import { dispatchMenuCommand } from "./lib/menu-handlers";
 import { countTabsInWindow, whenHandoffsIdle } from "./lib/window-handoff";
 import { useMountEffect } from "./hooks/useMountEffect";
-import { allPaneIds } from "./store/pane-tree";
+import { allPaneIds } from "./lib/layout/pane-tree";
 import "./App.css";
 
 /**

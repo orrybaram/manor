@@ -203,7 +203,9 @@ describe("createWsBridge", () => {
 
     it("raises BridgeUnavailableError for unavailable:web", async () => {
       const { api, socket } = connected();
-      const pending = api.layout.save({} as never);
+      const pending = (
+        api.layout as unknown as { save: (w: unknown) => Promise<unknown> }
+      ).save({});
       const frame = last(socket.of("invoke"));
       socket.deliver({
         id: frame.id,

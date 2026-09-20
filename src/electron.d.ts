@@ -281,42 +281,19 @@ export interface PtyCreateResult {
   rows?: number;
 }
 
-/** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
+/**
+ * The parts of `~/.manor/layout.json` a renderer is handed (ADR-179 D1).
+ *
+ * Not the file: the file is the Manor server's, and nothing here reads or
+ * writes it. These two ride along with `layout.getAll()` — what the server
+ * derived about each pane, and the viewport it hands a renderer that has none
+ * of its own. Mirrored from `electron/terminal-host/layout-persistence.ts`.
+ */
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
   lastTitle: string | null;
   lastAgentStatus?: AgentState | null;
-}
-
-export interface PersistedTab {
-  id: string;
-  title: string;
-  rootNode: import("./store/pane-tree").PaneNode;
-  focusedPaneId: string;
-  paneSessions: Record<string, PersistedPaneSession>;
-}
-
-/** V1 persisted workspace (kept for migration reference) */
-export interface PersistedWorkspaceV1 {
-  workspacePath: string;
-  tabs: PersistedTab[];
-  selectedTabId: string;
-  pinnedTabIds?: string[];
-}
-
-/** V1 persisted layout (kept for migration reference) */
-export interface PersistedLayoutV1 {
-  version: 1;
-  workspaces: PersistedWorkspaceV1[];
-}
-
-/** Persisted panel (v2) */
-export interface PersistedPanel {
-  id: string;
-  tabs: PersistedTab[];
-  selectedTabId: string;
-  pinnedTabIds: string[];
 }
 
 /**
@@ -329,29 +306,6 @@ export interface PersistedDefaultViewport {
   selectedTabIds: Record<string, string>;
   /** tabId → paneId */
   focusedPaneIds: Record<string, string>;
-}
-
-/** Persisted workspace state (v3) */
-export interface PersistedWorkspace {
-  workspacePath: string;
-  panelTree: import("./store/panel-tree").PanelNode;
-  panels: Record<string, PersistedPanel>;
-  activePanelId: string;
-  /** Absent on a workspace the renderer's old `layout.save` path wrote; main
-   *  fills it in on the way to disk. */
-  defaultViewport?: PersistedDefaultViewport;
-}
-
-/** Full persisted layout (v3) */
-export interface PersistedLayout {
-  version: number;
-  workspaces: PersistedWorkspace[];
-  /**
-   * Path of the workspace/surface active when the layout was last saved
-   * (includes the Home surface's `HOME_PATH`). Used to restore the last-active
-   * surface on relaunch. Absent in layouts saved before this field existed.
-   */
-  lastActiveWorkspacePath?: string | null;
 }
 
 /** One workspace, as the Manor server holds it (ADR-179 D1). */
@@ -470,15 +424,16 @@ export interface ElectronAPI {
   };
 
   layout: {
-    save: (workspace: PersistedWorkspace) => Promise<void>;
-    load: () => Promise<PersistedLayout | null>;
     getRestoredSessions: () => Promise<RestoredSessionsInfo>;
     /**
      * ADR-179 D1. Layout belongs to the Manor server: read it whole, change it
      * by command, and replace the replica whenever `onChanged` fires — the
-     * sender's own change included. `save`/`load` above go in ticket 3.
+     * sender's own change included. There is no `save`: a renderer never
+     * writes layout.
      */
     getAll: () => Promise<Record<string, LayoutEntry>>;
+    /** The surface that was active last — restored on relaunch. */
+    getLastActive: () => Promise<string | null>;
     apply: (
       workspacePath: string,
       command: import("./lib/layout/commands").LayoutCommand,

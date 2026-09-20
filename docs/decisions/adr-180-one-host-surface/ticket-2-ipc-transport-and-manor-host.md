@@ -1,6 +1,6 @@
 ---
 title: The IPC transport and the preload's host object
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

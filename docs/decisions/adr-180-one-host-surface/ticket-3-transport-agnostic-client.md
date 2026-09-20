@@ -1,6 +1,6 @@
 ---
 title: The renderer client becomes transport-agnostic
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [2]
@@ -112,3 +112,19 @@ ticket that resolves it. Import the constants and the frame types from
 across that boundary is already precedent (`electron/mcp/tools-panes.ts`
 imports `LayoutSnapshot` from `src/store/`), and `types.ts` was deliberately
 written to import nothing so it can be imported from anywhere.
+
+## Folded in from ticket 2
+
+- **Structured clone is stricter than JSON in one direction and looser in
+  another.** Nothing has crossed the IPC transport in a running app yet; this
+  ticket is the first proof. A handler whose result is a function, a class
+  instance or anything else structured clone refuses will throw at the
+  `webContents.send` / `ipcMain.handle` boundary, where the WS transport would
+  have quietly dropped it in `JSON.stringify`. If you hit one, fix the handler
+  to return plain data rather than teaching a transport to cope.
+- **An unrecognised sender's invoke never settles**, on purpose (a hostile
+  guest must not learn anything). The cost is that a *legitimate* window that
+  somehow speaks before `trackRendererWindow` runs hangs instead of erroring,
+  with one `console.warn` as the only clue. Both the primary and the detached
+  paths register synchronously before any load today. `main.tsx` installing
+  the bridge is the first code that could change that — make sure it cannot.

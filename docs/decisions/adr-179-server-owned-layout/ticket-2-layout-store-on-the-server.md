@@ -1,6 +1,6 @@
 ---
 title: LayoutStore on the Manor server — apply, persist, broadcast
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [1]
@@ -48,6 +48,27 @@ class LayoutStore {
   captured v2 fixture with two workspaces, pinned tabs and a browser pane.
   `LayoutPersistence.save` writes the whole file from memory — the
   read-modify-write in `saveWorkspace` goes.
+
+## Carried over from ticket 1's report — commands the union is missing
+
+Three store actions still mutate the layout inline and will break when the
+server owns it. Add them to `src/lib/layout/commands.ts` in this ticket (the
+reducer is yours to extend; keep ticket 1's tests green):
+
+- `merge-tab-into-tab { sourceTabId, targetTabId, position?, newPaneIds? }` —
+  what `mergeTabIntoTab` does (drag a tab onto another tab's pane tree).
+- `open-diff-in-new-panel { tab: Tab; direction; newPanelId }` — a new panel
+  holding a fresh tab **without** moving the source panel's selected tab (the
+  reason `openDiffInNewPanel` could not be `new-tab` + `split-panel`). Name it
+  for what it does structurally — `split-panel-with-new-tab` — not for diff.
+- `removeWorkspaceLayout` is `LayoutStore.remove`, not a command; wire the IPC
+  `layout:remove` / bridge `layout.remove` here.
+
+Also: ticket 1 put `paneMetadata` (contentType/url/cwd/title) on the closing
+commands because the reopen stack needs it and the reducer did not own it.
+Once `paneSessions` is server-derived here, decide whether the server fills
+that from its own `paneSessions` and the field goes, or it stays sender-provided
+for one more ticket. Prefer the former if it is not a detour.
 
 ## Bridge and IPC
 

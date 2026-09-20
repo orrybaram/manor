@@ -39,6 +39,7 @@ import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { BridgeServer } from "./bridge/server";
 import { WsBridgeServer } from "./bridge/transports/ws";
+import { IpcBridgeTransport } from "./bridge/transports/ipc";
 import { TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
@@ -367,13 +368,14 @@ export function initApp(devTitle: string | null): void {
     remotePush,
   );
   /**
-   * The host surface and its WebSocket transport (ADR-180 D1). Declared here
+   * The host surface and its two transports (ADR-180 D1/D2). Declared here
    * and built below, once `ipcDeps` exists: the handler table runs against
    * exactly that object, and the PTY forwarding below has to be able to see
    * the bridge before it is assigned.
    */
   let bridgeServer: BridgeServer | null = null;
   let wsBridge: WsBridgeServer | null = null;
+  let ipcBridge: IpcBridgeTransport | null = null;
 
   const paneContextMap = new Map<
     string,
@@ -505,6 +507,12 @@ export function initApp(devTitle: string | null): void {
   bridgeServer = new BridgeServer(ipcDeps);
   wsBridge = new WsBridgeServer(ipcDeps, { server: bridgeServer });
   remoteControlServer.setBridge(wsBridge);
+  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
+  // connection per renderer window. Started unconditionally and for the life
+  // of the app — a window's first frame makes its connection, and remote
+  // control being off has nothing to do with it.
+  ipcBridge = new IpcBridgeTransport(ipcDeps, { server: bridgeServer });
+  ipcBridge.start();
 
   // Give control routes (ADR-171) the same manager bag IPC handlers have.
   webviewServer.setControlDeps({
@@ -674,6 +682,7 @@ export function initApp(devTitle: string | null): void {
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
     wsBridge?.dispose();
+    ipcBridge?.dispose();
     bridgeServer?.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});

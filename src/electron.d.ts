@@ -1176,8 +1176,65 @@ export interface RemotePairResult {
   page: string;
 }
 
+// ── The host surface (ADR-180 D3) ──
+
+/**
+ * A failed `ManorHost.invoke`, as a value rather than a rejection.
+ *
+ * `ipcMain.handle` serialises a thrown error to its message and drops every
+ * custom property, so a rejection cannot carry the `code` that tells
+ * `unavailable:web` from a real failure. The transport returns this instead
+ * and the client in the page throws it —
+ * `electron/bridge/transports/ipc.ts` is the other half of this shape.
+ */
+export interface BridgeErrorEnvelope {
+  __bridgeError: { code: string; message: string };
+}
+
+/**
+ * What the preload exposes, and the only thing it will expose once ADR-180
+ * has run: the facts a renderer needs before it can ask anything, one way to
+ * call the host's handler table, one way to listen to it — and (later
+ * tickets) the native namespaces that can never leave the preload.
+ *
+ * `window.electronAPI` is *built over this*, in the page, by
+ * `src/bridge/client.ts`: `contextBridge` copies the shape it is handed, and
+ * the `Proxy` that turns `ns.method(...)` into an invoke has no members to
+ * copy. Undefined in a browser, where the same client runs over a WebSocket
+ * instead and nothing has a preload under it.
+ */
+export interface ManorHost {
+  /** Always `electron`. A browser has no `manorHost` at all. */
+  platform: "electron";
+  /** This window's `webContents.id`, as `ElectronAPI.rendererId` documents. */
+  rendererId: string | null;
+  isDetached: boolean;
+  detachedWindowId: string | null;
+  claim: { workspacePath: string; tabId: string } | null;
+  env: { isPackaged: boolean };
+  /**
+   * Call `ns.method(...args)` on the host. Resolves with the handler's
+   * result, or with a `BridgeErrorEnvelope` when the call failed or the host
+   * does not implement it — the client checks for the envelope and throws.
+   */
+  invoke: (ns: string, method: string, args: unknown[]) => Promise<unknown>;
+  /**
+   * Hear `ns.event`, for one `key` (a paneId) or for every key when null.
+   * Returns the unsubscribe. Reference-counted in the preload, so two
+   * subscriptions to the same thing are two subscriptions.
+   */
+  subscribe: (
+    ns: string,
+    event: string,
+    key: string | null,
+    callback: (...args: unknown[]) => void,
+  ) => () => void;
+}
+
 declare global {
   interface Window {
     electronAPI: ElectronAPI;
+    /** ADR-180 D3. Undefined in a browser. */
+    manorHost: ManorHost | undefined;
   }
 }

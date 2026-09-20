@@ -939,3 +939,176 @@ contextBridge.exposeInMainWorld("electronAPI", {
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
   },
 });
+
+/**
+ * `window.manorHost` — the one concrete object the page builds a host client
+ * over (ADR-180 D3).
+ *
+ * `electronAPI` above is 200-odd methods, each one an `ipcRenderer.invoke` or
+ * an `ipcRenderer.on` written out by hand, and every host feature has had to
+ * be written twice: once here, once as a bridge handler table entry. D1 makes
+ * the table the one host surface and D2 gives it a second transport; what is
+ * left for the preload is to hand the page a door onto that transport. The
+ * page builds the `ns.method(...)` proxy over it (`src/bridge/client.ts`),
+ * exactly as the web renderer already builds one over a WebSocket — which it
+ * must, because `contextBridge` copies the shape it is handed and a `Proxy`'s
+ * members are not there to copy.
+ *
+ * Nothing uses this yet. `electronAPI` stays whole and the desktop keeps
+ * calling it; later tickets hollow it out method by method, and what is left
+ * at the end is the native namespaces (`webview`, `window`, `menu`, `dialog`,
+ * `shell`, `clipboard`, `updater`) plus this.
+ *
+ * The facts on it are the ones a renderer needs *synchronously*, before it
+ * can invoke anything — they are read off argv above for that reason, and are
+ * the same values `electronAPI` reports.
+ *
+ * The four channel names are written out rather than imported from
+ * `electron/bridge/transports/ipc.ts`, which exports them as constants: that
+ * module reaches for `ipcMain` and, through the handler table, the whole main
+ * process. Importing it here would drag all of it into the renderer's bundle
+ * to save four strings.
+ */
+
+/** Delivered a frame's `args`, spread — the same shape a preload `onX` has. */
+type BridgeListener = (...args: unknown[]) => void;
+
+/** One `bridge:event` from `electron/bridge/transports/ipc.ts`. */
+interface BridgeEventFrame {
+  ns: string;
+  event: string;
+  key?: string;
+  args?: unknown[];
+}
+
+/**
+ * The key a subscription that named none is filed under, here and in
+ * `BridgeServer`. Kept off the wire: the host defaults a missing key to
+ * exactly this, and sending it would be saying the same thing twice.
+ */
+const BRIDGE_ALL_KEYS = "*";
+
+/**
+ * `ns.event` → key → its listeners, duplicates and all.
+ *
+ * An array rather than a `Set` because this is a reference count and a `Set`
+ * would collapse two subscriptions that happen to share a callback into one:
+ * React StrictMode mounts an effect twice, and the second unmount must not
+ * take the live subscription down with it. One occurrence in, one occurrence
+ * out; the host hears `subscribe` when the array goes from empty and
+ * `unsubscribe` when it goes back to empty.
+ */
+const bridgeListeners = new Map<string, Map<string, BridgeListener[]>>();
+
+/**
+ * One `bridge:event` listener for the whole page, fanned out locally.
+ *
+ * Installed once, at load: one IPC listener carries every pane's output and
+ * every broadcast, so a renderer with forty subscriptions still has exactly
+ * one listener on the channel.
+ */
+ipcRenderer.on(
+  "bridge:event",
+  (_event: Electron.IpcRendererEvent, frame: BridgeEventFrame) => {
+    if (!frame || typeof frame.ns !== "string") return;
+    const byKey = bridgeListeners.get(`${frame.ns}.${frame.event}`);
+    if (!byKey) return;
+    const args = Array.isArray(frame.args) ? frame.args : [];
+    // A keyless event is about the machine (`projects.changed`), so every
+    // listener of that name wants it. A keyed one is about one pane, and goes
+    // to that pane's listeners plus anyone who subscribed without naming one.
+    const lists =
+      typeof frame.key === "string"
+        ? [byKey.get(frame.key), byKey.get(BRIDGE_ALL_KEYS)]
+        : [...byKey.values()];
+    for (const list of lists) {
+      if (!list) continue;
+      for (const listener of [...list]) {
+        try {
+          listener(...args);
+        } catch {
+          // A listener that throws is that listener's problem; the rest of
+          // the page still hears the event.
+        }
+      }
+    }
+  },
+);
+
+function bridgeSubscribe(
+  ns: string,
+  event: string,
+  key: string | null | undefined,
+  callback: BridgeListener,
+): () => void {
+  const name = `${ns}.${event}`;
+  const slot = key ?? BRIDGE_ALL_KEYS;
+  let byKey = bridgeListeners.get(name);
+  if (!byKey) {
+    byKey = new Map();
+    bridgeListeners.set(name, byKey);
+  }
+  let list = byKey.get(slot);
+  if (!list) {
+    list = [];
+    byKey.set(slot, list);
+  }
+  list.push(callback);
+  if (list.length === 1) {
+    ipcRenderer.send("bridge:subscribe", { ns, event, key: key ?? undefined });
+  }
+
+  // Idempotent: React calls a cleanup once, but a caller that keeps the
+  // handle and calls it twice must not decrement somebody else's count.
+  let live = true;
+  return () => {
+    if (!live) return;
+    live = false;
+    const current = bridgeListeners.get(name)?.get(slot);
+    if (!current) return;
+    const at = current.indexOf(callback);
+    if (at !== -1) current.splice(at, 1);
+    if (current.length > 0) return;
+    const owner = bridgeListeners.get(name);
+    owner?.delete(slot);
+    if (owner?.size === 0) bridgeListeners.delete(name);
+    ipcRenderer.send("bridge:unsubscribe", {
+      ns,
+      event,
+      key: key ?? undefined,
+    });
+  };
+}
+
+contextBridge.exposeInMainWorld("manorHost", {
+  platform: "electron",
+
+  rendererId,
+  isDetached,
+  detachedWindowId,
+  claim,
+
+  env: {
+    isPackaged,
+  },
+
+  /**
+   * `ns.method(...args)` on the host's handler table.
+   *
+   * A failure comes back as a `{__bridgeError: {code, message}}` *value*
+   * rather than a rejection: `ipcMain.handle` drops the custom properties of
+   * a thrown error, and the `code` is what tells "the host does not do this"
+   * from "the host tried and it broke". The client in the page turns the
+   * envelope into the error it should be.
+   */
+  invoke: (ns: string, method: string, args: unknown[]) =>
+    ipcRenderer.invoke("bridge:invoke", { ns, method, args }),
+
+  /** Hear `ns.event` (for one `key`, or for all of them). Returns the undo. */
+  subscribe: (
+    ns: string,
+    event: string,
+    key: string | null,
+    callback: BridgeListener,
+  ) => bridgeSubscribe(ns, event, key, callback),
+});

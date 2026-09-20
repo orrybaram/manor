@@ -312,7 +312,18 @@ class BridgeConnection {
     this.socket = socket;
     socket.onopen = () => {
       // Authentication is a frame, not a URL — see the server's header.
-      socket.send(JSON.stringify({ type: "hello", token: this.options.token }));
+      // `previousId` is this connection's own rendererId from before the
+      // reconnect, if it had one — the server reuses it when nothing else is
+      // holding it, so a selection hint addressed to "the tab that sent this"
+      // still finds it after a blip, and this connection's `pty-attachments`
+      // viewer identity does not reset (ADR-179 ticket 4's report).
+      socket.send(
+        JSON.stringify({
+          type: "hello",
+          token: this.options.token,
+          ...(this.rendererId !== null && { previousId: this.rendererId }),
+        }),
+      );
     };
     socket.onmessage = (event: MessageEvent) => {
       this.onFrame(String(event.data));

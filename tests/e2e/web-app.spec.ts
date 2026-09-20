@@ -3,6 +3,7 @@ import path from "path";
 import { expect, type Page } from "@playwright/test";
 
 import {
+  bootWorkspaceWithTerminal,
   createWorkspace,
   importSeededProject,
   openTerminalTab,
@@ -210,6 +211,78 @@ test.describe("web app (ADR-178 slice 1)", () => {
       expect(["pty.create", "agents.setPaneContext"]).toContain(entry.route);
       expect(entry.target).toBe(desktopPaneId);
       expect(entry.outcome).toBe("sent");
+    }
+  });
+
+  /**
+   * ADR-179 D6: with no desktop viewer left, the most recently attached
+   * bridge viewer owns the pane's winsize, and it hears so live rather than
+   * on its next `pty.create`.
+   *
+   * The desktop stops watching the pane by *closing* it (`Meta+w`) rather
+   * than popping it into a window of its own and closing that: a popped tab
+   * that is later unclaimed comes back to the primary's tab strip and
+   * remounts there at once (every tab of a workspace stays mounted so
+   * switching never sends a spurious `SIGWINCH` — see
+   * `workspace-switching.spec.ts`), which would race this test against the
+   * desktop reattaching. A closed pane does not come back on its own — only
+   * an explicit reopen does — so the browser's ownership is stable, not just
+   * transiently true. The trade is the note in the ticket: closing ends the
+   * session after `REOPEN_GRACE_MS` unless it is reopened first, so this test
+   * reads everything it needs well inside that ten-second grace, the same
+   * margin `smoke.spec.ts`'s reopen test relies on.
+   */
+  test("a browser becomes the winsize owner once the desktop stops watching the pane", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("web-app-d6");
+
+    await bootWorkspaceWithTerminal(app, window, tempHome, "d6-e2e");
+    const desktopPaneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, desktopPaneId);
+
+    const port = await enableRemoteControl(window);
+    const device = await pairDevice(window, {
+      label: "d6 browser",
+      capability: "full",
+    });
+    await closeSettings(window);
+
+    const client = await openWebApp(port, device.token);
+    try {
+      const browserPaneId = await activePaneId(client.page);
+      expect(browserPaneId).toBe(desktopPaneId);
+
+      // The desktop owns the winsize while it has the pane mounted (D5): the
+      // browser follows, and says so.
+      await expect(
+        client.page.getByTestId("terminal-follower"),
+      ).toBeVisible({ timeout: 20_000 });
+      await film.shot(client.page, "browser-follower-before");
+
+      await window.keyboard.press("Meta+w");
+      await expect(
+        window.locator('[data-testid="terminal-pane"]'),
+      ).toHaveCount(0, { timeout: 10_000 });
+
+      // The browser is now the pane's only viewer: it hears so live, and its
+      // next fit becomes the pane's real size — `readSessionMeta` reads that
+      // size back from the daemon itself, not from anything the browser
+      // claims about its own view.
+      await expect(
+        client.page.getByTestId("terminal-follower"),
+      ).toHaveCount(0, { timeout: 5_000 });
+      await film.shot(client.page, "browser-follower-after");
+
+      const meta = await readSessionMeta(request, tempHome, desktopPaneId);
+      expect(meta.cols).not.toBeNull();
+      expect(meta.rows).not.toBeNull();
+    } finally {
+      film.write("browser-console-d6.log", client.log.join("\n") + "\n");
+      await client.close();
     }
   });
 

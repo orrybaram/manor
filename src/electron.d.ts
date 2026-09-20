@@ -281,6 +281,20 @@ export interface PtyCreateResult {
 }
 
 /**
+ * A live winsize-ownership change (ADR-179 D6), pushed to every viewer of
+ * `paneId` whenever `pty-attachments.ts` decides the owner moved — not only
+ * on this viewer's own `pty.create`/`pty.reset`. `owner` is this viewer's
+ * answer, the same field `PtyCreateResult.winsizeOwner` carries, just not
+ * inverted: `true` here means *this* viewer owns it now.
+ */
+export interface WinsizeOwnerEvent {
+  paneId: string;
+  cols: number;
+  rows: number;
+  owner: boolean;
+}
+
+/**
  * The parts of `~/.manor/layout.json` a renderer is handed (ADR-179 D1).
  *
  * Not the file: the file is the Manor server's, and nothing here reads or
@@ -445,6 +459,17 @@ export interface ElectronAPI {
     onResized: (
       paneId: string,
       callback: (cols: number, rows: number) => void,
+    ) => () => void;
+    /**
+     * The winsize owner changed, without this viewer having made the call
+     * that changed it (ADR-179 D6) — another bridge viewer outbid it, or its
+     * owner disconnected and it inherited the grid. A no-op subscription on
+     * the desktop preload: the desktop's own attach always wins ownership the
+     * moment it exists (D5), so it is never the one hearing this.
+     */
+    onWinsizeOwner: (
+      paneId: string,
+      callback: (payload: WinsizeOwnerEvent) => void,
     ) => () => void;
     onAgentStatus: (
       paneId: string,
@@ -619,6 +644,18 @@ export interface ElectronAPI {
         >
       >
     >;
+    /**
+     * The selected theme changed somewhere other than this call — another
+     * desktop window's `setSelected`, or a browser on the bridge (ADR-179
+     * ticket 7). The payload is `setSelected`'s own return shape, ready to
+     * apply without a round trip back to `get`.
+     */
+    onChanged: (
+      callback: (payload: {
+        name: string;
+        theme: import("./store/theme-store").Theme;
+      }) => void,
+    ) => () => void;
   };
 
   ports: {

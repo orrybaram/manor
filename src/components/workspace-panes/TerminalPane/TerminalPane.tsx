@@ -71,13 +71,16 @@ export function TerminalPane(props: TerminalPaneProps) {
           className={`${styles.container} ${follower ? styles.containerFollowing : ""}`}
           data-testid="terminal-pane"
         >
-          {/* Why this pane does not fit its box: the desktop app owns this
-              session's winsize and this viewer is following it (ADR-178 D5).
-              Saying so is cheaper than leaving the user to discover that
-              dragging the pane changes nothing. */}
+          {/* Why this pane does not fit its box: some other viewer — the
+              desktop app, or (ADR-179 D6) another browser that attached more
+              recently — owns this session's winsize, and this one is
+              following it. Saying so is cheaper than leaving the user to
+              discover that dragging the pane changes nothing. Unnamed on
+              purpose: `pty.onWinsizeOwner` says whether this viewer owns it,
+              not who does. */}
           {follower && (
             <span className={styles.followerBadge} data-testid="terminal-follower">
-              following desktop · {follower.cols}×{follower.rows}
+              following · {follower.cols}×{follower.rows}
             </span>
           )}
           {searchOpen && term && searchAddon && (

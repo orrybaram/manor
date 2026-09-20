@@ -41,12 +41,14 @@ import {
 } from "../renderer-broadcast";
 import type { AuthenticatedDevice } from "./server";
 import type { LayoutOrigin } from "../layout/layout-store";
+import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import {
   BridgeRefusal,
   MUTATING,
   ORIGIN_ARGS,
   UNAVAILABLE_CODE,
   WS_HANDLERS,
+  sessionGrid,
   type BridgeHandler,
 } from "./ws-handlers";
 
@@ -92,8 +94,15 @@ interface Connection {
    * goes back in the hello reply, rides out as the origin of every layout
    * command from here, and is what lets the tab tell its own
    * `layout.changed` from every other viewer's.
+   *
+   * Mutable, not `readonly`: `onHello` may replace the freshly generated id
+   * with the one the client says it held before a reconnect, so long as
+   * nothing live is still using it (ADR-179 ticket 4's report). A stable id
+   * is what lets a selection hint addressed to "the tab that sent this"
+   * still find it after a blip, and what keeps this connection's
+   * `pty-attachments` viewer identity from resetting on every reconnect.
    */
-  readonly id: string;
+  id: string;
   device: AuthenticatedDevice | null;
   helloTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -123,6 +132,8 @@ export class WsBridgeServer {
   private readonly audit: RemoteAuditLog;
   private readonly handlers: Record<string, BridgeHandler>;
   private readonly unsubscribeBroadcasts: () => void;
+  private readonly unsubscribeAttachments: () => void;
+  private readonly disconnectSinks = new Set<(connectionId: string) => void>();
 
   constructor(
     private readonly deps: IpcDeps,
@@ -133,11 +144,92 @@ export class WsBridgeServer {
     this.unsubscribeBroadcasts = addRendererBroadcastSink((broadcast) =>
       this.onRendererBroadcast(broadcast),
     );
+    // D6: told whenever `pty-attachments.ts` decides a pane's winsize owner
+    // changed — a bridge viewer's `pty.create`/`close`/`detach`, a desktop
+    // window attaching or dying, or (below) a socket of this server's own
+    // dropping. One place turns that into a push, whichever side caused it.
+    this.unsubscribeAttachments = onAttachmentChange((paneId) => {
+      void this.onOwnerChanged(paneId);
+    });
   }
 
   /** Live bridge sockets. The UI's "a browser is attached" signal. */
   get size(): number {
     return this.connections.size;
+  }
+
+  /**
+   * Told when a socket drops, after this class has released whatever it held
+   * (ADR-179 ticket 7). Nothing subscribes today; kept symmetrical with
+   * `onAttachmentChange` for whatever next needs to react to a browser
+   * leaving rather than poll `size`.
+   */
+  onDisconnect(cb: (connectionId: string) => void): () => void {
+    this.disconnectSinks.add(cb);
+    return () => {
+      this.disconnectSinks.delete(cb);
+    };
+  }
+
+  /**
+   * One event, to one socket, bypassing subscription membership.
+   *
+   * `publish` fans one payload out to every subscriber; a winsize-ownership
+   * push is a different `owner` per socket, so each one needs its own frame.
+   * Subscription is still honoured — a socket that never asked about this
+   * pane does not hear that it isn't the owner of it.
+   */
+  publishTo(
+    connectionId: string,
+    ns: string,
+    event: string,
+    args: unknown[],
+    key: string | null,
+  ): void {
+    const connection = [...this.connections].find(
+      (c) => c.id === connectionId,
+    );
+    if (!connection || connection.device === null) return;
+    const name = `${ns}.${event}`;
+    const keys = connection.subscriptions.get(name);
+    if (!keys) return;
+    if (key !== null && !keys.has(key) && !keys.has(ALL_KEYS)) return;
+    const payload = JSON.stringify(
+      key === null
+        ? { kind: "event", ns, event, args }
+        : { kind: "event", ns, event, args, key },
+    );
+    this.write(connection, payload);
+  }
+
+  /**
+   * A pane's winsize owner changed: tell every socket watching it whether it
+   * is the owner now (D6).
+   *
+   * The grid comes from the daemon rather than from whoever just attached,
+   * because the two cases this fires for disagree about whose number is
+   * current: a bridge viewer's own `pty.create` already resized the session
+   * to *its* grid before this runs, and an ownership hand-off with no new
+   * create — the owner disconnected, or a desktop window let go — resizes
+   * nothing at all, so the daemon's answer is the only one that is still
+   * true either way.
+   */
+  private async onOwnerChanged(paneId: string): Promise<void> {
+    if (this.connections.size === 0) return;
+    const grid = await sessionGrid(this.deps, paneId);
+    if (!grid) return;
+    const owner = ownerOf(paneId);
+    for (const connection of this.connections) {
+      const isOwner =
+        !!owner && owner.kind === "bridge" && owner.id === connection.id;
+      this.publishTo(
+        connection.id,
+        "pty",
+        "winsizeOwner",
+        [{ paneId, cols: grid.cols, rows: grid.rows, owner: isOwner }],
+        paneId,
+      );
+    }
   }
 
   /**
@@ -203,6 +295,7 @@ export class WsBridgeServer {
   dispose(): void {
     this.closeAll();
     this.unsubscribeBroadcasts();
+    this.unsubscribeAttachments();
     this.wss.close();
   }
 
@@ -286,12 +379,31 @@ export class WsBridgeServer {
       connection.helloTimer = null;
     }
     connection.device = result.device;
+    // ADR-179 ticket 4's report: a reconnecting client's id used to change
+    // every time, so a selection hint addressed to the id it *used* to have
+    // was simply dropped, and its `pty-attachments` viewer identity reset —
+    // looking, to ownership, like a brand new viewer rather than the same one
+    // resuming after a blip. Reused only when nothing live already answers to
+    // it: two sockets racing to be the same renderer is worse than either of
+    // them keeping the id it was just given.
+    const previousId =
+      typeof frame.previousId === "string" ? frame.previousId : null;
+    if (previousId && !this.idIsHeld(previousId, connection)) {
+      connection.id = previousId;
+    }
     this.send(connection, {
       type: "hello",
       ok: true,
       v: BRIDGE_PROTOCOL_VERSION,
       rendererId: connection.id,
     });
+  }
+
+  private idIsHeld(id: string, exclude: Connection): boolean {
+    for (const connection of this.connections) {
+      if (connection !== exclude && connection.id === id) return true;
+    }
+    return false;
   }
 
   private async onInvoke(
@@ -331,14 +443,16 @@ export class WsBridgeServer {
     const call = handler as (deps: IpcDeps, ...args: unknown[]) => unknown;
     // Who sent it, appended by the transport rather than taken from the
     // frame: a socket does not get to say which socket it is (ADR-179 D3).
-    // The wire arguments are truncated to the declared count first, so an
-    // extra argument cannot land where the origin goes.
+    // The wire arguments are padded (not merely truncated) to the declared
+    // count first: `pty.create`'s `agentKind` is optional, and `args.slice`
+    // on a shorter array would leave the origin sitting in `agentKind`'s slot
+    // rather than its own the moment a caller omits it.
     const wireArgs = ORIGIN_ARGS.get(key);
     const callArgs =
       wireArgs === undefined
         ? args
         : [
-            ...args.slice(0, wireArgs),
+            ...Array.from({ length: wireArgs }, (_, i) => args[i]),
             { kind: "bridge", id: connection.id } satisfies LayoutOrigin,
           ];
     try {
@@ -396,16 +510,16 @@ export class WsBridgeServer {
    * | `stats.changed`         | `stats.onChanged(cb)`            |
    * | `remoteControl.status`  | `remoteControl.onStatus(cb)`     |
    * | `layout.changed`        | `layout.onChanged(cb)`           |
+   * | `theme.changed`         | `theme.onChanged(cb)`            |
    *
    * `layout.changed` is the one that carries a *whole* workspace layout
    * (ADR-179 D1): the server is the only writer, so a renderer replaces its
    * replica rather than patching it.
    *
-   * `theme` is absent from that list because the desktop has no theme
-   * broadcast: a theme change comes back as the return value of
-   * `theme:setSelected` to the one window that asked. A second viewer would
-   * need one, and it is slice-2 work in the namespace that owns it — not a
-   * forwarding rule invented here for a channel that does not exist.
+   * `theme.changed` (ADR-179 ticket 7) closed the one this table used to
+   * document as missing: `theme:setSelected` used to answer only the window
+   * that asked, so a second desktop window and every browser on the bridge
+   * kept the old theme until they next remounted.
    */
   private onRendererBroadcast(broadcast: RendererBroadcast): void {
     this.publish(broadcast.ns, broadcast.event, broadcast.args, null);
@@ -492,7 +606,17 @@ export class WsBridgeServer {
       clearTimeout(connection.helloTimer);
       connection.helloTimer = null;
     }
-    this.connections.delete(connection);
+    const wasConnected = this.connections.delete(connection);
+    // A dead socket releases every pane it was a viewer of, the same as a
+    // desktop window dying does (`releaseViewer` in `app-lifecycle.ts`) — a
+    // browser that vanished mid-session must not keep outvoting the viewers
+    // still there for who owns the winsize (ADR-179 D6). Guarded on having
+    // said hello: a socket that never got past authentication never attached
+    // anything, so there is nothing to release and nobody to tell.
+    if (wasConnected && connection.device !== null) {
+      releaseViewer(connection.id, "bridge");
+      for (const cb of this.disconnectSinks) cb(connection.id);
+    }
   }
 }
 

@@ -77,6 +77,17 @@ if (typeof globalThis.window === "undefined") {
         reset: vi.fn(),
         resetAll: vi.fn(),
       },
+      // theme-store.ts subscribes to onChanged at module-init time (ADR-179
+      // ticket 7), so anything importing it needs this surface too.
+      theme: {
+        get: vi.fn().mockResolvedValue(null),
+        getSelectedName: vi.fn().mockResolvedValue("__ghostty__"),
+        setSelected: vi.fn().mockResolvedValue(null),
+        hasGhosttyConfig: vi.fn().mockResolvedValue(false),
+        preview: vi.fn().mockResolvedValue(null),
+        allColors: vi.fn().mockResolvedValue({}),
+        onChanged: vi.fn(() => vi.fn()),
+      },
     },
   };
   (globalThis as unknown as Record<string, unknown>).window = win;

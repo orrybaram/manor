@@ -89,37 +89,51 @@ export function applyCssVars(theme: Theme) {
   }
 }
 
-export const useThemeStore = create<ThemeState>((set, get) => ({
-  theme: null,
-  selectedThemeName: "__ghostty__",
-  projectThemeOverride: null,
+export const useThemeStore = create<ThemeState>((set, get) => {
+  // The selected theme changed somewhere other than this window's own
+  // `setTheme` — another desktop window, or a browser on the bridge
+  // (ADR-179 ticket 7). Applied straight from the payload rather than a
+  // round trip back to `get`, the same as `setTheme` itself; skipped while a
+  // project override is showing, so a workspace's own theme is not yanked
+  // out from under it by an unrelated preference change elsewhere.
+  window.electronAPI?.theme.onChanged(({ name, theme }) => {
+    const overridden = get().projectThemeOverride !== null;
+    set({ theme: overridden ? get().theme : theme, selectedThemeName: name });
+    if (!overridden) applyCssVars(theme);
+  });
 
-  loadTheme: async () => {
-    const [theme, selectedThemeName] = await Promise.all([
-      window.electronAPI.theme.get(),
-      window.electronAPI.theme.getSelectedName(),
-    ]);
-    set({ theme, selectedThemeName });
-    applyCssVars(theme);
-  },
+  return {
+    theme: null,
+    selectedThemeName: "__ghostty__",
+    projectThemeOverride: null,
 
-  setTheme: async (name: string) => {
-    const theme = await window.electronAPI.theme.setSelected(name);
-    set({ theme, selectedThemeName: name });
-    applyCssVars(theme);
-  },
-
-  applyProjectTheme: async (themeName: string | null) => {
-    if (themeName !== null) {
-      const theme = await window.electronAPI.theme.preview(themeName);
-      set({ theme, projectThemeOverride: themeName });
+    loadTheme: async () => {
+      const [theme, selectedThemeName] = await Promise.all([
+        window.electronAPI.theme.get(),
+        window.electronAPI.theme.getSelectedName(),
+      ]);
+      set({ theme, selectedThemeName });
       applyCssVars(theme);
-    } else {
-      set({ projectThemeOverride: null });
-      await get().loadTheme();
-    }
-  },
-}));
+    },
+
+    setTheme: async (name: string) => {
+      const theme = await window.electronAPI.theme.setSelected(name);
+      set({ theme, selectedThemeName: name });
+      applyCssVars(theme);
+    },
+
+    applyProjectTheme: async (themeName: string | null) => {
+      if (themeName !== null) {
+        const theme = await window.electronAPI.theme.preview(themeName);
+        set({ theme, projectThemeOverride: themeName });
+        applyCssVars(theme);
+      } else {
+        set({ projectThemeOverride: null });
+        await get().loadTheme();
+      }
+    },
+  };
+});
 
 function hexToHsl(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;

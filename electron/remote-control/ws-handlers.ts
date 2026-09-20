@@ -40,7 +40,7 @@ import {
   ptyClose,
   ptyDetach,
 } from "../ipc/pty";
-import { isDesktopAttached } from "../pty-attachments";
+import { attach, isDesktopAttached, ownerOf, release } from "../pty-attachments";
 import {
   layoutApply,
   layoutGetAll,
@@ -136,9 +136,11 @@ export interface WinsizeDecoration {
  * The session's current grid, or null if the daemon has no opinion yet.
  *
  * Never throws: a browser that cannot be told the owner's size is better off
- * with the size it asked for than with a failed `pty.create`.
+ * with the size it asked for than with a failed `pty.create`. Exported for
+ * `ws-bridge-server.ts`'s ownership-change push (D6), which needs the same
+ * "ask the daemon, shrug on failure" grid lookup outside of a create call.
  */
-async function sessionGrid(
+export async function sessionGrid(
   deps: IpcDeps,
   paneId: string,
 ): Promise<{ cols: number; rows: number } | null> {
@@ -188,34 +190,44 @@ async function createShaped<T extends { ok: boolean }>(
 
 export const WS_HANDLERS: Record<string, BridgeHandler> = {
   // ── pty: the terminal itself ──
-  // `create` and `reset` answer with who owns the winsize; `resize` is a no-op
-  // while the desktop does (ADR-178 D5).
-  "pty.create": (
+  // `create` and `reset` answer with who owns the winsize, and attach the
+  // calling connection as a viewer once they succeed — the bridge's half of
+  // what `ipcMain.handle("pty:create", …)` does for a desktop window
+  // (ADR-179 D6). `resize` is a no-op unless the caller is the owner.
+  "pty.create": async (
     deps: IpcDeps,
     paneId: string,
     cwd: string | null,
     cols: number,
     rows: number,
     agentKind?: string | null,
-  ) =>
-    createShaped(deps, paneId, cols, rows, (c, r) =>
+    origin?: LayoutOrigin,
+  ) => {
+    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
       ptyCreate(deps, paneId, cwd, c, r, agentKind),
-    ),
+    );
+    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    return result;
+  },
   /**
    * Create-shaped, and reachable from the pane menu — so it is on the table,
    * decorated exactly as `create` is. `pty.consumePrewarmed` is not: a prewarmed
    * session belongs to the window that asked for one.
    */
-  "pty.reset": (
+  "pty.reset": async (
     deps: IpcDeps,
     paneId: string,
     cwd: string | null,
     cols: number,
     rows: number,
-  ) =>
-    createShaped(deps, paneId, cols, rows, (c, r) =>
+    origin?: LayoutOrigin,
+  ) => {
+    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
       ptyReset(deps, paneId, cwd, c, r),
-    ),
+    );
+    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    return result;
+  },
   "pty.write": (deps: IpcDeps, paneId: string, data: string) =>
     ptyWrite(deps, paneId, data),
   /**
@@ -223,16 +235,31 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
    *
    * It is answered rather than refused because refusing is a rejected promise
    * on every layout tick, which `useTerminalResize` would log; and it is
-   * dropped rather than forwarded because the desktop's grid is not the
-   * browser's to move. A browser that is the *only* viewer resizes normally —
-   * it is the winsize owner then.
+   * dropped rather than forwarded because it is not this caller's grid to
+   * move (D6) — the desktop's, or another bridge viewer's who attached more
+   * recently. A caller that owns the pane's winsize resizes normally.
    */
-  "pty.resize": (deps: IpcDeps, paneId: string, cols: number, rows: number) => {
-    if (isDesktopAttached(paneId)) return;
+  "pty.resize": (
+    deps: IpcDeps,
+    paneId: string,
+    cols: number,
+    rows: number,
+    origin?: LayoutOrigin,
+  ) => {
+    const owner = ownerOf(paneId);
+    const isOwner =
+      !!owner && !!origin && owner.kind === "bridge" && owner.id === origin.id;
+    if (owner && !isOwner) return;
     return ptyResize(deps, paneId, cols, rows);
   },
-  "pty.close": (deps: IpcDeps, paneId: string) => ptyClose(deps, paneId),
-  "pty.detach": (deps: IpcDeps, paneId: string) => ptyDetach(deps, paneId),
+  "pty.close": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
+    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    return ptyClose(deps, paneId);
+  },
+  "pty.detach": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
+    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    return ptyDetach(deps, paneId);
+  },
 
   // ── layout: the same commands the desktop sends ──
   /**
@@ -372,13 +399,21 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
  * Methods whose last argument is the caller's identity, supplied by the
  * transport rather than by the frame (ADR-179 D3).
  *
- * The number is how many arguments come off the wire; the bridge truncates to
- * it and appends the socket's `LayoutOrigin`, so a browser cannot claim to be
- * another renderer and pick up its selection hints.
+ * The number is how many parameters the handler declares before the origin —
+ * `pty.create`'s optional `agentKind` included, so a client that omits it
+ * still gets the origin in the *next* slot rather than in `agentKind`'s. The
+ * bridge pads the wire arguments out to this length and appends the socket's
+ * `LayoutOrigin`, so a browser cannot claim to be another renderer and pick
+ * up its selection hints, or attach as another connection's pane viewer (D6).
  */
 export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   ["layout.apply", 2],
   ["layout.reportViewport", 3],
+  ["pty.create", 5],
+  ["pty.reset", 4],
+  ["pty.resize", 3],
+  ["pty.close", 1],
+  ["pty.detach", 1],
 ]);
 
 export const MUTATING: ReadonlySet<string> = new Set([

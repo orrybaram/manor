@@ -286,6 +286,31 @@ describe("createWsBridge", () => {
       expect(resized).toHaveBeenCalledWith(120, 40);
     });
 
+    it("subscribes to pty.onWinsizeOwner with the paneId as the key", () => {
+      const { api, socket } = connected();
+      const owner = vi.fn();
+      api.pty.onWinsizeOwner("pane-a", owner);
+      expect(last(socket.of("subscribe"))).toEqual({
+        kind: "subscribe",
+        ns: "pty",
+        event: "winsizeOwner",
+        key: "pane-a",
+      });
+      socket.deliver({
+        kind: "event",
+        ns: "pty",
+        event: "winsizeOwner",
+        key: "pane-a",
+        args: [{ paneId: "pane-a", cols: 100, rows: 30, owner: false }],
+      });
+      expect(owner).toHaveBeenCalledWith({
+        paneId: "pane-a",
+        cols: 100,
+        rows: 30,
+        owner: false,
+      });
+    });
+
     it("subscribes keylessly for a machine-wide event", () => {
       const { api, socket } = connected();
       const changed = vi.fn();
@@ -386,6 +411,30 @@ describe("createWsBridge", () => {
   });
 
   describe("reconnecting", () => {
+    /**
+     * ADR-179 ticket 4's report: a reconnecting client's id used to change
+     * every time, dropping a selection hint addressed to the id it had
+     * before. Sending it back lets the server reuse it when nothing else is.
+     */
+    it("says hello with the id the host gave it, after a reconnect", () => {
+      const api = bridge();
+      void api.projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.accept();
+      socket.deliver({ type: "hello", ok: true, v: 1, rendererId: "bridge-1" });
+
+      socket.drop();
+      vi.advanceTimersByTime(1_000);
+      const reopened = FakeSocket.last;
+      reopened.accept();
+
+      expect(last(reopened.frames)).toEqual({
+        type: "hello",
+        token: "full-token",
+        previousId: "bridge-1",
+      });
+    });
+
     it("re-sends every live subscription on the new socket", () => {
       const { api, socket } = connected();
       const cb = vi.fn();

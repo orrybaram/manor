@@ -360,12 +360,20 @@ export class LayoutStore {
    * nothing left to reopen a pane *into* (ADR-179 ticket 10's report).
    */
   remove(workspacePath: string): void {
+    // Captured before the entry is dropped: a popout that claimed a tab here
+    // hears about losing it on the broadcast below, and needs the layout and
+    // version that were true a moment ago to compare against.
+    const state = this.entries.get(workspacePath);
+    let hadClaim = false;
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
     this.windowViewports.delete(workspacePath);
     this.primaryViewports.delete(workspacePath);
     for (const [windowId, claim] of [...this.claims]) {
-      if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
+      if (claim.workspacePath === workspacePath) {
+        this.claims.delete(windowId);
+        hadClaim = true;
+      }
     }
     if (this.lastActiveWorkspacePath === workspacePath) {
       this.lastActiveWorkspacePath = null;
@@ -375,6 +383,21 @@ export class LayoutStore {
     // whole thing from memory, which is what the renderer's parallel writer
     // (see the header) makes the safer of the two for one more ticket.
     this.persistence.removeWorkspace(workspacePath);
+
+    // Without this a popout whose worktree was just deleted never hears that
+    // its claim is gone — `checkOwnClaim` only reacts to a `layout.changed`,
+    // and `remove` used to leave silently, so the window sat on a splash
+    // forever instead of closing (ticket 6's report). Same version: dropping
+    // a claim is not a structural change.
+    if (state && hadClaim) {
+      this.broadcast({
+        workspacePath,
+        version: state.version,
+        layout: state.layout,
+        claims: [],
+        origin: { kind: "route", id: "layout-remove" },
+      });
+    }
   }
 
   /**

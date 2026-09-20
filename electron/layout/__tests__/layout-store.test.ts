@@ -877,6 +877,39 @@ describe("LayoutStore", () => {
 
       expect(kill).not.toHaveBeenCalled();
     });
+
+    /**
+     * Without this a popout whose worktree was just deleted never hears its
+     * claim is gone: `remove` used to leave silently, so `checkOwnClaim`
+     * never sees a broadcast to react to and the window sits on a splash
+     * (ticket 6's report).
+     */
+    it("broadcasts the dropped claim so a popout on the removed workspace closes", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      report("popout-1", "tab-1");
+      const versionBefore = store.get(WS)!.version;
+      broadcasts.length = 0;
+
+      store.remove(WS);
+
+      expect(broadcasts).toHaveLength(1);
+      expect(lastBroadcast()).toMatchObject({
+        workspacePath: WS,
+        version: versionBefore,
+        claims: [],
+      });
+    });
+
+    it("broadcasts nothing when nobody held a claim on the removed workspace", () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
+      broadcasts.length = 0;
+
+      store.remove(WS);
+
+      expect(broadcasts).toEqual([]);
+    });
   });
 
   describe("the broadcast", () => {

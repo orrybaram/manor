@@ -163,6 +163,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on(channel, listener);
       return () => ipcRenderer.removeListener(channel, listener);
     },
+    /**
+     * Live winsize-ownership changes (ADR-179 D6), for a viewer whose owner
+     * moved without a `pty.create`/`pty.reset` reply of its own to read it
+     * from — a bridge viewer that just got outbid by another, or one whose
+     * owner disconnected. A no-op here: the desktop's own attach always wins
+     * ownership the moment it exists (D5), so it never needs telling it lost
+     * something, and nothing publishes on this channel for it to hear.
+     */
+    onWinsizeOwner: (
+      _paneId: string,
+      _callback: (payload: {
+        paneId: string;
+        cols: number;
+        rows: number;
+        owner: boolean;
+      }) => void,
+    ) => () => {},
   },
 
   layout: {
@@ -370,6 +387,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     hasGhosttyConfig: () => ipcRenderer.invoke("theme:hasGhosttyConfig"),
     preview: (name: string) => ipcRenderer.invoke("theme:preview", name),
     allColors: () => ipcRenderer.invoke("theme:allColors"),
+    /**
+     * The selected theme changed — in this window, another desktop window, or
+     * a browser on the bridge (ADR-179 ticket 7). The payload is the same
+     * `{ name, theme }` shape `setSelected` itself resolves with, so a
+     * listener can apply it directly instead of a round trip back to
+     * `theme:get`.
+     */
+    onChanged: (
+      callback: (payload: { name: string; theme: unknown }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { name: string; theme: unknown },
+      ) => callback(payload);
+      ipcRenderer.on("theme:changed", listener);
+      return () => ipcRenderer.removeListener("theme:changed", listener);
+    },
   },
 
   ports: {

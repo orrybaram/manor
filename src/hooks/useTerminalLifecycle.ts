@@ -83,6 +83,33 @@ export function useTerminalLifecycle(
       setFollower(null);
     }
   }, []);
+
+  // Ownership can move after the create reply too (ADR-179 D6) — another
+  // bridge viewer's `pty.create` outbids this one, or a desktop window
+  // attaches or lets go — and `applyWinsize` only ever reads the reply of a
+  // call *this* viewer made. `pty.onWinsizeOwner` is the live half: on the
+  // desktop it is a no-op subscription (the desktop's own attach always wins,
+  // so it never needs to be told it lost something), and on the bridge it is
+  // what lets a follower become the owner, or the reverse, without a
+  // `pty.create` of its own. Flipping `follower` is the whole of the reaction
+  // — `useTerminalResize` re-runs on that dependency and sends a fit or
+  // re-fits to the new grid on its own.
+  useEffect(() => {
+    return window.electronAPI.pty.onWinsizeOwner(paneId, (payload) => {
+      if (payload.owner) {
+        setFollower(null);
+        return;
+      }
+      const { cols, rows } = payload;
+      if (!cols || !rows) return;
+      setFollower((prev) =>
+        prev && prev.cols === cols && prev.rows === rows
+          ? prev
+          : { cols, rows },
+      );
+    });
+  }, [paneId]);
+
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { write, resize, create, detach } =

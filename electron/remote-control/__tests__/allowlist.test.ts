@@ -25,7 +25,7 @@ import {
   unresolvedAllowlistEntries,
 } from "../allowlist";
 import { LISTENER_OWN_ROUTES } from "../listener-routes";
-import { LOCAL_ONLY } from "../../bridge/handlers";
+import { LOCAL_ONLY, MUTATING } from "../../bridge/handlers";
 
 const keys = (table: readonly Route[]) => table.map(routeKey);
 
@@ -250,7 +250,43 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "keybindings.reset",
         "keybindings.resetAll",
         "keybindings.runInMainWindow",
+        // ADR-180 ticket 10: the keys, and the lock they turn. A stolen
+        // `full` token that can pair more devices is a token that survives
+        // its own revocation, and one that can stop the listener can lock the
+        // owner out of taking it back. `getStatus` and `refreshDetection` are
+        // absent from this list on purpose — a device's settings page may
+        // read the surface it is on.
+        "remoteControl.setEnabled",
+        "remoteControl.pair",
+        "remoteControl.revoke",
+        "remoteControl.startTunnel",
+        "remoteControl.stopTunnel",
+        // The one method in the whole surface that takes a raw credential as
+        // an argument. Everything else Linear does hands back the result of
+        // using the stored key and crosses like any other read.
+        "linear.connect",
       ].sort(),
     );
+  });
+
+  /**
+   * The half of the namespace that is *not* refused. Pinned beside the list
+   * above because "read-only on web" is a claim about both halves, and a
+   * future edit that widened `LOCAL_ONLY` to the whole namespace would leave
+   * a paired device's own settings page unable to say whether the host is
+   * reachable — while still passing the assertion above.
+   */
+  it("leaves remote control's two reads reachable from a device", () => {
+    expect(LOCAL_ONLY.has("remoteControl.getStatus")).toBe(false);
+    expect(LOCAL_ONLY.has("remoteControl.refreshDetection")).toBe(false);
+  });
+
+  /**
+   * `MUTATING` decides what lands in the audit log, and `bridgeTarget` puts
+   * the first string argument of an audited call in its `target` field. For
+   * `linear.connect` that argument is the API key.
+   */
+  it("never audits the method whose first argument is a credential", () => {
+    expect(MUTATING.has("linear.connect")).toBe(false);
   });
 });

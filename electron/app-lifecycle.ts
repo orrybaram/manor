@@ -56,9 +56,7 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import * as branchesDiffsIpc from "./ipc/branches-diffs";
 import { killAllActivePushes } from "./ipc/branches-diffs";
-import * as integrationsIpc from "./ipc/integrations";
 import * as webviewIpc from "./ipc/webview";
 import * as statsIpc from "./ipc/stats";
 import * as miscIpc from "./ipc/misc";
@@ -520,12 +518,10 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  // `ports` and `processes` have no `register()` left either (ADR-180
-  // ticket 8): every `ipcMain.handle` they had is a table entry now.
-  // `branches-diffs.ts` keeps a thinned `register()` for `git.*` alone —
-  // `branches`/`diffs` crossed, `git` waits for ticket 10.
-  branchesDiffsIpc.register(ipcDeps);
-  integrationsIpc.register(ipcDeps);
+  // `ports`, `processes`, `branches-diffs` and `integrations` have no
+  // `register()` left either (ADR-180 tickets 8 and 10): every
+  // `ipcMain.handle` they had is a table entry now, `git.*` and
+  // `github`/`linear` included.
   webviewIpc.register(ipcDeps);
   // `agents` has no `register()` left either (ADR-180 ticket 9): every
   // `ipcMain.handle` it had is a table entry now.
@@ -536,7 +532,9 @@ export function initApp(devTitle: string | null): void {
   statsIpc.wireStatsBroadcast(ipcDeps);
   miscIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
-  remoteControlIpc.register(ipcDeps);
+  // `remoteControl` crossed with them (ticket 10); what is left of its
+  // `register()` is the status push, which was never an IPC handler.
+  remoteControlIpc.wireRemoteControlStatus(ipcDeps);
   menuIpc.register(ipcDeps);
 
   // ── App lifecycle ──

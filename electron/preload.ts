@@ -20,10 +20,6 @@ interface WebviewRecordingCommand {
   paneId: string;
 }
 
-export type PushProgressEvent =
-  | { pushId: string; type: "line"; line: string }
-  | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
-
 function onChannel<T>(
   channel: string,
   callback: (value: T) => void,
@@ -165,106 +161,21 @@ const nativeApi = {
   // and `branches`/`diffs`.`onChange` were already subscriptions to
   // `ports.changed`/`branches.changed`/`diffs.changed` before this ticket
   // (ADR-180 ticket 4), so there was no legacy send left to delete for them.
-  // `git.*` stays here — it crosses with `github`/`linear`/`remoteControl`
-  // under ticket 10.
-
-  git: {
-    stage: (wsPath: string, files: string[]) =>
-      ipcRenderer.invoke("git:stage", wsPath, files),
-    unstage: (wsPath: string, files: string[]) =>
-      ipcRenderer.invoke("git:unstage", wsPath, files),
-    discard: (wsPath: string, files: string[]) =>
-      ipcRenderer.invoke("git:discard", wsPath, files),
-    stash: (wsPath: string, files: string[]) =>
-      ipcRenderer.invoke("git:stash", wsPath, files),
-    commit: (wsPath: string, message: string, flags: string[]) =>
-      ipcRenderer.invoke("git:commit", wsPath, message, flags),
-    push: {
-      start: (args: { wsPath: string; setUpstream?: boolean }) =>
-        ipcRenderer.invoke("git:push:start", args),
-      cancel: (pushId: string) =>
-        ipcRenderer.invoke("git:push:cancel", { pushId }),
-      onProgress: (handler: (evt: PushProgressEvent) => void) => {
-        const listener = (_e: unknown, evt: PushProgressEvent) => handler(evt);
-        ipcRenderer.on("git:push:progress", listener);
-        return () => ipcRenderer.removeListener("git:push:progress", listener);
-      },
-    },
-  },
-
-  github: {
-    getPrForBranch: (repoPath: string, branch: string) =>
-      ipcRenderer.invoke("github:getPrForBranch", repoPath, branch),
-    getPrsForBranches: (repoPath: string, branches: string[]) =>
-      ipcRenderer.invoke("github:getPrsForBranches", repoPath, branches),
-    checkStatus: () => ipcRenderer.invoke("github:checkStatus"),
-    getMyIssues: (
-      repoPath: string,
-      limit?: number,
-      state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getMyIssues", repoPath, limit, state),
-    getAllIssues: (
-      repoPath: string,
-      limit?: number,
-      state?: "open" | "closed" | "all",
-    ) => ipcRenderer.invoke("github:getAllIssues", repoPath, limit, state),
-    getIssueDetail: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:getIssueDetail", repoPath, issueNumber),
-    assignIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:assignIssue", repoPath, issueNumber),
-    closeIssue: (repoPath: string, issueNumber: number) =>
-      ipcRenderer.invoke("github:closeIssue", repoPath, issueNumber),
-    createIssue: (title: string, body: string, labels: string[]) =>
-      ipcRenderer.invoke("github:createIssue", title, body, labels),
-    uploadFeedbackImages: (images: { base64: string; name: string }[]) =>
-      ipcRenderer.invoke("github:uploadFeedbackImages", images),
-  },
-
-  linear: {
-    connect: (apiKey: string) => ipcRenderer.invoke("linear:connect", apiKey),
-    disconnect: () => ipcRenderer.invoke("linear:disconnect"),
-    isConnected: () => ipcRenderer.invoke("linear:isConnected"),
-    getViewer: () => ipcRenderer.invoke("linear:getViewer"),
-    getTeams: () => ipcRenderer.invoke("linear:getTeams"),
-    getMyIssues: (
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => ipcRenderer.invoke("linear:getMyIssues", teamIds, options),
-    getIssueDetail: (issueId: string) =>
-      ipcRenderer.invoke("linear:getIssueDetail", issueId),
-    getAllIssues: (
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => ipcRenderer.invoke("linear:getAllIssues", teamIds, options),
-    proxyImage: (url: string) => ipcRenderer.invoke("linear:proxyImage", url),
-    autoMatch: () => ipcRenderer.invoke("linear:autoMatch"),
-    startIssue: (issueId: string) =>
-      ipcRenderer.invoke("linear:startIssue", issueId),
-    closeIssue: (issueId: string) =>
-      ipcRenderer.invoke("linear:closeIssue", issueId),
-    linkIssueToWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      issue: { id: string; identifier: string; title: string; url: string },
-    ) =>
-      ipcRenderer.invoke(
-        "linear:linkIssueToWorkspace",
-        projectId,
-        workspacePath,
-        issue,
-      ),
-    unlinkIssueFromWorkspace: (
-      projectId: string,
-      workspacePath: string,
-      issueId: string,
-    ) =>
-      ipcRenderer.invoke(
-        "linear:unlinkIssueFromWorkspace",
-        projectId,
-        workspacePath,
-        issueId,
-      ),
-  },
+  // `git`, `github`, `linear` and `remoteControl` are gone the same way
+  // (ADR-180 ticket 10) — the last namespace group, thirty-eight
+  // `ipcMain.handle` wrappers across three files, replaced by table entries.
+  // Two of them are refusals written down rather than methods left unwritten
+  // (`LOCAL_ONLY`): `remoteControl.setEnabled`/`pair`/`revoke`/`startTunnel`/
+  // `stopTunnel`, because a stolen `full` token that can pair more devices is
+  // a token that survives its own revocation; and `linear.connect`, the one
+  // method in the surface that takes a raw credential as an argument rather
+  // than handing back the result of using one.
+  //
+  // `git.push.onProgress` is a subscription to `git.push.progress` now,
+  // addressed to the connection that started the push (D5), and
+  // `remoteControl.onStatus` to `remoteControl.status` — so the
+  // `git:push:progress` and `remoteControl:status` channels are gone from
+  // main too.
 
   dialog: {
     openDirectory: () => ipcRenderer.invoke("dialog:openDirectory"),
@@ -494,24 +405,6 @@ const nativeApi = {
       return () =>
         ipcRenderer.removeListener("webview:audio-state-changed", listener);
     },
-  },
-
-  // Remote control (ADR-161). Off until the user enables it; `pair` is the one
-  // call that returns a raw token, and it is returned once and never re-fetched.
-  remoteControl: {
-    getStatus: () => ipcRenderer.invoke("remoteControl:getStatus"),
-    refreshDetection: () =>
-      ipcRenderer.invoke("remoteControl:refreshDetection"),
-    setEnabled: (enabled: boolean) =>
-      ipcRenderer.invoke("remoteControl:setEnabled", enabled),
-    pair: (label: string, capability: "read" | "send" | "full") =>
-      ipcRenderer.invoke("remoteControl:pair", label, capability),
-    revoke: (id: string) => ipcRenderer.invoke("remoteControl:revoke", id),
-    startTunnel: (kind?: "tailscale" | "cloudflared") =>
-      ipcRenderer.invoke("remoteControl:startTunnel", kind),
-    stopTunnel: () => ipcRenderer.invoke("remoteControl:stopTunnel"),
-    onStatus: (callback: (status: unknown) => void) =>
-      onChannel<unknown>("remoteControl:status", callback),
   },
 
   // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this

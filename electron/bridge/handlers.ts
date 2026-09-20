@@ -130,7 +130,15 @@ import {
   keybindingsResetAll,
   keybindingsRunInMainWindow,
 } from "../ipc/misc";
-import { remoteControlGetStatus } from "../ipc/remote-control";
+import {
+  remoteControlGetStatus,
+  remoteControlRefreshDetection,
+  remoteControlSetEnabled,
+  remoteControlPair,
+  remoteControlRevoke,
+  remoteControlStartTunnel,
+  remoteControlStopTunnel,
+} from "../ipc/remote-control";
 import { statsGetSummary, statsReset } from "../ipc/stats";
 import {
   notificationsGetAll,
@@ -163,7 +171,40 @@ import {
   diffsGetFullDiff,
   diffsGetLocalDiff,
   diffsGetStagedFiles,
+  gitStage,
+  gitUnstage,
+  gitDiscard,
+  gitStash,
+  gitCommit,
+  gitPushStart,
+  gitPushCancel,
 } from "../ipc/branches-diffs";
+import {
+  githubGetPrForBranch,
+  githubGetPrsForBranches,
+  githubCheckStatus,
+  githubGetMyIssues,
+  githubGetAllIssues,
+  githubGetIssueDetail,
+  githubAssignIssue,
+  githubCloseIssue,
+  githubCreateIssue,
+  githubUploadFeedbackImages,
+  linearConnect,
+  linearDisconnect,
+  linearIsConnected,
+  linearGetViewer,
+  linearGetTeams,
+  linearGetMyIssues,
+  linearGetIssueDetail,
+  linearGetAllIssues,
+  linearStartIssue,
+  linearCloseIssue,
+  linearLinkIssueToWorkspace,
+  linearUnlinkIssueFromWorkspace,
+  linearProxyImage,
+  linearAutoMatch,
+} from "../ipc/integrations";
 import type { WorkspaceMeta } from "../ipc/types";
 import {
   appCommandResult,
@@ -634,10 +675,21 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "keybindings.runInMainWindow": (deps: IpcDeps, commandId: string) =>
     keybindingsRunInMainWindow(deps, commandId),
 
-  // ── remoteControl: the one read, so the settings page isn't lying to the
-  // device that let it in. setEnabled/pair/revoke/tunnel stay off — read-only
-  // on web (ticket 6) ──
+  // ── remoteControl (ADR-180 ticket 10). The two reads are open, so a
+  // device's own settings page is not lying to it about the surface it is
+  // on; the five that change the exposure are `LOCAL_ONLY` below. ──
   "remoteControl.getStatus": (deps: IpcDeps) => remoteControlGetStatus(deps),
+  "remoteControl.refreshDetection": (deps: IpcDeps) =>
+    remoteControlRefreshDetection(deps),
+  "remoteControl.setEnabled": (deps: IpcDeps, enabled: unknown) =>
+    remoteControlSetEnabled(deps, enabled),
+  "remoteControl.pair": (deps: IpcDeps, label: unknown, capability: unknown) =>
+    remoteControlPair(deps, label, capability),
+  "remoteControl.revoke": (deps: IpcDeps, id: unknown) =>
+    remoteControlRevoke(deps, id),
+  "remoteControl.startTunnel": (deps: IpcDeps, kind: unknown) =>
+    remoteControlStartTunnel(deps, kind),
+  "remoteControl.stopTunnel": (deps: IpcDeps) => remoteControlStopTunnel(deps),
 
   // ── agents: whole (ADR-180 ticket 9). "Check on my agents from anywhere"
   // is the sentence ADR-178 started from, so none of this namespace is
@@ -729,8 +781,7 @@ export const HANDLERS: Record<string, BridgeHandler> = {
   "processes.restartPortless": () => processesRestartPortless(),
   "processes.killAll": (deps: IpcDeps) => processesKillAll(deps),
 
-  // ── branches, diffs: the watchers behind the sidebar's badges. `git.*`
-  // stays off the table — it crosses with `github`/`linear` under ticket 10. ──
+  // ── branches, diffs: the watchers behind the sidebar's badges. ──
   "branches.start": (deps: IpcDeps, paths: string[]) =>
     branchesStart(deps, paths),
   "branches.stop": (deps: IpcDeps) => branchesStop(deps),
@@ -743,6 +794,132 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     diffsGetLocalDiff(deps, wsPath),
   "diffs.getStagedFiles": (deps: IpcDeps, wsPath: string) =>
     diffsGetStagedFiles(deps, wsPath),
+
+  // ── git: the writes behind the diff pane's stage/commit/push controls
+  // (ADR-180 ticket 10). Nothing here is `LOCAL_ONLY`: committing from a
+  // phone is the sentence ADR-178 started from, and a `full` device already
+  // reaches the same working tree through the route table (D3). Every one of
+  // them is in `MUTATING` — `commit` and `push` are the clearest case the
+  // set's wording has of "moves state the other viewers of this host will
+  // see". ──
+  "git.stage": (deps: IpcDeps, wsPath: string, files: string[]) =>
+    gitStage(deps, wsPath, files),
+  "git.unstage": (deps: IpcDeps, wsPath: string, files: string[]) =>
+    gitUnstage(deps, wsPath, files),
+  "git.discard": (deps: IpcDeps, wsPath: string, files: string[]) =>
+    gitDiscard(deps, wsPath, files),
+  "git.stash": (deps: IpcDeps, wsPath: string, files: string[]) =>
+    gitStash(deps, wsPath, files),
+  "git.commit": (
+    deps: IpcDeps,
+    wsPath: string,
+    message: string,
+    flags: string[],
+  ) => gitCommit(deps, wsPath, message, flags),
+  /**
+   * `git.push` is a namespace of its own, not a method: `git.push.start` is
+   * the only two-level path in the surface, and the client proxy resolves it
+   * as ns `git.push` (`src/bridge/client.ts`'s `member`). The progress lines
+   * go back to this caller alone (`ORIGIN_ARGS`), which is what
+   * `event.sender` used to mean.
+   */
+  "git.push.start": (
+    deps: IpcDeps,
+    args: { wsPath: string; setUpstream?: boolean },
+    origin?: LayoutOrigin,
+  ) => gitPushStart(deps, args, origin),
+  "git.push.cancel": (deps: IpcDeps, pushId: string) =>
+    gitPushCancel(deps, pushId),
+
+  // ── github: the PR badges, the issue pickers, and the feedback path
+  // (ADR-180 ticket 10). No credential is involved on this side — `gh` holds
+  // its own, and `checkStatus` reports a username. ──
+  "github.getPrForBranch": (deps: IpcDeps, repoPath: string, branch: string) =>
+    githubGetPrForBranch(deps, repoPath, branch),
+  "github.getPrsForBranches": (
+    deps: IpcDeps,
+    repoPath: string,
+    branches: string[],
+  ) => githubGetPrsForBranches(deps, repoPath, branches),
+  "github.checkStatus": (deps: IpcDeps) => githubCheckStatus(deps),
+  "github.getMyIssues": (
+    deps: IpcDeps,
+    repoPath: string,
+    limit?: number | null,
+    state?: "open" | "closed" | "all" | null,
+  ) => githubGetMyIssues(deps, repoPath, limit, state),
+  "github.getAllIssues": (
+    deps: IpcDeps,
+    repoPath: string,
+    limit?: number | null,
+    state?: "open" | "closed" | "all" | null,
+  ) => githubGetAllIssues(deps, repoPath, limit, state),
+  "github.getIssueDetail": (
+    deps: IpcDeps,
+    repoPath: string,
+    issueNumber: number,
+  ) => githubGetIssueDetail(deps, repoPath, issueNumber),
+  "github.assignIssue": (
+    deps: IpcDeps,
+    repoPath: string,
+    issueNumber: number,
+  ) => githubAssignIssue(deps, repoPath, issueNumber),
+  "github.closeIssue": (deps: IpcDeps, repoPath: string, issueNumber: number) =>
+    githubCloseIssue(deps, repoPath, issueNumber),
+  "github.createIssue": (
+    deps: IpcDeps,
+    title: string,
+    body: string,
+    labels: string[],
+  ) => githubCreateIssue(deps, title, body, labels),
+  "github.uploadFeedbackImages": (
+    deps: IpcDeps,
+    images: { base64: string; name: string }[],
+  ) => githubUploadFeedbackImages(deps, images),
+
+  // ── linear: the issue list, and everything a linked issue does
+  // (ADR-180 ticket 10). The API key lives in `safeStorage` and none of these
+  // hands it back — `isConnected` answers a boolean, `proxyImage` answers the
+  // image bytes rather than a replayable `Authorization` header, the rest
+  // answer GraphQL payloads. `connect` is the one that *takes* a raw key, and
+  // it is `LOCAL_ONLY` below for exactly that. ──
+  "linear.connect": (deps: IpcDeps, apiKey: string) =>
+    linearConnect(deps, apiKey),
+  "linear.disconnect": (deps: IpcDeps) => linearDisconnect(deps),
+  "linear.isConnected": (deps: IpcDeps) => linearIsConnected(deps),
+  "linear.getViewer": (deps: IpcDeps) => linearGetViewer(deps),
+  "linear.getTeams": (deps: IpcDeps) => linearGetTeams(deps),
+  "linear.getMyIssues": (
+    deps: IpcDeps,
+    teamIds: string[],
+    options?: { stateTypes?: string[]; limit?: number },
+  ) => linearGetMyIssues(deps, teamIds, options),
+  "linear.getIssueDetail": (deps: IpcDeps, issueId: string) =>
+    linearGetIssueDetail(deps, issueId),
+  "linear.getAllIssues": (
+    deps: IpcDeps,
+    teamIds: string[],
+    options?: { stateTypes?: string[]; limit?: number },
+  ) => linearGetAllIssues(deps, teamIds, options),
+  "linear.proxyImage": (deps: IpcDeps, url: string) =>
+    linearProxyImage(deps, url),
+  "linear.autoMatch": (deps: IpcDeps) => linearAutoMatch(deps),
+  "linear.startIssue": (deps: IpcDeps, issueId: string) =>
+    linearStartIssue(deps, issueId),
+  "linear.closeIssue": (deps: IpcDeps, issueId: string) =>
+    linearCloseIssue(deps, issueId),
+  "linear.linkIssueToWorkspace": (
+    deps: IpcDeps,
+    projectId: string,
+    workspacePath: string,
+    issue: LinkedIssue,
+  ) => linearLinkIssueToWorkspace(deps, projectId, workspacePath, issue),
+  "linear.unlinkIssueFromWorkspace": (
+    deps: IpcDeps,
+    projectId: string,
+    workspacePath: string,
+    issueId: string,
+  ) => linearUnlinkIssueFromWorkspace(deps, projectId, workspacePath, issueId),
 
   /**
    * The renderer answering an `appCommands.command` that carried a
@@ -801,6 +978,10 @@ export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   // focus check, a window gets its own (`ipc/notifications.ts`'s
   // `windowForOrigin`).
   ["notifications.show", 1],
+  // A push streams its lines back to whoever started it and to nobody else
+  // (D5) — one argument, the `{ wsPath, setUpstream }` envelope, then the
+  // origin.
+  ["git.push.start", 1],
 ]);
 
 export const MUTATING: ReadonlySet<string> = new Set([
@@ -866,6 +1047,44 @@ export const MUTATING: ReadonlySet<string> = new Set([
   "agents.markResumed",
   "agents.abandonForPane",
   "agents.reconcileStale",
+  // ADR-180 ticket 10: `git.commit` and `git.push.start` are the clearest
+  // case this set's wording has — a commit rewrites what every sidebar badge
+  // and diff pane on this machine is looking at, and a push does it on the
+  // remote too. The staging verbs move the index every other viewer's diff
+  // pane reads, `discard` and `stash` take work away, and `push.cancel` ends
+  // a push somebody is watching. Nothing in `git.*` merely reads: the reads
+  // are `diffs.*`, above and absent.
+  "git.stage",
+  "git.unstage",
+  "git.discard",
+  "git.stash",
+  "git.commit",
+  "git.push.start",
+  "git.push.cancel",
+  // The issue actions. Assigning, closing or opening an issue is a change
+  // every viewer's picker shows next time it opens, and a feedback upload
+  // puts bytes in a public release. The PR and issue *reads* are absent.
+  "github.assignIssue",
+  "github.closeIssue",
+  "github.createIssue",
+  "github.uploadFeedbackImages",
+  // The same for Linear, plus the three that write to this machine rather
+  // than to Linear: `disconnect` drops the integration for every viewer,
+  // link/unlink edit a workspace's linked issue, and `autoMatch` writes
+  // `linearAssociations` onto the projects it matched despite its name.
+  //
+  // `linear.connect` is deliberately **not** here, and that absence is load
+  // bearing: the audit line records the first string argument of a mutating
+  // call (`bridgeTarget`), which for `connect` is the raw API key. It is
+  // `LOCAL_ONLY` besides, so no device can reach it and no audit line is
+  // written for the user at the machine — but a future reader moving it into
+  // this set would be writing a credential to `remote-audit.log`.
+  "linear.disconnect",
+  "linear.startIssue",
+  "linear.closeIssue",
+  "linear.linkIssueToWorkspace",
+  "linear.unlinkIssueFromWorkspace",
+  "linear.autoMatch",
 ]);
 
 /**
@@ -884,9 +1103,15 @@ export const MUTATING: ReadonlySet<string> = new Set([
  * `keybindings.set`/`reset`/`resetAll`/`runInMainWindow` with ticket 7 — the
  * page ticket 6 made read-only on web finally has that read-only-ness as a
  * row in this table rather than as four methods that simply were never
- * written. `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` join it as
- * that namespace crosses; naming them before they exist would be a list of
- * methods that refuse nothing.
+ * written. Ticket 10 closed the list with the last namespace group:
+ * `remoteControl.setEnabled`/`pair`/`revoke`/`startTunnel`/`stopTunnel`, and
+ * `linear.connect`.
+ *
+ * Two different refusals live here, and it is worth keeping them apart. Most
+ * of the list is "this names a resource only the machine has" — a prewarmed
+ * session, the desk's viewport file, a window. The last six are "this is a
+ * key, or the lock it turns", and they are the only entries whose absence
+ * would be a security bug rather than a wrong answer.
  */
 export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
   "pty.consumePrewarmed",
@@ -919,4 +1144,36 @@ export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
   "keybindings.resetAll",
   /** Names a window; a device has none of its own to run a command in. */
   "keybindings.runInMainWindow",
+  /**
+   * Remote control's own controls (ADR-180 ticket 10).
+   *
+   * `getStatus` and `refreshDetection` stay open — a device's settings page
+   * should not be lying to it about the surface it is on — but the five that
+   * *change* the exposure refuse it, and the reason is narrow enough to be
+   * worth stating: a stolen `full` token that can pair more devices is a
+   * token that survives its own revocation. That is a different class of loss
+   * from "can remove a workspace", which D3 accepted knowingly, because it is
+   * the loss of the ability to stop losing. `setEnabled` and `stopTunnel` are
+   * here for the mirror-image reason — an attacker who can turn the listener
+   * off can lock the owner out of the machine they are trying to take back —
+   * and this is also what keeps ADR-178 ticket 6's read-only-on-web page
+   * honest as a decision rather than as four methods nobody wrote.
+   */
+  "remoteControl.setEnabled",
+  "remoteControl.pair",
+  "remoteControl.revoke",
+  "remoteControl.startTunnel",
+  "remoteControl.stopTunnel",
+  /**
+   * The one method in the surface that *takes* a credential (ticket 10).
+   *
+   * Everything else Linear does hands back the result of using the stored
+   * API key and never the key itself, so it crosses like any other read. A
+   * raw key travelling a socket is a different thing entirely: it is the
+   * credential itself in flight, and it would land in the audit line's
+   * `target` field if anyone ever added `linear.connect` to `MUTATING`.
+   * Connecting Linear is a thing you do at the machine whose keychain will
+   * hold the key.
+   */
+  "linear.connect",
 ]);

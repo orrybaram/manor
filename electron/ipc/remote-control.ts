@@ -1,17 +1,30 @@
 /**
- * IPC for the remote-control surface (ADR-161 ticket 6).
+ * The remote-control surface, as plain functions over `IpcDeps` (ADR-161
+ * ticket 6, lifted for ADR-180 D4/D8 ticket 10).
  *
  * Thin by design: every decision — what starting a tunnel implies, what
  * disabling takes down with it — lives in `RemoteControlController`, so the
  * renderer cannot reach a half-state by calling these in an odd order.
  *
  * The raw pairing token crosses this boundary exactly once, in the return
- * value of `remoteControl:pair`, and is never broadcast in a status push.
+ * value of `remoteControlPair`, and is never broadcast in a status push. That
+ * return value is also why five of the seven below are `LOCAL_ONLY`
+ * (`handlers.ts`): a stolen `full` token that can pair more devices is a
+ * token that survives its own revocation, which is a different class of loss
+ * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
+ * `getStatus` and `refreshDetection` are reads and stay open, so a device's
+ * own settings page is not lying to it about the surface it is on.
+ *
+ * There is no `register()` here any more. What is left of it is
+ * `wireRemoteControlStatus`, which was never an IPC handler: it is the one
+ * subscription that turns a controller change into a push.
  */
 
-import { ipcMain } from "electron";
 import { assertBoolean, assertString } from "../ipc-validate";
-import type { RemoteControlStatus } from "../remote-control/controller";
+import type {
+  PairResult,
+  RemoteControlStatus,
+} from "../remote-control/controller";
 import { CAPABILITIES, isCapability } from "../remote-control/devices";
 import type { Capability } from "../remote-control/devices";
 import type { TunnelKind } from "../remote-control/tunnel";
@@ -56,60 +69,76 @@ function assertTunnelKind(
   }
 }
 
-export function register(deps: IpcDeps): void {
-  const { remoteControl, getRendererWindows } = deps;
-
-  // Push status to every renderer so the settings panel and the persistent
-  // exposure indicator can never disagree about whether we are reachable. A
-  // web renderer has no `webContents`; `publishRendererBroadcast` is the
-  // second sink that reaches it over the bridge (ADR-178 D8).
-  remoteControl.onChange((status: RemoteControlStatus) => {
+/**
+ * Push status to every viewer so the settings panel and the persistent
+ * exposure indicator can never disagree about whether we are reachable.
+ *
+ * Never an `ipcMain.handle`, which is why it outlived `register()`: the
+ * `webContents.send("remoteControl:status")` loop beside it is gone (ADR-180
+ * D5), and `publishRendererBroadcast` now reaches a desktop window and a
+ * paired device through the one sink — `remoteControl.status`, which is what
+ * `remoteControl.onStatus(cb)` subscribes to on both platforms.
+ */
+export function wireRemoteControlStatus(deps: IpcDeps): void {
+  deps.remoteControl.onChange((status: RemoteControlStatus) => {
     publishRendererBroadcast("remoteControl", "status", status);
-    for (const win of getRendererWindows()) {
-      try {
-        if (!win.webContents.mainFrame) continue;
-      } catch {
-        continue;
-      }
-      win.webContents.send("remoteControl:status", status);
-    }
   });
+}
 
-  ipcMain.handle("remoteControl:getStatus", () =>
-    remoteControlGetStatus(deps),
-  );
+/** Re-check which tunnel binaries are on PATH. A read, with a refresh in it. */
+export function remoteControlRefreshDetection(
+  deps: IpcDeps,
+): Promise<RemoteControlStatus> {
+  return deps.remoteControl.refreshDetection();
+}
 
-  ipcMain.handle("remoteControl:refreshDetection", () =>
-    remoteControl.refreshDetection(),
-  );
+export function remoteControlSetEnabled(
+  deps: IpcDeps,
+  enabled: unknown,
+): Promise<RemoteControlStatus> {
+  assertBoolean(enabled, "remoteControl.setEnabled.enabled");
+  return deps.remoteControl.setEnabled(enabled);
+}
 
-  ipcMain.handle("remoteControl:setEnabled", (_event, enabled: unknown) => {
-    assertBoolean(enabled, "remoteControl:setEnabled.enabled");
-    return remoteControl.setEnabled(enabled);
-  });
+/**
+ * Pair a device, returning the raw token once.
+ *
+ * The label is trimmed and bounded here rather than in the dialog, because
+ * the dialog is not the only caller any more — an empty label on a device in
+ * the revoke list is a device nobody can identify well enough to revoke.
+ */
+export function remoteControlPair(
+  deps: IpcDeps,
+  label: unknown,
+  capability: unknown,
+): PairResult {
+  assertString(label, "remoteControl.pair.label");
+  assertCapability(capability, "remoteControl.pair.capability");
+  const trimmed = label.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) {
+    throw new Error("A device label must be 1–64 characters.");
+  }
+  return deps.remoteControl.pair(trimmed, capability);
+}
 
-  ipcMain.handle(
-    "remoteControl:pair",
-    (_event, label: unknown, capability: unknown) => {
-      assertString(label, "remoteControl:pair.label");
-      assertCapability(capability, "remoteControl:pair.capability");
-      const trimmed = label.trim();
-      if (trimmed.length === 0 || trimmed.length > 64) {
-        throw new Error("A device label must be 1–64 characters.");
-      }
-      return remoteControl.pair(trimmed, capability);
-    },
-  );
+export function remoteControlRevoke(
+  deps: IpcDeps,
+  id: unknown,
+): RemoteControlStatus {
+  assertString(id, "remoteControl.revoke.id");
+  return deps.remoteControl.revoke(id);
+}
 
-  ipcMain.handle("remoteControl:revoke", (_event, id: unknown) => {
-    assertString(id, "remoteControl:revoke.id");
-    return remoteControl.revoke(id);
-  });
+export function remoteControlStartTunnel(
+  deps: IpcDeps,
+  kind: unknown,
+): Promise<RemoteControlStatus> {
+  assertTunnelKind(kind, "remoteControl.startTunnel.kind");
+  return deps.remoteControl.startTunnel(kind);
+}
 
-  ipcMain.handle("remoteControl:startTunnel", (_event, kind: unknown) => {
-    assertTunnelKind(kind, "remoteControl:startTunnel.kind");
-    return remoteControl.startTunnel(kind);
-  });
-
-  ipcMain.handle("remoteControl:stopTunnel", () => remoteControl.stopTunnel());
+export function remoteControlStopTunnel(
+  deps: IpcDeps,
+): Promise<RemoteControlStatus> {
+  return deps.remoteControl.stopTunnel();
 }

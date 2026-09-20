@@ -1,172 +1,261 @@
-import { ipcMain } from "electron";
+/**
+ * GitHub and Linear, as plain functions over `IpcDeps` (ADR-180 D8).
+ *
+ * There is no `register()` here any more: `electron/bridge/handlers.ts` calls
+ * these directly, for a renderer window and a paired `full` device alike.
+ * Both integrations are the ADR-178 "read and act from anywhere" case at its
+ * plainest — an issue list on a phone that cannot start the issue is the
+ * read-and-type state this slice exists to end — so the whole of `github` and
+ * all but one of `linear` are ordinary table entries.
+ *
+ * **Credentials never cross.** `LinearManager` keeps the API key in
+ * `safeStorage`, and every method below that needs it hands back the *result*
+ * of using it and never the key: `isConnected` a boolean, `proxyImage` a data
+ * URL, the rest GraphQL payloads. `linearConnect` is the one that takes a raw
+ * key as an argument rather than producing one, and it is `LOCAL_ONLY` for
+ * that reason alone (see `handlers.ts`) — a table entry a device is refused,
+ * not a hole in the table. GitHub needs no such care: it shells out to `gh`,
+ * which holds its own credential, and `checkStatus` reports a username.
+ */
+
 import { assertString } from "../ipc-validate";
+import type { LinkedIssue } from "../linear";
 import type { IpcDeps } from "./types";
 
-export function register(deps: IpcDeps): void {
-  const { githubManager, linearManager, projectManager } = deps;
+type IssueState = "open" | "closed" | "all";
+type LinearIssueOptions = { stateTypes?: string[]; limit?: number };
 
-  // ── GitHub IPC ──
-  ipcMain.handle(
-    "github:getPrForBranch",
-    (_event, repoPath: string, branch: string) => {
-      return githubManager.getPrForBranch(repoPath, branch);
-    },
+// ── GitHub ───────────────────────────────────────────────────────────────────
+
+export function githubGetPrForBranch(
+  deps: IpcDeps,
+  repoPath: string,
+  branch: string,
+): unknown {
+  return deps.githubManager.getPrForBranch(repoPath, branch);
+}
+
+export function githubGetPrsForBranches(
+  deps: IpcDeps,
+  repoPath: string,
+  branches: string[],
+): unknown {
+  return deps.githubManager.getPrsForBranches(repoPath, branches);
+}
+
+export function githubCheckStatus(deps: IpcDeps): unknown {
+  return deps.githubManager.checkStatus();
+}
+
+/**
+ * The two issue lists, and the one place the wire needs a nudge.
+ *
+ * An omitted optional argument reaches the host as `undefined` over IPC and
+ * as `null` over the socket — JSON has no third thing — and a default
+ * parameter only fires for `undefined`. Without the coalesce a browser would
+ * ask `gh` for `--limit null`, which is precisely the "a browser hits a hole
+ * the desktop never had" shape ADR-178 kept finding. `GitHubManager` owns the
+ * actual defaults; this only says "not given".
+ */
+export function githubGetMyIssues(
+  deps: IpcDeps,
+  repoPath: string,
+  limit?: number | null,
+  state?: IssueState | null,
+): unknown {
+  return deps.githubManager.getMyIssues(
+    repoPath,
+    limit ?? undefined,
+    state ?? undefined,
   );
+}
 
-  ipcMain.handle(
-    "github:getPrsForBranches",
-    (_event, repoPath: string, branches: string[]) => {
-      return githubManager.getPrsForBranches(repoPath, branches);
-    },
+export function githubGetAllIssues(
+  deps: IpcDeps,
+  repoPath: string,
+  limit?: number | null,
+  state?: IssueState | null,
+): unknown {
+  return deps.githubManager.getAllIssues(
+    repoPath,
+    limit ?? undefined,
+    state ?? undefined,
   );
+}
 
-  ipcMain.handle("github:checkStatus", () => githubManager.checkStatus());
+export function githubGetIssueDetail(
+  deps: IpcDeps,
+  repoPath: string,
+  issueNumber: number,
+): unknown {
+  return deps.githubManager.getIssueDetail(repoPath, issueNumber);
+}
 
-  ipcMain.handle(
-    "github:getMyIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getMyIssues(repoPath, limit, state);
-    },
+export function githubAssignIssue(
+  deps: IpcDeps,
+  repoPath: string,
+  issueNumber: number,
+): unknown {
+  return deps.githubManager.assignIssue(repoPath, issueNumber);
+}
+
+export function githubCloseIssue(
+  deps: IpcDeps,
+  repoPath: string,
+  issueNumber: number,
+): unknown {
+  return deps.githubManager.closeIssue(repoPath, issueNumber);
+}
+
+export function githubCreateIssue(
+  deps: IpcDeps,
+  title: string,
+  body: string,
+  labels: string[],
+): unknown {
+  return deps.githubManager.createIssue(title, body, labels);
+}
+
+export function githubUploadFeedbackImages(
+  deps: IpcDeps,
+  images: { base64: string; name: string }[],
+): Promise<string[]> {
+  return deps.githubManager.uploadFeedbackImages(images);
+}
+
+// ── Linear ───────────────────────────────────────────────────────────────────
+
+/**
+ * Store an API key and prove it works, or store nothing.
+ *
+ * The key is written before it is tested because testing it *is* using it —
+ * `getViewer` reads the stored token — so the failure path has to undo the
+ * write. That is the whole of the ceremony here, and it is why a half-typed
+ * key never leaves a connected-looking Linear panel behind.
+ */
+export async function linearConnect(
+  deps: IpcDeps,
+  apiKey: string,
+): Promise<{ name: string; email: string }> {
+  assertString(apiKey, "apiKey");
+  deps.linearManager.saveToken(apiKey);
+  try {
+    return await deps.linearManager.getViewer();
+  } catch (err) {
+    deps.linearManager.clearToken();
+    throw err;
+  }
+}
+
+/** Forget the key. Carries no credential in either direction. */
+export function linearDisconnect(deps: IpcDeps): void {
+  deps.linearManager.clearToken();
+}
+
+export function linearIsConnected(deps: IpcDeps): boolean {
+  return deps.linearManager.isConnected();
+}
+
+export function linearGetViewer(
+  deps: IpcDeps,
+): Promise<{ name: string; email: string }> {
+  return deps.linearManager.getViewer();
+}
+
+export function linearGetTeams(deps: IpcDeps): unknown {
+  return deps.linearManager.getTeams();
+}
+
+export function linearGetMyIssues(
+  deps: IpcDeps,
+  teamIds: string[],
+  options?: LinearIssueOptions,
+): unknown {
+  return deps.linearManager.getMyIssues(teamIds, options);
+}
+
+export function linearGetIssueDetail(deps: IpcDeps, issueId: string): unknown {
+  return deps.linearManager.getIssueDetail(issueId);
+}
+
+export function linearGetAllIssues(
+  deps: IpcDeps,
+  teamIds: string[],
+  options?: LinearIssueOptions,
+): unknown {
+  return deps.linearManager.getAllIssues(teamIds, options);
+}
+
+export function linearStartIssue(deps: IpcDeps, issueId: string): unknown {
+  return deps.linearManager.startIssue(issueId);
+}
+
+export function linearCloseIssue(deps: IpcDeps, issueId: string): unknown {
+  return deps.linearManager.closeIssue(issueId);
+}
+
+export function linearLinkIssueToWorkspace(
+  deps: IpcDeps,
+  projectId: string,
+  workspacePath: string,
+  issue: LinkedIssue,
+): unknown {
+  return deps.projectManager.linkIssueToWorkspace(
+    projectId,
+    workspacePath,
+    issue,
   );
+}
 
-  ipcMain.handle(
-    "github:getAllIssues",
-    (_event, repoPath: string, limit?: number, state?: "open" | "closed" | "all") => {
-      return githubManager.getAllIssues(repoPath, limit, state);
-    },
+export function linearUnlinkIssueFromWorkspace(
+  deps: IpcDeps,
+  projectId: string,
+  workspacePath: string,
+  issueId: string,
+): unknown {
+  return deps.projectManager.unlinkIssueFromWorkspace(
+    projectId,
+    workspacePath,
+    issueId,
   );
+}
 
-  ipcMain.handle(
-    "github:getIssueDetail",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.getIssueDetail(repoPath, issueNumber);
-    },
+/**
+ * Fetch a Linear-hosted image with the stored token and hand back a data URL.
+ *
+ * The one place the token is *used* on behalf of the renderer rather than by
+ * a GraphQL call, and the result is deliberately the bytes rather than a
+ * signed URL: an `Authorization` header a component could replay would be the
+ * credential crossing under another name.
+ */
+export function linearProxyImage(deps: IpcDeps, url: string): Promise<string> {
+  assertString(url, "url");
+  return deps.linearManager.proxyImage(url);
+}
+
+/**
+ * Guess a Linear team for every project that has none yet.
+ *
+ * Writes — it sets `linearAssociations` on the projects it matched — so it is
+ * in `MUTATING` alongside the issue actions, not with the reads its name
+ * suggests.
+ */
+export async function linearAutoMatch(
+  deps: IpcDeps,
+): Promise<Record<string, unknown>> {
+  const projects = await deps.projectManager.getProjects();
+  const teams = await deps.linearManager.getTeams();
+  const matches = deps.linearManager.autoMatchProjects(
+    projects.map((p) => ({ id: p.id, name: p.name })),
+    teams,
   );
-
-  ipcMain.handle(
-    "github:assignIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.assignIssue(repoPath, issueNumber);
-    },
-  );
-
-  ipcMain.handle(
-    "github:closeIssue",
-    (_event, repoPath: string, issueNumber: number) => {
-      return githubManager.closeIssue(repoPath, issueNumber);
-    },
-  );
-
-  ipcMain.handle(
-    "github:createIssue",
-    (_event, title: string, body: string, labels: string[]) => {
-      return githubManager.createIssue(title, body, labels);
-    },
-  );
-
-  ipcMain.handle(
-    "github:uploadFeedbackImages",
-    (_event, images: { base64: string; name: string }[]) => {
-      return githubManager.uploadFeedbackImages(images);
-    },
-  );
-
-  // ── Linear IPC ──
-  ipcMain.handle("linear:connect", async (_event, apiKey: string) => {
-    assertString(apiKey, "apiKey");
-    linearManager.saveToken(apiKey);
-    try {
-      const viewer = await linearManager.getViewer();
-      return viewer;
-    } catch (err) {
-      linearManager.clearToken();
-      throw err;
+  for (const [projectId, association] of Object.entries(matches)) {
+    const project = projects.find((p) => p.id === projectId);
+    if (project && project.linearAssociations.length === 0) {
+      deps.projectManager.updateProject(projectId, {
+        linearAssociations: [association],
+      });
     }
-  });
-
-  ipcMain.handle("linear:disconnect", () => {
-    linearManager.clearToken();
-  });
-
-  ipcMain.handle("linear:isConnected", () => {
-    return linearManager.isConnected();
-  });
-
-  ipcMain.handle("linear:getViewer", async () => {
-    return linearManager.getViewer();
-  });
-
-  ipcMain.handle("linear:getTeams", async () => {
-    return linearManager.getTeams();
-  });
-
-  ipcMain.handle(
-    "linear:getMyIssues",
-    async (
-      _event,
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => {
-      return linearManager.getMyIssues(teamIds, options);
-    },
-  );
-
-  ipcMain.handle("linear:getIssueDetail", async (_event, issueId: string) => {
-    return linearManager.getIssueDetail(issueId);
-  });
-
-  ipcMain.handle(
-    "linear:getAllIssues",
-    async (
-      _event,
-      teamIds: string[],
-      options?: { stateTypes?: string[]; limit?: number },
-    ) => {
-      return linearManager.getAllIssues(teamIds, options);
-    },
-  );
-
-  ipcMain.handle("linear:startIssue", async (_event, issueId: string) => {
-    return linearManager.startIssue(issueId);
-  });
-
-  ipcMain.handle("linear:closeIssue", async (_event, issueId: string) => {
-    return linearManager.closeIssue(issueId);
-  });
-
-  ipcMain.handle(
-    "linear:linkIssueToWorkspace",
-    (_e, projectId: string, workspacePath: string, issue: import("../linear").LinkedIssue) =>
-      projectManager.linkIssueToWorkspace(projectId, workspacePath, issue),
-  );
-
-  ipcMain.handle(
-    "linear:unlinkIssueFromWorkspace",
-    (_e, projectId: string, workspacePath: string, issueId: string) =>
-      projectManager.unlinkIssueFromWorkspace(projectId, workspacePath, issueId),
-  );
-
-  ipcMain.handle("linear:proxyImage", async (_event, url: string) => {
-    assertString(url, "url");
-    return linearManager.proxyImage(url);
-  });
-
-  ipcMain.handle("linear:autoMatch", async () => {
-    const projects = await projectManager.getProjects();
-    const teams = await linearManager.getTeams();
-    const matches = linearManager.autoMatchProjects(
-      projects.map((p) => ({ id: p.id, name: p.name })),
-      teams,
-    );
-    // Apply matches to projects without existing associations
-    for (const [projectId, association] of Object.entries(matches)) {
-      const project = projects.find((p) => p.id === projectId);
-      if (project && project.linearAssociations.length === 0) {
-        projectManager.updateProject(projectId, {
-          linearAssociations: [association],
-        });
-      }
-    }
-    return matches;
-  });
+  }
+  return matches;
 }

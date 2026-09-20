@@ -6,6 +6,9 @@ import {
   test,
 } from "./fixtures";
 import { layout } from "./helpers/local-api";
+import { openWebApp } from "./helpers/phone";
+import { closeSettings, enableRemoteControl, pairDevice } from "./helpers/settings";
+import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./helpers/terminal";
 
 /**
  * A detached window is a claim, not a hand-off (ADR-179 D4).
@@ -131,4 +134,73 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
   // And closing the window hands it back as a tab of the primary.
   await popup.close();
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
+});
+
+/**
+ * A browser is never a claimant (D4): it always sees the whole workspace,
+ * including a tab that is popped out on the desk right now, and can type
+ * into it — the ADR-179 D7 half of the property `GET /panes` already pins
+ * above.
+ */
+test("a browser still sees and can type into a tab popped out on the desk", async ({
+  app,
+  window,
+  tempHome,
+  request,
+}) => {
+  await bootWorkspaceWithTerminal(app, window, tempHome, "detach-browser-ws");
+
+  await window.keyboard.press("Meta+t");
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
+  const detachedTabId = await tabs(window).nth(1).getAttribute("data-tab-id");
+  expect(detachedTabId).toBeTruthy();
+  const detachedPaneId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, detachedPaneId);
+
+  const port = await enableRemoteControl(window);
+  const device = await pairDevice(window, {
+    label: "detach browser",
+    capability: "full",
+  });
+  await closeSettings(window);
+
+  const client = await openWebApp(port, device.token);
+  try {
+    await expect(
+      client.page.getByTestId("workspace-item").filter({
+        hasText: "detach-browser-ws",
+      }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    const popup = await Promise.all([
+      app.waitForEvent("window"),
+      detachTab(window, 1),
+    ]).then(([win]) => win);
+    await popup.waitForLoadState("domcontentloaded");
+    await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
+
+    // Still two tabs on the server, and the browser still lists both —
+    // the primary hides a claimed tab, a browser never does.
+    const snapshot = await layout(request, tempHome);
+    expect(snapshot.tabs.map((t) => t.tabId)).toContain(detachedTabId);
+    await expect
+      .poll(() => tabs(client.page).count(), { timeout: 15_000 })
+      .toBe(2);
+
+    await client.page.locator(`[data-tab-id="${detachedTabId}"]`).click();
+    await expect
+      .poll(() => activePaneId(client.page), { timeout: 10_000 })
+      .toBe(detachedPaneId);
+
+    const message = "hello from the browser, tab is popped out";
+    await runInTerminal(client.page, message);
+    await expect
+      .poll(() => scrollback(tempHome, detachedPaneId), { timeout: 15_000 })
+      .toContain(message);
+
+    await popup.close();
+    await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
+  } finally {
+    await client.close();
+  }
 });

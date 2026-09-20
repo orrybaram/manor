@@ -3,7 +3,7 @@ import path from "path";
 import type { APIRequestContext } from "@playwright/test";
 
 import type { AgentSummary } from "../../../electron/routes/agents";
-import type { LayoutSnapshot } from "../../../src/store/layout-snapshot";
+import type { LayoutSnapshot } from "../../../src/lib/layout/snapshot";
 
 /**
  * The app's *local* control surface — `WebviewServer`, the unauthenticated

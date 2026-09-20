@@ -1,6 +1,6 @@
 ---
 title: The surface is checked at compile time
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [11]

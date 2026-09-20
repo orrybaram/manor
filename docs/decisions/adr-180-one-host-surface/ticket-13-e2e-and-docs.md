@@ -109,3 +109,23 @@ from every caller, so detach-to-window silently stopped working — and
 `detach.spec.ts` was the only thing that caught it. That is the argument for
 running the suite on every crossing, and it should be written down where the
 next person will look.
+
+## Folded in from ticket 12
+
+- **`web-app.spec.ts:146` still fails, and it is a real question, not a stale
+  assertion.** Its cause changed once `4df4609` took `agents.reconcileStale`
+  out of `MUTATING`: it now fails on `expect(audit).toContain("agents.markSeen")`
+  receiving `["pty.create", "agents.setPaneContext"]`. Ticket 12 confirmed the
+  identical failure at HEAD in a detached worktree, so it predates that ticket.
+  **The browser never calls `agents.markSeen`.** ADR-179 ticket 4 made visible
+  agents get marked seen when the viewport changes; find out whether that flow
+  reaches a browser at all. Fix the flow if it is broken, and only widen the
+  spec if the browser genuinely should not be marking agents seen — in which
+  case say why, because "check on my agents from anywhere" is the sentence
+  ADR-178 started from.
+- **`src/bridge/transports/ipc.ts`'s header is stale** the way `handlers.ts`'s
+  was: it still says `native` is "still *every* namespace" and describes the
+  later tickets as future work. Correct it to the final state.
+- **`electron/preload.ts` is 480 lines, not the "well under 300" D8 claimed.**
+  Correct D8 rather than the code: `webview`'s 27 methods are ~250 lines on
+  their own, and splitting `preload.ts` is a different change from this one.

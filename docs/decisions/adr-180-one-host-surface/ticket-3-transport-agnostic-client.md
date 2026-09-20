@@ -1,6 +1,6 @@
 ---
 title: The renderer client becomes transport-agnostic
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [2]

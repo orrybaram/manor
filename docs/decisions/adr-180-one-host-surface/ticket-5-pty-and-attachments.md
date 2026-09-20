@@ -92,3 +92,14 @@ desktop window exactly as it does in a browser.
   (`Expected 4-5 arguments, but got 6`) in the electron tsconfig's baseline.
   It is in the module this ticket lifts, so fix it here rather than carrying
   it into `electron/bridge/handlers/`.
+
+## Folded in from ticket 3
+
+Nothing has crossed `bridge:invoke` in a *running* app yet — every namespace
+is still in `manorHost.native`, so ticket 2's structured-clone risk is
+unproven until this ticket moves the first group. `pty` is that group, and it
+is also the one whose results are plain data, so if something is going to
+throw at the clone boundary it will be a later ticket's handler, not this
+one's. Run `tests/e2e/notification-center.spec.ts` as well as the terminal
+specs here: it evaluates `window.electronAPI.notifications.show` in the page
+and is the cheapest real check that the preload swap is sound.

@@ -139,10 +139,14 @@ export class RemoteControlController {
     const { device, rawToken } = this.deviceStore.pair(label, capability);
     const url = this.tunnel.status.url;
     this.emit();
+    // A `full` device is a browser that wants the whole app, so its link
+    // lands on `/app` (ADR-178); the other two tiers get the phone client at
+    // `/`. Same fragment either way — the page reads and strips it.
+    const page = capability === "full" ? "/app" : "/";
     return {
       device,
       rawToken,
-      pairingUrl: url ? `${url}/#${rawToken}` : null,
+      pairingUrl: url ? `${url}${page}#${rawToken}` : null,
     };
   }
 

@@ -183,6 +183,17 @@ describe("RemoteControlController", () => {
     expect(result.device.capability).toBe("read");
   });
 
+  it("sends a full-capability device to the web app, not the phone client", async () => {
+    await f.controller.setEnabled(true);
+    await f.controller.startTunnel();
+    expect(f.controller.pair("PC browser", "full").pairingUrl).toBe(
+      "https://studio.tail1234.ts.net/app#raw-token-value",
+    );
+    expect(f.controller.pair("phone", "send").pairingUrl).toBe(
+      "https://studio.tail1234.ts.net/#raw-token-value",
+    );
+  });
+
   it("pairs without a tunnel but has no URL to offer", async () => {
     await f.controller.setEnabled(true);
     expect(f.controller.pair("phone", "read").pairingUrl).toBeNull();

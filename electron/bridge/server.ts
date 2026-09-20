@@ -131,17 +131,21 @@ export class BridgeServer {
   /**
    * That caller is gone.
    *
-   * A dead connection releases every pane it was a viewer of, the same as a
-   * desktop window dying does (`releaseViewer` in `app-lifecycle.ts`) — a
-   * browser that vanished mid-session must not keep outvoting the viewers
-   * still there for who owns the winsize (ADR-179 D6). Transports call this
-   * only for connections they actually accepted: one that never got past
-   * authentication never attached anything, so there is nothing to release
-   * and nobody to tell.
+   * A dead connection releases every pane it was a viewer of — a browser
+   * that vanished mid-session, or a window that closed without unmounting
+   * its panes, must not keep outvoting the viewers still there for who owns
+   * the winsize (ADR-179 D6). Transports call this only for connections they
+   * actually accepted: one that never got past authentication never attached
+   * anything, so there is nothing to release and nobody to tell.
+   *
+   * It used to pass a `"bridge"` kind alongside the id, which was harmless
+   * only for as long as a desktop window's panes were held under its
+   * `webContents.id` by an `ipcMain` wrapper instead. Both are connections
+   * now (ADR-180 D6), and there is one id to release.
    */
   drop(connectionId: string): void {
     if (!this.connections.delete(connectionId)) return;
-    releaseViewer(connectionId, "bridge");
+    releaseViewer(connectionId);
     for (const cb of this.disconnectSinks) cb(connectionId);
   }
 
@@ -194,8 +198,12 @@ export class BridgeServer {
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
     const call = handler as (deps: IpcDeps, ...args: unknown[]) => unknown;
-    // Who sent it, appended by the transport rather than taken from the
-    // frame: a caller does not get to say which caller it is (ADR-179 D3).
+    // Who sent it, appended here rather than taken from the frame: a caller
+    // does not get to say which caller it is (ADR-179 D3). `kind` is the
+    // caller's class, not its transport — a renderer window reaching this
+    // over `bridge:*` IPC is a `window`, and that is what decides whether a
+    // viewport report's claim is honoured (D4) and which viewer of a pane
+    // outranks which (ADR-180 D6).
     // The wire arguments are padded (not merely truncated) to the declared
     // count first: `pty.create`'s `agentKind` is optional, and `args.slice`
     // on a shorter array would leave the origin sitting in `agentKind`'s slot
@@ -206,7 +214,10 @@ export class BridgeServer {
         ? args
         : [
             ...Array.from({ length: wireArgs }, (_, i) => args[i]),
-            { kind: "bridge", id: connection.id } satisfies LayoutOrigin,
+            {
+              kind: connection.callerClass === "local" ? "window" : "bridge",
+              id: connection.id,
+            } satisfies LayoutOrigin,
           ];
     try {
       const result = await call(this.deps, ...callArgs);
@@ -334,7 +345,7 @@ export class BridgeServer {
     if (!grid) return;
     const owner = ownerOf(paneId);
     for (const id of this.connections.keys()) {
-      const isOwner = !!owner && owner.kind === "bridge" && owner.id === id;
+      const isOwner = owner?.connectionId === id;
       this.sendTo(id, {
         kind: "event",
         ns: "pty",

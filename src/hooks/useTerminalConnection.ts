@@ -19,11 +19,13 @@ export function useTerminalConnection(paneId: string) {
   /**
    * Create or attach, and learn who owns this session's winsize.
    *
-   * The `cols×rows` here is a *request*. Over the ADR-178 bridge it is refused
-   * silently when a desktop window already has the pane (D5), and the reply
+   * The `cols×rows` here is a *request*. It is refused silently when someone
+   * who outranks this viewer already has the pane (ADR-178 D5), and the reply
    * carries the owner's grid instead — `useTerminalLifecycle` reads that into
-   * its `follower` state. On the preload path there is nothing to refuse: the
-   * desktop asking is the owner asking.
+   * its `follower` state. A window on the machine outranks a paired device
+   * and is outranked only by a window that attached after it (ADR-180 D6), so
+   * the common case — one viewer, or the one that just opened the pane — is
+   * the owner asking, and nothing is refused.
    */
   const create = useCallback(
     (cwd: string | null, cols: number, rows: number, agentKind?: string | null) => {

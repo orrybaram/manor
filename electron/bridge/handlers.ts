@@ -45,8 +45,17 @@ import {
   ptyReset,
   ptyClose,
   ptyDetach,
+  ptyConsumePrewarmed,
+  ptyUpdatePrewarmCwd,
 } from "../ipc/pty";
-import { attach, isDesktopAttached, ownerOf, release } from "../pty-attachments";
+import {
+  attach,
+  isDesktopAttached,
+  ownerOf,
+  release,
+  wouldOwn,
+  type Viewer,
+} from "../pty-attachments";
 import {
   layoutApply,
   layoutGetAll,
@@ -140,28 +149,58 @@ export async function sessionGrid(
 }
 
 /**
- * Run a create-shaped call for a *web* viewer and say who owns the winsize.
+ * The viewer a table call is from (ADR-180 D6).
  *
- * Two things happen here that do not happen on the desktop path, and both are
- * D5. First, when the desktop holds the pane the browser's own `cols×rows` is
- * dropped before the call: `createOrAttach` resizes the session before it
- * snapshots it (see `terminal-host/client.ts`), so passing the browser's grid
- * through would resize the desktop's pane as a side effect of merely looking at
- * it — the exact bug ADR-163/164/165 are about, arriving through the one door
- * marked "read". Second, the answer carries the owner's grid, which is what the
+ * The transport appends the caller's identity to the arguments of everything
+ * in `ORIGIN_ARGS`, as a `LayoutOrigin` — `window` for a renderer on this
+ * machine, `bridge` for a paired device — and this is where that becomes the
+ * thing `pty-attachments.ts` tracks. A frame cannot supply it: dispatch
+ * overwrites the slot, so a device cannot attach as somebody else's window
+ * and take the winsize with it.
+ */
+function viewerOf(origin: LayoutOrigin | undefined): Viewer | null {
+  if (!origin) return null;
+  return {
+    connectionId: origin.id,
+    callerClass: origin.kind === "window" ? "local" : "device",
+  };
+}
+
+/**
+ * Run a create-shaped call and tell the caller who owns the winsize (D5/D6).
+ *
+ * Two things happen here that did not happen on the old desktop path, and
+ * both are why that path is gone. First, when someone who outranks this
+ * caller holds the pane, the caller's own `cols×rows` is dropped before the
+ * call: `createOrAttach` resizes the session before it snapshots it (see
+ * `terminal-host/client.ts`), so passing a follower's grid through would
+ * resize the owner's pane as a side effect of merely looking at it — the
+ * exact bug ADR-163/164/165 are about, arriving through the one door marked
+ * "read". Second, the answer carries the owner's grid, which is what the
  * follower renders.
  *
- * Decoration happens here and nowhere else. The desktop's `ipcMain.handle`
- * keeps the shape it has always returned; `winsizeOwner` absent means owner.
+ * Who outranks whom is `pty-attachments.ts`'s rule and not a special case for
+ * the desktop: a caller is a follower exactly when attaching would *not* make
+ * it the owner (`wouldOwn`), which for a window on this machine is only when
+ * it already holds the pane and let another viewer take it. What ADR-180
+ * changed is that a local viewer can be that follower at all — two windows on
+ * one pane used to both measure for themselves (D6).
+ *
+ * Decoration happens here and nowhere else; `winsizeOwner` absent means
+ * owner, which is what every caller that never asked has always assumed.
  */
 async function createShaped<T extends { ok: boolean }>(
   deps: IpcDeps,
   paneId: string,
+  viewer: Viewer | null,
   cols: number,
   rows: number,
   run: (cols: number, rows: number) => Promise<T>,
 ): Promise<T | (T & WinsizeDecoration)> {
-  const follower = isDesktopAttached(paneId);
+  // A caller with no identity cannot be looked up, and gets the conservative
+  // answer it got before there were connections: follow whatever the machine
+  // has open.
+  const follower = viewer ? !wouldOwn(paneId, viewer) : isDesktopAttached(paneId);
   const owner = follower ? await sessionGrid(deps, paneId) : null;
   const grid = owner ?? { cols, rows };
   const result = await run(grid.cols, grid.rows);
@@ -177,9 +216,11 @@ async function createShaped<T extends { ok: boolean }>(
 export const HANDLERS: Record<string, BridgeHandler> = {
   // ── pty: the terminal itself ──
   // `create` and `reset` answer with who owns the winsize, and attach the
-  // calling connection as a viewer once they succeed — the bridge's half of
-  // what `ipcMain.handle("pty:create", …)` does for a desktop window
-  // (ADR-179 D6). `resize` is a no-op unless the caller is the owner.
+  // calling connection as a viewer once they succeed. Every caller comes
+  // through here since ADR-180 ticket 5 — a renderer window over `bridge:*`
+  // IPC and a paired device over the socket — so this is the one place a
+  // pane gains a viewer, and `resize` is a no-op for anyone who is not the
+  // one that owns it.
   "pty.create": async (
     deps: IpcDeps,
     paneId: string,
@@ -189,16 +230,16 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     agentKind?: string | null,
     origin?: LayoutOrigin,
   ) => {
-    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
+    const viewer = viewerOf(origin);
+    const result = await createShaped(deps, paneId, viewer, cols, rows, (c, r) =>
       ptyCreate(deps, paneId, cwd, c, r, agentKind),
     );
-    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    if (result.ok && viewer) attach(paneId, viewer);
     return result;
   },
   /**
    * Create-shaped, and reachable from the pane menu — so it is on the table,
-   * decorated exactly as `create` is. `pty.consumePrewarmed` is not: a prewarmed
-   * session belongs to the window that asked for one.
+   * decorated exactly as `create` is.
    */
   "pty.reset": async (
     deps: IpcDeps,
@@ -208,10 +249,11 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     rows: number,
     origin?: LayoutOrigin,
   ) => {
-    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
+    const viewer = viewerOf(origin);
+    const result = await createShaped(deps, paneId, viewer, cols, rows, (c, r) =>
       ptyReset(deps, paneId, cwd, c, r),
     );
-    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    if (result.ok && viewer) attach(paneId, viewer);
     return result;
   },
   "pty.write": (deps: IpcDeps, paneId: string, data: string) =>
@@ -222,8 +264,9 @@ export const HANDLERS: Record<string, BridgeHandler> = {
    * It is answered rather than refused because refusing is a rejected promise
    * on every layout tick, which `useTerminalResize` would log; and it is
    * dropped rather than forwarded because it is not this caller's grid to
-   * move (D6) — the desktop's, or another bridge viewer's who attached more
-   * recently. A caller that owns the pane's winsize resizes normally.
+   * move (D6) — it belongs to another viewer, which since ADR-180 may be a
+   * second window of the desktop as readily as a browser. A caller that owns
+   * the pane's winsize resizes normally.
    */
   "pty.resize": (
     deps: IpcDeps,
@@ -233,19 +276,36 @@ export const HANDLERS: Record<string, BridgeHandler> = {
     origin?: LayoutOrigin,
   ) => {
     const owner = ownerOf(paneId);
-    const isOwner =
-      !!owner && !!origin && owner.kind === "bridge" && owner.id === origin.id;
+    const viewer = viewerOf(origin);
+    const isOwner = !!owner && owner.connectionId === viewer?.connectionId;
     if (owner && !isOwner) return;
     return ptyResize(deps, paneId, cols, rows);
   },
   "pty.close": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
-    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    const viewer = viewerOf(origin);
+    if (viewer) release(paneId, viewer);
     return ptyClose(deps, paneId);
   },
   "pty.detach": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
-    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    const viewer = viewerOf(origin);
+    if (viewer) release(paneId, viewer);
     return ptyDetach(deps, paneId);
   },
+  /**
+   * The prewarm pair, `LOCAL_ONLY` (D4).
+   *
+   * There is one prewarmed session per host and its cwd tracks the primary
+   * window's active workspace, so it is the window at the machine's to adopt
+   * — a device consuming it would get a shell sitting somewhere else, and a
+   * device *moving* it would move the desktop's out from under it.
+   */
+  "pty.consumePrewarmed": (deps: IpcDeps) => ptyConsumePrewarmed(deps),
+  "pty.updatePrewarmCwd": (
+    deps: IpcDeps,
+    cwd: string,
+    agentCommand?: string | null,
+    agentKind?: string | null,
+  ) => ptyUpdatePrewarmCwd(deps, cwd, agentCommand, agentKind),
 
   // ── layout: the same commands the desktop sends ──
   /**
@@ -402,9 +462,10 @@ export const HANDLERS: Record<string, BridgeHandler> = {
  * The number is how many parameters the handler declares before the origin —
  * `pty.create`'s optional `agentKind` included, so a client that omits it
  * still gets the origin in the *next* slot rather than in `agentKind`'s. The
- * bridge pads the wire arguments out to this length and appends the socket's
- * `LayoutOrigin`, so a browser cannot claim to be another renderer and pick
- * up its selection hints, or attach as another connection's pane viewer (D6).
+ * bridge pads the wire arguments out to this length and appends the
+ * connection's own `LayoutOrigin`, so no caller can claim to be another
+ * renderer and pick up its selection hints, or attach as another
+ * connection's pane viewer and take the winsize with it (D6).
  */
 export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
   ["layout.apply", 2],
@@ -440,10 +501,14 @@ export const MUTATING: ReadonlySet<string> = new Set([
  * difference is that it becomes a decision written down rather than a hole,
  * and `allowlist.test.ts` can assert the list instead of asserting silence.
  *
- * Empty until the desktop's own methods arrive on this table: the ones this
- * is for — `keybindings.set`/`reset`/`resetAll`, `remoteControl.setEnabled`/
- * `pair`/`revoke`/`tunnel.*`, `viewport.load`/`save` and the prewarm pair —
- * are not on it yet, and naming them before they exist would be a list of
- * methods that refuse nothing.
+ * The prewarm pair is the first entry, and arrived with `pty` (ADR-180
+ * ticket 5). The rest of the list this is for — `keybindings.set`/`reset`/
+ * `resetAll`, `remoteControl.setEnabled`/`pair`/`revoke`/`tunnel.*` and
+ * `viewport.load`/`save` — joins it as each of those namespaces crosses;
+ * naming them before they exist would be a list of methods that refuse
+ * nothing.
  */
-export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>();
+export const LOCAL_ONLY: ReadonlySet<string> = new Set<string>([
+  "pty.consumePrewarmed",
+  "pty.updatePrewarmCwd",
+]);

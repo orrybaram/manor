@@ -117,87 +117,18 @@ try {
  * and the only place that can answer them before the first invoke.
  */
 const nativeApi = {
-  pty: {
-    create: (
-      paneId: string,
-      cwd: string | null,
-      cols: number,
-      rows: number,
-      agentKind?: string | null,
-    ) => ipcRenderer.invoke("pty:create", paneId, cwd, cols, rows, agentKind),
-    write: (paneId: string, data: string) =>
-      ipcRenderer.invoke("pty:write", paneId, data),
-    resize: (paneId: string, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:resize", paneId, cols, rows),
-    close: (paneId: string) => ipcRenderer.invoke("pty:close", paneId),
-    reset: (paneId: string, cwd: string | null, cols: number, rows: number) =>
-      ipcRenderer.invoke("pty:reset", paneId, cwd, cols, rows),
-    detach: (paneId: string) => ipcRenderer.invoke("pty:detach", paneId),
-    consumePrewarmed: () => ipcRenderer.invoke("pty:consumePrewarmed"),
-    updatePrewarmCwd: (
-      cwd: string,
-      agentCommand?: string | null,
-      agentKind?: string | null,
-    ) =>
-      ipcRenderer.invoke("pty:updatePrewarmCwd", cwd, agentCommand, agentKind),
-    // Output carries its position in the session's stream (ADR-159) so the
-    // renderer can drop what a warm-restore snapshot already covers. It is
-    // undefined when an older daemon is on the other end.
-    onOutput: (
-      paneId: string,
-      callback: (data: string, seq?: number) => void,
-    ) => {
-      const channel = `pty-output-${paneId}`;
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        data: string,
-        seq?: number,
-      ) => callback(data, seq);
-      ipcRenderer.on(channel, listener);
-      return () => ipcRenderer.removeListener(channel, listener);
-    },
-    onExit: (paneId: string, callback: () => void) =>
-      onChannel(`pty-exit-${paneId}`, callback),
-    onCwd: (paneId: string, callback: (cwd: string) => void) =>
-      onChannel(`pty-cwd-${paneId}`, callback),
-    onAgentStatus: (paneId: string, callback: (agent: unknown) => void) =>
-      onChannel(`pty-agent-status-${paneId}`, callback),
-    onError: (paneId: string, callback: (message: string) => void) =>
-      onChannel(`pty-error-${paneId}`, callback),
-    // Its own listener rather than `onChannel`, which forwards a single value:
-    // through that helper `rows` arrived as undefined and xterm rejected the
-    // resize from inside a write callback, wedging the terminal for good.
-    onResized: (
-      paneId: string,
-      callback: (cols: number, rows: number) => void,
-    ) => {
-      const channel = `pty-resized-${paneId}`;
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        cols: number,
-        rows: number,
-      ) => callback(cols, rows);
-      ipcRenderer.on(channel, listener);
-      return () => ipcRenderer.removeListener(channel, listener);
-    },
-    /**
-     * Live winsize-ownership changes (ADR-179 D6), for a viewer whose owner
-     * moved without a `pty.create`/`pty.reset` reply of its own to read it
-     * from — a bridge viewer that just got outbid by another, or one whose
-     * owner disconnected. A no-op here: the desktop's own attach always wins
-     * ownership the moment it exists (D5), so it never needs telling it lost
-     * something, and nothing publishes on this channel for it to hear.
-     */
-    onWinsizeOwner: (
-      _paneId: string,
-      _callback: (payload: {
-        paneId: string;
-        cols: number;
-        rows: number;
-        owner: boolean;
-      }) => void,
-    ) => () => {},
-  },
+  // `pty` is not here. It was the first namespace to cross (ADR-180 ticket
+  // 5): eight methods that were `ipcRenderer.invoke("pty:*")` and six
+  // subscriptions that were per-pane `webContents.send` channels are now
+  // `bridge:invoke` and `bridge:subscribe` frames, keyed by paneId, answered
+  // by the same table entries a paired device reaches. Nothing replaced them
+  // here, and nothing should: a method written in this file is a method that
+  // exists on one transport only (D8).
+  //
+  // `onWinsizeOwner` used to be a stub returning a no-op unsubscribe,
+  // because the desktop could never lose the winsize. It can now — to
+  // another window of its own (D6) — and the subscription that tells it so
+  // is the same one a browser has always had.
 
   layout: {
     // ADR-179 D1: the server owns the layout. A renderer reads it with

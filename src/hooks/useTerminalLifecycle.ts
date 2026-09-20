@@ -53,10 +53,14 @@ export function useTerminalLifecycle(
   /**
    * The winsize owner's grid, when this viewer is not the owner (ADR-178 D5).
    *
-   * Null until the create reply says otherwise, and null forever in the desktop
-   * app: `winsizeOwner` is the bridge's field and the preload path never sets
-   * it, so absent means owner. Held as one object so the identity a follower
-   * hands `useTerminalResize` is stable between renders.
+   * Null until the create reply says otherwise — absent means owner, which is
+   * what every viewer that is alone on a pane gets. It used to be null
+   * *forever* on the desktop, because `pty.create` went through the preload
+   * and the preload never decorated a reply; since ADR-180 ticket 5 both
+   * platforms reach the same table entry, so a second window on a pane
+   * follows the one that attached most recently exactly as a browser does
+   * (D6). Held as one object so the identity a follower hands
+   * `useTerminalResize` is stable between renders.
    */
   const [follower, setFollower] = useState<{ cols: number; rows: number } | null>(
     null,
@@ -65,9 +69,10 @@ export function useTerminalLifecycle(
   /**
    * Read the winsize ownership off a create-shaped reply.
    *
-   * Every field here is optional and absent on the desktop, so the one shape
-   * this has to get right is "said nothing" — which means this viewer owns the
-   * winsize and the hook behaves exactly as it did before ADR-178.
+   * Every field here is optional, so the one shape this has to get right is
+   * "said nothing" — which means this viewer owns the winsize and the hook
+   * behaves exactly as it did before ADR-178. A host that does decorate the
+   * reply is answering the same question, just out loud.
    */
   const applyWinsize = useCallback((result: PtyCreateResult) => {
     const { winsizeOwner, cols, rows } = result;

@@ -1,9 +1,24 @@
-import { ipcMain } from "electron";
+/**
+ * The terminal, as plain functions over `IpcDeps` (ADR-180 D8).
+ *
+ * There is no `register()` here any more, and this is the first module to
+ * lose one: `pty` crossed onto the handler table in ADR-180 ticket 5, so the
+ * six `ipcMain.handle("pty:*")` wrappers that used to sit at the bottom of
+ * this file are gone and `electron/bridge/handlers.ts` calls these functions
+ * directly, for a renderer window and a paired device alike. What is left is
+ * the implementation — the same `assert*` validation, the same daemon calls,
+ * one caller fewer to keep in step.
+ *
+ * Winsize ownership is *not* decided here. The wrappers used to attach and
+ * release viewers around these calls (`attach(paneId, event.sender.id)`),
+ * which is why they had to exist at all; the table's entries do it now, with
+ * the connection that asked (ADR-180 D6, `pty-attachments.ts`).
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../ipc-validate";
 import { resolveSpawnCwd } from "../paths";
-import { attach, release } from "../pty-attachments";
 import type { IpcDeps } from "./types";
 
 /** Read git branch synchronously from a repo or worktree root. */
@@ -92,12 +107,14 @@ async function deliverPendingCommand(
 }
 
 /**
- * The bodies below are lifted out of their `ipcMain.handle` wrappers so the
- * ADR-178 WebSocket bridge can call exactly the same code the desktop
- * renderer reaches, rather than dispatching reflectively into `ipcMain`'s
- * private handler map. Both callers go through the same `assert*` validation,
- * because a browser on the far end of a tunnel is not more trusted than a
- * renderer — it is less.
+ * The bodies below were lifted out of `ipcMain.handle` wrappers so the
+ * ADR-178 bridge could call exactly the same code the desktop renderer
+ * reached, rather than dispatching reflectively into `ipcMain`'s private
+ * handler map. ADR-180 ticket 5 removed the wrappers entirely: both callers
+ * now arrive through the handler table, and both go through the same
+ * `assert*` validation — because a browser on the far end of a tunnel is not
+ * more trusted than a renderer, it is less, and a renderer is not more
+ * trusted than it was when its arguments went unchecked.
  */
 export async function ptyCreate(
   deps: IpcDeps,
@@ -257,70 +274,36 @@ export async function ptyReset(
   }
 }
 
-export function register(deps: IpcDeps): void {
-  // Create, reset, close and detach are the desktop's four statements about
-  // whether it has a pane mounted, and that is the whole of the winsize
-  // ownership question the bridge asks (ADR-178 D5). The bookkeeping lives in
-  // these wrappers rather than in the lifted functions above because a browser
-  // reaching the same code through the bridge is a *follower*: it must not be
-  // able to claim the winsize by asking for a session.
-  ipcMain.handle(
-    "pty:create",
-    async (
-      event,
-      paneId: string,
-      cwd: string | null,
-      cols: number,
-      rows: number,
-      agentKind?: string | null,
-    ) => {
-      const result = await ptyCreate(deps, paneId, cwd, cols, rows, agentKind);
-      if (result.ok) attach(paneId, event.sender.id);
-      return result;
-    },
+/**
+ * Hand out the background-warmed session, if one is ready (ADR-083).
+ *
+ * `local` only (ADR-180 D4): a prewarmed session belongs to the window that
+ * asked for one. Its cwd tracks the *primary* window's active workspace, so
+ * a caller looking at something else — a popout, or a phone on the bridge —
+ * would adopt a shell sitting in the wrong directory.
+ */
+export function ptyConsumePrewarmed(
+  deps: IpcDeps,
+): { paneId: string; commandInjected: boolean } | null {
+  return deps.prewarmManager?.consume() ?? null;
+}
+
+/**
+ * Point the prewarmed session at a different workspace, respawning it.
+ *
+ * `local` only, for the reason above: there is one prewarmed session per
+ * host, and it follows the window at the machine.
+ */
+export async function ptyUpdatePrewarmCwd(
+  deps: IpcDeps,
+  cwd: string,
+  agentCommand?: string | null,
+  agentKind?: string | null,
+): Promise<void> {
+  assertString(cwd, "cwd");
+  await deps.prewarmManager?.updateCwd(
+    resolveSpawnCwd(cwd),
+    agentCommand,
+    agentKind,
   );
-
-  ipcMain.handle("pty:write", (_event, paneId: string, data: string) => {
-    ptyWrite(deps, paneId, data);
-  });
-
-  ipcMain.handle(
-    "pty:resize",
-    (_event, paneId: string, cols: number, rows: number) =>
-      ptyResize(deps, paneId, cols, rows),
-  );
-
-  ipcMain.handle("pty:close", (event, paneId: string) => {
-    release(paneId, event.sender.id);
-    return ptyClose(deps, paneId);
-  });
-
-  ipcMain.handle(
-    "pty:reset",
-    async (
-      event,
-      paneId: string,
-      cwd: string | null,
-      cols: number,
-      rows: number,
-    ) => {
-      const result = await ptyReset(deps, paneId, cwd, cols, rows);
-      if (result.ok) attach(paneId, event.sender.id);
-      return result;
-    },
-  );
-
-  ipcMain.handle("pty:detach", (event, paneId: string) => {
-    release(paneId, event.sender.id);
-    return ptyDetach(deps, paneId);
-  });
-
-  ipcMain.handle("pty:consumePrewarmed", () => {
-    return deps.prewarmManager?.consume() ?? null;
-  });
-
-  ipcMain.handle("pty:updatePrewarmCwd", async (_event, cwd: string, agentCommand?: string | null, agentKind?: string | null) => {
-    assertString(cwd, "cwd");
-    await deps.prewarmManager?.updateCwd(resolveSpawnCwd(cwd), agentCommand, agentKind);
-  });
 }

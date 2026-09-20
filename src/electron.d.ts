@@ -261,11 +261,13 @@ export type StreamPosition = number;
 /**
  * What a create-shaped PTY call answers with.
  *
- * The last three fields are the ADR-178 bridge's (D5) and only the bridge's:
- * the preload path never sets them, and **absent means this viewer owns the
- * winsize**, which is what the desktop app has always been. A browser told
+ * The last three fields are the host's answer to "who owns the winsize"
+ * (ADR-178 D5). **Absent means this viewer owns it**, which is what a viewer
+ * alone on a pane is told and what every desktop pane was told until ADR-180
+ * ticket 5 put both platforms on the same handler. A viewer told
  * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
- * never asks the pty for a different pair.
+ * never asks the pty for a different pair — and since D6 that can be a second
+ * desktop window as readily as a browser.
  */
 export interface PtyCreateResult {
   ok: boolean;
@@ -462,10 +464,11 @@ export interface ElectronAPI {
     ) => () => void;
     /**
      * The winsize owner changed, without this viewer having made the call
-     * that changed it (ADR-179 D6) — another bridge viewer outbid it, or its
-     * owner disconnected and it inherited the grid. A no-op subscription on
-     * the desktop preload: the desktop's own attach always wins ownership the
-     * moment it exists (D5), so it is never the one hearing this.
+     * that changed it (ADR-179 D6) — another viewer of the pane outbid it, or
+     * its owner disconnected and it inherited the grid. It was a no-op
+     * subscription on the desktop preload while a desktop attach always won
+     * ownership; ADR-180 D6 made two windows on one pane comparable to each
+     * other, so a window is now as likely to hear this as a browser.
      */
     onWinsizeOwner: (
       paneId: string,

@@ -74,12 +74,6 @@ describe("handleStreamEvent", () => {
 
       handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
-      // Verify webContents.send was called with the cwd event
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main/src",
-      );
-
       // Verify agent was updated in agentManager
       const updated = agentManager.getAgentByPaneId(paneId);
       expect(updated).not.toBeNull();
@@ -105,12 +99,6 @@ describe("handleStreamEvent", () => {
 
       handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
-      // Verify webContents.send was called with the cwd event
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main",
-      );
-
       // Verify agent-updated broadcast was NOT sent (no change)
       const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
         (call: any) => call[0] === "agent-updated",
@@ -129,12 +117,6 @@ describe("handleStreamEvent", () => {
       };
 
       handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
-
-      // Verify webContents.send was called with the cwd event to renderer
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${paneId}`,
-        "/project/main/src",
-      );
 
       // Verify agent was NOT updated
       const updated = agentManager.getAgentByPaneId(paneId);
@@ -158,12 +140,6 @@ describe("handleStreamEvent", () => {
 
       handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
 
-      // Verify webContents.send was called with the cwd event to renderer
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-cwd-${nonExistentPaneId}`,
-        "/project/main/src",
-      );
-
       // Verify agent-updated broadcast was NOT sent
       const agentUpdatedCalls = mockWindow.webContents.send.mock.calls.filter(
         (call: any) => call[0] === "agent-updated",
@@ -171,77 +147,28 @@ describe("handleStreamEvent", () => {
       expect(agentUpdatedCalls.length).toBe(0);
     });
 
-    it("forwards data events to renderer", () => {
+    /**
+     * ADR-180 ticket 5. Output, exit, resize, cwd, agent status and error
+     * used to leave here on `pty-${kind}-${paneId}` channels, one send per
+     * live window whether or not it had the pane. They are bridge event
+     * frames now — `BridgeServer.handleStreamEvent` publishes them keyed by
+     * paneId, to windows and devices alike — and a channel left behind here
+     * would be a second, unfiltered copy of the hottest path in the app.
+     */
+    it("sends nothing per-pane: the bridge is the only producer", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
+      const events: StreamEvent[] = [
+        { type: "data", sessionId: paneId, data: "hello", seq: 7 },
+        { type: "exit", sessionId: paneId, exitCode: 0 },
+        { type: "resized", sessionId: paneId, cols: 100, rows: 30 },
+        { type: "error", sessionId: paneId, message: "test error" },
+      ];
 
-      const event: StreamEvent = {
-        type: "data",
-        sessionId: paneId,
-        data: "hello",
-        seq: 7,
-      };
+      for (const event of events) {
+        handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
+      }
 
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
-
-      // The seq rides along so the renderer can drop output a warm-restore
-      // snapshot already covers (ADR-159).
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-output-${paneId}`,
-        "hello",
-        7,
-      );
-    });
-
-    it("forwards data from a daemon that sends no seq", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      // An older daemon predates ADR-159 and omits the field entirely.
-      const event: StreamEvent = {
-        type: "data",
-        sessionId: paneId,
-        data: "hello",
-      };
-
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-output-${paneId}`,
-        "hello",
-        undefined,
-      );
-    });
-
-    it("forwards exit events to renderer", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      const event: StreamEvent = {
-        type: "exit",
-        sessionId: paneId,
-        exitCode: 0,
-      };
-
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-exit-${paneId}`,
-      );
-    });
-
-    it("forwards error events to renderer", () => {
-      const paneId = `pane-${crypto.randomUUID()}`;
-
-      const event: StreamEvent = {
-        type: "error",
-        sessionId: paneId,
-        message: "test error",
-      };
-
-      handleStreamEvent(event, mockWindow, agentManager, preferencesManager);
-
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
-        `pty-error-${paneId}`,
-        "test error",
-      );
+      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
     });
   });
 
@@ -250,13 +177,10 @@ describe("handleStreamEvent", () => {
       const agent = createAgent({ cwd: "/project/main", status: "active" });
       const paneId = agent.paneId!;
 
-      let callCount = 0;
+      // The one send left: `agent-updated`, which is still addressed to a
+      // window until the `agents` namespace crosses to the table too.
       mockWindow.webContents.send = vi.fn(() => {
-        callCount++;
-        // Only throw on the second call (agent-updated broadcast), not on the pty-cwd broadcast
-        if (callCount === 2) {
-          throw new Error("Render frame was disposed");
-        }
+        throw new Error("Render frame was disposed");
       });
 
       const event: StreamEvent = {
@@ -278,15 +202,17 @@ describe("handleStreamEvent", () => {
     it("logs non-disposed errors", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      mockWindow.webContents.send = vi.fn(() => {
+      // From the bookkeeping rather than from a send: what is left in here is
+      // the agent lookup, so that is what is made to fail.
+      vi.spyOn(agentManager, "getAgentByPaneId").mockImplementation(() => {
         throw new Error("Some other error");
       });
 
       const paneId = `pane-${crypto.randomUUID()}`;
       const event: StreamEvent = {
-        type: "data",
+        type: "cwd",
         sessionId: paneId,
-        data: "test",
+        cwd: "/project/main/src",
       };
 
       handleStreamEvent(event, mockWindow, agentManager, preferencesManager);

@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MockInstance } from "vitest";
 
 import type { IpcDeps } from "../../ipc/types";
+import { resetAttachments } from "../../pty-attachments";
 import { BridgeServer } from "../server";
 import {
   BRIDGE_EVENT,
@@ -135,10 +136,12 @@ function fire(
   sender: FakeWindow["webContents"],
 ) {
   for (const listener of electronMock.listeners.get(channel) ?? []) {
-    (listener as unknown as (
-      event: { sender: unknown },
-      payload: unknown,
-    ) => void)({ sender }, payload);
+    (
+      listener as unknown as (
+        event: { sender: unknown },
+        payload: unknown,
+      ) => void
+    )({ sender }, payload);
   }
 }
 
@@ -330,6 +333,162 @@ describe("IpcBridgeTransport", () => {
     });
 
     expect(win.sends).toHaveLength(0);
+  });
+});
+
+/**
+ * ADR-180 D6, through the real handler table rather than a stand-in one.
+ *
+ * The headline of ticket 5: two renderer windows holding one pane are two
+ * connections now, so one of them owns the winsize and the other is *told*
+ * it does not — where before both were "the desktop", both measured, and both
+ * resized the session on every layout tick.
+ */
+describe("two windows on one pane (D6)", () => {
+  const PANE = "pane-a";
+  /** The session's grid, as the daemon would report it. */
+  let sessionSize: { cols: number; rows: number };
+  let createdAt: Array<[string, number, number]>;
+  let windows: FakeWindow[];
+  let transport: IpcBridgeTransport;
+  let server: BridgeServer;
+
+  /** Every `pty.winsizeOwner` frame a window has been sent. */
+  function ownerFrames(win: FakeWindow): Record<string, unknown>[] {
+    return win.sends
+      .filter(([channel]) => channel === BRIDGE_EVENT)
+      .map(([, frame]) => frame as Record<string, unknown>)
+      .filter((frame) => frame.event === "winsizeOwner");
+  }
+
+  function create(win: FakeWindow, cols: number, rows: number) {
+    return invoke(
+      { ns: "pty", method: "create", args: [PANE, "/tmp", cols, rows] },
+      win.webContents,
+    ) as Promise<{ winsizeOwner?: boolean; cols?: number; rows?: number }>;
+  }
+
+  beforeEach(() => {
+    electronMock.handlers.clear();
+    electronMock.listeners.clear();
+    resetAttachments();
+    sessionSize = { cols: 80, rows: 24 };
+    createdAt = [];
+    windows = [];
+    const deps = {
+      getRendererWindows: () => windows,
+      backend: {
+        pty: {
+          createOrAttach: async (
+            sessionId: string,
+            _cwd: string,
+            cols: number,
+            rows: number,
+          ) => {
+            createdAt.push([sessionId, cols, rows]);
+            sessionSize = { cols, rows };
+            return { session: {}, snapshot: null };
+          },
+          getSnapshot: async () => ({ ...sessionSize }),
+          resize: async () => {},
+        },
+      },
+    } as unknown as IpcDeps;
+    // No `handlers` override: this is the table the app runs.
+    server = new BridgeServer(deps);
+    transport = new IpcBridgeTransport(deps, { server });
+    transport.start();
+  });
+
+  afterEach(() => {
+    transport.dispose();
+    server.dispose();
+    resetAttachments();
+  });
+
+  it("hands the winsize to the window that attached last and tells the first", async () => {
+    const first = makeWindow(11);
+    const second = makeWindow(22);
+    windows.push(first, second);
+    for (const win of [first, second]) {
+      fire(
+        BRIDGE_SUBSCRIBE,
+        { ns: "pty", event: "winsizeOwner", key: PANE },
+        win.webContents,
+      );
+    }
+
+    const opened = await create(first, 80, 24);
+    expect(opened).toMatchObject({ winsizeOwner: true, cols: 80, rows: 24 });
+    expect(createdAt).toEqual([[PANE, 80, 24]]);
+    await vi.waitFor(() => expect(ownerFrames(first)).toHaveLength(1));
+
+    // The second window opens the same pane at its own size. It attached
+    // most recently, so the session moves to *its* grid...
+    const joined = await create(second, 120, 40);
+    expect(joined).toMatchObject({ winsizeOwner: true, cols: 120, rows: 40 });
+    expect(createdAt).toEqual([
+      [PANE, 80, 24],
+      [PANE, 120, 40],
+    ]);
+
+    // ...and the first window is told it is a follower, with the grid to
+    // render. Before ADR-180 this frame did not exist on the desktop and the
+    // two windows fought over the winsize instead.
+    await vi.waitFor(() => expect(ownerFrames(first)).toHaveLength(2));
+    expect(ownerFrames(first)[1]).toMatchObject({
+      ns: "pty",
+      event: "winsizeOwner",
+      key: PANE,
+      args: [{ paneId: PANE, cols: 120, rows: 40, owner: false }],
+    });
+    const secondFrames = ownerFrames(second);
+    expect(secondFrames[secondFrames.length - 1]).toMatchObject({
+      args: [{ paneId: PANE, owner: true }],
+    });
+  });
+
+  it("does not carry a follower window's grid into a re-create", async () => {
+    const first = makeWindow(11);
+    const second = makeWindow(22);
+    windows.push(first, second);
+
+    await create(first, 80, 24);
+    await create(second, 120, 40);
+    createdAt.length = 0;
+
+    // The first window remounts the pane it never let go of. It is a
+    // follower now, so its own measurement must not reach the pty — it is
+    // handed the owner's grid to render instead.
+    const remounted = await create(first, 80, 24);
+    expect(remounted).toMatchObject({
+      winsizeOwner: false,
+      cols: 120,
+      rows: 40,
+    });
+    expect(createdAt).toEqual([[PANE, 120, 40]]);
+  });
+
+  it("gives the winsize back when the owning window closes", async () => {
+    const first = makeWindow(11);
+    const second = makeWindow(22);
+    windows.push(first, second);
+    fire(
+      BRIDGE_SUBSCRIBE,
+      { ns: "pty", event: "winsizeOwner", key: PANE },
+      first.webContents,
+    );
+
+    await create(first, 80, 24);
+    await create(second, 120, 40);
+    await vi.waitFor(() => expect(ownerFrames(first)).toHaveLength(2));
+
+    second.destroy();
+
+    await vi.waitFor(() => expect(ownerFrames(first)).toHaveLength(3));
+    expect(ownerFrames(first)[2]).toMatchObject({
+      args: [{ paneId: PANE, owner: true }],
+    });
   });
 });
 

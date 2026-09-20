@@ -56,7 +56,6 @@ import {
   setNotificationStore,
   setStatsStore,
 } from "./notifications";
-import * as ptyIpc from "./ipc/pty";
 import * as layoutIpc from "./ipc/layout";
 import * as viewportIpc from "./ipc/viewport";
 import * as projectsIpc from "./ipc/projects";
@@ -75,7 +74,30 @@ import * as windowIpc from "./ipc/window";
 import * as remoteControlIpc from "./ipc/remote-control";
 import * as menuIpc from "./ipc/menu";
 
-// Extract stream event handler for testability
+/**
+ * What a stream event means to *main* — which, since ADR-180 ticket 5, is no
+ * longer "forward it to a window".
+ *
+ * Every pane's output, exit, cwd, resize, error and agent status used to go
+ * out on a channel of its own — `pty-output-${paneId}` and five siblings, to
+ * every live window, whether or not it had the pane. They are bridge event
+ * frames now (D5): `BridgeServer.handleStreamEvent` publishes them as
+ * `pty.output`/`exit`/`cwd`/`resized`/`agentStatus`/`error` keyed by paneId,
+ * and a renderer hears only the panes it subscribed to — the same filter a
+ * browser has always had, and the same `seq` riding along with the output
+ * that lets a warm restore drop what its snapshot already covered (ADR-159).
+ *
+ * What is left here is the bookkeeping those sends were tangled up with: an
+ * agent's cwd follows its shell, its name follows the title its harness
+ * draws, and a harness that disappears is reported gone. Only two of the six
+ * event types say anything about that, which is why the other four are
+ * absent rather than empty.
+ *
+ * It still takes a window because `sendAgentUpdate` does: `agents.updated` is
+ * published to the bridge *and* sent on the legacy `agent-updated` channel
+ * until the `agents` namespace crosses too, and this is where the per-window
+ * loop in the caller comes from.
+ */
 export function handleStreamEvent(
   event: StreamEvent,
   window: BrowserWindow,
@@ -85,27 +107,7 @@ export function handleStreamEvent(
 ): void {
   try {
     switch (event.type) {
-      case "data":
-        window.webContents.send(
-          `pty-output-${event.sessionId}`,
-          event.data,
-          event.seq,
-        );
-        break;
-      case "exit":
-        window.webContents.send(`pty-exit-${event.sessionId}`);
-        break;
-      case "resized":
-        // Forwarded on the same channel ordering as output, because where it
-        // sits among the data events is the whole content of the message.
-        window.webContents.send(
-          `pty-resized-${event.sessionId}`,
-          event.cols,
-          event.rows,
-        );
-        break;
       case "cwd":
-        window.webContents.send(`pty-cwd-${event.sessionId}`, event.cwd);
         // Update agent's cwd if active and differs from current
         {
           const agent = agentManager.getAgentByPaneId(event.sessionId);
@@ -119,14 +121,7 @@ export function handleStreamEvent(
           }
         }
         break;
-      case "error":
-        window.webContents.send(`pty-error-${event.sessionId}`, event.message);
-        break;
       case "agentStatus": {
-        window.webContents.send(
-          `pty-agent-status-${event.sessionId}`,
-          event.agent,
-        );
         // Update persisted agent name from agent title — unless the user
         // pinned a name of their own, which the title sync must not clobber.
         const cleaned = cleanAgentTitle(event.agent.title);
@@ -182,9 +177,13 @@ export function initApp(devTitle: string | null): void {
     win.on("closed", () => {
       rendererWindows.delete(win);
       // A window that dies without unmounting its panes still let them go —
-      // otherwise every pane it held stays desktop-owned forever and a browser
-      // on the bridge follows a grid nothing is driving (ADR-178 D5).
-      releaseViewer(viewerId);
+      // otherwise every pane it held stays desktop-owned forever and every
+      // other viewer follows a grid nothing is driving (ADR-178 D5). The
+      // window's connection id is its `webContents.id` as a string, which is
+      // what its panes are held under since `pty` crossed (ADR-180 D6); the
+      // IPC transport drops the same connection when the `webContents` is
+      // destroyed, and one of the two arrives first.
+      releaseViewer(String(viewerId));
       // And whatever tab it held comes back to the primary (ADR-179 D4): a
       // claim that outlives its window is a tab no renderer shows.
       layoutStore.releaseWindow(String(viewerId));
@@ -424,18 +423,27 @@ export function initApp(devTitle: string | null): void {
   // Mutable reference to notifyAgentDetectorGone — will be set after hook relay is created
   let notifyAgentDetectorGone: ((sessionId: string) => void) | undefined;
 
-  // Set up stream event handler — broadcast events to every live renderer
-  // window. A detached window hosting a terminal pane must receive its `pty:*`
-  // stream events; windows that don't own the pane ignore them harmlessly.
+  // Every session's output, in one place.
+  //
+  // The daemon client holds exactly one handler, so this is the only place a
+  // stream event can be observed: a second `onEvent` would replace this one
+  // rather than join it. That is why the bridge is fed from inside here — and
+  // since ADR-180 ticket 5 the bridge is the *only* consumer that forwards,
+  // to a renderer window and a paired device alike, each of them hearing only
+  // the panes it subscribed to. `handleStreamEvent` below keeps what is left:
+  // the agent bookkeeping the old per-pane sends were tangled up with.
   backend.pty.onEvent((event: StreamEvent) => {
-    // The daemon client holds one handler, so this is the only place a stream
-    // event can be observed — hence the bridge is fed from inside it rather
-    // than subscribing for itself and replacing what the windows use.
-    wsBridge?.handleStreamEvent(event);
+    bridgeServer?.handleStreamEvent(event);
     // `paneSessions` is server-derived (ADR-179 D3): cwd, title and agent
     // status reach the layout file from the stream, not from a renderer
     // reporting what it saw.
     layoutStore.onPtyEvent(event);
+    // Still per window, and only because `sendAgentUpdate` still writes to
+    // the legacy `agent-updated` channel, which is addressed rather than
+    // broadcast. The bookkeeping itself is idempotent — the second window's
+    // pass finds the agent already carrying the new cwd or title and does
+    // nothing — so this is one send to the first window that can take it, not
+    // one per window. The loop goes when `agents` crosses to the table.
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -533,7 +541,6 @@ export function initApp(devTitle: string | null): void {
     getRendererWindows: ipcDeps.getRendererWindows,
   });
 
-  ptyIpc.register(ipcDeps);
   layoutIpc.register(ipcDeps);
   viewportIpc.register(ipcDeps);
   projectsIpc.register(ipcDeps);

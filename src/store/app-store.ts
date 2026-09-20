@@ -212,6 +212,13 @@ export interface AppState {
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
   clearPaneTitle: (paneId: string) => void;
+  /**
+   * A title the host already knows — an OSC title from the PTY stream, or a
+   * stale title cleared when a new agent starts in the pane. Local only: the
+   * server derives `lastTitle` from the same daemon event (ADR-179 D3), so
+   * sending it back would be one `layout.apply` per viewer per title change.
+   */
+  setPaneTitleFromStream: (paneId: string, title: string | null) => void;
 
   // Pane content type
   setPaneContentType: (
@@ -1549,6 +1556,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
   },
+
+  setPaneTitleFromStream: (paneId: string, title: string | null) =>
+    set((state) => {
+      if (title === null) {
+        if (!(paneId in state.paneTitle)) return state;
+        const { [paneId]: _, ...rest } = state.paneTitle;
+        return { paneTitle: rest };
+      }
+      if (state.paneTitle[paneId] === title) return state;
+      return { paneTitle: { ...state.paneTitle, [paneId]: title } };
+    }),
 
   setPaneFavicon: (paneId: string, favicon: string | null) =>
     set((state) => {

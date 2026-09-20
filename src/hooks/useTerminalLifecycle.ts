@@ -427,9 +427,10 @@ export function useTerminalLifecycle(
       },
     );
 
-    // Terminal title changes (OSC sequences) → store
+    // Terminal title changes (OSC sequences) → local side map only. The
+    // server hears the same title from the daemon and records it itself.
     const titleDisposable = t.onTitleChange((title) => {
-      useAppStore.getState().setPaneTitle(paneId, title);
+      useAppStore.getState().setPaneTitleFromStream(paneId, title);
     });
 
     // User input → PTY

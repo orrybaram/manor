@@ -369,7 +369,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
         } else {
           // Prepend new agent — clear stale pane title from the previous session
           if (agent.paneId) {
-            useAppStore.getState().clearPaneTitle(agent.paneId);
+            useAppStore.getState().setPaneTitleFromStream(agent.paneId, null);
           }
           agents = [agent, ...s.agents];
         }

@@ -1,6 +1,6 @@
 ---
 title: MCP and CLI layout routes hit the server, not a window
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

@@ -1,0 +1,75 @@
+---
+title: The surface is checked at compile time
+status: todo
+priority: critical
+assignee: opus
+blocked_by: [11]
+---
+
+# The surface is checked at compile time
+
+ADR-180 D7. This is the ticket that keeps the drift dead. Without it, ADR-180
+is a one-time cleanup and the next feature starts a new `ipc/`.
+
+## The check
+
+`src/electron.d.ts`'s `ElectronAPI` is the contract. Derive the full set of
+`ns.method` strings from it at the type level:
+
+```ts
+type Methods<T> = {
+  [N in keyof T & string]: T[N] extends Record<string, unknown>
+    ? { [M in keyof T[N] & string]: T[N][M] extends Function ? `${N}.${M}` : never }[keyof T[N] & string]
+    : never;
+}[keyof T & string];
+```
+
+Then assert that every one of them is placed in exactly one of three sets:
+
+1. `HANDLERS` — the bridge table (`electron/bridge/handlers.ts`)
+2. `NATIVE_METHODS` — the preload's `native` namespaces, as a literal `as const`
+   tuple that `preload.ts` itself builds its object from, so the two cannot
+   diverge
+3. `LOCALLY_SERVED` — answered in the tab (`src/bridge/unavailable.ts`)
+
+The assertion is a type error, not a runtime one:
+
+```ts
+type Unplaced = Exclude<Methods<ElectronAPI>, PlacedMethod>;
+type Duplicated = /* in two sets */;
+const _unplaced: Unplaced extends never ? true : Unplaced = true;
+const _duplicated: Duplicated extends never ? true : Duplicated = true;
+```
+
+When it fails, the error names the method, which is the whole point — put a
+comment above it saying so, because the next person to see it will be adding a
+method and wondering what they did wrong.
+
+`electron/bridge/handlers.ts` is Node-side and `ElectronAPI` is renderer-side;
+importing a *type* across that line is already precedent (`electron/mcp/tools-panes.ts`
+imports `LayoutSnapshot` from `src/store/`). If `HANDLERS`' keys need to be
+literal for this, type it `Record<PlacedMethod, BridgeHandler>` and let the
+object literal's keys be checked by assignment.
+
+## Runtime tests to update
+
+- `electron/remote-control/__tests__/allowlist.test.ts` — keeps every family
+  exclusion for `read` and `send`; add "the `full` tier is the whole table
+  minus `LOCAL_ONLY`", and assert `LOCAL_ONLY`'s membership by name so
+  loosening it is a visible diff.
+- New `electron/bridge/__tests__/caller-class.test.ts`: a `device` connection
+  calling each `LOCAL_ONLY` method gets `unavailable:web`; a `local`
+  connection gets through; a `local` call leaves no audit line and a `device`
+  call to a `MUTATING` method leaves one.
+- New `src/bridge/__tests__/resolution.test.ts`: the proxy's resolution order
+  (native → locally served → unavailable namespace → transport) for one
+  method of each kind.
+
+## Files to touch
+- `electron/bridge/surface.ts` — new; `Methods<>`, `PlacedMethod`, the two assertions
+- `electron/bridge/handlers.ts` — key the table by `PlacedMethod`
+- `electron/preload.ts` — build `native` from the `NATIVE_METHODS` tuple
+- `src/bridge/unavailable.ts` — export `LOCALLY_SERVED`'s keys as a literal type
+- `electron/remote-control/__tests__/allowlist.test.ts` — the full-tier assertion
+- `electron/bridge/__tests__/caller-class.test.ts` — new
+- `src/bridge/__tests__/resolution.test.ts` — new

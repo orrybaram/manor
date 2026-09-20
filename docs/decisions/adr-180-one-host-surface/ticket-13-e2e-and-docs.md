@@ -68,3 +68,27 @@ status+kind produces no state update" fails when two `Date.now()` calls
 straddle a millisecond boundary, because the store's dedupe compares `since`.
 `vi.useFakeTimers()` or a fixed `since` in the fixture. Unrelated to ADR-180,
 but it will be blamed on it the first time it fails in CI.
+
+## Folded in from ticket 5
+
+**Three E2E specs fail on a clean tree, all pre-existing.** Ticket 5 confirmed
+each against a rebuilt baseline — none is ADR-180's doing, and all three will
+be blamed on it otherwise:
+
+- `tests/e2e/claude-resize-duplication.spec.ts` — the real `claude` CLI's
+  trust prompt now defaults to "❯ No, exit", so the spec's `Enter` exits
+  Claude instead of accepting, and the comment saying "the default choice is
+  the one we want" is stale. This is the **only** guard on resize duplication
+  with a real agent (ADR-163/164/165's bug) and it has been failing silently;
+  fix it first.
+- `tests/e2e/command-palette-frequent.spec.ts` — the "Frequently Used" group
+  is still rendered while filtering.
+- `tests/e2e/read-state.spec.ts:139` — the sidebar agent dot never appears.
+
+**`docs/AGENT-SYSTEM.md:290` is now partly stale.** Ticket 5 found that
+`PtyBackend.createOrAttach` had no `env` parameter while `ipc/pty.ts` passed
+one, so `MANOR_AGENT_KIND` was silently dropped between them — ADR-135 ticket
+7's intent, unrealised. Threading `env` through is what made
+`electron/ipc/pty.ts:127` compile, so agent hooks for codex and pi panes now
+report their real kind instead of defaulting to `claude`. The doc still lists
+that as an open flaw.

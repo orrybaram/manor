@@ -59,3 +59,11 @@ preload `on*` in the same commit as the crossing. **`agent-updated` has three
 send-sites, not one** — `electron/notifications.ts`, `electron/routes/agents.ts`
 and `electron/routes/panes.ts`. Miss one and the badge updates from some paths
 and not others, which is worse than it not working at all.
+
+## Folded in from ticket 5
+
+`handleStreamEvent` is still called once per window, purely because
+`sendAgentUpdate` writes to the addressed legacy `agent-updated` channel. The
+bookkeeping is idempotent so it is effectively one send to the first live
+window, but the loop is vestigial and it goes here, with the crossing. Ticket
+5 left a comment in place marking it.

@@ -4,6 +4,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { TerminalHostClient } from "./terminal-host/client";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
+import { LayoutStore } from "./layout/layout-store";
+import { publishRendererBroadcast } from "./renderer-broadcast";
 import { ProjectManager } from "./persistence";
 import { ThemeManager } from "./theme";
 import { PortScanner } from "./ports";
@@ -240,6 +242,30 @@ export function initApp(devTitle: string | null): void {
   const client = new TerminalHostClient();
   const backend = new LocalBackend(client);
   const layoutPersistence = new LayoutPersistence();
+  /**
+   * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
+   * feeds both audiences from the one place the layout changes — the windows
+   * by `webContents.send`, a browser through the bridge's sink.
+   */
+  const layoutStore = new LayoutStore(
+    layoutPersistence,
+    (workspacePath, version, layout, claims) => {
+      const payload = { workspacePath, version, layout, claims };
+      publishRendererBroadcast("layout", "changed", payload);
+      for (const win of getRendererWindows()) {
+        if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
+        try {
+          win.webContents.send("layout:changed", payload);
+        } catch {
+          // Render frame disposed — safe to ignore.
+        }
+      }
+    },
+    backend,
+  );
+  // Before any window exists: the first thing a renderer asks for is
+  // `layout.getAll()`, and a cold read of the file is not worth racing.
+  layoutStore.load();
   const projectManager = new ProjectManager(backend.git);
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backend.ports);
@@ -296,6 +322,7 @@ export function initApp(devTitle: string | null): void {
       githubManager,
       linearManager,
       layoutPersistence,
+      layoutStore,
       agentManager,
       backend,
       notificationStore,
@@ -389,6 +416,10 @@ export function initApp(devTitle: string | null): void {
     // event can be observed — hence the bridge is fed from inside it rather
     // than subscribing for itself and replacing what the windows use.
     wsBridge?.handleStreamEvent(event);
+    // `paneSessions` is server-derived (ADR-179 D3): cwd, title and agent
+    // status reach the layout file from the stream, not from a renderer
+    // reporting what it saw.
+    layoutStore.onPtyEvent(event);
     for (const win of getRendererWindows()) {
       // Check that the main frame is still available (avoids "Render frame was
       // disposed" errors during window reload/close).
@@ -427,6 +458,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     layoutPersistence,
+    layoutStore,
     projectManager,
     themeManager,
     portScanner,
@@ -463,6 +495,7 @@ export function initApp(devTitle: string | null): void {
     githubManager: ipcDeps.githubManager,
     linearManager: ipcDeps.linearManager,
     layoutPersistence: ipcDeps.layoutPersistence,
+    layoutStore: ipcDeps.layoutStore,
     agentManager: ipcDeps.agentManager,
     backend: ipcDeps.backend,
     notificationStore: ipcDeps.notificationStore,
@@ -613,6 +646,9 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", () => {
     agentHookServer.stop();
     webviewServer.stop();
+    // The layout debounce is 300ms; a quit inside that window must not be the
+    // one that loses the user's arrangement.
+    layoutStore.flush();
     // Takes the tunnel down first, then the listener. A tunnel must never
     // outlive the app that opened it.
     void remoteControl.shutdown();

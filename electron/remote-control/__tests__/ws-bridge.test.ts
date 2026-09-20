@@ -18,6 +18,8 @@ import { AuthRateLimiter } from "../rate-limit";
 import { WsBridgeServer } from "../ws-bridge-server";
 import { attach, resetAttachments } from "../../pty-attachments";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
+import { LayoutStore } from "../../layout/layout-store";
+import { LayoutPersistence } from "../../terminal-host/layout-persistence";
 import type { IpcDeps } from "../../ipc/types";
 import type { ControlDeps } from "../../routes/types";
 
@@ -80,6 +82,8 @@ describe("WsBridgeServer", () => {
   let sessionSize: { cols: number; rows: number } | null;
   /** `[key, value]` pairs `preferences.set` actually reached the manager with. */
   let preferencesSet: Array<[string, unknown]>;
+  /** ADR-179's layout authority, real: `layout.apply` has to reach a reducer. */
+  let layoutStore: LayoutStore;
 
   beforeEach(async () => {
     auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-ws-audit-"));
@@ -93,6 +97,20 @@ describe("WsBridgeServer", () => {
     sessionSize = null;
     preferencesSet = [];
     resetAttachments();
+
+    // Real store, real reducer, real file: `layout.apply` over the socket is
+    // only interesting if it ends in a broadcast the socket can hear.
+    layoutStore = new LayoutStore(
+      new LayoutPersistence(path.join(auditDir, "layout.json")),
+      (workspacePath, version, layout, claims) =>
+        publishRendererBroadcast("layout", "changed", {
+          workspacePath,
+          version,
+          layout,
+          claims,
+        }),
+      { pty: { kill: async () => {} } } as never,
+    );
 
     // Enough of `IpcDeps` for the handlers this file exercises. The cast is
     // the point: the bridge takes the real deps object, and a test that
@@ -134,6 +152,9 @@ describe("WsBridgeServer", () => {
         },
       },
       paneContextMap: new Map(),
+      get layoutStore() {
+        return layoutStore;
+      },
       projectManager: {
         getProjects: () => [{ id: "p1", name: "manor", workspaces: [] }],
         getSelectedProjectIndex: () => 0,
@@ -391,11 +412,37 @@ describe("WsBridgeServer", () => {
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
     });
 
-    it("refuses layout.save by name rather than dropping it", async () => {
+    it("refuses layout.save by name, pointing at layout.apply", async () => {
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "d", "layout", "save", [{}]);
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
-      expect(String(result.error)).toContain("ADR-178, slice 2");
+      expect(String(result.error)).toContain("layout.apply");
+    });
+
+    /**
+     * ADR-179 D7: arranging panes from a browser is an ordinary command that
+     * shows up on the desk. The answer is a version, never a layout — the
+     * layout arrives on `layout.changed`, at every renderer at once.
+     */
+    it("applies a layout command and answers with the new version", async () => {
+      const client = await greet(FULL_TOKEN);
+      const result = await invoke(client, "l1", "layout", "apply", [
+        "/project/main",
+        {
+          type: "new-tab",
+          tab: {
+            id: "tab-1",
+            title: "Terminal",
+            rootNode: { type: "leaf", paneId: "pane-1" },
+            focusedPaneId: "pane-1",
+          },
+        },
+      ]);
+
+      expect(result).toMatchObject({ ok: true, result: { version: 1 } });
+      expect(
+        Object.values(layoutStore.get("/project/main")!.layout.panels)[0].tabs,
+      ).toHaveLength(1);
     });
 
     it("reports a handler that threw without claiming to be unavailable", async () => {
@@ -533,6 +580,41 @@ describe("WsBridgeServer", () => {
         args: [{ enabled: true, listeners: 2 }],
       });
     });
+
+    /** ADR-179 D1: the sender hears its own change, the same way everyone
+     *  else does — there is no optimistic apply on either side. */
+    it("delivers layout.changed to a subscribed socket", async () => {
+      const client = await greet(FULL_TOKEN);
+      client.send({ kind: "subscribe", ns: "layout", event: "changed" });
+      await invoke(client, "sync", "projects", "getAll");
+
+      await invoke(client, "l2", "layout", "apply", [
+        "/project/main",
+        {
+          type: "new-tab",
+          tab: {
+            id: "tab-1",
+            title: "Terminal",
+            rootNode: { type: "leaf", paneId: "pane-1" },
+            focusedPaneId: "pane-1",
+          },
+        },
+      ]);
+
+      const event = await client.next((f) => f.kind === "event");
+      expect(event).toMatchObject({
+        kind: "event",
+        ns: "layout",
+        event: "changed",
+      });
+      const payload = (event.args as [Record<string, unknown>])[0];
+      expect(payload).toMatchObject({
+        workspacePath: "/project/main",
+        version: 1,
+        claims: [],
+      });
+      expect(JSON.stringify(payload.layout)).toContain("pane-1");
+    });
   });
 
   describe("audit", () => {
@@ -553,6 +635,23 @@ describe("WsBridgeServer", () => {
         outcome: "sent",
         textLength: null,
         textSha256: null,
+      });
+    });
+
+    it("audits layout.apply with the workspace as its target", async () => {
+      const client = await greet(FULL_TOKEN);
+      await invoke(client, "l3", "layout", "apply", [
+        "/project/main",
+        { type: "close-tab", tabId: "tab-gone" },
+      ]);
+
+      const entries = audit.read();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        transport: "bridge",
+        route: "layout.apply",
+        target: "/project/main",
+        outcome: "sent",
       });
     });
 

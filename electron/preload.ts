@@ -137,6 +137,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
     save: (workspace: unknown) => ipcRenderer.invoke("layout:save", workspace),
     load: () => ipcRenderer.invoke("layout:load"),
     getRestoredSessions: () => ipcRenderer.invoke("layout:getRestoredSessions"),
+    // ADR-179 D1: the server owns the layout. A renderer reads it with
+    // `getAll`, changes it with `apply`, and hears every change — its own
+    // included — on `onChanged`. `save`/`load` above go in ticket 3.
+    getAll: () => ipcRenderer.invoke("layout:getAll"),
+    apply: (workspacePath: string, command: unknown) =>
+      ipcRenderer.invoke("layout:apply", workspacePath, command),
+    remove: (workspacePath: string) =>
+      ipcRenderer.invoke("layout:remove", workspacePath),
+    reportViewport: (
+      workspacePath: string,
+      rendererId: string,
+      viewport: unknown,
+    ) =>
+      ipcRenderer.invoke(
+        "layout:reportViewport",
+        workspacePath,
+        rendererId,
+        viewport,
+      ),
+    onChanged: (callback: (payload: unknown) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: unknown,
+      ) => callback(payload);
+      ipcRenderer.on("layout:changed", listener);
+      return () => ipcRenderer.removeListener("layout:changed", listener);
+    },
   },
 
   projects: {

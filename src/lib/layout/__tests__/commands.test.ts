@@ -1003,6 +1003,128 @@ describe("split-panel-with-tab", () => {
   });
 });
 
+describe("merge-tab-into-tab", () => {
+  it("grafts the source tab's tree into the target's, same panel", () => {
+    const start = onePanel([
+      leafTab("tab-1", "pane-1"),
+      splitTab("tab-2", "pane-2", "pane-3"),
+    ]);
+    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-2",
+      targetTabId: "tab-1",
+    });
+
+    const panelAfter = panelOf(layout, "panel-1");
+    expect(panelAfter.tabs.map((t) => t.id)).toEqual(["tab-1"]);
+    expect(panelAfter.selectedTabId).toBe("tab-1");
+    const merged = tabOf(layout, "panel-1", "tab-1");
+    expect(allPaneIds(merged.rootNode)).toEqual(["pane-1", "pane-2", "pane-3"]);
+    expect(merged.focusedPaneId).toBe("pane-2");
+    // The panes moved; none of them died.
+    expect(effects.killPanes).toEqual([]);
+    expect(effects.releasedPanes).toEqual(["pane-2", "pane-3"]);
+  });
+
+  it("puts the source first when asked", () => {
+    const start = onePanel([leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")]);
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-2",
+      targetTabId: "tab-1",
+      position: "first",
+    });
+
+    expect(allPaneIds(tabOf(layout, "panel-1", "tab-1").rootNode)).toEqual([
+      "pane-2",
+      "pane-1",
+    ]);
+  });
+
+  it("collapses the source panel when the merge empties it", () => {
+    const start = twoPanels();
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-1",
+      targetTabId: "tab-2",
+    });
+
+    expect(Object.keys(layout.panels)).toEqual(["panel-2"]);
+    expect(allPanelIds(layout.panelTree)).toEqual(["panel-2"]);
+    expect(layout.activePanelId).toBe("panel-2");
+    expect(allPaneIds(tabOf(layout, "panel-2", "tab-2").rootNode)).toEqual([
+      "pane-2",
+      "pane-1",
+    ]);
+  });
+
+  it("seeds the source panel with the fallback tab when it was the last one", () => {
+    const start = onePanel([leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")]);
+    // Both tabs live in the one panel, so emptying cannot happen here; the
+    // fallback matters when the source panel is the last *and* is emptied.
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-2",
+      targetTabId: "tab-1",
+      fallbackTab: leafTab("tab-fresh", "pane-fresh"),
+    });
+
+    expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-1"]);
+  });
+
+  it("unpins the source tab it consumed", () => {
+    const start = onePanel(
+      [leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")],
+      ["tab-2"],
+    );
+    const { layout } = applyLayoutCommand(stateOf(start), {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-2",
+      targetTabId: "tab-1",
+    });
+
+    expect(panelOf(layout, "panel-1").pinnedTabIds).toEqual([]);
+  });
+
+  it("merging a tab into itself is a no-op", () => {
+    const state = stateOf(onePanel());
+    const next = applyLayoutCommand(state, {
+      type: "merge-tab-into-tab",
+      sourceTabId: "tab-1",
+      targetTabId: "tab-1",
+    });
+
+    expect(next.layout).toBe(state.layout);
+  });
+});
+
+describe("split-panel-with-new-tab", () => {
+  it("opens a new panel beside the source without moving its tabs", () => {
+    const start = onePanel([leafTab("tab-1", "pane-1"), leafTab("tab-2", "pane-2")]);
+    const { layout, effects } = applyLayoutCommand(stateOf(start), {
+      type: "split-panel-with-new-tab",
+      tab: leafTab("tab-diff", "pane-diff", "Diff"),
+      direction: "horizontal",
+      newPanelId: "panel-new",
+      sourcePanelId: "panel-1",
+    });
+
+    // The reason this is not `new-tab` + `split-panel`: the source keeps both.
+    expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual([
+      "tab-1",
+      "tab-2",
+    ]);
+    expect(panelOf(layout, "panel-1").selectedTabId).toBe("tab-1");
+    expect(panelOf(layout, "panel-new").tabs.map((t) => t.id)).toEqual([
+      "tab-diff",
+    ]);
+    expect(panelOf(layout, "panel-new").selectedTabId).toBe("tab-diff");
+    expect(layout.activePanelId).toBe("panel-new");
+    expect(allPanelIds(layout.panelTree)).toEqual(["panel-1", "panel-new"]);
+    expect(effects).toEqual({ killPanes: [], releasedPanes: [] });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Properties of the reducer itself
 // ---------------------------------------------------------------------------
@@ -1063,6 +1185,14 @@ describe("an id that is not in the tree", () => {
       newPanelId: "panel-new",
     },
     { type: "update-split-ratio", firstPaneId: "pane-nope", ratio: 0.2 },
+    { type: "merge-tab-into-tab", sourceTabId: "tab-nope", targetTabId: "tab-1" },
+    {
+      type: "split-panel-with-new-tab",
+      tab: leafTab("t", "p"),
+      direction: "horizontal",
+      newPanelId: "panel-new",
+      sourcePanelId: "panel-nope",
+    },
   ];
 
   it.each(unknown.map((c) => [c.type, c] as const))(

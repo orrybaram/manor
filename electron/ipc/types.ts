@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import type { LocalBackend } from "../backend/local-backend";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
+import type { LayoutStore } from "../layout/layout-store";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
@@ -40,6 +41,8 @@ export interface IpcDeps {
   registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
   backend: LocalBackend;
   layoutPersistence: LayoutPersistence;
+  /** ADR-179. The one authority for every workspace's layout. */
+  layoutStore: LayoutStore;
   projectManager: ProjectManager;
   themeManager: ThemeManager;
   portScanner: PortScanner;

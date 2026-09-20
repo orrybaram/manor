@@ -319,17 +319,32 @@ export interface PersistedPanel {
   pinnedTabIds: string[];
 }
 
-/** Persisted workspace state (v2) */
+/**
+ * What one renderer is looking at (ADR-179 D3). The file keeps one per
+ * workspace — the default viewport, handed to a renderer that has none.
+ */
+export interface PersistedDefaultViewport {
+  activePanelId: string;
+  /** panelId → tabId */
+  selectedTabIds: Record<string, string>;
+  /** tabId → paneId */
+  focusedPaneIds: Record<string, string>;
+}
+
+/** Persisted workspace state (v3) */
 export interface PersistedWorkspace {
   workspacePath: string;
   panelTree: import("./store/panel-tree").PanelNode;
   panels: Record<string, PersistedPanel>;
   activePanelId: string;
+  /** Absent on a workspace the renderer's old `layout.save` path wrote; main
+   *  fills it in on the way to disk. */
+  defaultViewport?: PersistedDefaultViewport;
 }
 
-/** Full persisted layout (v2) */
+/** Full persisted layout (v3) */
 export interface PersistedLayout {
-  version: 2;
+  version: number;
   workspaces: PersistedWorkspace[];
   /**
    * Path of the workspace/surface active when the layout was last saved
@@ -338,6 +353,32 @@ export interface PersistedLayout {
    */
   lastActiveWorkspacePath?: string | null;
 }
+
+/** One workspace, as the Manor server holds it (ADR-179 D1). */
+export interface LayoutEntry {
+  version: number;
+  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
+  defaultViewport: PersistedDefaultViewport;
+  /** Server-derived; a restoring renderer reattaches sessions from it. */
+  paneSessions: Record<string, PersistedPaneSession>;
+}
+
+/** A detached window's hold on a tab (ADR-179 D4). Empty until ticket 6. */
+export interface LayoutClaim {
+  windowId: string;
+  tabId: string;
+}
+
+/** The whole workspace layout, to every renderer at once. */
+export interface LayoutChangedPayload {
+  workspacePath: string;
+  version: number;
+  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
+  claims: LayoutClaim[];
+}
+
+/** `layout.apply` answers with the new version, never with a layout. */
+export type LayoutApplyResult = { version: number } | { error: string };
 
 export interface RestoredSessionsInfo {
   daemonSessions: Array<{
@@ -432,6 +473,23 @@ export interface ElectronAPI {
     save: (workspace: PersistedWorkspace) => Promise<void>;
     load: () => Promise<PersistedLayout | null>;
     getRestoredSessions: () => Promise<RestoredSessionsInfo>;
+    /**
+     * ADR-179 D1. Layout belongs to the Manor server: read it whole, change it
+     * by command, and replace the replica whenever `onChanged` fires — the
+     * sender's own change included. `save`/`load` above go in ticket 3.
+     */
+    getAll: () => Promise<Record<string, LayoutEntry>>;
+    apply: (
+      workspacePath: string,
+      command: import("./lib/layout/commands").LayoutCommand,
+    ) => Promise<LayoutApplyResult>;
+    remove: (workspacePath: string) => Promise<void>;
+    reportViewport: (
+      workspacePath: string,
+      rendererId: string,
+      viewport: PersistedDefaultViewport,
+    ) => Promise<void>;
+    onChanged: (callback: (payload: LayoutChangedPayload) => void) => () => void;
   };
 
   projects: {

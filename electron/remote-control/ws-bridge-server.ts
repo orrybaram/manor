@@ -371,6 +371,11 @@ export class WsBridgeServer {
    * | `notifications.changed` | `notifications.onChanged(cb)`    |
    * | `stats.changed`         | `stats.onChanged(cb)`            |
    * | `remoteControl.status`  | `remoteControl.onStatus(cb)`     |
+   * | `layout.changed`        | `layout.onChanged(cb)`           |
+   *
+   * `layout.changed` is the one that carries a *whole* workspace layout
+   * (ADR-179 D1): the server is the only writer, so a renderer replaces its
+   * replica rather than patching it.
    *
    * `theme` is absent from that list because the desktop has no theme
    * broadcast: a theme change comes back as the return value of

@@ -61,10 +61,15 @@ export const MAX_CLOSED_STACK = 10;
 
 /**
  * What a closed pane needs to come back. Content type, url, cwd and title are
- * per-pane side state the reducer does not own yet — the sender hands them in
- * on the closing command (`paneMetadata`) and gets them back on reopen. They
- * become reducer-owned in ADR-179 ticket 2, when `paneSessions` moves into the
- * layout as server-derived structure (D3).
+ * per-pane side state the reducer does not own: the closing command carries
+ * them in (`paneMetadata`) and the reopen hands them back.
+ *
+ * On the Manor server the *sender* no longer has to be right about them —
+ * `LayoutStore.apply` fills the map from the pane tree (contentType, url) and
+ * from its own server-derived `paneSessions` (cwd, title) before the reducer
+ * runs, and only falls back to what the sender sent (ADR-179 D3, ticket 2).
+ * The field stays on the command because the desktop store still runs this
+ * reducer locally until ticket 3.
  */
 export interface PaneMetadata {
   contentType?: PaneContentType;
@@ -195,6 +200,21 @@ export type LayoutCommand =
        *  panel. Defaults to reusing the closed panel's id. */
       fallbackPanelId?: string;
     }
+  | {
+      /**
+       * Drag a tab onto another tab's pane tree: the source tab stops being a
+       * tab and becomes a split of the target's. No ids are minted — the
+       * source subtree keeps the panes it already has.
+       */
+      type: "merge-tab-into-tab";
+      sourceTabId: string;
+      targetTabId: string;
+      /** Which side of the new split the source subtree lands on.
+       *  Defaults to "second" — dropped tab goes right/below. */
+      position?: "first" | "second";
+      /** Used when the merge empties the source panel and it is the last one. */
+      fallbackTab?: Tab;
+    }
   | { type: "update-panel-ratio"; firstPanelId: string; ratio: number }
   | { type: "move-tab-to-panel"; tabId: string; targetPanelId: string }
   | {
@@ -205,6 +225,21 @@ export type LayoutCommand =
       newPanelId: string;
       /** Used when moving the tab out leaves the source panel empty. */
       fallbackTab?: Tab;
+    }
+  | {
+      /**
+       * A new panel beside `sourcePanelId`, holding a brand-new tab — the
+       * source panel keeps every tab it had.
+       *
+       * Deliberately not `new-tab` + `split-panel`: `split-panel` *moves* the
+       * source panel's selected tab into the new panel, which is not what
+       * "open the diff beside this" means.
+       */
+      type: "split-panel-with-new-tab";
+      tab: Tab;
+      direction: SplitDirection;
+      newPanelId: string;
+      sourcePanelId: string;
     }
   | { type: "update-split-ratio"; firstPaneId: string; ratio: number };
 
@@ -392,9 +427,9 @@ export function applyLayoutCommand(
     case "reopen-closed-pane":
       return reopenClosedPane(state, command);
     case "set-pane-title":
-      // No structural home yet: pane titles are per-pane side state the
-      // sender owns until ADR-179 ticket 2 folds `paneSessions` into the
-      // layout (D3). The command exists now so the vocabulary is stable.
+      // Not a tree change: a pane's title lives in `paneSessions`, which the
+      // Manor server owns and `LayoutStore.apply` updates before calling in
+      // here (ADR-179 D3). Nothing for the reducer to do.
       return unchanged(state);
     case "set-pane-content-type":
       return setPaneContentType(state, command);
@@ -415,6 +450,10 @@ export function applyLayoutCommand(
       return moveTabToPanel(state, command);
     case "split-panel-with-tab":
       return splitPanelWithTab(state, command);
+    case "merge-tab-into-tab":
+      return mergeTabIntoTab(state, command);
+    case "split-panel-with-new-tab":
+      return splitPanelWithNewTab(state, command);
     case "update-split-ratio":
       return updateSplitRatio(state, command);
   }
@@ -1385,5 +1424,109 @@ function splitPanelWithTab(
     },
     closedStack,
     { releasedPanes: allPaneIds(tab.rootNode) },
+  );
+}
+
+function mergeTabIntoTab(
+  state: LayoutState,
+  command: Extract<LayoutCommand, { type: "merge-tab-into-tab" }>,
+): LayoutResult {
+  const { layout, closedStack } = state;
+  const { sourceTabId, targetTabId } = command;
+  if (sourceTabId === targetTabId) return unchanged(state);
+  const src = findPanelWithTab(layout, sourceTabId);
+  const tgt = findPanelWithTab(layout, targetTabId);
+  if (!src || !tgt) return unchanged(state);
+  const { panel: sourcePanel, tab: sourceTab } = src;
+  const { panel: targetPanel, tab: targetTab } = tgt;
+
+  // The whole source subtree grafts in as one side of a new split; nothing is
+  // minted, which is why this cannot be expressed as `move-tab-to-pane` for a
+  // multi-pane source.
+  const position = command.position ?? "second";
+  const rootNode: PaneNode = {
+    type: "split",
+    direction: "horizontal",
+    ratio: 0.5,
+    first: position === "second" ? targetTab.rootNode : sourceTab.rootNode,
+    second: position === "second" ? sourceTab.rootNode : targetTab.rootNode,
+  };
+  const focusedPaneId = allPaneIds(sourceTab.rootNode)[0];
+  const effects = { releasedPanes: allPaneIds(sourceTab.rootNode) };
+
+  if (sourcePanel.id === targetPanel.id) {
+    const tabs = sourcePanel.tabs
+      .filter((t) => t.id !== sourceTabId)
+      .map((t) => (t.id === targetTabId ? { ...t, rootNode, focusedPaneId } : t));
+    return result(
+      withPanel(layout, sourcePanel.id, (p) => ({
+        ...p,
+        tabs,
+        selectedTabId: targetTabId,
+        pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
+      })),
+      closedStack,
+      effects,
+    );
+  }
+
+  const withTarget: Record<string, Panel> = {
+    ...layout.panels,
+    [targetPanel.id]: {
+      ...targetPanel,
+      tabs: targetPanel.tabs.map((t) =>
+        t.id === targetTabId ? { ...t, rootNode, focusedPaneId } : t,
+      ),
+      selectedTabId: targetTabId,
+    },
+  };
+  const detached = detachTabFromPanel(
+    withTarget,
+    layout.panelTree,
+    sourcePanel,
+    sourceTabId,
+    command.fallbackTab,
+  );
+
+  return result(
+    {
+      ...layout,
+      panelTree: detached.panelTree,
+      panels: detached.panels,
+      activePanelId: targetPanel.id,
+    },
+    closedStack,
+    effects,
+  );
+}
+
+function splitPanelWithNewTab(
+  state: LayoutState,
+  command: Extract<LayoutCommand, { type: "split-panel-with-new-tab" }>,
+): LayoutResult {
+  const { layout, closedStack } = state;
+  if (!layout.panels[command.sourcePanelId]) return unchanged(state);
+
+  return result(
+    {
+      ...layout,
+      panelTree: insertPanelSplit(
+        layout.panelTree,
+        command.sourcePanelId,
+        command.direction,
+        command.newPanelId,
+      ),
+      panels: {
+        ...layout.panels,
+        [command.newPanelId]: {
+          id: command.newPanelId,
+          tabs: [command.tab],
+          selectedTabId: command.tab.id,
+          pinnedTabIds: [],
+        },
+      },
+      activePanelId: command.newPanelId,
+    },
+    closedStack,
   );
 }

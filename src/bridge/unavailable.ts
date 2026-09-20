@@ -1,6 +1,11 @@
 /**
  * What the browser refuses without asking the host (ADR-178 D8).
  *
+ * A browser's list, and only a browser's: the desktop answers every one of
+ * these out of `manorHost.native` (ADR-180 D3), so the WebSocket transport is
+ * the only consumer of this file and the client's step 3 is dead code under
+ * Electron.
+ *
  * The bridge could let every one of these round-trip: `bridge/handlers.ts` has no
  * entry for `webview.*` or `dialog.*` either, so the server would answer
  * `unavailable:web` and the client would raise the same error. The table
@@ -48,9 +53,9 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set([
 /**
  * `ns.method` entries the tab answers itself.
  *
- * Two kinds, and both are here rather than in `ws-bridge.ts` so that the
- * bridge stays a transport and this file stays the whole list of things it
- * does not carry:
+ * Two kinds, and both are here rather than in `client.ts` so that the
+ * client stays a proxy, the transport stays a transport, and this file stays
+ * the whole list of things the socket does not carry:
  *
  * 1. **A browser API does it better.** `clipboard.writeText` on the desktop
  *    writes to the machine's clipboard through main; from a browser the

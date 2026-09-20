@@ -4,7 +4,7 @@
  * `~/.manor/viewport.json` is *not* layout. Layout is the Manor server's, one
  * copy for every renderer on the host; this is the primary desktop window's
  * answer to "which tab was I on", and a browser keeps its own in
- * `localStorage` without ever touching this (see `src/web/unavailable.ts`).
+ * `localStorage` without ever touching this (see `src/bridge/unavailable.ts`).
  * That is why these two calls are deliberately absent from the bridge handler
  * table: a phone that asked the host where it had been would be handed the
  * desk's answer.

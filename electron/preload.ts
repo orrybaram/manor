@@ -82,24 +82,29 @@ try {
   // matches no origin, so selection hints are simply not applied.
 }
 
-contextBridge.exposeInMainWorld("electronAPI", {
-  // Which implementation of this interface answers (ADR-178 D8). The web
-  // bridge reports "web"; a component that has to hide a native-only action
-  // reads this rather than sniffing the user agent.
-  platform: "electron",
-
-  rendererId,
-
-  env: {
-    isPackaged,
-  },
-
-  // True when this renderer was launched as a detached window (ADR-156), and
-  // the one tab it claims of the shared layout (ADR-179 D4).
-  isDetached,
-  detachedWindowId,
-  claim,
-
+/**
+ * Everything the preload still answers itself (ADR-180 D3).
+ *
+ * This object used to *be* `window.electronAPI`, exposed straight to the page
+ * — 211 methods in 26 namespaces, every one of them written twice, once here
+ * and once as a bridge handler table entry. It is now handed to the page as
+ * `manorHost.native` and the page builds `electronAPI` over it
+ * (`src/bridge/client.ts`), because a `Proxy` cannot cross `contextBridge`:
+ * the bridge copies the shape it is handed, and a proxy's members are not
+ * there to copy.
+ *
+ * Nothing has left yet, so every call still lands here and the desktop
+ * behaves exactly as it did. The later ADR-180 tickets take a group out at a
+ * time; what remains at the end is the set that can never leave — `webview`,
+ * `window`, `menu`, `dialog`, `shell`, `clipboard`, `updater` — plus the
+ * root-level functions below, which the client serves the same way.
+ *
+ * The synchronous facts (`platform`, `rendererId`, `isDetached`,
+ * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
+ * and live on `manorHost` itself, which is the only place the page needs them
+ * and the only place that can answer them before the first invoke.
+ */
+const nativeApi = {
   pty: {
     create: (
       paneId: string,
@@ -938,7 +943,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       >,
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
   },
-});
+};
 
 /**
  * `window.manorHost` — the one concrete object the page builds a host client
@@ -954,10 +959,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
  * must, because `contextBridge` copies the shape it is handed and a `Proxy`'s
  * members are not there to copy.
  *
- * Nothing uses this yet. `electronAPI` stays whole and the desktop keeps
- * calling it; later tickets hollow it out method by method, and what is left
- * at the end is the native namespaces (`webview`, `window`, `menu`, `dialog`,
- * `shell`, `clipboard`, `updater`) plus this.
+ * This is now the *only* thing the preload exposes. `electronAPI` is built in
+ * the page over it and `native` above is what is left of the preload's own
+ * methods — every namespace, for now, so every call still lands where it
+ * always did. Later tickets hollow `native` out group by group, and each
+ * group that leaves starts going over `invoke` on its very next call.
  *
  * The facts on it are the ones a renderer needs *synchronously*, before it
  * can invoke anything — they are read off argv above for that reason, and are
@@ -1082,6 +1088,13 @@ function bridgeSubscribe(
 
 contextBridge.exposeInMainWorld("manorHost", {
   platform: "electron",
+
+  /**
+   * The namespaces the preload still answers, and the root-level functions
+   * alongside them. `src/bridge/client.ts` calls straight through to these
+   * and only reaches `invoke` for what is *not* here (ADR-180 D3).
+   */
+  native: nativeApi,
 
   rendererId,
   isDetached,

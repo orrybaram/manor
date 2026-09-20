@@ -124,7 +124,7 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Commands whose only implementation reaches a namespace `src/web/unavailable.ts`
+ * Commands whose only implementation reaches a namespace `src/bridge/unavailable.ts`
  * has no browser meaning for at all — ADR-178's "what can never mirror in a
  * browser" table, expressed as command ids instead of preload namespaces.
  * `commandAvailableOnWeb` filters these out of the command palette and turns

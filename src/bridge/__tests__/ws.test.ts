@@ -1,25 +1,32 @@
 /**
- * The bridge client, against a fake socket (ADR-178 ticket 4).
+ * The WebSocket transport, against a fake socket (ADR-178 ticket 4, moved by
+ * ADR-180 ticket 3).
  *
- * The server half is tested over a real listener in
- * `electron/remote-control/__tests__/ws-bridge.test.ts`, because its
- * properties are transport-level. This half's properties are not: they are
- * "what did the proxy turn this call into", "who got this event", and "what
- * happened to the calls that were in flight". A fake `WebSocket` is the only
- * way to ask the last one at all — a real socket cannot be made to drop
- * mid-invoke on demand.
+ * The host half is tested over a real listener in
+ * `electron/remote-control/__tests__/ws-bridge.test.ts`. What is left for
+ * this file is everything the socket owns and the proxy above it does not:
+ * the hello, the outbox, the correlation of a reply with its call, the
+ * delivery of an event to the pane that asked for it, the reconnect, and what
+ * happens to the calls that were in flight when it dropped. A fake
+ * `WebSocket` is the only way to ask the last one at all — a real socket
+ * cannot be made to drop mid-invoke on demand.
+ *
+ * Driven through the real client (`../client.ts`) rather than the transport
+ * interface directly: these are end-to-end properties of a browser tab, and
+ * the frames asserted here are the frames the host will actually see.
+ * `client.test.ts` is the other half, over a transport that is not a socket.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import { BridgeDisconnectedError, BridgeUnavailableError } from "../client";
+import { createBridge } from "../client";
 import {
-  BridgeDisconnectedError,
-  BridgeUnavailableError,
   bridgeUrlFromLocation,
-  createWsBridge,
+  createWsTransport,
   WEB_TOKEN_KEY,
-  type WsBridgeOptions,
-} from "../ws-bridge";
+  type WsTransportOptions,
+} from "../transports/ws";
 import type { ElectronAPI } from "../../electron";
 
 type Frame = Record<string, unknown>;
@@ -86,20 +93,22 @@ function last(frames: Frame[]): Frame {
   return frame;
 }
 
-describe("createWsBridge", () => {
+describe("the WebSocket transport", () => {
   let reload: ReturnType<typeof vi.fn>;
   let store: Map<string, string>;
 
-  function bridge(options: Partial<WsBridgeOptions> = {}): ElectronAPI {
-    return createWsBridge({
-      token: "full-token",
-      url: "ws://manor.test/ws",
-      ...options,
-    });
+  function bridge(options: Partial<WsTransportOptions> = {}): ElectronAPI {
+    return createBridge(
+      createWsTransport({
+        token: "full-token",
+        url: "ws://manor.test/ws",
+        ...options,
+      }),
+    );
   }
 
   /** A bridge with an open, authenticated socket behind it. */
-  function connected(options: Partial<WsBridgeOptions> = {}): {
+  function connected(options: Partial<WsTransportOptions> = {}): {
     api: ElectronAPI;
     socket: FakeSocket;
   } {

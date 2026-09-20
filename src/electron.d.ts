@@ -378,8 +378,8 @@ export type PushProgressEvent =
 
 export interface ElectronAPI {
   /**
-   * Which implementation of this interface is installed (ADR-178 D8): the
-   * Electron preload, or `src/web/ws-bridge.ts` over a WebSocket. Read it to
+   * Which transport the client in the page is built over (ADR-180 D3): the
+   * preload's IPC channels, or a WebSocket to a host. Read it to
    * hide what a browser genuinely cannot do (webview panes, detached windows,
    * native dialogs) — never to guess at a capability the bridge can report.
    */
@@ -521,7 +521,7 @@ export interface ElectronAPI {
    * This renderer's own viewport file (ADR-179 D3).
    *
    * Deliberately *not* in the bridge handler table: a browser answers both
-   * calls itself out of `localStorage` (`src/web/unavailable.ts`), because
+   * calls itself out of `localStorage` (`src/bridge/unavailable.ts`), because
    * the selection a phone remembers is the phone's, not the host's.
    */
   viewport: {
@@ -1192,10 +1192,10 @@ export interface BridgeErrorEnvelope {
 }
 
 /**
- * What the preload exposes, and the only thing it will expose once ADR-180
- * has run: the facts a renderer needs before it can ask anything, one way to
- * call the host's handler table, one way to listen to it — and (later
- * tickets) the native namespaces that can never leave the preload.
+ * What the preload exposes, and the only thing it exposes: the facts a
+ * renderer needs before it can ask anything, one way to call the host's
+ * handler table, one way to listen to it, and the namespaces the preload
+ * still answers itself.
  *
  * `window.electronAPI` is *built over this*, in the page, by
  * `src/bridge/client.ts`: `contextBridge` copies the shape it is handed, and
@@ -1212,6 +1212,22 @@ export interface ManorHost {
   detachedWindowId: string | null;
   claim: { workspacePath: string; tabId: string } | null;
   env: { isPackaged: boolean };
+  /**
+   * The namespaces the preload still answers in process, and the root-level
+   * functions beside them.
+   *
+   * The client calls straight through to these and reaches `invoke` only for
+   * what is not here, so this is the migration's dial: it is every namespace
+   * `ElectronAPI` has today, and each later ADR-180 ticket takes a group out
+   * of it. What is left when they are done is the set that can never leave
+   * the preload — `webview`, `window`, `menu`, `dialog`, `shell`,
+   * `clipboard`, `updater`.
+   *
+   * Typed loosely on purpose: it is a *shrinking* subset of `ElectronAPI`,
+   * and no type can say "some of these keys". `ElectronAPI` stays the
+   * contract, and ADR-180 D7 is what checks the split.
+   */
+  native: Record<string, unknown>;
   /**
    * Call `ns.method(...args)` on the host. Resolves with the handler's
    * result, or with a `BridgeErrorEnvelope` when the call failed or the host

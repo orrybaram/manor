@@ -8,9 +8,11 @@
  * type that reached for `ws` here would have decided that question for them.
  *
  * What this is *not*: it is not the handler table (`handlers.ts` is), not the
- * dispatcher (`server.ts` is), and not a client. `src/web/ws-bridge.ts` holds
- * the browser's half and mirrors these shapes by hand — the two sides are
- * separate builds, and there is no shared module for them to agree through.
+ * dispatcher (`server.ts` is), and not a client. `src/bridge/client.ts` holds
+ * the renderers' half — and imports this file rather than mirroring it, which
+ * is the other reason the import list above has to stay empty: these shapes
+ * are read from the main process, an Electron renderer and a browser bundle,
+ * and only a file with no dependencies can be read from all three.
  *
  * A frame is one of five kinds. The client sends `invoke`, `subscribe` and
  * `unsubscribe`; the host answers `result` and pushes `event`. The hello

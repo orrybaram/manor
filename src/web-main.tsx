@@ -3,12 +3,13 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { loadTerminalFonts } from "./lib/terminal-font";
+import { createBridge } from "./bridge/client";
 import {
   bridgeUrlFromLocation,
-  createWsBridge,
+  createWsTransport,
   forgetWebToken,
   WEB_TOKEN_KEY,
-} from "./web/ws-bridge";
+} from "./bridge/transports/ws";
 import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
 
 /**
@@ -29,7 +30,7 @@ import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
  * it from the address bar so it cannot linger in history or a screenshot.
  * Copied from `src/remote-client/main.ts`'s `readToken` rather than shared —
  * the remote client is its own bundle, built by a different Vite config, and
- * cannot be imported from here. The key itself lives in `ws-bridge.ts`, which
+ * cannot be imported from here. The key itself lives in `bridge/transports/ws.ts`, which
  * is the half of this pair that finds out when a token has died.
  */
 function readToken(): string | null {
@@ -88,21 +89,24 @@ let settled = false;
  * `window.electronAPI` do so from their first effect, and the bridge is what
  * they find there. It dials lazily, so nothing here races the first paint.
  */
-window.electronAPI = createWsBridge({
-  token,
-  url: bridgeUrlFromLocation(),
-  onUnauthorized: () => {
-    // The token was revoked, or the host forgot it. Drop it and start over
-    // rather than reconnecting forever against an answer that will not change.
-    settled = true;
-    forgetWebToken();
-    show(<NoTokenScreen />);
-  },
-  onForbidden: () => {
-    settled = true;
-    show(<ForbiddenScreen />);
-  },
-});
+window.electronAPI = createBridge(
+  createWsTransport({
+    token,
+    url: bridgeUrlFromLocation(),
+    onUnauthorized: () => {
+      // The token was revoked, or the host forgot it. Drop it and start over
+      // rather than reconnecting forever against an answer that will not
+      // change.
+      settled = true;
+      forgetWebToken();
+      show(<NoTokenScreen />);
+    },
+    onForbidden: () => {
+      settled = true;
+      show(<ForbiddenScreen />);
+    },
+  }),
+);
 
 await loadTerminalFonts();
 

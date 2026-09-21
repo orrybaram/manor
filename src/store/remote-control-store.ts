@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { RemoteControlStatus, TunnelKind } from "../electron.d";
+import type {
+  RemoteCapability,
+  RemoteControlStatus,
+  RemotePairResult,
+} from "../electron.d";
 
 /**
  * Live mirror of the main process's remote-control state (ADR-161).
@@ -15,10 +19,14 @@ interface RemoteControlState {
   busy: boolean;
   error: string | null;
   setEnabled: (enabled: boolean) => Promise<void>;
-  startTunnel: (kind?: TunnelKind) => Promise<void>;
+  startTunnel: () => Promise<void>;
   stopTunnel: () => Promise<void>;
   revoke: (id: string) => Promise<void>;
   refreshDetection: () => Promise<void>;
+  pair: (
+    label: string,
+    capability: RemoteCapability,
+  ) => Promise<RemotePairResult | null>;
   clearError: () => void;
 }
 
@@ -26,8 +34,8 @@ const emptyStatus: RemoteControlStatus = {
   enabled: false,
   port: null,
   devices: [],
-  tunnel: { state: "stopped", kind: null, url: null, error: null },
-  detected: { tailscale: false },
+  tunnel: { state: "stopped", url: null, error: null },
+  installed: false,
   tailnet: null,
   encryptionAvailable: true,
   listeners: 0,
@@ -41,18 +49,25 @@ export const useRemoteControlStore = create<RemoteControlState>((set) => {
 
   window.electronAPI?.remoteControl?.onStatus((status) => set({ status }));
 
-  /** Every mutating call is the same shape: busy, then status or error. */
-  const run = async (
-    action: () => Promise<RemoteControlStatus>,
-  ): Promise<void> => {
+  /** Every mutating call sets busy, clears any previous error, and drops busy again. */
+  const run = async <T>(action: () => Promise<T>): Promise<T | null> => {
     set({ busy: true, error: null });
     try {
-      set({ status: await action() });
+      return await action();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+      return null;
     } finally {
       set({ busy: false });
     }
+  };
+
+  /** The common case: the action's result *is* the new status. */
+  const runStatus = async (
+    action: () => Promise<RemoteControlStatus>,
+  ): Promise<void> => {
+    const status = await run(action);
+    if (status) set({ status });
   };
 
   return {
@@ -62,13 +77,17 @@ export const useRemoteControlStore = create<RemoteControlState>((set) => {
     error: null,
 
     setEnabled: (enabled) =>
-      run(() => window.electronAPI.remoteControl.setEnabled(enabled)),
-    startTunnel: (kind) =>
-      run(() => window.electronAPI.remoteControl.startTunnel(kind)),
-    stopTunnel: () => run(() => window.electronAPI.remoteControl.stopTunnel()),
-    revoke: (id) => run(() => window.electronAPI.remoteControl.revoke(id)),
+      runStatus(() => window.electronAPI.remoteControl.setEnabled(enabled)),
+    startTunnel: () =>
+      runStatus(() => window.electronAPI.remoteControl.startTunnel()),
+    stopTunnel: () =>
+      runStatus(() => window.electronAPI.remoteControl.stopTunnel()),
+    revoke: (id) =>
+      runStatus(() => window.electronAPI.remoteControl.revoke(id)),
     refreshDetection: () =>
-      run(() => window.electronAPI.remoteControl.refreshDetection()),
+      runStatus(() => window.electronAPI.remoteControl.refreshDetection()),
+    pair: (label, capability) =>
+      run(() => window.electronAPI.remoteControl.pair(label, capability)),
     clearError: () => set({ error: null }),
   };
 });

@@ -24,7 +24,6 @@ import type { RemoteControlServer, RemoteStatusEvent } from "./server";
 import {
   isCancelled,
   type TailnetInfo,
-  type TunnelKind,
   type TunnelManager,
   type TunnelStatus,
 } from "./tunnel";
@@ -36,7 +35,7 @@ export interface RemoteControlStatus {
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
   /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
-  detected: Record<TunnelKind, boolean>;
+  installed: boolean;
   /**
    * Who else is on the tailnet, while a tunnel is running — the address opens
    * only on those devices. Null when not running or Tailscale cannot say.
@@ -77,9 +76,7 @@ export function pageFor(capability: Capability): string {
 }
 
 export class RemoteControlController {
-  private detected: Record<TunnelKind, boolean> = {
-    tailscale: false,
-  };
+  private installed = false;
   private tailnet: TailnetInfo | null = null;
   private tailnetTimer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<(status: RemoteControlStatus) => void>();
@@ -169,7 +166,7 @@ export class RemoteControlController {
       port: this.server.running ? this.server.serverPort : null,
       devices: this.deviceStore.list(),
       tunnel: this.tunnel.status,
-      detected: { ...this.detected },
+      installed: this.installed,
       tailnet: this.tailnet,
       encryptionAvailable: this.encryptionAvailable(),
       listeners: this.server.listenerCount,
@@ -178,7 +175,7 @@ export class RemoteControlController {
 
   /** Re-probe PATH. Cheap, and the user may have installed a tool since launch. */
   async refreshDetection(): Promise<RemoteControlStatus> {
-    this.detected = await this.tunnel.detect();
+    this.installed = await this.tunnel.detect();
     this.emit();
     return this.status();
   }
@@ -217,22 +214,23 @@ export class RemoteControlController {
   }
 
   /**
-   * Start the tunnel. Tailscale is the only kind; `kind` stays on the
-   * signature so the wire shape of `startTunnel` does not change.
+   * Start the tunnel. Tailscale is the only kind there is. Detection is
+   * re-checked here rather than trusting the last `refreshDetection` — the
+   * user may only just have installed it.
    */
-  async startTunnel(kind?: TunnelKind): Promise<RemoteControlStatus> {
+  async startTunnel(): Promise<RemoteControlStatus> {
     if (!this.server.running) {
       throw new Error("Enable remote control before starting a tunnel.");
     }
-    const chosen = kind ?? (await this.tunnel.preferredKind());
-    if (!chosen) {
+    this.installed = await this.tunnel.detect();
+    if (!this.installed) {
       throw new Error(
         "Tailscale is not installed. Install it from Settings → Remote " +
           "control, sign in, and try again.",
       );
     }
     try {
-      await this.tunnel.start(chosen, this.server.serverPort);
+      await this.tunnel.start(this.server.serverPort);
     } catch (err) {
       // A `stopTunnel()` while starting (Cancel) is not a failure.
       if (!isCancelled(err)) throw err;

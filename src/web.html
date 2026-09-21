@@ -18,14 +18,13 @@
       content="width=device-width, initial-scale=1.0, interactive-widget=resizes-visual"
     />
     <!--
-      Redundant with the header `electron/remote-control/static.ts` sends for
-      `/app` — kept identical to it as a second line of defence for a browser
-      that, for whatever reason, does not see the header.
+      Injected by `vite.web.config.ts` from `WEB_CSP` in
+      `electron/remote-control/static.ts` — the one source, so this tag
+      cannot drift from the header that route sends for `/app`. Redundant
+      with that header; a second line of defence for a browser that, for
+      whatever reason, does not see it.
     -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; worker-src 'self';"
-    />
+    <!--csp-->
     <title>Manor</title>
   </head>
 

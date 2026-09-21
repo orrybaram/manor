@@ -372,12 +372,10 @@ export interface PickedElementResult {
 
 // ── Remote control (ADR-161) ──
 
-export type TunnelKind = "tailscale";
 export type TunnelState = "stopped" | "starting" | "running" | "failed";
 
 export interface TunnelStatus {
   state: TunnelState;
-  kind: TunnelKind | null;
   url: string | null;
   error: string | null;
   /** Set while starting, when Tailscale is waiting on the user (e.g. to enable Serve). */
@@ -414,7 +412,8 @@ export interface RemoteControlStatus {
   port: number | null;
   devices: RemoteDeviceInfo[];
   tunnel: TunnelStatus;
-  detected: Record<TunnelKind, boolean>;
+  /** Whether the tailscale CLI was found, on PATH or in the app bundle. */
+  installed: boolean;
   /** Other devices on the tailnet while a tunnel runs; null otherwise. */
   tailnet: TailnetInfo | null;
   encryptionAvailable: boolean;

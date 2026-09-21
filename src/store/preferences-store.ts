@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { AppPreferences } from "../electron.d";
-import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 
 interface PreferencesState {
   preferences: AppPreferences;
@@ -57,14 +56,7 @@ export const usePreferencesStore = create<PreferencesState>((set) => {
         preferences: { ...s.preferences, [key]: value },
       }));
       // Persist to main process
-      window.electronAPI?.preferences
-        .set(key, value)
-        ?.catch(
-          handleBridgeUnavailable(
-            "preferences-set-unavailable",
-            "Preference changes aren't saved from the browser yet",
-          ),
-        );
+      window.electronAPI?.preferences.set(key, value);
     },
   };
 });

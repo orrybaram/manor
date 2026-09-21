@@ -20,8 +20,6 @@
  * the other direction; hence the `failed` state and the listener API.
  */
 
-export type TunnelKind = "tailscale";
-
 /**
  * Where the Tailscale app keeps its CLI. The app does not put `tailscale` on
  * PATH, but this binary *is* the CLI when invoked with arguments, and it talks
@@ -34,7 +32,6 @@ export type TunnelState = "stopped" | "starting" | "running" | "failed";
 
 export interface TunnelStatus {
   state: TunnelState;
-  kind: TunnelKind | null;
   /** Set only in `running`. */
   url: string | null;
   /** Set only in `failed`. Never contains a token. */
@@ -104,7 +101,9 @@ export function parseTailnet(json: string): TailnetInfo | null {
   }
   if (!data || typeof data !== "object" || !data.Self) return null;
   const selfUser =
-    data.Self.UserID !== undefined ? data.User?.[String(data.Self.UserID)] : null;
+    data.Self.UserID !== undefined
+      ? data.User?.[String(data.Self.UserID)]
+      : null;
   const peers = Object.values(data.Peer ?? {}).map((peer) => ({
     name: peer.HostName ?? "unknown",
     os: peer.OS ?? "",
@@ -130,10 +129,9 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-const URL_PATTERNS: Record<TunnelKind, RegExp> = {
-  // `tailscale serve` prints "Available within your tailnet:" then the URL.
-  tailscale: /https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net(?:\/\S*)?/i,
-};
+// `tailscale serve` prints "Available within your tailnet:" then the URL.
+const TAILSCALE_URL_PATTERN =
+  /https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net(?:\/\S*)?/i;
 
 /**
  * A link Tailscale prints when it needs the user before it can serve — today
@@ -182,11 +180,15 @@ export class TunnelManager {
   private stopping = false;
   private state: TunnelStatus = {
     state: "stopped",
-    kind: null,
     url: null,
     error: null,
   };
   private listeners = new Set<(status: TunnelStatus) => void>();
+  /**
+   * Cached by `detect()`. `tailnet()` reuses it rather than re-running
+   * `which` on every 10-second poll while the tunnel is up.
+   */
+  private resolvedBinary: string | null = null;
 
   constructor(private readonly deps: TunnelDeps) {}
 
@@ -199,14 +201,15 @@ export class TunnelManager {
     return () => this.listeners.delete(listener);
   }
 
-  async detect(): Promise<Record<TunnelKind, boolean>> {
-    const tailscale = await this.deps.which("tailscale");
-    return { tailscale: tailscale !== null };
+  /** Whether `tailscale` is on PATH or in the app bundle. */
+  async detect(): Promise<boolean> {
+    this.resolvedBinary = await this.deps.which("tailscale");
+    return this.resolvedBinary !== null;
   }
 
   /** The tailnet as the CLI sees it, or null when it cannot be asked. */
   async tailnet(): Promise<TailnetInfo | null> {
-    const bin = await this.deps.which("tailscale").catch(() => null);
+    const bin = this.resolvedBinary;
     if (!bin) return null;
     try {
       return parseTailnet(await this.deps.exec(bin, ["status", "--json"]));
@@ -216,30 +219,26 @@ export class TunnelManager {
     }
   }
 
-  /** Tailscale when it was found; otherwise there is nothing to start. */
-  async preferredKind(): Promise<TunnelKind | null> {
-    const found = await this.detect();
-    return found.tailscale ? "tailscale" : null;
-  }
-
   /**
    * Spawn the tunnel and resolve once its hostname appears in the child's
    * output. Rejects — having killed the child — if nothing appears in 30s, so
    * a half-started tunnel never leaves a process behind.
    */
-  async start(kind: TunnelKind, port: number): Promise<{ url: string }> {
+  async start(port: number): Promise<{ url: string }> {
     if (this.state.state === "running" && this.state.url) {
       return { url: this.state.url };
     }
     if (this.child) await this.stop();
 
     const [command, args] = commandFor(port);
-    this.setState({ state: "starting", kind, url: null, error: null });
+    this.setState({ state: "starting", url: null, error: null });
 
     // Spawn what `which` found — it may be the app bundle's CLI rather than a
     // `tailscale` on PATH.
     const resolved =
-      (await this.deps.which(command).catch(() => null)) ?? command;
+      this.resolvedBinary ??
+      (await this.deps.which(command).catch(() => null)) ??
+      command;
     // A `stop()` that landed during the lookup wins: nothing is spawned, and
     // the state it set is left alone.
     if (this.state.state !== "starting") {
@@ -251,7 +250,7 @@ export class TunnelManager {
       child = this.deps.spawn(resolved, args);
     } catch (err) {
       const error = `Could not start ${command}: ${String(err)}`;
-      this.setState({ state: "failed", kind, url: null, error });
+      this.setState({ state: "failed", url: null, error });
       // `Object.assign` rather than the `cause` constructor option: this
       // module compiles against the ES2020 lib, where that overload does not
       // exist yet.
@@ -261,7 +260,7 @@ export class TunnelManager {
 
     return new Promise<{ url: string }>((resolve, reject) => {
       let settled = false;
-      const pattern = URL_PATTERNS[kind];
+      const pattern = TAILSCALE_URL_PATTERN;
       let buffered = "";
 
       const finish = (fn: () => void) => {
@@ -273,7 +272,7 @@ export class TunnelManager {
 
       const fail = (message: string) => {
         finish(() => {
-          this.setState({ state: "failed", kind, url: null, error: message });
+          this.setState({ state: "failed", url: null, error: message });
           // `killChild`, not `stop`: a failed tunnel must keep saying "failed"
           // with its reason, not quietly settle back to "stopped".
           void this.killChild();
@@ -310,7 +309,6 @@ export class TunnelManager {
             actionUrl = action[0];
             this.setState({
               state: "starting",
-              kind,
               url: null,
               error: null,
               actionUrl,
@@ -321,7 +319,7 @@ export class TunnelManager {
         }
         const url = match[0].replace(/\/$/, "");
         finish(() => {
-          this.setState({ state: "running", kind, url, error: null });
+          this.setState({ state: "running", url, error: null });
           resolve({ url });
         });
       };
@@ -348,7 +346,6 @@ export class TunnelManager {
         if (!this.stopping && this.state.state === "running") {
           this.setState({
             state: "failed",
-            kind,
             url: null,
             error: `${command} exited unexpectedly (code ${code})`,
           });
@@ -377,7 +374,7 @@ export class TunnelManager {
   /** Idempotent, and waits for the child to actually be gone. */
   async stop(): Promise<void> {
     await this.killChild();
-    this.setState({ state: "stopped", kind: null, url: null, error: null });
+    this.setState({ state: "stopped", url: null, error: null });
   }
 
   /**

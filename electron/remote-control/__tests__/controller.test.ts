@@ -37,7 +37,6 @@ function fakes() {
 
   let tunnelStatus: TunnelStatus = {
     state: "stopped",
-    kind: null,
     url: null,
     error: null,
   };
@@ -50,18 +49,16 @@ function fakes() {
       tunnelListeners.push(cb);
       return () => {};
     },
-    detect: vi.fn(async () => ({ tailscale: true })),
+    detect: vi.fn(async () => true),
     tailnet: vi.fn(
       async (): Promise<TailnetInfo | null> => ({
         account: "me@example.com",
         peers: [],
       }),
     ),
-    preferredKind: vi.fn(async () => "tailscale" as const),
-    start: vi.fn(async (kind: "tailscale") => {
+    start: vi.fn(async () => {
       tunnelStatus = {
         state: "running",
-        kind,
         url: "https://studio.tail1234.ts.net",
         error: null,
       };
@@ -69,7 +66,7 @@ function fakes() {
       return { url: tunnelStatus.url! };
     }),
     stop: vi.fn(async () => {
-      tunnelStatus = { state: "stopped", kind: null, url: null, error: null };
+      tunnelStatus = { state: "stopped", url: null, error: null };
       for (const cb of tunnelListeners) cb(tunnelStatus);
     }),
   };
@@ -132,7 +129,7 @@ describe("RemoteControlController", () => {
   it("enabling probes for tunnel tools without installing anything", async () => {
     const status = await f.controller.setEnabled(true);
     expect(f.tunnel.detect).toHaveBeenCalled();
-    expect(status.detected).toEqual({ tailscale: true });
+    expect(status.installed).toBe(true);
   });
 
   it("disabling stops the tunnel before the listener", async () => {
@@ -160,7 +157,7 @@ describe("RemoteControlController", () => {
   it("starts tailscale and points the tunnel at the listener's port", async () => {
     await f.controller.setEnabled(true);
     const status = await f.controller.startTunnel();
-    expect(f.tunnel.start).toHaveBeenCalledWith("tailscale", 51234);
+    expect(f.tunnel.start).toHaveBeenCalledWith(51234);
     expect(status.tunnel).toMatchObject({
       state: "running",
       url: "https://studio.tail1234.ts.net",
@@ -218,8 +215,8 @@ describe("RemoteControlController", () => {
   });
 
   it("explains itself when tailscale is not installed", async () => {
-    f.tunnel.preferredKind.mockResolvedValue(null as unknown as "tailscale");
     await f.controller.setEnabled(true);
+    f.tunnel.detect.mockResolvedValueOnce(false);
     await expect(f.controller.startTunnel()).rejects.toThrow(/not installed/);
   });
 
@@ -295,7 +292,7 @@ describe("RemoteControlController", () => {
       { list: () => [] } as unknown as RemoteDeviceStore,
       {
         onStatus: () => () => {},
-        status: { state: "stopped", kind: null, url: null, error: null },
+        status: { state: "stopped", url: null, error: null },
       } as unknown as TunnelManager,
       () => false,
     );

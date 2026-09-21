@@ -27,7 +27,6 @@ import type {
 } from "../../remote-control/controller";
 import { CAPABILITIES, isCapability } from "../../remote-control/devices";
 import type { Capability } from "../../remote-control/devices";
-import type { TunnelKind } from "../../remote-control/tunnel";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
@@ -57,16 +56,6 @@ function assertCapability(
     throw new Error(
       `${name}: expected one of ${CAPABILITIES.join(", ")}, got ${String(value)}`,
     );
-  }
-}
-
-function assertTunnelKind(
-  value: unknown,
-  name: string,
-): asserts value is TunnelKind | undefined {
-  if (value === undefined) return;
-  if (value !== "tailscale") {
-    throw new Error(`${name}: expected a tunnel kind, got ${String(value)}`);
   }
 }
 
@@ -132,10 +121,8 @@ export function remoteControlRevoke(
 
 export function remoteControlStartTunnel(
   ctx: HandlerCtx,
-  kind?: TunnelKind,
 ): Promise<RemoteControlStatus> {
-  assertTunnelKind(kind, "remoteControl.startTunnel.kind");
-  return ctx.deps.remoteControl.startTunnel(kind);
+  return ctx.deps.remoteControl.startTunnel();
 }
 
 export function remoteControlStopTunnel(

@@ -33,7 +33,6 @@ import { checkForUpdates, quitAndInstall } from "../updater";
 import { listWindows } from "../ipc/window";
 import { themeSetSelected } from "../bridge/handlers/theme";
 import { isPreferenceKey } from "../preferences";
-import type { TunnelKind } from "../remote-control/tunnel";
 import type { Route } from "./types";
 
 /** Protocols `shell:openExternal` allows; anything else is a 400. */
@@ -43,10 +42,6 @@ const ALLOWED_PROTOCOLS = [
   "file:",
   "x-apple.systempreferences:",
 ];
-
-function isTunnelKind(value: unknown): value is TunnelKind {
-  return value === "tailscale";
-}
 
 export const systemRoutes: Route[] = [
   // ── Notifications ──
@@ -303,15 +298,9 @@ export const systemRoutes: Route[] = [
   {
     method: "POST",
     path: "/remote-control/tunnel/start",
-    async handler({ deps, json, readBody }) {
-      const body = await readBody();
-      const kind = body.kind;
-      if (kind !== undefined && !isTunnelKind(kind)) {
-        json(400, { error: "'kind' must be 'tailscale'" });
-        return;
-      }
+    async handler({ deps, json }) {
       try {
-        json(200, await deps.remoteControl.startTunnel(kind));
+        json(200, await deps.remoteControl.startTunnel());
       } catch (err) {
         json(400, { error: String(err) });
       }

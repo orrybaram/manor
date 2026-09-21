@@ -1,8 +1,7 @@
 import { onBridgeOutcome, webToken } from "./bridge/install-web";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
+import { createQueryClient, AppRoot } from "./app-root";
 import { loadTerminalFonts } from "./lib/terminal-font";
 import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
 
@@ -24,15 +23,7 @@ import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
  * line runs, not after it.
  */
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 2, // 2 minutes
-      gcTime: 1000 * 60 * 10, // 10 minutes
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+const queryClient = createQueryClient();
 
 const token = webToken;
 const root = ReactDOM.createRoot(
@@ -64,13 +55,5 @@ onBridgeOutcome((outcome) => {
 await loadTerminalFonts();
 
 if (!settled) {
-  show(
-    token ? (
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    ) : (
-      <NoTokenScreen />
-    ),
-  );
+  show(token ? <AppRoot queryClient={queryClient} /> : <NoTokenScreen />);
 }

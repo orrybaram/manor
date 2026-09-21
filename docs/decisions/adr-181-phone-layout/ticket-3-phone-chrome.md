@@ -1,6 +1,6 @@
 ---
 title: Phone chrome — top bar, tab strip, no status bar
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]
@@ -42,3 +42,14 @@ so in a comment where you set it.
 - `src/components/phone/Phone.module.css` — new
 - `src/App.tsx` — phone-mode chrome, state for drawer / switcher / palette-open
 - `src/components/tabbar/TabBar/*` — phone styling only
+
+## Folded in from ticket 2
+
+- **Every panel in a panel split still renders its own `TabBar`**; ticket 2
+  hides the panels that are not active, and their tab bars go with them. So
+  "only the active panel's tab bar shows" is already true by construction —
+  confirm it, do not re-implement it by filtering panels.
+- For jsdom component tests: the vitest setup only installs
+  `window.electronAPI` when there is no `window`, and jsdom provides one, so
+  ticket 2's tests set it themselves in `vi.hoisted`. Follow that pattern; do
+  not change the shared setup in this ticket.

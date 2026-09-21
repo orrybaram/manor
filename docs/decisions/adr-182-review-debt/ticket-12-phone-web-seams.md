@@ -1,6 +1,6 @@
 ---
 title: Phone and web as seams — drag, BrowserPane, SplitFrame, PhoneChrome, paneTitle
-status: in-progress
+status: done
 priority: medium
 assignee: opus
 blocked_by: [11]

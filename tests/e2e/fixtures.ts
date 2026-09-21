@@ -311,11 +311,18 @@ export async function importSeededProject(
   await expect(wizard).not.toBeVisible({ timeout: 5_000 });
 }
 
-/** Open a terminal tab and wait for its pane to be the only visible one. */
+/**
+ * Open a terminal tab and wait for its pane to be the only visible one.
+ *
+ * `:visible`, not the first pane in the DOM: other workspaces and other tabs
+ * stay mounted while hidden, so once a test has opened anything before this
+ * call, the first `terminal-pane` in the page is one of those — hidden for
+ * good, and a 30 s timeout rather than the new tab.
+ */
 export async function openTerminalTab(window: Page): Promise<void> {
   await window.keyboard.press("Meta+t");
   await expect(
-    window.locator('[data-testid="terminal-pane"]').first(),
+    window.locator('[data-testid="terminal-pane"]:visible').first(),
   ).toBeVisible({ timeout: 30_000 });
   await assertVisiblePaneCount(window, 1);
 }

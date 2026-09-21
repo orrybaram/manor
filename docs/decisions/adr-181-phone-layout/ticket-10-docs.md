@@ -60,6 +60,29 @@ claimed as tested — no agent could launch Electron or a real phone:
 - The drawer on a real phone: open, tap-outside to close, focus returns to the
   toggle, ~85 % width feels right.
 
+## Folded in from ticket 9
+
+- **Record the palette bug ticket 9's E2E caught.** Ticket 6's phone CSS keyed
+  off `.app[data-layout="phone"]`, but the palette is a Radix `Dialog.Portal`
+  mounted under `<body>`, outside `.app` — so on a phone it was the desk's
+  fixed 620 px card, hanging off both edges of a 390 px screen, with a 14 px
+  input that makes iOS Safari zoom on focus. The width assertion *passed*
+  anyway, because 620 > 380. Fixed by having `useLayoutMode` mirror the mode
+  onto `<html data-layout>` and keying portaled rules off
+  `:root[data-layout="phone"]`. Put in D2 (or D5) the rule it teaches:
+  **phone CSS for anything portaled keys off `:root`, never `.app`.**
+- **The real-phone checklist** belongs in the record alongside the tickets 3–4
+  list, as *to be checked by hand*, not claimed as tested: on iOS Safari and
+  Android Chrome, (1) a tap on a terminal raises the soft keyboard; (2) the
+  keyboard opening does not resize the terminal or repaint a TUI's frame into
+  scrollback; (3) a long-press opens the pane menu under a real finger; (4) a
+  vertical drag scrolls scrollback; (5) a horizontal drag pans a follower
+  wider than the phone. Playwright proves the focus, the textarea attributes
+  and the viewport meta — not the keyboard.
+- `tests/e2e/fixtures.ts` `openTerminalTab` now waits on the first *visible*
+  terminal pane: other workspaces stay mounted while hidden, so the first pane
+  in the DOM is usually not the new one. One line in `tests/e2e/README.md`.
+
 ## Folded in from ticket 6
 
 - **Record the palette audit.** "Move Tab to Next Panel" existed only in the

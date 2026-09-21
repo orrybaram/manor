@@ -169,6 +169,18 @@ function setWindowContentSize(
   );
 }
 
+/**
+ * Assert the layout mode on both elements that carry it, and that they agree:
+ * `.app` (what in-tree phone CSS keys off) and `<html>` (what portaled phone
+ * CSS keys off — the command palette mounts under `<body>`, outside `.app`).
+ * The two used to be one attribute, and the palette's phone layout silently
+ * never applied because of it.
+ */
+async function expectLayout(page: Page, mode: "phone" | "desk"): Promise<void> {
+  await expect(page.locator(".app[data-layout]")).toHaveAttribute("data-layout", mode);
+  await expect(page.locator("html")).toHaveAttribute("data-layout", mode);
+}
+
 test.describe("phone layout (ADR-181)", () => {
   test.setTimeout(240_000);
 
@@ -328,8 +340,22 @@ test.describe("phone layout (ADR-181)", () => {
       const paletteBox = await palette.boundingBox();
       // Full screen: within a few pixels of the 390×844 viewport, not the
       // desk's centered card.
+      // Within the screen, not merely wide: the desk card is a fixed 620 px,
+      // which on a 390 px phone *also* measures wider than 380 while hanging
+      // off both edges. That is how this assertion once passed for a palette
+      // whose phone CSS never matched (it is portaled outside `.app`).
+      expect(paletteBox?.x).toBeGreaterThanOrEqual(0);
       expect(paletteBox?.width).toBeGreaterThan(380);
+      expect(paletteBox?.width).toBeLessThanOrEqual(390);
       expect(paletteBox?.height).toBeGreaterThan(800);
+      // Below 16 px iOS Safari zooms the whole page in when the input takes
+      // focus — the other thing the phone CSS exists to prevent.
+      expect(
+        await palette
+          .locator("input")
+          .first()
+          .evaluate((el) => getComputedStyle(el).fontSize),
+      ).toBe("16px");
       await film.shot(client.page, "06-palette-full-screen");
 
       await runOpenPaletteCommand(client.page, "Split Horizontal");
@@ -391,26 +417,17 @@ test.describe("phone layout (ADR-181)", () => {
     await bootWorkspaceWithTerminal(app, window, tempHome, "phone-width");
 
     await expect(window.getByTestId("phone-top-bar")).toHaveCount(0);
-    await expect(window.locator("[data-layout]")).toHaveAttribute(
-      "data-layout",
-      "desk",
-    );
+    await expectLayout(window, "desk");
 
     await setWindowContentSize(app, "first", 600, 700);
     await expect(window.getByTestId("phone-top-bar")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(window.locator("[data-layout]")).toHaveAttribute(
-      "data-layout",
-      "phone",
-    );
+    await expectLayout(window, "phone");
 
     await setWindowContentSize(app, "first", 1280, 800);
     await expect(window.getByTestId("phone-top-bar")).toHaveCount(0);
-    await expect(window.locator("[data-layout]")).toHaveAttribute(
-      "data-layout",
-      "desk",
-    );
+    await expectLayout(window, "desk");
 
     // A second tab, so detaching one leaves the primary something to show.
     await window.keyboard.press("Meta+t");
@@ -428,10 +445,7 @@ test.describe("phone layout (ADR-181)", () => {
     // were going to happen, then check it did not.
     await popup.waitForTimeout(1_000);
     await expect(popup.getByTestId("phone-top-bar")).toHaveCount(0);
-    await expect(popup.locator("[data-layout]")).toHaveAttribute(
-      "data-layout",
-      "desk",
-    );
+    await expectLayout(popup, "desk");
   });
 
   /**

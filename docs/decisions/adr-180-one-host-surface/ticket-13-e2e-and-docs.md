@@ -203,3 +203,63 @@ The lesson worth keeping: three of these five were specs that had quietly
 stopped testing their subject, and two of them (`sidebar-pr-tweaks`,
 `claude-resize-duplication`) were *green-adjacent* failures nobody read. A
 known-failure list is a place tests go to die.
+
+## The four new scenarios: written, and green
+
+Written by an agent forbidden from running Playwright (`f0da099`), executed
+by the orchestrator. All four passed on their first real run.
+
+| scenario | where | result |
+| --- | --- | --- |
+| desk window closes → browser told it owns the winsize (`pty.winsizeOwner`) | `web-app.spec.ts` | ✓ |
+| **two desktop windows on one pane** — more recent attach owns, the other follows | `bridge.spec.ts` | ✓ — D6's repair, tested for the first time |
+| `full` device refused a `LOCAL_ONLY` method; device list unmoved | `web-app.spec.ts` | ✓ |
+| CLI with every window closed; the window that comes back answers | `bridge.spec.ts` | ✓ |
+
+`web-app.spec.ts` 6/6, `bridge.spec.ts` 2/2.
+
+The scenario 1 agent chose to close the desk's *window* rather than extend the
+existing D6 test, and said why: that test closes the pane with `Meta+w`, which
+removes it from the layout for every renderer, so "the badge disappeared"
+passes just as well for a pane that simply vanished. Worth rewording that
+older test's comment, which claims more than it proves — ticket 16.
+
+## Two real bugs the scenario work turned up
+
+Neither was this ticket's subject; both were found by the agent writing
+scenario 2, which had routed around the first by closing a window instead of
+detaching.
+
+**One viewer's detach froze every other viewer's terminal** (`23023f0`). The
+Manor server holds one daemon stream subscription per session for every
+renderer, and `pty.detach` unsubscribed it unconditionally.
+`useTerminalConnection` detaches on every effect cleanup — so a browser
+switching away from a workspace it shared with the desk cut the desk's
+terminal off mid-output, and it stayed frozen until something remounted it.
+Present since ADR-178 slice 1. D6 is what made "is anyone else watching?" a
+question the handler could answer; it now drops the stream only when the last
+viewer lets go.
+
+**A stolen token trying to pair left no trace** (`6bd3a3d`). A device
+refused a `LOCAL_ONLY` method wrote nothing — and a test (ticket 12's) said
+so on purpose, reasoning "nothing happened". Overturned: no state changing is
+not nothing worth recording, and the HTTP transport already audits its own
+refusals as `rejected`. The bridge staying silent was two transports of one
+gate disagreeing. One trap avoided: `linear.connect` is `LOCAL_ONLY` and its
+first argument is an API key, which `bridgeTarget` would have written into the
+log; `SECRET_FIRST_ARG` methods record a null target.
+
+**…and the fix to the second caused a third** (`e89c96c`). `App.tsx` calls
+`pty.updatePrewarmCwd` on every workspace change; from a browser it was
+always refused, silently. Once refusals were audited, every browser mount
+wrote a `rejected` line the device never meant. `web-app.spec.ts` caught it.
+Fixed upstream of the audit: the prewarm pair is answered in-tab via
+`LOCALLY_SERVED`, like `viewport.*` and `keybindings.runInMainWindow`, so the
+socket never carries it.
+
+## Known flake, not chased
+
+`electron/__tests__/agent-hooks.test.ts` → "caps the queue at MAX_PENDING and
+drops newest overflow events" timed out at 5004ms once in a full `vitest` run.
+It passed 5/5 in isolation and has no dependency on the bridge. A
+load-dependent timeout, pre-existing.

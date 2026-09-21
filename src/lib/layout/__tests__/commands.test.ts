@@ -783,20 +783,6 @@ describe("reopen-closed-pane", () => {
   });
 });
 
-describe("set-pane-title", () => {
-  it("is structurally inert until paneSessions move into the layout", () => {
-    const state = stateOf(onePanel());
-    const next = applyLayoutCommand(state, {
-      type: "set-pane-title",
-      paneId: "pane-1",
-      title: "vim",
-    });
-
-    expect(next.layout).toBe(state.layout);
-    expect(next.effects).toEqual({ killPanes: [], releasedPanes: [] });
-  });
-});
-
 describe("set-pane-content-type", () => {
   it("writes the type onto the leaf", () => {
     const { layout } = applyLayoutCommand(stateOf(onePanel()), {

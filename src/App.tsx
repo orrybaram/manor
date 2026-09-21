@@ -67,12 +67,8 @@ import type { AgentInfo } from "./electron.d";
 import { navigateToAgent } from "./utils/agent-navigation";
 import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
-import {
-  escapeShellDoubleQuoted,
-  isHomePath,
-  homeLaunchCommand,
-  HOME_PATH,
-} from "./lib/home";
+import { isHomePath, homeLaunchCommand, HOME_PATH } from "./lib/home";
+import { launchAgentInWorkspace } from "./lib/agent-prompt-launch";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
@@ -623,17 +619,13 @@ function App() {
   const handleNewAgentWithPrompt = useCallback(
     (prompt: string) => {
       if (!activeWorkspacePath) return;
-      const escaped = escapeShellDoubleQuoted(prompt);
       // Don't consume prewarmed — it has the base agent command running,
       // but we need a different command with the prompt argument.
-      useAppStore
-        .getState()
-        .addTerminalTab(
-          `${activeWorkspaceCommand} "${escaped}"`,
-          "agent-startup",
-        );
+      // `launchAgentInWorkspace` flattens the prompt (ADR-176) before
+      // building the launch line, which hand-rolling it here skipped.
+      launchAgentInWorkspace(activeWorkspacePath, { prompt });
     },
-    [activeWorkspacePath, activeWorkspaceCommand],
+    [activeWorkspacePath],
   );
 
   if (!appReady) {

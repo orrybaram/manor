@@ -374,6 +374,19 @@ export interface LayoutChangedPayload {
 /** `layout.apply` answers with the new version, never with a layout. */
 export type LayoutApplyResult = { version: number } | { error: string };
 
+/**
+ * A pane's title, off the command channel (ADR-182 D1).
+ *
+ * `title: null` clears it. A renderer feeds this straight into
+ * `setPaneTitleFromStream` — the same sink an OSC title write already uses —
+ * so a route, an MCP call or another renderer's edit reads the same way a
+ * local terminal's own title does.
+ */
+export interface LayoutPaneTitlePayload {
+  paneId: string;
+  title: string | null;
+}
+
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
   | { pushId: string; type: "done"; exitCode: number | null; stderr: string };
@@ -524,7 +537,16 @@ export interface ElectronAPI {
       rendererId: string,
       viewport: PersistedDefaultViewport,
     ) => Promise<void>;
+    /**
+     * A pane's title, off the command channel (ADR-182 D1). `null` clears it.
+     * Replaces the `set-pane-title` command, which a route or an MCP call
+     * used to send with nothing broadcasting the result.
+     */
+    setPaneTitle: (paneId: string, title: string | null) => Promise<void>;
     onChanged: (callback: (payload: LayoutChangedPayload) => void) => () => void;
+    onPaneTitle: (
+      callback: (payload: LayoutPaneTitlePayload) => void,
+    ) => () => void;
   };
 
   /**

@@ -57,8 +57,10 @@ interface Broadcast {
 }
 
 type Listener = (payload: Broadcast) => void;
+type PaneTitleListener = (payload: { paneId: string; title: string | null }) => void;
 
 const listeners = new Set<Listener>();
+const paneTitleListeners = new Set<PaneTitleListener>();
 const layouts = new Map<string, WorkspaceLayout>();
 const versions = new Map<string, number>();
 const closedStacks = new Map<string, ClosedPane[]>();
@@ -96,6 +98,12 @@ export function seedDefaultViewport(
 export const sentCommands: Array<{
   workspacePath: string;
   command: LayoutCommand;
+}> = [];
+
+/** Every `layout.setPaneTitle` call the store has made, newest last. */
+export const sentPaneTitles: Array<{
+  paneId: string;
+  title: string | null;
 }> = [];
 
 /** Every pending pane command the store has queued, newest last. */
@@ -168,6 +176,7 @@ export function broadcastLayout(
  */
 export function clearLayoutListeners(): void {
   listeners.clear();
+  paneTitleListeners.clear();
 }
 
 export function resetFakeLayoutServer(): void {
@@ -178,6 +187,7 @@ export function resetFakeLayoutServer(): void {
   reportedViewports.length = 0;
   viewportFile = null;
   sentCommands.length = 0;
+  sentPaneTitles.length = 0;
   queuedCommands.length = 0;
   serverCalls.length = 0;
 }
@@ -255,9 +265,17 @@ export function fakeLayoutApi(): Record<string, unknown> {
       reportedViewports.push({ workspacePath, rendererId, viewport });
       defaultViewports.set(workspacePath, viewport);
     },
+    setPaneTitle: async (paneId: string, title: string | null) => {
+      sentPaneTitles.push({ paneId, title });
+      for (const listener of paneTitleListeners) listener({ paneId, title });
+    },
     onChanged: (listener: Listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onPaneTitle: (listener: PaneTitleListener) => {
+      paneTitleListeners.add(listener);
+      return () => paneTitleListeners.delete(listener);
     },
   };
 }

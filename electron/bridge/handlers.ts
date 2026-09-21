@@ -73,6 +73,7 @@ import {
   layoutGetLastActive,
   layoutRemove,
   layoutReportViewport,
+  layoutSetPaneTitle,
   layoutSetPendingCommand,
 } from "./handlers/layout";
 import {
@@ -483,6 +484,16 @@ export const HANDLERS = {
   ) => layoutSetPendingCommand(deps, paneId, text, kind),
   "layout.remove": (deps: IpcDeps, workspacePath: string) =>
     layoutRemove(deps, workspacePath),
+  /**
+   * A pane's title, off the command channel (ADR-182 D1) — the route this
+   * replaces was `set-pane-title`, which `LayoutStore.applyNow` intercepted
+   * and broadcast nothing for.
+   */
+  "layout.setPaneTitle": (
+    deps: IpcDeps,
+    paneId: string,
+    title: string | null,
+  ) => layoutSetPaneTitle(deps, paneId, title),
   /**
    * A viewport report, minus any `claim` that did not come from a window
    * (ADR-179 D4).
@@ -1036,6 +1047,7 @@ const MUTATING_METHODS = [
   "pty.reset",
   "pty.close",
   "layout.apply",
+  "layout.setPaneTitle",
   "layout.setPendingCommand",
   "layout.remove",
   "projects.select",

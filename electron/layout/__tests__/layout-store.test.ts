@@ -84,6 +84,7 @@ describe("LayoutStore", () => {
   let layoutFile: string;
   let persistence: LayoutPersistence;
   let broadcasts: LayoutBroadcast[];
+  let paneTitles: Array<{ paneId: string; title: string | null }>;
   let kill: ReturnType<typeof vi.fn>;
   let store: LayoutStore;
 
@@ -95,6 +96,9 @@ describe("LayoutStore", () => {
       },
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
       (rendererId) => rendererId === primaryId,
+      (paneId, title) => {
+        paneTitles.push({ paneId, title });
+      },
     );
   }
 
@@ -128,6 +132,7 @@ describe("LayoutStore", () => {
     layoutFile = path.join(tmpDir, "layout.json");
     persistence = new LayoutPersistence(layoutFile);
     broadcasts = [];
+    paneTitles = [];
     kill = vi.fn().mockResolvedValue(undefined);
     store = makeStore();
   });
@@ -349,36 +354,45 @@ describe("LayoutStore", () => {
       expect(broadcasts).toHaveLength(0);
     });
 
-    it("set-pane-title moves no furniture and wakes no renderer", async () => {
-      const result = await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-1", title: "build" },
-        { kind: "window", id: "1" },
-      );
+  });
 
-      expect(result).toEqual({ version: 0 });
-      expect(broadcasts).toHaveLength(0);
-      expect(store.get(WS)!.paneSessions["pane-1"].lastTitle).toBe("build");
+  /**
+   * Off the command channel entirely (ADR-182 D1): `setPaneTitle` is a direct
+   * method now, not a `LayoutCommand`, so it neither touches the layout nor
+   * rides on `layout.changed` — it has its own publish, asserted here rather
+   * than in `apply`'s tests above.
+   */
+  describe("setPaneTitle", () => {
+    beforeEach(() => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      store.load();
     });
 
-    it("set-pane-title opens a session entry for a pane that has none", async () => {
+    it("writes the title and publishes it, without touching the layout", () => {
+      const ok = store.setPaneTitle("pane-1", "build");
+
+      expect(ok).toBe(true);
+      expect(store.get(WS)!.paneSessions["pane-1"].lastTitle).toBe("build");
+      expect(store.get(WS)!.version).toBe(0);
+      expect(broadcasts).toHaveLength(0);
+      expect(paneTitles).toEqual([{ paneId: "pane-1", title: "build" }]);
+    });
+
+    it("opens a session entry for a pane that has none", () => {
       // The diff pane has no daemon session and no `paneSessions` row yet.
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-diff", title: "Diff" },
-        { kind: "window", id: "1" },
-      );
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-gone", title: "nowhere" },
-        { kind: "window", id: "1" },
-      );
+      store.setPaneTitle("pane-diff", "Diff");
 
       expect(store.get(WS)!.paneSessions["pane-diff"]).toMatchObject({
         daemonSessionId: "pane-diff",
         lastTitle: "Diff",
       });
-      expect(store.get(WS)!.paneSessions["pane-gone"]).toBeUndefined();
+    });
+
+    it("refuses a pane nothing owns, and publishes nothing", () => {
+      const ok = store.setPaneTitle("pane-gone", "nowhere");
+
+      expect(ok).toBe(false);
+      expect(paneTitles).toHaveLength(0);
     });
   });
 
@@ -414,11 +428,7 @@ describe("LayoutStore", () => {
 
     it("a reopen inside the grace cancels the kill and hands the session back", async () => {
       store.onPtyEvent({ type: "cwd", sessionId: "pane-1", cwd: "/tmp/deep" });
-      await store.apply(
-        WS,
-        { type: "set-pane-title", paneId: "pane-1", title: "build" },
-        { kind: "window", id: "1" },
-      );
+      store.setPaneTitle("pane-1", "build");
 
       await close("pane-1");
       vi.advanceTimersByTime(REOPEN_GRACE_MS - 1);

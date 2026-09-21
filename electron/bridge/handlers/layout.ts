@@ -84,6 +84,25 @@ export function layoutRemove(deps: IpcDeps, workspacePath: string): void {
 }
 
 /**
+ * A pane's title, off the command channel (ADR-182 D1).
+ *
+ * The desktop's OSC-title writes still go through `setPaneTitleFromStream`
+ * locally and are not sent here (the server already learns them from the
+ * daemon's own `pty.agentStatus`/title events) — this is for the other
+ * sources: a browser's own title edit, an MCP/CLI call. Silent on an unknown
+ * paneId, the same as `layout.remove` on an unknown workspace: a stale id
+ * from a slow renderer is normal, not an error.
+ */
+export function layoutSetPaneTitle(
+  deps: IpcDeps,
+  paneId: string,
+  title: string | null,
+): void {
+  assertString(paneId, "paneId");
+  deps.layoutStore.setPaneTitle(paneId, title);
+}
+
+/**
  * What one renderer is looking at (ADR-179 D3).
  *
  * `rendererId` is what the *caller* calls itself and `origin` is what the

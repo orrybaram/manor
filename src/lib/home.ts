@@ -21,11 +21,3 @@ export { HOME_PATH, isHomePath } from "./home-path";
 export function homeLaunchCommand(prefs: HomeHarnessPreferences): string {
   return resolveHomeAdapter(prefs).launchCommand();
 }
-
-/**
- * Escape a prompt for interpolation inside a double-quoted shell argument.
- * Lives in the import-free `agent-command` leaf, because main builds the same
- * line (ADR-179 ticket 11); re-exported here so renderer code has one place
- * to import its home/launch helpers from.
- */
-export { escapeShellDoubleQuoted } from "./agent-command";

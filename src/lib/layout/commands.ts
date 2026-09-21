@@ -174,7 +174,6 @@ export type LayoutCommand =
        *  Viewport default: the target tab's focused pane. */
       anchorPaneId?: string;
     }
-  | { type: "set-pane-title"; paneId: string; title: string | null }
   | {
       type: "set-pane-content-type";
       paneId: string;
@@ -435,11 +434,6 @@ export function applyLayoutCommand(
       return closePane(state, command, paneMetadata);
     case "reopen-closed-pane":
       return reopenClosedPane(state, command);
-    case "set-pane-title":
-      // Not a tree change: a pane's title lives in `paneSessions`, which the
-      // Manor server owns and `LayoutStore.apply` updates before calling in
-      // here (ADR-179 D3). Nothing for the reducer to do.
-      return unchanged(state);
     case "set-pane-content-type":
       return setPaneContentType(state, command);
     case "split-panel":

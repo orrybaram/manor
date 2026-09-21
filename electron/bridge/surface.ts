@@ -159,6 +159,7 @@ export const SUBSCRIPTIONS = {
   "pty.onAgentStatus": "pty.agentStatus",
   "pty.onWinsizeOwner": "pty.winsizeOwner",
   "layout.onChanged": "layout.changed",
+  "layout.onPaneTitle": "layout.paneTitle",
   "projects.onRemoveWorktreeProgress": "projects.removeWorktreeProgress",
   "projects.onWorktreeSetupProgress": "projects.worktreeProgress",
   "theme.onChanged": "theme.changed",

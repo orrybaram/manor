@@ -32,7 +32,7 @@ import { resolveHomeAdapter } from "../lib/harness";
 import { useTerminalConnection } from "./useTerminalConnection";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
-import { useTerminalResize } from "./useTerminalResize";
+import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
 import { useMountEffect } from "./useMountEffect";
 import {
   registerTerminal,
@@ -61,12 +61,24 @@ export function useTerminalLifecycle(
    * platforms reach the same table entry, so a second window on a pane
    * follows the one that attached most recently exactly as a browser does
    * (D6). Held as one object so the identity a follower hands
-   * `useTerminalResize` is stable between renders.
+   * `useFollowerFit` is stable between renders.
    */
   const [follower, setFollower] = useState<{ cols: number; rows: number } | null>(
     null,
   );
   const termRef = useRef<Terminal | null>(null);
+  /**
+   * Set the follower grid, keeping the same object back when it has not
+   * moved — the identity `useFollowerFit` re-runs its effect on. The one
+   * merge both `applyWinsize` and `pty.onWinsizeOwner` below used to repeat
+   * (ADR-182 ticket 1).
+   */
+  const setFollowerGrid = useCallback((cols: number, rows: number) => {
+    setFollower((prev) =>
+      prev && prev.cols === cols && prev.rows === rows ? prev : { cols, rows },
+    );
+  }, []);
+
   /**
    * Read the winsize ownership off a create-shaped reply.
    *
@@ -75,20 +87,17 @@ export function useTerminalLifecycle(
    * behaves exactly as it did before ADR-178. A host that does decorate the
    * reply is answering the same question, just out loud.
    */
-  const applyWinsize = useCallback((result: PtyCreateResult) => {
-    const { winsizeOwner, cols, rows } = result;
-    if (winsizeOwner === false && cols && rows) {
-      // Same object back when the grid has not moved: this is the identity
-      // `useTerminalResize` re-runs its effect on.
-      setFollower((prev) =>
-        prev && prev.cols === cols && prev.rows === rows
-          ? prev
-          : { cols, rows },
-      );
-    } else {
-      setFollower(null);
-    }
-  }, []);
+  const applyWinsize = useCallback(
+    (result: PtyCreateResult) => {
+      const { winsizeOwner, cols, rows } = result;
+      if (winsizeOwner === false && cols && rows) {
+        setFollowerGrid(cols, rows);
+      } else {
+        setFollower(null);
+      }
+    },
+    [setFollowerGrid],
+  );
 
   // Ownership can move after the create reply too (ADR-179 D6) — another
   // bridge viewer's `pty.create` outbids this one, or a desktop window
@@ -98,8 +107,8 @@ export function useTerminalLifecycle(
   // so it never needs to be told it lost something), and on the bridge it is
   // what lets a follower become the owner, or the reverse, without a
   // `pty.create` of its own. Flipping `follower` is the whole of the reaction
-  // — `useTerminalResize` re-runs on that dependency and sends a fit or
-  // re-fits to the new grid on its own.
+  // — `useOwnerFit`/`useFollowerFit` re-run on that dependency and send a fit
+  // or re-fit to the new grid on their own.
   useEffect(() => {
     return window.electronAPI.pty.onWinsizeOwner(paneId, (payload) => {
       if (payload.owner) {
@@ -108,13 +117,9 @@ export function useTerminalLifecycle(
       }
       const { cols, rows } = payload;
       if (!cols || !rows) return;
-      setFollower((prev) =>
-        prev && prev.cols === cols && prev.rows === rows
-          ? prev
-          : { cols, rows },
-      );
+      setFollowerGrid(cols, rows);
     });
-  }, [paneId]);
+  }, [paneId, setFollowerGrid]);
 
   const resettingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,8 +138,10 @@ export function useTerminalLifecycle(
     resettingRef,
   );
 
-  // Auto-resize — or, for a follower, auto-*fit*: see ADR-178 D5.
-  useTerminalResize(containerRef, fitAddon, term, resize, follower);
+  // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
+  // both called: see ADR-178 D5, and each hook's own comment.
+  useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
+  useFollowerFit(containerRef, term, follower, follower !== null);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes

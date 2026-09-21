@@ -64,11 +64,13 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   let tmpDir: string;
   let store: LayoutStore;
   let deps: ControlDeps;
+  let paneTitlePublishes: Array<{ paneId: string; title: string | null }>;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `manor-panes-routes-${crypto.randomUUID()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     const persistence = new LayoutPersistence(path.join(tmpDir, "layout.json"));
+    paneTitlePublishes = [];
     store = new LayoutStore(
       persistence,
       () => {},
@@ -76,6 +78,10 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
         LocalBackend,
         "pty"
       >,
+      undefined,
+      (paneId, title) => {
+        paneTitlePublishes.push({ paneId, title });
+      },
     );
     deps = { layoutStore: store } as ControlDeps;
     vi.mocked(proxyToRenderer).mockClear();
@@ -447,7 +453,11 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("workspace resolution order", () => {
-    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/title");
+    // `/panes/:paneId/title` used to be the route this rode on; ADR-182
+    // ticket 1 moved it onto `LayoutStore.setPaneTitle`, which finds its own
+    // workspace and never calls `resolveWorkspacePath` at all (see the
+    // route's own tests below). `/panes/:paneId/extract` still does.
+    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/extract");
 
     it("prefers body.workspacePath over the pane's own workspace", async () => {
       const { paneId } = await seedTab(WS);
@@ -455,7 +465,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       // rather than silently searching elsewhere.
       const res = await call(route, deps, {
         params: { paneId },
-        body: { title: "hello", workspacePath: OTHER_WS },
+        body: { workspacePath: OTHER_WS },
       });
       expect(res.status).toBe(400);
     });
@@ -464,7 +474,53 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
       const { paneId } = await seedTab(WS);
       const res = await call(route, deps, {
         params: { paneId },
+        body: {},
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /panes/:paneId/title", () => {
+    const route = findRoute(paneRoutes, "POST", "/panes/:paneId/title");
+
+    it("sets the title and broadcasts it, off the command channel (ADR-182 D1)", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
         body: { title: "hello" },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ paneId, title: "hello" });
+      expect(paneTitlePublishes).toEqual([{ paneId, title: "hello" }]);
+    });
+
+    it("clears the title with null", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
+        body: { title: null },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ paneId });
+    });
+
+    it("400s on an unknown paneId, and publishes nothing", async () => {
+      const res = await call(route, deps, {
+        params: { paneId: "no-such-pane" },
+        body: { title: "hello" },
+      });
+
+      expect(res.status).toBe(400);
+      expect(paneTitlePublishes).toHaveLength(0);
+    });
+
+    it("ignores body.workspacePath — the pane finds its own workspace", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        params: { paneId },
+        body: { title: "hello", workspacePath: OTHER_WS },
       });
       expect(res.status).toBe(200);
     });

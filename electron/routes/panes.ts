@@ -479,24 +479,15 @@ export const paneRoutes: Route[] = [
         return;
       }
 
-      const workspacePath = resolveWorkspacePath(store, body, { paneId });
-      if (!workspacePath) {
-        json(400, { error: NO_WORKSPACE_ERROR });
-        return;
-      }
-      const entry = store.get(workspacePath);
-      if (!entry || !findPanelWithPane(entry.layout, paneId)) {
+      // Off the command channel (ADR-182 D1): `LayoutStore.setPaneTitle`
+      // finds the owning workspace itself and broadcasts, so this route no
+      // longer resolves a workspace or sends a command — both of which the
+      // old `set-pane-title` command swallowed silently.
+      const ok = store.setPaneTitle(paneId, body.title as string | null);
+      if (!ok) {
         json(400, { error: `Unknown paneId: ${paneId}` });
         return;
       }
-
-      const ok = await applyOrError(
-        store,
-        workspacePath,
-        { type: "set-pane-title", paneId, title: body.title as string | null },
-        json,
-      );
-      if (!ok) return;
       json(
         200,
         body.title === null ? { paneId } : { paneId, title: body.title },

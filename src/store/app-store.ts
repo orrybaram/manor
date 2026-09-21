@@ -234,7 +234,6 @@ export interface AppState {
 
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
-  clearPaneTitle: (paneId: string) => void;
   /**
    * A title the host already knows — an OSC title from the PTY stream, or a
    * stale title cleared when a new agent starts in the pane. Local only: the
@@ -1847,36 +1846,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   /**
    * A pane's title, from an OSC sequence or an MCP call.
    *
-   * Written here *and* sent: the map is what this window renders now, and the
-   * command is what reaches the server's `paneSessions` and so the file
-   * (ADR-179 D3). `set-pane-title` changes no tree, so no broadcast follows
-   * it and the local write is not a duplicate of one.
+   * Written here *and* sent: the map is what this window renders now, and
+   * `layout.setPaneTitle` is what reaches the server's `paneSessions` and so
+   * the file (ADR-182 D1). Off the command channel — `layout.changed` never
+   * carries a title — so the bridge call is fire-and-forget the same way
+   * `layout.reportViewport` is, and every other renderer hears it back on
+   * `layout.onPaneTitle` rather than from this write.
    */
   setPaneTitle: (paneId: string, title: string) => {
     const state = get();
     if (state.paneTitle[paneId] === title) return;
     set({ paneTitle: { ...state.paneTitle, [paneId]: title } });
-    if (state.activeWorkspacePath) {
-      sendLayoutCommand(state.activeWorkspacePath, {
-        type: "set-pane-title",
-        paneId,
-        title,
-      });
-    }
-  },
-
-  clearPaneTitle: (paneId: string) => {
-    const state = get();
-    if (!(paneId in state.paneTitle)) return;
-    const { [paneId]: _, ...rest } = state.paneTitle;
-    set({ paneTitle: rest });
-    if (state.activeWorkspacePath) {
-      sendLayoutCommand(state.activeWorkspacePath, {
-        type: "set-pane-title",
-        paneId,
-        title: null,
-      });
-    }
+    void window.electronAPI?.layout?.setPaneTitle(paneId, title);
   },
 
   setPaneTitleFromStream: (paneId: string, title: string | null) =>
@@ -2313,6 +2294,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 // `queueMicrotask` to paper over the web side of that not being true yet;
 // ticket 14 made it true, so the wrapper is dead weight now.)
 window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
+
+// A pane's title, off the command channel (ADR-182 D1) — a route, an MCP
+// call, or another renderer's own edit, fed into the same sink an OSC title
+// write already uses.
+window.electronAPI?.layout?.onPaneTitle?.(({ paneId, title }) => {
+  useAppStore.getState().setPaneTitleFromStream(paneId, title);
+});
 
 // ── This renderer's viewport, out to its file and to the host (D3) ──
 //

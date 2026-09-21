@@ -264,6 +264,10 @@ export function initApp(devTitle: string | null): void {
       !mainWindow.isDestroyed() &&
       !mainWindow.webContents.isDestroyed() &&
       String(mainWindow.webContents.id) === rendererId,
+    // A pane's title, off the command channel (ADR-182 D1) — the same
+    // `publishRendererBroadcast` sink as `layout.changed`, on its own event
+    // so a renderer's replica does not have to replace itself for a title.
+    (paneId, title) => publishRendererBroadcast("layout", "paneTitle", { paneId, title }),
   );
   // Before any window exists: the first thing a renderer asks for is
   // `layout.getAll()`, and a cold read of the file is not worth racing.

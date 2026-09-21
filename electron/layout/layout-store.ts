@@ -166,7 +166,6 @@ const COMMAND_TYPES: ReadonlySet<string> = new Set<LayoutCommand["type"]>([
   "extract-pane-to-tab",
   "close-pane",
   "reopen-closed-pane",
-  "set-pane-title",
   "set-pane-content-type",
   "split-panel",
   "close-panel",
@@ -275,6 +274,16 @@ export class LayoutStore {
     private readonly broadcast: LayoutBroadcaster,
     private readonly backend: Pick<LocalBackend, "pty">,
     private readonly isPrimary: (rendererId: string) => boolean = () => false,
+    /**
+     * A pane's title, off the command channel (D1). Optional, and a no-op by
+     * default, so every existing caller of this constructor keeps working —
+     * only `app-lifecycle.ts` needs to say what "publish" means here, the
+     * same `publishRendererBroadcast` `broadcast` above is built from.
+     */
+    private readonly publishPaneTitle: (
+      paneId: string,
+      title: string | null,
+    ) => void = () => {},
   ) {}
 
   /** Read `~/.manor/layout.json` into memory. Migration happens below it. */
@@ -422,6 +431,34 @@ export class LayoutStore {
             lastTitle: event.agent.title ?? previous.lastTitle,
           };
     this.schedulePersist();
+  }
+
+  /**
+   * A pane's title, off the command channel (ADR-182 D1).
+   *
+   * `POST /panes/:id/title` and an MCP/CLI `set_pane_title` used to arrive as
+   * a `set-pane-title` layout command, which `applyNow` intercepted and wrote
+   * straight into `paneSessions` — a structural no-op, so nothing broadcast
+   * it and a title set from outside the desktop was invisible until the next
+   * unrelated layout change. This is that write, minus the command: it finds
+   * the owning workspace itself, so a caller does not resolve one first, and
+   * it publishes — a renderer's own OSC-title write still goes through
+   * `setPaneTitleFromStream`, not here, but every other source (a route, the
+   * bridge) now reaches every renderer the way `layout.changed` does.
+   *
+   * Returns false for a pane nothing owns — the route answers 400, the same
+   * shape a stale paneId gets from `apply`.
+   */
+  setPaneTitle(paneId: string, title: string | null): boolean {
+    const state = this.stateWithPane(paneId);
+    if (!state) return false;
+    state.paneSessions[paneId] = {
+      ...(state.paneSessions[paneId] ?? emptySession(paneId)),
+      lastTitle: title,
+    };
+    this.schedulePersist();
+    this.publishPaneTitle(paneId, title);
+    return true;
   }
 
   /**
@@ -619,21 +656,6 @@ export class LayoutStore {
 
     const state = this.ensureState(workspacePath);
     const before = state.layout;
-
-    // Titles have no structural home: they are `paneSessions`, which is ours.
-    // Not a structural change, so no version bump and no broadcast — every
-    // renderer already saw the title event this came from.
-    if (command.type === "set-pane-title") {
-      if (!findPanelWithPane(before, command.paneId)) {
-        return { version: state.version };
-      }
-      state.paneSessions[command.paneId] = {
-        ...(state.paneSessions[command.paneId] ?? emptySession(command.paneId)),
-        lastTitle: command.title,
-      };
-      this.schedulePersist();
-      return { version: state.version };
-    }
 
     const metadata = treeMetadata(before);
     const result = applyLayoutCommand(

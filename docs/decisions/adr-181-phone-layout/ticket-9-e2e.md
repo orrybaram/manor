@@ -1,6 +1,6 @@
 ---
 title: E2E — a phone walks the desk's layout
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [4, 5, 6, 7, 8]

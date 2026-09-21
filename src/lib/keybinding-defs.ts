@@ -311,29 +311,71 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = [
 ];
 
 /**
+ * Combos a PC browser claims for itself — closing the tab, opening a new
+ * one, opening a new window — before a page's own `keydown` listener ever
+ * runs (ADR-181 D7). Both the ⌘ and Ctrl forms are listed: an override is
+ * stored host-wide (see `resolveBindings`), so a Mac desktop user's ⌘T
+ * override reaches a browser on any OS, and which form is intercepted there
+ * depends on that browser's OS, not the override's origin. Exported as data
+ * so the keybindings settings page can flag a stored override landing here
+ * as "reserved by the browser" instead of showing a shortcut that silently
+ * does something else.
+ */
+export const BROWSER_RESERVED_COMBOS: readonly KeyCombo[] = [
+  metaCombo("w"),
+  { key: "w", meta: false, ctrl: true, shift: false, alt: false },
+  metaCombo("t"),
+  { key: "t", meta: false, ctrl: true, shift: false, alt: false },
+  metaCombo("n"),
+  { key: "n", meta: false, ctrl: true, shift: false, alt: false },
+];
+
+/** Whether `combo` is one the browser claims before Manor ever sees it. */
+export function isBrowserReservedCombo(combo: KeyCombo): boolean {
+  return BROWSER_RESERVED_COMBOS.some((reserved) =>
+    comboMatches(reserved, combo),
+  );
+}
+
+/**
  * Returns a copy of DEFAULT_KEYBINDINGS adjusted for the given platform.
  * On non-macOS platforms, `meta` is swapped to `ctrl`.
+ *
+ * `"web"` (ADR-181 D7 — window.electronAPI.platform in a browser) is its own
+ * variant: every other default is the same as on mac, but a default landing
+ * on a {@link BROWSER_RESERVED_COMBOS} entry — closing the tab, opening a new
+ * one, opening a new window — ships with no combo at all, since the browser
+ * intercepts the key before Manor's own listener runs. Those commands stay
+ * reachable from the palette and the menu; the user just has to get there
+ * without the shortcut this ADR can't give them on the web.
  */
 export function platformDefaults(platform: string): KeybindingDef[] {
-  const isMac = platform.toLowerCase().includes("mac");
+  const isWeb = platform === "web";
+  const isMac = isWeb || platform.toLowerCase().includes("mac");
 
-  if (isMac) {
-    return DEFAULT_KEYBINDINGS.map((def) => ({
-      ...def,
-      defaultCombo: def.defaultCombo ? { ...def.defaultCombo } : undefined,
-    }));
-  }
+  const mapped = isMac
+    ? DEFAULT_KEYBINDINGS.map((def) => ({
+        ...def,
+        defaultCombo: def.defaultCombo ? { ...def.defaultCombo } : undefined,
+      }))
+    : DEFAULT_KEYBINDINGS.map((def) => ({
+        ...def,
+        defaultCombo: def.defaultCombo
+          ? {
+              ...def.defaultCombo,
+              meta: false,
+              ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
+            }
+          : undefined,
+      }));
 
-  return DEFAULT_KEYBINDINGS.map((def) => ({
-    ...def,
-    defaultCombo: def.defaultCombo
-      ? {
-          ...def.defaultCombo,
-          meta: false,
-          ctrl: def.defaultCombo.meta ? true : def.defaultCombo.ctrl,
-        }
-      : undefined,
-  }));
+  if (!isWeb) return mapped;
+
+  return mapped.map((def) =>
+    def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)
+      ? { ...def, defaultCombo: undefined }
+      : def,
+  );
 }
 
 /**

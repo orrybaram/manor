@@ -730,6 +730,12 @@ button.keybindingShortcut:hover {
   width: 100%;
 }
 
+.keybindingReserved {
+  font-size: 11px;
+  color: var(--yellow, #eab308);
+  width: 100%;
+}
+
 button.keybindingActionBtn {
   background: none;
   border: none;

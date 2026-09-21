@@ -1,6 +1,6 @@
 ---
 title: Thin pane routes — shared tab builders, locate(), route factory, file split
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [7]

@@ -1,6 +1,6 @@
 ---
 title: A browser does not advertise the chords it cannot have
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: []

@@ -75,6 +75,7 @@ import {
 } from "./lib/home";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import { isWebApp } from "./lib/platform";
+import { useLayoutMode } from "./hooks/useLayoutMode";
 import "./App.css";
 
 function App() {
@@ -84,6 +85,11 @@ function App() {
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
+  // ADR-181 D2: one hook decides phone vs. desk for every renderer. A
+  // detached window (OWN_CLAIM below) reports its own `isDetached` and the
+  // hook always answers "desk" for it, so both render paths below can share
+  // this single call.
+  const layoutMode = useLayoutMode();
 
   useMountEffect(() => {
     loadTheme();
@@ -627,7 +633,7 @@ function App() {
       : undefined;
     return (
       <TooltipProvider>
-        <div className="app">
+        <div className="app" data-layout={layoutMode}>
           {claimPanel ? (
             <div className="app-body">
               <PaneDragProvider>
@@ -683,7 +689,7 @@ function App() {
 
   return (
     <TooltipProvider>
-    <div className="app">
+    <div className="app" data-layout={layoutMode}>
       <div className="app-body">
         {sidebarVisible && hasProjects && (
           <Sidebar

@@ -36,7 +36,7 @@ import { proxyToRenderer } from "../../renderer-bridge";
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
-import type { ControlDeps } from "../../routes/types";
+import type { HostDeps } from "../../routes/types";
 import { LayoutStore } from "../../layout/layout-store";
 import type { LayoutPersistence } from "../../terminal-host/layout-persistence";
 import type { LocalBackend } from "../../backend/local-backend";
@@ -77,7 +77,7 @@ describe("RemoteControlServer", () => {
   let server: RemoteControlServer;
   let base: string;
   let getAgentById: ReturnType<typeof vi.fn>;
-  let deps: ControlDeps;
+  let deps: HostDeps;
   let now: number;
   let auditDir: string;
   let audit: RemoteAuditLog;
@@ -100,11 +100,10 @@ describe("RemoteControlServer", () => {
     ptyWrite = vi.fn();
     subscribe = vi.fn(() => true);
     getAgentById = vi.fn(() => null);
+    // Only what these tests reach: the routes read `HostDeps` non-null, so a
+    // manager a test needs is stubbed where it needs it (`withLiveSession`,
+    // `withKnownWorkspace`).
     deps = {
-      projectManager: null,
-      githubManager: null,
-      linearManager: null,
-      layoutPersistence: null,
       // ADR-179 D5: `POST /tabs` and `DELETE /panes/:paneId` now drive this
       // directly, no renderer round-trip — a real (unpersisted) store, same
       // trick `layout-store.test.ts` uses.
@@ -127,18 +126,16 @@ describe("RemoteControlServer", () => {
         getAllAgents: () => [],
         getAgentById,
         getAgentByPaneId: () => null,
-      } as unknown as ControlDeps["agentManager"],
-      backend: null,
-      notificationStore: null,
-      statsStore: null,
-      preferencesManager: null,
-      themeManager: null,
-      portScanner: null,
-      remoteControl: null,
-      agentHookServer: null,
-      webviewServer: null,
-      getRendererWindows: null,
-    };
+      } as unknown as HostDeps["agentManager"],
+      // What a launch reads to resolve its command (`resolveAgentCommand`).
+      preferencesManager: {
+        getAll: () => ({
+          homeHarness: "claude",
+          homeCustomCommand: "",
+          homeCustomInterrupt: "",
+        }),
+      } as unknown as HostDeps["preferencesManager"],
+    } as unknown as HostDeps;
     server = new RemoteControlServer(() => deps, devices, {
       limiter: new AuthRateLimiter(() => now),
       audit,
@@ -172,7 +169,7 @@ describe("RemoteControlServer", () => {
     );
     deps.backend = {
       pty: { write: ptyWrite },
-    } as unknown as ControlDeps["backend"];
+    } as unknown as HostDeps["backend"];
   }
 
   /**
@@ -196,7 +193,7 @@ describe("RemoteControlServer", () => {
           ],
         },
       ],
-    } as unknown as ControlDeps["projectManager"];
+    } as unknown as HostDeps["projectManager"];
   }
 
   const get = (path: string, token?: string, headers: HeadersInit = {}) =>
@@ -360,9 +357,9 @@ describe("RemoteControlServer", () => {
         text: "hi",
         confirmed: true,
       });
-      // 503 is the handler answering (no backend in these deps) — the point is
+      // 404 is the handler answering (no session matches "t") — the point is
       // that the request got past the table, which the read device cannot.
-      expect(res.status).toBe(503);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -776,7 +773,7 @@ describe("RemoteControlServer", () => {
           write: ptyWrite,
           getSnapshot: async () => ({ screenAnsi: "$ ", cols: 80, rows: 24 }),
         },
-      } as unknown as ControlDeps["backend"];
+      } as unknown as HostDeps["backend"];
       const res = await post("/sessions/read", FULL_TOKEN, {
         target: "agent-1",
       });
@@ -934,14 +931,6 @@ describe("RemoteControlServer", () => {
       expect((await get("/workspaces")).status).toBe(401);
     });
 
-    it("503s when project management is not available", async () => {
-      const res = await get("/workspaces", READ_TOKEN);
-      expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({
-        error: "Project management is not available",
-      });
-    });
-
     it("gives a read-only device the list — this is a read, the tier is irrelevant", async () => {
       deps.projectManager = {
         getProjects: async () => [
@@ -974,7 +963,7 @@ describe("RemoteControlServer", () => {
             sidebarOrder: [],
           },
         ],
-      } as unknown as ControlDeps["projectManager"];
+      } as unknown as HostDeps["projectManager"];
 
       const res = await get("/workspaces", READ_TOKEN);
       expect(res.status).toBe(200);
@@ -1026,7 +1015,7 @@ describe("RemoteControlServer", () => {
             sidebarOrder: [],
           },
         ],
-      } as unknown as ControlDeps["projectManager"];
+      } as unknown as HostDeps["projectManager"];
 
       const body = (await (
         await get("/workspaces", READ_TOKEN)
@@ -1105,7 +1094,7 @@ describe("RemoteControlServer", () => {
             sidebarOrder: [],
           },
         ],
-      } as unknown as ControlDeps["projectManager"];
+      } as unknown as HostDeps["projectManager"];
 
       const body = (await (await get("/workspaces", READ_TOKEN)).json()) as {
         projectId: string;

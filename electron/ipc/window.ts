@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import { createDetachedWindow, formatClaimArg } from "../window";
-import type { IpcDeps } from "./types";
+import type { HostDeps } from "./types";
 
 interface Bounds {
   x: number;
@@ -79,7 +79,7 @@ export function listWindows(
     .map((win) => ({ id: win.webContents.id, bounds: win.getBounds() }));
 }
 
-export function register(deps: IpcDeps): void {
+export function register(deps: HostDeps): void {
   /**
    * Pop a tab out into a window of its own (ADR-179 D4).
    *

@@ -22,7 +22,7 @@ vi.mock("../renderer-bridge", () => ({
 
 import { proxyToRenderer } from "../renderer-bridge";
 import { paneRoutes } from "./panes";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LocalBackend } from "../backend/local-backend";
@@ -38,7 +38,7 @@ function findRoute(routes: Route[], method: Route["method"], path: string): Rout
 
 async function call(
   route: Route,
-  deps: ControlDeps,
+  deps: HostDeps,
   {
     params = {},
     body = {},
@@ -63,7 +63,7 @@ async function call(
 describe("panes/tabs routes (ADR-179 D5)", () => {
   let tmpDir: string;
   let store: LayoutStore;
-  let deps: ControlDeps;
+  let deps: HostDeps;
   let paneTitlePublishes: Array<{ paneId: string; title: string | null }>;
 
   beforeEach(() => {
@@ -83,7 +83,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
         paneTitlePublishes.push({ paneId, title });
       },
     );
-    deps = { layoutStore: store } as ControlDeps;
+    deps = { layoutStore: store } as unknown as HostDeps;
     vi.mocked(proxyToRenderer).mockClear();
   });
 
@@ -497,13 +497,6 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
         status: 400,
         body: { error: "Unknown tabId: no-such-tab" },
       });
-    });
-
-    it("503s with no layout store", async () => {
-      const res = await call(route, { layoutStore: null } as ControlDeps, {
-        params: { tabId: "tab-1" },
-      });
-      expect(res.status).toBe(503);
     });
   });
 

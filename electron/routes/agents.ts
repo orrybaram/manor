@@ -11,29 +11,24 @@
  * (ADR-179 ticket 11).
  */
 
-import { BrowserWindow } from "electron";
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import { getConnector } from "../agent-connectors";
-import {
-  DEFAULT_AGENT_COMMAND,
-  agentCommandWithPrompt,
-} from "../../src/lib/agent-command";
-import { isHomePath } from "../../src/lib/home-path";
-import { homeLaunchCommand } from "../../src/lib/home";
+import { agentCommandWithPrompt } from "../../src/lib/agent-command";
+import { resolveAgentCommand } from "../../src/lib/resolve-agent-command";
 import { createTab } from "../../src/lib/layout/ids";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
 import type { LayoutOrigin } from "../layout/layout-store";
 import { interruptSequenceFor } from "../harness-interrupt";
+import { sendAgentUpdate } from "../notifications";
 import {
-  getUnseenFlagsForAgent,
-  markAgentNotificationsRead,
-  unseenInputAgents,
-  unseenRespondedAgents,
-} from "../notifications";
-import { publishRendererBroadcast } from "../renderer-broadcast";
+  agentsDelete,
+  agentsMarkSeen,
+  agentsUpdate,
+} from "../bridge/handlers/agents";
+import { localCtx } from "../bridge/method";
 import { stripAnsi } from "../terminal-host/output-pattern-matcher";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 
 /** The wire shape `GET /agents` returns — a curated slice of `AgentInfo`. */
 export interface AgentSummary {
@@ -121,37 +116,15 @@ export function resolveTarget(
 }
 
 /**
- * Broadcast an `agents`/`updated` event, mirroring the main send-site in
- * `../notifications.ts` (`sendAgentUpdate`). `ControlDeps` has no
- * `preferencesManager`, so the dock-badge refresh that function also does is
- * skipped here — the renderer still gets the authoritative unseen flags in
- * the broadcast itself, which is what every consumer (sidebar, palette,
- * toasts) actually reads.
- *
- * `publishRendererBroadcast` reaches every desktop window and every browser
- * on the bridge alike (ADR-180 ticket 9) — no `BrowserWindow` lookup, and no
- * legacy `webContents.send` left beside it.
- */
-function broadcastAgentUpdate(agent: AgentInfo): void {
-  publishRendererBroadcast(
-    "agents",
-    "updated",
-    agent,
-    getUnseenFlagsForAgent(agent.id),
-  );
-}
-
-/**
  * Everything both write routes need before they may touch a pty.
  *
  * `/sessions/send` and `/sessions/interrupt` differ in exactly two ways —
  * whether text is required, and whether a prompt follows the interrupt. Every
- * other step is shared, so it happens here once: the deps are present, the
- * target resolves to a session, that session still has a live pane, and this
+ * other step is shared, so it happens here once: the target resolves to a
+ * session, that session still has a live pane, and this
  * harness's interrupt sequence is known.
  *
- * `write` is bound to the pane, so neither handler needs a non-null assertion
- * on `deps.backend` after this has checked it. `result` is the 200 body, built
+ * `write` is bound to the pane. `result` is the 200 body, built
  * *now* — which makes the ordering rule structural rather than a comment: the
  * `lastAgentStatus` a caller gets back is the one from before anything
  * interrupted, because it was read before the caller could write.
@@ -172,24 +145,9 @@ interface TargetResult {
 }
 
 function prepareWrite(
-  deps: ControlDeps,
+  deps: HostDeps,
   body: Record<string, unknown>,
 ): PreparedWrite {
-  if (!deps.agentManager) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Agent management is not available",
-    };
-  }
-  if (!deps.backend) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Session backend is not available",
-    };
-  }
-
   const target = body.target;
   if (typeof target !== "string" || target.length === 0) {
     return {
@@ -216,10 +174,9 @@ function prepareWrite(
     };
   }
 
-  const backend = deps.backend;
   return {
     ok: true,
-    write: (data) => backend.pty.write(paneId, data),
+    write: (data) => deps.backend.pty.write(paneId, data),
     interrupt: interruptSequenceFor(
       agent.agentKind,
       typeof body.interrupt === "string" ? body.interrupt : undefined,
@@ -233,28 +190,21 @@ function prepareWrite(
 
 type ResolvedAgent =
   | { ok: false; status: number; error: string }
-  | { ok: true; agentManager: AgentManager; agent: AgentInfo };
+  | { ok: true; agent: AgentInfo };
 
 /**
- * Shared preamble for the `/agents/:agentId/*` management routes: no manager
- * is a capability gap (503), and `:agentId` resolves the same forgiving way
+ * Shared preamble for the `/agents/:agentId/*` management routes: `:agentId`
+ * resolves the same forgiving way
  * `/sessions/read` resolves `target` (`resolveTarget`, above) — an agent id,
  * or a raw paneId — so a caller holding either handle can reach the same
  * agent. Not found is the caller's mistake (404).
  */
-function resolveAgentParam(deps: ControlDeps, agentId: string): ResolvedAgent {
-  if (!deps.agentManager) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Agent management is not available",
-    };
-  }
+function resolveAgentParam(deps: HostDeps, agentId: string): ResolvedAgent {
   const agent = resolveTarget(deps.agentManager, agentId);
   if (!agent) {
     return { ok: false, status: 404, error: `No agent matches '${agentId}'` };
   }
-  return { ok: true, agentManager: deps.agentManager, agent };
+  return { ok: true, agent };
 }
 
 
@@ -270,37 +220,6 @@ export type StartAgentResult =
   | { ok: false; status: number; error: string };
 
 const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
-
-/**
- * The launch command for one workspace, most specific source first.
- *
- * The main-process twin of `getAgentCommand` (`src/agent-defaults.ts`), which
- * reads the same three sources out of Zustand stores instead of out of the
- * managers: an explicit override, the home harness for the Home surface, the
- * owning project's `agentCommand`, then the default.
- */
-async function resolveAgentCommand(
-  deps: ControlDeps,
-  workspacePath: string,
-  override?: string,
-): Promise<string> {
-  if (override) return override;
-  if (isHomePath(workspacePath)) {
-    const prefs = deps.preferencesManager?.getAll();
-    return prefs
-      ? homeLaunchCommand({
-          homeHarness: prefs.homeHarness,
-          homeCustomCommand: prefs.homeCustomCommand,
-          homeCustomInterrupt: prefs.homeCustomInterrupt,
-        })
-      : DEFAULT_AGENT_COMMAND;
-  }
-  const projects = (await deps.projectManager?.getProjects()) ?? [];
-  const owner = projects.find((project) =>
-    project.workspaces.some((workspace) => workspace.path === workspacePath),
-  );
-  return owner?.agentCommand ?? DEFAULT_AGENT_COMMAND;
-}
 
 /**
  * Open an agent tab in `workspacePath` and queue its launch line — entirely on
@@ -323,20 +242,18 @@ async function resolveAgentCommand(
  * does not move it.
  */
 export async function startAgentInWorkspace(
-  deps: ControlDeps,
+  deps: HostDeps,
   workspacePath: string,
   options: { prompt?: string; agentCommand?: string } = {},
 ): Promise<StartAgentResult> {
   const store = deps.layoutStore;
-  if (!store) {
-    return { ok: false, status: 503, error: "Layout store is not available" };
-  }
-
-  const base = await resolveAgentCommand(
-    deps,
+  // The renderer's `getAgentCommand` asks the same question of its stores.
+  const base = resolveAgentCommand({
+    override: options.agentCommand,
     workspacePath,
-    options.agentCommand,
-  );
+    homePrefs: deps.preferencesManager.getAll(),
+    projects: await deps.projectManager.getProjects(),
+  });
   const tab = createTab();
   const paneId = allPaneIds(tab.rootNode)[0];
 
@@ -366,11 +283,6 @@ export const agentRoutes: Route[] = [
     method: "GET",
     path: "/agents",
     async handler({ deps, url, json }) {
-      if (!deps.agentManager) {
-        json(200, []);
-        return;
-      }
-
       const projectId = url.searchParams.get("projectId") ?? undefined;
       const status = url.searchParams.get("status") ?? undefined;
       const limitParam = parseInt(url.searchParams.get("limit") ?? "", 10);
@@ -492,15 +404,6 @@ export const agentRoutes: Route[] = [
     method: "POST",
     path: "/sessions/end",
     async handler({ deps, json, readBody }) {
-      if (!deps.agentManager) {
-        json(503, { error: "Agent management is not available" });
-        return;
-      }
-      if (!deps.backend) {
-        json(503, { error: "Session backend is not available" });
-        return;
-      }
-
       const body = await readBody();
       const target = body.target;
       if (typeof target !== "string" || target.length === 0) {
@@ -529,7 +432,7 @@ export const agentRoutes: Route[] = [
           status: "abandoned",
           completedAt: new Date().toISOString(),
         });
-        if (updated) broadcastAgentUpdate(updated);
+        if (updated) sendAgentUpdate(updated, deps.preferencesManager);
       }
 
       json(200, { ok: true, target: { id: agent.id, paneId } });
@@ -553,15 +456,6 @@ export const agentRoutes: Route[] = [
     path: "/sessions/read",
     async handler({ deps, json, readBody }) {
       const body = await readBody();
-
-      if (!deps.agentManager) {
-        json(503, { error: "Agent management is not available" });
-        return;
-      }
-      if (!deps.backend) {
-        json(503, { error: "Session backend is not available" });
-        return;
-      }
 
       const target = body.target;
       if (typeof target !== "string" || target.length === 0) {
@@ -668,7 +562,7 @@ export const agentRoutes: Route[] = [
   },
 
   {
-    // Mirrors `agents:update` (`../ipc/agents.ts`), the IPC handler the
+    // `agents.update` (`../bridge/handlers/agents.ts`), the handler the
     // renderer's `renameAgent` invokes: a non-empty `name` pins it, an empty
     // one un-pins and clears it. `renameAgent` also restores the live pty
     // title on clear — renderer-only state (`paneAgentStatus`) this route has
@@ -696,24 +590,21 @@ export const agentRoutes: Route[] = [
         ? { name: trimmed, namePinned: true }
         : { name: null, namePinned: false };
 
-      const updated = resolved.agentManager.updateAgent(
-        resolved.agent.id,
-        updates,
-      );
+      const updated = agentsUpdate(localCtx(deps), resolved.agent.id, updates);
       if (!updated) {
         json(404, { error: `No agent matches '${params.agentId}'` });
         return;
       }
-      broadcastAgentUpdate(updated);
       json(200, toSummary(updated));
     },
   },
 
   {
     // Destructive: permanently removes the agent record (not the workspace or
-    // its files — just Manor's memory of the session). Mirrors `agents:delete`
-    // (`../ipc/agents.ts`), including clearing the unseen-flag sets so a
-    // deleted agent can't keep the dock badge lit.
+    // its files — just Manor's memory of the session). `agents.delete`
+    // (`../bridge/handlers/agents.ts`) itself, so the unseen-flag sets are
+    // cleared and the dock badge recomputed exactly as a renderer's delete
+    // does — a deleted agent can't keep the badge lit.
     method: "DELETE",
     path: "/agents/:agentId",
     async handler({ deps, params, json }) {
@@ -723,20 +614,14 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      unseenRespondedAgents.delete(resolved.agent.id);
-      unseenInputAgents.delete(resolved.agent.id);
-      const ok = resolved.agentManager.deleteAgent(resolved.agent.id);
-      // `updateDockBadge` (called here in `agents:delete`) needs
-      // `preferencesManager`, which `ControlDeps` doesn't carry — skipped;
-      // the unseen sets above are still cleared, so the badge is only stale
-      // until the next agent event recomputes it.
+      const ok = agentsDelete(localCtx(deps), resolved.agent.id);
       json(200, { ok });
     },
   },
 
   {
-    // Mirrors `agents:markSeen` (`../ipc/agents.ts`): clears both unseen sets
-    // for this agent, marks its notification-log entries read, and
+    // `agents.markSeen` (`../bridge/handlers/agents.ts`) itself: clears both
+    // unseen sets for this agent, marks its notification-log entries read, and
     // re-broadcasts so the renderer's cache drops the pulse without a reload.
     method: "POST",
     path: "/agents/:agentId/seen",
@@ -747,24 +632,16 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      unseenRespondedAgents.delete(resolved.agent.id);
-      unseenInputAgents.delete(resolved.agent.id);
-      markAgentNotificationsRead(
-        resolved.agent.id,
-        BrowserWindow.getAllWindows()[0] ?? null,
-      );
-
-      const fresh = resolved.agentManager.getAgentById(resolved.agent.id);
-      if (fresh) broadcastAgentUpdate(fresh);
+      agentsMarkSeen(localCtx(deps), resolved.agent.id);
       json(200, { ok: true });
     },
   },
 
   {
-    // Mirrors `agents:buildResumeCommand` (`../ipc/agents.ts`): the shell
-    // command that would resume this agent's session in its harness, or
-    // `409` if the agent never recorded one (e.g. it was never launched from
-    // a resumable command).
+    // Mirrors `agents.buildResumeCommand` (`../bridge/handlers/agents.ts`):
+    // the shell command that would resume this agent's session in its
+    // harness, or `409` if the agent never recorded one (e.g. it was never
+    // launched from a resumable command).
     method: "GET",
     path: "/agents/:agentId/resume-command",
     async handler({ deps, params, json }) {

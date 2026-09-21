@@ -24,7 +24,7 @@
  * 3. Whoever stops being the owner — or starts — is told, through
  *    `onAttachmentChange`. A viewer never has to ask.
  *
- * This is a module-level registry rather than something hung off `IpcDeps`
+ * This is a module-level registry rather than something hung off `HostDeps`
  * because there is exactly one host per main process, and every caller — the
  * bridge's handler table, the bridge server's disconnect handler, a window
  * dying in `app-lifecycle.ts` — must be looking at the same set or the

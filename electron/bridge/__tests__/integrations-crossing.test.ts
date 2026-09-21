@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import { UNAVAILABLE_CODE } from "../types";
 import { BridgeServer } from "../server";
 import type { BridgeConnection, EventFrame } from "../types";
@@ -54,7 +54,7 @@ describe("git.push over the bridge", () => {
     const deps = {
       getRendererWindows: () => [],
       backend: { git: { pushStream } },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps);
   });
 
@@ -161,7 +161,7 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
       getRendererWindows: () => [],
       remoteControl,
       linearManager,
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps);
   });
 

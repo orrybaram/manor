@@ -2,7 +2,7 @@
  * `agentsGetActive`, `agentsGetRecent`, `agentsConsumePruneNotice`.
  *
  * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so these are plain functions over `IpcDeps` — the same
+ * ADR-180 ticket 9, so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */

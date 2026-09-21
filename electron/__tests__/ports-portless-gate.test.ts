@@ -3,7 +3,7 @@
  * `ports.updateWorkspaceMetadata`.
  *
  * No `ipcMain` here any more: `ports` crossed to the handler table in
- * ADR-180 ticket 8, so these are plain functions over `IpcDeps` — the same
+ * ADR-180 ticket 8, so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */

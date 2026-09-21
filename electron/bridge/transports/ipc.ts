@@ -58,7 +58,7 @@ import {
   type WebContents,
 } from "electron";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import {
   setRendererWindowResolver,
   type RendererWindowLike,
@@ -140,7 +140,7 @@ export class IpcBridgeTransport {
    *   transport, and disposed by whoever built it, not by this.
    */
   constructor(
-    private readonly deps: IpcDeps,
+    private readonly deps: HostDeps,
     private readonly server: BridgeServer,
   ) {}
 

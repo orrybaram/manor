@@ -21,13 +21,7 @@ import {
   getPaneRendererWebContents,
 } from "./ipc/webview";
 import type { StartRecordingResult } from "./recording-manager";
-import type { ProjectManager } from "./persistence";
-import type { GitHubManager } from "./github";
-import type { LinearManager } from "./linear";
-import type { LayoutPersistence } from "./terminal-host/layout-persistence";
-import type { AgentManager } from "./agent-persistence";
-import type { LocalBackend } from "./backend/local-backend";
-import type { ControlDeps } from "./routes/types";
+import type { HostDeps } from "./routes/types";
 
 interface ConsoleEntry {
   timestamp: string;
@@ -73,53 +67,23 @@ const PORT_FILE = webviewServerPortFile();
 export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
-  private registry: Map<string, number>; // paneId → webContentsId
-  private projectManager: ProjectManager | null;
-  private githubManager: GitHubManager | null;
-  private linearManager: LinearManager | null;
-  private layoutPersistence: LayoutPersistence | null;
-  private agentManager: AgentManager | null;
-  private backend: LocalBackend | null;
   private consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
-  /**
-   * The full manager bag routes need (ADR-171), set once via
-   * `setControlDeps` after `app-lifecycle.ts` assembles `ipcDeps`. Merged
-   * over the six positional constructor fallbacks below in
-   * `handleControlRequest` so unit tests that construct a bare
-   * `WebviewServer` (no setter call) keep working.
-   */
-  private controlDeps: Partial<ControlDeps> = {};
 
+  /**
+   * `getDeps` is what the control routes (ADR-171) run over: the one
+   * `HostDeps` the bridge handlers get too (ADR-182 D8). A getter rather than
+   * the object because that object holds this server — `app-lifecycle.ts`
+   * builds it after constructing us — and the first request cannot arrive
+   * before `start()`, which runs once it exists.
+   */
   constructor(
-    registry: Map<string, number>,
-    projectManager?: ProjectManager,
-    githubManager?: GitHubManager,
-    linearManager?: LinearManager,
-    layoutPersistence?: LayoutPersistence,
-    agentManager?: AgentManager,
-    backend?: LocalBackend,
-  ) {
-    this.registry = registry;
-    this.projectManager = projectManager ?? null;
-    this.githubManager = githubManager ?? null;
-    this.linearManager = linearManager ?? null;
-    this.layoutPersistence = layoutPersistence ?? null;
-    this.agentManager = agentManager ?? null;
-    this.backend = backend ?? null;
-  }
+    private readonly registry: Map<string, number>, // paneId → webContentsId
+    private readonly getDeps: () => HostDeps,
+  ) {}
 
   get serverPort(): number {
     return this.port;
-  }
-
-  /**
-   * Give control routes the full manager bag. Called once from
-   * `app-lifecycle.ts` right after `ipcDeps` is assembled; every field is
-   * optional so tests can pass a partial bag or skip the call entirely.
-   */
-  setControlDeps(deps: Partial<ControlDeps>): void {
-    this.controlDeps = deps;
   }
 
   /** Start the HTTP server on a random port */
@@ -277,38 +241,8 @@ export class WebviewServer {
     };
 
     // ── Manor-control routes (/projects…, /agents) ──
-    //
-    // The six constructor fields are the fallback; `this.controlDeps` (set
-    // via `setControlDeps`) wins where both are present, and carries the
-    // fields the constructor never took.
     if (
-      await handleControlRequest(
-        {
-          projectManager: this.projectManager,
-          githubManager: this.githubManager,
-          linearManager: this.linearManager,
-          layoutPersistence: this.layoutPersistence,
-          layoutStore: null,
-          agentManager: this.agentManager,
-          backend: this.backend,
-          notificationStore: null,
-          statsStore: null,
-          preferencesManager: null,
-          themeManager: null,
-          portScanner: null,
-          remoteControl: null,
-          agentHookServer: null,
-          // Always us: the server answering the request is the one
-          // `GET /processes` has to report a port for.
-          webviewServer: this,
-          getRendererWindows: null,
-          ...this.controlDeps,
-        },
-        method,
-        url,
-        json,
-        readBody,
-      )
+      await handleControlRequest(this.getDeps(), method, url, json, readBody)
     ) {
       return;
     }

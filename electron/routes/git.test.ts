@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { gitRoutes } from "./git";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 import type { ProjectInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
 
@@ -93,23 +93,23 @@ function makeGit() {
 }
 
 function deps(
-  git: GitBackend | null,
+  git: GitBackend,
   projects: ProjectInfo[] = [makeProject()],
-): ControlDeps {
+): HostDeps {
   const projectManager = {
     async getProjects() {
       return projects;
     },
   };
   return {
-    backend: git ? ({ git } as unknown as ControlDeps["backend"]) : null,
-    projectManager: projectManager as unknown as ControlDeps["projectManager"],
-  } as unknown as ControlDeps;
+    backend: { git } as unknown as HostDeps["backend"],
+    projectManager: projectManager as unknown as HostDeps["projectManager"],
+  } as unknown as HostDeps;
 }
 
 async function call(
   r: Route,
-  d: ControlDeps,
+  d: HostDeps,
   opts: { body?: Record<string, unknown>; query?: Record<string, string> } = {},
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
@@ -226,24 +226,5 @@ describe("git routes", () => {
       query: { cwd: "/somewhere/else" },
     });
     expect(res.status).toBe(400);
-  });
-
-  it("503s every route when the git backend is unavailable", async () => {
-    const res = await call(route("GET", "/git/staged-files"), deps(null), {
-      query: { cwd: WORKSPACE_PATH },
-    });
-    expect(res.status).toBe(503);
-  });
-
-  it("503s when project management is unavailable", async () => {
-    const { git } = makeGit();
-    const d = {
-      backend: { git } as unknown as ControlDeps["backend"],
-      projectManager: null,
-    } as unknown as ControlDeps;
-    const res = await call(route("GET", "/git/staged-files"), d, {
-      query: { cwd: WORKSPACE_PATH },
-    });
-    expect(res.status).toBe(503);
   });
 });

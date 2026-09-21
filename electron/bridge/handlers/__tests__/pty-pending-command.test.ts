@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ptyCreate } from "../pty";
 import { localCtx } from "../../method";
 import { resetAttachments } from "../../../pty-attachments";
-import type { IpcDeps } from "../../../ipc/types";
+import type { HostDeps } from "../../../ipc/types";
 import { PendingCommands } from "../../../layout/pending-commands";
 
 const PANE = "pane-1";
@@ -24,7 +24,7 @@ describe("ptyCreate and pending commands", () => {
   /** What `createOrAttach` reports: a snapshot means the session existed. */
   let snapshot: { screenAnsi: string; seq: number } | null;
   let adopted: Set<string>;
-  let deps: IpcDeps;
+  let deps: HostDeps;
 
   beforeEach(() => {
     pendingCommands = new PendingCommands();
@@ -48,7 +48,7 @@ describe("ptyCreate and pending commands", () => {
       prewarmManager: {
         claimAdopted: (paneId: string) => adopted.delete(paneId),
       },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
   });
 
   // A successful create attaches its caller as a viewer of the pane.

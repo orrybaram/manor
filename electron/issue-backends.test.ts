@@ -54,7 +54,7 @@ const PROJECT: IssueProject = {
 
 const NO_TEAM: IssueProject = { ...PROJECT, linearAssociations: [] };
 
-/** `deps` shaped like ControlDeps' relevant slice, with vi.fn() managers. */
+/** `deps` shaped like HostDeps' relevant slice, with vi.fn() managers. */
 function makeDeps() {
   const githubManager = {
     isReady: vi.fn(async () => true),

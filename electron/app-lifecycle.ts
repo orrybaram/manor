@@ -42,7 +42,7 @@ import { IpcBridgeTransport } from "./bridge/transports/ipc";
 import { TAILSCALE_APP_CLI, TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
-import type { ControlDeps } from "./routes/types";
+import type { HostDeps } from "./ipc/types";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import {
@@ -265,7 +265,7 @@ export function initApp(devTitle: string | null): void {
         body: badge.description,
         target: { type: "stats" },
       });
-      sendNotificationsUpdate(mainWindow);
+      sendNotificationsUpdate();
     },
   });
   setStatsStore(statsStore);
@@ -335,24 +335,9 @@ export function initApp(devTitle: string | null): void {
   const remoteDeviceStore = new RemoteDeviceStore();
   const remotePush = new PushManager(remoteDeviceStore);
   const remoteControlServer = new RemoteControlServer(
-    (): ControlDeps => ({
-      projectManager,
-      githubManager,
-      linearManager,
-      layoutPersistence,
-      layoutStore,
-      agentManager,
-      backend,
-      notificationStore,
-      statsStore,
-      preferencesManager,
-      themeManager,
-      portScanner,
-      remoteControl,
-      agentHookServer,
-      webviewServer,
-      getRendererWindows,
-    }),
+    // A getter: `ipcDeps` holds the controller this server is handed to, so
+    // it is built below. Nothing reads it before the listener is started.
+    () => ipcDeps,
     remoteDeviceStore,
     // Rate limiter, audit log, and client directory all take their defaults.
     { push: remotePush },
@@ -383,15 +368,6 @@ export function initApp(devTitle: string | null): void {
     () => safeStorage.isEncryptionAvailable(),
     remotePush,
   );
-  /**
-   * The host surface and its two transports (ADR-180 D1/D2). Declared here
-   * and built below, once `ipcDeps` exists: the handler table runs against
-   * exactly that object, and the PTY forwarding below has to be able to see
-   * the bridge before it is assigned.
-   */
-  let bridgeServer: BridgeServer | null = null;
-  let wsBridge: WsBridgeServer | null = null;
-  let ipcBridge: IpcBridgeTransport | null = null;
 
   const paneContextMap = new Map<
     string,
@@ -402,6 +378,71 @@ export function initApp(devTitle: string | null): void {
       agentCommand: string | null;
     }
   >();
+
+  // ── Register all IPC handlers before window creation to avoid race conditions ──
+
+  // Its control routes (ADR-171) run over `ipcDeps`, which holds this server
+  // and so is built just below; the first request waits on `start()`.
+  const webviewServer = webviewIpc.createWebviewServer(() => ipcDeps);
+
+  // The one deps object every host-side handler runs over — the bridge's
+  // table, the IPC modules below, and the control routes on both listeners
+  // (ADR-182 D8).
+  const ipcDeps: HostDeps = {
+    get mainWindow() {
+      return mainWindow;
+    },
+    getRendererWindows,
+    registerDetachedWindow,
+    backend,
+    layoutPersistence,
+    layoutStore,
+    projectManager,
+    themeManager,
+    portScanner,
+    branchWatcher,
+    diffWatcher,
+    githubManager,
+    linearManager,
+    agentHookServer,
+    agentManager,
+    notificationStore,
+    statsStore,
+    preferencesManager,
+    keybindingsManager,
+    paneContextMap,
+    unseenRespondedAgents,
+    unseenInputAgents,
+    webviewServer,
+    workspaceMeta: [],
+    prewarmManager,
+    remoteControl,
+    get appMenu() {
+      return appMenu;
+    },
+  };
+
+  // The bridge (ADR-178 D8, ADR-180 D1). Same deps the IPC handlers get, by
+  // design: one table of what this host can do, reachable two ways. The
+  // surface is built here rather than inside the transport because it is the
+  // thing the *next* transport attaches to as well.
+  const bridgeServer = new BridgeServer(ipcDeps);
+  // A connection that drops has already let go of every pane it viewed
+  // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
+  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
+  // shows. Only a desktop window ever claims, so for a socket this is a
+  // no-op.
+  bridgeServer.onDisconnect((connectionId) =>
+    layoutStore.releaseWindow(connectionId),
+  );
+  const wsBridge = new WsBridgeServer(bridgeServer);
+  remoteControlServer.setBridge(wsBridge);
+  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
+  // connection per renderer window. Started unconditionally and for the life
+  // of the app — a window's first frame makes its connection, and remote
+  // control being off has nothing to do with it.
+  const ipcBridge = new IpcBridgeTransport(ipcDeps, bridgeServer);
+  ipcBridge.start();
 
   function updateDockBadge(): void {
     _updateDockBadge(preferencesManager);
@@ -450,7 +491,7 @@ export function initApp(devTitle: string | null): void {
   // the panes it subscribed to. `handleStreamEvent` below keeps what is left:
   // the agent bookkeeping the old per-pane sends were tangled up with.
   backend.pty.onEvent((event: StreamEvent) => {
-    bridgeServer?.handleStreamEvent(event);
+    bridgeServer.handleStreamEvent(event);
     // `paneSessions` is server-derived (ADR-179 D3): cwd, title and agent
     // status reach the layout file from the stream, not from a renderer
     // reporting what it saw.
@@ -466,93 +507,6 @@ export function initApp(devTitle: string | null): void {
       preferencesManager,
       notifyAgentDetectorGone,
     );
-  });
-
-  // ── Register all IPC handlers before window creation to avoid race conditions ──
-
-  const webviewServer = webviewIpc.createWebviewServer(
-    projectManager,
-    githubManager,
-    linearManager,
-    layoutPersistence,
-    agentManager,
-    backend,
-  );
-
-  // Build shared deps object for extracted IPC modules
-  const ipcDeps = {
-    get mainWindow() {
-      return mainWindow;
-    },
-    getRendererWindows,
-    registerDetachedWindow,
-    backend,
-    layoutPersistence,
-    layoutStore,
-    projectManager,
-    themeManager,
-    portScanner,
-    branchWatcher,
-    diffWatcher,
-    githubManager,
-    linearManager,
-    agentHookServer,
-    agentManager,
-    notificationStore,
-    statsStore,
-    preferencesManager,
-    keybindingsManager,
-    paneContextMap,
-    unseenRespondedAgents,
-    unseenInputAgents,
-    webviewServer,
-    workspaceMeta: [],
-    prewarmManager,
-    remoteControl,
-    get appMenu() {
-      return appMenu;
-    },
-  };
-
-  // The bridge (ADR-178 D8, ADR-180 D1). Same deps the IPC handlers get, by
-  // design: one table of what this host can do, reachable two ways. The
-  // surface is built here rather than inside the transport because it is the
-  // thing the *next* transport attaches to as well.
-  bridgeServer = new BridgeServer(ipcDeps);
-  // A connection that drops has already let go of every pane it viewed
-  // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
-  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
-  // shows. Only a desktop window ever claims, so for a socket this is a
-  // no-op.
-  bridgeServer.onDisconnect((connectionId) =>
-    layoutStore.releaseWindow(connectionId),
-  );
-  wsBridge = new WsBridgeServer(bridgeServer);
-  remoteControlServer.setBridge(wsBridge);
-  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
-  // connection per renderer window. Started unconditionally and for the life
-  // of the app — a window's first frame makes its connection, and remote
-  // control being off has nothing to do with it.
-  ipcBridge = new IpcBridgeTransport(ipcDeps, bridgeServer);
-  ipcBridge.start();
-
-  // Give control routes (ADR-171) the same manager bag IPC handlers have.
-  webviewServer.setControlDeps({
-    projectManager: ipcDeps.projectManager,
-    githubManager: ipcDeps.githubManager,
-    linearManager: ipcDeps.linearManager,
-    layoutPersistence: ipcDeps.layoutPersistence,
-    layoutStore: ipcDeps.layoutStore,
-    agentManager: ipcDeps.agentManager,
-    backend: ipcDeps.backend,
-    notificationStore: ipcDeps.notificationStore,
-    statsStore: ipcDeps.statsStore,
-    preferencesManager: ipcDeps.preferencesManager,
-    themeManager: ipcDeps.themeManager,
-    portScanner: ipcDeps.portScanner,
-    remoteControl: ipcDeps.remoteControl,
-    agentHookServer: ipcDeps.agentHookServer,
-    getRendererWindows: ipcDeps.getRendererWindows,
   });
 
   // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):
@@ -707,9 +661,9 @@ export function initApp(devTitle: string | null): void {
     // Bridge sockets die with the listener above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
-    wsBridge?.dispose();
-    ipcBridge?.dispose();
-    bridgeServer?.dispose();
+    wsBridge.dispose();
+    ipcBridge.dispose();
+    bridgeServer.dispose();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
     killAllActivePushes();

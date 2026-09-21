@@ -33,8 +33,7 @@ const DESKTOP_WINDOW: Viewer = { connectionId: "1", callerClass: "local" };
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import { LayoutStore } from "../../layout/layout-store";
 import { LayoutPersistence } from "../../terminal-host/layout-persistence";
-import type { IpcDeps } from "../../ipc/types";
-import type { ControlDeps } from "../../routes/types";
+import type { HostDeps } from "../../ipc/types";
 
 const READ_TOKEN = "read-token";
 const SEND_TOKEN = "send-token";
@@ -82,7 +81,7 @@ describe("WsBridgeServer", () => {
   let bridge: WsBridgeServer;
   /** The host surface the socket transport feeds. */
   let host: BridgeServer;
-  let deps: IpcDeps;
+  let deps: HostDeps;
   let auditDir: string;
   let audit: RemoteAuditLog;
   let port: number;
@@ -121,7 +120,7 @@ describe("WsBridgeServer", () => {
       { pty: { kill: async () => {} } } as never,
     );
 
-    // Enough of `IpcDeps` for the handlers this file exercises. The cast is
+    // Enough of `HostDeps` for the handlers this file exercises. The cast is
     // the point: the bridge takes the real deps object, and a test that
     // rebuilt all 25 managers would be testing the fixture.
     deps = {
@@ -190,12 +189,12 @@ describe("WsBridgeServer", () => {
           listeners: 1,
         }),
       },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
 
     host = new BridgeServer(deps, { audit });
     bridge = new WsBridgeServer(host);
     server = new RemoteControlServer(
-      () => ({}) as unknown as ControlDeps,
+      () => ({}) as unknown as HostDeps,
       devices,
       {
         limiter: new AuthRateLimiter(),

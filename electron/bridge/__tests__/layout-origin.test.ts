@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import { BridgeServer } from "../server";
 import { IpcBridgeTransport } from "../transports/ipc";
 import {
@@ -119,7 +119,7 @@ describe("a layout command's origin", () => {
     const deps = {
       getRendererWindows: () => windows,
       layoutStore: { apply, reportViewport },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     // The real table: the point is what `HANDLERS["layout.apply"]` makes of
     // the caller the server hands it, not that a stub receives one.
     server = new BridgeServer(deps);

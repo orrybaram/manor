@@ -56,6 +56,7 @@ vi.mock("../ipc/webview", async () => {
 });
 
 import { WebviewServer } from "../webview-server";
+import type { HostDeps } from "../ipc/types";
 import { webContents } from "electron";
 import {
   recordingManager,
@@ -170,7 +171,8 @@ describe("WebviewServer", () => {
       .mockReset()
       .mockReturnValue(mockWebContents);
 
-    server = new WebviewServer(registry);
+    // No control route is exercised here, so no manager is ever read.
+    server = new WebviewServer(registry, () => ({}) as HostDeps);
     await server.start();
   });
 

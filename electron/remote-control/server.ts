@@ -37,7 +37,7 @@ import type { Duplex } from "node:stream";
 import { routes } from "../routes/index";
 import { dispatch } from "../routes/router";
 import type {
-  ControlDeps,
+  HostDeps,
   Json,
   ReadBody,
   Route,
@@ -128,7 +128,7 @@ export interface RemoteControlServerOptions {
   /**
    * ADR-178's WebSocket bridge. Null (the default) means `/ws` does not
    * upgrade at all — the desktop builds one in `app-lifecycle.ts` once
-   * `IpcDeps` exists, which is later than this constructor runs.
+   * `HostDeps` exists, which is later than this constructor runs.
    */
   bridge?: WsBridgeServer | null;
 }
@@ -146,7 +146,7 @@ export class RemoteControlServer {
   private bridge: WsBridgeServer | null;
 
   constructor(
-    private readonly getDeps: () => ControlDeps,
+    private readonly getDeps: () => HostDeps,
     private readonly devices: DeviceVerifier,
     options: RemoteControlServerOptions = {},
   ) {
@@ -163,7 +163,7 @@ export class RemoteControlServer {
   }
 
   /**
-   * Hand over the bridge. Separate from the constructor because `IpcDeps` —
+   * Hand over the bridge. Separate from the constructor because `HostDeps` —
    * what the bridge's handler table runs against — is assembled after this
    * server is built, and a lazily-captured reference to a `const` that does
    * not exist yet is a temporal-dead-zone bug waiting for its first caller.
@@ -599,17 +599,14 @@ export class RemoteControlServer {
    * property being enforced is "a directory the user already told Manor about",
    * not "a row the phone was offered".
    *
-   * No `projectManager` means no known paths, which means no remote launch. A
-   * `getProjects()` that throws is the same answer for the same reason — the
-   * check cannot be allowed to fail open, and a throw here would otherwise
-   * escape as a 500 with no audit line.
+   * A `getProjects()` that throws means no known paths, which means no remote
+   * launch — the check cannot be allowed to fail open, and a throw here would
+   * otherwise escape as a 500 with no audit line.
    */
   private async isKnownWorkspace(requested: string | null): Promise<boolean> {
     if (requested === null) return false;
-    const projectManager = this.getDeps().projectManager;
-    if (!projectManager) return false;
     try {
-      const projects = await projectManager.getProjects();
+      const projects = await this.getDeps().projectManager.getProjects();
       return projects.some((project) =>
         project.workspaces.some((workspace) => workspace.path === requested),
       );

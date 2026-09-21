@@ -14,7 +14,7 @@
 import { matchProjectByPath } from "../pane-context";
 import type { ProjectInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
-import type { ControlDeps, Json, Route } from "./types";
+import type { HostDeps, Json, Route } from "./types";
 
 const PUSH_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -25,23 +25,14 @@ interface GitContext {
 }
 
 /**
- * Shared preamble every route below runs first: no backend or no project
- * manager is a capability gap (503); a `cwd` that isn't a string, or doesn't
- * match a known workspace, is the caller's mistake (400).
+ * Shared preamble every route below runs first: a `cwd` that isn't a string,
+ * or doesn't match a known workspace, is the caller's mistake (400).
  */
 async function resolveGit(
-  deps: ControlDeps,
+  deps: HostDeps,
   cwd: unknown,
   json: Json,
 ): Promise<GitContext | null> {
-  if (!deps.backend) {
-    json(503, { error: "Git backend is not available" });
-    return null;
-  }
-  if (!deps.projectManager) {
-    json(503, { error: "Project management is not available" });
-    return null;
-  }
   if (typeof cwd !== "string" || !cwd) {
     json(400, { error: "Missing 'cwd' string" });
     return null;

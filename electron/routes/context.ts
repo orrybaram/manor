@@ -19,12 +19,12 @@ import type { Route } from "./types";
  * A corrupt or half-written file is the same fall-through, not a 500.
  */
 function resolveByPane(
-  layoutPersistence: LayoutPersistence | null,
+  layoutPersistence: LayoutPersistence,
   projects: ProjectInfo[],
   paneId: string | null,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
-  const layout = layoutPersistence?.load() ?? null;
+  const layout = layoutPersistence.load();
   const workspacePath = layout ? findWorkspaceForPane(layout, paneId) : null;
   if (!workspacePath) return null;
   const match = matchProjectByPath(projects, workspacePath);
@@ -37,14 +37,9 @@ export const contextRoutes: Route[] = [
     method: "GET",
     path: "/context",
     async handler({ deps, url, json }) {
-      const pm = deps.projectManager;
-      if (!pm) {
-        json(503, { error: "Project management is not available" });
-        return;
-      }
       const paneId = url.searchParams.get("paneId");
       const cwd = url.searchParams.get("cwd");
-      const projects = await pm.getProjects();
+      const projects = await deps.projectManager.getProjects();
 
       const resolved =
         resolveByPane(deps.layoutPersistence, projects, paneId) ??

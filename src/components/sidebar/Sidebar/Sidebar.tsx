@@ -417,7 +417,11 @@ export function Sidebar(props: SidebarProps) {
                           setWorkspaceHidden(project.id, ws.path, false)
                         }
                         onCreateWorktree={(name, branch, baseBranch, useExistingBranch) =>
-                          createWorktree(project.id, name, branch, undefined, undefined, baseBranch, useExistingBranch)
+                          createWorktree(project.id, name, {
+                            branch,
+                            baseBranch,
+                            useExistingBranch,
+                          })
                         }
                         onOpenSettings={() =>
                           onOpenProjectSettings?.(project.id)

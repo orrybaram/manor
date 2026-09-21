@@ -4,7 +4,7 @@ import path from "node:path";
 import { assertString } from "../ipc-validate";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { openInEditor } from "../editor";
-import type { IpcDeps } from "./types";
+import type { HostDeps } from "./types";
 
 /**
  * The native dialog, the shell escape hatches, the clipboard and the
@@ -21,7 +21,7 @@ import type { IpcDeps } from "./types";
  * `unavailable:web` for all of it, which is what `src/bridge/unavailable.ts`
  * names as a design fact rather than a gap.
  */
-export function register(deps: IpcDeps): void {
+export function register(deps: HostDeps): void {
   const { backend, preferencesManager } = deps;
 
   function getMainWindow() {

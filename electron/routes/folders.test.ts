@@ -6,7 +6,7 @@ vi.mock("../renderer-bridge", () => ({
 
 import { notifyProjectsChanged } from "../renderer-bridge";
 import { folderRoutes } from "./folders";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 import type { ProjectInfo, WorkspaceFolder } from "../persistence";
 
 function route(method: Route["method"], path: string): Route {
@@ -103,13 +103,13 @@ function makeProjectManager(projectId = "p1") {
   };
 }
 
-function deps(pm: ReturnType<typeof makeProjectManager> | null): ControlDeps {
-  return { projectManager: pm } as unknown as ControlDeps;
+function deps(pm: ReturnType<typeof makeProjectManager>): HostDeps {
+  return { projectManager: pm } as unknown as HostDeps;
 }
 
 async function call(
   r: Route,
-  d: ControlDeps,
+  d: HostDeps,
   params: Record<string, string>,
   body: Record<string, unknown> = {},
 ) {
@@ -239,15 +239,6 @@ describe("folder routes", () => {
     );
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toContain("parentId");
-  });
-
-  it("503s every route when project management is unavailable", async () => {
-    const res = await call(
-      route("GET", "/projects/:projectId/folders"),
-      deps(null),
-      { projectId: "p1" },
-    );
-    expect(res.status).toBe(503);
   });
 });
 

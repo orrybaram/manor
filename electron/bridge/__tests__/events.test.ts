@@ -23,7 +23,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import {
   publishRendererBroadcast,
   publishToRenderer,
@@ -55,7 +55,7 @@ describe("bridge events", () => {
   beforeEach(() => {
     const deps = {
       getRendererWindows: () => [],
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps, { handlers: {} });
   });
 

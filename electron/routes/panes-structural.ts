@@ -40,7 +40,7 @@ import {
   requireString,
   requireStringArray,
 } from "./pane-validators";
-import { requireLayoutStore, structural, tabRoute } from "./structural-route";
+import { structural, tabRoute } from "./structural-route";
 
 const REORDER_UNKNOWN = "reorder-tabs: no such panel for these tabIds";
 
@@ -49,8 +49,7 @@ export const structuralRoutes: Route[] = [
     method: "GET",
     path: "/panes",
     async handler({ deps, url, json }) {
-      const store = requireLayoutStore(deps, json);
-      if (!store) return;
+      const store = deps.layoutStore;
       const workspacePath =
         url.searchParams.get("workspacePath") ||
         store.getLastActiveWorkspacePath();
@@ -149,8 +148,7 @@ export const structuralRoutes: Route[] = [
     method: "POST",
     path: "/panes/:paneId/title",
     async handler({ deps, params, json, readBody }) {
-      const store = requireLayoutStore(deps, json);
-      if (!store) return;
+      const store = deps.layoutStore;
       const body = await readBody();
       const { paneId } = params;
       if (body.title !== null && typeof body.title !== "string") {

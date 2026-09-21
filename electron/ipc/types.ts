@@ -1,10 +1,11 @@
 /**
- * `IpcDeps` — the one deps object every host-side handler runs over (ADR-180
+ * `HostDeps` — the one deps object every host-side handler runs over (ADR-180
  * D8, ticket 11). `electron/bridge/handlers.ts` and
  * `electron/bridge/handlers/*` are the handler table's implementation and
  * take this as their first argument; the six modules left in `electron/ipc/`
- * — what only Electron can do — take it too, so there has only ever been one
- * shape of deps to build and one place (`app-lifecycle.ts`) that builds it.
+ * — what only Electron can do — take it too, and so does every control route
+ * under `electron/routes/` (ADR-182 D8). There is one shape of deps to build,
+ * one place (`app-lifecycle.ts`) that builds it, and nothing in it is null.
  */
 import type { BrowserWindow } from "electron";
 import type { LocalBackend } from "../backend/local-backend";
@@ -37,14 +38,7 @@ export interface WorkspaceMeta {
   portlessEnabled: boolean;
 }
 
-/**
- * The same object, by the name the host surface uses for it: what a bridge
- * handler's `ctx.deps` is. An alias until the routes' `ControlDeps` folds
- * into it (ADR-182 D8).
- */
-export type HostDeps = IpcDeps;
-
-export interface IpcDeps {
+export interface HostDeps {
   /** The PRIMARY renderer window. */
   mainWindow: BrowserWindow | null;
   /** All live, non-destroyed renderer windows (primary + detached popups). */

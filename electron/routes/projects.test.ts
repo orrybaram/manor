@@ -21,7 +21,7 @@ vi.mock("../renderer-bridge", () => ({
 }));
 
 import { projectRoutes } from "./projects";
-import type { ControlDeps, Route } from "./types";
+import type { HostDeps, Route } from "./types";
 import { ProjectManager } from "../persistence";
 import {
   LayoutStore,
@@ -102,7 +102,7 @@ describe("DELETE /projects/:projectId/workspaces (ADR-182 D7)", () => {
     const calls: Array<{ status: number; body: unknown }> = [];
 
     await route.handler({
-      deps: { projectManager: pm, layoutStore: store } as ControlDeps,
+      deps: { projectManager: pm, layoutStore: store } as HostDeps,
       params: { projectId },
       url: new URL("http://localhost/projects/x/workspaces"),
       json: (status, body) => calls.push({ status, body }),

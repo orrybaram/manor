@@ -8,9 +8,9 @@
  * counterpart `issue-sources.ts` stays pure (normalization + state vocabulary);
  * this module is where those pure functions meet live managers.
  *
- * Deps are typed against a local `IssueDeps` rather than importing `ControlDeps`
+ * Deps are typed against a local `IssueDeps` rather than importing `HostDeps`
  * from routes/types.ts: the routes import *this* module as a value, so the
- * structural interface keeps the dependency edge one-way. `ControlDeps`
+ * structural interface keeps the dependency edge one-way. `HostDeps`
  * satisfies `IssueDeps` structurally.
  */
 
@@ -31,7 +31,7 @@ import type {
   McpIssueDetail,
 } from "./issue-sources";
 
-/** The slice of `ControlDeps` an issue backend needs. */
+/** The slice of `HostDeps` an issue backend needs. */
 export interface IssueDeps {
   githubManager: GitHubManager | null;
   linearManager: LinearManager | null;

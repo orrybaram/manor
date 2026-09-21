@@ -99,12 +99,7 @@ export function listenerRoutes({
       method: "GET",
       path: "/workspaces",
       async handler({ deps, json }) {
-        const pm = deps.projectManager;
-        if (!pm) {
-          json(503, { error: "Project management is not available" });
-          return;
-        }
-        const projects = await pm.getProjects();
+        const projects = await deps.projectManager.getProjects();
         // Order preserved, not sorted: `getProjects()`'s order is the
         // sidebar's, and the phone should match it.
         const result = projects

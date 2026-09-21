@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MockInstance } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import { resetAttachments } from "../../pty-attachments";
 import { BridgeServer } from "../server";
 import { IpcBridgeTransport, isRendererSender } from "../transports/ipc";
@@ -178,7 +178,7 @@ describe("IpcBridgeTransport", () => {
     ping = vi.fn((_ctx: unknown, value: unknown) => `pong:${String(value)}`);
     const deps = {
       getRendererWindows: () => windows,
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     server = new BridgeServer(deps, {
       handlers: { "demo.ping": ping as never },
     });
@@ -418,7 +418,7 @@ describe("two windows on one pane (D6)", () => {
           },
         },
       },
-    } as unknown as IpcDeps;
+    } as unknown as HostDeps;
     // No `handlers` override: this is the table the app runs.
     server = new BridgeServer(deps);
     transport = new IpcBridgeTransport(deps, server);

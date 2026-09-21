@@ -17,21 +17,25 @@ export function notificationsGetAll(ctx: HandlerCtx): NotificationRecord[] {
   return ctx.deps.notificationStore.getAll();
 }
 
-export function notificationsMarkRead(ctx: HandlerCtx, id: string): void {
+/**
+ * Whether anything changed: `markRead` is false for an id that is unknown *or*
+ * already read, and only a real transition is worth a broadcast.
+ */
+export function notificationsMarkRead(ctx: HandlerCtx, id: string): boolean {
   assertString(id, "id");
-  if (ctx.deps.notificationStore.markRead(id)) {
-    sendNotificationsUpdate(ctx.deps.mainWindow);
-  }
+  const changed = ctx.deps.notificationStore.markRead(id);
+  if (changed) sendNotificationsUpdate();
+  return changed;
 }
 
 export function notificationsMarkAllRead(ctx: HandlerCtx): void {
   ctx.deps.notificationStore.markAllRead();
-  sendNotificationsUpdate(ctx.deps.mainWindow);
+  sendNotificationsUpdate();
 }
 
 export function notificationsClear(ctx: HandlerCtx): void {
   ctx.deps.notificationStore.clear();
-  sendNotificationsUpdate(ctx.deps.mainWindow);
+  sendNotificationsUpdate();
 }
 
 /**

@@ -29,7 +29,7 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import type { IpcDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import { RemoteAuditLog } from "../../remote-control/audit";
 import {
   HANDLERS,
@@ -53,7 +53,7 @@ function makeConnection(
   };
 }
 
-const deps = { getRendererWindows: () => [] } as unknown as IpcDeps;
+const deps = { getRendererWindows: () => [] } as unknown as HostDeps;
 
 /** The real table's keys, with stubs that record who got through. */
 function stubTable(called: string[]): Record<string, BridgeHandler> {

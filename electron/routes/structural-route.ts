@@ -2,13 +2,13 @@
  * The structural-route factory (ADR-182 D8).
  *
  * A structural route is a `structural({ parse, locate, command, respond })`
- * spec. The factory owns everything those routes used to repeat: the 503
- * with no store, the 400 for a bad argument, the workspace resolution and
+ * spec. The factory owns everything those routes used to repeat: the 400
+ * for a bad argument, the workspace resolution and
  * its `NO_WORKSPACE_ERROR`, the 400 for an id no workspace holds, a pending
  * shell line for a minted pane, and the 400 for a refused command.
  */
 
-import type { ControlDeps, Json, Route } from "./types";
+import type { Route } from "./types";
 import type {
   LayoutOrigin,
   LayoutStore,
@@ -26,17 +26,6 @@ const ROUTE_ORIGIN: LayoutOrigin = { kind: "route", id: "cli" };
 
 const NO_WORKSPACE_ERROR =
   "No workspace: pass workspacePath, name a paneId/tabId already open in one, or open a workspace first";
-
-export function requireLayoutStore(
-  deps: ControlDeps,
-  json: Json,
-): LayoutStore | null {
-  if (!deps.layoutStore) {
-    json(503, { error: "Layout store is not available" });
-    return null;
-  }
-  return deps.layoutStore;
-}
 
 type Body = Record<string, unknown>;
 type Applied = Exclude<LayoutApplyResult, { error: string }>;
@@ -88,8 +77,7 @@ export function structural<P = undefined, C extends LayoutCommand = LayoutComman
   spec: Structural<P, C>,
 ): Route["handler"] {
   return async ({ deps, params, json, readBody }) => {
-    const store = requireLayoutStore(deps, json);
-    if (!store) return;
+    const store = deps.layoutStore;
     const body = await readBody();
     try {
       const parsed = spec.parse

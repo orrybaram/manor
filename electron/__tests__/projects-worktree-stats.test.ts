@@ -81,11 +81,22 @@ describe("projects worktree stats", () => {
       expect(deps.projectManager.createWorktree).toHaveBeenCalledWith(
         "p1",
         "feature",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        "7",
+        expect.objectContaining({ origin: "7" }),
+      );
+    });
+
+    it("takes the origin from the transport, never from the frame", async () => {
+      deps.projectManager.createWorktree.mockResolvedValue(null);
+
+      await projectsCreateWorktree(ctxOf(deps), "p1", "feature", {
+        branch: "feat",
+        origin: "someone-else",
+      } as never);
+
+      expect(deps.projectManager.createWorktree).toHaveBeenCalledWith(
+        "p1",
+        "feature",
+        expect.objectContaining({ branch: "feat", origin: "7" }),
       );
     });
 

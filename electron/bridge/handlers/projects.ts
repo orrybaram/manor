@@ -18,11 +18,11 @@
 import { assertString } from "../../ipc-validate";
 import { publishToRenderer } from "../../renderer-broadcast";
 import type {
+  CreateWorktreeOptions,
   ProjectInfo,
   ProjectUpdatableFields,
   WorkspaceFolder,
 } from "../../persistence";
-import type { LinkedIssue } from "../../linear";
 import { method, type HandlerCtx } from "../method";
 
 /** The four the sidebar needs to paint itself. */
@@ -114,20 +114,17 @@ export async function projectsCreateWorktree(
   ctx: HandlerCtx,
   projectId: string,
   name: string,
-  branch?: string,
-  linkedIssue?: LinkedIssue,
-  baseBranch?: string,
-  useExistingBranch?: boolean,
+  opts: Omit<CreateWorktreeOptions, "origin"> = {},
 ): Promise<ProjectInfo | null> {
-  const result = await ctx.deps.projectManager.createWorktree(
-    projectId,
-    name,
-    branch,
-    linkedIssue,
-    baseBranch,
-    useExistingBranch,
-    ctx.caller.id,
-  );
+  // Picked field by field rather than spread: `origin` is who asked, and that
+  // is the transport's to say, never the frame's.
+  const result = await ctx.deps.projectManager.createWorktree(projectId, name, {
+    branch: opts.branch,
+    linkedIssue: opts.linkedIssue,
+    baseBranch: opts.baseBranch,
+    useExistingBranch: opts.useExistingBranch,
+    origin: ctx.caller.id,
+  });
   ctx.deps.statsStore.record("worktreesCreated");
   return result;
 }

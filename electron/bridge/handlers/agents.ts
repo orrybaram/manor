@@ -179,7 +179,7 @@ export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
   const { unseenRespondedAgents, unseenInputAgents, preferencesManager } = ctx.deps;
   unseenRespondedAgents.delete(agentId);
   unseenInputAgents.delete(agentId);
-  markAgentNotificationsRead(agentId, ctx.deps.mainWindow);
+  markAgentNotificationsRead(agentId);
   const agent = ctx.deps.agentManager.getAgentById(agentId);
   if (agent) {
     sendAgentUpdate(agent, preferencesManager);

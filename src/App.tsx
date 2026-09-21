@@ -78,6 +78,7 @@ import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { PhoneTopBar } from "./components/phone/PhoneTopBar";
 import { SidebarDrawer } from "./components/phone/SidebarDrawer";
+import { PaneSwitcherSheet } from "./components/phone/PaneSwitcherSheet";
 import "./App.css";
 
 function App() {
@@ -98,7 +99,7 @@ function App() {
   // rather than a state of its own: ticket 6 makes the existing
   // `CommandPalette` full screen in phone mode, not a second surface.
   const [phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
-  const [_phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
+  const [phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
 
   useMountEffect(() => {
     loadTheme();
@@ -731,6 +732,16 @@ function App() {
             onShowAgents={() => setAgentsOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
             onAddProject={handleAddProject}
+          />
+        )}
+        {/* ADR-181 D3/D4/ticket 5: the pane switcher — with no swipe, this and
+            the tab strip are the only ways a phone moves between panes. A
+            sibling of the workspace stack, like the sidebar drawer, so it
+            cannot affect any pane's geometry. */}
+        {layoutMode === "phone" && (
+          <PaneSwitcherSheet
+            open={phonePaneSwitcherOpen}
+            onOpenChange={setPhonePaneSwitcherOpen}
           />
         )}
         <PaneDragProvider>

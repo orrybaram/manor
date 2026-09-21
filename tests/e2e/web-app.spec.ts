@@ -244,15 +244,31 @@ test.describe("web app (ADR-178 slice 1)", () => {
     // 5. Audit: no line for keystrokes. Attaching a pane from the browser is
     // two audited bridge calls — `pty.create`, then the `agents.setPaneContext`
     // that follows every successful create (ticket 10) — both aimed at the
-    // pane the two viewers shared, and nothing else.
+    // pane the two viewers shared.
+    //
+    // `agents.markSeen` may join them, and is the reason this list is not
+    // two entries long any more (ADR-180 ticket 13). A browser that can see
+    // an agent marks it seen like any other viewer — `markVisibleAgentsSeen`
+    // fires on every viewport change — and ADR-180 ticket 9 put that call on
+    // the handler table and in `MUTATING`. Whether it appears depends on
+    // whether the desktop got there first: the unseen sets live on the Manor
+    // server, so a flag the desk already cleared leaves the browser nothing
+    // to clear. Both outcomes are correct, which is why this asserts the
+    // route is *allowed* rather than that it happened.
+    //
+    // It targets an **agent** id, not a pane id: `bridgeTarget` records the
+    // first string argument, which for `markSeen(agentId)` is the agent.
     const entries = auditEntries(tempHome);
     expect(entries.some((e) => e.route === "pty.write")).toBe(false);
 
+    const paneScoped = ["pty.create", "agents.setPaneContext"];
     const bridgeEntries = entries.filter((e) => e.transport === "bridge");
     expect(bridgeEntries.map((e) => e.route)).toContain("pty.create");
     for (const entry of bridgeEntries) {
-      expect(["pty.create", "agents.setPaneContext"]).toContain(entry.route);
-      expect(entry.target).toBe(desktopPaneId);
+      expect([...paneScoped, "agents.markSeen"]).toContain(entry.route);
+      if (paneScoped.includes(entry.route)) {
+        expect(entry.target).toBe(desktopPaneId);
+      }
       expect(entry.outcome).toBe("sent");
     }
   });

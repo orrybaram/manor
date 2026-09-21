@@ -18,6 +18,7 @@ import {
   type KeyCombo,
 } from "../../src/lib/keybinding-defs";
 import type { ForwardedCommandPayload } from "../../src/lib/menu-commands";
+import { connectionIdForWindow, publishToRenderer } from "../renderer-broadcast";
 
 /** The subset of the guest's `WebContents` the handler drives. */
 export interface PageWebContents {
@@ -26,8 +27,15 @@ export interface PageWebContents {
   reload(): void;
 }
 
-/** The subset of the host renderer's `WebContents` the handler talks to. */
+/**
+ * The subset of the host renderer's `WebContents` the handler talks to.
+ *
+ * `id` is `webContents.id` — needed only for the one send that crossed to the
+ * bridge with `keybindings` (ADR-180 ticket 7): every other channel here is
+ * `webview`'s own, native, and reaches the host with a plain `send`.
+ */
 export interface HostWebContents {
+  id: number;
   send(channel: string, ...args: unknown[]): void;
   isDestroyed?(): boolean;
 }
@@ -105,12 +113,21 @@ export function createPageKeyHandler(
     event.preventDefault();
 
     if (action.kind === "app") {
-      const payload: ForwardedCommandPayload = {
-        commandId: action.commandId,
-        source: "webview",
-        paneId,
-      };
-      send("keybinding-command", payload);
+      if (!host.isDestroyed?.()) {
+        const payload: ForwardedCommandPayload = {
+          commandId: action.commandId,
+          source: "webview",
+          paneId,
+        };
+        // `keybindings` crossed to the handler table (ADR-180 ticket 7), so
+        // hearing this is a subscription now, not a channel — addressed to
+        // this pane's host the same way `appCommands.command` addresses the
+        // primary window (D5).
+        const to = connectionIdForWindow({ webContents: { id: host.id } });
+        if (to !== null) {
+          publishToRenderer(to, "keybindings", "forwardedCommand", payload);
+        }
+      }
       return;
     }
 

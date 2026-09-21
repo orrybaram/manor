@@ -56,8 +56,20 @@ A place sessions run — the local machine, or a cloud box — always a Manor se
 _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 
 **Bridge**:
-The one interface the renderer uses to reach a host; implemented over IPC inside Electron today and over HTTP/WebSocket from a browser, converging on the latter.
+The one interface the renderer uses to reach a host: one host surface, reached over two transports — Electron IPC inside the desktop, a WebSocket from a browser — never two implementations converging on one (ADR-180).
 _Avoid_: preload, window.electron, API client
+
+**Host surface**:
+The handler table (`electron/bridge/handlers.ts`): the one set of things a renderer can ask a host to do, keyed `ns.method`. A type-level check asserts every method the renderer can call is placed somewhere — the table, a native preload namespace, or answered in the tab — so an unplaced method is a compile error, not a runtime `unavailable:web`.
+_Avoid_: API, route table (that name is `electron/routes/`, a separate caller of the same managers)
+
+**Transport**:
+How a frame reaches the host surface — Electron IPC or a WebSocket today. Never a place where behaviour lives; a third transport is a new file in `src/bridge/transports/`, not a new decision.
+_Avoid_: connection (a transport makes connections; it is not one), channel (channel is the specific `bridge:*` IPC name)
+
+**Caller class**:
+What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one) or `device` (a paired `full` device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses.
+_Avoid_: tier (a paired device's capability — `read`/`send`/`full` — is a different axis, decided at pairing rather than per call)
 
 ### Viewing a session
 

@@ -1,17 +1,15 @@
+/**
+ * `agentsAbandonForPane`.
+ *
+ * No `ipcMain` here any more: `agents` crossed to the handler table in
+ * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
+ * function the table calls, and a paired `full` device now reaches it the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-// ── Mock notifications ─────────────────────────────────────────────────────────
+// ── Mock notifications ───────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
@@ -19,12 +17,12 @@ vi.mock("../notifications", () => ({
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
-// ── Mock ipc-validate ──────────────────────────────────────────────────────────
+// ── Mock ipc-validate ────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/agents";
+import { agentsAbandonForPane } from "../bridge/handlers/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -58,13 +56,11 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("agents:abandonForPane handler", () => {
+describe("agents.abandonForPane", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
   it("marks the active agent for a pane as abandoned", () => {
@@ -73,8 +69,7 @@ describe("agents:abandonForPane handler", () => {
       status: "active",
     });
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-1");
+    agentsAbandonForPane(deps as never, "pane-1");
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
@@ -89,8 +84,7 @@ describe("agents:abandonForPane handler", () => {
   it("does nothing if no agent for that pane", () => {
     deps.agentManager.getAgentByPaneId.mockReturnValue(undefined);
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-99");
+    agentsAbandonForPane(deps as never, "pane-99");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -101,8 +95,7 @@ describe("agents:abandonForPane handler", () => {
       status: "completed",
     });
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-1");
+    agentsAbandonForPane(deps as never, "pane-1");
 
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
@@ -114,8 +107,7 @@ describe("agents:abandonForPane handler", () => {
       name: null,
     });
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
+    agentsAbandonForPane(deps as never, "pane-1", "Fix conversation naming after slash clear command ⠻");
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith(
       "t1",
@@ -130,8 +122,7 @@ describe("agents:abandonForPane handler", () => {
       name: "Existing agent name",
     });
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-1", "Some other title");
+    agentsAbandonForPane(deps as never, "pane-1", "Some other title");
 
     const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
@@ -144,8 +135,7 @@ describe("agents:abandonForPane handler", () => {
       name: null,
     });
 
-    const handler = handlers.get("agents:abandonForPane")!;
-    handler({} as never, "pane-1", "claude ⠋");
+    agentsAbandonForPane(deps as never, "pane-1", "claude ⠋");
 
     const [[, updates]] = (deps.agentManager.updateAgent as ReturnType<typeof vi.fn>).mock.calls;
     expect(updates).not.toHaveProperty("name");
@@ -161,8 +151,7 @@ describe("agents:abandonForPane handler", () => {
           lastAgentStatus,
         });
 
-        const handler = handlers.get("agents:abandonForPane")!;
-        handler({} as never, "pane-1");
+        agentsAbandonForPane(deps as never, "pane-1");
 
         expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
         expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -177,8 +166,7 @@ describe("agents:abandonForPane handler", () => {
         lastAgentStatus: "responded",
       });
 
-      const handler = handlers.get("agents:abandonForPane")!;
-      handler({} as never, "pane-1");
+      agentsAbandonForPane(deps as never, "pane-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -191,8 +179,7 @@ describe("agents:abandonForPane handler", () => {
         lastAgentStatus: null,
       });
 
-      const handler = handlers.get("agents:abandonForPane")!;
-      handler({} as never, "pane-1");
+      agentsAbandonForPane(deps as never, "pane-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
@@ -204,8 +191,7 @@ describe("agents:abandonForPane handler", () => {
         lastAgentStatus: "working",
       });
 
-      const handler = handlers.get("agents:abandonForPane")!;
-      handler({} as never, "pane-1");
+      agentsAbandonForPane(deps as never, "pane-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });

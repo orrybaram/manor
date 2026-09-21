@@ -5,6 +5,12 @@
  * this file checks the readiness function agrees, and
  * `tests/e2e/pr-badge-matrix.spec.ts` drives the real app and checks the badge
  * it actually draws.
+ *
+ * `icon` is the class lucide puts on the `<svg>`, which is lucide's name for
+ * the glyph and not ours: `lucide-react` renamed `shield-question` to
+ * `shield-question-mark` and left the old module as a re-export, so
+ * `PrPopover.tsx`'s import kept compiling while this table went stale. If a
+ * case fails on the icon alone, check the package before the app.
  */
 import type { PrReadiness } from "../../../src/lib/pr-readiness";
 
@@ -189,7 +195,7 @@ export const CASES: Case[] = [
     rollup: [PASS],
     expect: {
       readiness: "review",
-      icon: "lucide-shield-question",
+      icon: "lucide-shield-question-mark",
       spin: false,
     },
   },
@@ -211,7 +217,7 @@ export const CASES: Case[] = [
     rollup: [],
     expect: {
       readiness: "review",
-      icon: "lucide-shield-question",
+      icon: "lucide-shield-question-mark",
       spin: false,
     },
   },

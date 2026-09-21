@@ -1,32 +1,33 @@
+/**
+ * `processes.killSession`, `processes.killAll`, `processes.killDaemon`.
+ *
+ * No `ipcMain` here any more: `processes` crossed to the handler table in
+ * ADR-180 ticket 8, so these are plain functions over `IpcDeps` — the same
+ * functions the table calls, and a paired `full` device now reaches them the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { daemonPidFile, daemonSocketFile } from "../paths";
+import {
+  processesKillSession,
+  processesKillAll,
+  processesKillDaemon,
+} from "../bridge/handlers/processes";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-// ── Mock ipc-validate ──────────────────────────────────────────────────────────
+// ── Mock ipc-validate ────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-// ── Mock portless (imported for its side effect / proxy port) ───────────────────
+// ── Mock portless (imported for its side effect / proxy port) ───────────────
 vi.mock("../portless", () => ({
   portlessManager: { proxyPort: null, restart: vi.fn() },
 }));
 
-import { register } from "../ipc/processes";
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,16 +55,14 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
+// ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("processes:killSession / processes:killAll stats", () => {
+describe("processes.killSession / processes.killAll stats", () => {
   let deps: ReturnType<typeof makeDeps>;
   let killSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
     // These handlers signal whatever pid is in ~/.manor/daemon/terminal-host.pid.
     // $HOME is a temp dir under vitest (ADR-169), but never let a real signal
     // out of this file regardless.
@@ -79,8 +78,7 @@ describe("processes:killSession / processes:killAll stats", () => {
     it("killAll signals nothing when there is no daemon pid file", async () => {
       expect(fs.existsSync(daemonPidFile())).toBe(false);
 
-      const handler = handlers.get("processes:killAll")!;
-      await handler({} as never);
+      await processesKillAll(deps as never);
 
       expect(killSpy).not.toHaveBeenCalled();
     });
@@ -90,8 +88,7 @@ describe("processes:killSession / processes:killAll stats", () => {
       fs.writeFileSync(daemonPidFile(), "424242");
       fs.writeFileSync(daemonSocketFile(), "");
 
-      const handler = handlers.get("processes:killDaemon")!;
-      await handler({} as never);
+      await processesKillDaemon();
 
       expect(killSpy).toHaveBeenCalledWith(424242, "SIGTERM");
       expect(fs.existsSync(daemonPidFile())).toBe(false);
@@ -99,7 +96,7 @@ describe("processes:killSession / processes:killAll stats", () => {
     });
   });
 
-  describe("processes:killSession", () => {
+  describe("processes.killSession", () => {
     it("records a kill for an active agent last seen thinking/working/requires_input", async () => {
       deps.agentManager.getAgentByPaneId.mockReturnValue({
         id: "t1",
@@ -107,8 +104,7 @@ describe("processes:killSession / processes:killAll stats", () => {
         lastAgentStatus: "thinking",
       });
 
-      const handler = handlers.get("processes:killSession")!;
-      await handler({} as never, "session-1");
+      await processesKillSession(deps as never, "session-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(2);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
@@ -119,8 +115,7 @@ describe("processes:killSession / processes:killAll stats", () => {
     it("does not record a kill when no agent is found for the pane", async () => {
       deps.agentManager.getAgentByPaneId.mockReturnValue(null);
 
-      const handler = handlers.get("processes:killSession")!;
-      await handler({} as never, "session-1");
+      await processesKillSession(deps as never, "session-1");
 
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
@@ -132,15 +127,14 @@ describe("processes:killSession / processes:killAll stats", () => {
         lastAgentStatus: "responded",
       });
 
-      const handler = handlers.get("processes:killSession")!;
-      await handler({} as never, "session-1");
+      await processesKillSession(deps as never, "session-1");
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
     });
   });
 
-  describe("processes:killAll", () => {
+  describe("processes.killAll", () => {
     it("records once per active session being killed", async () => {
       deps.backend.pty.listSessions.mockResolvedValue([
         { sessionId: "s1" },
@@ -154,8 +148,7 @@ describe("processes:killSession / processes:killAll stats", () => {
         return null;
       });
 
-      const handler = handlers.get("processes:killAll")!;
-      await handler({} as never);
+      await processesKillAll(deps as never);
 
       expect(deps.statsStore.record).toHaveBeenCalledTimes(3);
       expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");

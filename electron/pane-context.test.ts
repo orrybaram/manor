@@ -23,7 +23,6 @@ function tab(id: string, paneSessions: Record<string, PersistedPaneSession>): Pe
     id,
     title: id,
     rootNode: { type: "leaf", paneId: Object.keys(paneSessions)[0] ?? "pane-x" },
-    focusedPaneId: Object.keys(paneSessions)[0] ?? "pane-x",
     paneSessions,
   };
 }
@@ -32,11 +31,16 @@ function panel(id: string, tabs: PersistedTab[]): PersistedPanel {
   return {
     id,
     tabs,
-    selectedTabId: tabs[0]?.id ?? "",
     pinnedTabIds: [],
   };
 }
 
+/**
+ * A v3 workspace: the tree, plus the default viewport that holds the
+ * selection the tree used to (ADR-179 D3). `findWorkspaceForPane` walks
+ * panes and never reads it, but a fixture with focus still in the tree
+ * describes a file this version does not write.
+ */
 function workspace(
   workspacePath: string,
   panels: Record<string, PersistedPanel>,
@@ -46,7 +50,22 @@ function workspace(
     workspacePath,
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
-    activePanelId: firstPanelId,
+    defaultViewport: {
+      activePanelId: firstPanelId,
+      selectedTabIds: Object.fromEntries(
+        Object.values(panels).flatMap((p) =>
+          p.tabs[0] ? [[p.id, p.tabs[0].id]] : [],
+        ),
+      ),
+      focusedPaneIds: Object.fromEntries(
+        Object.values(panels).flatMap((p) =>
+          p.tabs.flatMap((t) => {
+            const paneId = Object.keys(t.paneSessions)[0];
+            return paneId ? [[t.id, paneId]] : [];
+          }),
+        ),
+      ),
+    },
   };
 }
 
@@ -56,7 +75,7 @@ describe("pane-context", () => {
   describe("findWorkspaceForPane", () => {
     it("finds a pane in the first workspace", () => {
       const layout: PersistedLayout = {
-        version: 2,
+        version: 3,
         workspaces: [
           workspace("/repo/a", {
             "panel-1": panel("panel-1", [tab("tab-1", { "pane-1": paneSession() })]),
@@ -69,7 +88,7 @@ describe("pane-context", () => {
 
     it("finds a pane in a later workspace", () => {
       const layout: PersistedLayout = {
-        version: 2,
+        version: 3,
         workspaces: [
           workspace("/repo/a", {
             "panel-1": panel("panel-1", [tab("tab-1", { "pane-1": paneSession() })]),
@@ -85,7 +104,7 @@ describe("pane-context", () => {
 
     it("finds a pane in a non-first tab/panel", () => {
       const layout: PersistedLayout = {
-        version: 2,
+        version: 3,
         workspaces: [
           workspace("/repo/a", {
             "panel-1": panel("panel-1", [tab("tab-1", { "pane-1": paneSession() })]),
@@ -102,7 +121,7 @@ describe("pane-context", () => {
 
     it("returns null on a miss", () => {
       const layout: PersistedLayout = {
-        version: 2,
+        version: 3,
         workspaces: [
           workspace("/repo/a", {
             "panel-1": panel("panel-1", [tab("tab-1", { "pane-1": paneSession() })]),
@@ -115,7 +134,7 @@ describe("pane-context", () => {
 
     it("does not match on daemonSessionId, only the paneId key", () => {
       const layout: PersistedLayout = {
-        version: 2,
+        version: 3,
         workspaces: [
           workspace("/repo/a", {
             "panel-1": panel("panel-1", [
@@ -156,7 +175,7 @@ describe("pane-context", () => {
     });
 
     it("returns null for an empty layout", () => {
-      const layout: PersistedLayout = { version: 2, workspaces: [] };
+      const layout: PersistedLayout = { version: 3, workspaces: [] };
       expect(findWorkspaceForPane(layout, "pane-1")).toBeNull();
     });
   });

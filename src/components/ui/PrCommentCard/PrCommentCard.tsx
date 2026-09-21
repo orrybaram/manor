@@ -49,7 +49,7 @@ export function PrCommentCard(props: {
           className={`${styles.chevron}${expanded ? ` ${styles.chevronOpen}` : ""}`}
         />
       )}
-      <span className={styles.author}>
+      <span className={styles.author} data-testid="pr-comment-author">
         {comment.author ? `@${comment.author}` : "unknown"}
       </span>
       <CommentTag comment={comment} outdated={outdated} />
@@ -60,6 +60,13 @@ export function PrCommentCard(props: {
   return (
     <div
       className={`${styles.item}${unresolved ? ` ${styles.unresolved}` : ""}${collapsible && !expanded ? ` ${styles.done}` : ""}`}
+      // The selector contract for `sidebar-pr-tweaks.spec.ts` and
+      // `notification-center.spec.ts`. Named rather than left to a
+      // `[class*=…]` match on the CSS module: this component was lifted out of
+      // `PrPopover.tsx` in `bf77ca65`, its classes were renamed by the move,
+      // and the spec went on passing vacuously against zero elements.
+      data-testid="pr-comment"
+      data-unresolved={unresolved ? "true" : "false"}
     >
       <div
         className={`${styles.top}${canSendToAgent ? ` ${styles.topWide}` : ""}`}

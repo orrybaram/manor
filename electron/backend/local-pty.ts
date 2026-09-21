@@ -23,8 +23,16 @@ export class LocalPtyBackend implements PtyBackend {
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }> {
-    return this.client.createOrAttach(sessionId, cwd, cols, rows, shellArgs);
+    return this.client.createOrAttach(
+      sessionId,
+      cwd,
+      cols,
+      rows,
+      shellArgs,
+      env,
+    );
   }
 
   write(sessionId: string, data: string): void {

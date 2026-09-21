@@ -1,15 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import { AgentDetector } from "../agent-detector";
 import type { AgentState, AgentStatus } from "../types";
 
+/**
+ * Shape of the status hook. A bare `vi.fn()` infers as
+ * `Mock<Procedure | Constructable>`, which neither satisfies
+ * `onStatusChange` nor gives `mock.calls` a tuple type — so the mock is
+ * instantiated with this type explicitly (as in `recording-manager.test.ts`).
+ */
+type StatusChangeFn = (state: AgentState) => void;
+
 describe("AgentDetector", () => {
   let detector: AgentDetector;
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<StatusChangeFn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     detector = new AgentDetector();
-    onChange = vi.fn();
+    onChange = vi.fn<StatusChangeFn>();
     detector.onStatusChange = onChange;
   });
 
@@ -178,7 +187,7 @@ describe("AgentDetector", () => {
       expect(detector.getState().status).toBe("idle");
       // Should not have transitioned through complete
       const completeCalls = onChange.mock.calls.filter(
-        ([s]: [AgentState]) => s.status === "complete",
+        ([s]) => s.status === "complete",
       );
       expect(completeCalls).toHaveLength(0);
     });
@@ -301,7 +310,7 @@ describe("AgentDetector", () => {
       detector.setStatus("requires_input");
       detector.setStatus("thinking");
 
-      const statuses = onChange.mock.calls.map(([s]: [AgentState]) => s.status);
+      const statuses = onChange.mock.calls.map(([s]) => s.status);
       expect(statuses).toEqual(["thinking", "requires_input", "thinking"]);
     });
   });

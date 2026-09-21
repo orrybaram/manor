@@ -73,6 +73,20 @@ function find(nodes: MenuNode[], label: string): MenuNode {
 
 test.describe("application menu", () => {
   test("has Manor's menus with display-only shortcuts", async ({ app }) => {
+    // Wait for *Manor's* menu, not whichever one is installed first. Until
+    // `app-menu.ts` runs its first `rebuild()`, the application menu is
+    // Electron's built-in default — `App, File, Edit, View, Window, Help` —
+    // and a single read straight after launch catches it whenever the app is
+    // slow to boot. That is exactly how this failed in full-suite runs and
+    // never in isolation: the "missing" Workspace, Pane and Agents menus were
+    // never missing from Manor's template, which always includes them; the
+    // test was reading a menu Manor had not installed yet. `Workspace` is the
+    // tell, because the default menu has no such thing.
+    await expect
+      .poll(async () => (await readMenu(app)).map((m) => m.label), {
+        timeout: 15_000,
+      })
+      .toContain("Workspace");
     const menu = await readMenu(app);
     // Dev builds carry the branch in the app name ("Manor (my-branch)").
     expect(menu[0].label).toMatch(/^Manor/);

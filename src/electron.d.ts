@@ -261,11 +261,13 @@ export type StreamPosition = number;
 /**
  * What a create-shaped PTY call answers with.
  *
- * The last three fields are the ADR-178 bridge's (D5) and only the bridge's:
- * the preload path never sets them, and **absent means this viewer owns the
- * winsize**, which is what the desktop app has always been. A browser told
+ * The last three fields are the host's answer to "who owns the winsize"
+ * (ADR-178 D5). **Absent means this viewer owns it**, which is what a viewer
+ * alone on a pane is told and what every desktop pane was told until ADR-180
+ * ticket 5 put both platforms on the same handler. A viewer told
  * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
- * never asks the pty for a different pair.
+ * never asks the pty for a different pair — and since D6 that can be a second
+ * desktop window as readily as a browser.
  */
 export interface PtyCreateResult {
   ok: boolean;
@@ -378,10 +380,17 @@ export type PushProgressEvent =
 
 export interface ElectronAPI {
   /**
-   * Which implementation of this interface is installed (ADR-178 D8): the
-   * Electron preload, or `src/web/ws-bridge.ts` over a WebSocket. Read it to
-   * hide what a browser genuinely cannot do (webview panes, detached windows,
-   * native dialogs) — never to guess at a capability the bridge can report.
+   * Which transport the client in the page is built over (ADR-180 D3): the
+   * preload's IPC channels, or a WebSocket to a host. Read it to hide what a
+   * browser genuinely cannot do — never to guess at a capability the bridge
+   * can report.
+   *
+   * What that is, exactly, is `electron/ipc/`'s six survivors (D8, ticket
+   * 11): `<webview>` panes and their pickers, detach-to-window, the native
+   * app menu, native dialogs, the shell escape hatches, the clipboard and the
+   * updater. Everything else answers the same way on both platforms, which
+   * is the whole point of the handler table this `platform` check is an
+   * exception to.
    */
   platform: "electron" | "web";
 
@@ -462,10 +471,11 @@ export interface ElectronAPI {
     ) => () => void;
     /**
      * The winsize owner changed, without this viewer having made the call
-     * that changed it (ADR-179 D6) — another bridge viewer outbid it, or its
-     * owner disconnected and it inherited the grid. A no-op subscription on
-     * the desktop preload: the desktop's own attach always wins ownership the
-     * moment it exists (D5), so it is never the one hearing this.
+     * that changed it (ADR-179 D6) — another viewer of the pane outbid it, or
+     * its owner disconnected and it inherited the grid. It was a no-op
+     * subscription on the desktop preload while a desktop attach always won
+     * ownership; ADR-180 D6 made two windows on one pane comparable to each
+     * other, so a window is now as likely to hear this as a browser.
      */
     onWinsizeOwner: (
       paneId: string,
@@ -518,11 +528,13 @@ export interface ElectronAPI {
   };
 
   /**
-   * This renderer's own viewport file (ADR-179 D3).
+   * This renderer's own viewport file (ADR-179 D3, ADR-180 D4).
    *
-   * Deliberately *not* in the bridge handler table: a browser answers both
-   * calls itself out of `localStorage` (`src/web/unavailable.ts`), because
-   * the selection a phone remembers is the phone's, not the host's.
+   * `LOCAL_ONLY` on the handler table: a window at the machine reads and
+   * writes `~/.manor/viewport.json`, and a paired device is refused — the
+   * selection a phone remembers is the phone's, not the desk's. A browser
+   * never asks at all, answering both calls out of `localStorage`
+   * (`src/bridge/unavailable.ts`).
    */
   viewport: {
     load: () => Promise<PersistedViewportFile | null>;
@@ -912,6 +924,11 @@ export interface ElectronAPI {
 
   keybindings: {
     getAll: () => Promise<Record<string, string>>;
+    /**
+     * `LOCAL_ONLY` on the handler table (ADR-178 ticket 6, ADR-180 D4): the
+     * keybindings page is read-only on web, and this is where that decision
+     * lives as code rather than as an absence.
+     */
     set: (commandId: string, combo: string) => Promise<void>;
     reset: (commandId: string) => Promise<void>;
     resetAll: () => Promise<void>;
@@ -925,8 +942,12 @@ export interface ElectronAPI {
     onForwardedCommand: (
       callback: (payload: ForwardedCommandPayload) => void,
     ) => () => void;
-    /** Popout → main: focus the primary window and run `commandId` there. */
-    runInMainWindow: (commandId: string) => void;
+    /**
+     * Popout → main: focus the primary window and run `commandId` there.
+     * `LOCAL_ONLY` — it names a window, and a paired device has none of its
+     * own to run a command in.
+     */
+    runInMainWindow: (commandId: string) => Promise<void>;
   };
 
   menu: {
@@ -1176,8 +1197,81 @@ export interface RemotePairResult {
   page: string;
 }
 
+// ── The host surface (ADR-180 D3) ──
+
+/**
+ * A failed `ManorHost.invoke`, as a value rather than a rejection.
+ *
+ * `ipcMain.handle` serialises a thrown error to its message and drops every
+ * custom property, so a rejection cannot carry the `code` that tells
+ * `unavailable:web` from a real failure. The transport returns this instead
+ * and the client in the page throws it —
+ * `electron/bridge/transports/ipc.ts` is the other half of this shape.
+ */
+export interface BridgeErrorEnvelope {
+  __bridgeError: { code: string; message: string };
+}
+
+/**
+ * What the preload exposes, and the only thing it exposes: the facts a
+ * renderer needs before it can ask anything, one way to call the host's
+ * handler table, one way to listen to it, and the namespaces the preload
+ * still answers itself.
+ *
+ * `window.electronAPI` is *built over this*, in the page, by
+ * `src/bridge/client.ts`: `contextBridge` copies the shape it is handed, and
+ * the `Proxy` that turns `ns.method(...)` into an invoke has no members to
+ * copy. Undefined in a browser, where the same client runs over a WebSocket
+ * instead and nothing has a preload under it.
+ */
+export interface ManorHost {
+  /** Always `electron`. A browser has no `manorHost` at all. */
+  platform: "electron";
+  /** This window's `webContents.id`, as `ElectronAPI.rendererId` documents. */
+  rendererId: string | null;
+  isDetached: boolean;
+  detachedWindowId: string | null;
+  claim: { workspacePath: string; tabId: string } | null;
+  env: { isPackaged: boolean };
+  /**
+   * The namespaces the preload still answers in process, and the root-level
+   * functions beside them.
+   *
+   * The client calls straight through to these and reaches `invoke` only for
+   * what is not here, so this is the migration's dial: it is every namespace
+   * `ElectronAPI` has today, and each later ADR-180 ticket takes a group out
+   * of it. What is left when they are done is the set that can never leave
+   * the preload — `webview`, `window`, `menu`, `dialog`, `shell`,
+   * `clipboard`, `updater`.
+   *
+   * Typed loosely on purpose: it is a *shrinking* subset of `ElectronAPI`,
+   * and no type can say "some of these keys". `ElectronAPI` stays the
+   * contract, and ADR-180 D7 is what checks the split.
+   */
+  native: Record<string, unknown>;
+  /**
+   * Call `ns.method(...args)` on the host. Resolves with the handler's
+   * result, or with a `BridgeErrorEnvelope` when the call failed or the host
+   * does not implement it — the client checks for the envelope and throws.
+   */
+  invoke: (ns: string, method: string, args: unknown[]) => Promise<unknown>;
+  /**
+   * Hear `ns.event`, for one `key` (a paneId) or for every key when null.
+   * Returns the unsubscribe. Reference-counted in the preload, so two
+   * subscriptions to the same thing are two subscriptions.
+   */
+  subscribe: (
+    ns: string,
+    event: string,
+    key: string | null,
+    callback: (...args: unknown[]) => void,
+  ) => () => void;
+}
+
 declare global {
   interface Window {
     electronAPI: ElectronAPI;
+    /** ADR-180 D3. Undefined in a browser. */
+    manorHost: ManorHost | undefined;
   }
 }

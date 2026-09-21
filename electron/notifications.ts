@@ -62,36 +62,26 @@ export function setStatsStore(store: StatsStore | null): void {
 
 /**
  * Broadcast the full notification list to the renderer. This is the single
- * send-site for `notifications:changed`; do not call
+ * send-site for `notifications.changed`; do not call
  * `webContents.send("notifications:changed", ...)` directly.
  *
  * The list is capped at 200 records, so shipping all of it on every mutation
  * is deliberate — it makes renderer drift impossible (ADR-162 §3).
+ *
+ * `_mainWindow` is a vestige of the desktop-only `webContents.send` this
+ * replaced (ADR-180 ticket 7): `publishRendererBroadcast`'s sink now reaches
+ * every window and every browser alike, so no caller needs to change what it
+ * passes to keep working.
  */
-export function sendNotificationsUpdate(mainWindow: BrowserWindow | null): void {
+export function sendNotificationsUpdate(
+  _mainWindow: BrowserWindow | null,
+): void {
   if (!notificationStore) return;
-  // Browser renderers (ADR-178) hear the same list on the same signal; the
-  // window check below is about `webContents`, and they have none.
   publishRendererBroadcast(
     "notifications",
     "changed",
     notificationStore.getAll(),
   );
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    mainWindow.webContents.isDestroyed()
-  ) {
-    return;
-  }
-  try {
-    mainWindow.webContents.send(
-      "notifications:changed",
-      notificationStore.getAll(),
-    );
-  } catch {
-    // Render frame disposed — safe to ignore
-  }
 }
 
 /**
@@ -148,12 +138,17 @@ export function getUnseenSnapshot(): {
 }
 
 /**
- * Broadcast a `agent-updated` event to the renderer with the current unseen
- * flags, then refresh the dock badge. This is the single send-site for
- * `agent-updated`; do not call `webContents.send("agent-updated", ...)` directly.
+ * Broadcast an `agents`/`updated` event with the current unseen flags, then
+ * refresh the dock badge. This is the single send-site for the event; do not
+ * call `webContents.send("agent-updated", ...)` directly.
+ *
+ * It took a `mainWindow` until ADR-180 ticket 15: a vestige of the
+ * desktop-only `webContents.send` this replaced (ticket 9). Every caller
+ * still threaded a window through to it and none of them needed one, because
+ * `publishRendererBroadcast`'s sink reaches every window and every browser on
+ * its own — so the parameter is gone rather than ignored.
  */
 export function sendAgentUpdate(
-  mainWindow: BrowserWindow | null,
   agent: AgentInfo,
   preferencesManager: PreferencesManager,
 ): void {
@@ -163,21 +158,6 @@ export function sendAgentUpdate(
     agent,
     getUnseenFlagsForAgent(agent.id),
   );
-  if (
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !mainWindow.webContents.isDestroyed()
-  ) {
-    try {
-      mainWindow.webContents.send(
-        "agent-updated",
-        agent,
-        getUnseenFlagsForAgent(agent.id),
-      );
-    } catch {
-      // Render frame disposed — safe to ignore
-    }
-  }
   updateDockBadge(preferencesManager);
 }
 
@@ -259,8 +239,11 @@ function presentNotification(
     mainWindow.focus();
     // One click path for banners and in-app rows alike: the renderer resolves
     // the record's target through `navigateToNotification` (ADR-162 §4).
+    // ADR-180 D5: broadcast rather than addressed, because "show me that
+    // notification" is a place in the app, and every renderer looking at it
+    // — a second window, a paired phone — should end up there too.
     if (record) {
-      mainWindow.webContents.send("notifications:navigate", record.id);
+      publishRendererBroadcast("notifications", "navigate", record.id);
     }
   });
   notification.show();

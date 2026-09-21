@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BrowserWindow } from "electron";
+
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 export class BranchWatcher {
   private workspacePaths: string[] = [];
@@ -8,7 +9,14 @@ export class BranchWatcher {
   private lastBranches: Record<string, string> = {};
   private scanning = false;
 
-  start(window: BrowserWindow, paths: string[]): void {
+  /**
+   * ADR-180 D5: the window argument is gone. This used to push into one
+   * `webContents`; a `branches.changed` broadcast reaches every renderer
+   * attached to this host — both desktop windows and any paired browser —
+   * through the bridge's sink, and the watcher goes back to not knowing
+   * anything about windows.
+   */
+  start(paths: string[]): void {
     this.stop();
     this.workspacePaths = paths;
 
@@ -18,7 +26,7 @@ export class BranchWatcher {
       try {
         const branches = await this.scan();
         if (JSON.stringify(branches) !== JSON.stringify(this.lastBranches)) {
-          window.webContents.send("branches-changed", branches);
+          publishRendererBroadcast("branches", "changed", branches);
           this.lastBranches = branches;
         }
       } finally {

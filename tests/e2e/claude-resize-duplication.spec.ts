@@ -151,6 +151,25 @@ async function gridMoves(window: Page): Promise<GridMove[]> {
   return window.evaluate(() => window.__gridMoves ?? []);
 }
 
+/**
+ * Claude Code is up and waiting for a prompt.
+ *
+ * Three markers, OR'd, because this is a real third-party CLI whose chrome
+ * changes under us and a single string here costs 120 seconds and a silently
+ * disabled test when it moves. `Welcome back` is the old one and only shows
+ * on a *resumed* session; the other two are what a fresh launch prints — the
+ * mode hint under the composer, and the composer's own placeholder.
+ *
+ * `scrollback()` strips whitespace, hence the run-together spellings.
+ */
+function atClaudePrompt(t: string): boolean {
+  return (
+    t.includes("Welcomeback") ||
+    t.includes("shift+tabtocycle") ||
+    /❯Try/.test(t)
+  );
+}
+
 test.describe("claude, resized after its output lands", () => {
   test.skip(!HAVE_CLAUDE, "no Claude Code on this machine");
   test.setTimeout(300_000);
@@ -179,17 +198,40 @@ test.describe("claude, resized after its output lands", () => {
     await runInTerminal(window, `${CLAUDE_BIN} --model sonnet`);
 
     // A workspace is a fresh git worktree, so its path cannot be pre-trusted
-    // in the seeded config — Claude asks about it on first launch, and the
-    // default choice is the one we want.
+    // in the seeded config — Claude asks about it on first launch.
+    //
+    // The default choice is **not** the one we want, and used to be: the
+    // prompt now reads
+    //
+    //     ❯ No, exit
+    //       Yes, I trust this folder
+    //
+    // so a bare `Enter` quits Claude, and this spec then sat waiting 120s for
+    // a prompt that was never coming. It failed that way for long enough to
+    // be written off as a known failure — which matters, because this is the
+    // only guard on the ADR-163/164/165 resize-duplication bug that drives a
+    // real agent. Move the cursor to the "Yes" line and confirm *that*, and
+    // wait for the cursor to actually be there rather than trusting the
+    // keystroke, so the next rewording of this menu fails loudly here instead
+    // of silently 120 seconds later.
     await untilScrollback(
       window,
       tempHome,
       paneId,
       "the Claude Code prompt or its trust question",
-      (t) => t.includes("Welcomeback") || /trust/i.test(t),
+      (t) => atClaudePrompt(t) || /trust/i.test(t),
       120_000,
     );
     if (/trust/i.test(scrollback(tempHome, paneId))) {
+      await window.keyboard.press("ArrowDown");
+      await untilScrollback(
+        window,
+        tempHome,
+        paneId,
+        'the trust prompt\'s cursor on "Yes, I trust this folder"',
+        (t) => t.includes("❯Yes"),
+        10_000,
+      );
       await window.keyboard.press("Enter");
     }
     await untilScrollback(
@@ -197,7 +239,7 @@ test.describe("claude, resized after its output lands", () => {
       tempHome,
       paneId,
       "the Claude Code prompt",
-      (t) => t.includes("Welcomeback"),
+      (t) => atClaudePrompt(t),
       120_000,
     );
     await window.waitForTimeout(2_000);

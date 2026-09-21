@@ -102,14 +102,28 @@ describe("Session", () => {
   });
 
   describe("output sequence numbers (ADR-159)", () => {
-    /** Sequence numbers carried by the data events a socket received. */
+    /**
+     * Sequence numbers carried by the data events a socket received.
+     *
+     * `seq` is optional on the wire (a pre-ADR-159 host omits it), so a data
+     * event without one is exactly what these tests exist to catch: it fails
+     * here, by name, instead of arriving as an `undefined` inside an
+     * assertion about numbers.
+     */
     function dataSeqs(written: string[]): number[] {
       return written
         .map((line) => JSON.parse(line) as StreamEvent)
         .filter((event): event is Extract<StreamEvent, { type: "data" }> =>
           event.type === "data",
         )
-        .map((event) => event.seq);
+        .map((event) => {
+          if (event.seq === undefined) {
+            throw new Error(
+              `data event carried no seq: ${JSON.stringify(event)}`,
+            );
+          }
+          return event.seq;
+        });
     }
 
     it("numbers each data event, starting at one", () => {

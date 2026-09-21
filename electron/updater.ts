@@ -1,9 +1,23 @@
-import { app, BrowserWindow } from "electron";
+/**
+ * The auto-updater, and the six things it tells the renderer (ADR-180 D5).
+ *
+ * `updater` stays native for its *invokes* — `checkForUpdates` and
+ * `quitAndInstall` are Electron's, and no browser can run them (ADR-178's
+ * "what can never leave the preload"). Its pushes are not native in the same
+ * way: they are facts about this machine, and every renderer attached to it
+ * wants them, so they go out as `updater.*` bridge events rather than into
+ * one window's `webContents`. A second desktop window used to learn nothing
+ * about a download already in progress.
+ */
+
+import { app } from "electron";
 import {
   autoUpdater,
   type UpdateInfo,
   type ProgressInfo,
 } from "electron-updater";
+
+import { publishRendererBroadcast } from "./renderer-broadcast";
 
 // Track whether the last checkForUpdates() call was triggered manually by the user.
 // Set to true in the exported checkForUpdates() (called via IPC from renderer).
@@ -13,21 +27,16 @@ import {
 let lastTriggerWasManual = false;
 let lastCheckedManual = false;
 
-/**
- * @param getWindow  Resolves the primary window at send time. The updater runs
- *   for the life of the app, which outlives any one window: capturing a
- *   `BrowserWindow` here would leave every event sending into a destroyed one.
- */
-export function initAutoUpdater(
-  getWindow: () => BrowserWindow | null,
-): void {
+export function initAutoUpdater(): void {
   // Skip updater entirely in dev — prevents swallowed-error noise
   if (!app.isPackaged) return;
 
-  function send(channel: string, payload: unknown): void {
-    const win = getWindow();
-    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-    win.webContents.send(channel, payload);
+  /**
+   * One `updater.<event>` frame. The event names are the preload's, minus
+   * the `on` — `onDownloadProgress` hears `downloadProgress`.
+   */
+  function send(event: string, payload: unknown): void {
+    publishRendererBroadcast("updater", event, payload);
   }
 
   autoUpdater.autoDownload = true;
@@ -36,33 +45,33 @@ export function initAutoUpdater(
   autoUpdater.on("checking-for-update", () => {
     lastCheckedManual = lastTriggerWasManual;
     lastTriggerWasManual = false; // reset for next check cycle
-    send("updater:checking-for-update", { manual: lastCheckedManual });
+    send("checking", { manual: lastCheckedManual });
   });
 
   autoUpdater.on("update-not-available", (info: UpdateInfo) => {
-    send("updater:update-not-available", {
+    send("updateNotAvailable", {
       version: info.version,
       manual: lastCheckedManual,
     });
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
-    send("updater:update-available", info);
+    send("updateAvailable", info);
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
-    send("updater:update-downloaded", info);
+    send("updateDownloaded", info);
   });
 
   autoUpdater.on("error", (err: Error) => {
-    send("updater:error", {
+    send("error", {
       message: err.message,
       manual: lastCheckedManual,
     });
   });
 
   autoUpdater.on("download-progress", (progress: ProgressInfo) => {
-    send("updater:download-progress", {
+    send("downloadProgress", {
       percent: progress.percent,
       bytesPerSecond: progress.bytesPerSecond,
       transferred: progress.transferred,

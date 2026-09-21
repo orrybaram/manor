@@ -35,17 +35,20 @@ vi.mock("electron", () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(),
   },
-  // requestRenderer installs one "app-command-result" listener lazily; the spy
-  // lets tests capture it and play the renderer's side of the correlation.
   ipcMain: {
     on: vi.fn(),
   },
 }));
 
 import { WebviewServer } from "../webview-server";
-import { requestRenderer } from "../renderer-bridge";
+import { appCommandResult, requestRenderer } from "../renderer-bridge";
 import type { AppCommand, AppCommandResult } from "../renderer-bridge";
-import { webContents, BrowserWindow, ipcMain } from "electron";
+import {
+  addRendererBroadcastSink,
+  setRendererWindowResolver,
+  type RendererBroadcast,
+} from "../renderer-broadcast";
+import { webContents, BrowserWindow } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
 import type { Http } from "../mcp/types";
 import { projectsModule } from "../mcp/tools-projects";
@@ -62,6 +65,68 @@ import type {
 import { LayoutStore } from "../layout/layout-store";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
 import type { LocalBackend } from "../backend/local-backend";
+
+// ── The renderer, as the bridge sees it (ADR-180 D5) ──
+
+/**
+ * Main's app-commands are bridge event frames now, not `webContents.send`:
+ * `renderer-bridge.ts` resolves the primary window to a connection id and
+ * publishes `appCommands.command` to it, and the renderer answers with an
+ * `appCommands.result` invoke.
+ *
+ * This stands in for both halves — the IPC transport's window resolution and
+ * a sink where the bridge server would be — so a test can read what main
+ * addressed to the window and play the renderer answering it.
+ */
+function bridgeHarness() {
+  const frames: RendererBroadcast[] = [];
+  const stops = [addRendererBroadcastSink((frame) => frames.push(frame))];
+  // The window is only ever looked at for its id now: every push main
+  // makes to a renderer is a broadcast frame (ADR-180 D5).
+  (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
+    { webContents: { id: 1 } },
+  ]);
+  setRendererWindowResolver(() => "1");
+
+  /** The app-commands addressed to the window, in the order they were sent. */
+  function commands(): AppCommand[] {
+    return frames
+      .filter((f) => f.ns === "appCommands" && f.event === "command")
+      .map((f) => f.args[0] as AppCommand);
+  }
+
+  return {
+    frames,
+    commands,
+    /** The nth app-command main sent. */
+    command: (index = 0): AppCommand => commands()[index],
+    /**
+     * Play the renderer: answer every correlated app-command with
+     * `{ok: true, data}`, synchronously, so `requestRenderer` settles inside
+     * the same HTTP request/response cycle instead of timing out.
+     */
+    respondWith(data: unknown): void {
+      stops.push(
+        addRendererBroadcastSink((frame) => {
+          if (frame.ns !== "appCommands" || frame.event !== "command") return;
+          const command = frame.args[0] as AppCommand;
+          if (!command.requestId) return;
+          appCommandResult({ requestId: command.requestId, ok: true, data });
+        }),
+      );
+    },
+    /** No window, and so no connection: what a closed app looks like. */
+    closeWindow(): void {
+      (
+        BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>
+      ).mockReturnValue([]);
+    },
+    stop(): void {
+      for (const stop of stops) stop();
+      setRendererWindowResolver(null);
+    },
+  };
+}
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -443,10 +508,7 @@ describe("WebviewServer project/workspace routes", () => {
   });
 
   it("POST /projects/:id/workspaces runs the project's setup script in the new workspace", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+    const bridge = bridgeHarness();
     pm.createWorktree.mockResolvedValueOnce({
       ...PROJECT,
       worktreeStartScript: "npm install",
@@ -465,50 +527,60 @@ describe("WebviewServer project/workspace routes", () => {
       name: "feature",
     });
 
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "run-setup-script",
-      workspacePath: "/repos/demo-ws",
-      script: "npm install",
-    });
+    expect(bridge.commands()).toEqual([
+      {
+        cmd: "run-setup-script",
+        workspacePath: "/repos/demo-ws",
+        script: "npm install",
+      },
+    ]);
+    bridge.stop();
   });
 
   it("POST /projects/:id/workspaces skips the setup script when the project has none", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+    const bridge = bridgeHarness();
 
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
     });
 
-    expect(send).not.toHaveBeenCalledWith("app-command", expect.anything());
+    expect(bridge.commands()).toEqual([]);
+    bridge.stop();
   });
 
-  it("POST /projects/:id/workspaces tells the renderer its project list is stale", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+  it("POST /projects/:id/workspaces tells every renderer its project list is stale", async () => {
+    const bridge = bridgeHarness();
 
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
     });
 
-    expect(send).toHaveBeenCalledWith("projects-changed");
+    // A broadcast rather than a `webContents.send` to the first window
+    // (ADR-180 ticket 6): every renderer that subscribed hears it, windows
+    // and browsers alike.
+    expect(bridge.frames).toContainEqual({
+      ns: "projects",
+      event: "changed",
+      args: [],
+      to: null,
+    });
+    bridge.stop();
   });
 
-  it("DELETE /projects/:id/workspaces tells the renderer its project list is stale", async () => {
-    const send = vi.fn();
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+  it("DELETE /projects/:id/workspaces tells every renderer its project list is stale", async () => {
+    const bridge = bridgeHarness();
 
     await mcpHttpDelete(baseUrl, "/projects/proj-1/workspaces", {
       worktreePath: "/repos/demo-ws",
     });
 
-    expect(send).toHaveBeenCalledWith("projects-changed");
+    expect(bridge.frames).toContainEqual({
+      ns: "projects",
+      event: "changed",
+      args: [],
+      to: null,
+    });
+    bridge.stop();
   });
 
   it("DELETE /projects/:id/workspaces removes a workspace", async () => {
@@ -1288,7 +1360,7 @@ describe("WebviewServer agent orchestration routes", () => {
 describe("WebviewServer pane routes", () => {
   let server: WebviewServer;
   let baseUrl: string;
-  let send: ReturnType<typeof vi.fn>;
+  let bridge: ReturnType<typeof bridgeHarness>;
   let layoutStore: LayoutStore;
 
   /** Seed a workspace with one plain terminal tab/pane, for the structural
@@ -1308,50 +1380,8 @@ describe("WebviewServer pane routes", () => {
     );
   }
 
-  /**
-   * The single "app-command-result" listener `requestRenderer` installs, once,
-   * lazily, for the lifetime of the module. Reading it off the `ipcMain` spy
-   * (rather than re-exporting it) also proves there is exactly one, no matter
-   * how many requests have been made across the whole test file.
-   */
-  function rendererListener(): (
-    event: unknown,
-    result: AppCommandResult,
-  ) => void {
-    const calls = (ipcMain.on as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call) => call[0] === "app-command-result",
-    );
-    if (calls.length === 0) {
-      throw new Error("app-command-result listener was never installed");
-    }
-    return calls[0][1] as (event: unknown, result: AppCommandResult) => void;
-  }
-
-  /**
-   * Play the renderer: whenever main sends an "app-command", reply
-   * synchronously on "app-command-result" with `{ ok: true, data }`, echoing
-   * back the `requestId` main generated. This lets `requestRenderer` resolve
-   * within the same HTTP request/response cycle instead of timing out.
-   */
-  function respondWith(data: unknown): void {
-    send.mockImplementation((_channel: string, command: AppCommand) => {
-      rendererListener()(null, {
-        requestId: command.requestId!,
-        ok: true,
-        data,
-      });
-    });
-  }
-
-  function openWindow(): void {
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
-  }
-
   beforeEach(async () => {
-    send = vi.fn();
-    openWindow();
+    bridge = bridgeHarness();
     layoutStore = new LayoutStore(
       {
         load: () => null,
@@ -1373,6 +1403,7 @@ describe("WebviewServer pane routes", () => {
   });
 
   afterEach(() => {
+    bridge.stop();
     server.stop();
     vi.useRealTimers();
   });
@@ -1393,7 +1424,7 @@ describe("WebviewServer pane routes", () => {
       workspacePath: "/repos/demo",
       tabs: [{ tabId: "tab-1", panes: [{ paneId: "pane-1" }] }],
     });
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("POST /panes/split returns the new paneId", async () => {
@@ -1409,20 +1440,22 @@ describe("WebviewServer pane routes", () => {
 
     expect(result.paneId).toEqual(expect.any(String));
     expect(result.paneId).not.toBe("pane-1");
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("POST /panes/:paneId/focus focuses the pane", async () => {
-    respondWith({ ok: true });
+    bridge.respondWith({ ok: true });
 
     const result = await mcpHttpPost(baseUrl, "/panes/pane-1/focus");
 
     expect(result).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "focus-pane",
-      requestId: expect.any(String),
-      args: { paneId: "pane-1" },
-    });
+    expect(bridge.commands()).toEqual([
+      {
+        cmd: "focus-pane",
+        requestId: expect.any(String),
+        args: { paneId: "pane-1" },
+      },
+    ]);
   });
 
   it("DELETE /panes/:paneId closes the pane", async () => {
@@ -1431,7 +1464,7 @@ describe("WebviewServer pane routes", () => {
     const result = await mcpHttpDelete(baseUrl, "/panes/pane-1");
 
     expect(result).toEqual({ ok: true });
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("POST /tabs creates a new terminal tab", async () => {
@@ -1442,7 +1475,7 @@ describe("WebviewServer pane routes", () => {
 
     expect(result.tabId).toEqual(expect.any(String));
     expect(result.paneId).toEqual(expect.any(String));
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("POST /tabs creates a new browser tab given a url", async () => {
@@ -1454,7 +1487,7 @@ describe("WebviewServer pane routes", () => {
 
     expect(result.tabId).toEqual(expect.any(String));
     expect(result.paneId).toEqual(expect.any(String));
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("returns 400 for an unknown paneId", async () => {
@@ -1472,9 +1505,7 @@ describe("WebviewServer pane routes", () => {
   });
 
   it("returns 503 when no Manor window is open", async () => {
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-      [],
-    );
+    bridge.closeWindow();
 
     // `/panes/:paneId/focus` is the viewport route left that still needs a
     // window (D3); the structural routes above no longer do.
@@ -1484,7 +1515,7 @@ describe("WebviewServer pane routes", () => {
   });
 
   it("returns 503 on renderer timeout", async () => {
-    // `send` never replies — the renderer is unresponsive. This exercises
+    // Nothing answers the frame — the renderer is unresponsive. This exercises
     // the real (5s) `requestRenderer` timeout end-to-end over HTTP; faking
     // timers here would also have to fake the real socket I/O `fetch`
     // depends on, which the `requestRenderer` describe block below already
@@ -1498,49 +1529,27 @@ describe("WebviewServer pane routes", () => {
 // ── Correlated main→renderer request/response (ADR-149 §1) ──
 
 describe("requestRenderer", () => {
-  let send: ReturnType<typeof vi.fn>;
+  let bridge: ReturnType<typeof bridgeHarness>;
 
   /**
-   * The single "app-command-result" listener renderer-bridge installs lazily.
-   * Read off the ipcMain spy rather than re-exported, so the test also proves
-   * exactly one listener exists no matter how many requests are in flight.
+   * Play the renderer: an `appCommands.result` invoke, which is what the
+   * reply is on the handler table (ADR-180 D5).
    */
-  function rendererListener(): (
-    event: unknown,
-    result: AppCommandResult,
-  ) => void {
-    const calls = (ipcMain.on as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call) => call[0] === "app-command-result",
-    );
-    if (calls.length === 0) {
-      throw new Error("app-command-result listener was never installed");
-    }
-    expect(calls).toHaveLength(1);
-    return calls[0][1] as (event: unknown, result: AppCommandResult) => void;
-  }
-
-  /** Play the renderer: reply on the captured listener. */
   function reply(result: AppCommandResult): void {
-    rendererListener()(null, result);
+    appCommandResult(result);
   }
 
-  /** The nth AppCommand handed to `webContents.send`. */
+  /** The nth app-command main addressed to the window. */
   function sentCommand(index = 0): AppCommand {
-    return send.mock.calls[index][1] as AppCommand;
-  }
-
-  function openWindow(): void {
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
-      { webContents: { send } },
-    ]);
+    return bridge.command(index);
   }
 
   beforeEach(() => {
-    send = vi.fn();
-    openWindow();
+    bridge = bridgeHarness();
   });
 
   afterEach(() => {
+    bridge.stop();
     vi.useRealTimers();
   });
 
@@ -1589,15 +1598,13 @@ describe("requestRenderer", () => {
   });
 
   it("resolves ok:false when no Manor window is open", async () => {
-    (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-      [],
-    );
+    bridge.closeWindow();
     await expect(requestRenderer("list-panes")).resolves.toEqual({
       ok: false,
       kind: "unavailable",
       error: "No Manor window is open",
     });
-    expect(send).not.toHaveBeenCalled();
+    expect(bridge.commands()).toEqual([]);
   });
 
   it("resolves ok:false when the renderer never replies", async () => {
@@ -1743,15 +1750,20 @@ function contextTab(
     id,
     title: id,
     rootNode: { type: "leaf", paneId: firstPaneId },
-    focusedPaneId: firstPaneId,
     paneSessions,
   };
 }
 
 function contextPanel(id: string, tabs: PersistedTab[]): PersistedPanel {
-  return { id, tabs, selectedTabId: tabs[0]?.id ?? "", pinnedTabIds: [] };
+  return { id, tabs, pinnedTabIds: [] };
 }
 
+/**
+ * A v3 workspace: structure, plus the one default viewport that carries the
+ * selection the tree used to (ADR-179 D3). `/context` never reads the
+ * viewport — it walks panes — but a fixture that still put focus in the tree
+ * would be describing a file this version cannot write.
+ */
 function contextWorkspace(
   workspacePath: string,
   panels: Record<string, PersistedPanel>,
@@ -1761,7 +1773,22 @@ function contextWorkspace(
     workspacePath,
     panelTree: { type: "leaf", panelId: firstPanelId },
     panels,
-    activePanelId: firstPanelId,
+    defaultViewport: {
+      activePanelId: firstPanelId,
+      selectedTabIds: Object.fromEntries(
+        Object.values(panels).flatMap((panel) =>
+          panel.tabs[0] ? [[panel.id, panel.tabs[0].id]] : [],
+        ),
+      ),
+      focusedPaneIds: Object.fromEntries(
+        Object.values(panels).flatMap((panel) =>
+          panel.tabs.flatMap((tab) => {
+            const firstPaneId = Object.keys(tab.paneSessions)[0];
+            return firstPaneId ? [[tab.id, firstPaneId]] : [];
+          }),
+        ),
+      ),
+    },
   };
 }
 
@@ -1769,7 +1796,7 @@ function contextWorkspace(
 // tab — a naive "check the first hit" implementation would resolve the wrong
 // workspace (or nothing) here.
 const CONTEXT_LAYOUT_FIXTURE: PersistedLayout = {
-  version: 2,
+  version: 3,
   workspaces: [
     contextWorkspace("/unrelated/project", {
       "panel-a": contextPanel("panel-a", [

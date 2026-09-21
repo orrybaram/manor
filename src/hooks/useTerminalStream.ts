@@ -11,6 +11,14 @@
  * writes the snapshot and then only the queued chunks it does not already
  * cover; see `outputAfterSnapshot`.
  *
+ * **Subscribe first, create second, on every platform.** These subscriptions
+ * are bridge frames now (ADR-180 ticket 5), on both transports: the effect
+ * below runs before `useTerminalLifecycle`'s create effect — hooks run in the
+ * order they are called, and this one is called first — so the host has this
+ * viewer on the pane's subscriber list before `pty.create` reaches the table.
+ * Reversing those two would lose the opening bytes of a fresh shell, which no
+ * snapshot can put back: the session is new, so there is nothing to snapshot.
+ *
  * Also handles kitty keyboard protocol negotiation: intercepts push/pop/query
  * sequences from the child process and responds on behalf of xterm.js (which
  * does not implement the protocol natively).

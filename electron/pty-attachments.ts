@@ -1,46 +1,55 @@
 /**
- * Who owns a session's winsize (ADR-178 D5, ADR-179 D6).
+ * Who owns a session's winsize (ADR-178 D5, ADR-179 D6, ADR-180 D6).
  *
  * One winsize owner per session. Slice 1 (ADR-178) made the desktop app it
- * whenever the desktop has the pane mounted, full stop — every browser on the
+ * whenever the desktop had the pane mounted, full stop — every browser on the
  * bridge followed, and nothing here answered what happens between two
- * browsers. ADR-179 D6 closes that gap: with no desktop viewer, the most
- * recently attached bridge viewer owns it, and everyone else — every other
- * browser, and a desktop that later attaches — follows. ADR-163/164/165 are
- * three records of the single bug that appears when a viewer's grid disagrees
- * with the pty's winsize, and two xterm.js viewers of different widths both
- * running fit-addon would rebuild it as a feature.
+ * browsers. ADR-179 D6 closed that gap for the bridge's side. ADR-180 D6
+ * closes the last of it: a viewer is a *connection* now, whichever transport
+ * carried it, so the two windows a pane is open in are as comparable as two
+ * browsers are. ADR-163/164/165 are three records of the single bug that
+ * appears when a viewer's grid disagrees with the pty's winsize, and two
+ * xterm.js viewers of different widths both running fit-addon would rebuild
+ * it as a feature.
  *
- * Main is where the check lives in slice 1 because main already sees every
- * desktop attach and detach: `pty:create` from a renderer window is an attach,
- * `pty:close` and `pty:detach` are releases, and a window that dies releases
- * everything it held. The bridge server sees the same events for a browser —
- * `pty.create`/`pty.reset` attach, `pty.close`/`pty.detach`/a dropped socket
- * release. Nothing here is asked of the daemon, which has a `Set` of attached
- * clients but no idea which of them is a desktop window or a browser tab.
+ * The rules, in the order they are asked:
+ *
+ * 1. A `local` viewer — an Electron renderer window on this machine —
+ *    outranks a `device` viewer. The user at the desk is the one holding the
+ *    keyboard, and a phone looking at the same pane follows.
+ * 2. Among viewers of the same class, the most recently attached wins. This
+ *    is the ADR-180 repair: before it, two desktop windows on one pane both
+ *    believed they owned the winsize and took turns resizing the session to
+ *    their own measurement on every layout tick.
+ * 3. Whoever stops being the owner — or starts — is told, through
+ *    `onAttachmentChange`. A viewer never has to ask.
  *
  * This is a module-level registry rather than something hung off `IpcDeps`
- * because there is exactly one desktop per main process, and every caller —
- * the `ipcMain` wrappers, the bridge's handler table, the bridge server's
- * disconnect handler — must be looking at the same set or the question has
- * two answers. It moves into the daemon when a host can exist with no
- * Electron main to ask (D5).
+ * because there is exactly one host per main process, and every caller — the
+ * bridge's handler table, the bridge server's disconnect handler, a window
+ * dying in `app-lifecycle.ts` — must be looking at the same set or the
+ * question has two answers. It moves into the daemon when a host can exist
+ * with no Electron main to ask (ADR-178 D5).
  */
-
-/** The stand-in viewer id for a caller that cannot name its `webContents`. */
-const DESKTOP_VIEWER = -1;
 
 /**
- * One viewer holding a pane: a desktop `webContents.id`, or a bridge
- * connection id (ADR-179 D6).
+ * One viewer holding a pane: a bridge connection, and what class of caller it
+ * is (ADR-180 D6).
  *
- * A plain `Set<number>` was slice 1's whole story because every viewer was
- * the desktop. Telling two bridge sockets apart — and telling "the most
- * recently attached one" — needs an ordered, kinded list instead.
+ * A plain `Set<number>` of `webContents.id`s was slice 1's whole story,
+ * because every viewer was the desktop and the desktop was one thing. Slice 2
+ * added a second, kinded shape for a socket. What this is now is neither: a
+ * connection id and a caller class, which is exactly what `BridgeConnection`
+ * knows about anyone who reaches the host surface — a renderer window and a
+ * paired device arrive here through the same door and are told apart by the
+ * only thing that distinguishes them.
  */
-export type Viewer =
-  | { kind: "desktop"; id: number }
-  | { kind: "bridge"; id: string };
+export interface Viewer {
+  /** The `BridgeConnection.id` that attached. */
+  connectionId: string;
+  /** `local` = an Electron renderer window; `device` = a paired device. */
+  callerClass: "local" | "device";
+}
 
 /** What an attach/release call did to ownership. */
 export interface AttachmentResult {
@@ -51,23 +60,23 @@ export interface AttachmentResult {
 /**
  * `paneId` → the viewers holding it, oldest first.
  *
- * An array rather than a `Set` because ownership among bridge viewers is
- * about *order* — "the most recently attached" — which a `Set`'s iteration
- * order happens to preserve today but was never the contract. Keyed by
- * viewer, as slice 1's map was, for the same reason: a window (or a browser
- * reconnect) that dies has to release exactly what it held, and a pane open
- * in two places is still owned after one of them lets go.
+ * An array rather than a `Set` because ownership among equals is about
+ * *order* — "the most recently attached" — which a `Set`'s iteration order
+ * happens to preserve today but was never the contract. Keyed by viewer, as
+ * slice 1's map was, for the same reason: a connection that dies has to
+ * release exactly what it held, and a pane open in two places is still owned
+ * after one of them lets go.
  */
 const holders = new Map<string, Viewer[]>();
 
 /**
  * A sink told which panes just got a new answer to `ownerOf`.
  *
- * `ws-bridge-server.ts` is the one subscriber that exists today: it looks up
- * each changed pane's current grid and tells every socket watching it
+ * `bridge/server.ts` is the one subscriber that exists today: it looks up
+ * each changed pane's current grid and tells every connection watching it
  * `owner: boolean`, so a follower whose owner disappeared — or a follower who
  * just became the owner — hears about it without having to ask again. This
- * module stays Electron-free and ignorant of sockets, the same reason
+ * module stays Electron-free and ignorant of transports, the same reason
  * `renderer-broadcast.ts` is a leaf: the registry only knows *that* ownership
  * moved, never who is listening.
  */
@@ -90,47 +99,78 @@ function notifyChanged(changed: readonly string[]): void {
 }
 
 function sameViewer(a: Viewer, b: Viewer): boolean {
-  return a.kind === b.kind && a.id === b.id;
+  return a.connectionId === b.connectionId;
 }
 
 /** A stable string to compare "did the owner change" against. */
 function ownerFingerprint(viewer: Viewer | null): string {
-  return viewer ? `${viewer.kind}:${viewer.id}` : "";
+  return viewer ? `${viewer.callerClass}:${viewer.connectionId}` : "";
 }
 
 /**
- * Who owns this pane's winsize: a desktop viewer if any is attached, else the
- * most recently attached bridge viewer, else null (nobody has it open).
+ * Who owns this pane's winsize: the most recently attached `local` viewer if
+ * there is one, else the most recently attached `device` viewer, else null
+ * (nobody has it open).
  */
 export function ownerOf(paneId: string): Viewer | null {
   const viewers = holders.get(paneId);
   if (!viewers || viewers.length === 0) return null;
-  const desktop = viewers.find((v) => v.kind === "desktop");
-  if (desktop) return desktop;
+  return mostRecent(viewers, "local") ?? mostRecent(viewers, "device");
+}
+
+function mostRecent(
+  viewers: readonly Viewer[],
+  callerClass: Viewer["callerClass"],
+): Viewer | null {
   for (let i = viewers.length - 1; i >= 0; i--) {
-    if (viewers[i].kind === "bridge") return viewers[i];
+    if (viewers[i].callerClass === callerClass) return viewers[i];
   }
   return null;
 }
 
 /**
+ * Would this viewer own the pane's winsize if it attached right now?
+ *
+ * What a create-shaped call has to know *before* it runs (`createShaped` in
+ * `bridge/handlers.ts`): the caller's `cols×rows` is a request, and it may
+ * only be granted to the viewer that is about to own the pane — everyone else
+ * is handed the owner's grid to render instead.
+ *
+ * The one case that is not "read the rules off `ownerOf`" is a viewer that
+ * already holds the pane. Its attach moves nothing (see `attach`), so a
+ * follower re-creating a pane it never let go of — a remount, a workspace
+ * switched away from and back — is still a follower. Answering otherwise
+ * would let a remount resize the owner's session, which is the whole of
+ * ADR-163/164/165 arriving through a door marked "reattach".
+ */
+export function wouldOwn(paneId: string, viewer: Viewer): boolean {
+  const owner = ownerOf(paneId);
+  if (!owner) return true;
+  if (owner.connectionId === viewer.connectionId) return true;
+  const viewers = holders.get(paneId) ?? [];
+  if (viewers.some((v) => v.connectionId === viewer.connectionId)) return false;
+  // A new arrival: `local` outranks `device`, and among equals the most
+  // recent attach — this one — wins.
+  return viewer.callerClass === "local" || owner.callerClass === "device";
+}
+
+/**
  * A viewer has this pane mounted.
  *
- * `viewerId = DESKTOP_VIEWER` keeps every call site that cannot name its
- * `webContents` (tests, mainly) working as a desktop attach with no id.
+ * A viewer already holding the pane stays where it is in the order rather
+ * than moving to the end: a renderer that re-creates a pane it never let go
+ * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
+ * taking the winsize back off whoever holds it would make a remount a resize.
  */
-export function attach(
-  paneId: string,
-  viewer: Viewer | number = DESKTOP_VIEWER,
-): AttachmentResult {
-  const v: Viewer =
-    typeof viewer === "number" ? { kind: "desktop", id: viewer } : viewer;
+export function attach(paneId: string, viewer: Viewer): AttachmentResult {
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
   if (viewers) {
-    if (!viewers.some((existing) => sameViewer(existing, v))) viewers.push(v);
+    if (!viewers.some((existing) => sameViewer(existing, viewer))) {
+      viewers.push(viewer);
+    }
   } else {
-    holders.set(paneId, [v]);
+    holders.set(paneId, [viewer]);
   }
   const after = ownerFingerprint(ownerOf(paneId));
   const changed = before === after ? [] : [paneId];
@@ -141,15 +181,13 @@ export function attach(
 /**
  * A viewer let this pane go.
  *
- * Without a `viewerId` the pane is released outright — the caller is saying
- * the desktop is done with it, not that one of several windows is. (No
- * bridge caller omits its id; a browser is never "done with everything at
- * once" short of disconnecting, which is `releaseViewer`.)
+ * Without a `viewer` the pane is released outright — every viewer of it at
+ * once. Nothing on the host surface asks for that (a caller is only ever done
+ * with its own view; a caller that vanished is `releaseViewer`); it is kept
+ * for the tests and for a future caller that genuinely means "this pane is
+ * gone".
  */
-export function release(
-  paneId: string,
-  viewer?: Viewer | number,
-): AttachmentResult {
+export function release(paneId: string, viewer?: Viewer): AttachmentResult {
   if (viewer === undefined) {
     const had = holders.has(paneId);
     holders.delete(paneId);
@@ -157,12 +195,10 @@ export function release(
     notifyChanged(changed);
     return { changed };
   }
-  const v: Viewer =
-    typeof viewer === "number" ? { kind: "desktop", id: viewer } : viewer;
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
   if (!viewers) return { changed: [] };
-  const idx = viewers.findIndex((existing) => sameViewer(existing, v));
+  const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
   if (idx === -1) return { changed: [] };
   viewers.splice(idx, 1);
   if (viewers.length === 0) holders.delete(paneId);
@@ -173,21 +209,20 @@ export function release(
 }
 
 /**
- * A desktop window died, or a bridge connection dropped: drop every pane it
- * was holding.
+ * A connection is gone — a window closed, a socket dropped: drop every pane
+ * it was holding.
  *
- * `kind` defaults to `"desktop"` for the existing window-death caller; the
- * bridge server passes `"bridge"` on a socket close.
+ * One function for both, and no `kind` argument, which is ADR-180 D6's point:
+ * a dead renderer window and a dead socket are the same event now, and the
+ * old two-kinded version had a hole in exactly this shape — the bridge server
+ * called it with `"bridge"` for every dropped connection, which released
+ * nothing at all the moment a desktop window's panes started being held under
+ * its connection id.
  */
-export function releaseViewer(
-  viewerId: number | string,
-  kind: "desktop" | "bridge" = "desktop",
-): AttachmentResult {
+export function releaseViewer(connectionId: string): AttachmentResult {
   const changed: string[] = [];
   for (const [paneId, viewers] of holders) {
-    const idx = viewers.findIndex(
-      (v) => v.kind === kind && v.id === viewerId,
-    );
+    const idx = viewers.findIndex((v) => v.connectionId === connectionId);
     if (idx === -1) continue;
     const before = ownerFingerprint(ownerOf(paneId));
     viewers.splice(idx, 1);
@@ -200,15 +235,16 @@ export function releaseViewer(
 }
 
 /**
- * Is the desktop app the winsize owner of this pane?
+ * Is a renderer window on this machine the winsize owner of this pane?
  *
- * `false` means the next viewer to attach may own the winsize — which, on the
- * bridge, is the browser asking. Kept for existing callers who only ever
- * asked "is it the desktop's" and never cared which bridge viewer, if any,
- * is otherwise in the running.
+ * Equivalent to "does any `local` viewer hold it", because rule 1 says a
+ * local viewer that exists is the owner. What it is *for* is the question a
+ * device has to ask before it fits a pane to itself: `false` means the next
+ * viewer to attach may own the winsize — which, on the bridge, is the browser
+ * asking.
  */
 export function isDesktopAttached(paneId: string): boolean {
-  return (holders.get(paneId) ?? []).some((v) => v.kind === "desktop");
+  return ownerOf(paneId)?.callerClass === "local";
 }
 
 /** Forget everything. Tests only — a real main process never wants this. */

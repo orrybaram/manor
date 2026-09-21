@@ -1,3 +1,26 @@
+/**
+ * `electron/ipc/` — what only Electron can do (ADR-180 D8, ticket 11).
+ *
+ * Everything that could be answered the same way for a renderer window and a
+ * paired `full` device has crossed to `electron/bridge/handlers.ts` and its
+ * implementation under `electron/bridge/handlers/`. What is left here is the
+ * set ADR-178's "what can never leave the preload" named from the start:
+ *
+ *   - `<webview>` and its 27 methods (this file, `webview-keys.ts` —
+ *     ADR-052/056/058/158)
+ *   - detach-to-window (`window.ts`, `popups.ts` — ADR-156/157/179 D4)
+ *   - the native application menu (`menu.ts` — ADR-170)
+ *   - native dialogs, the shell escape hatches, the machine clipboard and the
+ *     updater (`native.ts`)
+ *
+ * A `<webview>` guest is not a renderer window and a `Menu` is not a frame a
+ * socket can carry, so none of these has a "make it a table entry" version —
+ * they are `unavailable:web` on the bridge (`src/bridge/unavailable.ts`)
+ * because there is nothing else honest to answer. `electron/ipc/types.ts`
+ * survives alongside them because `IpcDeps` is what both this file's
+ * `register()` calls and the handler table's entries take as their first
+ * argument.
+ */
 import {
   app,
   ipcMain,

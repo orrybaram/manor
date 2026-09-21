@@ -1,24 +1,42 @@
 /**
- * The main→renderer "app-command" channel, and the HTTP-shaped helpers built on
- * it.
+ * The main→renderer app-command round trip, and the HTTP-shaped helpers built
+ * on it.
  *
  * Not a route: the `/panes`, `/agents`, and `/projects` route modules call
  * into this for the renderer round-trip, but it has no `Route` entries of its
  * own. Lives at the top level, alongside `webview-server.ts` and
  * `preload.ts`, which import it directly.
+ *
+ * **Both directions are bridge frames now (ADR-180 D5).** Out was
+ * `win.webContents.send("app-command", …)` to `BrowserWindow.getAllWindows()
+ * [0]`; it is an `appCommands.command` event addressed to the primary
+ * window's connection. Back was `ipcMain.on("app-command-result")`; it is an
+ * ordinary `appCommands.result` invoke on the handler table, which is what a
+ * renderer answering a question always should have been. The pending map,
+ * the correlation id and the timeout are unchanged — what changed is the
+ * pipe, and the fact that a browser could answer over the same one.
+ *
+ * This file must stay off `bridge/server.ts` and its transports: the handler
+ * table imports `appCommandResult` from here, so reaching back the other way
+ * would close a cycle. It addresses the window through `renderer-broadcast.
+ * ts`, which is a leaf for exactly that reason.
  */
 
 import crypto from "node:crypto";
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow } from "electron";
 import type { Json } from "./routes/types";
-import { publishRendererBroadcast } from "./renderer-broadcast";
+import {
+  connectionIdForWindow,
+  publishRendererBroadcast,
+  publishToRenderer,
+} from "./renderer-broadcast";
 
 /**
- * Payload of the main→renderer "app-command" channel.
+ * The payload of an `appCommands.command` event.
  *
- * Two semantics share this channel. Without a `requestId` the send is
- * fire-and-forget (`run-setup-script` — the renderer has nothing meaningful to
- * report back). With one, the renderer *must* reply on "app-command-result"
+ * Two semantics share it. Without a `requestId` the send is fire-and-forget
+ * (`run-setup-script` — the renderer has nothing meaningful to report back).
+ * With one, the renderer *must* answer with an `appCommands.result` invoke
  * and main awaits it; see `requestRenderer`.
  */
 export interface AppCommand {
@@ -32,7 +50,7 @@ export interface AppCommand {
   args?: Record<string, unknown>;
 }
 
-/** Payload of the renderer→main "app-command-result" channel. */
+/** The argument of the renderer's `appCommands.result` invoke. */
 export interface AppCommandResult {
   requestId: string;
   ok: boolean;
@@ -59,43 +77,50 @@ interface PendingRequest {
 
 /** In-flight `requestRenderer` calls, keyed by `requestId`. */
 const pendingRequests = new Map<string, PendingRequest>();
-let resultListenerInstalled = false;
 
 /**
- * Install the single "app-command-result" listener, lazily, on first use.
+ * A renderer answering an app-command that carried a `requestId`.
  *
- * Deliberately `ipcMain.on` and not `ipcMain.once`: a `once` per request leaks
- * a listener for every request that times out before the renderer answers.
- * One listener routes every reply through `pendingRequests` instead.
+ * `HANDLERS["appCommands.result"]` (ADR-180 D5), and the whole of what used
+ * to be a lazily installed `ipcMain.on("app-command-result")` listener. The
+ * reply was always a call the renderer makes to the host, so it is an
+ * ordinary invoke now; the correlation id, the pending map and the timeout
+ * below are untouched.
  */
-function installResultListener(): void {
-  if (resultListenerInstalled) return;
-  resultListenerInstalled = true;
-  ipcMain.on(
-    "app-command-result",
-    (_event: unknown, result: AppCommandResult) => {
-      if (!result || typeof result.requestId !== "string") return;
-      const pending = pendingRequests.get(result.requestId);
-      // Unknown id: a reply that arrived after its request timed out, or a
-      // renderer replying to a command that never asked for one. Drop it.
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      pendingRequests.delete(result.requestId);
-      pending.resolve(
-        result.ok
-          ? { ok: true, data: result.data }
-          : {
-              ok: false,
-              kind: "handler",
-              error: result.error ?? "Unknown error",
-            },
-      );
-    },
+export function appCommandResult(result: AppCommandResult): void {
+  if (!result || typeof result.requestId !== "string") return;
+  const pending = pendingRequests.get(result.requestId);
+  // Unknown id: a reply that arrived after its request timed out, or a
+  // renderer replying to a command that never asked for one. Drop it.
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingRequests.delete(result.requestId);
+  pending.resolve(
+    result.ok
+      ? { ok: true, data: result.data }
+      : {
+          ok: false,
+          kind: "handler",
+          error: result.error ?? "Unknown error",
+        },
   );
 }
 
 /**
- * Send an "app-command" the renderer must answer, and await the answer.
+ * The connection an app-command goes to: the primary window's.
+ *
+ * `getAllWindows()[0]` is the window this has always meant. Null covers one
+ * more case than it used to — a window that is open but whose page has not
+ * installed the bridge yet — and both are the same answer to the same
+ * question ("is there a renderer that can hear this"), so both become the
+ * same 503.
+ */
+function primaryConnection(): string | null {
+  return connectionIdForWindow(BrowserWindow.getAllWindows()[0]);
+}
+
+/**
+ * Send an app-command the renderer must answer, and await the answer.
  *
  * Resolves rather than rejects on every failure path (no window, timeout,
  * handler error) — callers are HTTP route handlers that map `ok: false` onto a
@@ -106,15 +131,14 @@ export function requestRenderer(
   args?: Record<string, unknown>,
   timeoutMs = 5000,
 ): Promise<RendererResponse<unknown>> {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) {
+  const to = primaryConnection();
+  if (to === null) {
     return Promise.resolve({
       ok: false,
       kind: "unavailable",
       error: "No Manor window is open",
     });
   }
-  installResultListener();
 
   const requestId = crypto.randomUUID();
   return new Promise<RendererResponse<unknown>>((resolve) => {
@@ -128,7 +152,7 @@ export function requestRenderer(
     }, timeoutMs);
     pendingRequests.set(requestId, { resolve, timer });
     const command: AppCommand = { cmd, requestId, ...(args ? { args } : {}) };
-    win.webContents.send("app-command", command);
+    publishToRenderer(to, "appCommands", "command", command);
   });
 }
 
@@ -157,18 +181,18 @@ export async function proxyToRenderer(
 /**
  * Ask the renderer to run the project's worktree start script in a new
  * workspace. Like agents, the script needs a PTY the renderer owns, so main
- * hands it off over the "app-command" channel. Best-effort: with no window
- * open there is nowhere to run it.
+ * hands it off as an app-command. Best-effort: with no renderer attached
+ * there is nowhere to run it.
  */
 export function runSetupScript(workspacePath: string, script: string): void {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) return;
+  const to = primaryConnection();
+  if (to === null) return;
   const command: AppCommand = {
     cmd: "run-setup-script",
     workspacePath,
     script,
   };
-  win.webContents.send("app-command", command);
+  publishToRenderer(to, "appCommands", "command", command);
 }
 
 /**
@@ -178,10 +202,9 @@ export function runSetupScript(workspacePath: string, script: string): void {
  * the sidebar keeps showing the pre-mutation list until something else refetches.
  */
 export function notifyProjectsChanged(): void {
-  // Browser renderers (ADR-178) are not `BrowserWindow`s, so they are told on
-  // the same signal rather than by the line below.
+  // One signal for every renderer, browser and window alike (ADR-180 ticket
+  // 6). The `webContents.send("projects-changed")` that used to sit beside
+  // this went with the `projects` namespace: a window is a bridge connection
+  // now, and `onProjectsChanged(cb)` is a subscription to this frame.
   publishRendererBroadcast("projects", "changed");
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) return;
-  win.webContents.send("projects-changed");
 }

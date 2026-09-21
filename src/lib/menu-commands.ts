@@ -108,7 +108,7 @@ export const SHARED_WINDOW_COMMANDS: ReadonlySet<string> = new Set<string>([
 /**
  * Keybinding commands only the primary window implements. A popout that sees
  * one of these asks main to focus the primary window and run it there
- * (`keybindings:runInMainWindow`); main rejects any other id.
+ * (`keybindings.runInMainWindow`); main rejects any other id.
  */
 export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
   "settings",
@@ -124,7 +124,7 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Commands whose only implementation reaches a namespace `src/web/unavailable.ts`
+ * Commands whose only implementation reaches a namespace `src/bridge/unavailable.ts`
  * has no browser meaning for at all — ADR-178's "what can never mirror in a
  * browser" table, expressed as command ids instead of preload namespaces.
  * `commandAvailableOnWeb` filters these out of the command palette and turns
@@ -157,9 +157,10 @@ export function commandAvailableOnWeb(commandId: string): boolean {
 }
 
 /**
- * Payload of the main → renderer `keybinding-command` channel: a bound combo
- * pressed somewhere the renderer's own key handler can't see it — inside a web
- * page (`webview`) or in a popout for a primary-only command (`popout`).
+ * Payload of the main → renderer `keybindings.forwardedCommand` event
+ * (ADR-180 D5): a bound combo pressed somewhere the renderer's own key
+ * handler can't see it — inside a web page (`webview`) or in a popout for a
+ * primary-only command (`popout`).
  */
 export interface ForwardedCommandPayload {
   commandId: string;

@@ -1,17 +1,15 @@
+/**
+ * `agentsUpdate` — the renderer's write allowlist.
+ *
+ * No `ipcMain` here any more: `agents` crossed to the handler table in
+ * ADR-180 ticket 9, so this is a plain function over `IpcDeps` — the same
+ * function the table calls, and a paired `full` device now reaches it the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-// ── Mock notifications ─────────────────────────────────────────────────────────
+// ── Mock notifications ───────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
@@ -19,12 +17,12 @@ vi.mock("../notifications", () => ({
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
-// ── Mock ipc-validate ──────────────────────────────────────────────────────────
+// ── Mock ipc-validate ────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/agents";
+import { agentsUpdate } from "../bridge/handlers/agents";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -55,33 +53,28 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe("agents:update allowlist", () => {
+describe("agents.update allowlist", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
   it("accepts { name: 'x' } and forwards to agentManager.updateAgent", async () => {
-    const handler = handlers.get("agents:update")!;
-    const result = await handler({} as never, "agent-1", { name: "x" });
+    const result = await agentsUpdate(deps as never, "agent-1", { name: "x" });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", { name: "x" });
     expect(result).toMatchObject({ id: "agent-1", name: "x" });
   });
 
   it("accepts { name: null } and forwards to agentManager.updateAgent", async () => {
-    const handler = handlers.get("agents:update")!;
-    await handler({} as never, "agent-1", { name: null });
+    await agentsUpdate(deps as never, "agent-1", { name: null });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", { name: null });
   });
 
   it("accepts { name, namePinned: true } for a user rename and broadcasts", async () => {
-    const handler = handlers.get("agents:update")!;
-    await handler({} as never, "agent-1", { name: "Fix login", namePinned: true });
+    await agentsUpdate(deps as never, "agent-1", { name: "Fix login", namePinned: true });
 
     expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("agent-1", {
       name: "Fix login",
@@ -89,34 +82,27 @@ describe("agents:update allowlist", () => {
     });
     const { sendAgentUpdate } = await import("../notifications");
     expect(sendAgentUpdate).toHaveBeenCalledWith(
-      null,
       expect.objectContaining({ id: "agent-1", name: "Fix login", namePinned: true }),
       deps.preferencesManager,
     );
   });
 
   it("throws when namePinned is not a boolean", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { namePinned: "yes" })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { namePinned: "yes" })).toThrow(
       "agents:update: namePinned must be a boolean",
     );
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("throws when name is not a string or null", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { name: 42 })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { name: 42 })).toThrow(
       "agents:update: name must be a string or null",
     );
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
   it("throws when updates contains status field", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { status: "abandoned" })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { status: "abandoned" })).toThrow(
       'agents:update: field "status" is not writable from renderer',
     );
 
@@ -124,9 +110,7 @@ describe("agents:update allowlist", () => {
   });
 
   it("throws when updates contains both name and a forbidden field", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { name: "x", status: "active" })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { name: "x", status: "active" })).toThrow(
       'agents:update: field "status" is not writable from renderer',
     );
 
@@ -134,9 +118,7 @@ describe("agents:update allowlist", () => {
   });
 
   it("throws when updates is not an object (string)", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", "not-an-object")).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", "not-an-object")).toThrow(
       "agents:update: updates must be an object",
     );
 
@@ -144,9 +126,7 @@ describe("agents:update allowlist", () => {
   });
 
   it("throws when updates is null", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", null)).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", null)).toThrow(
       "agents:update: updates must be an object",
     );
 
@@ -154,17 +134,13 @@ describe("agents:update allowlist", () => {
   });
 
   it("throws when updates contains agentSessionId", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { agentSessionId: "some-id" })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { agentSessionId: "some-id" })).toThrow(
       'agents:update: field "agentSessionId" is not writable from renderer',
     );
   });
 
   it("throws when updates contains paneId", () => {
-    const handler = handlers.get("agents:update")!;
-
-    expect(() => handler({} as never, "agent-1", { paneId: "pane-1" })).toThrow(
+    expect(() => agentsUpdate(deps as never, "agent-1", { paneId: "pane-1" })).toThrow(
       'agents:update: field "paneId" is not writable from renderer',
     );
   });

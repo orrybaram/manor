@@ -22,12 +22,25 @@ import type {
 export type StreamEventHandler = (event: StreamEvent) => void;
 
 export interface PtyBackend {
+  /**
+   * `env` is merged into the spawn environment of a session this call creates
+   * — `MANOR_AGENT_KIND`, which the agent hook script reads to know what it
+   * is reporting for (ADR-135 ticket 7). Ignored for a warm reattach: the
+   * session's environment was fixed when it was spawned.
+   *
+   * It was missing from this interface until ADR-180 ticket 5, while
+   * `ipc/pty.ts` passed it and `TerminalHostClient` accepted it — so the kind
+   * was dropped in between, silently, and every hook defaulted to `claude`.
+   * That gap was the `Expected 4-5 arguments, but got 6` in the electron
+   * tsconfig's error baseline, which is how it was eventually found.
+   */
   createOrAttach(
     sessionId: string,
     cwd: string,
     cols: number,
     rows: number,
     shellArgs?: string[],
+    env?: Record<string, string>,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
   write(sessionId: string, data: string): void;

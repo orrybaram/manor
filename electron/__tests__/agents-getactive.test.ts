@@ -1,17 +1,14 @@
+/**
+ * `agentsGetActive`, `agentsGetRecent`, `agentsConsumePruneNotice`.
+ *
+ * No `ipcMain` here any more: `agents` crossed to the handler table in
+ * ADR-180 ticket 9, so these are plain functions over `IpcDeps` — the same
+ * functions the table calls, and a paired `full` device now reaches them the
+ * same way the desktop does.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// ── Mock electron ──────────────────────────────────────────────────────────────
-const handlers: Map<string, (...args: unknown[]) => unknown> = new Map();
-
-vi.mock("electron", () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-  },
-}));
-
-// ── Mock notifications ─────────────────────────────────────────────────────────
 vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
@@ -19,14 +16,15 @@ vi.mock("../notifications", () => ({
   getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
-// ── Mock ipc-validate ──────────────────────────────────────────────────────────
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { register } from "../ipc/agents";
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
+import {
+  agentsGetActive,
+  agentsGetRecent,
+  agentsConsumePruneNotice,
+} from "../bridge/handlers/agents";
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,95 +53,75 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
-
-describe("agents:getActive (ADR-136)", () => {
+describe("agents.getActive (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
-  it("returns getActiveAgents() output verbatim", async () => {
+  it("returns getActiveAgents() output verbatim", () => {
     const active = [
       { id: "t1", status: "active" },
       { id: "t2", status: "active" },
     ];
     deps.agentManager.getActiveAgents.mockReturnValue(active);
 
-    const handler = handlers.get("agents:getActive")!;
-    expect(handler).toBeDefined();
-
-    const result = await handler({} as never);
+    const result = agentsGetActive(deps as never);
     expect(result).toBe(active);
     expect(deps.agentManager.getActiveAgents).toHaveBeenCalledTimes(1);
   });
 
-  it("never invokes the sort/slice path of getAllAgents", async () => {
-    const handler = handlers.get("agents:getActive")!;
-    await handler({} as never);
+  it("never invokes the sort/slice path of getAllAgents", () => {
+    agentsGetActive(deps as never);
 
     expect(deps.agentManager.getAllAgents).not.toHaveBeenCalled();
   });
 
   it("does not require any arguments", () => {
-    const handler = handlers.get("agents:getActive")!;
-    // Calling with only the implicit IpcMainInvokeEvent argument.
-    const result = handler({} as never);
+    const result = agentsGetActive(deps as never);
     expect(result).toBeDefined();
   });
 });
 
-describe("agents:getRecent (ADR-136)", () => {
+describe("agents.getRecent (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
-  it("calls getAllAgents with the requested limit", async () => {
-    const handler = handlers.get("agents:getRecent")!;
-    expect(handler).toBeDefined();
-
-    await handler({} as never, { limit: 25 });
+  it("calls getAllAgents with the requested limit", () => {
+    agentsGetRecent(deps as never, { limit: 25 });
     expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 25 });
   });
 
-  it("defaults to a limit of 50 when none is provided", async () => {
-    const handler = handlers.get("agents:getRecent")!;
-    await handler({} as never);
+  it("defaults to a limit of 50 when none is provided", () => {
+    agentsGetRecent(deps as never);
     expect(deps.agentManager.getAllAgents).toHaveBeenCalledWith({ limit: 50 });
   });
 });
 
-describe("agents:consumePruneNotice (ADR-136)", () => {
+describe("agents.consumePruneNotice (ADR-136)", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
-    handlers.clear();
     deps = makeDeps();
-    register(deps as never);
   });
 
-  it("returns 0 when nothing was pruned", async () => {
+  it("returns 0 when nothing was pruned", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(0);
 
-    const handler = handlers.get("agents:consumePruneNotice")!;
-    const result = await handler({} as never);
+    const result = agentsConsumePruneNotice(deps as never);
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();
   });
 
-  it("returns the count and sets the shown flag on first call", async () => {
+  it("returns the count and sets the shown flag on first call", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(false);
 
-    const handler = handlers.get("agents:consumePruneNotice")!;
-    const result = await handler({} as never);
+    const result = agentsConsumePruneNotice(deps as never);
     expect(result).toBe(5);
     expect(deps.preferencesManager.set).toHaveBeenCalledWith(
       "agentPruneNoticeShown",
@@ -151,12 +129,11 @@ describe("agents:consumePruneNotice (ADR-136)", () => {
     );
   });
 
-  it("returns 0 when the shown flag is already set, even if count > 0", async () => {
+  it("returns 0 when the shown flag is already set, even if count > 0", () => {
     deps.agentManager.getLastPruneCount.mockReturnValue(5);
     deps.preferencesManager.get.mockReturnValue(true);
 
-    const handler = handlers.get("agents:consumePruneNotice")!;
-    const result = await handler({} as never);
+    const result = agentsConsumePruneNotice(deps as never);
     expect(result).toBe(0);
     expect(deps.preferencesManager.set).not.toHaveBeenCalled();
   });

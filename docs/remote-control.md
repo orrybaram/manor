@@ -66,6 +66,31 @@ because the desktop UI's own confirmation dialogs are already standing in
 front of every one of these actions. Say it plainly: a leaked `full` token is
 a leaked machine.
 
+Not quite none of that filtering, though. A short list of methods refuses
+every device regardless of tier — `LOCAL_ONLY` in the handler table
+(ADR-180 D4) — and it is worth naming rather than leaving as an absence: the
+keybinding writes (`set`, `reset`, `resetAll`, and running a bound command in
+the main window), the five `remoteControl` methods that change what is
+exposed (`setEnabled`, `pair`, `revoke`, `startTunnel`, `stopTunnel`),
+`linear.connect`, and `appCommands.result`, the reply half of a round trip
+addressed to the primary window only. A stolen `full` token that could pair
+more devices would survive its own revocation — a different, worse class of
+loss than "can remove a workspace," which a `full` device is trusted with
+knowingly — and that is the whole reason the pairing methods sit on this
+list. `linear.connect`'s argument is an API key, not a route a device merely
+shouldn't drive. Two more are here for a narrower reason than trust: the
+viewport pair (`viewport.load`/`save`) names the desk's own viewport file,
+which a device asking about would get the wrong screen's answer for, and the
+prewarm pair (`pty.consumePrewarmed`/`updatePrewarmCwd`) names a prewarmed
+shell that belongs to the window that asked for one — a browser never even
+sends this pair, since it is answered inside the tab itself, the same as
+`viewport.*`. A device calling any other `LOCAL_ONLY` method gets
+`unavailable:web`, exactly what it would get for a method that does not
+exist — and the refusal itself is not silent: it is written to the audit log
+as a `rejected` call, the same as the HTTP transport already audits its own
+refusals, with a null target recorded in place of an argument that would
+otherwise be a secret.
+
 ## The trust model
 
 **A separate listener.** Manor's existing local HTTP surface (used by the CLI

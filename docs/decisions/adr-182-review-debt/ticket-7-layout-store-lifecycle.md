@@ -1,6 +1,6 @@
 ---
 title: LayoutStore owns pane and workspace teardown
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [6]

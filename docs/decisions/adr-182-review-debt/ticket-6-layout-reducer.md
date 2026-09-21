@@ -1,6 +1,6 @@
 ---
 title: Layout reducer as take + graft with a typed handler table
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

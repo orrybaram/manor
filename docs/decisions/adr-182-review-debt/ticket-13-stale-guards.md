@@ -1,6 +1,6 @@
 ---
 title: Delete stale web guards and the one-member TunnelKind
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [12]

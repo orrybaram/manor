@@ -12,6 +12,8 @@ import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import X from "lucide-react/dist/esm/icons/x";
 import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
+import { useTerminalTouch } from "../../../hooks/useTerminalTouch";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
@@ -63,9 +65,15 @@ export function TerminalPane(props: TerminalPaneProps) {
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);
 
+  // A finger on a phone (ADR-181 D5, D6): a tap focuses xterm and raises the
+  // soft keyboard, a long-press opens the menu below, a drag scrolls or pans.
+  // Nothing at all on the desk.
+  const phone = useLayoutMode() === "phone";
+  const touch = useTerminalTouch(containerRef, term, phone);
+
   return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>
+    <ContextMenu.Root onOpenChange={touch.onMenuOpenChange}>
+      <ContextMenu.Trigger asChild {...touch.triggerProps}>
         <div
           ref={containerRef}
           className={`${styles.container} ${follower ? styles.containerFollowing : ""}`}

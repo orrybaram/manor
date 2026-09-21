@@ -15,6 +15,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { configureHelperTextarea } from "../terminal/helper-textarea";
 import { openExternal } from "../lib/open-external";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import {
@@ -214,6 +215,11 @@ export function useTerminalLifecycle(
     t.unicode.activeVersion = "11";
 
     t.open(container);
+
+    // `open` is what creates xterm's hidden textarea — the one every keystroke,
+    // a phone's soft keyboard included, goes through. Keep the keyboard from
+    // capitalising or "correcting" what is typed into it (ADR-181 D6).
+    configureHelperTextarea(t.textarea);
 
     // Post-open addons (require DOM/canvas)
     try {

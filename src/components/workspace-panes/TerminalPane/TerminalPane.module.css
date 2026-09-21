@@ -26,6 +26,37 @@
   contain: layout paint;
 }
 
+/* A finger on a phone (ADR-181 D5, D6; `useTerminalTouch`). The browser keeps
+   exactly one gesture on the terminal — a horizontal pan, which is how a
+   follower wider than the phone scrolls sideways in its `overflow-x: auto`
+   box — and hands every vertical drag to the script, which turns it into
+   scrolling xterm's own scrollback (xterm 6's viewport ignores touch). That
+   also takes double-tap-to-zoom away, so a quick second tap is a tap, and it
+   keeps a vertical drag from rubber-banding the page or firing the
+   `pointercancel` that would leave Radix's long-press timer to guess.
+   Pinch-zoom stays where it is supported; iOS does not know `pinch-zoom` and
+   would drop the whole declaration, hence the plain `pan-x` before it.
+
+   Applied to all of xterm, not just the container: the browser intersects
+   `touch-action` down the ancestor chain, and xterm's own elements — its
+   scrollable element in particular — set none. The search bar that sits
+   over the terminal is not xterm, and keeps an ordinary text field's
+   touch behaviour.
+
+   `user-select` is deliberately left alone: xterm already sets it `none` on
+   `.xterm`, so a long-press finds no text to start a native selection on,
+   and the helper textarea — the one element that must stay editable — has
+   always lived inside that rule. Nothing to add, so nothing added. The
+   callout is off (Radix sets it on the trigger too) so a long-press on the
+   textarea never offers iOS's own menu. */
+:global(.app[data-layout="phone"]) .container,
+:global(.app[data-layout="phone"]) .container :global(.xterm),
+:global(.app[data-layout="phone"]) .container :global(.xterm) * {
+  touch-action: pan-x;
+  touch-action: pan-x pinch-zoom;
+  -webkit-touch-callout: none;
+}
+
 .followerBadge {
   position: absolute;
   bottom: 4px;

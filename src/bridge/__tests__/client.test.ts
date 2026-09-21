@@ -2,8 +2,8 @@
  * The proxy, over a transport that is not a socket (ADR-180 ticket 3).
  *
  * What is asserted here is the half of the client that is the same on a
- * desktop and in a browser: what `ns.method(...)` turns into, what
- * `ns.on<Event>(cb)` turns into, and the order the four places an answer can
+ * desktop and in a browser: what `ns.method(...)` turns into, what a
+ * listener (`ns.onX(cb)`) turns into, and the order the four places an answer can
  * come from are consulted in — a native namespace the transport serves in
  * process, a single method it serves itself, the browser-impossible set, and
  * finally the transport. The socket's own properties (hello, outbox,
@@ -178,9 +178,9 @@ describe("createBridge", () => {
       });
     });
 
-    it("maps the root's onProjectsChanged onto projects.changed", () => {
+    it("maps projects.onChanged onto projects.changed", () => {
       const transport = new FakeTransport();
-      bridgeOver(transport).onProjectsChanged(() => {});
+      bridgeOver(transport).projects.onChanged(() => {});
       expect(transport.lastSubscription).toMatchObject({
         ns: "projects",
         event: "changed",
@@ -289,29 +289,6 @@ describe("createBridge", () => {
       expect(setContext).toHaveBeenCalledOnce();
       expect(transport.invokes).toHaveLength(0);
     });
-
-    /**
-     * A root-level member is served with no dot in its name — which is how
-     * the desktop keeps the preload's `sendAppCommandResult` and
-     * `onAppCommand` working while they are still native.
-     */
-    it("serves a root-level member the same way", () => {
-      const onAppCommand = vi.fn(() => () => {});
-      const sendAppCommandResult = vi.fn(() => undefined);
-      const transport = new FakeTransport({
-        locallyServed: { onAppCommand, sendAppCommandResult },
-      });
-      const api = bridgeOver(transport);
-
-      expect(api.onAppCommand(() => {})).toBeTypeOf("function");
-      expect(
-        api.sendAppCommandResult({ requestId: "r1" } as never),
-      ).toBeUndefined();
-      expect(onAppCommand).toHaveBeenCalledOnce();
-      expect(sendAppCommandResult).toHaveBeenCalledWith({ requestId: "r1" });
-      expect(transport.invokes).toHaveLength(0);
-      expect(transport.subscriptions).toHaveLength(0);
-    });
   });
 
   describe("what no browser can do", () => {
@@ -364,15 +341,11 @@ describe("createBridge", () => {
       const transport = new FakeTransport({
         platform: "electron",
         rootValues: {
-          isDetached: true,
-          detachedWindowId: "win-2",
           claim: { workspacePath: "/w", tabId: "t1" },
           env: { isPackaged: true },
         },
       });
       const api = bridgeOver(transport);
-      expect(api.isDetached).toBe(true);
-      expect(api.detachedWindowId).toBe("win-2");
       expect(api.claim).toEqual({ workspacePath: "/w", tabId: "t1" });
       expect(api.env.isPackaged).toBe(true);
       expect(api.rendererId).toBe("renderer-7");

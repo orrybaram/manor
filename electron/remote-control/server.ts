@@ -58,11 +58,10 @@ import {
 } from "./static";
 import {
   BRIDGE_PATH,
-  CLOSE_FORBIDDEN,
-  CLOSE_UNAUTHORIZED,
   type BridgeAuthResult,
   type WsBridgeServer,
 } from "../bridge/transports/ws";
+import { CLOSE_FORBIDDEN, CLOSE_UNAUTHORIZED } from "../bridge/types";
 
 /** What the listener needs of a device. `RemoteDeviceStore` satisfies it. */
 export interface AuthenticatedDevice {

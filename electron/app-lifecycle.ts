@@ -34,7 +34,6 @@ import { initAutoUpdater, checkForUpdates } from "./updater";
 import { portlessManager } from "./portless";
 import { LocalBackend } from "./backend/local-backend";
 import { PrewarmManager } from "./prewarm-manager";
-import { releaseViewer } from "./pty-attachments";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RemoteControlServer } from "./remote-control/server";
 import { BridgeServer } from "./bridge/server";
@@ -164,24 +163,15 @@ export function initApp(devTitle: string | null): void {
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
 
+  // What a closed window held — the panes it was a viewer of, and the tab it
+  // claimed — is released when its bridge connection drops (the IPC
+  // transport drops it when the `webContents` is destroyed), not here: the
+  // connection is what holds them, and `BridgeServer.onDisconnect` below is
+  // the one place that hears it go.
   function trackRendererWindow(win: BrowserWindow): void {
     rendererWindows.add(win);
-    // Read the id now: `closed` fires with a freed native window behind the
-    // wrapper, and `webContents` is not there to be asked by then.
-    const viewerId = win.webContents.id;
     win.on("closed", () => {
       rendererWindows.delete(win);
-      // A window that dies without unmounting its panes still let them go —
-      // otherwise every pane it held stays desktop-owned forever and every
-      // other viewer follows a grid nothing is driving (ADR-178 D5). The
-      // window's connection id is its `webContents.id` as a string, which is
-      // what its panes are held under since `pty` crossed (ADR-180 D6); the
-      // IPC transport drops the same connection when the `webContents` is
-      // destroyed, and one of the two arrives first.
-      releaseViewer(String(viewerId));
-      // And whatever tab it held comes back to the primary (ADR-179 D4): a
-      // claim that outlives its window is a tab no renderer shows.
-      layoutStore.releaseWindow(String(viewerId));
     });
   }
 
@@ -507,13 +497,21 @@ export function initApp(devTitle: string | null): void {
   // surface is built here rather than inside the transport because it is the
   // thing the *next* transport attaches to as well.
   bridgeServer = new BridgeServer(ipcDeps);
-  wsBridge = new WsBridgeServer(ipcDeps, { server: bridgeServer });
+  // A connection that drops has already let go of every pane it viewed
+  // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
+  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
+  // shows. Only a desktop window ever claims, so for a socket this is a
+  // no-op.
+  bridgeServer.onDisconnect((connectionId) =>
+    layoutStore.releaseWindow(connectionId),
+  );
+  wsBridge = new WsBridgeServer(bridgeServer);
   remoteControlServer.setBridge(wsBridge);
   // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
   // connection per renderer window. Started unconditionally and for the life
   // of the app — a window's first frame makes its connection, and remote
   // control being off has nothing to do with it.
-  ipcBridge = new IpcBridgeTransport(ipcDeps, { server: bridgeServer });
+  ipcBridge = new IpcBridgeTransport(ipcDeps, bridgeServer);
   ipcBridge.start();
 
   // Give control routes (ADR-171) the same manager bag IPC handlers have.

@@ -4,19 +4,20 @@
  *
  * The host publishes `ns.event` (`renderer-broadcast.ts`, and the PTY stream
  * in `server.ts`); a renderer hears it through `ns.onX(cb)`, which the client
- * turns into a `subscribe` frame by a naming rule with a short exception
- * table (`SUBSCRIPTION_EVENTS` in `src/bridge/client.ts`). This file is the
- * one place the three meet:
+ * (`src/bridge/client.ts`) turns into a `subscribe` frame by looking the
+ * listener up here. This file is the one place the three meet:
  *
  * - `BridgeEvents` names each event and the arguments it is published with,
- *   so `publishRendererBroadcast` / `publishToRenderer` refuse an event
- *   nobody declared, or a payload of the wrong shape;
+ *   so `publishRendererBroadcast` / `publishToRenderer` and `BridgeServer`'s
+ *   own publishes refuse an event nobody declared, or a payload of the wrong
+ *   shape;
  * - `SUBSCRIPTIONS` pairs each listener on `ElectronAPI` with the event it
- *   hears, and `./contract.ts` derives those listeners' signatures from it —
- *   adding a listener to the surface *is* adding a row here.
+ *   hears: `./contract.ts` derives those listeners' signatures from it, and
+ *   the client resolves them with it — adding a listener to the surface *is*
+ *   adding a row here.
  *
  * Nothing here exists at runtime but `SUBSCRIPTIONS`, and every import is a
- * type, so the browser test that reads the table does not pull the main
+ * type, so the renderer bundles that read the table do not pull the main
  * process in behind it.
  */
 
@@ -167,17 +168,14 @@ export type WireEventArgs<W extends EventName> = {
 /**
  * Listener → the event it hears, by wire name.
  *
- * The value is not decoration: `src/bridge/__tests__/resolution.test.ts`
- * asserts that the client resolves each key to exactly this string, so a
- * change to the client's naming rule fails a test rather than silently
- * retiring a subscription.
+ * The value is what goes on the wire: the client reads it to build the
+ * subscribe frame, and `src/bridge/__tests__/resolution.test.ts` asserts it
+ * does for every row.
  *
  * `pty.*` are the six the daemon's stream carries plus `winsizeOwner`, and
- * are the only ones with a key (the `paneId`). The two root entries predate
- * the namespaces around them and are aliased on the wire. Native
- * subscriptions are *not* here: `webview.*`, `updater.*` and
- * `menu.onMenuCommand` are members of a native namespace and are written in
- * the preload.
+ * are the only ones with a key (the `paneId`). Native subscriptions are *not*
+ * here: `webview.*`, `updater.*` and `menu.onMenuCommand` are members of a
+ * native namespace and are written in the preload.
  */
 export const SUBSCRIPTIONS = {
   "pty.onOutput": "pty.output",
@@ -189,6 +187,7 @@ export const SUBSCRIPTIONS = {
   "pty.onWinsizeOwner": "pty.winsizeOwner",
   "layout.onChanged": "layout.changed",
   "layout.onPaneTitle": "layout.paneTitle",
+  "projects.onChanged": "projects.changed",
   "projects.onRemoveWorktreeProgress": "projects.removeWorktreeProgress",
   "projects.onWorktreeSetupProgress": "projects.worktreeProgress",
   "theme.onChanged": "theme.changed",
@@ -204,9 +203,7 @@ export const SUBSCRIPTIONS = {
   "notifications.onNavigate": "notifications.navigate",
   "stats.onChanged": "stats.changed",
   "remoteControl.onStatus": "remoteControl.status",
-  /** The root pair (`ROOT_SUBSCRIPTIONS` in `src/bridge/client.ts`). */
-  onProjectsChanged: "projects.changed",
-  onAppCommand: "appCommands.command",
+  "appCommands.onCommand": "appCommands.command",
 } as const satisfies Record<string, EventName>;
 
 /** A listener on the contract, answered by an event frame. */

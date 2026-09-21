@@ -1,7 +1,7 @@
 /**
  * The desktop transport and the door in front of it (ADR-180 D2/D3).
  *
- * Two halves, one file, because they are two ends of the same four channels:
+ * Two halves, one file, because they are two ends of the same channels:
  * `IpcBridgeTransport` on the main side, and the `window.manorHost` the
  * preload exposes on the renderer side. Both run against a fake `electron`,
  * which is what a transport made of `ipcMain.handle` and `webContents.send`
@@ -19,14 +19,13 @@ import type { MockInstance } from "vitest";
 import type { IpcDeps } from "../../ipc/types";
 import { resetAttachments } from "../../pty-attachments";
 import { BridgeServer } from "../server";
+import { IpcBridgeTransport, isRendererSender } from "../transports/ipc";
 import {
   BRIDGE_EVENT,
   BRIDGE_INVOKE,
   BRIDGE_SUBSCRIBE,
   BRIDGE_UNSUBSCRIBE,
-  IpcBridgeTransport,
-  isRendererSender,
-} from "../transports/ipc";
+} from "../types";
 
 const electronMock = vi.hoisted(() => ({
   /** `ipcMain.handle` registrations, by channel. */
@@ -183,7 +182,7 @@ describe("IpcBridgeTransport", () => {
     server = new BridgeServer(deps, {
       handlers: { "demo.ping": ping as never },
     });
-    transport = new IpcBridgeTransport(deps, { server });
+    transport = new IpcBridgeTransport(deps, server);
     transport.start();
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -203,14 +202,19 @@ describe("IpcBridgeTransport", () => {
       win.webContents,
     );
 
-    expect(result).toBe("pong:hi");
+    expect(result).toEqual({
+      id: undefined,
+      kind: "result",
+      ok: true,
+      result: "pong:hi",
+    });
     // One connection, made lazily by that first frame, named for the
     // webContents — which is what `rendererId` already is on the desktop.
     expect(transport.size).toBe(1);
     expect(ping).toHaveBeenCalledTimes(1);
   });
 
-  it("returns a serialisable envelope for a method the host does not have", async () => {
+  it("answers with a result frame for a method the host does not have", async () => {
     const win = makeWindow(11);
     windows.push(win);
 
@@ -220,10 +224,11 @@ describe("IpcBridgeTransport", () => {
     );
 
     expect(result).toEqual({
-      __bridgeError: {
-        code: "unavailable:web",
-        message: expect.stringContaining("demo.nope"),
-      },
+      id: undefined,
+      kind: "result",
+      ok: false,
+      code: "unavailable:web",
+      error: expect.stringContaining("demo.nope"),
     });
   });
 
@@ -372,11 +377,16 @@ describe("two windows on one pane (D6)", () => {
     );
   }
 
-  function create(win: FakeWindow, cols: number, rows: number) {
-    return invoke(
+  async function create(win: FakeWindow, cols: number, rows: number) {
+    const frame = (await invoke(
       { ns: "pty", method: "create", args: [PANE, "/tmp", cols, rows] },
       win.webContents,
-    ) as Promise<{ winsizeOwner?: boolean; cols?: number; rows?: number }>;
+    )) as { result?: unknown };
+    return frame.result as {
+      winsizeOwner?: boolean;
+      cols?: number;
+      rows?: number;
+    };
   }
 
   beforeEach(() => {
@@ -411,7 +421,7 @@ describe("two windows on one pane (D6)", () => {
     } as unknown as IpcDeps;
     // No `handlers` override: this is the table the app runs.
     server = new BridgeServer(deps);
-    transport = new IpcBridgeTransport(deps, { server });
+    transport = new IpcBridgeTransport(deps, server);
     transport.start();
   });
 
@@ -559,8 +569,6 @@ describe("window.manorHost", () => {
   it("exposes the facts the renderer needs before it can ask anything", () => {
     expect(host.platform).toBe("electron");
     expect(host.rendererId).toBe("7");
-    expect(host.isDetached).toBe(false);
-    expect(host.detachedWindowId).toBe(null);
     expect(host.claim).toBe(null);
     expect(host.env).toEqual({ isPackaged: false });
   });
@@ -569,15 +577,16 @@ describe("window.manorHost", () => {
     expect(electronMock.rendererListeners.get(BRIDGE_EVENT)).toHaveLength(1);
   });
 
-  it("invokes on the one channel, as one payload", async () => {
-    await (host.invoke as (ns: string, m: string, a: unknown[]) => unknown)(
-      "pty",
-      "write",
-      ["pane-a", "ls"],
-    );
-    expect(electronMock.invoked).toEqual([
-      [BRIDGE_INVOKE, { ns: "pty", method: "write", args: ["pane-a", "ls"] }],
-    ]);
+  it("invokes on the one channel, as one frame", async () => {
+    const frame = {
+      kind: "invoke",
+      id: 1,
+      ns: "pty",
+      method: "write",
+      args: ["pane-a", "ls"],
+    };
+    await (host.invoke as (frame: unknown) => unknown)(frame);
+    expect(electronMock.invoked).toEqual([[BRIDGE_INVOKE, frame]]);
   });
 
   it("subscribes once per pair and unsubscribes only on the last release", () => {
@@ -596,7 +605,10 @@ describe("window.manorHost", () => {
     const second = subscribe("pty", "output", "pane-a", callback);
 
     expect(electronMock.sent).toEqual([
-      [BRIDGE_SUBSCRIBE, { ns: "pty", event: "output", key: "pane-a" }],
+      [
+        BRIDGE_SUBSCRIBE,
+        { kind: "subscribe", ns: "pty", event: "output", key: "pane-a" },
+      ],
     ]);
 
     first();
@@ -608,8 +620,14 @@ describe("window.manorHost", () => {
 
     second();
     expect(electronMock.sent).toEqual([
-      [BRIDGE_SUBSCRIBE, { ns: "pty", event: "output", key: "pane-a" }],
-      [BRIDGE_UNSUBSCRIBE, { ns: "pty", event: "output", key: "pane-a" }],
+      [
+        BRIDGE_SUBSCRIBE,
+        { kind: "subscribe", ns: "pty", event: "output", key: "pane-a" },
+      ],
+      [
+        BRIDGE_UNSUBSCRIBE,
+        { kind: "unsubscribe", ns: "pty", event: "output", key: "pane-a" },
+      ],
     ]);
 
     deliver({ ns: "pty", event: "output", key: "pane-a", args: ["ignored"] });
@@ -673,7 +691,7 @@ describe("window.manorHost", () => {
     ) => () => void;
     subscribe("projects", "changed", null, vi.fn());
     expect(electronMock.sent).toEqual([
-      [BRIDGE_SUBSCRIBE, { ns: "projects", event: "changed", key: undefined }],
+      [BRIDGE_SUBSCRIBE, { kind: "subscribe", ns: "projects", event: "changed" }],
     ]);
   });
 });

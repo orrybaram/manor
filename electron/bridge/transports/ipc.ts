@@ -22,7 +22,15 @@
  *
  * A fifth channel carries no frame: `bridge:rendererId` answers "who am I?"
  * synchronously, because the preload has to know before the page's first
- * line runs and the answer — `webContents.id` — is already in hand.
+ * line runs and the answer — `webContents.id` — is already in hand. The
+ * channel names are `../types.ts`'s, because the preload sends on them and
+ * may not import this file.
+ *
+ * **An invoke is answered with its `ResultFrame`**, failures included, the
+ * same frame the socket sends. `ipcMain.handle` serialises a thrown `Error`
+ * to its message and drops every custom property on the way, so a rejection
+ * could not carry the `code` that tells `unavailable:web` from a real
+ * failure; a frame is plain data and crosses whole.
  *
  * **What is on this side of `BridgeConnection`.** The channel names, the
  * sender check, the one `webContents.send` that `send(frame)` becomes, and
@@ -55,51 +63,16 @@ import {
   setRendererWindowResolver,
   type RendererWindowLike,
 } from "../../renderer-broadcast";
-import { BridgeServer, type BridgeServerOptions } from "../server";
+import type { BridgeServer } from "../server";
 import {
-  readInvokeFrame,
-  readSubscribeFrame,
+  BRIDGE_EVENT,
+  BRIDGE_INVOKE,
+  BRIDGE_RENDERER_ID,
+  BRIDGE_SUBSCRIBE,
+  BRIDGE_UNSUBSCRIBE,
   type BridgeConnection,
+  type ResultFrame,
 } from "../types";
-
-/** A call, answered with its result or a `BridgeErrorEnvelope`. */
-export const BRIDGE_INVOKE = "bridge:invoke";
-/** `{ns, event, key?}` — start hearing this. No reply. */
-export const BRIDGE_SUBSCRIBE = "bridge:subscribe";
-/** `{ns, event, key?}` — stop. No reply. */
-export const BRIDGE_UNSUBSCRIBE = "bridge:unsubscribe";
-/** Main → renderer: one `EventFrame`. The only channel this transport sends on. */
-export const BRIDGE_EVENT = "bridge:event";
-/**
- * "Who am I?", answered synchronously (ADR-179 D3, ADR-180 ticket 6).
- *
- * The one channel here that carries no frame. The preload has to answer
- * `rendererId` before the page's first line runs — a component branching on
- * it is rendering — and there is nothing to wait for, because
- * `webContents.id` is already in hand. It lived on `viewport:rendererId`
- * until `viewport` crossed to the table; it belongs here, with
- * `connectionIdFor`, because "a connection is its `webContents.id`" is this
- * transport's arrangement and this is the same sentence said to the page.
- */
-export const BRIDGE_RENDERER_ID = "bridge:rendererId";
-
-/**
- * A failed invoke, as a *value*.
- *
- * `ipcMain.handle` serialises a thrown `Error` to its message and drops every
- * custom property on the way, so a rejection cannot carry the `code` that
- * tells `unavailable:web` from a real failure. Rather than smuggle the code
- * into the message and parse it back out, the failure is returned as data and
- * the client (`src/bridge/client.ts`) throws it. Honest, at the cost of one
- * shape the client has to know about.
- */
-export interface BridgeErrorEnvelope {
-  __bridgeError: { code: string; message: string };
-}
-
-function bridgeError(code: string, message: string): BridgeErrorEnvelope {
-  return { __bridgeError: { code, message } };
-}
 
 /**
  * The reply to a frame from a sender this transport does not recognise.
@@ -150,15 +123,6 @@ export function isRendererSender(
   return false;
 }
 
-export interface IpcBridgeTransportOptions extends BridgeServerOptions {
-  /**
-   * The host surface to feed. One is built if none is handed in, so a test
-   * can stand this transport up alone; `app-lifecycle.ts` passes the shared
-   * one, because the WebSocket transport feeds the same registry.
-   */
-  server?: BridgeServer;
-}
-
 /**
  * The four channels, and one connection per renderer window.
  *
@@ -167,20 +131,18 @@ export interface IpcBridgeTransportOptions extends BridgeServerOptions {
  * of, exactly as a dropped socket does (`BridgeServer.drop`).
  */
 export class IpcBridgeTransport {
-  private readonly server: BridgeServer;
-  /** Whether `dispose` also disposes the surface, or only this transport. */
-  private readonly ownsServer: boolean;
   /** `webContents.id` → its connection. The registry of live windows. */
   private readonly connections = new Map<number, BridgeConnection>();
   private started = false;
 
+  /**
+   * @param server The host surface to feed — shared with the WebSocket
+   *   transport, and disposed by whoever built it, not by this.
+   */
   constructor(
     private readonly deps: IpcDeps,
-    options: IpcBridgeTransportOptions = {},
-  ) {
-    this.server = options.server ?? new BridgeServer(deps, options);
-    this.ownsServer = options.server === undefined;
-  }
+    private readonly server: BridgeServer,
+  ) {}
 
   /** Renderer windows that have spoken at least one frame. */
   get size(): number {
@@ -209,7 +171,6 @@ export class IpcBridgeTransport {
       this.started = false;
     }
     for (const id of [...this.connections.keys()]) this.dropWindow(id);
-    if (this.ownsServer) this.server.dispose();
   }
 
   /**
@@ -241,21 +202,25 @@ export class IpcBridgeTransport {
   };
 
   /**
-   * A call from a window. Bound as a field so `removeHandler` has the same
-   * function to remove that `handle` was given.
+   * A call from a window, answered with its result frame. Bound as a field so
+   * `removeHandler` has the same function to remove that `handle` was given.
+   *
+   * The channel is the frame's kind — whatever `kind` the payload claims —
+   * so a frame on `bridge:invoke` is always answered and a frame on the
+   * other two never is.
    */
   private readonly onInvoke = async (
     event: IpcMainInvokeEvent,
     payload: unknown,
-  ): Promise<unknown> => {
+  ): Promise<ResultFrame> => {
     const connection = this.connectionFor(event.sender, BRIDGE_INVOKE);
     if (!connection) return NO_REPLY;
-    const frame = readInvokeFrame(asRecord(payload));
-    if (!frame) {
-      return bridgeError("bad-frame", "invoke needs a string ns and method");
-    }
-    const result = await this.server.dispatch(connection, frame);
-    return result.ok ? result.result : bridgeError(result.code, result.error);
+    const result = await this.server.receive(connection, {
+      ...asRecord(payload),
+      kind: "invoke",
+    });
+    // Never null for an invoke; the fallback is for the type.
+    return result ?? NO_REPLY;
   };
 
   private readonly onSubscribe = (
@@ -264,9 +229,10 @@ export class IpcBridgeTransport {
   ): void => {
     const connection = this.connectionFor(event.sender, BRIDGE_SUBSCRIBE);
     if (!connection) return;
-    const asked = readSubscribeFrame(asRecord(payload), "subscribe");
-    if (!asked) return;
-    this.server.subscribe(connection, asked.ns, asked.event, asked.key);
+    void this.server.receive(connection, {
+      ...asRecord(payload),
+      kind: "subscribe",
+    });
   };
 
   /**
@@ -294,9 +260,10 @@ export class IpcBridgeTransport {
   ): void => {
     const connection = this.connectionFor(event.sender, BRIDGE_UNSUBSCRIBE);
     if (!connection) return;
-    const asked = readSubscribeFrame(asRecord(payload), "unsubscribe");
-    if (!asked) return;
-    this.server.unsubscribe(connection, asked.ns, asked.event, asked.key);
+    void this.server.receive(connection, {
+      ...asRecord(payload),
+      kind: "unsubscribe",
+    });
   };
 
   /**
@@ -328,10 +295,10 @@ export class IpcBridgeTransport {
       deviceId: null,
       deviceLabel: null,
       send: (frame) => {
-        // Only event frames go out on the wire here: a result is the return
-        // value of `ipcMain.handle`, and `BridgeServer` never sends one this
-        // way. The guard is so that a future one is dropped rather than
-        // silently arriving on the event channel.
+        // Only event frames go out on the channel here: a result is the
+        // return value of `ipcMain.handle`, and `BridgeServer` never sends
+        // one this way. The guard is so that a future one is dropped rather
+        // than silently arriving on the event channel.
         if (frame.kind !== "event") return;
         if (sender.isDestroyed()) return;
         try {

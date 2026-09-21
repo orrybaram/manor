@@ -15,6 +15,7 @@ import { WebSocket } from "ws";
 import { RemoteControlServer, type AuthenticatedDevice } from "../server";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
+import { BridgeServer } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
 import {
   attach,
@@ -79,6 +80,8 @@ interface Client {
 describe("WsBridgeServer", () => {
   let server: RemoteControlServer;
   let bridge: WsBridgeServer;
+  /** The host surface the socket transport feeds. */
+  let host: BridgeServer;
   let deps: IpcDeps;
   let auditDir: string;
   let audit: RemoteAuditLog;
@@ -189,7 +192,8 @@ describe("WsBridgeServer", () => {
       },
     } as unknown as IpcDeps;
 
-    bridge = new WsBridgeServer(deps, { audit });
+    host = new BridgeServer(deps, { audit });
+    bridge = new WsBridgeServer(host);
     server = new RemoteControlServer(
       () => ({}) as unknown as ControlDeps,
       devices,
@@ -208,6 +212,7 @@ describe("WsBridgeServer", () => {
   afterEach(async () => {
     for (const client of clients) client.socket.terminate();
     bridge.dispose();
+    host.dispose();
     await server.stop();
     fs.rmSync(auditDir, { recursive: true, force: true });
   });
@@ -549,12 +554,12 @@ describe("WsBridgeServer", () => {
       // Give the subscribe frame a turn before the events race it.
       await invoke(client, "sync", "projects", "getAll");
 
-      bridge.handleStreamEvent({
+      host.handleStreamEvent({
         type: "data",
         sessionId: "pane-b",
         data: "not mine",
       });
-      bridge.handleStreamEvent({
+      host.handleStreamEvent({
         type: "data",
         sessionId: "pane-a",
         data: "mine",
@@ -591,7 +596,7 @@ describe("WsBridgeServer", () => {
       });
       await invoke(client, "sync2", "projects", "getAll");
 
-      bridge.handleStreamEvent({
+      host.handleStreamEvent({
         type: "exit",
         sessionId: "pane-a",
         exitCode: 0,
@@ -610,7 +615,7 @@ describe("WsBridgeServer", () => {
       });
       await invoke(client, "sync", "projects", "getAll");
 
-      bridge.handleStreamEvent({
+      host.handleStreamEvent({
         type: "resized",
         sessionId: "pane-a",
         cols: 120,
@@ -623,7 +628,7 @@ describe("WsBridgeServer", () => {
     it("sends nothing to a socket that never subscribed", async () => {
       const client = await greet(FULL_TOKEN);
       await invoke(client, "sync", "projects", "getAll");
-      bridge.handleStreamEvent({
+      host.handleStreamEvent({
         type: "data",
         sessionId: "pane-a",
         data: "x",

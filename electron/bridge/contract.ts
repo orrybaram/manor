@@ -18,21 +18,6 @@ import type { EventName, SUBSCRIPTIONS, WireEventArgs } from "./events";
 type Fn = (...args: never[]) => unknown;
 
 /**
- * The table key that is not spelled like its `ElectronAPI` path.
- *
- * `sendAppCommandResult` has no namespace because it predates them, and the
- * table would not take a bare name — so the client maps it to
- * `appCommands.result` on the way out (`ROOT_INVOKES` in
- * `src/bridge/client.ts`) and this maps it back.
- */
-type WireAliases = { "appCommands.result": "sendAppCommandResult" };
-
-/** A table key, as the interface spells it. */
-export type AsSurface<M extends string> = M extends keyof WireAliases
-  ? WireAliases[M]
-  : M;
-
-/**
  * A handler's wire arguments: everything after the `ctx` the bridge supplies.
  * A handler that needs no context takes no parameters at all, and has none to
  * strip.
@@ -64,8 +49,7 @@ type Merge<T> = T extends Fn ? T : { [K in keyof T]: Merge<T[K]> };
 /** Every entry of a handler table, as the nested namespaces a client sees. */
 export type ClientOf<T> = Merge<
   UnionToIntersection<
-    { [K in keyof T & string]: Nest<AsSurface<K>, Client<T[K]>> }[keyof T &
-      string]
+    { [K in keyof T & string]: Nest<K, Client<T[K]>> }[keyof T & string]
   >
 >;
 

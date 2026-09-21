@@ -85,9 +85,9 @@ function App() {
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
   // ADR-181 D2: one hook decides phone vs. desk for every renderer. A
-  // detached window (OWN_CLAIM below) reports its own `isDetached` and the
-  // hook always answers "desk" for it, so both render paths below can share
-  // this single call.
+  // detached window (OWN_CLAIM below) holds a claim, and the hook always
+  // answers "desk" for one, so both render paths below can share this single
+  // call.
   const layoutMode = useLayoutMode();
   // ADR-181 D3/D4/D5: phone-only chrome state. `PhoneTopBar`'s buttons only
   // toggle it here — ticket 4 renders the drawer this opens (below), ticket 5
@@ -384,7 +384,7 @@ function App() {
   // Projects mutated outside the renderer (MCP, CLI) — the store never saw the
   // result, so refetch it. Creating a workspace this way must show up in the
   // sidebar without a manual refresh.
-  useEffect(() => window.electronAPI.onProjectsChanged(() => {
+  useEffect(() => window.electronAPI.projects.onChanged(() => {
     void loadProjects();
   }), [loadProjects]);
 
@@ -425,7 +425,7 @@ function App() {
   // `run-setup-script` is the last fire-and-forget straggler, kept here
   // because it needs this component's `runWorkspaceSetupScript`.
   useEffect(() => {
-    const cleanup = window.electronAPI.onAppCommand(
+    const cleanup = window.electronAPI.appCommands.onCommand(
       async ({ cmd, requestId, workspacePath, script, args }) => {
         if (cmd === "run-setup-script" && workspacePath && script) {
           await loadProjects(); // ensure a freshly-created workspace is visible
@@ -441,9 +441,9 @@ function App() {
           // replying `ok: true` to an unknown cmd hangs main until its timeout.
           if (!handler) throw new Error(`Unknown command: ${cmd}`);
           const data = await handler(args ?? {});
-          window.electronAPI.sendAppCommandResult({ requestId, ok: true, data });
+          void window.electronAPI.appCommands.result({ requestId, ok: true, data });
         } catch (err) {
-          window.electronAPI.sendAppCommandResult({
+          void window.electronAPI.appCommands.result({
             requestId,
             ok: false,
             error: err instanceof Error ? err.message : String(err),

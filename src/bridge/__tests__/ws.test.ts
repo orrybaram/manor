@@ -340,10 +340,10 @@ describe("the WebSocket transport", () => {
       expect(changed).toHaveBeenCalledWith({ statsEnabled: true });
     });
 
-    it("maps the root's onProjectsChanged onto projects.changed", () => {
+    it("maps projects.onChanged onto projects.changed", () => {
       const { api, socket } = connected();
       const changed = vi.fn();
-      api.onProjectsChanged(changed);
+      api.projects.onChanged(changed);
       expect(last(socket.of("subscribe"))).toEqual({
         kind: "subscribe",
         ns: "projects",
@@ -533,8 +533,7 @@ describe("the WebSocket transport", () => {
     it("reports the platform the components branch on", () => {
       const api = bridge();
       expect(api.platform).toBe("web");
-      expect(api.isDetached).toBe(false);
-      expect(api.detachedWindowId).toBeNull();
+      expect(api.claim).toBeNull();
       expect(api.env.isPackaged).toBe(false);
     });
 

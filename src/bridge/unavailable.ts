@@ -142,8 +142,8 @@ const SERVED_HERE = {
    */
   "pty.updatePrewarmCwd": () => Promise.resolve(),
   "pty.consumePrewarmed": () => Promise.resolve(null),
-  /** Answers an `onAppCommand`, which nothing on the web can deliver. */
-  sendAppCommandResult: () => undefined,
+  /** Answers an `appCommands.onCommand`, which nothing on the web can deliver. */
+  "appCommands.result": () => undefined,
   // `satisfies` rather than an annotation, so the keys stay literal for
   // `electron/bridge/surface.ts`: this is one of the four places a method of
   // `ElectronAPI` may be served, and the check reads it (ADR-180 D7).

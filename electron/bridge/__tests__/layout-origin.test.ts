@@ -19,12 +19,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { IpcDeps } from "../../ipc/types";
 import { BridgeServer } from "../server";
+import { IpcBridgeTransport } from "../transports/ipc";
 import {
   BRIDGE_INVOKE,
   BRIDGE_RENDERER_ID,
-  IpcBridgeTransport,
-} from "../transports/ipc";
-import type { BridgeConnection } from "../types";
+  type BridgeConnection,
+} from "../types";
 
 const electronMock = vi.hoisted(() => ({
   handlers: new Map<string, (...args: never[]) => unknown>(),
@@ -117,7 +117,7 @@ describe("a layout command's origin", () => {
     // The real table: the point is what `HANDLERS["layout.apply"]` makes of
     // the caller the server hands it, not that a stub receives one.
     server = new BridgeServer(deps);
-    transport = new IpcBridgeTransport(deps, { server });
+    transport = new IpcBridgeTransport(deps, server);
     transport.start();
   });
 

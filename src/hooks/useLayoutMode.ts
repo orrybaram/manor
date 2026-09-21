@@ -47,13 +47,13 @@ function subscribe(onChange: () => void): () => void {
 
 /**
  * `"phone"` below the breakpoint, with one exception: a detached window
- * (ADR-179 D4) is always `"desk"`. It is often narrow on purpose — a single
- * claimed tab with no chrome — and ADR-181 D2 excludes it regardless of
- * width, so tearing a pane out into a small window never flips it into phone
- * mode.
+ * (ADR-179 D4) — one holding a claim — is always `"desk"`. It is often
+ * narrow on purpose — a single claimed tab with no chrome — and ADR-181 D2
+ * excludes it regardless of width, so tearing a pane out into a small window
+ * never flips it into phone mode.
  */
 function getSnapshot(): LayoutMode {
-  if (window.electronAPI.isDetached) return "desk";
+  if (window.electronAPI.claim) return "desk";
   return window.matchMedia(PHONE_QUERY).matches ? "phone" : "desk";
 }
 

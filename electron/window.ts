@@ -86,21 +86,15 @@ export function formatClaimArg(workspacePath: string, tabId: string): string {
 }
 
 /**
- * Build the shared `webPreferences`. When `detachedWindowId` is provided the
- * renderer receives an extra `--manor-detached=<id>` argument (mirrors the
- * existing `--manor-packaged` arg) so it can boot as a detached window, and
- * `--manor-claim=<tabId>::<workspacePath>` names the tab it holds — the one
- * thing that makes it different from the primary (ADR-179 D4).
+ * Build the shared `webPreferences`. When `claim` is provided the renderer
+ * receives an extra `--manor-claim=<tabId>::<workspacePath>` argument (mirrors
+ * the existing `--manor-packaged` arg) naming the tab it holds — the one
+ * thing that makes a detached window different from the primary (ADR-179 D4,
+ * ADR-182 D5).
  */
-function buildWebPreferences(
-  detachedWindowId?: string,
-  claim?: string,
-): Electron.WebPreferences {
+function buildWebPreferences(claim?: string): Electron.WebPreferences {
   // Pass flags synchronously so preload can expose them without an IPC round-trip
   const additionalArguments = [`--manor-packaged=${app.isPackaged}`];
-  if (detachedWindowId) {
-    additionalArguments.push(`--manor-detached=${detachedWindowId}`);
-  }
   if (claim) {
     additionalArguments.push(`--manor-claim=${claim}`);
   }
@@ -189,19 +183,17 @@ export function createWindow(): BrowserWindow {
  * Create an ephemeral window that shows a single tab of a workspace.
  *
  * It loads the same renderer as the primary window — the whole app, not a
- * variant (ADR-179 D4) — tagged with `--manor-detached=<id>` and
+ * variant (ADR-179 D4) — tagged with
  * `--manor-claim=<tabId>::<workspacePath>`, which is the only thing that
  * makes it different: it claims one tab and draws that. Unlike the primary
  * window it does NOT read or write persisted bounds / zoom, and its viewport
  * is never persisted either — a detached window is session-only.
  *
- * @param windowId  Stable id for this window; also forwarded to the renderer.
  * @param claim  `formatClaimArg(workspacePath, tabId)` — the tab it holds.
  * @param spawnBounds  Where to open the window. When omitted, a default size is
  *   centered on the display under the cursor.
  */
 export function createDetachedWindow(
-  windowId: string,
   claim?: string,
   spawnBounds?: { x: number; y: number; width: number; height: number },
 ): BrowserWindow {
@@ -234,7 +226,7 @@ export function createDetachedWindow(
     backgroundColor: "#1e1e2e",
     // Unattended runs never put a window on screen; see ./unattended.ts.
     show: !isUnattended(),
-    webPreferences: buildWebPreferences(windowId, claim),
+    webPreferences: buildWebPreferences(claim),
   });
 
   attachWindowOpenHandler(win);

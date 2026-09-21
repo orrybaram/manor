@@ -2,7 +2,19 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { PickedElementResult } from "../src/electron";
 import type { MenuContext } from "../src/lib/menu-commands";
 import type { RecordingCommand } from "../src/lib/webview-recorder";
+import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
 import type { BridgeEvents } from "./bridge/events";
+import {
+  BRIDGE_EVENT,
+  BRIDGE_INVOKE,
+  BRIDGE_RENDERER_ID,
+  BRIDGE_SUBSCRIBE,
+  BRIDGE_UNSUBSCRIBE,
+  type ClientFrame,
+  type EventFrame,
+  type InvokeFrame,
+  type ResultFrame,
+} from "./bridge/types";
 
 interface WindowBounds {
   x: number;
@@ -52,7 +64,7 @@ function nativeEvent<
   event: E,
   callback: (...args: BridgeEvents[N][E] & unknown[]) => void,
 ): () => void {
-  return bridgeSubscribe(ns, event, null, (...args) =>
+  return registry.subscribe(ns, event, null, (...args) =>
     callback(...(args as BridgeEvents[N][E] & unknown[])),
   );
 }
@@ -60,21 +72,11 @@ function nativeEvent<
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
-// Detached-window flag (ADR-156, ADR-179 D4). Mirrors the `--manor-packaged`
-// pattern: main injects `--manor-detached=<windowId>` via additionalArguments
-// so the renderer knows synchronously, without an IPC round-trip.
-const detachedArg = process.argv.find((arg) =>
-  arg.startsWith("--manor-detached="),
-);
-const detachedWindowId = detachedArg
-  ? detachedArg.slice("--manor-detached=".length)
-  : null;
-const isDetached = detachedWindowId !== null;
-
 // The tab this window holds (ADR-179 D4), as `--manor-claim=<tabId>::<path>`.
 // Split on the FIRST separator: a tab id is `tab-<uuid>` and cannot contain
-// one, a workspace path can contain anything. Read here for the same reason
-// `isDetached` is — the store needs it before it loads anything.
+// one, a workspace path can contain anything. Read synchronously for the same
+// reason `isPackaged` is — the store needs it before it loads anything. A
+// window with a claim *is* a detached window; nothing else says so.
 const claimArg = process.argv.find((arg) => arg.startsWith("--manor-claim="));
 const claim = (() => {
   if (!claimArg) return null;
@@ -99,7 +101,7 @@ const claim = (() => {
 // is.
 let rendererId: string | null = null;
 try {
-  const answer: unknown = ipcRenderer.sendSync("bridge:rendererId");
+  const answer: unknown = ipcRenderer.sendSync(BRIDGE_RENDERER_ID);
   rendererId = typeof answer === "string" ? answer : null;
 } catch {
   // No handler yet (a window opened before `registerIpcHandlers`): a null id
@@ -126,9 +128,9 @@ try {
  * nothing is added here without also being named in
  * `src/bridge/unavailable.ts`.
  *
- * The synchronous facts (`platform`, `rendererId`, `isDetached`,
- * `detachedWindowId`, `claim`, `env`) are *not* here: they are read off argv
- * above for that reason, and are the same values `ElectronAPI` reports.
+ * The synchronous facts (`platform`, `rendererId`, `claim`, `env`) are *not*
+ * here: they are read off argv above for that reason, and are the same values
+ * `ElectronAPI` reports.
  *
  * **This object is the list, and the signatures.** `ElectronAPI`'s native
  * part is `NativeApi` below (`src/electron.d.ts`), so writing a method here
@@ -307,166 +309,80 @@ const nativeApi = {
 export type NativeApi = typeof nativeApi;
 
 /**
- * `window.manorHost` — the one concrete object the page builds a host client
- * over (ADR-180 D1–D3), and the only thing this file exposes. `ElectronAPI`
- * is not built here: `contextBridge` copies the shape it is handed, and the
- * `ns.method(...)` proxy `src/bridge/client.ts` builds over `invoke` has no
- * members to copy, so the page builds it the same way the web renderer
- * builds one over a WebSocket.
- *
- * The four channel names below are written out rather than imported from
- * `electron/bridge/transports/ipc.ts`, which exports them as constants: that
- * module reaches for `ipcMain` and, through the handler table, the whole main
- * process. Importing it here would drag all of it into the renderer's bundle
- * to save four strings.
+ * One client frame onto its channel. An invoke is answered with its
+ * `ResultFrame` — failures included, as data, because `ipcMain.handle` drops
+ * every custom property of a thrown error and the `code` is what tells "the
+ * host does not do this" from "the host tried and it broke".
  */
-
-/** Delivered a frame's `args`, spread — the same shape a preload `onX` has. */
-type BridgeListener = (...args: unknown[]) => void;
-
-/** One `bridge:event` from `electron/bridge/transports/ipc.ts`. */
-interface BridgeEventFrame {
-  ns: string;
-  event: string;
-  key?: string;
-  args?: unknown[];
+function send(frame: InvokeFrame): Promise<ResultFrame>;
+function send(frame: ClientFrame): void;
+function send(frame: ClientFrame): Promise<ResultFrame> | void {
+  switch (frame.kind) {
+    case "invoke":
+      return ipcRenderer.invoke(BRIDGE_INVOKE, frame) as Promise<ResultFrame>;
+    case "subscribe":
+      ipcRenderer.send(BRIDGE_SUBSCRIBE, frame);
+      return;
+    case "unsubscribe":
+      ipcRenderer.send(BRIDGE_UNSUBSCRIBE, frame);
+      return;
+  }
 }
 
 /**
- * The key a subscription that named none is filed under, here and in
- * `BridgeServer`. Kept off the wire: the host defaults a missing key to
- * exactly this, and sending it would be saying the same thing twice.
+ * Every listener in this renderer — the page's, through `manorHost.subscribe`,
+ * and the native namespaces' own `updater.*` / `menu.command` — behind one
+ * subscription per `ns.event` + key (`src/bridge/subscription-registry.ts`).
  */
-const BRIDGE_ALL_KEYS = "*";
+const registry = new SubscriptionRegistry(send, "manorHost");
 
 /**
- * `ns.event` → key → its listeners, duplicates and all.
- *
- * An array rather than a `Set` because this is a reference count and a `Set`
- * would collapse two subscriptions that happen to share a callback into one:
- * React StrictMode mounts an effect twice, and the second unmount must not
- * take the live subscription down with it. One occurrence in, one occurrence
- * out; the host hears `subscribe` when the array goes from empty and
- * `unsubscribe` when it goes back to empty.
- */
-const bridgeListeners = new Map<string, Map<string, BridgeListener[]>>();
-
-/**
- * One `bridge:event` listener for the whole page, fanned out locally.
+ * One `bridge:event` listener for the whole page, feeding the registry.
  *
  * Installed once, at load: one IPC listener carries every pane's output and
  * every broadcast, so a renderer with forty subscriptions still has exactly
  * one listener on the channel.
  */
 ipcRenderer.on(
-  "bridge:event",
-  (_event: Electron.IpcRendererEvent, frame: BridgeEventFrame) => {
-    if (!frame || typeof frame.ns !== "string") return;
-    const byKey = bridgeListeners.get(`${frame.ns}.${frame.event}`);
-    if (!byKey) return;
-    const args = Array.isArray(frame.args) ? frame.args : [];
-    // A keyless event is about the machine (`projects.changed`), so every
-    // listener of that name wants it. A keyed one is about one pane, and goes
-    // to that pane's listeners plus anyone who subscribed without naming one.
-    const lists =
-      typeof frame.key === "string"
-        ? [byKey.get(frame.key), byKey.get(BRIDGE_ALL_KEYS)]
-        : [...byKey.values()];
-    for (const list of lists) {
-      if (!list) continue;
-      for (const listener of [...list]) {
-        try {
-          listener(...args);
-        } catch {
-          // A listener that throws is that listener's problem; the rest of
-          // the page still hears the event.
-        }
-      }
-    }
+  BRIDGE_EVENT,
+  (_event: Electron.IpcRendererEvent, frame: EventFrame | null) => {
+    if (frame) registry.deliver(frame);
   },
 );
 
-function bridgeSubscribe(
-  ns: string,
-  event: string,
-  key: string | null | undefined,
-  callback: BridgeListener,
-): () => void {
-  const name = `${ns}.${event}`;
-  const slot = key ?? BRIDGE_ALL_KEYS;
-  let byKey = bridgeListeners.get(name);
-  if (!byKey) {
-    byKey = new Map();
-    bridgeListeners.set(name, byKey);
-  }
-  let list = byKey.get(slot);
-  if (!list) {
-    list = [];
-    byKey.set(slot, list);
-  }
-  list.push(callback);
-  if (list.length === 1) {
-    ipcRenderer.send("bridge:subscribe", { ns, event, key: key ?? undefined });
-  }
-
-  // Idempotent: React calls a cleanup once, but a caller that keeps the
-  // handle and calls it twice must not decrement somebody else's count.
-  let live = true;
-  return () => {
-    if (!live) return;
-    live = false;
-    const current = bridgeListeners.get(name)?.get(slot);
-    if (!current) return;
-    const at = current.indexOf(callback);
-    if (at !== -1) current.splice(at, 1);
-    if (current.length > 0) return;
-    const owner = bridgeListeners.get(name);
-    owner?.delete(slot);
-    if (owner?.size === 0) bridgeListeners.delete(name);
-    ipcRenderer.send("bridge:unsubscribe", {
-      ns,
-      event,
-      key: key ?? undefined,
-    });
-  };
-}
-
+/**
+ * `window.manorHost` — the one concrete object the page builds a host client
+ * over (ADR-180 D1–D3), and the only thing this file exposes. `ElectronAPI`
+ * is not built here: `contextBridge` copies the shape it is handed, and the
+ * `ns.method(...)` proxy `src/bridge/client.ts` builds over `invoke` has no
+ * members to copy, so the page builds it the same way the web renderer
+ * builds one over a WebSocket.
+ */
 contextBridge.exposeInMainWorld("manorHost", {
   platform: "electron",
 
   /**
-   * The namespaces the preload still answers, and the root-level functions
-   * alongside them. `src/bridge/client.ts` calls straight through to these
-   * and only reaches `invoke` for what is *not* here (ADR-180 D3).
+   * The namespaces the preload still answers. `src/bridge/client.ts` calls
+   * straight through to these and only reaches `invoke` for what is *not*
+   * here (ADR-180 D3).
    */
   native: nativeApi,
 
   rendererId,
-  isDetached,
-  detachedWindowId,
   claim,
 
   env: {
     isPackaged,
   },
 
-  /**
-   * `ns.method(...args)` on the host's handler table.
-   *
-   * A failure comes back as a `{__bridgeError: {code, message}}` *value*
-   * rather than a rejection: `ipcMain.handle` drops the custom properties of
-   * a thrown error, and the `code` is what tells "the host does not do this"
-   * from "the host tried and it broke". The client in the page turns the
-   * envelope into the error it should be.
-   */
-  invoke: (ns: string, method: string, args: unknown[]) =>
-    ipcRenderer.invoke("bridge:invoke", { ns, method, args }),
+  /** One invoke frame to the host's handler table, answered with its result frame. */
+  invoke: (frame: InvokeFrame) => send(frame),
 
   /** Hear `ns.event` (for one `key`, or for all of them). Returns the undo. */
   subscribe: (
     ns: string,
     event: string,
     key: string | null,
-    callback: BridgeListener,
-  ) => bridgeSubscribe(ns, event, key, callback),
+    callback: (...args: unknown[]) => void,
+  ) => registry.subscribe(ns, event, key, callback),
 });

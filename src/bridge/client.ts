@@ -27,19 +27,18 @@
  * Two rules turn a property access into a frame:
  *
  * - `ns.method(...args)` → `{id, kind:"invoke", ns, method, args}`, awaiting
- *   `{id, kind:"result"}`.
- * - `ns.on<Event>(...args, callback)` → a `subscribe` frame and a local
- *   listener, returning the unsubscribe function the preload returns. The
- *   event name is the method's, minus `on`, first letter lowered
- *   (`onOutput` → `output`); the exceptions are tabulated in
- *   `SUBSCRIPTION_EVENTS` below. For `pty.*` the leading argument is the
- *   `paneId`, and it rides along as the frame's `key` — the host filters on
- *   it, and so does the delivery side, because one connection carries every
- *   pane's output.
+ *   `{id, kind:"result"}`, which `settle` below turns into the value or the
+ *   error — the same way for both transports.
+ * - A listener → a `subscribe` frame and a local listener, returning the
+ *   unsubscribe. Which members are listeners, and which event each one
+ *   hears, is `SUBSCRIPTIONS` (`electron/bridge/events.ts`) — read here, not
+ *   restated. For `pty.*` the leading argument is the `paneId`, and it rides
+ *   along as the frame's `key` — the host filters on it, and so does the
+ *   delivery side, because one connection carries every pane's output.
  *
- * A method is a subscription only if it *also* was handed a function as its
- * last argument: `on`-prefixed invokes are not a thing today, but deciding
- * from the arguments rather than the name means they would work if they were.
+ * A listener subscribes only if it was *also* handed a function as its last
+ * argument; called any other way it is an ordinary invoke, and the host
+ * answers that it has no such method.
  *
  * **What a property access resolves to, in order.**
  *
@@ -47,11 +46,10 @@
  *    process, called straight through with the arguments it was given. On the
  *    desktop that is `manorHost.native`: the namespaces that can never leave
  *    the preload (`webview`, `window`, `menu`, `dialog`, `shell`,
- *    `clipboard`, `updater`) and, until the tickets after ADR-180 ticket 3
- *    move them, every other one too. Empty in a browser.
+ *    `clipboard`, `updater`). Empty in a browser.
  * 2. `transport.locallyServed["ns.method"]` — one method the transport
  *    answers itself: the browser's own clipboard and viewport
- *    (`./unavailable.ts`), or the desktop's root-level preload functions.
+ *    (`./unavailable.ts`). Empty on the desktop.
  * 3. `UNAVAILABLE_NAMESPACES` — refused without asking, because no host can
  *    answer it in a browser (`./unavailable.ts` says why). A desktop never
  *    reaches this step: every namespace in that set is in `localNamespaces`
@@ -63,17 +61,23 @@
  * them. Correlating a reply with its call is something a transport does with
  * its own ids, and the two do it differently: the WebSocket has to replay
  * every subscription after a reconnect, while the IPC transport has no
- * reconnect and a preload that already holds a reference-counted registry.
- * What is left here is the one thing both halves must agree on — what
- * `ns.method` means.
+ * reconnect and a preload that holds the registry. Both registries are one
+ * class (`./subscription-registry.ts`). What is left here is what both
+ * halves must agree on — what `ns.method` means, and what a result frame
+ * means.
  */
 
-import { UNAVAILABLE_CODE } from "../../electron/bridge/types";
+import { SUBSCRIPTIONS } from "../../electron/bridge/events";
+import {
+  UNAVAILABLE_CODE,
+  type ResultFrame,
+} from "../../electron/bridge/types";
 import type { ElectronAPI } from "../electron";
+import type { Listener } from "./subscription-registry";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
 
-/** Delivered a frame's `args`, spread — the shape a preload `onX` has. */
-export type BridgeListener = (...args: unknown[]) => void;
+/** Delivered a frame's `args`, spread — the shape an `onX` callback has. */
+export type BridgeListener = Listener;
 
 /**
  * How the proxy reaches a host. A socket and an IPC channel are both this.
@@ -143,57 +147,29 @@ export class BridgeDisconnectedError extends Error {
 }
 
 /**
- * The name of the event `ns.on<Event>` subscribes to, where lowering the
- * first letter of the suffix is not the answer.
+ * A result frame, as what the call it answers resolves with or throws.
  *
- * Every entry is a place the preload named the *verb* and
- * `renderer-broadcast.ts` named the *fact*: main broadcasts that preferences
- * `changed`, and the renderer asked to be told `onChange`. The list is short
- * and closed — it is the full set of non-`pty` events the host publishes
- * (see `onRendererBroadcast` in `electron/bridge/server.ts`) whose preload
- * name does not already match. `notifications.onChanged`,
- * `notifications.onNavigate` and `stats.onChanged` are absent because they
- * need no help.
- *
- * The four `ports`/`branches`/`diffs`/`projects` entries arrived with
- * ADR-180 D5, when those pushes stopped being `webContents.send` channels.
- * `worktreeProgress` is the one that is a rename rather than a tense: the
- * channel was `worktree:setup-progress` and the frame is not about a setup
- * script, it is about the whole of making a worktree.
+ * One place for both transports: the socket delivers the frame as a message
+ * and the preload as the answer to `ipcMain.handle`, and neither decides for
+ * itself what `unavailable:web` means.
  */
-const SUBSCRIPTION_EVENTS: Record<string, string> = {
-  "agents.onUpdate": "updated",
-  "preferences.onChange": "changed",
-  "keybindings.onChange": "changed",
-  "ports.onChange": "changed",
-  "branches.onChange": "changed",
-  "diffs.onChange": "changed",
-  "projects.onWorktreeSetupProgress": "worktreeProgress",
-};
+export function settle(frame: ResultFrame): unknown {
+  if (frame.ok === true) return frame.result;
+  const message =
+    typeof frame.error === "string" ? frame.error : "The host refused";
+  throw frame.code === UNAVAILABLE_CODE
+    ? new BridgeUnavailableError(message)
+    : new Error(message);
+}
 
-/**
- * The one subscription that lives on the root rather than in a namespace.
- * `onProjectsChanged(cb)` predates the namespaces around it; on the wire it is
- * `projects.changed` like everything else.
- */
-const ROOT_SUBSCRIPTIONS: Record<string, { ns: string; event: string }> = {
-  onProjectsChanged: { ns: "projects", event: "changed" },
-  onAppCommand: { ns: "appCommands", event: "command" },
-};
-
-/**
- * The root-level *calls*, the same way `ROOT_SUBSCRIPTIONS` holds the
- * root-level listens.
- *
- * One entry: answering an app-command (ADR-180 D5). It has no namespace for
- * the same reason `onProjectsChanged` has none — it predates them — and on
- * the wire it is `appCommands.result` like anything else. A transport that
- * serves it locally still wins, which is how the browser keeps its no-op
- * (`./unavailable.ts`) for a command nothing can deliver to it.
- */
-const ROOT_INVOKES: Record<string, { ns: string; method: string }> = {
-  sendAppCommandResult: { ns: "appCommands", method: "result" },
-};
+/** A listener's `ns.method` → the event it subscribes to, split for a frame. */
+const LISTENERS: Record<string, { ns: string; event: string }> =
+  Object.fromEntries(
+    Object.entries(SUBSCRIPTIONS).map(([listener, wire]) => {
+      const at = wire.lastIndexOf(".");
+      return [listener, { ns: wire.slice(0, at), event: wire.slice(at + 1) }];
+    }),
+  );
 
 /**
  * Property names that are never bridge members: JavaScript asks for them on
@@ -216,20 +192,6 @@ const NOT_MEMBERS: ReadonlySet<string> = new Set([
 /** `Object.hasOwn` in an ES2020 lib: the prototype chain is not a member. */
 function hasOwn(target: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(target, key);
-}
-
-function eventNameFor(ns: string, method: string): string {
-  return (
-    SUBSCRIPTION_EVENTS[`${ns}.${method}`] ??
-    method.charAt(2).toLowerCase() + method.slice(3)
-  );
-}
-
-/** `onOutput` yes, `once` no: `on` followed by an upper-case letter. */
-function looksLikeSubscription(method: string): boolean {
-  if (!method.startsWith("on") || method.length < 3) return false;
-  const third = method.charAt(2);
-  return third !== third.toLowerCase();
 }
 
 /**
@@ -274,15 +236,12 @@ function localMember(
 export function createBridge(transport: BridgeTransport): ElectronAPI {
   const namespaces = new Map<string, Record<string, unknown>>();
 
-  function method(
-    ns: string | null,
-    name: string,
-  ): (...a: unknown[]) => unknown {
-    const key = ns === null ? name : `${ns}.${name}`;
+  function method(ns: string, name: string): (...a: unknown[]) => unknown {
+    const key = `${ns}.${name}`;
+    const listens = hasOwn(LISTENERS, key) ? LISTENERS[key] : null;
     return (...args: unknown[]) => {
       // 1. A namespace this transport serves in process (`manorHost.native`).
-      const native =
-        ns === null ? null : localMember(transport.localNamespaces, ns, name);
+      const native = localMember(transport.localNamespaces, ns, name);
       if (native) return native.fn.apply(native.owner, args);
 
       // 2. One method it answers itself.
@@ -292,54 +251,33 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
       if (served) return served(...args);
 
       const last = args[args.length - 1];
-      const subscribing =
-        looksLikeSubscription(name) && typeof last === "function";
 
       // 3. Refused here, without asking a host that could not answer either.
-      if (ns !== null && UNAVAILABLE_NAMESPACES.has(ns)) {
+      if (UNAVAILABLE_NAMESPACES.has(ns)) {
         // A component that subscribes on mount and unsubscribes on unmount
         // must survive both halves; throwing here would take the tree down
-        // on the way up, before it could render its empty state.
-        if (subscribing) return () => {};
+        // on the way up, before it could render its empty state. A call
+        // handed a callback is a listen, so it gets a no-op unsubscribe.
+        if (typeof last === "function") return () => {};
         return Promise.reject(
           new BridgeUnavailableError(`${key} is not available in the browser`),
         );
       }
 
       // 4. The transport.
-      if (subscribing) {
-        const target =
-          ns === null
-            ? (ROOT_SUBSCRIPTIONS[name] as
-                | { ns: string; event: string }
-                | undefined)
-            : { ns, event: eventNameFor(ns, name) };
-        if (!target) return () => {};
+      transport.start();
+      if (listens && typeof last === "function") {
         // `pty.onOutput(paneId, cb)` and friends: the leading argument names
         // the pane, and one connection carries every pane.
         const subscriptionKey =
           args.length > 1 && typeof args[0] === "string" ? args[0] : undefined;
-        transport.start();
         return transport.subscribe(
-          target.ns,
-          target.event,
+          listens.ns,
+          listens.event,
           subscriptionKey,
           last as BridgeListener,
         );
       }
-      if (ns === null) {
-        const root = hasOwn(ROOT_INVOKES, name) ? ROOT_INVOKES[name] : null;
-        if (!root) {
-          return Promise.reject(
-            new BridgeUnavailableError(
-              `${name} is not available in the browser`,
-            ),
-          );
-        }
-        transport.start();
-        return transport.invoke(root.ns, root.method, args);
-      }
-      transport.start();
       return transport.invoke(ns, name, args);
     };
   }
@@ -399,7 +337,6 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
     return proxy;
   }
 
-  const rootMembers = new Map<string, unknown>();
   return new Proxy(
     {},
     {
@@ -417,20 +354,6 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
         if (hasOwn(transport.rootValues, prop)) {
           return transport.rootValues[prop];
         }
-        if (
-          hasOwn(ROOT_SUBSCRIPTIONS, prop) ||
-          hasOwn(ROOT_INVOKES, prop) ||
-          hasOwn(transport.locallyServed, prop)
-        ) {
-          const existing = rootMembers.get(prop);
-          if (existing) return existing;
-          const fn = method(null, prop);
-          rootMembers.set(prop, fn);
-          return fn;
-        }
-        // A root `on*` with nowhere to go: `onAppCommand` is native and was
-        // answered above on the desktop, and no browser can be sent one.
-        if (looksLikeSubscription(prop)) return () => () => {};
         return namespace(prop);
       },
     },

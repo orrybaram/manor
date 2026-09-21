@@ -1,6 +1,7 @@
 import type { PrComment } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
 import type { BridgeApi } from "../electron/bridge/contract";
+import type { InvokeFrame, ResultFrame } from "../electron/bridge/types";
 import type { NativeApi } from "../electron/preload";
 
 export interface AppPreferences {
@@ -324,20 +325,14 @@ export interface HostFacts {
   };
 
   /**
-   * Multi-window detach (ADR-156, ADR-179 D4). `isDetached` is true when this
-   * renderer was launched as a detached window; `detachedWindowId` carries
-   * that window's id (null in the primary window). Both are surfaced
-   * synchronously from the `--manor-detached=<id>` launch argument.
-   */
-  isDetached: boolean;
-  detachedWindowId: string | null;
-
-  /**
    * The one tab this window holds of the shared layout (ADR-179 D4), from
    * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
    * in a browser — a claim is a desktop window's, and a browser always sees
    * the whole workspace. The renderer reports it as part of its viewport; the
    * tab itself never leaves the workspace.
+   *
+   * It is also the whole of what makes a window a detached one (ADR-182 D5):
+   * a window is detached exactly when it holds a claim.
    */
   claim: { workspacePath: string; tabId: string } | null;
 }
@@ -437,19 +432,6 @@ export interface RemotePairResult {
 // ── The host surface (ADR-180 D3) ──
 
 /**
- * A failed `ManorHost.invoke`, as a value rather than a rejection.
- *
- * `ipcMain.handle` serialises a thrown error to its message and drops every
- * custom property, so a rejection cannot carry the `code` that tells
- * `unavailable:web` from a real failure. The transport returns this instead
- * and the client in the page throws it —
- * `electron/bridge/transports/ipc.ts` is the other half of this shape.
- */
-export interface BridgeErrorEnvelope {
-  __bridgeError: { code: string; message: string };
-}
-
-/**
  * What the preload exposes, and the only thing it exposes: the facts a
  * renderer needs before it can ask anything, one way to call the host's
  * handler table, one way to listen to it, and the namespaces the preload
@@ -466,8 +448,6 @@ export interface ManorHost {
   platform: "electron";
   /** This window's `webContents.id`, as `ElectronAPI.rendererId` documents. */
   rendererId: string | null;
-  isDetached: boolean;
-  detachedWindowId: string | null;
   claim: { workspacePath: string; tabId: string } | null;
   env: { isPackaged: boolean };
   /**
@@ -478,11 +458,12 @@ export interface ManorHost {
    */
   native: NativeApi;
   /**
-   * Call `ns.method(...args)` on the host. Resolves with the handler's
-   * result, or with a `BridgeErrorEnvelope` when the call failed or the host
-   * does not implement it — the client checks for the envelope and throws.
+   * Send one invoke frame to the host. Resolves with its `ResultFrame` —
+   * failures included, as data rather than a rejection, because
+   * `ipcMain.handle` drops the `code` off a thrown error. The client settles
+   * it the same way it settles a frame off the socket.
    */
-  invoke: (ns: string, method: string, args: unknown[]) => Promise<unknown>;
+  invoke: (frame: InvokeFrame) => Promise<ResultFrame>;
   /**
    * Hear `ns.event`, for one `key` (a paneId) or for every key when null.
    * Returns the unsubscribe. Reference-counted in the preload, so two

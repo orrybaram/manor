@@ -477,9 +477,10 @@ export class LayoutStore {
   /**
    * A window is gone: whatever it held comes back to the primary (D4).
    *
-   * Called from `trackRendererWindow`'s `closed`, next to `releaseViewer` —
-   * a claim that outlives its window is a tab nobody can see, which is the one
-   * failure mode this design has (see the ADR's Risks).
+   * Called when the window's bridge connection drops
+   * (`BridgeServer.onDisconnect`, wired in `app-lifecycle.ts`) — a claim that
+   * outlives its window is a tab nobody can see, which is the one failure
+   * mode this design has (see the ADR's Risks).
    */
   releaseWindow(rendererId: string): void {
     this.setClaim(rendererId, null, undefined, {

@@ -51,12 +51,6 @@ export interface Viewer {
   callerClass: "local" | "device";
 }
 
-/** What an attach/release call did to ownership. */
-export interface AttachmentResult {
-  /** Pane ids whose owner changed as a result of this call. */
-  changed: string[];
-}
-
 /**
  * `paneId` → the viewers holding it, oldest first.
  *
@@ -162,7 +156,7 @@ export function wouldOwn(paneId: string, viewer: Viewer): boolean {
  * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
  * taking the winsize back off whoever holds it would make a remount a resize.
  */
-export function attach(paneId: string, viewer: Viewer): AttachmentResult {
+export function attach(paneId: string, viewer: Viewer): void {
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
   if (viewers) {
@@ -173,39 +167,23 @@ export function attach(paneId: string, viewer: Viewer): AttachmentResult {
     holders.set(paneId, [viewer]);
   }
   const after = ownerFingerprint(ownerOf(paneId));
-  const changed = before === after ? [] : [paneId];
-  notifyChanged(changed);
-  return { changed };
+  if (before !== after) notifyChanged([paneId]);
 }
 
 /**
- * A viewer let this pane go.
- *
- * Without a `viewer` the pane is released outright — every viewer of it at
- * once. Nothing on the host surface asks for that (a caller is only ever done
- * with its own view; a caller that vanished is `releaseViewer`); it is kept
- * for the tests and for a future caller that genuinely means "this pane is
- * gone".
+ * A viewer let this pane go. A caller is only ever done with its own view;
+ * a caller that vanished is `releaseViewer`.
  */
-export function release(paneId: string, viewer?: Viewer): AttachmentResult {
-  if (viewer === undefined) {
-    const had = holders.has(paneId);
-    holders.delete(paneId);
-    const changed = had ? [paneId] : [];
-    notifyChanged(changed);
-    return { changed };
-  }
+export function release(paneId: string, viewer: Viewer): void {
   const before = ownerFingerprint(ownerOf(paneId));
   const viewers = holders.get(paneId);
-  if (!viewers) return { changed: [] };
+  if (!viewers) return;
   const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
-  if (idx === -1) return { changed: [] };
+  if (idx === -1) return;
   viewers.splice(idx, 1);
   if (viewers.length === 0) holders.delete(paneId);
   const after = ownerFingerprint(ownerOf(paneId));
-  const changed = before === after ? [] : [paneId];
-  notifyChanged(changed);
-  return { changed };
+  if (before !== after) notifyChanged([paneId]);
 }
 
 /**
@@ -219,7 +197,7 @@ export function release(paneId: string, viewer?: Viewer): AttachmentResult {
  * nothing at all the moment a desktop window's panes started being held under
  * its connection id.
  */
-export function releaseViewer(connectionId: string): AttachmentResult {
+export function releaseViewer(connectionId: string): void {
   const changed: string[] = [];
   for (const [paneId, viewers] of holders) {
     const idx = viewers.findIndex((v) => v.connectionId === connectionId);
@@ -231,7 +209,6 @@ export function releaseViewer(connectionId: string): AttachmentResult {
     if (before !== after) changed.push(paneId);
   }
   notifyChanged(changed);
-  return { changed };
 }
 
 /** Forget everything. Tests only — a real main process never wants this. */

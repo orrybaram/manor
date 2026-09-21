@@ -17,8 +17,8 @@
  * the way the derivation assumes — including, for every entry of
  * `SUBSCRIPTIONS`, that the event name the table declares is the one that
  * actually goes on the wire. That pairing is the one thing a type cannot hold
- * up, since the client derives an event's name by a rule (`onChange` →
- * `changed`) with a table of exceptions beside it.
+ * up: the client reads the table at runtime, and a type cannot see that it
+ * does.
  */
 
 import { describe, it, expect, vi } from "vitest";

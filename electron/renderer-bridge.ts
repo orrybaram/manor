@@ -205,6 +205,6 @@ export function notifyProjectsChanged(): void {
   // One signal for every renderer, browser and window alike (ADR-180 ticket
   // 6). The `webContents.send("projects-changed")` that used to sit beside
   // this went with the `projects` namespace: a window is a bridge connection
-  // now, and `onProjectsChanged(cb)` is a subscription to this frame.
+  // now, and `projects.onChanged(cb)` is a subscription to this frame.
   publishRendererBroadcast("projects", "changed");
 }

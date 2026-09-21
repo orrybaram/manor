@@ -95,7 +95,6 @@ export function register(deps: IpcDeps): void {
     (_event, workspacePath: string, tabId: string, spawnBounds?: Bounds) => {
       const windowId = `detached-${randomUUID()}`;
       const win = createDetachedWindow(
-        windowId,
         formatClaimArg(workspacePath, tabId),
         spawnBounds,
       );

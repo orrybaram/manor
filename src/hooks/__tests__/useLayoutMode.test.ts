@@ -44,11 +44,14 @@ function stubMatchMedia(initialMatches: boolean) {
   return mql;
 }
 
+/** A detached window is one holding a claim; the primary holds none. */
 function stubDetached(isDetached: boolean) {
   Object.defineProperty(window, "electronAPI", {
     writable: true,
     configurable: true,
-    value: { isDetached },
+    value: {
+      claim: isDetached ? { workspacePath: "/w", tabId: "tab-1" } : null,
+    },
   });
 }
 

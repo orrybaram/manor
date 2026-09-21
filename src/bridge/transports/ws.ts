@@ -7,7 +7,7 @@
  * backoff, and the two close codes that mean "stop dialling". The proxy above
  * it (`../client.ts`) is the same code the desktop runs.
  *
- * The frame shapes and `UNAVAILABLE_CODE` come from
+ * The frame shapes and the close codes come from
  * `electron/bridge/types.ts` — the host's own definition of the protocol,
  * imported rather than mirrored, which is what makes "one protocol, two
  * transports" a fact and not a convention. That file imports nothing, so
@@ -20,48 +20,34 @@
  */
 
 import {
-  UNAVAILABLE_CODE,
+  CLOSE_FORBIDDEN,
+  CLOSE_UNAUTHORIZED,
+  type ClientFrame,
   type EventFrame,
   type ResultFrame,
 } from "../../../electron/bridge/types";
 import {
   BridgeDisconnectedError,
-  BridgeUnavailableError,
+  settle,
   type BridgeListener,
   type BridgeTransport,
 } from "../client";
+import { SubscriptionRegistry } from "../subscription-registry";
 import { LOCALLY_SERVED } from "../unavailable";
 
 /** Where `web-main.tsx` keeps the pairing token this bridge says hello with. */
 export const WEB_TOKEN_KEY = "manor.web.token";
 
-/**
- * `electron/bridge/transports/ws.ts`'s close codes, mirrored rather than
- * imported: that module reaches for the `ws` package and, through the handler
- * table, the whole main process — the two numbers are cheaper than the bundle.
- */
-/** `CLOSE_UNAUTHORIZED`: re-pair this device. */
-const CLOSE_UNAUTHORIZED = 4401;
-/** `CLOSE_FORBIDDEN`: paired, but below `full`. */
-const CLOSE_FORBIDDEN = 4403;
-
 /** First reconnect delay, and the ceiling it doubles towards. */
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
-/**
- * The key a subscription that named none is filed under, on both sides of the
- * socket. Kept out of the wire frame: the host defaults a missing `key` to
- * exactly this, and sending it would be saying the same thing twice.
- */
-const ALL_KEYS = "*";
-
 /** Plain, non-function root members of `ElectronAPI`, answered from here. */
 const ROOT_VALUES: Record<string, unknown> = {
-  /** Detached windows are Electron's (ADR-156); a tab is never one. */
-  isDetached: false,
-  detachedWindowId: null,
-  /** And a browser never claims a tab either (ADR-179 D4): it sees them all. */
+  /**
+   * A browser never claims a tab (ADR-179 D4): it sees them all, and so it is
+   * never a detached window either.
+   */
   claim: null,
   /** The preload reads this off its own launch argv. A page has no argv. */
   env: { isPackaged: false },
@@ -130,11 +116,15 @@ class WsTransport implements BridgeTransport {
   private readonly pending = new Map<string, Pending>();
   /** Invoke frames raised before the socket was ready. */
   private readonly outbox: string[] = [];
-  /** `ns.event` → key → listeners. The key is a paneId, or `ALL_KEYS`. */
-  private readonly listeners = new Map<
-    string,
-    Map<string, Set<BridgeListener>>
-  >();
+  /**
+   * Every live listener. The source of truth for what the host should be
+   * sending: a subscribe frame is a copy of it that the host happens to hold,
+   * and on reconnect the registry is replayed.
+   */
+  private readonly registry = new SubscriptionRegistry(
+    (frame) => this.send(frame),
+    "ws-bridge",
+  );
 
   readonly platform = "web" as const;
   readonly rootValues = ROOT_VALUES;
@@ -176,49 +166,8 @@ class WsTransport implements BridgeTransport {
     key: string | undefined,
     listener: BridgeListener,
   ): () => void {
-    const name = `${ns}.${event}`;
-    const slot = key ?? ALL_KEYS;
-    let byKey = this.listeners.get(name);
-    if (!byKey) {
-      byKey = new Map();
-      this.listeners.set(name, byKey);
-    }
-    let set = byKey.get(slot);
-    const isFirst = set === undefined;
-    if (!set) {
-      set = new Set();
-      byKey.set(slot, set);
-    }
-    set.add(listener);
-    if (isFirst) {
-      // The registry is the source of truth; the frame is a copy of it that
-      // the host happens to hold. On reconnect the registry is replayed.
-      this.start();
-      this.send(this.subscriptionFrame("subscribe", ns, event, slot));
-    }
-
-    let live = true;
-    return () => {
-      if (!live) return;
-      live = false;
-      const current = this.listeners.get(name)?.get(slot);
-      if (!current) return;
-      current.delete(listener);
-      if (current.size > 0) return;
-      const owner = this.listeners.get(name);
-      owner?.delete(slot);
-      if (owner?.size === 0) this.listeners.delete(name);
-      this.send(this.subscriptionFrame("unsubscribe", ns, event, slot));
-    };
-  }
-
-  private subscriptionFrame(
-    kind: "subscribe" | "unsubscribe",
-    ns: string,
-    event: string,
-    key: string,
-  ): Record<string, unknown> {
-    return key === ALL_KEYS ? { kind, ns, event } : { kind, ns, event, key };
+    this.start();
+    return this.registry.subscribe(ns, event, key, listener);
   }
 
   private open(): void {
@@ -274,7 +223,7 @@ class WsTransport implements BridgeTransport {
         this.onResult(frame as unknown as ResultFrame);
         return;
       case "event":
-        this.onEvent(frame as unknown as EventFrame);
+        this.registry.deliver(frame as unknown as EventFrame);
         return;
       default:
         // Same rule the server applies to us: a frame from a newer host is
@@ -295,14 +244,7 @@ class WsTransport implements BridgeTransport {
   private onReady(): void {
     this.ready = true;
     this.attempt = 0;
-    for (const [name, byKey] of this.listeners) {
-      const split = name.indexOf(".");
-      const ns = name.slice(0, split);
-      const event = name.slice(split + 1);
-      for (const key of byKey.keys()) {
-        this.send(this.subscriptionFrame("subscribe", ns, event, key));
-      }
-    }
+    for (const frame of this.registry.keys()) this.send(frame);
     for (const payload of this.outbox.splice(0)) this.write(payload);
   }
 
@@ -311,42 +253,10 @@ class WsTransport implements BridgeTransport {
     const pending = this.pending.get(id);
     if (!pending) return;
     this.pending.delete(id);
-    if (frame.ok === true) {
-      pending.resolve(frame.result);
-      return;
-    }
-    const message =
-      typeof frame.error === "string" ? frame.error : "The host refused";
-    pending.reject(
-      frame.code === UNAVAILABLE_CODE
-        ? new BridgeUnavailableError(message)
-        : new Error(message),
-    );
-  }
-
-  private onEvent(frame: EventFrame): void {
-    const { ns, event } = frame;
-    if (typeof ns !== "string" || typeof event !== "string") return;
-    const byKey = this.listeners.get(`${ns}.${event}`);
-    if (!byKey) return;
-    const args = Array.isArray(frame.args) ? frame.args : [];
-    // A keyless event is about the machine (`projects.changed`), so every
-    // listener of that name wants it. A keyed one is about one pane, and goes
-    // to that pane's listeners plus anyone who subscribed without naming one.
-    const sets =
-      typeof frame.key === "string"
-        ? [byKey.get(frame.key), byKey.get(ALL_KEYS)]
-        : [...byKey.values()];
-    for (const set of sets) {
-      if (!set) continue;
-      for (const listener of [...set]) {
-        try {
-          listener(...args);
-        } catch (err) {
-          // One bad listener must not cost the others their event.
-          console.error(`[ws-bridge] ${ns}.${event} listener threw:`, err);
-        }
-      }
+    try {
+      pending.resolve(settle(frame));
+    } catch (err) {
+      pending.reject(err as Error);
     }
   }
 
@@ -384,7 +294,7 @@ class WsTransport implements BridgeTransport {
     }, delay);
   }
 
-  private sendOrQueue(frame: Record<string, unknown>): void {
+  private sendOrQueue(frame: ClientFrame): void {
     const payload = JSON.stringify(frame);
     if (this.ready) this.write(payload);
     else this.outbox.push(payload);
@@ -395,7 +305,7 @@ class WsTransport implements BridgeTransport {
    * the moment a socket is ready, so a queued copy would be a duplicate or a
    * lie about a subscription that has since been dropped.
    */
-  private send(frame: Record<string, unknown>): void {
+  private send(frame: ClientFrame): void {
     if (!this.ready) return;
     this.write(JSON.stringify(frame));
   }

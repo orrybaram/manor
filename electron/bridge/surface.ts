@@ -40,7 +40,6 @@
  */
 
 import type { ElectronAPI } from "../../src/electron";
-import type { AsSurface } from "./contract";
 import type { SubscriptionMethod } from "./events";
 import type {
   HandlerMethod,
@@ -89,7 +88,7 @@ type Methods<T, D extends 0 | 1 | 2 | 3 = 3> = D extends 0
 type Surface = Methods<ElectronAPI>;
 
 /** On the handler table: answered by the host, over either transport. */
-type TableMethod = AsSurface<HandlerMethod>;
+type TableMethod = HandlerMethod;
 
 /** In the preload: answered in the renderer process, desktop only. */
 type NativeMethod = Methods<NativeApi>;
@@ -183,7 +182,7 @@ export const _localOnlyDrift: LocalOnlyDrift extends never
  * for and be refused without anybody having decided that it should.
  */
 type LocalOnlyUnanswered = Exclude<
-  AsSurface<LocalOnlyMethod>,
+  LocalOnlyMethod,
   LocallyServedMethod | HostRefusedMethod
 >;
 

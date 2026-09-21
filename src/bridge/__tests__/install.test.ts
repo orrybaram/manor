@@ -53,12 +53,17 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
   return {
     platform: "electron",
     rendererId: "1",
-    isDetached: false,
-    detachedWindowId: null,
     claim: null,
     env: { isPackaged: true },
     native: {} as ManorHost["native"],
-    invoke: vi.fn(() => Promise.resolve(undefined)),
+    invoke: vi.fn((frame: { id: unknown }) =>
+      Promise.resolve({
+        id: frame.id,
+        kind: "result" as const,
+        ok: true as const,
+        result: undefined,
+      }),
+    ),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   };
@@ -85,7 +90,9 @@ describe("the bridge-install ordering invariant", () => {
     // `preferences-store.ts`'s module-scope `getAll()` and `onChange(...)`
     // reached the real transport, which only happens if `window.electronAPI`
     // already existed when the store module was evaluated.
-    expect(host.invoke).toHaveBeenCalledWith("preferences", "getAll", []);
+    expect(host.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ ns: "preferences", method: "getAll", args: [] }),
+    );
     expect(host.subscribe).toHaveBeenCalledWith(
       "preferences",
       "changed",

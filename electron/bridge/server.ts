@@ -38,6 +38,7 @@ import {
   LOCAL_ONLY,
   MUTATING,
   ORIGIN_ARGS,
+  SECRET_FIRST_ARG,
   sessionGrid,
   type BridgeHandler,
 } from "./handlers";
@@ -181,10 +182,21 @@ export class BridgeServer {
     // (D4) — one answer for both, because the difference is none of a
     // device's business and the client renders the same empty state either
     // way.
-    if (
-      !handler ||
-      (connection.callerClass === "device" && LOCAL_ONLY.has(key))
-    ) {
+    //
+    // The two differ in the audit log, though, and on purpose. A method
+    // absent from the table is a stale client or a typo. A `LOCAL_ONLY`
+    // method is one that exists, is real power, and was refused *because*
+    // it was asked for over a paired device — `remoteControl.pair` above all.
+    // That is exactly the line an owner reading this log after a lost phone
+    // needs to see, and until ADR-180 ticket 13 it was never written.
+    const refusedLocalOnly =
+      !!handler &&
+      connection.callerClass === "device" &&
+      LOCAL_ONLY.has(key);
+    if (refusedLocalOnly) {
+      this.auditInvoke(connection, key, args, "rejected", 403);
+    }
+    if (!handler || refusedLocalOnly) {
       return {
         id,
         kind: "result",
@@ -433,7 +445,7 @@ export class BridgeServer {
     connection: BridgeConnection,
     route: string,
     args: unknown[],
-    outcome: "sent" | "failed",
+    outcome: "sent" | "rejected" | "failed",
     status: number,
   ): void {
     // A local call is never audited: it is the user at the machine, and a log
@@ -447,7 +459,11 @@ export class BridgeServer {
       tier: "full",
       transport: "bridge",
       route,
-      target: bridgeTarget(args),
+      // Never a secret. `linear.connect`'s first argument is an API key, and
+      // it is `LOCAL_ONLY` — so a refused attempt reaches this line, and
+      // `bridgeTarget` would otherwise write the key a stolen token just
+      // tried to use into the very log meant to catch it.
+      target: SECRET_FIRST_ARG.has(route) ? null : bridgeTarget(args),
       // No bodies, for the reason `fullTierWrite` gives: the table's arguments
       // are too varied to fish in safely, and one of them is a keystroke.
       textLength: null,

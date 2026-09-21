@@ -204,11 +204,49 @@ describe("the audit log, by caller class", () => {
     expect(audit.read()).toEqual([]);
   });
 
-  it("writes nothing when a device is refused, because nothing happened", async () => {
+  /**
+   * This test used to assert the opposite — "writes nothing when a device is
+   * refused, because nothing happened" — and was reversed in ADR-180 ticket
+   * 13. No state changed, but something happened: a paired device asked for
+   * real power it is denied, and `remoteControl.pair` from a stolen token is
+   * the single most important line this log can hold. The HTTP transport
+   * already records its refusals as `rejected`; the bridge staying silent on
+   * the same event was the two transports of one gate disagreeing.
+   */
+  it("writes a rejected line when a device is refused a LOCAL_ONLY method", async () => {
     const device = makeConnection("dev-1", "device");
     server.accept(device);
 
     await invoke(server, device, "remoteControl.pair", ["laptop", "full"]);
+
+    expect(audit.read()).toMatchObject([
+      {
+        deviceId: "dev-1",
+        route: "remoteControl.pair",
+        target: "laptop",
+        outcome: "rejected",
+        status: 403,
+      },
+    ]);
+  });
+
+  it("never writes the secret a refused credential call carried", async () => {
+    const device = makeConnection("dev-1", "device");
+    server.accept(device);
+
+    await invoke(server, device, "linear.connect", ["lin_api_stolen"]);
+
+    const [line] = audit.read();
+    expect(line).toMatchObject({ route: "linear.connect", outcome: "rejected" });
+    expect(line.target).toBeNull();
+    expect(JSON.stringify(audit.read())).not.toContain("lin_api_stolen");
+  });
+
+  it("writes nothing for a method that is not on the table at all", async () => {
+    const device = makeConnection("dev-1", "device");
+    server.accept(device);
+
+    await invoke(server, device, "pty.frobnicate", ["pane-1"]);
 
     expect(audit.read()).toEqual([]);
   });

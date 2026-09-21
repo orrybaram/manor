@@ -1,6 +1,6 @@
 ---
 title: Renderer holds no optimistic tree data; store tests use the real LayoutStore
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [8]

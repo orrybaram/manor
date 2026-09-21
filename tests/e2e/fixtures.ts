@@ -102,6 +102,10 @@ async function removeTempHome(tempHome: string): Promise<void> {
  * `pnpm dev`, and the app prefers it over the bundled renderer — so a run from
  * such a shell silently tests the dev server, or loads a blank error page once
  * that server exits.
+ *
+ * The app is launched unattended (hidden windows, no dock icon, no
+ * notification banners) so a run does not take over the machine it runs on;
+ * `MANOR_E2E_HEADED=1` puts its windows back on screen.
  */
 export async function launchApp(
   tempHome: string,
@@ -131,11 +135,23 @@ export async function launchApp(
       // Left there, a run would see what the previous one persisted in the
       // renderer, and the real installation's storage sits one directory over.
       `--user-data-dir=${path.join(tempHome, "user-data")}`,
+      ...(isHeaded() ? [] : ["--manor-unattended"]),
     ],
     env: { ...env, HOME: tempHome },
     cwd: repoRoot,
     recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });
+}
+
+/**
+ * Whether this run wants to be watched.
+ *
+ * Off by default: the suite drives the renderer over CDP, which does not need
+ * a window on screen, and a visible run takes focus away from whatever the
+ * developer is doing for as long as it lasts.
+ */
+export function isHeaded(): boolean {
+  return process.env.MANOR_E2E_HEADED === "1";
 }
 
 /** Frame size for recorded videos; kept fixed so runs are comparable. */

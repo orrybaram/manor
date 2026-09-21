@@ -69,9 +69,25 @@ _Avoid_: client, subscriber, socket
 The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer.
 _Avoid_: primary, master, resize authority
 
+**Layout command**:
+A named, argument-carrying request to change layout structure — split, close, move, new tab, pin — sent by any renderer or the MCP/CLI to the Manor server, which alone runs the reducer and broadcasts the result.
+_Avoid_: action (the zustand word), mutation, app-command (the ADR-156-era server→renderer channel, which is only for viewport now)
+
 **Viewport**:
-What one renderer is currently looking at — the panel, tab and pane in view, drawer and sidebar state — never shared, never persisted by the host.
+What one renderer is currently looking at — active workspace, active panel, selected tab per panel, focused pane per tab — persisted per renderer (the desktop in its own file, a browser in its storage), never authoritative on the host.
 _Avoid_: view state, UI state, selection
+
+**Claim**:
+A desktop window's exclusive hold on one tab of a workspace, reported as viewport, so a detached window shows it and the primary hides it; released when the window closes, never held by a browser, never part of layout structure.
+_Avoid_: detach payload, hand-off, ownership (that word is for winsize)
+
+**Detached window**:
+A desktop window whose viewport is a single claim; the same renderer as the primary, not a separate app.
+_Avoid_: popup, secondary renderer, popout
+
+**Default viewport**:
+The host's per-workspace memory of the last viewport any renderer reported, used only to open a fresh renderer somewhere sensible; overwritten freely, never pushed to a renderer that already has one.
+_Avoid_: last focus, shared focus
 
 **Follower**:
 A viewer that renders the winsize owner's grid as-is — shrinking the font to a floor, then panning — and never calls resize.
@@ -81,7 +97,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 
 - A session has exactly one **Winsize owner** and any number of **Followers**; the remote client is always a **Follower**.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
-- Layout *structure* (panels, tabs, pane trees) is shared across all renderers of a host; *viewport* (which pane a phone is showing, sidebar collapsed) is per renderer.
+- Layout *structure* (panels, tabs, pane trees) is shared across all renderers of a host; *viewport* (which panel, tab and pane each one is looking at) is per renderer.
 
 - The **Desktop app** issues tokens; a **Paired device** holds exactly one.
 - The **Web app** and the **Remote client** are both served to a **Paired device**, over the same tunnel.

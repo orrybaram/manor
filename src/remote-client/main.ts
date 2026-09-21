@@ -724,7 +724,7 @@ interface WorkspaceGroup {
   workspaces: WorkspaceOption[];
 }
 
-/** `POST /agents`'s success body — `StartedAgent` (`electron/renderer-bridge.ts`). */
+/** `POST /agents`'s success body — `StartedAgent` (`electron/routes/agents.ts`). */
 interface StartedAgent {
   tabId: string;
   paneId: string;

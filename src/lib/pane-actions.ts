@@ -7,20 +7,18 @@
  * outside the render cycle.
  */
 
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectFocusedPaneOfActiveTab,
+  sendPendingCommand,
+} from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
 
 export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
 
 /** The focused pane of the active workspace's selected tab, if any. */
 export function getFocusedPaneId(): string | null {
-  const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  if (!layout) return null;
-  const panel = layout.panels[layout.activePanelId];
-  if (!panel) return null;
-  const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-  return tab?.focusedPaneId ?? null;
+  return selectFocusedPaneOfActiveTab(useAppStore.getState());
 }
 
 /**
@@ -51,7 +49,8 @@ export function splitFocusedPaneWith(
  * "agent" is not a content type the store persists — an agent pane is a
  * terminal running the workspace's agent command. A pane that is already a
  * terminal just gets the command typed into it; anything else is converted
- * back to a terminal first and the command queued for its fresh session.
+ * back to a terminal and the command queued on the server for the fresh
+ * session that pane is about to get (ADR-179 ticket 11).
  */
 export function convertFocusedPaneTo(contentType: PaneContentType): void {
   const focusedPaneId = getFocusedPaneId();
@@ -69,11 +68,8 @@ export function convertFocusedPaneTo(contentType: PaneContentType): void {
     window.electronAPI.pty.write(focusedPaneId, command + "\n");
     return;
   }
+  // Queued before the conversion, not after: the pane remounts as a terminal
+  // when the change lands, and its `pty.create` is what types this.
+  sendPendingCommand(focusedPaneId, command, "agent-startup");
   state.setPaneContentType(focusedPaneId, "terminal");
-  useAppStore.setState((s) => ({
-    pendingPaneCommands: {
-      ...s.pendingPaneCommands,
-      [focusedPaneId]: command,
-    },
-  }));
 }

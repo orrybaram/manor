@@ -13,7 +13,11 @@
  * search) go out over the `ui-request` bus instead.
  */
 
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectSelectedTabId,
+} from "../store/app-store";
 import {
   useProjectStore,
   runWorkspaceSetupScript,
@@ -33,7 +37,7 @@ import {
   splitFocusedPaneWith,
   type PaneContentType,
 } from "./pane-actions";
-import { detachTabToNewWindow, movePaneToNewWindow } from "./window-handoff";
+import { detachTabToNewWindow, movePaneToNewWindow } from "./detach";
 import { openInEditor } from "./editor";
 import { focusRegion, focusRegionWhenReady } from "./focus-regions";
 import { HOME_PATH } from "./home";
@@ -89,8 +93,7 @@ function activeWorkspace(): ActiveWorkspace {
 /** The selected tab of the active panel, if any. */
 function activeTabId(): string | null {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  return layout?.panels[layout.activePanelId]?.selectedTabId ?? null;
+  return selectSelectedTabId(state, selectActivePanelId(state));
 }
 
 /** A string arg, or null when the menu sent nothing usable. */

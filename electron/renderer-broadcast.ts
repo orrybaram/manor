@@ -18,6 +18,10 @@
  * `projects-changed` is `projects`/`changed`, `agent-updated` is
  * `agents`/`updated`. The renderer's `ns.onX(cb)` subscribes to them by the
  * same pair, so the two halves are readable together.
+ *
+ * ADR-179 adds `layout`/`changed`, published by `LayoutStore` through the
+ * broadcaster `app-lifecycle.ts` hands it — the one signal that carries state
+ * a renderer must *replace* rather than merely refresh.
  */
 
 export interface RendererBroadcast {

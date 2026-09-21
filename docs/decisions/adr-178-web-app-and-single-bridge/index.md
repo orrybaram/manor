@@ -165,6 +165,9 @@ follow-up ADRs, in order: **slice 2** the layout-ownership flip (D6); **slice
 slice 2 the web app is *read-and-type*, not *read-and-arrange*: you can watch
 and drive any session from a browser; you cannot split, open tabs or start a
 workspace from it yet. That is a named intermediate state, not a bug.
+Slice 2 landed as [ADR-179](../adr-179-server-owned-layout/index.md): the
+Manor server owns layout, and a browser arranges a session exactly as the
+desktop does.
 
 ### What can never mirror in a browser
 
@@ -246,13 +249,12 @@ is correct only while every host has an Electron main; the daemon move is
 scheduled, not optional. The read-and-type intermediate state will be reported
 as a bug by anyone who did not read this file.
 
-**Known gaps after slice 1 (ticket 5's report), owned by slice 2.** Winsize
-ownership is claimed at `pty.create` and never transferred: two browsers on
-one desktop-free pane are both told they own it, and a follower is not told
-when the desktop lets go mid-session. Both need the bridge's sockets tracked
-in `pty-attachments.ts` and an ownership event on the bridge; neither is
-needed for a PC browser next to a running desktop, which is what slice 1
-proves.
+**Known gaps after slice 1 (ticket 5's report), resolved by slice 2.** Winsize
+ownership was claimed at `pty.create` and never transferred: two browsers on
+one desktop-free pane were both told they owned it, and a follower was not
+told when the desktop let go mid-session. [ADR-179](../adr-179-server-owned-layout/index.md)
+D6 tracks the bridge's sockets in `pty-attachments.ts` alongside desktop
+viewers and pushes `pty.winsizeOwner` on every transfer.
 
 **Not decided here.** Cloud authentication. The shape of the shared layout
 package. Whether the remote client ever moves off HTTP+SSE (currently: no).

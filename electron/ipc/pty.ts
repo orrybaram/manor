@@ -45,6 +45,53 @@ function validatePtyArgs(paneId: string, cwd: string | null, cols: number, rows:
 }
 
 /**
+ * Whether this create is the one that brought the pane's shell into being.
+ *
+ * Two ways for that to be true, and the second is not obvious: a session the
+ * prewarm manager warmed in the background already exists when the pane that
+ * adopts it is created, so it reports a snapshot like any warm reattach. The
+ * manager knows which pane it just handed out and says so once
+ * (`claimAdopted`), which keeps the *second* viewer of that same pane a
+ * reattach — the thing this predicate exists to exclude.
+ */
+function isFreshSession(
+  deps: IpcDeps,
+  paneId: string,
+  hadSnapshot: boolean,
+): boolean {
+  const adopted = deps.prewarmManager?.claimAdopted(paneId) ?? false;
+  return !hadSnapshot || adopted;
+}
+
+/**
+ * Type the pane's pending command, once, when its shell reaches a prompt.
+ *
+ * `writeAfterReady` rather than a plain write because the session was spawned
+ * a moment ago and its line editor may not have initialised: the daemon holds
+ * the bytes until the shell's first output. The trailing `\r` is what an Enter
+ * keypress sends — `\n` is not reliably `accept-line` under zsh's ZLE.
+ *
+ * Never fatal to the create: a pane that opened without running its command is
+ * a worse outcome than a pane that never opened, but only slightly, and the
+ * caller has already got its session.
+ */
+async function deliverPendingCommand(
+  deps: IpcDeps,
+  paneId: string,
+): Promise<void> {
+  const pending = deps.layoutStore?.pendingCommands.take(paneId);
+  if (!pending) return;
+  try {
+    await deps.backend.pty.writeAfterReady(paneId, pending.text + "\r");
+  } catch (err) {
+    console.error(
+      `[pty] failed to send the ${pending.kind} command queued for ${paneId}:`,
+      err,
+    );
+  }
+}
+
+/**
  * The bodies below are lifted out of their `ipcMain.handle` wrappers so the
  * ADR-178 WebSocket bridge can call exactly the same code the desktop
  * renderer reaches, rather than dispatching reflectively into `ipcMain`'s
@@ -79,6 +126,13 @@ export async function ptyCreate(
       undefined,
       env,
     );
+    // A pane opened "with a command" — `POST /tabs { command }`, a split with
+    // an agent, `POST /agents` — has its line waiting on the server (ADR-179
+    // ticket 11). This is the moment it has a shell to be typed into.
+    if (isFreshSession(deps, paneId, result.snapshot !== null)) {
+      await deliverPendingCommand(deps, paneId);
+    }
+
     // Return snapshot to the renderer so it can write it exactly once,
     // avoiding duplicate writes from StrictMode double-mounting.
     // A non-null snapshot means the session already existed (prewarmed).

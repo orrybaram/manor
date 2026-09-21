@@ -1,9 +1,14 @@
 /**
- * Vitest setup that provides a minimal `window` global so that module-level
- * code in app-store.ts (e.g. `window.addEventListener("beforeunload", ...)`)
- * does not throw a ReferenceError during import.
+ * Vitest setup: a minimal `window` global, in place before any store module
+ * is imported, so module-level code in `app-store.ts` — the `layout.changed`
+ * subscription among it — finds a host to talk to instead of throwing.
  */
 import { vi } from "vitest";
+import {
+  FAKE_RENDERER_ID,
+  fakeLayoutApi,
+  fakeViewportApi,
+} from "./fake-layout-server";
 
 // Provide a minimal window-like object before any store module is imported.
 // Individual test files can override specific properties via vi.stubGlobal.
@@ -12,10 +17,18 @@ if (typeof globalThis.window === "undefined") {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     electronAPI: {
-      layout: {
-        load: vi.fn().mockResolvedValue(null),
-        save: vi.fn(),
-      },
+      // ADR-179 D3: the store compares a broadcast's origin with this to
+      // decide whether a command's selection hint is its own.
+      rendererId: FAKE_RENDERER_ID,
+      isDetached: false,
+      // No claim: the store under test is a primary window, which shows every
+      // tab of the workspace (ADR-179 D4).
+      claim: null,
+      viewport: fakeViewportApi(),
+      // The Manor server's layout store, in-process (ADR-179 D1): `app-store`
+      // subscribes to it at import time and every layout action goes through
+      // it. See `fake-layout-server.ts`.
+      layout: fakeLayoutApi(),
       // agent-store.ts subscribes to agents.onUpdate at module-init time, and
       // app-store.closePaneById calls agents.abandonForPane. Provide a minimal
       // agents surface so importing those stores does not throw. Individual
@@ -63,6 +76,17 @@ if (typeof globalThis.window === "undefined") {
         set: vi.fn(),
         reset: vi.fn(),
         resetAll: vi.fn(),
+      },
+      // theme-store.ts subscribes to onChanged at module-init time (ADR-179
+      // ticket 7), so anything importing it needs this surface too.
+      theme: {
+        get: vi.fn().mockResolvedValue(null),
+        getSelectedName: vi.fn().mockResolvedValue("__ghostty__"),
+        setSelected: vi.fn().mockResolvedValue(null),
+        hasGhosttyConfig: vi.fn().mockResolvedValue(false),
+        preview: vi.fn().mockResolvedValue(null),
+        allColors: vi.fn().mockResolvedValue({}),
+        onChanged: vi.fn(() => vi.fn()),
       },
     },
   };

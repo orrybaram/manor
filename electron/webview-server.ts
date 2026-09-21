@@ -288,6 +288,7 @@ export class WebviewServer {
           githubManager: this.githubManager,
           linearManager: this.linearManager,
           layoutPersistence: this.layoutPersistence,
+          layoutStore: null,
           agentManager: this.agentManager,
           backend: this.backend,
           notificationStore: null,

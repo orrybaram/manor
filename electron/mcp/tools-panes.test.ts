@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { formatLayoutSnapshot, panesModule } from "./tools-panes";
-import type { LayoutSnapshot } from "../../src/store/layout-snapshot";
+import type { LayoutSnapshot } from "../../src/lib/layout/snapshot";
 import type { Http } from "./types";
 import { HttpError } from "./types";
 

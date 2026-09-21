@@ -40,8 +40,15 @@ import {
   ptyClose,
   ptyDetach,
 } from "../ipc/pty";
-import { isDesktopAttached } from "../pty-attachments";
-import { layoutLoad, layoutGetRestoredSessions } from "../ipc/layout";
+import { attach, isDesktopAttached, ownerOf, release } from "../pty-attachments";
+import {
+  layoutApply,
+  layoutGetAll,
+  layoutGetLastActive,
+  layoutRemove,
+  layoutReportViewport,
+  layoutSetPendingCommand,
+} from "../ipc/layout";
 import {
   projectsGetAll,
   projectsGetSelectedIndex,
@@ -76,6 +83,10 @@ import { statsGetSummary } from "../ipc/stats";
 import { notificationsGetAll } from "../ipc/notifications";
 import { processesList } from "../ipc/processes";
 import type { IpcDeps } from "../ipc/types";
+import type { LayoutCommand } from "../../src/lib/layout/commands";
+import type { PendingCommandKind } from "../layout/pending-commands";
+import type { PersistedDefaultViewport } from "../terminal-host/layout-persistence";
+import type { LayoutOrigin } from "../layout/layout-store";
 
 /**
  * The `code` on a rejected result frame for anything the bridge does not do.
@@ -98,10 +109,11 @@ export type BridgeHandler = (deps: IpcDeps, ...args: never[]) => unknown;
 /**
  * A method that is in the table on purpose and refuses on purpose.
  *
- * Refusing beats silently dropping: a browser that calls `layout.save` and
- * gets nothing back has quietly lost the user's arrangement, while one that
- * gets this can say so. Layout stays renderer-owned until ADR-178 slice 2
- * flips it to the Manor server (D6).
+ * Refusing beats silently dropping: a browser whose call is quietly discarded
+ * has lost the user's work without being able to say so. No entry refuses
+ * today — ADR-179 moved layout to the Manor server and `layout.save`, the
+ * last one, went with it — but the shape stays, because the next method that
+ * is deliberately unavailable should refuse rather than 404.
  */
 export class BridgeRefusal extends Error {
   readonly code = UNAVAILABLE_CODE;
@@ -124,9 +136,11 @@ export interface WinsizeDecoration {
  * The session's current grid, or null if the daemon has no opinion yet.
  *
  * Never throws: a browser that cannot be told the owner's size is better off
- * with the size it asked for than with a failed `pty.create`.
+ * with the size it asked for than with a failed `pty.create`. Exported for
+ * `ws-bridge-server.ts`'s ownership-change push (D6), which needs the same
+ * "ask the daemon, shrug on failure" grid lookup outside of a create call.
  */
-async function sessionGrid(
+export async function sessionGrid(
   deps: IpcDeps,
   paneId: string,
 ): Promise<{ cols: number; rows: number } | null> {
@@ -176,34 +190,44 @@ async function createShaped<T extends { ok: boolean }>(
 
 export const WS_HANDLERS: Record<string, BridgeHandler> = {
   // ── pty: the terminal itself ──
-  // `create` and `reset` answer with who owns the winsize; `resize` is a no-op
-  // while the desktop does (ADR-178 D5).
-  "pty.create": (
+  // `create` and `reset` answer with who owns the winsize, and attach the
+  // calling connection as a viewer once they succeed — the bridge's half of
+  // what `ipcMain.handle("pty:create", …)` does for a desktop window
+  // (ADR-179 D6). `resize` is a no-op unless the caller is the owner.
+  "pty.create": async (
     deps: IpcDeps,
     paneId: string,
     cwd: string | null,
     cols: number,
     rows: number,
     agentKind?: string | null,
-  ) =>
-    createShaped(deps, paneId, cols, rows, (c, r) =>
+    origin?: LayoutOrigin,
+  ) => {
+    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
       ptyCreate(deps, paneId, cwd, c, r, agentKind),
-    ),
+    );
+    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    return result;
+  },
   /**
    * Create-shaped, and reachable from the pane menu — so it is on the table,
    * decorated exactly as `create` is. `pty.consumePrewarmed` is not: a prewarmed
    * session belongs to the window that asked for one.
    */
-  "pty.reset": (
+  "pty.reset": async (
     deps: IpcDeps,
     paneId: string,
     cwd: string | null,
     cols: number,
     rows: number,
-  ) =>
-    createShaped(deps, paneId, cols, rows, (c, r) =>
+    origin?: LayoutOrigin,
+  ) => {
+    const result = await createShaped(deps, paneId, cols, rows, (c, r) =>
       ptyReset(deps, paneId, cwd, c, r),
-    ),
+    );
+    if (result.ok && origin) attach(paneId, { kind: "bridge", id: origin.id });
+    return result;
+  },
   "pty.write": (deps: IpcDeps, paneId: string, data: string) =>
     ptyWrite(deps, paneId, data),
   /**
@@ -211,24 +235,87 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
    *
    * It is answered rather than refused because refusing is a rejected promise
    * on every layout tick, which `useTerminalResize` would log; and it is
-   * dropped rather than forwarded because the desktop's grid is not the
-   * browser's to move. A browser that is the *only* viewer resizes normally —
-   * it is the winsize owner then.
+   * dropped rather than forwarded because it is not this caller's grid to
+   * move (D6) — the desktop's, or another bridge viewer's who attached more
+   * recently. A caller that owns the pane's winsize resizes normally.
    */
-  "pty.resize": (deps: IpcDeps, paneId: string, cols: number, rows: number) => {
-    if (isDesktopAttached(paneId)) return;
+  "pty.resize": (
+    deps: IpcDeps,
+    paneId: string,
+    cols: number,
+    rows: number,
+    origin?: LayoutOrigin,
+  ) => {
+    const owner = ownerOf(paneId);
+    const isOwner =
+      !!owner && !!origin && owner.kind === "bridge" && owner.id === origin.id;
+    if (owner && !isOwner) return;
     return ptyResize(deps, paneId, cols, rows);
   },
-  "pty.close": (deps: IpcDeps, paneId: string) => ptyClose(deps, paneId),
-  "pty.detach": (deps: IpcDeps, paneId: string) => ptyDetach(deps, paneId),
+  "pty.close": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
+    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    return ptyClose(deps, paneId);
+  },
+  "pty.detach": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
+    if (origin) release(paneId, { kind: "bridge", id: origin.id });
+    return ptyDetach(deps, paneId);
+  },
 
-  // ── layout: read now, write in slice 2 ──
-  "layout.load": (deps: IpcDeps) => layoutLoad(deps),
-  "layout.getRestoredSessions": (deps: IpcDeps) =>
-    layoutGetRestoredSessions(deps),
-  "layout.save": () => {
-    throw new BridgeRefusal(
-      "Layout changes are not saved from the browser yet (ADR-178, slice 2)",
+  // ── layout: the same commands the desktop sends ──
+  /**
+   * ADR-179 D1: a browser arranges panes by sending the same commands the
+   * desktop sends. `workspacePath` first, so the audit line's target is the
+   * workspace the command moved — see `bridgeTarget`.
+   */
+  "layout.getAll": (deps: IpcDeps) => layoutGetAll(deps),
+  "layout.getLastActive": (deps: IpcDeps) => layoutGetLastActive(deps),
+  "layout.apply": (
+    deps: IpcDeps,
+    workspacePath: string,
+    command: LayoutCommand,
+    origin?: LayoutOrigin,
+  ) =>
+    layoutApply(
+      deps,
+      workspacePath,
+      command,
+      origin ?? { kind: "bridge", id: "web" },
+    ),
+  /**
+   * A browser opening "a new tab running `pnpm dev`" queues the line the same
+   * way the desktop does (ticket 11) — the pane it names is the server's, and
+   * so is the map the line waits in.
+   */
+  "layout.setPendingCommand": (
+    deps: IpcDeps,
+    paneId: string,
+    text: string,
+    kind?: PendingCommandKind,
+  ) => layoutSetPendingCommand(deps, paneId, text, kind),
+  "layout.remove": (deps: IpcDeps, workspacePath: string) =>
+    layoutRemove(deps, workspacePath),
+  /**
+   * A browser's viewport report, minus any `claim` it carried (ADR-179 D4).
+   *
+   * A claim is a *desktop window's* hold on a tab, and honouring one from a
+   * socket would let a phone make a tab vanish from the desk. Stripped here
+   * rather than refused, so a browser running the same renderer code as a
+   * detached window still gets its selection remembered.
+   */
+  "layout.reportViewport": (
+    deps: IpcDeps,
+    workspacePath: string,
+    rendererId: string,
+    viewport: PersistedDefaultViewport,
+    origin?: LayoutOrigin,
+  ) => {
+    const { claim: _claim, ...unclaimed } = viewport ?? {};
+    return layoutReportViewport(
+      deps,
+      workspacePath,
+      rendererId,
+      unclaimed as PersistedDefaultViewport,
+      origin,
     );
   },
 
@@ -308,10 +395,34 @@ export const WS_HANDLERS: Record<string, BridgeHandler> = {
  * What is in: anything that starts or ends a session, and anything that moves
  * state the *other* viewers of this host will see.
  */
+/**
+ * Methods whose last argument is the caller's identity, supplied by the
+ * transport rather than by the frame (ADR-179 D3).
+ *
+ * The number is how many parameters the handler declares before the origin —
+ * `pty.create`'s optional `agentKind` included, so a client that omits it
+ * still gets the origin in the *next* slot rather than in `agentKind`'s. The
+ * bridge pads the wire arguments out to this length and appends the socket's
+ * `LayoutOrigin`, so a browser cannot claim to be another renderer and pick
+ * up its selection hints, or attach as another connection's pane viewer (D6).
+ */
+export const ORIGIN_ARGS: ReadonlyMap<string, number> = new Map([
+  ["layout.apply", 2],
+  ["layout.reportViewport", 3],
+  ["pty.create", 5],
+  ["pty.reset", 4],
+  ["pty.resize", 3],
+  ["pty.close", 1],
+  ["pty.detach", 1],
+]);
+
 export const MUTATING: ReadonlySet<string> = new Set([
   "pty.create",
   "pty.reset",
   "pty.close",
+  "layout.apply",
+  "layout.setPendingCommand",
+  "layout.remove",
   "projects.select",
   "projects.selectWorkspace",
   "preferences.set",

@@ -1,6 +1,5 @@
 import type { PrComment, PrInfo } from "./lib/pr-info";
 import type { HarnessKind } from "./lib/harness";
-import type { DetachedTabPayload } from "./store/detach-types";
 import type { RecordingCommand as WebviewRecordingCommand } from "./lib/webview-recorder";
 import type {
   ForwardedCommandPayload,
@@ -281,7 +280,28 @@ export interface PtyCreateResult {
   rows?: number;
 }
 
-/** Layout persistence types (mirrored from electron/terminal-host/layout-persistence.ts) */
+/**
+ * A live winsize-ownership change (ADR-179 D6), pushed to every viewer of
+ * `paneId` whenever `pty-attachments.ts` decides the owner moved — not only
+ * on this viewer's own `pty.create`/`pty.reset`. `owner` is this viewer's
+ * answer, the same field `PtyCreateResult.winsizeOwner` carries, just not
+ * inverted: `true` here means *this* viewer owns it now.
+ */
+export interface WinsizeOwnerEvent {
+  paneId: string;
+  cols: number;
+  rows: number;
+  owner: boolean;
+}
+
+/**
+ * The parts of `~/.manor/layout.json` a renderer is handed (ADR-179 D1).
+ *
+ * Not the file: the file is the Manor server's, and nothing here reads or
+ * writes it. These two ride along with `layout.getAll()` — what the server
+ * derived about each pane, and the viewport it hands a renderer that has none
+ * of its own. Mirrored from `electron/terminal-host/layout-persistence.ts`.
+ */
 export interface PersistedPaneSession {
   daemonSessionId: string;
   lastCwd: string | null;
@@ -289,66 +309,68 @@ export interface PersistedPaneSession {
   lastAgentStatus?: AgentState | null;
 }
 
-export interface PersistedTab {
-  id: string;
-  title: string;
-  rootNode: import("./store/pane-tree").PaneNode;
-  focusedPaneId: string;
-  paneSessions: Record<string, PersistedPaneSession>;
-}
+/**
+ * What one renderer is looking at (ADR-179 D3). The layout file keeps one per
+ * workspace — the default viewport, handed to a renderer that has none.
+ */
+export type PersistedDefaultViewport =
+  import("./lib/layout/viewport").WorkspaceViewport;
 
-/** V1 persisted workspace (kept for migration reference) */
-export interface PersistedWorkspaceV1 {
-  workspacePath: string;
-  tabs: PersistedTab[];
-  selectedTabId: string;
-  pinnedTabIds?: string[];
-}
-
-/** V1 persisted layout (kept for migration reference) */
-export interface PersistedLayoutV1 {
+/**
+ * One renderer's viewport file: `~/.manor/viewport.json` for the desktop's
+ * primary window, `localStorage` for a browser tab (ADR-179 D3).
+ *
+ * Per renderer, deliberately — the whole point is that two windows of one
+ * host reopen on the tabs each of them had, not on the tabs the last command
+ * happened to touch.
+ */
+export interface PersistedViewportFile {
   version: 1;
-  workspaces: PersistedWorkspaceV1[];
+  /** The surface this renderer was last on, Home included. */
+  activeWorkspacePath: string | null;
+  workspaces: Record<string, PersistedDefaultViewport>;
 }
 
-/** Persisted panel (v2) */
-export interface PersistedPanel {
-  id: string;
-  tabs: PersistedTab[];
-  selectedTabId: string;
-  pinnedTabIds: string[];
+/** One workspace, as the Manor server holds it (ADR-179 D1). */
+export interface LayoutEntry {
+  version: number;
+  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
+  defaultViewport: PersistedDefaultViewport;
+  /** Server-derived; a restoring renderer reattaches sessions from it. */
+  paneSessions: Record<string, PersistedPaneSession>;
+  /** Tabs held by a detached window of their own (ADR-179 D4). */
+  claims: LayoutClaim[];
 }
 
-/** Persisted workspace state (v2) */
-export interface PersistedWorkspace {
+/** A detached window's hold on a tab (ADR-179 D4). */
+export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
+
+/** The whole workspace layout, to every renderer at once. */
+export interface LayoutChangedPayload {
   workspacePath: string;
-  panelTree: import("./store/panel-tree").PanelNode;
-  panels: Record<string, PersistedPanel>;
-  activePanelId: string;
-}
-
-/** Full persisted layout (v2) */
-export interface PersistedLayout {
-  version: 2;
-  workspaces: PersistedWorkspace[];
+  version: number;
+  layout: import("./lib/layout/workspace-layout").WorkspaceLayout;
+  claims: LayoutClaim[];
   /**
-   * Path of the workspace/surface active when the layout was last saved
-   * (includes the Home surface's `HOME_PATH`). Used to restore the last-active
-   * surface on relaunch. Absent in layouts saved before this field existed.
+   * Who sent the command this broadcast is the result of, and what that
+   * command implies about *their* selection (ADR-179 D3). A renderer applies
+   * `hint` only when `origin.id` is its own `rendererId`; everybody else
+   * keeps looking where they were looking. Absent on a broadcast no command
+   * produced.
    */
-  lastActiveWorkspacePath?: string | null;
+  origin?: { kind: "window" | "bridge" | "route"; id: string };
+  hint?: import("./lib/layout/viewport").LayoutHint;
+  /**
+   * What the server knows about the panes a `reopen-closed-pane` just put
+   * back, and only those (ADR-179 ticket 10). Their sessions were still
+   * inside the reopen grace, so the pane reattaches a warm shell and this is
+   * the cwd and title to mount it with.
+   */
+  restored?: Record<string, PersistedPaneSession>;
 }
 
-export interface RestoredSessionsInfo {
-  daemonSessions: Array<{
-    sessionId: string;
-    cwd: string | null;
-    cols: number;
-    rows: number;
-    alive: boolean;
-  }>;
-  persistedSessionIds: string[];
-}
+/** `layout.apply` answers with the new version, never with a layout. */
+export type LayoutApplyResult = { version: number } | { error: string };
 
 export type PushProgressEvent =
   | { pushId: string; type: "line"; line: string }
@@ -363,18 +385,38 @@ export interface ElectronAPI {
    */
   platform: "electron" | "web";
 
+  /**
+   * This renderer's id, as the Manor server names it in a command's origin
+   * (ADR-179 D3): the desktop's `webContents.id`, a browser's bridge
+   * connection id. Null in a browser until the socket has said hello.
+   *
+   * Its one job is telling a renderer's own `layout.changed` from everybody
+   * else's, so a command's selection hint lands only on the window that sent
+   * it.
+   */
+  rendererId: string | null;
+
   env: {
     isPackaged: boolean;
   };
 
   /**
-   * Multi-window detach (ADR-156). `isDetached` is true when this renderer was
-   * launched as a detached popup window; `detachedWindowId` carries that
-   * window's id (null in the primary window). Both are surfaced synchronously
-   * from the `--manor-detached=<id>` launch argument.
+   * Multi-window detach (ADR-156, ADR-179 D4). `isDetached` is true when this
+   * renderer was launched as a detached window; `detachedWindowId` carries
+   * that window's id (null in the primary window). Both are surfaced
+   * synchronously from the `--manor-detached=<id>` launch argument.
    */
   isDetached: boolean;
   detachedWindowId: string | null;
+
+  /**
+   * The one tab this window holds of the shared layout (ADR-179 D4), from
+   * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
+   * in a browser — a claim is a desktop window's, and a browser always sees
+   * the whole workspace. The renderer reports it as part of its viewport; the
+   * tab itself never leaves the workspace.
+   */
+  claim: { workspacePath: string; tabId: string } | null;
 
   pty: {
     create: (
@@ -418,6 +460,17 @@ export interface ElectronAPI {
       paneId: string,
       callback: (cols: number, rows: number) => void,
     ) => () => void;
+    /**
+     * The winsize owner changed, without this viewer having made the call
+     * that changed it (ADR-179 D6) — another bridge viewer outbid it, or its
+     * owner disconnected and it inherited the grid. A no-op subscription on
+     * the desktop preload: the desktop's own attach always wins ownership the
+     * moment it exists (D5), so it is never the one hearing this.
+     */
+    onWinsizeOwner: (
+      paneId: string,
+      callback: (payload: WinsizeOwnerEvent) => void,
+    ) => () => void;
     onAgentStatus: (
       paneId: string,
       callback: (agent: AgentState) => void,
@@ -429,9 +482,51 @@ export interface ElectronAPI {
   };
 
   layout: {
-    save: (workspace: PersistedWorkspace) => Promise<void>;
-    load: () => Promise<PersistedLayout | null>;
-    getRestoredSessions: () => Promise<RestoredSessionsInfo>;
+    /**
+     * ADR-179 D1. Layout belongs to the Manor server: read it whole, change it
+     * by command, and replace the replica whenever `onChanged` fires — the
+     * sender's own change included. There is no `save`: a renderer never
+     * writes layout.
+     */
+    getAll: () => Promise<Record<string, LayoutEntry>>;
+    /** The surface that was active last — restored on relaunch. */
+    getLastActive: () => Promise<string | null>;
+    apply: (
+      workspacePath: string,
+      command: import("./lib/layout/commands").LayoutCommand,
+    ) => Promise<LayoutApplyResult>;
+    /**
+     * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
+     *
+     * Sent immediately *before* the `apply` that creates the pane: both go
+     * over the same ordered channel and the server records this one
+     * synchronously, so the line is always waiting by the time the layout
+     * broadcast makes some renderer mount the pane and call `pty.create`.
+     */
+    setPendingCommand: (
+      paneId: string,
+      text: string,
+      kind?: "shell" | "agent-startup",
+    ) => Promise<void>;
+    remove: (workspacePath: string) => Promise<void>;
+    reportViewport: (
+      workspacePath: string,
+      rendererId: string,
+      viewport: PersistedDefaultViewport,
+    ) => Promise<void>;
+    onChanged: (callback: (payload: LayoutChangedPayload) => void) => () => void;
+  };
+
+  /**
+   * This renderer's own viewport file (ADR-179 D3).
+   *
+   * Deliberately *not* in the bridge handler table: a browser answers both
+   * calls itself out of `localStorage` (`src/web/unavailable.ts`), because
+   * the selection a phone remembers is the phone's, not the host's.
+   */
+  viewport: {
+    load: () => Promise<PersistedViewportFile | null>;
+    save: (file: PersistedViewportFile) => Promise<void>;
   };
 
   projects: {
@@ -549,6 +644,18 @@ export interface ElectronAPI {
         >
       >
     >;
+    /**
+     * The selected theme changed somewhere other than this call — another
+     * desktop window's `setSelected`, or a browser on the bridge (ADR-179
+     * ticket 7). The payload is `setSelected`'s own return shape, ready to
+     * apply without a round trip back to `get`.
+     */
+    onChanged: (
+      callback: (payload: {
+        name: string;
+        theme: import("./store/theme-store").Theme;
+      }) => void,
+    ) => () => void;
   };
 
   ports: {
@@ -959,15 +1066,21 @@ export interface ElectronAPI {
     stopRecording: (paneId: string) => Promise<void>;
   };
 
-  /** Multi-window detach/reattach handoff (ADR-156). */
+  /** Multi-window detach (ADR-156, ADR-179 D4). */
   window: {
-    /** Create a detached popup window for `payload`; resolves its windowId. */
+    /**
+     * Pop a tab out into a window of its own; resolves that window's id.
+     *
+     * Nothing is handed over: the tab stays in the workspace, and the new
+     * window boots with a **claim** on it, which it reports as viewport. The
+     * primary hides the tab because the server told it who holds what, and a
+     * browser goes on seeing every tab (ADR-179 D4).
+     */
     detachTab: (
-      payload: DetachedTabPayload,
-      spawnBounds: { x: number; y: number; width: number; height: number },
+      workspacePath: string,
+      tabId: string,
+      spawnBounds?: { x: number; y: number; width: number; height: number },
     ) => Promise<string>;
-    /** Detached renderer pulls its one-shot handoff payload on boot. */
-    getDetachPayload: () => Promise<DetachedTabPayload | null>;
     /** Outer bounds of the calling window (used by the drag-out trigger). */
     getBounds: () => Promise<{
       x: number;
@@ -993,42 +1106,11 @@ export interface ElectronAPI {
       }[]
     >;
     /**
-     * Hand a tab to an existing window (id from `listWindows`). Resolves false
-     * if that window is gone, so the caller can fall back to detaching.
+     * Close the calling window — and, in a detached window, give the tab back:
+     * the claim dies with the window and the tab reappears in the primary with
+     * its panes and sessions untouched (ADR-179 D4).
      */
-    transferTab: (
-      targetWindowId: number,
-      payload: DetachedTabPayload,
-    ) => Promise<boolean>;
-    /**
-     * Listener for a tab dropped into THIS window from another window.
-     * Returns an unsubscribe. Every renderer subscribes.
-     */
-    onTabReceived: (
-      callback: (payload: DetachedTabPayload) => void,
-    ) => () => void;
-    /** Close the calling window (a detached window that gave away its last tab). */
     closeSelf: () => void;
-    /**
-     * Send a detached window's tab back to the primary window and close this
-     * detached window. Called from the detached renderer after it has released
-     * its panes via `removeDetachedTabLocally`.
-     */
-    reattachTab: (payload: DetachedTabPayload) => Promise<void>;
-    /**
-     * Send ONE pane back to the primary window without closing this one — a
-     * popout may still hold other panes. Delivered to the same primary listener
-     * as `reattachTab`. When it was the last pane, the detached renderer closes
-     * itself via its empty-store subscription.
-     */
-    reattachPane: (payload: DetachedTabPayload) => Promise<void>;
-    /**
-     * Primary-window listener: fires when a detached window reattaches its tab.
-     * Returns an unsubscribe. Only the primary renderer subscribes.
-     */
-    onTabReattached: (
-      callback: (payload: DetachedTabPayload) => void,
-    ) => () => void;
   };
 }
 
@@ -1090,6 +1172,8 @@ export interface RemotePairResult {
   /** Shown once. Never retrievable again. */
   rawToken: string;
   pairingUrl: string | null;
+  /** The page this device's link opens: `/app` for `full`, `/` otherwise. */
+  page: string;
 }
 
 declare global {

@@ -1,8 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
-import { createDetachedWindow } from "../window";
+import { createDetachedWindow, formatClaimArg } from "../window";
 import type { IpcDeps } from "./types";
-import type { DetachedTabPayload } from "../../src/store/detach-types";
 
 interface Bounds {
   x: number;
@@ -13,7 +12,7 @@ interface Bounds {
 
 /** A drop-target window as seen by a renderer performing a tab drag. */
 export interface WindowInfo {
-  /** webContents id — stable handle for `window:transferTab`. */
+  /** webContents id — the same id a claim is keyed by (ADR-179 D4). */
   id: number;
   bounds: Bounds;
 }
@@ -23,10 +22,10 @@ export interface WindowInfo {
  *
  * Every caller here is a window asking to be torn down from inside something
  * Chromium is still running: a popout closing from a `dragend` handler, or one
- * that just handed its last tab away. The browser process still holds native
- * state for that stack — an in-flight drag session, the view that raised the
- * event — and freeing the window underneath it is a use-after-free (see #164).
- * A tick costs nothing and removes the whole class.
+ * whose claim was taken away. The browser process still holds native state for
+ * that stack — an in-flight drag session, the view that raised the event — and
+ * freeing the window underneath it is a use-after-free (see #164). A tick
+ * costs nothing and removes the whole class.
  */
 function closeWindowSoon(win: BrowserWindow | null | undefined): void {
   if (!win || win.isDestroyed()) return;
@@ -35,13 +34,6 @@ function closeWindowSoon(win: BrowserWindow | null | undefined): void {
   });
 }
 
-// Electron exposes no z-order, so we approximate "topmost" with focus recency:
-// webContents ids, most-recently-focused first. Used to pick a single drop
-// target when a drop point falls inside more than one window's bounds.
-//
-// Module-level rather than per-`register` closure state: `register` runs once
-// per process, and `listWindows` below is also called from `GET /windows`
-// (`../routes/system.ts`), which has no closure to reach into.
 const focusOrder: number[] = [];
 const focusTracked = new Set<number>();
 
@@ -54,8 +46,6 @@ function trackFocusOrder(win: BrowserWindow): void {
     if (i !== -1) focusOrder.splice(i, 1);
     focusOrder.unshift(id);
   };
-  // Seed: a window first seen while focused is topmost; anything else goes to
-  // the back until it is actually focused.
   if (win.isFocused()) bump();
   else focusOrder.push(id);
   win.on("focus", bump);
@@ -90,84 +80,27 @@ export function listWindows(
 }
 
 export function register(deps: IpcDeps): void {
-  // One-shot handoff payloads, keyed by the detached window's stable windowId.
-  // The detached renderer pulls its payload once on boot via
-  // `window:getDetachPayload` (state can't ride through `loadFile`).
-  const payloadByWindowId = new Map<string, DetachedTabPayload>();
-  // Reverse lookup so a handler can resolve the caller's windowId from its
-  // webContents (BrowserWindow.fromWebContents → id → windowId).
-  const windowIdByWebContentsId = new Map<number, string>();
-
   /**
-   * Open a popout window holding `payload`. The payload is parked here and the
-   * new renderer pulls it on boot (`window:getDetachPayload`) — a pull the
-   * destination drives itself, so unlike a push it cannot land before the
-   * window's listeners exist.
+   * Pop a tab out into a window of its own (ADR-179 D4).
+   *
+   * Nothing moves. The tab stays exactly where it is in the workspace — a
+   * browser goes on seeing it — and the new window boots the ordinary renderer
+   * with a **claim** on it, which it reports as viewport. The server tells
+   * every renderer who is holding what, and the primary hides the tab because
+   * of that report, not because anything was handed over. There is no payload
+   * to lose and no session to re-attach: the pane is the same pane.
    */
-  function spawnDetachedWindow(
-    payload: DetachedTabPayload,
-    spawnBounds?: Bounds,
-  ): string {
-    const windowId = `detached-${randomUUID()}`;
-    const win = createDetachedWindow(windowId, spawnBounds);
-    // Track for broadcast + keyed lookup by windowId (ticket 1 registry).
-    deps.registerDetachedWindow(windowId, win);
-
-    const webContentsId = win.webContents.id;
-    payloadByWindowId.set(windowId, payload);
-    windowIdByWebContentsId.set(webContentsId, windowId);
-
-    // Safety net: drop any un-consumed payload if the window closes before it
-    // asks for one (the normal path deletes it on getDetachPayload).
-    win.on("closed", () => {
-      payloadByWindowId.delete(windowId);
-      windowIdByWebContentsId.delete(webContentsId);
-    });
-
-    return windowId;
-  }
-
-  /**
-   * Hand a payload back to the primary window. The caller has already released
-   * the tab locally, so there is no owner left on this side: when the primary
-   * window is gone (the user closed it while popouts stayed open), dropping the
-   * payload would lose the tab and orphan its still-live daemon session. Fall
-   * back to a popout instead — surprising, but nothing is lost, and the panes
-   * stay reachable.
-   */
-  function sendToPrimary(payload: DetachedTabPayload): void {
-    const primary = deps.mainWindow;
-    if (
-      primary &&
-      !primary.isDestroyed() &&
-      !primary.webContents.isDestroyed()
-    ) {
-      primary.webContents.send("window:tab-reattached", payload);
-      if (primary.isMinimized()) primary.restore();
-      primary.focus();
-      return;
-    }
-    spawnDetachedWindow(payload);
-  }
-
   ipcMain.handle(
     "window:detachTab",
-    (_event, payload: DetachedTabPayload, spawnBounds: Bounds): string =>
-      spawnDetachedWindow(payload, spawnBounds),
-  );
-
-  ipcMain.handle(
-    "window:getDetachPayload",
-    (event): DetachedTabPayload | null => {
-      const windowId = windowIdByWebContentsId.get(event.sender.id);
-      if (!windowId) return null;
-      // Idempotent read — do NOT delete on get. React StrictMode (dev) mounts
-      // the renderer effect twice; a delete-on-get would let the first, later
-      // cancelled, effect run consume the payload so the second run receives
-      // null and boots into the empty state. The payload is instead retained
-      // for this window's lifetime and dropped in the `closed` handler below,
-      // which also makes a manual reload re-hydrate the same tab.
-      return payloadByWindowId.get(windowId) ?? null;
+    (_event, workspacePath: string, tabId: string, spawnBounds?: Bounds) => {
+      const windowId = `detached-${randomUUID()}`;
+      const win = createDetachedWindow(
+        windowId,
+        formatClaimArg(workspacePath, tabId),
+        spawnBounds,
+      );
+      deps.registerDetachedWindow(windowId, win);
+      return windowId;
     },
   );
 
@@ -177,72 +110,22 @@ export function register(deps: IpcDeps): void {
     return win.getBounds();
   });
 
-  // Every OTHER manor window a dragged tab could be dropped into, topmost-first.
-  // Fetched once when a drag starts; the renderer hit-tests the release point
-  // against these bounds locally rather than round-tripping on every move.
   ipcMain.handle("window:listWindows", (event): WindowInfo[] =>
     listWindows(deps.getRendererWindows(), event.sender.id),
   );
 
-  // Hand a tab to another existing window (drag-and-drop between windows).
-  // Resolves false when the target is gone, so the caller can fall back to
-  // spawning a new window instead of dropping the tab on the floor.
-  ipcMain.handle(
-    "window:transferTab",
-    (_event, targetWindowId: number, payload: DetachedTabPayload): boolean => {
-      const target = deps
-        .getRendererWindows()
-        .find((win) => win.webContents.id === targetWindowId);
-      if (!target) return false;
-      target.webContents.send("window:tab-received", payload);
-      if (target.isMinimized()) target.restore();
-      target.focus();
-      return true;
-    },
-  );
-
-  // Close the calling window. Used by a detached window that just gave away its
-  // last tab — its store is already empty, so `beforeunload` kills nothing.
-  // Deferred and guarded: this can arrive twice, and it arrives while the
-  // renderer is still inside the handler that emptied the window.
+  /**
+   * Close the calling window — which is also how a detached window gives its
+   * tab back: the claim dies with the window and the tab reappears in the
+   * primary, with the same panes and the same live sessions (D4).
+   */
   ipcMain.on("window:closeSelf", (event) => {
     closeWindowSoon(BrowserWindow.fromWebContents(event.sender));
   });
 
-  // Move the calling window's top-left to a screen-space point. Fire-and-forget
-  // (`on`, not `handle`): this is driven at pointermove frequency when a window
-  // whose only tab is being dragged follows the cursor instead of tearing off.
   ipcMain.on("window:setPosition", (event, x: number, y: number) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
     win.setPosition(Math.round(x), Math.round(y));
   });
-
-  // Reverse of detachTab: a detached window sends its tab back to the primary
-  // window, then this closes the detached window. The detached renderer has
-  // already released its panes (removeDetachedTabLocally) before invoking, so
-  // by the time the window closes its store is empty and its beforeunload
-  // handler kills nothing.
-  ipcMain.handle(
-    "window:reattachTab",
-    (event, payload: DetachedTabPayload): void => {
-      // Forward the payload so the primary renderer inserts the tab into its
-      // active panel — or, if the primary window is gone, into a fresh popout
-      // rather than nowhere.
-      sendToPrimary(payload);
-      // Close the calling (detached) window, once this dispatch has unwound.
-      closeWindowSoon(BrowserWindow.fromWebContents(event.sender));
-    },
-  );
-
-  // Send a single pane back to the primary window WITHOUT closing the caller.
-  // A popout can hold several panes, so unlike `reattachTab` this must leave the
-  // window standing; when the pane it gave away was its last one, the detached
-  // renderer closes itself through its own empty-store subscription.
-  ipcMain.handle(
-    "window:reattachPane",
-    (_event, payload: DetachedTabPayload): void => {
-      sendToPrimary(payload);
-    },
-  );
 }

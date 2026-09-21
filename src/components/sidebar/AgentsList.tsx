@@ -14,7 +14,7 @@ import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { allPaneIds } from "../../store/pane-tree";
+import { allPaneIds } from "../../lib/layout/pane-tree";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
 import { useInlineRename } from "../../hooks/useInlineRename";
@@ -176,6 +176,7 @@ export function AgentsList(props: AgentsListProps) {
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  const viewports = useAppStore((s) => s.viewports);
 
   // Collect all active pane IDs across all workspace layouts
   const activePaneIds = useMemo(() => {
@@ -196,8 +197,9 @@ export function AgentsList(props: AgentsListProps) {
   // read-state sweep in the agent store, so the sidebar dot and main's unseen
   // flags cannot disagree about what counts as on screen (issue #142).
   const visiblePaneIds = useMemo(
-    () => selectVisiblePaneIds({ activeWorkspacePath, workspaceLayouts }),
-    [activeWorkspacePath, workspaceLayouts],
+    () =>
+      selectVisiblePaneIds({ activeWorkspacePath, workspaceLayouts, viewports }),
+    [activeWorkspacePath, workspaceLayouts, viewports],
   );
 
   // Show active agents only while they still own a pane; show completed/error/abandoned

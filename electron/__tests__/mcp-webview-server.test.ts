@@ -52,12 +52,16 @@ import { projectsModule } from "../mcp/tools-projects";
 import { agentsModule } from "../mcp/tools-agents";
 import { panesModule } from "../mcp/tools-panes";
 import type {
+  LayoutPersistence,
   PersistedLayout,
   PersistedWorkspace,
   PersistedPanel,
   PersistedTab,
   PersistedPaneSession,
 } from "../terminal-host/layout-persistence";
+import { LayoutStore } from "../layout/layout-store";
+import { allPaneIds } from "../../src/lib/layout/pane-tree";
+import type { LocalBackend } from "../backend/local-backend";
 
 // ── Replicate MCP server helper functions for testing ──
 
@@ -548,6 +552,9 @@ describe("WebviewServer agent orchestration routes", () => {
 
   let server: WebviewServer;
   let baseUrl: string;
+  /** `POST /agents` opens the tab itself now (ADR-179 ticket 11), so the
+   *  orchestration routes need a real layout store like the pane routes do. */
+  let layoutStore: LayoutStore;
   let pm: {
     getProjects: ReturnType<typeof vi.fn>;
     addProject: ReturnType<typeof vi.fn>;
@@ -655,6 +662,18 @@ describe("WebviewServer agent orchestration routes", () => {
       [],
     );
 
+    layoutStore = new LayoutStore(
+      {
+        load: () => null,
+        save: () => {},
+        removeWorkspace: () => {},
+      } as unknown as LayoutPersistence,
+      () => {},
+      { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as Pick<
+        LocalBackend,
+        "pty"
+      >,
+    );
     server = new WebviewServer(
       new Map<string, number>(),
       pm as unknown as ConstructorParameters<typeof WebviewServer>[1],
@@ -663,6 +682,7 @@ describe("WebviewServer agent orchestration routes", () => {
         typeof WebviewServer
       >[3],
     );
+    server.setControlDeps({ layoutStore });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -910,83 +930,32 @@ describe("WebviewServer agent orchestration routes", () => {
   });
 
   describe("POST /agents", () => {
-    it("round-trips the launch and returns the renderer's pane", async () => {
-      // The launch is correlated (ADR-176): main waits for the renderer to
-      // report the pane it created, so the test has to play the renderer.
-      const send = vi.fn((_channel: string, command: AppCommand) => {
-        const listener = (
-          ipcMain.on as ReturnType<typeof vi.fn>
-        ).mock.calls.filter(
-          (call) => call[0] === "app-command-result",
-        )[0][1] as (event: unknown, result: AppCommandResult) => void;
-        listener(null, {
-          requestId: command.requestId!,
-          ok: true,
-          data: {
-            tabId: "tab-1",
-            paneId: "pane-1",
-            workspacePath: "/repos/demo-ws",
-          },
-        });
-      });
-      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-        [{ webContents: { send } }],
-      );
-
-      const result = await mcpHttpPost(baseUrl, "/agents", {
-        workspacePath: "/repos/demo-ws",
+    it("opens the tab itself and returns the pane it created", async () => {
+      // No window, no round-trip (ADR-179 ticket 11): the route applies a
+      // `new-tab` to the layout store and queues the launch line for the pane
+      // it minted, so the answer names a pane that really exists.
+      const result = (await mcpHttpPost(baseUrl, "/agents", {
+        workspacePath: "/repos/demo",
         prompt: "do the thing",
-      });
+      })) as { tabId: string; paneId: string; workspacePath: string };
 
-      // The route hands back the renderer's `StartedAgent` unwrapped — not
-      // the `{ok, data}` envelope `requestRenderer` settles with internally.
-      expect(result).toEqual({
-        tabId: "tab-1",
-        paneId: "pane-1",
-        workspacePath: "/repos/demo-ws",
-      });
-      expect(send).toHaveBeenCalledWith("app-command", {
-        cmd: "start-agent",
-        requestId: expect.any(String),
-        args: {
-          workspacePath: "/repos/demo-ws",
-          prompt: "do the thing",
-        },
+      expect(result.workspacePath).toBe("/repos/demo");
+      const entry = layoutStore.get("/repos/demo")!;
+      const panel = entry.layout.panels[Object.keys(entry.layout.panels)[0]];
+      const tab = panel.tabs.find((t) => t.id === result.tabId);
+      expect(tab).toBeDefined();
+      expect(allPaneIds(tab!.rootNode)).toEqual([result.paneId]);
+      expect(
+        layoutStore.pendingCommands.take(result.paneId),
+      ).toEqual({
+        text: 'claude --dangerously-skip-permissions "do the thing"',
+        kind: "agent-startup",
       });
     });
 
-    it("returns 503 when no Manor window is open", async () => {
-      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-        [],
-      );
-
+    it("returns 400 when workspacePath is missing", async () => {
       await expect(
-        mcpHttpPost(baseUrl, "/agents", { workspacePath: "/repos/demo-ws" }),
-      ).rejects.toThrow("HTTP 503");
-    });
-
-    it("returns 400 when the renderer's start-agent handler fails", async () => {
-      // A "handler" failure (the renderer answered, but with `ok: false`) is
-      // the caller's fault — a bad workspacePath, say — so it maps to 400,
-      // distinct from the 503 above for "no renderer to ask at all".
-      const send = vi.fn((_channel: string, command: AppCommand) => {
-        const listener = (
-          ipcMain.on as ReturnType<typeof vi.fn>
-        ).mock.calls.filter(
-          (call) => call[0] === "app-command-result",
-        )[0][1] as (event: unknown, result: AppCommandResult) => void;
-        listener(null, {
-          requestId: command.requestId!,
-          ok: false,
-          error: "Unknown workspace",
-        });
-      });
-      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-        [{ webContents: { send } }],
-      );
-
-      await expect(
-        mcpHttpPost(baseUrl, "/agents", { workspacePath: "/nowhere" }),
+        mcpHttpPost(baseUrl, "/agents", { prompt: "do the thing" }),
       ).rejects.toThrow("HTTP 400");
     });
   });
@@ -1136,13 +1105,11 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedAssign?.workspacePath).toBe("/repos/demo-ws-20");
     });
 
-    // A launch failure (no Manor window open, here) happens after the
-    // workspace already exists on disk — it must land on `launchError`, not
-    // `error`, which is reserved for "no workspace was created at all".
+    // A launch failure (no layout store to open a tab in, here) happens after
+    // the workspace already exists on disk — it must land on `launchError`,
+    // not `error`, which is reserved for "no workspace was created at all".
     it("reports launchError (not error) on a created workspace whose agent failed to start", async () => {
-      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-        [],
-      );
+      server.setControlDeps({ layoutStore: null });
 
       const result = (await mcpHttpPost(
         baseUrl,
@@ -1164,7 +1131,9 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failedLaunch?.workspacePath).toBe("/repos/demo-ws-10");
       expect(failedLaunch?.started).toBe(false);
       expect(failedLaunch?.error).toBeUndefined();
-      expect(failedLaunch?.launchError).toContain("No Manor window is open");
+      expect(failedLaunch?.launchError).toContain(
+        "Layout store is not available",
+      );
       expect((failedLaunch as { paneId?: string }).paneId).toBeUndefined();
     });
 
@@ -1172,34 +1141,22 @@ describe("WebviewServer agent orchestration routes", () => {
     // confirmed pane earns `paneId` — the two are otherwise indistinguishable
     // once `started` alone is read.
     it("keeps launching later issues after an earlier one's agent fails to start", async () => {
-      const send = vi.fn((channel: string, command?: AppCommand) => {
-        // `notifyProjectsChanged` sends "projects-changed" on this same
-        // `webContents.send`, with no `AppCommand` — ignore anything that
-        // isn't the correlated "app-command" this test is playing renderer for.
-        if (channel !== "app-command" || !command) return;
-        const listener = (
-          ipcMain.on as ReturnType<typeof vi.fn>
-        ).mock.calls.filter(
-          (call) => call[0] === "app-command-result",
-        )[0][1] as (event: unknown, result: AppCommandResult) => void;
-        const workspacePath = command.args?.workspacePath as string;
-        if (workspacePath === "/repos/demo-ws-10") {
-          listener(null, {
-            requestId: command.requestId!,
-            ok: false,
-            error: "harness crashed",
-          });
-        } else {
-          listener(null, {
-            requestId: command.requestId!,
-            ok: true,
-            data: { tabId: "tab-1", paneId: "pane-20", workspacePath },
-          });
-        }
-      });
-      (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue(
-        [{ webContents: { send } }],
-      );
+      // A layout store that refuses exactly one workspace's `new-tab`.
+      const refusing = {
+        pendingCommands: layoutStore.pendingCommands,
+        get: (workspacePath: string) => layoutStore.get(workspacePath),
+        apply: vi.fn(
+          async (
+            workspacePath: string,
+            command: Parameters<LayoutStore["apply"]>[1],
+            origin: Parameters<LayoutStore["apply"]>[2],
+          ) =>
+            workspacePath === "/repos/demo-ws-10"
+              ? { error: "harness crashed" }
+              : layoutStore.apply(workspacePath, command, origin),
+        ),
+      } as unknown as LayoutStore;
+      server.setControlDeps({ layoutStore: refusing });
 
       const result = (await mcpHttpPost(
         baseUrl,
@@ -1221,8 +1178,10 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(failed.paneId).toBeUndefined();
       expect(failed.launchError).toContain("harness crashed");
       expect(ok.started).toBe(true);
-      expect(ok.paneId).toBe("pane-20");
+      expect(ok.paneId).toEqual(expect.any(String));
       expect(ok.launchError).toBeUndefined();
+      // The refused launch left nothing queued for a pane that never existed.
+      expect(layoutStore.pendingCommands.size).toBe(1);
     });
 
     // Order is preserved in `details` order even when a middle issue's fetch
@@ -1330,6 +1289,24 @@ describe("WebviewServer pane routes", () => {
   let server: WebviewServer;
   let baseUrl: string;
   let send: ReturnType<typeof vi.fn>;
+  let layoutStore: LayoutStore;
+
+  /** Seed a workspace with one plain terminal tab/pane, for the structural
+   *  routes (ADR-179 D5) that need something real to act on. */
+  async function seedPane(
+    workspacePath: string,
+    tabId: string,
+    paneId: string,
+  ): Promise<void> {
+    await layoutStore.apply(
+      workspacePath,
+      {
+        type: "new-tab",
+        tab: { id: tabId, title: "Terminal", rootNode: { type: "leaf", paneId } },
+      },
+      { kind: "route", id: "test" },
+    );
+  }
 
   /**
    * The single "app-command-result" listener `requestRenderer` installs, once,
@@ -1366,17 +1343,6 @@ describe("WebviewServer pane routes", () => {
     });
   }
 
-  /** Play a renderer handler that throws. */
-  function respondWithError(error: string): void {
-    send.mockImplementation((_channel: string, command: AppCommand) => {
-      rendererListener()(null, {
-        requestId: command.requestId!,
-        ok: false,
-        error,
-      });
-    });
-  }
-
   function openWindow(): void {
     (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
       { webContents: { send } },
@@ -1386,7 +1352,22 @@ describe("WebviewServer pane routes", () => {
   beforeEach(async () => {
     send = vi.fn();
     openWindow();
+    layoutStore = new LayoutStore(
+      {
+        load: () => null,
+        save: () => {},
+        removeWorkspace: () => {},
+      } as unknown as LayoutPersistence,
+      () => {},
+      { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as Pick<
+        LocalBackend,
+        "pty"
+      >,
+    );
     server = new WebviewServer(new Map<string, number>());
+    // ADR-179 D5: the structural pane/tab routes drive this directly now, no
+    // renderer round-trip — only `/panes/:paneId/focus` below still proxies.
+    server.setControlDeps({ layoutStore });
     await server.start();
     baseUrl = `http://127.0.0.1:${server.serverPort}`;
   });
@@ -1396,39 +1377,39 @@ describe("WebviewServer pane routes", () => {
     vi.useRealTimers();
   });
 
+  // ADR-179 D5: `GET /panes`, `POST /panes/split`, `DELETE /panes/:paneId`
+  // and `POST /tabs` drive `LayoutStore` directly now — no renderer, no
+  // "app-command" round-trip. `POST /panes/:paneId/focus` below is the one
+  // pane route left that still proxies (viewport, D3).
   it("GET /panes returns the layout snapshot", async () => {
-    respondWith({ workspacePath: "/repos/demo", tabs: [] });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
-    const result = await mcpHttpGet(baseUrl, "/panes");
+    const result = await mcpHttpGet(
+      baseUrl,
+      `/panes?workspacePath=${encodeURIComponent("/repos/demo")}`,
+    );
 
-    expect(result).toEqual({ workspacePath: "/repos/demo", tabs: [] });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "list-panes",
-      requestId: expect.any(String),
+    expect(result).toMatchObject({
+      workspacePath: "/repos/demo",
+      tabs: [{ tabId: "tab-1", panes: [{ paneId: "pane-1" }] }],
     });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /panes/split returns the new paneId", async () => {
-    respondWith({ paneId: "pane-2" });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
-    const result = await mcpHttpPost(baseUrl, "/panes/split", {
+    const result = (await mcpHttpPost(baseUrl, "/panes/split", {
       paneId: "pane-1",
       direction: "horizontal",
       contentType: "browser",
       url: "https://example.com",
-    });
+      workspacePath: "/repos/demo",
+    })) as { paneId: string };
 
-    expect(result).toEqual({ paneId: "pane-2" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "split-pane",
-      requestId: expect.any(String),
-      args: {
-        paneId: "pane-1",
-        direction: "horizontal",
-        contentType: "browser",
-        url: "https://example.com",
-      },
-    });
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(result.paneId).not.toBe("pane-1");
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /panes/:paneId/focus focuses the pane", async () => {
@@ -1445,52 +1426,38 @@ describe("WebviewServer pane routes", () => {
   });
 
   it("DELETE /panes/:paneId closes the pane", async () => {
-    respondWith({ ok: true });
+    await seedPane("/repos/demo", "tab-1", "pane-1");
 
     const result = await mcpHttpDelete(baseUrl, "/panes/pane-1");
 
     expect(result).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "close-pane",
-      requestId: expect.any(String),
-      args: { paneId: "pane-1" },
-    });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /tabs creates a new terminal tab", async () => {
-    respondWith({ tabId: "tab-1", paneId: "pane-1" });
-
-    const result = await mcpHttpPost(baseUrl, "/tabs", {
+    const result = (await mcpHttpPost(baseUrl, "/tabs", {
       contentType: "terminal",
-    });
+      workspacePath: "/repos/demo",
+    })) as { tabId: string; paneId: string };
 
-    expect(result).toEqual({ tabId: "tab-1", paneId: "pane-1" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "new-tab",
-      requestId: expect.any(String),
-      args: { contentType: "terminal" },
-    });
+    expect(result.tabId).toEqual(expect.any(String));
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("POST /tabs creates a new browser tab given a url", async () => {
-    respondWith({ tabId: "tab-2", paneId: "pane-2" });
-
-    const result = await mcpHttpPost(baseUrl, "/tabs", {
+    const result = (await mcpHttpPost(baseUrl, "/tabs", {
       contentType: "browser",
       url: "https://example.com",
-    });
+      workspacePath: "/repos/demo",
+    })) as { tabId: string; paneId: string };
 
-    expect(result).toEqual({ tabId: "tab-2", paneId: "pane-2" });
-    expect(send).toHaveBeenCalledWith("app-command", {
-      cmd: "new-tab",
-      requestId: expect.any(String),
-      args: { contentType: "browser", url: "https://example.com" },
-    });
+    expect(result.tabId).toEqual(expect.any(String));
+    expect(result.paneId).toEqual(expect.any(String));
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it("returns 400 when a renderer handler throws", async () => {
-    respondWithError("Unknown paneId: pane-404");
-
+  it("returns 400 for an unknown paneId", async () => {
     await expect(mcpHttpDelete(baseUrl, "/panes/pane-404")).rejects.toThrow(
       "HTTP 400",
     );
@@ -1509,7 +1476,11 @@ describe("WebviewServer pane routes", () => {
       [],
     );
 
-    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+    // `/panes/:paneId/focus` is the viewport route left that still needs a
+    // window (D3); the structural routes above no longer do.
+    await expect(mcpHttpPost(baseUrl, "/panes/pane-1/focus")).rejects.toThrow(
+      "HTTP 503",
+    );
   });
 
   it("returns 503 on renderer timeout", async () => {
@@ -1518,7 +1489,9 @@ describe("WebviewServer pane routes", () => {
     // timers here would also have to fake the real socket I/O `fetch`
     // depends on, which the `requestRenderer` describe block below already
     // covers directly and more precisely.
-    await expect(mcpHttpGet(baseUrl, "/panes")).rejects.toThrow("HTTP 503");
+    await expect(mcpHttpPost(baseUrl, "/panes/pane-1/focus")).rejects.toThrow(
+      "HTTP 503",
+    );
   }, 7000);
 });
 

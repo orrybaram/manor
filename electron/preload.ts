@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppCommand, AppCommandResult } from "./renderer-bridge";
-import type { DetachedTabPayload } from "../src/store/detach-types";
 import type {
   ForwardedCommandPayload,
   MenuCommandPayload,
@@ -43,9 +42,9 @@ function onChannel<T>(
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
-// Detached-window flag (ADR-156). Mirrors the `--manor-packaged` pattern: main
-// injects `--manor-detached=<windowId>` via additionalArguments so the renderer
-// can boot in detached mode synchronously, without an IPC round-trip.
+// Detached-window flag (ADR-156, ADR-179 D4). Mirrors the `--manor-packaged`
+// pattern: main injects `--manor-detached=<windowId>` via additionalArguments
+// so the renderer knows synchronously, without an IPC round-trip.
 const detachedArg = process.argv.find((arg) =>
   arg.startsWith("--manor-detached="),
 );
@@ -54,19 +53,52 @@ const detachedWindowId = detachedArg
   : null;
 const isDetached = detachedWindowId !== null;
 
+// The tab this window holds (ADR-179 D4), as `--manor-claim=<tabId>::<path>`.
+// Split on the FIRST separator: a tab id is `tab-<uuid>` and cannot contain
+// one, a workspace path can contain anything. Read here for the same reason
+// `isDetached` is — the store needs it before it loads anything.
+const claimArg = process.argv.find((arg) => arg.startsWith("--manor-claim="));
+const claim = (() => {
+  if (!claimArg) return null;
+  const raw = claimArg.slice("--manor-claim=".length);
+  const at = raw.indexOf("::");
+  if (at <= 0) return null;
+  const tabId = raw.slice(0, at);
+  const workspacePath = raw.slice(at + 2);
+  if (!workspacePath) return null;
+  return { workspacePath, tabId };
+})();
+
+// Who this renderer is, as the Manor server names it in a layout command's
+// origin (ADR-179 D3): `webContents.id`, which main knows and a page cannot
+// be told through `additionalArguments` — the id does not exist until the
+// window that owns this preload does. Synchronous for the same reason
+// `isPackaged` is: the store reads it while handling a broadcast.
+let rendererId: string | null = null;
+try {
+  rendererId = String(ipcRenderer.sendSync("viewport:rendererId"));
+} catch {
+  // No handler yet (a window opened before `registerIpcHandlers`): a null id
+  // matches no origin, so selection hints are simply not applied.
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   // Which implementation of this interface answers (ADR-178 D8). The web
   // bridge reports "web"; a component that has to hide a native-only action
   // reads this rather than sniffing the user agent.
   platform: "electron",
 
+  rendererId,
+
   env: {
     isPackaged,
   },
 
-  // True when this renderer was launched as a detached popup window (ADR-156).
+  // True when this renderer was launched as a detached window (ADR-156), and
+  // the one tab it claims of the shared layout (ADR-179 D4).
   isDetached,
   detachedWindowId,
+  claim,
 
   pty: {
     create: (
@@ -131,12 +163,62 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.on(channel, listener);
       return () => ipcRenderer.removeListener(channel, listener);
     },
+    /**
+     * Live winsize-ownership changes (ADR-179 D6), for a viewer whose owner
+     * moved without a `pty.create`/`pty.reset` reply of its own to read it
+     * from — a bridge viewer that just got outbid by another, or one whose
+     * owner disconnected. A no-op here: the desktop's own attach always wins
+     * ownership the moment it exists (D5), so it never needs telling it lost
+     * something, and nothing publishes on this channel for it to hear.
+     */
+    onWinsizeOwner: (
+      _paneId: string,
+      _callback: (payload: {
+        paneId: string;
+        cols: number;
+        rows: number;
+        owner: boolean;
+      }) => void,
+    ) => () => {},
   },
 
   layout: {
-    save: (workspace: unknown) => ipcRenderer.invoke("layout:save", workspace),
-    load: () => ipcRenderer.invoke("layout:load"),
-    getRestoredSessions: () => ipcRenderer.invoke("layout:getRestoredSessions"),
+    // ADR-179 D1: the server owns the layout. A renderer reads it with
+    // `getAll`, changes it with `apply`, and hears every change — its own
+    // included — on `onChanged`. There is no `save`.
+    getAll: () => ipcRenderer.invoke("layout:getAll"),
+    getLastActive: () => ipcRenderer.invoke("layout:getLastActive"),
+    apply: (workspacePath: string, command: unknown) =>
+      ipcRenderer.invoke("layout:apply", workspacePath, command),
+    setPendingCommand: (paneId: string, text: string, kind?: string) =>
+      ipcRenderer.invoke("layout:setPendingCommand", paneId, text, kind),
+    remove: (workspacePath: string) =>
+      ipcRenderer.invoke("layout:remove", workspacePath),
+    reportViewport: (
+      workspacePath: string,
+      rendererId: string,
+      viewport: unknown,
+    ) =>
+      ipcRenderer.invoke(
+        "layout:reportViewport",
+        workspacePath,
+        rendererId,
+        viewport,
+      ),
+    onChanged: (callback: (payload: unknown) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: unknown,
+      ) => callback(payload);
+      ipcRenderer.on("layout:changed", listener);
+      return () => ipcRenderer.removeListener("layout:changed", listener);
+    },
+  },
+
+  // This renderer's own viewport file (ADR-179 D3) — never the bridge's.
+  viewport: {
+    load: () => ipcRenderer.invoke("viewport:load"),
+    save: (file: unknown) => ipcRenderer.invoke("viewport:save", file),
   },
 
   projects: {
@@ -305,6 +387,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     hasGhosttyConfig: () => ipcRenderer.invoke("theme:hasGhosttyConfig"),
     preview: (name: string) => ipcRenderer.invoke("theme:preview", name),
     allColors: () => ipcRenderer.invoke("theme:allColors"),
+    /**
+     * The selected theme changed — in this window, another desktop window, or
+     * a browser on the bridge (ADR-179 ticket 7). The payload is the same
+     * `{ name, theme }` shape `setSelected` itself resolves with, so a
+     * listener can apply it directly instead of a round trip back to
+     * `theme:get`.
+     */
+    onChanged: (
+      callback: (payload: { name: string; theme: unknown }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { name: string; theme: unknown },
+      ) => callback(payload);
+      ipcRenderer.on("theme:changed", listener);
+      return () => ipcRenderer.removeListener("theme:changed", listener);
+    },
   },
 
   ports: {
@@ -815,19 +914,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       onChannel<unknown>("remoteControl:status", callback),
   },
 
-  // Multi-window (ADR-156). Named `window` on electronAPI — this does NOT shadow
-  // the global `window`, which is untouched here.
+  // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this
+  // does NOT shadow the global `window`, which is untouched here.
   window: {
-    detachTab: (payload: DetachedTabPayload, spawnBounds: WindowBounds) =>
+    detachTab: (
+      workspacePath: string,
+      tabId: string,
+      spawnBounds?: WindowBounds,
+    ) =>
       ipcRenderer.invoke(
         "window:detachTab",
-        payload,
+        workspacePath,
+        tabId,
         spawnBounds,
       ) as Promise<string>,
-    getDetachPayload: () =>
-      ipcRenderer.invoke(
-        "window:getDetachPayload",
-      ) as Promise<DetachedTabPayload | null>,
     getBounds: () =>
       ipcRenderer.invoke("window:getBounds") as Promise<WindowBounds>,
     setPosition: (x: number, y: number) =>
@@ -836,20 +936,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("window:listWindows") as Promise<
         { id: number; bounds: WindowBounds }[]
       >,
-    transferTab: (targetWindowId: number, payload: DetachedTabPayload) =>
-      ipcRenderer.invoke(
-        "window:transferTab",
-        targetWindowId,
-        payload,
-      ) as Promise<boolean>,
-    onTabReceived: (callback: (payload: DetachedTabPayload) => void) =>
-      onChannel<DetachedTabPayload>("window:tab-received", callback),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
-    reattachTab: (payload: DetachedTabPayload) =>
-      ipcRenderer.invoke("window:reattachTab", payload) as Promise<void>,
-    reattachPane: (payload: DetachedTabPayload) =>
-      ipcRenderer.invoke("window:reattachPane", payload) as Promise<void>,
-    onTabReattached: (callback: (payload: DetachedTabPayload) => void) =>
-      onChannel<DetachedTabPayload>("window:tab-reattached", callback),
   },
 });

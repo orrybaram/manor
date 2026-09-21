@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 import {
   type PaneNode,
@@ -5,193 +6,98 @@ import {
   allPaneIds,
   clonePaneTree,
   hasPaneId,
-  insertSplit,
-  insertSplitAt,
-  movePane,
-  insertSubtreeAt,
-  removePane,
   nextPaneId,
   prevPaneId,
-  updateLeafContentType,
-  updateRatio,
-} from "./pane-tree";
+} from "../lib/layout/pane-tree";
 import {
   type PanelNode,
   allPanelIds,
-  insertPanelSplit,
-  removePanel as removePanelFromTree,
-  updatePanelRatio,
   nextPanelId,
   prevPanelId,
-  findPanelSplitContext,
-} from "./panel-tree";
+} from "../lib/layout/panel-tree";
+import {
+  type Panel,
+  type Tab,
+  type WorkspaceLayout,
+  findPanelWithPane,
+  findPanelWithTab,
+} from "../lib/layout/workspace-layout";
+import type { LayoutCommand } from "../lib/layout/commands";
+import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
+import {
+  type WorkspaceViewport,
+  EMPTY_VIEWPORT,
+  applyHint,
+  emptyViewport,
+  reconcileViewport,
+} from "../lib/layout/viewport";
+import {
+  type LayoutClaim,
+  type RendererPlatform,
+  hiddenTabIdsIn,
+  holdsClaim,
+  isTabVisible,
+  sameClaims,
+  visibleTabsFor,
+} from "../lib/layout/visible-tabs";
+import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
-  PersistedWorkspace,
-  PersistedPanel,
-  PersistedTab,
-  PersistedLayout,
   AgentState,
+  LayoutChangedPayload,
+  PersistedPaneSession,
+  PersistedViewportFile,
   PickedElementResult,
 } from "../electron.d";
 import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
-import type { DetachedTabPayload } from "./detach-types";
 import { isHomePath } from "../lib/home-path";
-import { useProjectStore } from "./project-store";
-import { BridgeUnavailableError } from "../web/ws-bridge";
-import { showBridgeUnavailableToastOnce } from "../lib/bridge-unavailable-toast";
 
-export interface ClosedPaneSnapshot {
-  kind: "pane";
-  paneId: string;
-  tabId: string;
-  panelId: string;
-  workspacePath: string;
-  contentType?: "terminal" | "browser" | "diff";
-  url?: string;
-  cwd?: string;
-  title?: string;
-}
+export type { Panel, Tab, WorkspaceLayout };
 
-export interface ClosedTabSnapshot {
-  kind: "tab";
-  tab: Tab;
-  panelId: string;
-  workspacePath: string;
-  /** Per-pane metadata to restore */
-  paneMetadata: Record<string, {
-    contentType?: "terminal" | "browser" | "diff";
-    url?: string;
-    cwd?: string;
-    title?: string;
-  }>;
-  /** If closing this tab caused the panel to be removed, store split context to recreate it */
-  panelSplitContext?: {
-    siblingId: string;
-    direction: SplitDirection;
-    ratio: number;
-    position: "first" | "second";
-  };
-}
-
-type ClosedSnapshot = ClosedPaneSnapshot | ClosedTabSnapshot;
-
-const MAX_CLOSED_PANE_STACK = 10;
-
-function newPaneId(): string {
-  return `pane-${crypto.randomUUID()}`;
-}
-
-function newTabId(): string {
-  return `tab-${crypto.randomUUID()}`;
-}
-
-export interface Tab {
-  id: string;
-  title: string;
-  rootNode: PaneNode;
-  focusedPaneId: string;
-}
-
-function createTab(title?: string, paneId?: string): Tab {
-  const id = paneId ?? newPaneId();
-  return {
-    id: newTabId(),
-    title: title ?? "Terminal",
-    rootNode: { type: "leaf", paneId: id },
-    focusedPaneId: id,
-  };
-}
-
-export interface Panel {
-  id: string;
-  tabs: Tab[];
-  selectedTabId: string;
-  pinnedTabIds: string[];
-}
-
-export interface WorkspaceLayout {
-  panelTree: PanelNode;
-  panels: Record<string, Panel>;
-  activePanelId: string;
-}
-
-function newPanelId(): string {
-  return `panel-${crypto.randomUUID()}`;
-}
-
-function createSinglePanelLayout(
-  tabs: Tab[],
-  selectedTabId: string,
-  pinnedTabIds: string[],
-): WorkspaceLayout {
-  const panelId = newPanelId();
-  return {
-    panelTree: { type: "leaf", panelId },
-    panels: {
-      [panelId]: { id: panelId, tabs, selectedTabId, pinnedTabIds },
-    },
-    activePanelId: panelId,
-  };
-}
-
-function createEmptyLayout(): WorkspaceLayout {
-  return createSinglePanelLayout([], "", []);
-}
-
-/** Convert a PersistedWorkspace back into a WorkspaceLayout.
- *  Handles both v1 (flat tabs) and v2 (panel tree) formats — the electron
- *  main process may not have restarted yet during dev HMR. */
-function restoreWorkspaceState(
-  persisted: PersistedWorkspace,
-): WorkspaceLayout {
-  // v1 format: has `tabs` array at top level, no `panels`
-  const v1 = persisted as unknown as { tabs?: PersistedTab[]; selectedTabId?: string; pinnedTabIds?: string[] };
-  if (!persisted.panels && v1.tabs) {
-    const tabs: Tab[] = v1.tabs.map((pt) => ({
-      id: pt.id,
-      title: pt.title,
-      rootNode: pt.rootNode,
-      focusedPaneId: pt.focusedPaneId,
-    }));
-    if (tabs.length === 0) return createEmptyLayout();
-    return createSinglePanelLayout(
-      tabs,
-      v1.selectedTabId || tabs[0].id,
-      v1.pinnedTabIds ?? [],
-    );
-  }
-
-  // v2 format: has panel tree
-  const panels: Record<string, Panel> = {};
-  for (const [panelId, pp] of Object.entries(persisted.panels ?? {})) {
-    panels[panelId] = {
-      id: pp.id,
-      tabs: pp.tabs.map((pt) => ({
-        id: pt.id,
-        title: pt.title,
-        rootNode: pt.rootNode,
-        focusedPaneId: pt.focusedPaneId,
-      })),
-      selectedTabId: pp.selectedTabId,
-      pinnedTabIds: pp.pinnedTabIds ?? [],
-    };
-  }
-
-  const hasTabs = Object.values(panels).some((p) => p.tabs.length > 0);
-  if (!hasTabs) {
-    return createEmptyLayout();
-  }
-
-  return {
-    panelTree: persisted.panelTree,
-    panels,
-    activePanelId: persisted.activePanelId,
-  };
+/** A fresh tab's only pane — the one a caller wants to run a command in. */
+function firstPaneOfTab(tab: Tab): string {
+  return allPaneIds(tab.rootNode)[0];
 }
 
 export interface AppState {
+  /**
+   * This renderer's replica of the Manor server's layout, per workspace
+   * (ADR-179 D1). Read freely; never written by an action — the only writer
+   * is `applyLayoutChanged`, which replaces a workspace when the server says
+   * so. Absent until the workspace is first visited or first changed.
+   */
   workspaceLayouts: Record<string, WorkspaceLayout>;
+  /** The server version each replica is at. An older broadcast is dropped. */
+  layoutVersions: Record<string, number>;
+  /**
+   * The server's layout for every workspace it knows, opened here or not.
+   *
+   * `workspaceLayouts` holds only the workspaces this window has opened,
+   * because rendering one mounts its panes and mounting a pane creates a PTY.
+   * This is where the rest wait: `setActiveWorkspace` adopts from here on the
+   * first visit, which is what the old `_cachedLayout` did with the file it
+   * had read.
+   */
+  serverLayouts: Record<string, WorkspaceLayout>;
+  /**
+   * What *this* renderer is looking at, per workspace (ADR-179 D3).
+   *
+   * The tab set is shared and the server owns it; the selection is not. Every
+   * write here is local — no command goes anywhere — and the whole slice is
+   * persisted per renderer (`viewport.json` on the desktop, `localStorage` in
+   * a browser) and reported to the host as the workspace's default viewport
+   * for renderers that have none.
+   */
+  viewports: Record<string, WorkspaceViewport>;
+  /**
+   * Who is holding which tab in a window of its own, per workspace (D4).
+   *
+   * The server's, like the layout: a detached window reports a claim as part
+   * of its viewport and every renderer is told the result. The primary hides
+   * the tabs in here, a claiming window shows only its own, and a browser
+   * ignores the whole map — see `visible-tabs.ts`.
+   */
+  claims: Record<string, LayoutClaim[]>;
   activeWorkspacePath: string | null;
   paneCwd: Record<string, string>;
   paneTitle: Record<string, string>;
@@ -206,14 +112,6 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
-  /** Pane IDs that were explicitly closed by the user (should be killed, not detached) */
-  closedPaneIds: Set<string>;
-  /** Stack of recently closed pane snapshots for reopen (LIFO, max 10) */
-  closedPaneStack: ClosedSnapshot[];
-  /** Pending startup commands to run in new terminals (workspace path → script) */
-  pendingStartupCommands: Record<string, string>;
-  /** Pending startup commands keyed by pane ID (for split-with-agent) */
-  pendingPaneCommands: Record<string, string>;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -238,20 +136,37 @@ export interface AppState {
   loadPersistedLayout: () => Promise<void>;
 
   // Tab operations
+  //
+  // Every one of these sends a command and returns the ids it minted; the tab
+  // itself appears when the server's broadcast lands, a frame later (ADR-179
+  // D1). They answer null only when there is no workspace to put a tab in —
+  // a workspace with no *panel* is fine, because the server makes one.
   /**
    * Returns the IDs of the tab it created, or null when there is no active
-   * panel. `adoptPaneId` lets the new pane reuse a PTY session main already
-   * prewarmed under that ID; everything else lets the store mint one.
+   * workspace. `adoptPaneId` lets the new pane reuse a PTY session main
+   * already prewarmed under that ID; everything else lets the store mint one.
    */
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
-  addTerminalTab: (command: string) => { tabId: string; paneId: string } | null;
+  /**
+   * A new tab whose terminal runs `command` as soon as its shell is ready.
+   * The command is queued on the server (ADR-179 ticket 11), not here, so the
+   * pane runs it whichever renderer happens to mount it first.
+   */
+  addTerminalTab: (
+    command: string,
+    kind?: "shell" | "agent-startup",
+  ) => { tabId: string; paneId: string } | null;
   addBrowserTab: (
     url: string,
     opts?: { background?: boolean },
   ) => { tabId: string; paneId: string } | null;
   addDiffTab: () => void;
-  duplicateTab: (tabId: string) => void;
-  openOrFocusDiff: () => void;
+  /** Returns the id of the tab it minted, or null when there is nothing to
+   *  duplicate. The duplicate's panes are fresh ids, not the source's. */
+  duplicateTab: (tabId: string) => string | null;
+  /** Returns the id of the tab the diff is in, or null when there is no
+   *  active workspace to open it in. */
+  openOrFocusDiff: () => string | null;
   openDiffInNewPanel: () => void;
   closeTab: (tabId: string) => void;
   /** Close every other (unpinned) tab in the same panel as `tabId`. */
@@ -293,7 +208,9 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
   ) => void;
-  extractPaneToTab: (paneId: string, targetPanelId?: string) => void;
+  /** Returns the id of the tab the pane ends up in, or null when there is no
+   *  such pane. */
+  extractPaneToTab: (paneId: string, targetPanelId?: string) => string | null;
   closePane: () => void;
   closePaneById: (paneId: string) => void;
   reopenClosedPane: () => void;
@@ -318,6 +235,13 @@ export interface AppState {
   // Title tracking (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string) => void;
   clearPaneTitle: (paneId: string) => void;
+  /**
+   * A title the host already knows — an OSC title from the PTY stream, or a
+   * stale title cleared when a new agent starts in the pane. Local only: the
+   * server derives `lastTitle` from the same daemon event (ADR-179 D3), so
+   * sending it back would be one `layout.apply` per viewer per title change.
+   */
+  setPaneTitleFromStream: (paneId: string, title: string | null) => void;
 
   // Pane content type
   setPaneContentType: (
@@ -346,11 +270,6 @@ export interface AppState {
 
   // Agent status tracking
   setPaneAgentStatus: (paneId: string, agent: AgentState) => void;
-
-  // Startup commands
-  setPendingStartupCommand: (workspacePath: string, command: string) => void;
-  consumePendingStartupCommand: (workspacePath: string) => string | null;
-  consumePendingPaneCommand: (paneId: string) => string | null;
 
   // Workspace cleanup
   removeWorkspaceLayout: (workspacePath: string) => void;
@@ -401,63 +320,115 @@ export interface AppState {
   setPickedElement: (paneId: string, result: PickedElementResult) => void;
   clearPickedElement: (paneId: string) => void;
 
-  // Multi-window detach / reattach (ADR-156)
-  /**
-   * Serialize a tab (by id) into a structured-clone-safe payload for handoff to
-   * a detached popup window. Copies the tab shape plus every per-pane side-map
-   * entry. Searches all workspace layouts; throws if the tab is not found.
-   */
-  serializeTabForDetach: (tabId: string) => DetachedTabPayload;
-  /**
-   * Remove a tab from its panel WITHOUT killing its panes: terminals are
-   * `pty.detach`ed (session survives in the daemon), browsers are
-   * `webview.unregister`ed, diffs need no teardown. Collapses an emptied panel
-   * the same way `closeTab` does, and drops the tab's per-pane side-map entries.
-   * Distinct from `closeTab`, which terminates the sessions.
-   */
-  removeDetachedTabLocally: (tabId: string) => void;
-  /**
-   * Serialize a single pane (by id) into a `DetachedTabPayload` for handoff to a
-   * detached popup window — a detached pane is just a tab whose rootNode is a
-   * single leaf. Mints a fresh tab id, copies only this pane's side-map entries,
-   * and resolves theme/workspace like `serializeTabForDetach`. Throws if the
-   * pane is not found in any workspace layout.
-   */
-  serializePaneForDetach: (paneId: string) => DetachedTabPayload;
-  /**
-   * Remove a single pane from its source tab WITHOUT killing it: terminals are
-   * `pty.detach`ed, browsers are `webview.unregister`ed, diffs need no teardown.
-   * Collapses the split via `removePane`; if the pane was the tab's sole leaf,
-   * removes the whole tab exactly as `removeDetachedTabLocally` does. Keeps the
-   * backend alive so the pane re-attaches in the destination window.
-   */
-  removeDetachedPaneLocally: (paneId: string) => void;
-  /**
-   * Rebuild a minimal one-panel/one-tab layout from a detach payload in a fresh
-   * (detached-window) store and repopulate every per-pane side-map, so the
-   * normal render path re-attaches PTYs / re-mounts webviews by paneId. Reuses
-   * the payload's original paneIds — never mints new ones.
-   */
-  hydrateDetachedTab: (payload: DetachedTabPayload) => void;
-  /**
-   * Receive a tab reattached from a detached window into THIS (primary) window.
-   * Inserts the tab into the active panel of the active workspace layout
-   * (appends to its tabs, selects it) and repopulates every per-pane side-map
-   * from the payload — so PTYs re-attach and webviews re-mount by paneId,
-   * exactly like `hydrateDetachedTab` but into the existing layout. The normal
-   * layout-save subscription then persists it, making the tab durable again.
-   */
-  receiveReattachedTab: (payload: DetachedTabPayload) => void;
 }
 
+/**
+ * Enough of the store to answer "what is this renderer showing".
+ *
+ * `claims` is optional so the slices that are built by hand — the menu
+ * context sync, the agents list — keep working without knowing about
+ * detached windows: no claims means nothing is popped out, which is the
+ * truth everywhere but the desktop with a popout open.
+ */
+type ViewportState = Pick<
+  AppState,
+  "workspaceLayouts" | "viewports" | "activeWorkspacePath"
+> &
+  Partial<Pick<AppState, "claims">>;
+
 // Selector for the active workspace's active panel (backward compat: same shape as old WorkspaceTabState)
-export function selectActiveWorkspace(
-  state: AppState,
-): Panel | null {
-  if (!state.activeWorkspacePath) return null;
-  const layout = state.workspaceLayouts[state.activeWorkspacePath];
+export function selectActiveWorkspace(state: AppState): Panel | null {
+  return getActivePanelContext(state)?.panel ?? null;
+}
+
+/** The panel this window has the keyboard in, or null. */
+export function selectActivePanelId(state: ViewportState): string | null {
+  return getActivePanelContext(state)?.panel.id ?? null;
+}
+
+/**
+ * The tab a panel is showing.
+ *
+ * Falls back to the panel's first tab rather than to nothing: a workspace
+ * whose viewport has not been reconciled yet (a layout adopted this tick, a
+ * test that seeded only the structure) still has to render something, and
+ * "the first tab" is what `reconcileViewport` would have written anyway.
+ */
+export function selectSelectedTabId(
+  state: ViewportState,
+  panelId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  const path = workspacePath ?? state.activeWorkspacePath;
+  if (!path || !panelId) return null;
+  const panel = state.workspaceLayouts[path]?.panels[panelId];
+  if (!panel) return null;
+  // Claimed tabs are not candidates: they are on screen in another window,
+  // and the fallback below must not hand this one a tab it does not render.
+  const visible = panel.tabs.filter((t) => tabVisibleHere(state, path, t.id));
+  const chosen = state.viewports[path]?.selectedTabIds[panelId];
+  if (chosen !== undefined && visible.some((t) => t.id === chosen)) {
+    return chosen;
+  }
+  return visible[0]?.id ?? null;
+}
+
+/** The pane a tab focuses, falling back to its first pane. */
+export function selectFocusedPaneId(
+  state: ViewportState,
+  tabId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  const path = workspacePath ?? state.activeWorkspacePath;
+  if (!path || !tabId) return null;
+  const layout = state.workspaceLayouts[path];
   if (!layout) return null;
-  return layout.panels[layout.activePanelId] ?? null;
+  const found = findPanelWithTab(layout, tabId);
+  if (!found) return null;
+  const chosen = state.viewports[path]?.focusedPaneIds[tabId];
+  if (chosen !== undefined && hasPaneId(found.tab.rootNode, chosen)) {
+    return chosen;
+  }
+  return allPaneIds(found.tab.rootNode)[0] ?? null;
+}
+
+/** The pane the keyboard is in: active panel → selected tab → focused pane. */
+export function selectFocusedPaneOfActiveTab(state: AppState): string | null {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return null;
+  const tabId = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  return selectFocusedPaneId(state, tabId, ctx.path);
+}
+
+/** `useActivePanel()` — the panel id this window has the keyboard in. */
+export function useActivePanel(workspacePath?: string | null): string | null {
+  return useAppStore((state) =>
+    workspacePath === undefined
+      ? selectActivePanelId(state)
+      : workspacePath
+        ? activePanelIdOf(state, workspacePath)
+        : null,
+  );
+}
+
+/** `useSelectedTab(panelId)` — the tab that panel is showing. */
+export function useSelectedTab(
+  panelId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  return useAppStore((state) =>
+    selectSelectedTabId(state, panelId, workspacePath),
+  );
+}
+
+/** `useFocusedPane(tabId)` — the pane that tab focuses. */
+export function useFocusedPane(
+  tabId: string | null | undefined,
+  workspacePath?: string | null,
+): string | null {
+  return useAppStore((state) =>
+    selectFocusedPaneId(state, tabId, workspacePath),
+  );
 }
 
 /**
@@ -472,7 +443,8 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
   const ctx = getActiveLayoutContext(state);
   if (!ctx) return false;
   return Object.values(ctx.layout.panels).some((panel) => {
-    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    const tabId = selectSelectedTabId(state, panel.id, ctx.path);
+    const tab = panel.tabs.find((t) => t.id === tabId);
     return tab ? hasPaneId(tab.rootNode, paneId) : false;
   });
 }
@@ -489,16 +461,15 @@ export function selectWebviewFocusVisible(state: AppState): boolean {
  * agent whose pane is in this set has been seen, whether the user got there by
  * clicking the agent, switching tabs, focusing a pane, or changing workspace.
  */
-export function selectVisiblePaneIds(
-  state: Pick<AppState, "activeWorkspacePath" | "workspaceLayouts">,
-): Set<string> {
+export function selectVisiblePaneIds(state: ViewportState): Set<string> {
   const ids = new Set<string>();
   const path = state.activeWorkspacePath;
   if (!path) return ids;
   const layout = state.workspaceLayouts[path];
   if (!layout) return ids;
   for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
+    const tabId = selectSelectedTabId(state, panel.id, path);
+    const tab = panel.tabs.find((t) => t.id === tabId);
     if (!tab) continue;
     for (const id of allPaneIds(tab.rootNode)) ids.add(id);
   }
@@ -527,19 +498,207 @@ export function selectCurrentLocation(state: AppState): Location {
     kind: "workspace",
     workspacePath: ctx.path,
     panelId: ctx.panel.id,
-    tabId: ctx.panel.selectedTabId,
+    tabId: selectSelectedTabId(state, ctx.panel.id, ctx.path) ?? "",
   };
 }
 
-// Internal helpers for active panel context
-function getActivePanelContext(state: AppState): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
+/** This window's viewport for a workspace; empty rather than absent. */
+function viewportOf(
+  state: Pick<AppState, "viewports">,
+  path: string,
+): WorkspaceViewport {
+  return state.viewports[path] ?? EMPTY_VIEWPORT;
+}
+
+// ── Claims: who is holding which tab (ADR-179 D4) ──
+
+/** A stable empty list, so a selector reading it does not re-render forever. */
+const NO_CLAIMS: LayoutClaim[] = [];
+
+/**
+ * The tab this window holds, read out of the launch argument.
+ *
+ * Constant for the life of the renderer: a window is opened *as* the holder of
+ * one tab (`--manor-claim=`), and the claim is released by the window closing,
+ * never by it changing its mind. The store's copy of it lives in the
+ * viewport — that is how it reaches the server — and this is where that copy
+ * comes from.
+ */
+export const OWN_CLAIM: { workspacePath: string; tabId: string } | null =
+  (typeof window !== "undefined" && window.electronAPI?.claim) || null;
+
+/** Which bridge this renderer is on; a browser never hides a claimed tab. */
+function rendererPlatform(): RendererPlatform | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : window.electronAPI?.platform;
+}
+
+function claimsOf(
+  state: Partial<Pick<AppState, "claims">>,
+  path: string,
+): LayoutClaim[] {
+  return state.claims?.[path] ?? NO_CLAIMS;
+}
+
+/** Tabs of a workspace this renderer does not show (D4). */
+function hiddenTabsOf(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  layout: WorkspaceLayout,
+): ReadonlySet<string> {
+  return hiddenTabIdsIn(
+    layout,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/** Whether this renderer shows `tabId` of `path` at all (D4). */
+function tabVisibleHere(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  tabId: string,
+): boolean {
+  return isTabVisible(
+    tabId,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/**
+ * `reconcileViewport`, with what this renderer may not select folded in.
+ *
+ * Every viewport write in this store goes through here rather than through
+ * the pure function, so a selection can never land on a tab that is popped
+ * out into another window.
+ */
+function reconcileFor(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string,
+  layout: WorkspaceLayout,
+  viewport: WorkspaceViewport,
+): WorkspaceViewport {
+  return reconcileViewport(layout, viewport, hiddenTabsOf(state, path, layout));
+}
+
+/** The tabs of a panel this renderer shows, in the panel's own order (D4). */
+export function selectVisibleTabs(
+  state: Partial<Pick<AppState, "claims">> & Pick<AppState, "viewports">,
+  path: string | null | undefined,
+  panel: Panel | null | undefined,
+): Tab[] {
+  if (!path || !panel) return [];
+  return visibleTabsFor(
+    panel,
+    claimsOf(state, path),
+    rendererPlatform(),
+    viewportOf(state, path).claim ?? null,
+  );
+}
+
+/**
+ * `useVisibleTabs(panel)` — the tabs to render, claims applied.
+ *
+ * Memoised on the three things that decide it, because the filter builds a new
+ * array and a zustand selector returning one on every store change would
+ * re-render the tab bar on every keystroke.
+ */
+export function useVisibleTabs(
+  workspacePath: string | null | undefined,
+  panel: Panel | null | undefined,
+): Tab[] {
+  const claims = useAppStore((s) =>
+    workspacePath ? claimsOf(s, workspacePath) : NO_CLAIMS,
+  );
+  const ownClaim = useAppStore((s) =>
+    workspacePath ? (s.viewports[workspacePath]?.claim ?? null) : null,
+  );
+  const tabs = panel?.tabs;
+  return useMemo(
+    () => visibleTabsFor({ tabs: tabs ?? [] }, claims, rendererPlatform(), ownClaim),
+    [tabs, claims, ownClaim],
+  );
+}
+
+/**
+ * The panel this window has the keyboard in, for one workspace.
+ *
+ * Falls back to the leftmost panel: a viewport can name a panel another
+ * renderer has since closed, and a workspace adopted this tick has no
+ * viewport entry at all.
+ */
+function activePanelIdOf(
+  state: Pick<AppState, "workspaceLayouts" | "viewports">,
+  path: string,
+): string | null {
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return null;
+  const chosen = viewportOf(state, path).activePanelId;
+  if (chosen !== null && layout.panels[chosen]) return chosen;
+  const inTree = allPanelIds(layout.panelTree).find(
+    (id) => layout.panels[id] !== undefined,
+  );
+  return inTree ?? Object.keys(layout.panels)[0] ?? null;
+}
+
+function getActivePanelContext(
+  state: ViewportState,
+): { path: string; layout: WorkspaceLayout; panel: Panel } | null {
   const path = state.activeWorkspacePath;
   if (!path) return null;
   const layout = state.workspaceLayouts[path];
   if (!layout) return null;
-  const panel = layout.panels[layout.activePanelId];
+  const panelId = activePanelIdOf(state, path);
+  const panel = panelId ? layout.panels[panelId] : undefined;
   if (!panel) return null;
   return { path, layout, panel };
+}
+
+/** The tab the active panel shows, with the context that found it. */
+function getActiveTabContext(state: AppState): {
+  path: string;
+  layout: WorkspaceLayout;
+  panel: Panel;
+  tab: Tab;
+} | null {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return null;
+  const tabId = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  const tab = ctx.panel.tabs.find((t) => t.id === tabId);
+  return tab ? { ...ctx, tab } : null;
+}
+
+/**
+ * Write this window's viewport for one workspace, reconciled against the
+ * layout it is about. Every viewport action goes through here, so no action
+ * can leave a selection pointing at a tab that is not there.
+ */
+function withViewport(
+  state: AppState,
+  path: string,
+  update: (viewport: WorkspaceViewport) => WorkspaceViewport,
+): Partial<AppState> {
+  const layout = state.workspaceLayouts[path];
+  const current = viewportOf(state, path);
+  const next = update(current);
+  const reconciled = layout ? reconcileFor(state, path, layout, next) : next;
+  if (reconciled === current) return {};
+  return { viewports: { ...state.viewports, [path]: reconciled } };
+}
+
+/**
+ * `{ panelId }` for the panel this window is on, or `{}` for a workspace with
+ * no layout yet — a command that names no panel lands in the one the server
+ * creates for it, which is exactly right for the first tab of a new
+ * workspace.
+ */
+function activePanelOf(state: AppState): { panelId?: string } {
+  const ctx = getActivePanelContext(state);
+  return ctx ? { panelId: ctx.panel.id } : {};
 }
 
 function getActiveLayoutContext(state: AppState): { path: string; layout: WorkspaceLayout } | null {
@@ -564,57 +723,533 @@ function globalTabList(layout: WorkspaceLayout): Array<{ tabId: string; panelId:
   return result;
 }
 
-function findPanelWithPane(layout: WorkspaceLayout, paneId: string): { panel: Panel; tab: Tab } | null {
-  for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
-    if (tab) return { panel, tab };
-  }
-  return null;
+/**
+ * Move the selection one tab along, wrapping, across every panel of the
+ * active workspace. `cmd+shift+]` is a workspace-wide walk, not a per-panel
+ * one, so the panel changes with it.
+ */
+function stepTab(state: AppState, step: 1 | -1): Partial<AppState> {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return {};
+  const tabs = globalTabList(ctx.layout);
+  if (tabs.length === 0) return {};
+  const current = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  const currentIdx = tabs.findIndex((t) => t.tabId === current);
+  const nextIdx = (currentIdx + step + tabs.length) % tabs.length;
+  return selectTabLocally(state, ctx.path, tabs[nextIdx].tabId);
 }
 
-function findPanelWithTab(layout: WorkspaceLayout, tabId: string): { panel: Panel; tab: Tab } | null {
-  for (const panel of Object.values(layout.panels)) {
-    const tab = panel.tabs.find((t) => t.id === tabId);
-    if (tab) return { panel, tab };
-  }
-  return null;
-}
-
-function updatePanel(
-  state: AppState,
-  path: string,
-  layout: WorkspaceLayout,
-  panelId: string,
-  updater: (panel: Panel) => Panel,
-): Partial<AppState> {
-  const panel = layout.panels[panelId];
-  if (!panel) return {};
+function diffTab(paneId: string): Tab {
   return {
-    workspaceLayouts: {
-      ...state.workspaceLayouts,
-      [path]: {
-        ...layout,
-        panels: { ...layout.panels, [panelId]: updater(panel) },
-      },
-    },
+    id: newTabId(),
+    title: "Diff",
+    rootNode: { type: "leaf", paneId, contentType: "diff" },
   };
 }
 
-// Cache the loaded layout so setActiveWorkspace can check it synchronously
-let _cachedLayout: PersistedLayout | null = null;
+/** The workspace's diff pane, wherever it is — there is at most one. */
+function findDiffPane(
+  state: AppState,
+): { paneId: string; tabId: string } | null {
+  const ctx = getActiveLayoutContext(state);
+  if (!ctx) return null;
+  for (const panel of Object.values(ctx.layout.panels)) {
+    for (const tab of panel.tabs) {
+      for (const paneId of allPaneIds(tab.rootNode)) {
+        if (state.paneContentType[paneId] === "diff") {
+          return { paneId, tabId: tab.id };
+        }
+      }
+    }
+  }
+  return null;
+}
 
 /**
- * The workspace/surface path that was active when the layout was last persisted
- * (includes the Home surface's `HOME_PATH`). Populated by `loadPersistedLayout`;
- * used by the boot sequence to restore the last-active surface on relaunch.
- * Returns `null` when there is no persisted layout or the field is absent.
+ * Put this window's attention on a pane: its panel active, its tab selected,
+ * the pane focused. Viewport, so it is written into this renderer's own slice
+ * and no command goes anywhere (ADR-179 D3).
  */
+function focusPaneLocally(
+  state: AppState,
+  path: string,
+  paneId: string,
+): Partial<AppState> {
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return {};
+  for (const [panelId, panel] of Object.entries(layout.panels)) {
+    const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
+    if (!tab) continue;
+    return withViewport(state, path, (vp) => ({
+      ...vp,
+      activePanelId: panelId,
+      selectedTabIds: { ...vp.selectedTabIds, [panelId]: tab.id },
+      focusedPaneIds: { ...vp.focusedPaneIds, [tab.id]: paneId },
+    }));
+  }
+  return {};
+}
+
+/** Walk the keyboard one panel along the panel tree. */
+function stepPanel(
+  state: AppState,
+  step: (tree: PanelNode, from: string) => string | null,
+): Partial<AppState> {
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return {};
+  const next = step(ctx.layout.panelTree, ctx.panel.id);
+  if (!next) return {};
+  return withViewport(state, ctx.path, (vp) => ({
+    ...vp,
+    activePanelId: next,
+  }));
+}
+
+/**
+ * Walk the focus one pane along inside the tab the active panel is showing.
+ */
+function stepPane(
+  state: AppState,
+  step: (node: PaneNode, from: string) => string | null,
+): Partial<AppState> {
+  const ctx = getActiveTabContext(state);
+  if (!ctx) return {};
+  const current = selectFocusedPaneId(state, ctx.tab.id, ctx.path);
+  if (!current) return {};
+  const next = step(ctx.tab.rootNode, current);
+  if (!next) return {};
+  return withViewport(state, ctx.path, (vp) => ({
+    ...vp,
+    focusedPaneIds: { ...vp.focusedPaneIds, [ctx.tab.id]: next },
+  }));
+}
+
+/** Select a tab, wherever it is: its panel shows it and takes the keyboard. */
+function selectTabLocally(
+  state: AppState,
+  path: string,
+  tabId: string,
+): Partial<AppState> {
+  const layout = state.workspaceLayouts[path];
+  if (!layout) return {};
+  const found = findPanelWithTab(layout, tabId);
+  if (!found) return {};
+  return withViewport(state, path, (vp) => ({
+    ...vp,
+    activePanelId: found.panel.id,
+    selectedTabIds: { ...vp.selectedTabIds, [found.panel.id]: tabId },
+  }));
+}
+
+// ── Layout, owned by the Manor server (ADR-179 D1) ──
+//
+// A renderer never writes structure. An action resolves what "current" means
+// from its own viewport, mints the ids its change needs, and sends one
+// `LayoutCommand`; the server runs the reducer, ends the sessions the change
+// orphaned, persists, and broadcasts the whole workspace back. That broadcast
+// — the sender's own included — is the only thing that writes
+// `workspaceLayouts`, in `applyLayoutChanged` below. There is no optimistic
+// apply and no second reducer, which is what makes two renderers of one host
+// impossible to desynchronise rather than merely unlikely to.
+//
+// The actions that only move *this window's* attention — select a tab, focus
+// a pane, activate a panel — send nothing at all. They are viewport (D3),
+// they write the `viewports` slice, and the server has no answer to "which
+// window?" to give them.
+
+/**
+ * Send one command for one workspace, and forget it.
+ *
+ * Nothing waits for the answer: the answer is a version number, and what the
+ * caller actually wants — the new layout — arrives at every renderer at once
+ * on `layout.changed`. A command naming an id the server does not have is a
+ * no-op there, not an error, so the only thing worth reporting here is a
+ * transport failure.
+ */
+function sendLayoutCommand(
+  workspacePath: string,
+  command: LayoutCommand,
+): void {
+  const applied = window.electronAPI?.layout?.apply(workspacePath, command);
+  void applied
+    ?.then((result) => {
+      if (result && "error" in result) {
+        console.error(`[layout] ${command.type} refused:`, result.error);
+      }
+    })
+    .catch((err: unknown) => {
+      console.error(`[layout] ${command.type} failed:`, err);
+    });
+}
+
+
+/**
+ * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
+ *
+ * "New tab running `pnpm dev`", "split with agent", an agent launch: the line
+ * has to wait somewhere between the layout change and the pane's first
+ * `pty.create`, and that somewhere is the server — the same map `POST /tabs
+ * { command }` fills, so the desktop and a route take one road. It used to be
+ * a `pendingPaneCommands` entry in this store, which only worked because the
+ * renderer that queued it was also the one that mounted the pane.
+ *
+ * Send this *before* the `apply` that creates the pane. Both go over the same
+ * ordered channel and the main-side handler is synchronous, so the entry is
+ * recorded before the broadcast that makes any renderer mount the pane.
+ */
+export function sendPendingCommand(
+  paneId: string,
+  text: string,
+  kind: "shell" | "agent-startup" = "shell",
+): void {
+  void window.electronAPI?.layout
+    ?.setPendingCommand(paneId, text, kind)
+    ?.catch((err: unknown) => {
+      console.error(`[layout] pending command for ${paneId} failed:`, err);
+    });
+}
+
+/** Every pane the layout renders, across every panel and tab. */
+function layoutPaneIds(layout: WorkspaceLayout): Set<string> {
+  const ids = new Set<string>();
+  for (const panel of Object.values(layout.panels)) {
+    for (const tab of panel.tabs) {
+      for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * What the leaves say about their panes — the half of a pane's state that
+ * lives in the tree, and therefore arrives with every broadcast.
+ */
+function leafSideMaps(layout: WorkspaceLayout): {
+  contentTypes: Record<string, "terminal" | "browser" | "diff">;
+  urls: Record<string, string>;
+} {
+  const contentTypes: Record<string, "terminal" | "browser" | "diff"> = {};
+  const urls: Record<string, string> = {};
+  const walk = (node: PaneNode): void => {
+    if (node.type === "leaf") {
+      if (node.contentType) contentTypes[node.paneId] = node.contentType;
+      if (node.url) urls[node.paneId] = node.url;
+      return;
+    }
+    walk(node.first);
+    walk(node.second);
+  };
+  for (const panel of Object.values(layout.panels)) {
+    for (const tab of panel.tabs) walk(tab.rootNode);
+  }
+  return { contentTypes, urls };
+}
+
+/**
+ * What the server derived about a set of panes, as this store's side maps.
+ *
+ * The same shape arrives by two roads — `layout.getAll()` at boot, and a
+ * reopen's `restored` — so both seed through here. An agent status that says
+ * nothing (idle, no agent) is left out rather than written as a fact.
+ */
+function sessionSideMaps(sessions: Record<string, PersistedPaneSession>): {
+  cwds: Record<string, string>;
+  titles: Record<string, string>;
+  agents: Record<string, AgentState>;
+} {
+  const cwds: Record<string, string> = {};
+  const titles: Record<string, string> = {};
+  const agents: Record<string, AgentState> = {};
+  for (const [paneId, session] of Object.entries(sessions)) {
+    if (session.lastCwd) cwds[paneId] = session.lastCwd;
+    if (session.lastTitle) titles[paneId] = session.lastTitle;
+    const agent = session.lastAgentStatus;
+    if (agent && !(agent.status === "idle" && agent.kind === null)) {
+      agents[paneId] = agent;
+    }
+  }
+  return { cwds, titles, agents };
+}
+
+/**
+ * Workspaces whose removal is in flight (`removeWorkspaceLayout`).
+ *
+ * Removing a worktree closes its panels first, so the sessions inside them
+ * end; each of those closes broadcasts, and without this the workspace would
+ * be re-adopted here a moment before the server forgot it.
+ */
+const removingWorkspaces = new Set<string>();
+
+/**
+ * The server changed a workspace. Replace the replica with what it sent.
+ *
+ * A broadcast *below* the version already held is dropped: replays and the
+ * overlap between `layout.getAll()` and the first broadcast after it are both
+ * normal. One at the **same** version is not necessarily stale, though — a
+ * claim changing is a broadcast of its own and carries no new tree (D4), so
+ * the guard compares `(version, claims)` and lets an equal-version broadcast
+ * with different claims through.
+ */
+function applyLayoutChanged(payload: LayoutChangedPayload): void {
+  const { workspacePath, version, layout, restored, origin, hint } = payload;
+  const claims = payload.claims ?? NO_CLAIMS;
+  if (removingWorkspaces.has(workspacePath)) return;
+  useAppStore.setState((state) => {
+    const held = state.layoutVersions[workspacePath] ?? 0;
+    const heldClaims = claimsOf(state, workspacePath);
+    if (version < held) return {};
+    if (version === held && sameClaims(claims, heldClaims)) return {};
+    const local = state.workspaceLayouts[workspacePath];
+    const seen = {
+      serverLayouts: { ...state.serverLayouts, [workspacePath]: layout },
+      layoutVersions: { ...state.layoutVersions, [workspacePath]: version },
+      claims: { ...state.claims, [workspacePath]: claims },
+    };
+    if (!local && workspacePath !== state.activeWorkspacePath) return seen;
+
+    const merged = layout;
+    // Structure is replaced wholesale; the selection is this window's and
+    // survives, repaired against the tree that just arrived — and against the
+    // claims, which say which of its tabs are on screen somewhere else. The
+    // command's selection hint applies only to the renderer that sent it (D3).
+    const own = hint && origin && origin.id === rendererId();
+    const before = viewportOf(state, workspacePath);
+    const withClaims = { ...state, claims: seen.claims };
+    const hidden = hiddenTabsOf(withClaims, workspacePath, merged);
+    // A detached window's claim belongs in the viewport it reports, and this
+    // is where it is put — not only at boot, because the workspace may be
+    // adopted after it (D4). `reconcileViewport` drops it again if the tab is
+    // not in the tree, which is how this window learns the tab is gone.
+    const start =
+      OWN_CLAIM?.workspacePath === workspacePath &&
+      before.claim !== OWN_CLAIM.tabId
+        ? { ...before, claim: OWN_CLAIM.tabId }
+        : before;
+    const viewport = own
+      ? applyHint(
+          merged,
+          reconcileViewport(merged, start, hidden),
+          hint,
+          hidden,
+        )
+      : reconcileViewport(merged, start, hidden);
+
+    const patch: Partial<AppState> = {
+      ...seen,
+      workspaceLayouts: { ...state.workspaceLayouts, [workspacePath]: merged },
+      ...(viewport !== before && {
+        viewports: { ...state.viewports, [workspacePath]: viewport },
+      }),
+    };
+
+    const { contentTypes, urls } = leafSideMaps(merged);
+    Object.assign(patch, {
+      paneContentType: { ...state.paneContentType, ...contentTypes },
+      paneUrl: { ...state.paneUrl, ...urls },
+    });
+
+    // Panes that left the tree take their side-map entries with them. The
+    // server has already ended their sessions (`effects.killPanes`).
+    if (local) {
+      const alive = layoutPaneIds(merged);
+      const gone = [...layoutPaneIds(local)].filter((id) => !alive.has(id));
+      if (gone.length > 0) {
+        const paneCwd = { ...state.paneCwd };
+        const paneTitle = { ...state.paneTitle };
+        const paneAgentStatus = { ...state.paneAgentStatus };
+        const paneContentType = { ...patch.paneContentType };
+        const paneUrl = { ...patch.paneUrl };
+        const paneFavicon = { ...state.paneFavicon };
+        const panePickedElement = { ...state.panePickedElement };
+        for (const paneId of gone) {
+          delete paneCwd[paneId];
+          delete paneTitle[paneId];
+          delete paneAgentStatus[paneId];
+          delete paneContentType[paneId];
+          delete paneUrl[paneId];
+          delete paneFavicon[paneId];
+          delete panePickedElement[paneId];
+        }
+        Object.assign(patch, {
+          paneCwd,
+          paneTitle,
+          paneAgentStatus,
+          paneContentType,
+          paneUrl,
+          paneFavicon,
+          panePickedElement,
+        });
+      }
+    }
+
+    // A reopen inside the server's grace hands the pane back its still-warm
+    // session (ADR-179 ticket 10). Seed what the server knew about it, the
+    // way `loadPersistedLayout` does at boot, so the pane mounts in the cwd
+    // it was in and under the title it had rather than looking brand new.
+    if (restored) {
+      const { cwds, titles, agents } = sessionSideMaps(restored);
+      Object.assign(patch, {
+        paneCwd: { ...(patch.paneCwd ?? state.paneCwd), ...cwds },
+        paneTitle: { ...(patch.paneTitle ?? state.paneTitle), ...titles },
+        paneAgentStatus: {
+          ...(patch.paneAgentStatus ?? state.paneAgentStatus),
+          ...agents,
+        },
+      });
+    }
+
+    return patch;
+  });
+
+  checkOwnClaim(workspacePath, claims, layout);
+}
+
+/**
+ * A window that no longer holds its tab has nothing to show, and closes (D4).
+ *
+ * Two ways to lose it, and they land the same: another window claimed the
+ * same tab (claims are exclusive, the newcomer wins), or the tab left the
+ * workspace entirely because somebody closed it. Either way this window is
+ * looking at nothing, which is what the old hand-off expressed by emptying
+ * the popout's store.
+ *
+ * Gated on having been *seen* in the claims at least once, so the broadcast
+ * that arrives between this window booting and its first viewport report —
+ * where nobody holds the tab yet — is not read as a loss.
+ */
+let sawOwnClaim = false;
+
+function checkOwnClaim(
+  workspacePath: string,
+  claims: readonly LayoutClaim[],
+  layout: WorkspaceLayout,
+): void {
+  if (!OWN_CLAIM || OWN_CLAIM.workspacePath !== workspacePath) return;
+  const mine = holdsClaim(claims, rendererId(), OWN_CLAIM.tabId);
+  if (mine) {
+    sawOwnClaim = true;
+    return;
+  }
+  const tabGone = !findPanelWithTab(layout, OWN_CLAIM.tabId);
+  if (!sawOwnClaim && !tabGone) return;
+  window.electronAPI?.window?.closeSelf?.();
+}
+
+/**
+ * The surface to reopen on relaunch (including Home's `HOME_PATH`).
+ *
+ * This renderer's own, out of its viewport file — which is the point of
+ * ADR-179 D3: two windows of one host reopen where each of them was, not
+ * where the last command happened to land. The server's
+ * `layout.getLastActive()` is the fallback for a renderer that has never
+ * saved a viewport, and for the very first launch it is null too.
+ */
+let lastActiveWorkspacePath: string | null = null;
+
 export function getPersistedActiveWorkspacePath(): string | null {
-  return _cachedLayout?.lastActiveWorkspacePath ?? null;
+  return lastActiveWorkspacePath;
+}
+
+// ──────────────────────── viewport, per renderer ─────────────────────────
+
+/**
+ * Who this renderer is, as the server names it in a command's origin: the
+ * desktop's `webContents.id`, a browser's bridge connection id. Read fresh
+ * every time — the web bridge only learns it once the socket says hello, and
+ * learns a new one after a reconnect.
+ */
+function rendererId(): string | null {
+  return window.electronAPI?.rendererId ?? null;
+}
+
+/** How long a selection waits before it reaches this renderer's file. */
+const VIEWPORT_DEBOUNCE_MS = 300;
+
+/**
+ * A claiming window's viewport is ephemeral (D4).
+ *
+ * It is one tab and the pane focused inside it — a fact about a window that
+ * exists only while it is open. Writing it to `viewport.json` would hand the
+ * primary a workspace of one tab on the next launch, which is precisely the
+ * state claims exist to stop happening.
+ */
+function persistsViewport(): boolean {
+  return OWN_CLAIM === null;
+}
+
+let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Write this renderer's whole viewport file, debounced. */
+function scheduleViewportSave(): void {
+  if (!persistsViewport()) return;
+  if (viewportTimer) return;
+  viewportTimer = setTimeout(() => {
+    viewportTimer = null;
+    const { viewports, activeWorkspacePath } = useAppStore.getState();
+    const api = window.electronAPI;
+    if (!api?.viewport) return;
+    void api.viewport
+      .save({ version: 1, activeWorkspacePath, workspaces: viewports })
+      ?.catch(
+        handleBridgeUnavailable(
+          "viewport-save",
+          "This browser cannot remember which tabs you had selected.",
+        ),
+      );
+  }, VIEWPORT_DEBOUNCE_MS);
+  viewportTimer.unref?.();
+}
+
+/**
+ * Tell the host what this renderer is looking at.
+ *
+ * Fire-and-forget: the server keeps the last report as the workspace's
+ * **default viewport**, which is what a renderer that has never seen this
+ * workspace is handed (D3). Nothing here waits for it and nothing reads it
+ * back.
+ */
+/**
+ * This renderer's viewport file, or null when it has none — a first launch,
+ * a detached window, a browser whose `localStorage` is empty. A failure to
+ * read it is a first launch too: booting without a remembered selection is a
+ * great deal better than not booting.
+ */
+async function loadOwnViewport(): Promise<PersistedViewportFile | null> {
+  if (!persistsViewport()) return null;
+  try {
+    return (await window.electronAPI?.viewport?.load()) ?? null;
+  } catch (err) {
+    console.error("[viewport] failed to read the viewport file:", err);
+    return null;
+  }
+}
+
+function reportViewport(
+  workspacePath: string,
+  viewport: WorkspaceViewport,
+): void {
+  // A claiming window reports too, and its report is the *only* way the host
+  // learns who is holding what (D4). The server keeps the claim and leaves the
+  // default viewport alone, so one tab never becomes the workspace's default.
+  const api = window.electronAPI;
+  const id = rendererId();
+  if (!api?.layout?.reportViewport || id === null) return;
+  void api.layout
+    .reportViewport(workspacePath, id, viewport)
+    ?.catch(
+      handleBridgeUnavailable(
+        "viewport-report",
+        "This browser cannot tell Manor which tabs it is showing.",
+      ),
+    );
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   workspaceLayouts: {},
+  layoutVersions: {},
+  serverLayouts: {},
+  viewports: {},
+  claims: {},
   activeWorkspacePath: null,
   paneCwd: {},
   paneTitle: {},
@@ -629,123 +1264,113 @@ export const useAppStore = create<AppState>((set, get) => ({
   webviewFocusedPaneId: null,
   layoutLoaded: false,
   paneFocusNonce: 0,
-  closedPaneIds: new Set<string>(),
-  closedPaneStack: [],
-  pendingStartupCommands: {},
-  pendingPaneCommands: {},
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
   worktreeSetupState: {},
 
   loadPersistedLayout: async () => {
     try {
-      const layout = await window.electronAPI?.layout.load();
-      if (layout) {
-        _cachedLayout = layout;
+      const api = window.electronAPI;
+      const [entries, lastActive, ownViewport] = await Promise.all([
+        api?.layout.getAll() ?? {},
+        api?.layout.getLastActive() ?? null,
+        loadOwnViewport(),
+      ]);
+      lastActiveWorkspacePath = ownViewport?.activeWorkspacePath ?? lastActive;
 
-        // Pre-populate paneCwd, paneTitle, paneAgentStatus, paneContentType,
-        // and paneUrl from persisted data
-        const cwds: Record<string, string> = {};
-        const titles: Record<string, string> = {};
-        const agents: Record<string, AgentState> = {};
-        const contentTypes: Record<string, "terminal" | "browser" | "diff"> =
-          {};
-        const urls: Record<string, string> = {};
-        for (const ws of layout.workspaces) {
-          // Handle both v1 (flat tabs) and v2 (panels) formats
-          const v1ws = ws as unknown as { tabs?: PersistedTab[] };
-          const allTabs: PersistedTab[] = ws.panels
-            ? Object.values(ws.panels).flatMap((p) => p.tabs)
-            : (v1ws.tabs ?? []);
-          for (const tab of allTabs) {
-            for (const [paneId, paneSession] of Object.entries(
-              tab.paneSessions,
-            )) {
-              if (paneSession.lastCwd) {
-                cwds[paneId] = paneSession.lastCwd;
-              }
-              if (paneSession.lastTitle) {
-                titles[paneId] = paneSession.lastTitle;
-              }
-              if (
-                paneSession.lastAgentStatus &&
-                !(
-                  paneSession.lastAgentStatus.status === "idle" &&
-                  paneSession.lastAgentStatus.kind === null
-                )
-              ) {
-                agents[paneId] = paneSession.lastAgentStatus as AgentState;
-              }
-            }
-            const extractLeafData = (node: PaneNode): void => {
-              if (node.type === "leaf") {
-                if (node.contentType) {
-                  contentTypes[node.paneId] = node.contentType;
-                }
-                if (node.url) {
-                  urls[node.paneId] = node.url;
-                }
-              } else {
-                extractLeafData(node.first);
-                extractLeafData(node.second);
-              }
-            };
-            extractLeafData(tab.rootNode);
-          }
-        }
+      // Every workspace's version lands now; its *layout* lands when the
+      // workspace is first opened (`setActiveWorkspace`). Adopting them all
+      // here would mount every pane of every workspace at boot, and each
+      // mount creates a PTY.
+      const versions: Record<string, number> = {};
+      const cwds: Record<string, string> = {};
+      const titles: Record<string, string> = {};
+      const agents: Record<string, AgentState> = {};
+      const contentTypes: Record<string, "terminal" | "browser" | "diff"> = {};
+      const urls: Record<string, string> = {};
 
-        set({
-          layoutLoaded: true,
-          paneCwd: { ...get().paneCwd, ...cwds },
-          paneTitle: { ...get().paneTitle, ...titles },
-          paneAgentStatus: { ...get().paneAgentStatus, ...agents },
-          paneContentType: { ...get().paneContentType, ...contentTypes },
-          paneUrl: { ...get().paneUrl, ...urls },
-        });
-      } else {
-        set({ layoutLoaded: true });
+      const fromServer: Record<string, WorkspaceLayout> = {};
+      // This renderer's own selection where it has one; the host's default
+      // viewport where it does not — then reconciled against the tree the
+      // server just handed over, which may have moved on since either was
+      // written (ADR-179 D3).
+      const viewports: Record<string, WorkspaceViewport> = {};
+      // Who is holding what right now (D4). Handed over with the layout so a
+      // window that opens while a tab is popped out hides it from the first
+      // paint, instead of showing it until the next broadcast.
+      const claims: Record<string, LayoutClaim[]> = {};
+      for (const [workspacePath, entry] of Object.entries(entries)) {
+        versions[workspacePath] = entry.version;
+        fromServer[workspacePath] = entry.layout;
+        claims[workspacePath] = entry.claims ?? [];
+        const own = ownViewport?.workspaces?.[workspacePath];
+        // This window's own claim goes in before the reconcile, so the
+        // viewport it produces is already the one-tab view this window has —
+        // and the report that follows is what tells the host about it.
+        const claimed =
+          OWN_CLAIM?.workspacePath === workspacePath
+            ? { claim: OWN_CLAIM.tabId }
+            : {};
+        viewports[workspacePath] = reconcileViewport(
+          entry.layout,
+          { ...(own ?? entry.defaultViewport ?? emptyViewport()), ...claimed },
+          hiddenTabIdsIn(
+            entry.layout,
+            claims[workspacePath],
+            rendererPlatform(),
+            OWN_CLAIM?.workspacePath === workspacePath
+              ? OWN_CLAIM.tabId
+              : null,
+          ),
+        );
+        // What the server derived from the PTY events it forwards (D3): the
+        // cwd a restored pane reopens in, the title its tab shows.
+        const sessions = sessionSideMaps(entry.paneSessions);
+        Object.assign(cwds, sessions.cwds);
+        Object.assign(titles, sessions.titles);
+        Object.assign(agents, sessions.agents);
+        const leaves = leafSideMaps(entry.layout);
+        Object.assign(contentTypes, leaves.contentTypes);
+        Object.assign(urls, leaves.urls);
       }
-    } catch {
+
+      set((state) => ({
+        layoutLoaded: true,
+        layoutVersions: { ...state.layoutVersions, ...versions },
+        serverLayouts: { ...state.serverLayouts, ...fromServer },
+        claims: { ...claims, ...state.claims },
+        viewports: { ...viewports, ...state.viewports },
+        paneCwd: { ...state.paneCwd, ...cwds },
+        paneTitle: { ...state.paneTitle, ...titles },
+        paneAgentStatus: { ...state.paneAgentStatus, ...agents },
+        paneContentType: { ...state.paneContentType, ...contentTypes },
+        paneUrl: { ...state.paneUrl, ...urls },
+      }));
+    } catch (err) {
+      console.error("[layout] failed to read the layout:", err);
       set({ layoutLoaded: true });
     }
   },
 
   setActiveWorkspace: (path: string) =>
     set((state) => {
-      // Already initialized for this workspace
       if (state.workspaceLayouts[path]) {
         return { activeWorkspacePath: path };
       }
-
-      // Check persisted layout for this workspace
-      if (_cachedLayout) {
-        const persisted = _cachedLayout.workspaces.find(
-          (w) => w.workspacePath === path,
-        );
-        if (persisted) {
-          const restored = restoreWorkspaceState(persisted);
-          // Only use restored layout if it has tabs
-          const hasTabs = Object.values(restored.panels).some(
-            (p) => p.tabs.length > 0,
-          );
-          if (hasTabs) {
-            return {
-              activeWorkspacePath: path,
-              workspaceLayouts: {
-                ...state.workspaceLayouts,
-                [path]: restored,
-              },
-            };
-          }
-        }
-      }
-
-      // No persisted state — start empty so WorkspaceEmptyState is shown
+      // First visit: adopt what the server already holds for it. A workspace
+      // the server has never heard of gets no layout at all — the empty state
+      // renders, and the first command (`new-tab`) creates the panel there.
+      const server = state.serverLayouts[path];
+      const hasTabs =
+        server !== undefined &&
+        Object.values(server.panels).some((p) => p.tabs.length > 0);
+      if (!hasTabs) return { activeWorkspacePath: path };
       return {
         activeWorkspacePath: path,
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: createEmptyLayout(),
+        workspaceLayouts: { ...state.workspaceLayouts, [path]: server },
+        viewports: {
+          ...state.viewports,
+          [path]: reconcileFor(state, path, server, viewportOf(state, path)),
         },
       };
     }),
@@ -763,66 +1388,38 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         activeWorkspacePath: workspacePath,
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [workspacePath]: {
-            ...layout,
-            activePanelId: panel.id,
-            panels: {
-              ...layout.panels,
-              [panel.id]: {
-                ...panel,
-                selectedTabId: tabId,
-                tabs: panel.tabs.map((t) =>
-                  t.id === tabId ? { ...t, focusedPaneId: paneId } : t,
-                ),
-              },
-            },
-          },
-        },
+        ...withViewport(state, workspacePath, (vp) => ({
+          ...vp,
+          activePanelId: panel.id,
+          selectedTabIds: { ...vp.selectedTabIds, [panel.id]: tabId },
+          focusedPaneIds: { ...vp.focusedPaneIds, [tabId]: paneId },
+        })),
       };
     }),
 
   addTab: (adoptPaneId?: string) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+    const path = get().activeWorkspacePath;
+    if (!path) return null;
     const tab = createTab(undefined, adoptPaneId);
-    set(
-      updatePanel(get(), path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: [...p.tabs, tab],
-        selectedTabId: tab.id,
-      })),
-    );
-    return { tabId: tab.id, paneId: tab.focusedPaneId };
+    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
+    return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
   },
 
-  addTerminalTab: (command: string) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+  addTerminalTab: (command: string, kind = "shell" as const) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return null;
     const tab = createTab();
-    const tabPaneId = tab.focusedPaneId;
-    const state = get();
-    set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: [...p.tabs, tab],
-        selectedTabId: tab.id,
-      })),
-      pendingPaneCommands: {
-        ...state.pendingPaneCommands,
-        [tabPaneId]: command,
-      },
-    });
+    const tabPaneId = firstPaneOfTab(tab);
+    // The command first, the tab second: the pane mounts when the broadcast
+    // lands, and `pty.create` is what types this.
+    sendPendingCommand(tabPaneId, command, kind);
+    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };
   },
 
   addBrowserTab: (url: string, opts?: { background?: boolean }) => {
-    const ctx = getActivePanelContext(get());
-    if (!ctx) return null;
-    const { path, layout, panel } = ctx;
+    const path = get().activeWorkspacePath;
+    if (!path) return null;
     const paneId = newPaneId();
     let title: string;
     try {
@@ -835,530 +1432,198 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: newTabId(),
       title,
       rootNode: { type: "leaf", paneId, contentType: "browser", url },
-      focusedPaneId: paneId,
     };
-    const background = opts?.background ?? false;
-    const state = get();
-    set({
+    // The pane's own state first: the broadcast brings the leaf back with the
+    // same url, but the webview mounts from these maps and must not wait a
+    // round trip to know what it is.
+    set((state) => ({
       paneContentType: { ...state.paneContentType, [paneId]: "browser" },
       paneUrl: { ...state.paneUrl, [paneId]: url },
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: [...p.tabs, tab],
-        ...(background ? {} : { selectedTabId: tab.id }),
-      })),
+    }));
+    sendLayoutCommand(path, {
+      type: "new-tab",
+      tab,
+      ...activePanelOf(get()),
+      select: !(opts?.background ?? false),
     });
     return { tabId: tab.id, paneId };
   },
 
-  addDiffTab: () =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const paneId = newPaneId();
-      const tab: Tab = {
-        id: newTabId(),
-        title: "Diff",
-        rootNode: { type: "leaf", paneId, contentType: "diff" },
-        focusedPaneId: paneId,
-      };
-      return {
-        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: [...p.tabs, tab],
-          selectedTabId: tab.id,
-        })),
-      };
-    }),
+  addDiffTab: () => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    const paneId = newPaneId();
+    const tab: Tab = {
+      id: newTabId(),
+      title: "Diff",
+      rootNode: { type: "leaf", paneId, contentType: "diff" },
+    };
+    set((state) => ({
+      paneContentType: { ...state.paneContentType, [paneId]: "diff" },
+    }));
+    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
+  },
 
-  duplicateTab: (tabId: string) =>
-    set((state) => {
-      const wsPath = state.activeWorkspacePath;
-      if (!wsPath) return state;
-      const layout = state.workspaceLayouts[wsPath];
-      if (!layout) return state;
-      let sourcePanel: Panel | undefined;
-      let sourceTab: Tab | undefined;
-      for (const panel of Object.values(layout.panels)) {
-        const tab = panel.tabs.find((t) => t.id === tabId);
-        if (tab) {
-          sourcePanel = panel;
-          sourceTab = tab;
-          break;
-        }
-      }
-      if (!sourcePanel || !sourceTab) return state;
+  duplicateTab: (tabId: string) => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return null;
+    const layout = state.workspaceLayouts[path];
+    if (!layout) return null;
+    const found = findPanelWithTab(layout, tabId);
+    if (!found) return null;
+    const sourceTab = found.tab;
 
-      const { tree: clonedRoot, idMap } = clonePaneTree(
-        sourceTab.rootNode,
-        newPaneId,
-      );
-      const nextContentType = { ...state.paneContentType };
-      const nextUrl = { ...state.paneUrl };
+    // Every pane of the source gets a fresh id: a duplicated tab is a second
+    // set of sessions, not a second view of the first.
+    const { tree: clonedRoot, idMap } = clonePaneTree(
+      sourceTab.rootNode,
+      newPaneId,
+    );
+    const newTab: Tab = {
+      id: newTabId(),
+      title: sourceTab.title,
+      rootNode: clonedRoot,
+    };
+    set((s) => {
+      const paneContentType = { ...s.paneContentType };
+      const paneUrl = { ...s.paneUrl };
       for (const [oldId, newId] of Object.entries(idMap)) {
-        const ct = state.paneContentType[oldId];
-        if (ct) nextContentType[newId] = ct;
-        const u = state.paneUrl[oldId];
-        if (u !== undefined) nextUrl[newId] = u;
+        const contentType = s.paneContentType[oldId];
+        if (contentType) paneContentType[newId] = contentType;
+        const url = s.paneUrl[oldId];
+        if (url !== undefined) paneUrl[newId] = url;
       }
+      return { paneContentType, paneUrl };
+    });
+    sendLayoutCommand(path, { type: "duplicate-tab", tabId, newTab });
+    return newTab.id;
+  },
 
-      const tab: Tab = {
-        id: newTabId(),
-        title: sourceTab.title,
-        rootNode: clonedRoot,
-        focusedPaneId: idMap[sourceTab.focusedPaneId] ?? allPaneIds(clonedRoot)[0],
-      };
-      return {
-        paneContentType: nextContentType,
-        paneUrl: nextUrl,
-        ...updatePanel(state, wsPath, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: [...p.tabs, tab],
-          selectedTabId: tab.id,
-        })),
-      };
-    }),
+  openOrFocusDiff: () => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return null;
+    const existing = findDiffPane(state);
+    // Already open somewhere — this is a viewport move, not a layout change.
+    if (existing) {
+      set(focusPaneLocally(state, path, existing.paneId));
+      return existing.tabId;
+    }
+    const paneId = newPaneId();
+    const tab = diffTab(paneId);
+    set((s) => ({
+      paneContentType: { ...s.paneContentType, [paneId]: "diff" },
+    }));
+    sendLayoutCommand(path, {
+      type: "new-tab",
+      tab,
+      ...activePanelOf(state),
+    });
+    return tab.id;
+  },
 
-  openOrFocusDiff: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
+  openDiffInNewPanel: () => {
+    const state = get();
+    const path = state.activeWorkspacePath;
+    if (!path) return;
+    const existing = findDiffPane(state);
+    if (existing) {
+      set(focusPaneLocally(state, path, existing.paneId));
+      return;
+    }
+    const ctx = getActivePanelContext(state);
+    if (!ctx) return;
+    const paneId = newPaneId();
+    set((s) => ({
+      paneContentType: { ...s.paneContentType, [paneId]: "diff" },
+    }));
+    // Not `new-tab` + `split-panel`: that would move the panel's selected tab
+    // into the new panel. The diff opens *beside* what is already there.
+    sendLayoutCommand(path, {
+      type: "split-panel-with-new-tab",
+      tab: diffTab(paneId),
+      direction: "horizontal",
+      newPanelId: newPanelId(),
+      sourcePanelId: ctx.panel.id,
+    });
+  },
 
-      // Look for an existing diff pane across ALL panels' tabs
-      for (const [pId, panel] of Object.entries(layout.panels)) {
-        for (const tab of panel.tabs) {
-          for (const paneId of allPaneIds(tab.rootNode)) {
-            if (state.paneContentType[paneId] === "diff") {
-              return {
-                workspaceLayouts: {
-                  ...state.workspaceLayouts,
-                  [path]: {
-                    ...layout,
-                    activePanelId: pId,
-                    panels: {
-                      ...layout.panels,
-                      [pId]: {
-                        ...panel,
-                        selectedTabId: tab.id,
-                        tabs: panel.tabs.map((s) =>
-                          s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
-                        ),
-                      },
-                    },
-                  },
-                },
-              };
-            }
-          }
-        }
-      }
-
-      // No existing diff pane found — create a new diff tab in the active panel
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const paneId = newPaneId();
-      const tab: Tab = {
-        id: newTabId(),
-        title: "Diff",
-        rootNode: { type: "leaf", paneId, contentType: "diff" },
-        focusedPaneId: paneId,
-      };
-      return {
-        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        ...updatePanel(state, ctx.path, ctx.layout, ctx.panel.id, (p) => ({
-          ...p,
-          tabs: [...p.tabs, tab],
-          selectedTabId: tab.id,
-        })),
-      };
-    }),
-
-  openDiffInNewPanel: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-
-      // Look for an existing diff pane across ALL panels' tabs
-      for (const [pId, panel] of Object.entries(layout.panels)) {
-        for (const tab of panel.tabs) {
-          for (const paneId of allPaneIds(tab.rootNode)) {
-            if (state.paneContentType[paneId] === "diff") {
-              return {
-                workspaceLayouts: {
-                  ...state.workspaceLayouts,
-                  [path]: {
-                    ...layout,
-                    activePanelId: pId,
-                    panels: {
-                      ...layout.panels,
-                      [pId]: {
-                        ...panel,
-                        selectedTabId: tab.id,
-                        tabs: panel.tabs.map((s) =>
-                          s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
-                        ),
-                      },
-                    },
-                  },
-                },
-              };
-            }
-          }
-        }
-      }
-
-      // No existing diff pane — create a new panel split with a diff tab
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { panel } = ctx;
-      const newPId = newPanelId();
-      const paneId = newPaneId();
-      const tab: Tab = {
-        id: newTabId(),
-        title: "Diff",
-        rootNode: { type: "leaf", paneId, contentType: "diff" },
-        focusedPaneId: paneId,
-      };
-      const newPanelTree = insertPanelSplit(layout.panelTree, panel.id, "horizontal", newPId);
-      return {
-        paneContentType: { ...state.paneContentType, [paneId]: "diff" },
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panelTree: newPanelTree,
-            panels: {
-              ...layout.panels,
-              [newPId]: { id: newPId, tabs: [tab], selectedTabId: tab.id, pinnedTabIds: [] },
-            },
-            activePanelId: newPId,
-          },
-        },
-      };
-    }),
-
-  closeTab: (tabId: string) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      // The tab may live in any panel — `closePaneById` delegates here for the
-      // last pane in a tab, and it resolves panes across every panel.
-      const found = findPanelWithTab(layout, tabId);
-      if (!found) return state;
-      const { panel, tab: closingTab } = found;
-
-      // Mark all panes in the closing tab as explicitly closed
-      const deadPaneIds: string[] = [];
-      const newClosedPaneIds = new Set(state.closedPaneIds);
-      for (const pid of allPaneIds(closingTab.rootNode)) {
-        newClosedPaneIds.add(pid);
-        deadPaneIds.push(pid);
-      }
-
-      const idx = panel.tabs.findIndex((s) => s.id === tabId);
-      const newTabs = panel.tabs.filter((s) => s.id !== tabId);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tabId === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
-
-      // Snapshot the full tab so it can be restored with all its panes
-      const paneMetadata: ClosedTabSnapshot["paneMetadata"] = {};
-      for (const pid of deadPaneIds) {
-        paneMetadata[pid] = {
-          contentType: state.paneContentType[pid],
-          url: state.paneUrl[pid],
-          cwd: state.paneCwd[pid],
-          title: state.paneTitle[pid],
-        };
-      }
-      // If this was the last tab and the panel will be auto-closed, capture split context
-      const willRemovePanel =
-        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
-      const tabSnapshot: ClosedTabSnapshot = {
-        kind: "tab",
-        tab: closingTab,
-        panelId: panel.id,
-        workspacePath: path,
-        paneMetadata,
-        ...(willRemovePanel && {
-          panelSplitContext: findPanelSplitContext(layout.panelTree, panel.id) ?? undefined,
-        }),
-      };
-      const newStack = [tabSnapshot, ...state.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
-
-      // Clean up metadata for dead panes
-      const newCwd = { ...state.paneCwd };
-      const newTitle = { ...state.paneTitle };
-      const newAgentStatus = { ...state.paneAgentStatus };
-      const newContentType = { ...state.paneContentType };
-      const newPaneUrl = { ...state.paneUrl };
-      const newPendingCommands = { ...state.pendingPaneCommands };
-      for (const pid of deadPaneIds) {
-        delete newCwd[pid];
-        delete newTitle[pid];
-        delete newAgentStatus[pid];
-        delete newContentType[pid];
-        delete newPaneUrl[pid];
-        delete newPendingCommands[pid];
-      }
-
-      // If this panel has no tabs left and there are other panels, auto-close it
-      if (willRemovePanel) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const remainingIds = Object.keys(remainingPanels);
-        const newActivePanelId = remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0];
-        return {
-          closedPaneIds: newClosedPaneIds,
-          closedPaneStack: newStack,
-          paneCwd: newCwd,
-          paneTitle: newTitle,
-          paneAgentStatus: newAgentStatus,
-          paneContentType: newContentType,
-          paneUrl: newPaneUrl,
-          pendingPaneCommands: newPendingCommands,
-          workspaceLayouts: {
-            ...state.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree ?? layout.panelTree,
-              panels: remainingPanels,
-              activePanelId: newActivePanelId,
-            },
-          },
-        };
-      }
-
-      return {
-        closedPaneIds: newClosedPaneIds,
-        closedPaneStack: newStack,
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneUrl: newPaneUrl,
-        pendingPaneCommands: newPendingCommands,
-        ...updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelected,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter(
-            (id) => id !== tabId,
-          ),
-        })),
-      };
-    }),
+  // Closing ends sessions, and the server is what ends them: the command
+  // carries the intent, `effects.killPanes` carries it out. Nothing here
+  // touches a PTY, and the confirmation dialogs stay in front of the send
+  // (`requestCloseTab`, `requestClosePaneById`).
+  closeTab: (tabId: string) => {
+    const path = get().activeWorkspacePath;
+    if (path) sendLayoutCommand(path, { type: "close-tab", tabId });
+  },
 
   closeOtherTabs: (tabId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithTab(ctx.layout, tabId);
-    if (!found) return;
-    const { panel } = found;
-    const pinned = new Set(panel.pinnedTabIds ?? []);
-    const toClose = panel.tabs
-      .map((t) => t.id)
-      .filter((id) => id !== tabId && !pinned.has(id));
-    for (const id of toClose) get().closeTab(id);
+    const path = get().activeWorkspacePath;
+    if (path) sendLayoutCommand(path, { type: "close-other-tabs", tabId });
   },
 
   closeTabsToRight: (tabId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithTab(ctx.layout, tabId);
-    if (!found) return;
-    const { panel } = found;
-    const idx = panel.tabs.findIndex((t) => t.id === tabId);
-    if (idx === -1) return;
-    const pinned = new Set(panel.pinnedTabIds ?? []);
-    const toClose = panel.tabs
-      .slice(idx + 1)
-      .map((t) => t.id)
-      .filter((id) => !pinned.has(id));
-    for (const id of toClose) get().closeTab(id);
+    const path = get().activeWorkspacePath;
+    if (path) sendLayoutCommand(path, { type: "close-tabs-to-right", tabId });
   },
 
+  // ── Viewport (ADR-179 D3) ──
+  //
+  // Selecting a tab, focusing a pane, activating a panel: what *this* window
+  // is looking at. No command goes out — the server has no answer to "which
+  // window?" — so these write this renderer's own viewport slice, which is
+  // persisted per renderer and reconciled against every broadcast.
   selectTab: (tabId: string) =>
     set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        selectedTabId: tabId,
-      }));
+      const path = state.activeWorkspacePath;
+      if (!path) return state;
+      return selectTabLocally(state, path, tabId);
     }),
 
   selectTabByGlobalIndex: (index: number) =>
     set((state) => {
       const ctx = getActiveLayoutContext(state);
       if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
+      const tabs = globalTabList(ctx.layout);
       if (index < 0 || index >= tabs.length) return state;
-      const { tabId, panelId } = tabs[index];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
+      return selectTabLocally(state, ctx.path, tabs[index].tabId);
     }),
 
-  selectNextTab: () =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
-      if (tabs.length === 0) return state;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return state;
-      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
-      const nextIdx = (currentIdx + 1) % tabs.length;
-      const { tabId, panelId } = tabs[nextIdx];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
-    }),
+  selectNextTab: () => set((state) => stepTab(state, 1)),
 
-  selectPrevTab: () =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      const tabs = globalTabList(layout);
-      if (tabs.length === 0) return state;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return state;
-      const currentIdx = tabs.findIndex((t) => t.tabId === panel.selectedTabId);
-      const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
-      const { tabId, panelId } = tabs[prevIdx];
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            activePanelId: panelId,
-            panels: {
-              ...layout.panels,
-              [panelId]: { ...layout.panels[panelId], selectedTabId: tabId },
-            },
-          },
-        },
-      };
-    }),
+  selectPrevTab: () => set((state) => stepTab(state, -1)),
 
-  reorderTabs: (tabIds: string[]) =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const lookup = new Map(panel.tabs.map((s) => [s.id, s]));
-      const reordered = tabIds
-        .map((id) => lookup.get(id))
-        .filter(Boolean) as Tab[];
-      if (reordered.length !== panel.tabs.length) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: reordered,
-      }));
-    }),
+  reorderTabs: (tabIds: string[]) => {
+    const state = get();
+    const ctx = getActivePanelContext(state);
+    if (!ctx) return;
+    sendLayoutCommand(ctx.path, {
+      type: "reorder-tabs",
+      panelId: ctx.panel.id,
+      tabIds,
+    });
+  },
 
-  togglePinTab: (tabId: string) =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const pinned = panel.pinnedTabIds ?? [];
-      const isPinned = pinned.includes(tabId);
-      let newPinned: string[];
-      let newTabs: Tab[];
-      if (isPinned) {
-        // Unpin: remove from pinned list, move to after last pinned tab
-        newPinned = pinned.filter((id) => id !== tabId);
-        const tab = panel.tabs.find((s) => s.id === tabId);
-        if (!tab) return state;
-        const others = panel.tabs.filter((s) => s.id !== tabId);
-        const insertIdx = newPinned.length;
-        newTabs = [
-          ...others.slice(0, insertIdx),
-          tab,
-          ...others.slice(insertIdx),
-        ];
-      } else {
-        newPinned = [...pinned, tabId];
-        const tab = panel.tabs.find((s) => s.id === tabId);
-        if (!tab) return state;
-        const others = panel.tabs.filter((s) => s.id !== tabId);
-        const insertIdx = pinned.length;
-        newTabs = [
-          ...others.slice(0, insertIdx),
-          tab,
-          ...others.slice(insertIdx),
-        ];
-      }
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: newTabs,
-        pinnedTabIds: newPinned,
-      }));
-    }),
+  togglePinTab: (tabId: string) => {
+    const path = get().activeWorkspacePath;
+    if (path) sendLayoutCommand(path, { type: "toggle-pin-tab", tabId });
+  },
 
-  splitPane: (direction: SplitDirection) =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-      if (!tab) return state;
-      const newPane = newPaneId();
-      const newRoot = insertSplit(
-        tab.rootNode,
-        tab.focusedPaneId,
-        direction,
-        newPane,
-      );
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id
-            ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
-            : s,
-        ),
-      }));
-    }),
+  // "Split the focused pane" is resolved here, from this window's viewport:
+  // the command names a pane id, and the server never asks what anyone is
+  // looking at (ADR-179 D1).
+  splitPane: (direction: SplitDirection) => {
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    const path = get().activeWorkspacePath;
+    if (!paneId || !path) return;
+    sendLayoutCommand(path, {
+      type: "split-pane",
+      paneId,
+      direction,
+      newPaneId: newPaneId(),
+    });
+  },
 
   splitPaneAt: (
     targetPaneId: string,
@@ -1372,54 +1637,36 @@ export const useAppStore = create<AppState>((set, get) => ({
   ) => {
     const state = get();
     const ctx = getActiveLayoutContext(state);
-    if (!ctx) return null;
-    const { path, layout } = ctx;
-    // The pane may live in any panel, not just the active one.
-    const found = findPanelWithPane(layout, targetPaneId);
-    if (!found) return null;
-    const { panel, tab } = found;
+    // Checked against this window's replica so the caller hears "no such
+    // pane" now rather than nothing at all: on the server an unknown id is a
+    // silent no-op, and `splitPaneAt` answers with the id it minted.
+    if (!ctx || !findPanelWithPane(ctx.layout, targetPaneId)) return null;
     const newPane = newPaneId();
-    const contentType = opts?.contentType;
-    const paneCommand = opts?.paneCommand;
-    const url = opts?.url;
-    // "agent" panes are terminals that auto-run a command -- don't persist as a content type
+    const { contentType, paneCommand, url } = opts ?? {};
+    // "agent" panes are terminals that auto-run a command -- don't persist as
+    // a content type.
     const treeContentType = contentType === "agent" ? undefined : contentType;
-    const newRoot = insertSplitAt(
-      tab.rootNode,
-      targetPaneId,
-      direction,
-      newPane,
-      position,
-      treeContentType,
-      url,
-    );
-    set({
-      ...updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id
-            ? { ...s, rootNode: newRoot, focusedPaneId: newPane }
-            : s,
-        ),
-      })),
+    set((s) => ({
       ...(treeContentType && {
-        paneContentType: {
-          ...state.paneContentType,
-          [newPane]: treeContentType,
-        },
+        paneContentType: { ...s.paneContentType, [newPane]: treeContentType },
       }),
-      ...(url && {
-        paneUrl: {
-          ...state.paneUrl,
-          [newPane]: url,
-        },
-      }),
-      ...(paneCommand && {
-        pendingPaneCommands: {
-          ...state.pendingPaneCommands,
-          [newPane]: paneCommand,
-        },
-      }),
+      ...(url && { paneUrl: { ...s.paneUrl, [newPane]: url } }),
+    }));
+    if (paneCommand) {
+      sendPendingCommand(
+        newPane,
+        paneCommand,
+        contentType === "agent" ? "agent-startup" : "shell",
+      );
+    }
+    sendLayoutCommand(ctx.path, {
+      type: "split-pane-at",
+      paneId: targetPaneId,
+      direction,
+      position,
+      newPaneId: newPane,
+      contentType: treeContentType,
+      url,
     });
     return newPane;
   },
@@ -1429,556 +1676,102 @@ export const useAppStore = create<AppState>((set, get) => ({
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-  ) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const src = findPanelWithPane(layout, sourcePaneId);
-      const tgt = findPanelWithPane(layout, targetPaneId);
-      if (!src || !tgt) return state;
-      const { panel: sourcePanel, tab: sourceTab } = src;
-      const { panel: targetPanel, tab: targetTab } = tgt;
-
-      // Same panel, same tab — in-place move
-      if (sourcePanel.id === targetPanel.id && sourceTab.id === targetTab.id) {
-        const newRoot = movePane(sourceTab.rootNode, sourcePaneId, targetPaneId, direction, position);
-        if (newRoot === null) return state;
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((s) =>
-            s.id === sourceTab.id ? { ...s, rootNode: newRoot, focusedPaneId: sourcePaneId } : s,
-          ),
-        }));
-      }
-
-      // Same panel, cross-tab
-      if (sourcePanel.id === targetPanel.id) {
-        const sourceRootAfterRemove = removePane(sourceTab.rootNode, sourcePaneId);
-        const newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, sourcePaneId, position);
-
-        let newTabs: Tab[];
-        if (sourceRootAfterRemove === null) {
-          newTabs = sourcePanel.tabs
-            .filter((s) => s.id !== sourceTab.id)
-            .map((s) => s.id === targetTab.id ? { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId } : s);
-        } else {
-          newTabs = sourcePanel.tabs.map((s) => {
-            if (s.id === sourceTab.id) {
-              const ids = allPaneIds(sourceRootAfterRemove);
-              return { ...s, rootNode: sourceRootAfterRemove, focusedPaneId: s.focusedPaneId === sourcePaneId ? ids[0] : s.focusedPaneId };
-            }
-            if (s.id === targetTab.id) return { ...s, rootNode: newTargetRoot, focusedPaneId: sourcePaneId };
-            return s;
-          });
-        }
-
-        const newSelectedTabId =
-          sourcePanel.selectedTabId === sourceTab.id && sourceRootAfterRemove === null
-            ? targetTab.id : sourcePanel.selectedTabId;
-
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelectedTabId,
-          pinnedTabIds: sourceRootAfterRemove === null
-            ? (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id) : p.pinnedTabIds,
-        }));
-      }
-
-      // Cross-panel move
-      const sourceRootAfterRemove = removePane(sourceTab.rootNode, sourcePaneId);
-      const newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, sourcePaneId, position);
-
-      const newPanels = { ...layout.panels };
-      let newPanelTree = layout.panelTree;
-
-      // Update target panel
-      newPanels[targetPanel.id] = {
-        ...targetPanel,
-        tabs: targetPanel.tabs.map((t) =>
-          t.id === targetTab.id ? { ...t, rootNode: newTargetRoot, focusedPaneId: sourcePaneId } : t,
-        ),
-        selectedTabId: targetTab.id,
-      };
-
-      // Update source panel
-      if (sourceRootAfterRemove === null) {
-        // Source tab's only pane was moved — remove the tab
-        const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
-        if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
-          // Source panel empty — remove it
-          const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
-          if (pruned) newPanelTree = pruned;
-          delete newPanels[sourcePanel.id];
-        } else if (remainingTabs.length === 0) {
-          const fresh = createTab();
-          newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
-        } else {
-          newPanels[sourcePanel.id] = {
-            ...sourcePanel,
-            tabs: remainingTabs,
-            selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
-            pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
-          };
-        }
-      } else {
-        const ids = allPaneIds(sourceRootAfterRemove);
-        newPanels[sourcePanel.id] = {
-          ...sourcePanel,
-          tabs: sourcePanel.tabs.map((t) => {
-            if (t.id === sourceTab.id) {
-              return { ...t, rootNode: sourceRootAfterRemove, focusedPaneId: t.focusedPaneId === sourcePaneId ? ids[0] : t.focusedPaneId };
-            }
-            return t;
-          }),
-        };
-      }
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
-        },
-      };
-    }),
+  ) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "move-pane",
+      sourcePaneId,
+      targetPaneId,
+      direction,
+      position,
+      // Emptying the last panel would leave the workspace with nowhere to put
+      // anything; the reducer seeds it with this instead.
+      fallbackTab: createTab(),
+    });
+  },
 
   moveTabToPane: (
     tabId: string,
     targetPaneId: string,
     direction: SplitDirection,
     position: "first" | "second",
-  ) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const src = findPanelWithTab(layout, tabId);
-      const tgt = findPanelWithPane(layout, targetPaneId);
-      if (!src || !tgt) return state;
-      const { panel: sourcePanel, tab: sourceTab } = src;
-      const { panel: targetPanel, tab: targetTab } = tgt;
-      if (sourceTab.id === targetTab.id) return state;
-
-      // Build the new target root
-      let newTargetRoot: PaneNode;
-      let focusPaneId: string;
-      if (sourceTab.rootNode.type === "leaf") {
-        focusPaneId = sourceTab.rootNode.paneId;
-        newTargetRoot = insertSplitAt(targetTab.rootNode, targetPaneId, direction, focusPaneId, position);
-      } else {
-        focusPaneId = allPaneIds(sourceTab.rootNode)[0];
-        newTargetRoot = insertSubtreeAt(targetTab.rootNode, targetPaneId, direction, sourceTab.rootNode, position);
-      }
-
-      // Same panel — update tabs in place
-      if (sourcePanel.id === targetPanel.id) {
-        const newTabs = sourcePanel.tabs
-          .filter((s) => s.id !== sourceTab.id)
-          .map((s) => s.id === targetTab.id ? { ...s, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : s);
-        const newSelectedTabId = sourcePanel.selectedTabId === sourceTab.id ? targetTab.id : sourcePanel.selectedTabId;
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelectedTabId,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
-        }));
-      }
-
-      // Cross-panel
-      const newPanels = { ...layout.panels };
-      let newPanelTree = layout.panelTree;
-
-      // Update target panel
-      newPanels[targetPanel.id] = {
-        ...targetPanel,
-        tabs: targetPanel.tabs.map((t) =>
-          t.id === targetTab.id ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t,
-        ),
-        selectedTabId: targetTab.id,
-      };
-
-      // Remove tab from source panel
-      const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
-      if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
-        const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
-        if (pruned) newPanelTree = pruned;
-        delete newPanels[sourcePanel.id];
-      } else if (remainingTabs.length === 0) {
-        const fresh = createTab();
-        newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
-      } else {
-        newPanels[sourcePanel.id] = {
-          ...sourcePanel,
-          tabs: remainingTabs,
-          selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
-          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
-        };
-      }
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
-        },
-      };
-    }),
-
-  extractPaneToTab: (paneId: string, targetPanelId?: string) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const src = findPanelWithPane(layout, paneId);
-      if (!src) return state;
-      const { panel: sourcePanel, tab: sourceTab } = src;
-      const destPanelId = targetPanelId ?? sourcePanel.id;
-      const destPanel = layout.panels[destPanelId];
-      if (!destPanel) return state;
-
-      // If the pane is the only pane in its tab and destination is the same panel, just select it
-      if (
-        sourcePanel.id === destPanelId &&
-        sourceTab.rootNode.type === "leaf" &&
-        sourceTab.rootNode.paneId === paneId
-      ) {
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          selectedTabId: sourceTab.id,
-        }));
-      }
-
-      // If pane is the only pane in its tab, move the whole tab to the target panel
-      if (sourceTab.rootNode.type === "leaf" && sourceTab.rootNode.paneId === paneId) {
-        if (sourcePanel.id === destPanelId) return state;
-        // Use moveTabToPanel logic
-        const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTab.id);
-        const newPanels = { ...layout.panels };
-        let newPanelTree = layout.panelTree;
-
-        newPanels[destPanelId] = {
-          ...destPanel,
-          tabs: [...destPanel.tabs, sourceTab],
-          selectedTabId: sourceTab.id,
-        };
-
-        if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
-          const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
-          if (pruned) newPanelTree = pruned;
-          delete newPanels[sourcePanel.id];
-        } else if (remainingTabs.length === 0) {
-          const fresh = createTab();
-          newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
-        } else {
-          newPanels[sourcePanel.id] = {
-            ...sourcePanel,
-            tabs: remainingTabs,
-            selectedTabId: sourcePanel.selectedTabId === sourceTab.id ? remainingTabs[0].id : sourcePanel.selectedTabId,
-            pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTab.id),
-          };
-        }
-
-        return {
-          workspaceLayouts: {
-            ...state.workspaceLayouts,
-            [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: destPanelId },
-          },
-        };
-      }
-
-      // Remove the pane from the source tab
-      const remaining = removePane(sourceTab.rootNode, paneId);
-      if (!remaining) return state;
-
-      const ids = allPaneIds(remaining);
-      const newFocused = sourceTab.focusedPaneId === paneId ? ids[0] : sourceTab.focusedPaneId;
-
-      const newTab: Tab = {
-        id: newTabId(),
-        title: "Terminal",
-        rootNode: { type: "leaf", paneId },
-        focusedPaneId: paneId,
-      };
-
-      if (sourcePanel.id === destPanelId) {
-        // Same panel — just add new tab
-        const newTabs = sourcePanel.tabs.map((s) =>
-          s.id === sourceTab.id ? { ...s, rootNode: remaining, focusedPaneId: newFocused } : s,
-        );
-        newTabs.push(newTab);
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newTab.id,
-        }));
-      }
-
-      // Cross-panel — update source panel's tab, add new tab to destination panel
-      const newPanels = { ...layout.panels };
-      newPanels[sourcePanel.id] = {
-        ...sourcePanel,
-        tabs: sourcePanel.tabs.map((t) =>
-          t.id === sourceTab.id ? { ...t, rootNode: remaining, focusedPaneId: newFocused } : t,
-        ),
-      };
-      newPanels[destPanelId] = {
-        ...destPanel,
-        tabs: [...destPanel.tabs, newTab],
-        selectedTabId: newTab.id,
-      };
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, panels: newPanels, activePanelId: destPanelId },
-        },
-      };
-    }),
-
-  closePane: () => {
-    const state = get();
-    const ctx = getActivePanelContext(state);
-    if (!ctx) return;
-    const { panel } = ctx;
-    const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-    if (!tab) return;
-    get().closePaneById(tab.focusedPaneId);
-  },
-
-  closePaneById: (paneId: string) => {
-    const currentTitle = get().paneTitle[paneId] ?? null;
-    window.electronAPI.agents.abandonForPane(paneId, currentTitle).catch(console.error);
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const { path, layout } = ctx;
-
-    // The pane may live in any panel, not just the active one.
-    const found = findPanelWithPane(layout, paneId);
-    if (!found) return;
-    const { panel, tab } = found;
-
-    const remaining = removePane(tab.rootNode, paneId);
-    if (remaining === null) {
-      // Last pane in tab -- closeTab will push a tab snapshot
-      get().closeTab(tab.id);
-      return;
-    }
-
-    const snapshot: ClosedPaneSnapshot = {
-      kind: "pane",
-      paneId,
-      tabId: tab.id,
-      panelId: panel.id,
-      workspacePath: path,
-      contentType: state.paneContentType[paneId],
-      url: state.paneUrl[paneId],
-      cwd: state.paneCwd[paneId],
-      title: state.paneTitle[paneId],
-    };
-
-    const ids = allPaneIds(remaining);
-    const newFocused =
-      tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const newClosedPaneIds = new Set(s.closedPaneIds);
-      newClosedPaneIds.add(paneId);
-      const newStack = [snapshot, ...s.closedPaneStack].slice(0, MAX_CLOSED_PANE_STACK);
-      const newCwd = { ...s.paneCwd };
-      const newTitle = { ...s.paneTitle };
-      const newAgentStatus = { ...s.paneAgentStatus };
-      const newContentType = { ...s.paneContentType };
-      const newPaneUrl = { ...s.paneUrl };
-      const newPendingCommands = { ...s.pendingPaneCommands };
-      delete newCwd[paneId];
-      delete newTitle[paneId];
-      delete newAgentStatus[paneId];
-      delete newContentType[paneId];
-      delete newPaneUrl[paneId];
-      delete newPendingCommands[paneId];
-      return {
-        closedPaneIds: newClosedPaneIds,
-        closedPaneStack: newStack,
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneUrl: newPaneUrl,
-        pendingPaneCommands: newPendingCommands,
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
-          ),
-        })),
-      };
+  ) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "move-tab-to-pane",
+      tabId,
+      targetPaneId,
+      direction,
+      position,
+      fallbackTab: createTab(),
     });
   },
 
-  reopenClosedPane: () => {
+  extractPaneToTab: (paneId: string, targetPanelId?: string) => {
     const state = get();
-    const path = state.activeWorkspacePath;
-    if (!path) return;
-    const ctx = getActivePanelContext(state);
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx) return null;
+    const found = findPanelWithPane(ctx.layout, paneId);
+    if (!found) return null;
+    // A pane that is already its tab's only leaf keeps its tab; anything else
+    // moves into a tab minted here. Either way the answer is known before the
+    // command is sent, which is what lets this stay synchronous.
+    const sole =
+      found.tab.rootNode.type === "leaf" &&
+      found.tab.rootNode.paneId === paneId;
+    // Already a tab of its own, staying where it is: nothing structural
+    // happens, so there is no command and no broadcast — only this window's
+    // selection moves (ADR-179 D3).
+    if (sole && (targetPanelId ?? found.panel.id) === found.panel.id) {
+      set(selectTabLocally(state, ctx.path, found.tab.id));
+      return found.tab.id;
+    }
+    const mintedTabId = newTabId();
+    sendLayoutCommand(ctx.path, {
+      type: "extract-pane-to-tab",
+      paneId,
+      targetPanelId,
+      newTabId: mintedTabId,
+      fallbackTab: createTab(),
+    });
+    return sole ? found.tab.id : mintedTabId;
+  },
+
+  closePane: () => {
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    if (paneId) get().closePaneById(paneId);
+  },
+
+  closePaneById: (paneId: string) => {
+    const state = get();
+    const ctx = getActiveLayoutContext(state);
+    // A pane the replica no longer holds has already been closed — by this
+    // window a moment ago, or by another renderer. Its `pty.onExit` arrives
+    // here too, and must not abandon its agent a second time.
+    if (!ctx || !findPanelWithPane(ctx.layout, paneId)) return;
+    window.electronAPI.agents
+      .abandonForPane(paneId, state.paneTitle[paneId] ?? null)
+      .catch(console.error);
+    sendLayoutCommand(ctx.path, { type: "close-pane", paneId });
+  },
+
+  /**
+   * Put back the last thing closed in this workspace.
+   *
+   * The stack is the server's (ADR-179 D3), so this sends the command and
+   * lets the broadcast say what came back. Only the two viewport defaults are
+   * resolved here: which panel to restore into when the original is gone, and
+   * a tab id to mint if the original tab went too.
+   */
+  reopenClosedPane: () => {
+    const ctx = getActivePanelContext(get());
     if (!ctx) return;
-    const { layout, panel } = ctx;
-
-    const idx = state.closedPaneStack.findIndex((s) => s.workspacePath === path);
-    if (idx === -1) return;
-    const snapshot = state.closedPaneStack[idx];
-
-    // Restore to the original panel if it still exists, otherwise fall back to active panel
-    const targetPanelId = snapshot.panelId && layout.panels[snapshot.panelId]
-      ? snapshot.panelId
-      : panel.id;
-    const targetPanel = layout.panels[targetPanelId]!;
-
-    if (snapshot.kind === "tab") {
-      set((s) => {
-        const currentCtx = getActiveLayoutContext(s);
-        if (!currentCtx) return s;
-        const { path: ctxPath, layout: ctxLayout } = currentCtx;
-        const newStack = [...s.closedPaneStack];
-        newStack.splice(idx, 1);
-
-        const newContentType = { ...s.paneContentType };
-        const newCwd = { ...s.paneCwd };
-        const newUrl = { ...s.paneUrl };
-        const newTitle = { ...s.paneTitle };
-        const newClosedPaneIds = new Set(s.closedPaneIds);
-        for (const [pid, meta] of Object.entries(snapshot.paneMetadata)) {
-          if (meta.contentType) newContentType[pid] = meta.contentType;
-          if (meta.cwd) newCwd[pid] = meta.cwd;
-          if (meta.url) newUrl[pid] = meta.url;
-          if (meta.title) newTitle[pid] = meta.title;
-          newClosedPaneIds.delete(pid);
-        }
-
-        // If the original panel was removed and we have split context, recreate the panel
-        const originalPanelGone = !ctxLayout.panels[snapshot.panelId];
-        const sc = snapshot.panelSplitContext;
-        if (originalPanelGone && sc && ctxLayout.panels[sc.siblingId]) {
-          const restoredPanelId = snapshot.panelId;
-          const newPanel: Panel = {
-            id: restoredPanelId,
-            tabs: [snapshot.tab],
-            selectedTabId: snapshot.tab.id,
-            pinnedTabIds: [],
-          };
-          const finalTree = insertPanelSplit(
-            ctxLayout.panelTree,
-            sc.siblingId,
-            sc.direction,
-            restoredPanelId,
-            sc.position,
-            sc.ratio,
-          );
-
-          return {
-            closedPaneStack: newStack,
-            closedPaneIds: newClosedPaneIds,
-            paneContentType: newContentType,
-            paneCwd: newCwd,
-            paneUrl: newUrl,
-            paneTitle: newTitle,
-            workspaceLayouts: {
-              ...s.workspaceLayouts,
-              [ctxPath]: {
-                ...ctxLayout,
-                panelTree: finalTree,
-                panels: { ...ctxLayout.panels, [restoredPanelId]: newPanel },
-                activePanelId: restoredPanelId,
-              },
-            },
-          };
-        }
-
-        // Original panel still exists (or no split context) — add tab to target panel
-        return {
-          closedPaneStack: newStack,
-          closedPaneIds: newClosedPaneIds,
-          paneContentType: newContentType,
-          paneCwd: newCwd,
-          paneUrl: newUrl,
-          paneTitle: newTitle,
-          ...updatePanel(s, ctxPath, ctxLayout, targetPanelId, (p) => ({
-            ...p,
-            tabs: [...p.tabs, snapshot.tab],
-            selectedTabId: snapshot.tab.id,
-          })),
-        };
-      });
-      return;
-    }
-
-    // Single pane restore
-    const contentType = snapshot.contentType ?? "terminal";
-    const originalTab = targetPanel.tabs.find((s) => s.id === snapshot.tabId);
-
-    // Reuse the original pane ID so the daemon session (still alive during
-    // the grace period) is reattached instead of creating a fresh terminal.
-    const restoredPaneId = snapshot.paneId;
-    let selectedTabId: string;
-    let tabsUpdater: (tabs: Tab[]) => Tab[];
-
-    if (originalTab) {
-      selectedTabId = originalTab.id;
-      const newRoot = insertSplitAt(
-        originalTab.rootNode,
-        originalTab.focusedPaneId,
-        "horizontal",
-        restoredPaneId,
-        "second",
-        contentType,
-      );
-      tabsUpdater = (tabs) =>
-        tabs.map((t) =>
-          t.id === originalTab.id
-            ? { ...t, rootNode: newRoot, focusedPaneId: restoredPaneId }
-            : t,
-        );
-    } else {
-      const newTab: Tab = {
-        id: newTabId(),
-        title: snapshot.title ?? "Terminal",
-        rootNode: { type: "leaf", paneId: restoredPaneId },
-        focusedPaneId: restoredPaneId,
-      };
-      selectedTabId = newTab.id;
-      tabsUpdater = (tabs) => [...tabs, newTab];
-    }
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const newStack = [...s.closedPaneStack];
-      newStack.splice(idx, 1);
-      return {
-        closedPaneStack: newStack,
-        paneContentType: {
-          ...s.paneContentType,
-          [restoredPaneId]: contentType,
-        },
-        ...(snapshot.cwd && {
-          paneCwd: { ...s.paneCwd, [restoredPaneId]: snapshot.cwd },
-        }),
-        ...(snapshot.url && {
-          paneUrl: { ...s.paneUrl, [restoredPaneId]: snapshot.url },
-        }),
-        ...updatePanel(s, currentCtx.path, currentCtx.layout, targetPanelId, (p) => ({
-          ...p,
-          selectedTabId,
-          tabs: tabsUpdater(p.tabs),
-        })),
-      };
+    sendLayoutCommand(ctx.path, {
+      type: "reopen-closed-pane",
+      newTabId: newTabId(),
+      panelId: ctx.panel.id,
     });
   },
 
@@ -1996,6 +1789,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const tab = panel.tabs.find((s) => s.id === tabId);
     if (!tab) return;
 
+
     const activeStatuses = ["thinking", "working", "requires_input"];
     const hasActiveAgent = allPaneIds(tab.rootNode).some((pid) => {
       const agentState = state.paneAgentStatus[pid];
@@ -2010,14 +1804,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   requestClosePane: () => {
-    const state = get();
-    const ctx = getActivePanelContext(state);
-    if (!ctx) return;
-    const { panel } = ctx;
-    const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-    if (!tab) return;
-    const focusedPaneId = tab.focusedPaneId;
-    get().requestClosePaneById(focusedPaneId);
+    const paneId = selectFocusedPaneOfActiveTab(get());
+    if (paneId) get().requestClosePaneById(paneId);
   },
 
   requestClosePaneById: (paneId: string) => {
@@ -2031,74 +1819,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // Any pane, in any panel — the same scope `list_panes` and `movePaneToTarget`
+  // use, not just the active panel's.
   focusPane: (paneId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-
-      // Search all panels for the pane, not just the active one
-      for (const [panelId, panel] of Object.entries(layout.panels)) {
-        const tab = panel.tabs.find((t) => hasPaneId(t.rootNode, paneId));
-        if (tab) {
-          return {
-            workspaceLayouts: {
-              ...state.workspaceLayouts,
-              [path]: {
-                ...layout,
-                activePanelId: panelId,
-                panels: {
-                  ...layout.panels,
-                  [panelId]: {
-                    ...panel,
-                    selectedTabId: tab.id,
-                    tabs: panel.tabs.map((s) =>
-                      s.id === tab.id ? { ...s, focusedPaneId: paneId } : s,
-                    ),
-                  },
-                },
-              },
-            },
-          };
-        }
-      }
-      return state;
+      return focusPaneLocally(state, path, paneId);
     }),
 
-  focusNextPane: () =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-      if (!tab) return state;
-      const next = nextPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!next) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id ? { ...s, focusedPaneId: next } : s,
-        ),
-      }));
-    }),
+  focusNextPane: () => set((state) => stepPane(state, nextPaneId)),
 
-  focusPrevPane: () =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((s) => s.id === panel.selectedTabId);
-      if (!tab) return state;
-      const prev = prevPaneId(tab.rootNode, tab.focusedPaneId);
-      if (!prev) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((s) =>
-          s.id === tab.id ? { ...s, focusedPaneId: prev } : s,
-        ),
-      }));
-    }),
+  focusPrevPane: () => set((state) => stepPane(state, prevPaneId)),
 
   // Which pane is focused does not change — only the demand that it actually
   // hold the keyboard. The nonce is the whole message; the pane's auto-focus
@@ -2112,17 +1844,50 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneCwd: { ...state.paneCwd, [paneId]: cwd } };
     }),
 
-  setPaneTitle: (paneId: string, title: string) =>
+  /**
+   * A pane's title, from an OSC sequence or an MCP call.
+   *
+   * Written here *and* sent: the map is what this window renders now, and the
+   * command is what reaches the server's `paneSessions` and so the file
+   * (ADR-179 D3). `set-pane-title` changes no tree, so no broadcast follows
+   * it and the local write is not a duplicate of one.
+   */
+  setPaneTitle: (paneId: string, title: string) => {
+    const state = get();
+    if (state.paneTitle[paneId] === title) return;
+    set({ paneTitle: { ...state.paneTitle, [paneId]: title } });
+    if (state.activeWorkspacePath) {
+      sendLayoutCommand(state.activeWorkspacePath, {
+        type: "set-pane-title",
+        paneId,
+        title,
+      });
+    }
+  },
+
+  clearPaneTitle: (paneId: string) => {
+    const state = get();
+    if (!(paneId in state.paneTitle)) return;
+    const { [paneId]: _, ...rest } = state.paneTitle;
+    set({ paneTitle: rest });
+    if (state.activeWorkspacePath) {
+      sendLayoutCommand(state.activeWorkspacePath, {
+        type: "set-pane-title",
+        paneId,
+        title: null,
+      });
+    }
+  },
+
+  setPaneTitleFromStream: (paneId: string, title: string | null) =>
     set((state) => {
+      if (title === null) {
+        if (!(paneId in state.paneTitle)) return state;
+        const { [paneId]: _, ...rest } = state.paneTitle;
+        return { paneTitle: rest };
+      }
       if (state.paneTitle[paneId] === title) return state;
       return { paneTitle: { ...state.paneTitle, [paneId]: title } };
-    }),
-
-  clearPaneTitle: (paneId: string) =>
-    set((state) => {
-      if (!(paneId in state.paneTitle)) return state;
-      const { [paneId]: _, ...rest } = state.paneTitle;
-      return { paneTitle: rest };
     }),
 
   setPaneFavicon: (paneId: string, favicon: string | null) =>
@@ -2174,71 +1939,50 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneRecordingStartedAt: rest };
     }),
 
-  setPaneUrl: (paneId: string, url: string) =>
-    set((state) => {
-      if (state.paneUrl[paneId] === url) return state;
-      // Update the paneUrl map
-      const newState: Partial<AppState> = {
-        paneUrl: { ...state.paneUrl, [paneId]: url },
-      };
-      // Also update the url in the rootNode leaf so it persists
-      const ctx = getActivePanelContext(state);
-      if (ctx) {
-        const { path, layout, panel } = ctx;
-        const updateLeafUrl = (node: PaneNode): PaneNode => {
-          if (node.type === "leaf") {
-            return node.paneId === paneId ? { ...node, url } : node;
-          }
-          const first = updateLeafUrl(node.first);
-          const second = updateLeafUrl(node.second);
-          if (first === node.first && second === node.second) return node;
-          return { ...node, first, second };
-        };
-        const updatedTabs = panel.tabs.map((s) => {
-          const newRoot = updateLeafUrl(s.rootNode);
-          return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
-        });
-        if (updatedTabs.some((t, i) => t !== panel.tabs[i])) {
-          Object.assign(newState, updatePanel(state, path, layout, panel.id, (p) => ({
-            ...p,
-            tabs: updatedTabs,
-          })));
-        }
-      }
-      return newState;
-    }),
+  /**
+   * Where a browser pane is, after it navigated.
+   *
+   * The map is this window's; the leaf's `url` is the layout's, and it is
+   * what makes the pane come back on the same page after a relaunch — so the
+   * same fact goes out as a command. Only for a pane the tree calls a
+   * browser: `set-pane-content-type` is what carries a url, and sending it
+   * for a terminal would retype the pane.
+   */
+  setPaneUrl: (paneId: string, url: string) => {
+    const state = get();
+    if (state.paneUrl[paneId] === url) return;
+    set({ paneUrl: { ...state.paneUrl, [paneId]: url } });
+    const ctx = getActiveLayoutContext(state);
+    if (!ctx || state.paneContentType[paneId] !== "browser") return;
+    if (!findPanelWithPane(ctx.layout, paneId)) return;
+    sendLayoutCommand(ctx.path, {
+      type: "set-pane-content-type",
+      paneId,
+      contentType: "browser",
+      url,
+    });
+  },
 
   setPaneContentType: (
     paneId: string,
     contentType: "terminal" | "browser" | "diff",
-  ) =>
-    set((state) => {
-      const current = state.paneContentType[paneId];
-      if (current === contentType) return state;
-      // For "terminal", remove the key (terminal is the default/implicit type)
-      const newContentType = { ...state.paneContentType };
-      if (contentType === "terminal") {
-        delete newContentType[paneId];
-      } else {
-        newContentType[paneId] = contentType;
-      }
-      // Update the tree node's contentType so it persists across reloads
-      const newState: Partial<AppState> = { paneContentType: newContentType };
-      const ctx = getActivePanelContext(state);
-      if (ctx) {
-        const { path, layout, panel } = ctx;
-        const treeType = contentType === "terminal" ? undefined : contentType;
-        const updatedTabs = panel.tabs.map((s) => {
-          const newRoot = updateLeafContentType(s.rootNode, paneId, treeType);
-          return newRoot === s.rootNode ? s : { ...s, rootNode: newRoot };
-        });
-        Object.assign(newState, updatePanel(state, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: updatedTabs,
-        })));
-      }
-      return newState;
-    }),
+  ) => {
+    const state = get();
+    if (state.paneContentType[paneId] === contentType) return;
+    // "terminal" is the implicit default — the map holds only the exceptions.
+    const paneContentType = { ...state.paneContentType };
+    if (contentType === "terminal") delete paneContentType[paneId];
+    else paneContentType[paneId] = contentType;
+    set({ paneContentType });
+    // The leaf carries the type too, so the pane comes back as itself.
+    if (state.activeWorkspacePath) {
+      sendLayoutCommand(state.activeWorkspacePath, {
+        type: "set-pane-content-type",
+        paneId,
+        contentType,
+      });
+    }
+  },
 
   setWebviewFocused: (paneId: string, focused: boolean) =>
     set((state) => {
@@ -2274,488 +2018,176 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { paneAgentStatus: { ...state.paneAgentStatus, [paneId]: agent } };
     }),
 
-  setPendingStartupCommand: (workspacePath: string, command: string) =>
-    set((state) => ({
-      pendingStartupCommands: {
-        ...state.pendingStartupCommands,
-        [workspacePath]: command,
-      },
-    })),
+  /**
+   * Forget a workspace whose worktree is going away.
+   *
+   * Two things have to happen and they are not the same thing: the sessions
+   * inside it must end, which only the server can do, and the workspace must
+   * leave the file. So every panel is closed by command first —
+   * `effects.killPanes` ends the terminals — and only then is the workspace
+   * removed. The replica is dropped here and now, because the user is already
+   * looking at somewhere else and its panes must unmount.
+   */
+  removeWorkspaceLayout: (workspacePath: string) => {
+    const layout = get().workspaceLayouts[workspacePath];
+    const panelIds = Object.keys(layout?.panels ?? {});
 
-  consumePendingStartupCommand: (workspacePath: string) => {
-    const cmd = get().pendingStartupCommands[workspacePath] ?? null;
-    if (cmd) {
-      set((state) => {
-        const { [workspacePath]: _, ...rest } = state.pendingStartupCommands;
-        return { pendingStartupCommands: rest };
-      });
-    }
-    return cmd;
-  },
-
-  consumePendingPaneCommand: (paneId: string) => {
-    const cmd = get().pendingPaneCommands[paneId] ?? null;
-    if (cmd) {
-      set((state) => {
-        const { [paneId]: _, ...rest } = state.pendingPaneCommands;
-        return { pendingPaneCommands: rest };
-      });
-    }
-    return cmd;
-  },
-
-  removeWorkspaceLayout: (workspacePath: string) =>
     set((state) => {
-      const layout = state.workspaceLayouts[workspacePath];
-      if (!layout) {
-        const { [workspacePath]: _, ...rest } = state.workspaceLayouts;
-        return { workspaceLayouts: rest };
-      }
+      const { [workspacePath]: removed, ...workspaceLayouts } =
+        state.workspaceLayouts;
+      const { [workspacePath]: _version, ...layoutVersions } =
+        state.layoutVersions;
+      const { [workspacePath]: _server, ...serverLayouts } = state.serverLayouts;
+      if (!removed) return { workspaceLayouts, layoutVersions, serverLayouts };
 
-      // Mark all panes across all panels as closed so terminals get killed
-      const newClosedPaneIds = new Set(state.closedPaneIds);
-      const deadPaneIds: string[] = [];
-      for (const panel of Object.values(layout.panels)) {
-        for (const tab of panel.tabs) {
-          for (const pid of allPaneIds(tab.rootNode)) {
-            newClosedPaneIds.add(pid);
-            deadPaneIds.push(pid);
-          }
-        }
+      const paneCwd = { ...state.paneCwd };
+      const paneTitle = { ...state.paneTitle };
+      const paneAgentStatus = { ...state.paneAgentStatus };
+      const paneContentType = { ...state.paneContentType };
+      const paneUrl = { ...state.paneUrl };
+      for (const paneId of layoutPaneIds(removed)) {
+        delete paneCwd[paneId];
+        delete paneTitle[paneId];
+        delete paneAgentStatus[paneId];
+        delete paneContentType[paneId];
+        delete paneUrl[paneId];
       }
-
-      // Clean up metadata
-      const newCwd = { ...state.paneCwd };
-      const newTitle = { ...state.paneTitle };
-      const newAgentStatus = { ...state.paneAgentStatus };
-      const newContentType = { ...state.paneContentType };
-      const newPaneUrl = { ...state.paneUrl };
-      for (const pid of deadPaneIds) {
-        delete newCwd[pid];
-        delete newTitle[pid];
-        delete newAgentStatus[pid];
-        delete newContentType[pid];
-        delete newPaneUrl[pid];
-      }
-
-      const { [workspacePath]: _, ...rest } = state.workspaceLayouts;
       return {
-        closedPaneIds: newClosedPaneIds,
-        workspaceLayouts: rest,
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneUrl: newPaneUrl,
+        workspaceLayouts,
+        layoutVersions,
+        serverLayouts,
+        paneCwd,
+        paneTitle,
+        paneAgentStatus,
+        paneContentType,
+        paneUrl,
       };
-    }),
+    });
+
+    const api = window.electronAPI;
+    if (!api) return;
+    // Held until the removal lands, so the closes on the way out are not
+    // mistaken for a workspace worth re-adopting.
+    removingWorkspaces.add(workspacePath);
+    void (async () => {
+      try {
+        for (const panelId of panelIds) {
+          await api.layout.apply(workspacePath, {
+            type: "close-panel",
+            panelId,
+          });
+        }
+        await api.layout.remove(workspacePath);
+      } catch (err) {
+        console.error(`[layout] failed to remove ${workspacePath}:`, err);
+      } finally {
+        removingWorkspaces.delete(workspacePath);
+      }
+    })();
+  },
 
   // ── Panel operations ──
 
-  splitPanel: (direction: SplitDirection) =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
+  splitPanel: (direction: SplitDirection) => {
+    const ctx = getActivePanelContext(get());
+    if (!ctx) return;
+    sendLayoutCommand(ctx.path, {
+      type: "split-panel",
+      panelId: ctx.panel.id,
+      direction,
+      newPanelId: newPanelId(),
+      // The selected tab moves into the new panel; if that empties the
+      // source panel, it gets a fresh terminal rather than nothing.
+      tabId: selectSelectedTabId(get(), ctx.panel.id, ctx.path) ?? undefined,
+      fallbackTab: createTab(),
+    });
+  },
 
-      const newPId = newPanelId();
-
-      // Move the currently selected tab to the new panel; if no tabs, give both panels empty state
-      const selectedTab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-      let sourceTabs: Tab[];
-      let sourceSelected: string;
-      let targetTabs: Tab[];
-      let targetSelected: string;
-
-      if (selectedTab) {
-        sourceTabs = panel.tabs.filter((t) => t.id !== selectedTab.id);
-        // If source panel would be empty, create a fresh tab for it
-        if (sourceTabs.length === 0) {
-          const fresh = createTab();
-          sourceTabs = [fresh];
-          sourceSelected = fresh.id;
-        } else {
-          sourceSelected = sourceTabs[0].id;
-        }
-        targetTabs = [selectedTab];
-        targetSelected = selectedTab.id;
-      } else {
-        sourceTabs = panel.tabs;
-        sourceSelected = panel.selectedTabId;
-        targetTabs = [];
-        targetSelected = "";
-      }
-
-      const newPanelTree = insertPanelSplit(layout.panelTree, panel.id, direction, newPId);
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panelTree: newPanelTree,
-            panels: {
-              ...layout.panels,
-              [panel.id]: { ...panel, tabs: sourceTabs, selectedTabId: sourceSelected },
-              [newPId]: { id: newPId, tabs: targetTabs, selectedTabId: targetSelected, pinnedTabIds: [] },
-            },
-            activePanelId: newPId,
-          },
-        },
-      };
-    }),
-
-  closePanel: (panelId: string) =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      const panel = layout.panels[panelId];
-      if (!panel) return state;
-
-      // Mark all panes in all tabs of this panel as closed
-      const newClosedPaneIds = new Set(state.closedPaneIds);
-      const deadPaneIds: string[] = [];
-      for (const tab of panel.tabs) {
-        for (const pid of allPaneIds(tab.rootNode)) {
-          newClosedPaneIds.add(pid);
-          deadPaneIds.push(pid);
-        }
-      }
-
-      // Clean up metadata
-      const newCwd = { ...state.paneCwd };
-      const newTitle = { ...state.paneTitle };
-      const newAgentStatus = { ...state.paneAgentStatus };
-      const newContentType = { ...state.paneContentType };
-      const newPaneUrl = { ...state.paneUrl };
-      for (const pid of deadPaneIds) {
-        delete newCwd[pid];
-        delete newTitle[pid];
-        delete newAgentStatus[pid];
-        delete newContentType[pid];
-        delete newPaneUrl[pid];
-      }
-
-      // Remove from panel tree
-      const newPanelTree = removePanelFromTree(layout.panelTree, panelId);
-      const { [panelId]: _, ...remainingPanels } = layout.panels;
-
-      if (newPanelTree === null) {
-        // Last panel -- recreate empty layout
-        return {
-          closedPaneIds: newClosedPaneIds,
-          paneCwd: newCwd,
-          paneTitle: newTitle,
-          paneAgentStatus: newAgentStatus,
-          paneContentType: newContentType,
-          paneUrl: newPaneUrl,
-          workspaceLayouts: {
-            ...state.workspaceLayouts,
-            [path]: createEmptyLayout(),
-          },
-        };
-      }
-
-      // If closing the active panel, focus the next one
-      let newActivePanelId = layout.activePanelId;
-      if (panelId === layout.activePanelId) {
-        const next = nextPanelId(newPanelTree, panelId);
-        newActivePanelId = next ?? allPanelIds(newPanelTree)[0];
-      }
-
-      return {
-        closedPaneIds: newClosedPaneIds,
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneUrl: newPaneUrl,
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panelTree: newPanelTree,
-            panels: remainingPanels,
-            activePanelId: newActivePanelId,
-          },
-        },
-      };
-    }),
+  closePanel: (panelId: string) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "close-panel",
+      panelId,
+      fallbackPanelId: newPanelId(),
+    });
+  },
 
   focusPanel: (panelId: string) =>
     set((state) => {
       const path = state.activeWorkspacePath;
       if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout || !layout.panels[panelId]) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: panelId },
-        },
-      };
-    }),
-
-  focusNextPanel: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      const next = nextPanelId(layout.panelTree, layout.activePanelId);
-      if (!next) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: next },
-        },
-      };
-    }),
-
-  focusPrevPanel: () =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      const prev = prevPanelId(layout.panelTree, layout.activePanelId);
-      if (!prev) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, activePanelId: prev },
-        },
-      };
-    }),
-
-  updatePanelSplitRatio: (firstPanelId: string, ratio: number) =>
-    set((state) => {
-      const path = state.activeWorkspacePath;
-      if (!path) return state;
-      const layout = state.workspaceLayouts[path];
-      if (!layout) return state;
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panelTree: updatePanelRatio(layout.panelTree, firstPanelId, ratio),
-          },
-        },
-      };
-    }),
-
-  moveTabToPanel: (tabId: string, targetPanelId: string) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const src = findPanelWithTab(layout, tabId);
-      if (!src) return state;
-      const { panel: sourcePanel, tab } = src;
-      const targetPanel = layout.panels[targetPanelId];
-      if (!targetPanel || sourcePanel.id === targetPanelId) return state;
-
-      const sourceTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
-      const sourceSelected = sourceTabs.length === 0
-        ? ""
-        : tabId === sourcePanel.selectedTabId
-          ? sourceTabs[0].id
-          : sourcePanel.selectedTabId;
-
-      const targetTabs = [...targetPanel.tabs, tab];
-      const targetSelected = tab.id;
-
-      if (sourceTabs.length === 0) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, sourcePanel.id);
-        if (newPanelTree === null) return state;
-        const { [sourcePanel.id]: _, ...remainingPanels } = layout.panels;
-        return {
-          workspaceLayouts: {
-            ...state.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree,
-              panels: {
-                ...remainingPanels,
-                [targetPanelId]: { ...targetPanel, tabs: targetTabs, selectedTabId: targetSelected },
-              },
-              activePanelId: targetPanelId,
-            },
-          },
-        };
-      }
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panels: {
-              ...layout.panels,
-              [sourcePanel.id]: {
-                ...sourcePanel,
-                tabs: sourceTabs,
-                selectedTabId: sourceSelected,
-                pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== tabId),
-              },
-              [targetPanelId]: { ...targetPanel, tabs: targetTabs, selectedTabId: targetSelected },
-            },
-            activePanelId: targetPanelId,
-          },
-        },
-      };
-    }),
-
-  splitPanelWithTab: (tabId: string, targetPanelId: string, direction: SplitDirection) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const src = findPanelWithTab(layout, tabId);
-      if (!src) return state;
-      const { panel: sourcePanel, tab } = src;
-      const targetPanel = layout.panels[targetPanelId];
-      if (!targetPanel) return state;
-
-      const newPId = newPanelId();
-
-      // Remove the tab from its source panel
-      const sourceTabs = sourcePanel.tabs.filter((t) => t.id !== tabId);
-      const sourceSelected = sourceTabs.length === 0
-        ? ""
-        : tabId === sourcePanel.selectedTabId
-          ? sourceTabs[0].id
-          : sourcePanel.selectedTabId;
-
-      // Create the new panel with the dragged tab
-      const newPanelTree = insertPanelSplit(layout.panelTree, targetPanelId, direction, newPId);
-
-      // If source is the only tab, create a fresh one so the panel isn't empty
-      let finalSourceTabs = sourceTabs;
-      let finalSourceSelected = sourceSelected;
-      if (finalSourceTabs.length === 0) {
-        const fresh = createTab();
-        finalSourceTabs = [fresh];
-        finalSourceSelected = fresh.id;
-      }
-
-      const panels = {
-        ...layout.panels,
-        [sourcePanel.id]: {
-          ...sourcePanel,
-          tabs: finalSourceTabs,
-          selectedTabId: finalSourceSelected,
-          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== tabId),
-        },
-        [newPId]: { id: newPId, tabs: [tab], selectedTabId: tab.id, pinnedTabIds: [] as string[] },
-      };
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panelTree: newPanelTree,
-            panels,
-            activePanelId: newPId,
-          },
-        },
-      };
-    }),
-
-  mergeTabIntoTab: (sourceTabId: string, targetTabId: string) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-      if (sourceTabId === targetTabId) return state;
-
-      const src = findPanelWithTab(layout, sourceTabId);
-      const tgt = findPanelWithTab(layout, targetTabId);
-      if (!src || !tgt) return state;
-      const { panel: sourcePanel, tab: sourceTab } = src;
-      const { panel: targetPanel, tab: targetTab } = tgt;
-
-      // Merge source pane tree into target as a horizontal split
-      const newTargetRoot: PaneNode = {
-        type: "split",
-        direction: "horizontal",
-        ratio: 0.5,
-        first: targetTab.rootNode,
-        second: sourceTab.rootNode,
-      };
-      const focusPaneId = allPaneIds(sourceTab.rootNode)[0];
-
-      // Same panel
-      if (sourcePanel.id === targetPanel.id) {
-        const newTabs = sourcePanel.tabs
-          .filter((t) => t.id !== sourceTabId)
-          .map((t) => t.id === targetTabId ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t);
-        return updatePanel(state, path, layout, sourcePanel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: targetTabId,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
-        }));
-      }
-
-      // Cross-panel
-      const newPanels = { ...layout.panels };
-      let newPanelTree = layout.panelTree;
-
-      newPanels[targetPanel.id] = {
-        ...targetPanel,
-        tabs: targetPanel.tabs.map((t) =>
-          t.id === targetTabId ? { ...t, rootNode: newTargetRoot, focusedPaneId: focusPaneId } : t,
-        ),
-        selectedTabId: targetTabId,
-      };
-
-      const remainingTabs = sourcePanel.tabs.filter((t) => t.id !== sourceTabId);
-      if (remainingTabs.length === 0 && Object.keys(newPanels).length > 1) {
-        const pruned = removePanelFromTree(newPanelTree, sourcePanel.id);
-        if (pruned) newPanelTree = pruned;
-        delete newPanels[sourcePanel.id];
-      } else if (remainingTabs.length === 0) {
-        const fresh = createTab();
-        newPanels[sourcePanel.id] = { ...sourcePanel, tabs: [fresh], selectedTabId: fresh.id, pinnedTabIds: [] };
-      } else {
-        newPanels[sourcePanel.id] = {
-          ...sourcePanel,
-          tabs: remainingTabs,
-          selectedTabId: sourcePanel.selectedTabId === sourceTabId ? remainingTabs[0].id : sourcePanel.selectedTabId,
-          pinnedTabIds: (sourcePanel.pinnedTabIds ?? []).filter((id) => id !== sourceTabId),
-        };
-      }
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: { ...layout, panelTree: newPanelTree, panels: newPanels, activePanelId: targetPanel.id },
-        },
-      };
-    }),
-
-  updateSplitRatio: (firstPaneId: string, ratio: number) =>
-    set((state) => {
-      const ctx = getActivePanelContext(state);
-      if (!ctx) return state;
-      const { path, layout, panel } = ctx;
-      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-      if (!tab) return state;
-      const newRoot = updateRatio(tab.rootNode, firstPaneId, ratio);
-      if (newRoot === tab.rootNode) return state;
-      return updatePanel(state, path, layout, panel.id, (p) => ({
-        ...p,
-        tabs: p.tabs.map((t) =>
-          t.id === tab.id ? { ...t, rootNode: newRoot } : t,
-        ),
+      if (!state.workspaceLayouts[path]?.panels[panelId]) return state;
+      return withViewport(state, path, (vp) => ({
+        ...vp,
+        activePanelId: panelId,
       }));
     }),
+
+  focusNextPanel: () => set((state) => stepPanel(state, nextPanelId)),
+
+  focusPrevPanel: () => set((state) => stepPanel(state, prevPanelId)),
+
+  updatePanelSplitRatio: (firstPanelId: string, ratio: number) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "update-panel-ratio",
+      firstPanelId,
+      ratio,
+    });
+  },
+
+  moveTabToPanel: (tabId: string, targetPanelId: string) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "move-tab-to-panel",
+      tabId,
+      targetPanelId,
+    });
+  },
+
+  splitPanelWithTab: (
+    tabId: string,
+    targetPanelId: string,
+    direction: SplitDirection,
+  ) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "split-panel-with-tab",
+      tabId,
+      targetPanelId,
+      direction,
+      newPanelId: newPanelId(),
+      fallbackTab: createTab(),
+    });
+  },
+
+  // A tab dropped onto another tab stops being a tab: its whole pane subtree
+  // becomes one side of a split of the target's. No ids are minted — the
+  // panes it already has come along.
+  mergeTabIntoTab: (sourceTabId: string, targetTabId: string) => {
+    const path = get().activeWorkspacePath;
+    if (!path || sourceTabId === targetTabId) return;
+    sendLayoutCommand(path, {
+      type: "merge-tab-into-tab",
+      sourceTabId,
+      targetTabId,
+      fallbackTab: createTab(),
+    });
+  },
+
+  updateSplitRatio: (firstPaneId: string, ratio: number) => {
+    const path = get().activeWorkspacePath;
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "update-split-ratio",
+      firstPaneId,
+      ratio,
+    });
+  },
 
   setPickedElement: (paneId: string, result: PickedElementResult) =>
     set((state) => ({
@@ -2858,594 +2290,53 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
-  // ── Multi-window detach / reattach (ADR-156) ──
-
-  serializeTabForDetach: (tabId: string): DetachedTabPayload => {
-    const state = get();
-
-    // The tab may live in any workspace layout, not just the active one.
-    let foundTab: Tab | null = null;
-    for (const layout of Object.values(state.workspaceLayouts)) {
-      const res = findPanelWithTab(layout, tabId);
-      if (res) {
-        foundTab = res.tab;
-        break;
-      }
-    }
-    if (!foundTab) {
-      throw new Error(`serializeTabForDetach: tab ${tabId} not found`);
-    }
-
-    const paneIds = allPaneIds(foundTab.rootNode);
-    const paneState: DetachedTabPayload["paneState"] = {
-      cwd: {},
-      title: {},
-      contentType: {},
-      url: {},
-      favicon: {},
-      agentStatus: {},
-      audioPlaying: {},
-      audioMuted: {},
-      pickedElement: {},
-    };
-    for (const pid of paneIds) {
-      if (state.paneCwd[pid] !== undefined) paneState.cwd[pid] = state.paneCwd[pid];
-      if (state.paneTitle[pid] !== undefined) paneState.title[pid] = state.paneTitle[pid];
-      if (state.paneContentType[pid] !== undefined) paneState.contentType[pid] = state.paneContentType[pid];
-      if (state.paneUrl[pid] !== undefined) paneState.url[pid] = state.paneUrl[pid];
-      if (state.paneFavicon[pid] !== undefined) paneState.favicon[pid] = state.paneFavicon[pid];
-      if (state.paneAgentStatus[pid] !== undefined) paneState.agentStatus[pid] = state.paneAgentStatus[pid];
-      if (state.paneAudioPlaying[pid] !== undefined) paneState.audioPlaying[pid] = state.paneAudioPlaying[pid];
-      if (state.paneAudioMuted[pid] !== undefined) paneState.audioMuted[pid] = state.paneAudioMuted[pid];
-      if (state.panePickedElement[pid] !== undefined) paneState.pickedElement[pid] = state.panePickedElement[pid];
-    }
-
-    // Resolve the theme the tab is currently painted with — its owning
-    // project's override (or null = global). The detached window applies this so
-    // it matches the workspace instead of falling back to the global theme.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
-      ? null
-      : useProjectStore
-          .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
-
-    const payload: DetachedTabPayload = {
-      tab: {
-        id: foundTab.id,
-        title: foundTab.title,
-        rootNode: foundTab.rootNode,
-        focusedPaneId: foundTab.focusedPaneId,
-      },
-      paneState,
-      sourceWorkspacePath,
-      themeName,
-    };
-
-    // Deep-copy so no live store references (rootNode, side-map objects) leak
-    // across the IPC boundary; guarantees a plain, structured-clone-safe value.
-    return structuredClone(payload);
-  },
-
-  removeDetachedTabLocally: (tabId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithTab(ctx.layout, tabId);
-    if (!found) return;
-    const paneIds = allPaneIds(found.tab.rootNode);
-
-    // Release each pane's backend WITHOUT terminating it, so it can re-attach in
-    // the destination window. (closeTab, by contrast, kills these sessions.)
-    for (const pid of paneIds) {
-      const contentType = state.paneContentType[pid];
-      if (contentType === "browser") {
-        window.electronAPI.webview.unregister(pid);
-      } else if (contentType === "diff") {
-        // Diff panes have no backend session to release.
-      } else {
-        // Terminal (default): detach releases the daemon session, keeping it alive.
-        window.electronAPI.pty.detach(pid);
-      }
-    }
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
-      const currentFound = findPanelWithTab(layout, tabId);
-      if (!currentFound) return s;
-      const { panel } = currentFound;
-
-      const idx = panel.tabs.findIndex((t) => t.id === tabId);
-      const newTabs = panel.tabs.filter((t) => t.id !== tabId);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tabId === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
-
-      // Drop the tab's entries from every per-pane side-map.
-      const newCwd = { ...s.paneCwd };
-      const newTitle = { ...s.paneTitle };
-      const newAgentStatus = { ...s.paneAgentStatus };
-      const newContentType = { ...s.paneContentType };
-      const newFavicon = { ...s.paneFavicon };
-      const newAudioPlaying = { ...s.paneAudioPlaying };
-      const newAudioMuted = { ...s.paneAudioMuted };
-      const newPaneUrl = { ...s.paneUrl };
-      const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
-      for (const pid of paneIds) {
-        delete newCwd[pid];
-        delete newTitle[pid];
-        delete newAgentStatus[pid];
-        delete newContentType[pid];
-        delete newFavicon[pid];
-        delete newAudioPlaying[pid];
-        delete newAudioMuted[pid];
-        delete newPaneUrl[pid];
-        delete newPickedElement[pid];
-        delete newPendingCommands[pid];
-      }
-
-      const sideMaps = {
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneFavicon: newFavicon,
-        paneAudioPlaying: newAudioPlaying,
-        paneAudioMuted: newAudioMuted,
-        paneUrl: newPaneUrl,
-        panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
-      };
-
-      // Collapse an emptied panel exactly the way closeTab does.
-      const willRemovePanel =
-        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
-      if (willRemovePanel) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const remainingIds = Object.keys(remainingPanels);
-        const newActivePanelId = remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0];
-        return {
-          ...sideMaps,
-          workspaceLayouts: {
-            ...s.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree ?? layout.panelTree,
-              panels: remainingPanels,
-              activePanelId: newActivePanelId,
-            },
-          },
-        };
-      }
-
-      return {
-        ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelected,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tabId),
-        })),
-      };
-    });
-  },
-
-  serializePaneForDetach: (paneId: string): DetachedTabPayload => {
-    const state = get();
-
-    // The pane may live in any workspace layout, not just the active one.
-    let foundTab: Tab | null = null;
-    for (const layout of Object.values(state.workspaceLayouts)) {
-      const res = findPanelWithPane(layout, paneId);
-      if (res) {
-        foundTab = res.tab;
-        break;
-      }
-    }
-    if (!foundTab) {
-      throw new Error(`serializePaneForDetach: pane ${paneId} not found`);
-    }
-
-    // A detached pane is a single-leaf tab; copy only this pane's side-map
-    // entries into the payload.
-    const paneState: DetachedTabPayload["paneState"] = {
-      cwd: {},
-      title: {},
-      contentType: {},
-      url: {},
-      favicon: {},
-      agentStatus: {},
-      audioPlaying: {},
-      audioMuted: {},
-      pickedElement: {},
-    };
-    if (state.paneCwd[paneId] !== undefined) paneState.cwd[paneId] = state.paneCwd[paneId];
-    if (state.paneTitle[paneId] !== undefined) paneState.title[paneId] = state.paneTitle[paneId];
-    if (state.paneContentType[paneId] !== undefined) paneState.contentType[paneId] = state.paneContentType[paneId];
-    if (state.paneUrl[paneId] !== undefined) paneState.url[paneId] = state.paneUrl[paneId];
-    if (state.paneFavicon[paneId] !== undefined) paneState.favicon[paneId] = state.paneFavicon[paneId];
-    if (state.paneAgentStatus[paneId] !== undefined) paneState.agentStatus[paneId] = state.paneAgentStatus[paneId];
-    if (state.paneAudioPlaying[paneId] !== undefined) paneState.audioPlaying[paneId] = state.paneAudioPlaying[paneId];
-    if (state.paneAudioMuted[paneId] !== undefined) paneState.audioMuted[paneId] = state.paneAudioMuted[paneId];
-    if (state.panePickedElement[paneId] !== undefined) paneState.pickedElement[paneId] = state.panePickedElement[paneId];
-
-    // Resolve the theme/workspace exactly as serializeTabForDetach does.
-    const sourceWorkspacePath = state.activeWorkspacePath ?? "";
-    const themeName = isHomePath(sourceWorkspacePath)
-      ? null
-      : useProjectStore
-          .getState()
-          .projects.find((p) =>
-            p.workspaces.some((w) => w.path === sourceWorkspacePath),
-          )?.themeName ?? null;
-
-    const payload: DetachedTabPayload = {
-      tab: {
-        id: newTabId(),
-        title: "Terminal",
-        rootNode: { type: "leaf", paneId },
-        focusedPaneId: paneId,
-      },
-      paneState,
-      sourceWorkspacePath,
-      themeName,
-    };
-
-    // Deep-copy so no live store references leak across the IPC boundary.
-    return structuredClone(payload);
-  },
-
-  removeDetachedPaneLocally: (paneId: string) => {
-    const state = get();
-    const ctx = getActiveLayoutContext(state);
-    if (!ctx) return;
-    const found = findPanelWithPane(ctx.layout, paneId);
-    if (!found) return;
-
-    // Release this pane's backend WITHOUT terminating it, so it can re-attach in
-    // the destination window.
-    const contentType = state.paneContentType[paneId];
-    if (contentType === "browser") {
-      window.electronAPI.webview.unregister(paneId);
-    } else if (contentType === "diff") {
-      // Diff panes have no backend session to release.
-    } else {
-      // Terminal (default): detach releases the daemon session, keeping it alive.
-      window.electronAPI.pty.detach(paneId);
-    }
-
-    set((s) => {
-      const currentCtx = getActiveLayoutContext(s);
-      if (!currentCtx) return s;
-      const { path, layout } = currentCtx;
-      const currentFound = findPanelWithPane(layout, paneId);
-      if (!currentFound) return s;
-      const { panel, tab } = currentFound;
-
-      const remaining = removePane(tab.rootNode, paneId);
-
-      // Pane was one of several — collapse the split and keep the tab.
-      if (remaining) {
-        const ids = allPaneIds(remaining);
-        const newFocused =
-          tab.focusedPaneId === paneId ? ids[0] : tab.focusedPaneId;
-        return updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: p.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, rootNode: remaining, focusedPaneId: newFocused }
-              : t,
-          ),
-        }));
-      }
-
-      // Pane was the tab's sole leaf — remove the whole tab exactly as
-      // removeDetachedTabLocally does, and drop this pane's side-map entries.
-      const idx = panel.tabs.findIndex((t) => t.id === tab.id);
-      const newTabs = panel.tabs.filter((t) => t.id !== tab.id);
-      const newSelected =
-        newTabs.length === 0
-          ? ""
-          : tab.id === panel.selectedTabId
-            ? newTabs[Math.min(idx, newTabs.length - 1)].id
-            : panel.selectedTabId;
-
-      const newCwd = { ...s.paneCwd };
-      const newTitle = { ...s.paneTitle };
-      const newAgentStatus = { ...s.paneAgentStatus };
-      const newContentType = { ...s.paneContentType };
-      const newFavicon = { ...s.paneFavicon };
-      const newAudioPlaying = { ...s.paneAudioPlaying };
-      const newAudioMuted = { ...s.paneAudioMuted };
-      const newPaneUrl = { ...s.paneUrl };
-      const newPickedElement = { ...s.panePickedElement };
-      const newPendingCommands = { ...s.pendingPaneCommands };
-      delete newCwd[paneId];
-      delete newTitle[paneId];
-      delete newAgentStatus[paneId];
-      delete newContentType[paneId];
-      delete newFavicon[paneId];
-      delete newAudioPlaying[paneId];
-      delete newAudioMuted[paneId];
-      delete newPaneUrl[paneId];
-      delete newPickedElement[paneId];
-      delete newPendingCommands[paneId];
-
-      const sideMaps = {
-        paneCwd: newCwd,
-        paneTitle: newTitle,
-        paneAgentStatus: newAgentStatus,
-        paneContentType: newContentType,
-        paneFavicon: newFavicon,
-        paneAudioPlaying: newAudioPlaying,
-        paneAudioMuted: newAudioMuted,
-        paneUrl: newPaneUrl,
-        panePickedElement: newPickedElement,
-        pendingPaneCommands: newPendingCommands,
-      };
-
-      // Collapse an emptied panel exactly the way removeDetachedTabLocally does.
-      const willRemovePanel =
-        newTabs.length === 0 && Object.keys(layout.panels).length > 1;
-      if (willRemovePanel) {
-        const newPanelTree = removePanelFromTree(layout.panelTree, panel.id);
-        const { [panel.id]: _, ...remainingPanels } = layout.panels;
-        const remainingIds = Object.keys(remainingPanels);
-        const newActivePanelId = remainingIds.includes(layout.activePanelId)
-          ? layout.activePanelId
-          : remainingIds[0];
-        return {
-          ...sideMaps,
-          workspaceLayouts: {
-            ...s.workspaceLayouts,
-            [path]: {
-              ...layout,
-              panelTree: newPanelTree ?? layout.panelTree,
-              panels: remainingPanels,
-              activePanelId: newActivePanelId,
-            },
-          },
-        };
-      }
-
-      return {
-        ...sideMaps,
-        ...updatePanel(s, path, layout, panel.id, (p) => ({
-          ...p,
-          tabs: newTabs,
-          selectedTabId: newSelected,
-          pinnedTabIds: (p.pinnedTabIds ?? []).filter((id) => id !== tab.id),
-        })),
-      };
-    });
-  },
-
-  hydrateDetachedTab: (payload: DetachedTabPayload) =>
-    set((state) => {
-      const tab: Tab = {
-        id: payload.tab.id,
-        title: payload.tab.title,
-        rootNode: payload.tab.rootNode,
-        focusedPaneId: payload.tab.focusedPaneId,
-      };
-      const layout = createSinglePanelLayout([tab], tab.id, []);
-      const key = payload.sourceWorkspacePath;
-      const ps = payload.paneState;
-
-      // Side-map value types are non-null; skip any null entries when merging.
-      const mergeDefined = <T>(
-        base: Record<string, T>,
-        src: Record<string, T | null>,
-      ): Record<string, T> => {
-        const out = { ...base };
-        for (const [pid, value] of Object.entries(src)) {
-          if (value !== null && value !== undefined) out[pid] = value;
-        }
-        return out;
-      };
-
-      return {
-        workspaceLayouts: { ...state.workspaceLayouts, [key]: layout },
-        activeWorkspacePath: key,
-        layoutLoaded: true,
-        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
-        paneTitle: mergeDefined(state.paneTitle, ps.title),
-        paneContentType: { ...state.paneContentType, ...ps.contentType },
-        paneUrl: mergeDefined(state.paneUrl, ps.url),
-        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
-        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
-        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
-        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
-        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
-      };
-    }),
-
-  receiveReattachedTab: (payload: DetachedTabPayload) =>
-    set((state) => {
-      const ctx = getActiveLayoutContext(state);
-      if (!ctx) return state;
-      const { path, layout } = ctx;
-
-      const targetPanel = layout.panels[layout.activePanelId];
-      if (!targetPanel) return state;
-
-      const tab: Tab = {
-        id: payload.tab.id,
-        title: payload.tab.title,
-        rootNode: payload.tab.rootNode,
-        focusedPaneId: payload.tab.focusedPaneId,
-      };
-
-      // Insert into the active panel the same way moveTabToPanel does: append to
-      // the panel's tabs and select the reattached tab.
-      const targetTabs = [...targetPanel.tabs, tab];
-      const ps = payload.paneState;
-
-      // Side-map value types are non-null; skip any null entries when merging.
-      const mergeDefined = <T>(
-        base: Record<string, T>,
-        src: Record<string, T | null>,
-      ): Record<string, T> => {
-        const out = { ...base };
-        for (const [pid, value] of Object.entries(src)) {
-          if (value !== null && value !== undefined) out[pid] = value;
-        }
-        return out;
-      };
-
-      return {
-        workspaceLayouts: {
-          ...state.workspaceLayouts,
-          [path]: {
-            ...layout,
-            panels: {
-              ...layout.panels,
-              [layout.activePanelId]: {
-                ...targetPanel,
-                tabs: targetTabs,
-                selectedTabId: tab.id,
-              },
-            },
-          },
-        },
-        paneCwd: mergeDefined(state.paneCwd, ps.cwd),
-        paneTitle: mergeDefined(state.paneTitle, ps.title),
-        paneContentType: { ...state.paneContentType, ...ps.contentType },
-        paneUrl: mergeDefined(state.paneUrl, ps.url),
-        paneFavicon: mergeDefined(state.paneFavicon, ps.favicon),
-        paneAgentStatus: mergeDefined(state.paneAgentStatus, ps.agentStatus),
-        paneAudioPlaying: { ...state.paneAudioPlaying, ...ps.audioPlaying },
-        paneAudioMuted: { ...state.paneAudioMuted, ...ps.audioMuted },
-        panePickedElement: mergeDefined(state.panePickedElement, ps.pickedElement),
-      };
-    }),
 }));
 
-// ── Layout Persistence ──
-
-let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Immediately persist the active workspace's layout to disk. */
-function flushLayoutSave(): void {
-  const state = useAppStore.getState();
-  const wsPath = state.activeWorkspacePath;
-  if (!wsPath) return;
-  const layout = state.workspaceLayouts[wsPath];
-  if (!layout) return;
-
-  // Serialize all panels in the layout
-  const persistedPanels: Record<string, PersistedPanel> = {};
-  for (const [panelId, panel] of Object.entries(layout.panels)) {
-    persistedPanels[panelId] = {
-      id: panelId,
-      tabs: panel.tabs.map((tab) => {
-        const paneIds = allPaneIds(tab.rootNode);
-        const paneSessions: Record<
-          string,
-          {
-            daemonSessionId: string;
-            lastCwd: string | null;
-            lastTitle: string | null;
-            lastAgentStatus?: AgentState | null;
-          }
-        > = {};
-        for (const pid of paneIds) {
-          paneSessions[pid] = {
-            daemonSessionId: pid,
-            lastCwd: state.paneCwd[pid] ?? null,
-            lastTitle: state.paneTitle[pid] ?? null,
-            lastAgentStatus: state.paneAgentStatus[pid] ?? null,
-          };
-        }
-        return {
-          id: tab.id,
-          title: tab.title,
-          rootNode: tab.rootNode,
-          focusedPaneId: tab.focusedPaneId,
-          paneSessions,
-        } satisfies PersistedTab;
-      }),
-      selectedTabId: panel.selectedTabId,
-      pinnedTabIds: panel.pinnedTabIds,
-    };
-  }
-
-  const persisted: PersistedWorkspace = {
-    workspacePath: wsPath,
-    panelTree: layout.panelTree,
-    panels: persistedPanels,
-    activePanelId: layout.activePanelId,
-  };
-
-  window.electronAPI?.layout.save(persisted)?.catch(handleLayoutSaveRejection);
-}
-
-/**
- * The web app can't persist a layout yet (ADR-178, slice 2 owns that). The
- * bridge refuses every `layout.save` with the same `BridgeUnavailableError`,
- * and this fires on every debounced save — so the shared once-per-session
- * toast (`src/lib/bridge-unavailable-toast.ts`) lets only the first one
- * reach the user; every save after that stays silent. The local mutation
- * already happened before this was ever called; only the write to disk is
- * refused. A thin wrapper rather than a direct `.catch(handleBridgeUnavailable(...))`
- * because a real save failure here is logged, not rethrown — this runs off a
- * debounce timer with nothing above it to catch a throw.
- */
-export function handleLayoutSaveRejection(err: unknown): void {
-  if (!(err instanceof BridgeUnavailableError)) {
-    console.error("[layout] failed to save layout:", err);
-    return;
-  }
-  showBridgeUnavailableToastOnce(
-    "layout-save-unavailable",
-    "Layout changes aren't saved from the browser yet",
-  );
-}
-
-/** Debounced save of the active workspace's layout to disk */
-function saveActiveWorkspaceLayout(): void {
-  if (saveLayoutTimer) clearTimeout(saveLayoutTimer);
-  saveLayoutTimer = setTimeout(() => {
-    saveLayoutTimer = null;
-    flushLayoutSave();
-  }, 500);
-}
-
-// Subscribe to store changes and auto-save layout.
+// ── The server's broadcasts land here (ADR-179 D1) ──
 //
-// Detached windows (ADR-156) are ephemeral and MUST NOT persist their layout —
-// they share a `workspacePath` with the primary window, so saving would clobber
-// the primary's persisted state. Gate the whole subscription on detached mode.
-useAppStore.subscribe((state, prevState) => {
-  if (window.electronAPI?.isDetached) return;
-  if (
-    state.workspaceLayouts !== prevState.workspaceLayouts ||
-    state.activeWorkspacePath !== prevState.activeWorkspacePath ||
-    state.paneAgentStatus !== prevState.paneAgentStatus
-  ) {
-    saveActiveWorkspaceLayout();
-  }
+// Installed at import time, which is before anything can call
+// `loadPersistedLayout`: a change that happens between the read and its
+// resolution is delivered, and the version guard drops it if the read already
+// had it.
+//
+// Every renderer, detached windows included (ADR-179 D4): a detached window
+// is a viewport with a claim on one tab of the *shared* layout, not a second
+// store holding a tab of its own, so it hears about the workspace exactly
+// like the primary does and shows the one tab it holds.
+//
+// Deferred one microtask rather than called bare: on the desktop
+// `window.electronAPI` is the preload's, already there before this module's
+// first line runs, but on the web it is `web-main.tsx`'s own last statement —
+// and ES module evaluation runs `import App from "./App"` (and everything it
+// pulls in, this file included) *before* that statement, no matter where it
+// sits in the file. Called bare, this line's `window.electronAPI` is
+// `undefined` on every browser tab, silently, forever — every other
+// `window.electronAPI.*` call in the app is safe because it runs from a
+// mounted effect, after `web-main.tsx` has finished; this is the one call at
+// module scope. `queueMicrotask` costs nothing here (`web-main.tsx` awaits
+// `loadTerminalFonts()` right after installing the bridge, which is time
+// enough) and turns this into the same "runs after the bridge exists"
+// guarantee every other call site already has for free.
+queueMicrotask(() => {
+  window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 });
 
-// Flush any pending layout save before the window unloads (app quit / reload)
-// so that recently-created panes (e.g. diff, browser) are never lost. Detached
-// windows never save, so this flush is a no-op for them.
-window.addEventListener("beforeunload", () => {
-  if (window.electronAPI?.isDetached) return;
-  if (saveLayoutTimer) {
-    clearTimeout(saveLayoutTimer);
-    saveLayoutTimer = null;
-    flushLayoutSave();
+// ── This renderer's viewport, out to its file and to the host (D3) ──
+//
+// One subscription for both: the file is what this renderer reopens on, the
+// report is what the *host* hands a renderer that has never seen the
+// workspace. Both are debounced or fire-and-forget, because a selection
+// changes on every arrow key and neither destination is on the render path.
+useAppStore.subscribe((state, previous) => {
+  if (
+    state.viewports === previous.viewports &&
+    state.activeWorkspacePath === previous.activeWorkspacePath
+  ) {
+    return;
+  }
+  scheduleViewportSave();
+  for (const [workspacePath, viewport] of Object.entries(state.viewports)) {
+    if (previous.viewports[workspacePath] === viewport) continue;
+    reportViewport(workspacePath, viewport);
   }
 });

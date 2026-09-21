@@ -1,4 +1,4 @@
-import type { PanelNode } from "../../store/panel-tree";
+import type { PanelNode } from "../../lib/layout/panel-tree";
 import { LeafPanel } from "./LeafPanel";
 import { SplitPanelLayout } from "./SplitPanelLayout";
 

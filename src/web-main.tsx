@@ -19,10 +19,9 @@ import { NoTokenScreen, ForbiddenScreen } from "./web/screens";
  * pairing token rides in the URL fragment, which browsers never send to a
  * server, so the page has to load before it can authenticate anything.
  *
- * Deliberately not `src/main.tsx` with a flag: that file also boots
- * `DetachedApp` for popup windows (ADR-156), which has no meaning in a
- * browser tab, and it reads `window.electronAPI` as something the preload
- * script already installed — here this module has to install it first.
+ * Deliberately not `src/main.tsx` with a flag: that file reads
+ * `window.electronAPI` as something the preload script already installed —
+ * here this module has to install it first.
  */
 
 /**
@@ -72,6 +71,19 @@ function show(screen: React.ReactNode): void {
 }
 
 /**
+ * Whether the bridge has already decided this tab never gets `<App />`.
+ *
+ * `onUnauthorized`/`onForbidden` can fire before the `show()` below does —
+ * the socket's hello round-trip races `loadTerminalFonts()`, and a fast
+ * local connection (or, since ADR-179, the earlier `layout.onChanged`
+ * subscribe below) can easily win. Without this flag the unconditional
+ * `show()` after the await stomps right back over whichever refusal screen
+ * just rendered, and `<App />` (or a blank `NoTokenScreen`) briefly shows
+ * for a device that was just told no.
+ */
+let settled = false;
+
+/**
  * Installed before anything renders: the 66 files that call
  * `window.electronAPI` do so from their first effect, and the bridge is what
  * they find there. It dials lazily, so nothing here races the first paint.
@@ -82,22 +94,26 @@ window.electronAPI = createWsBridge({
   onUnauthorized: () => {
     // The token was revoked, or the host forgot it. Drop it and start over
     // rather than reconnecting forever against an answer that will not change.
+    settled = true;
     forgetWebToken();
     show(<NoTokenScreen />);
   },
   onForbidden: () => {
+    settled = true;
     show(<ForbiddenScreen />);
   },
 });
 
 await loadTerminalFonts();
 
-show(
-  token ? (
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  ) : (
-    <NoTokenScreen />
-  ),
-);
+if (!settled) {
+  show(
+    token ? (
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    ) : (
+      <NoTokenScreen />
+    ),
+  );
+}

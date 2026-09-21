@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { appCommandHandlers } from "../app-commands";
-import { useAppStore } from "../../store/app-store";
+import {
+  useAppStore,
+  selectSelectedTabId,
+} from "../../store/app-store";
+import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
 import type { ProjectInfo } from "../../store/project-store";
-import { usePreferencesStore } from "../../store/preferences-store";
-import { HOME_PATH } from "../home-path";
-import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
-import { hasPaneId } from "../../store/pane-tree";
+import { hasPaneId } from "../../lib/layout/pane-tree";
+import {
+  resetFakeLayoutServer,
+  seedLayout,
+} from "../../store/__tests__/fake-layout-server";
 
 const WS_PATH = "/test/workspace";
 const OTHER_WS_PATH = "/test/other";
@@ -16,13 +21,11 @@ function makeLayout(tab: Tab): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs: [tab],
-    selectedTabId: tab.id,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -31,7 +34,6 @@ function singlePaneTab(): Tab {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf", paneId: "pane-1" },
-    focusedPaneId: "pane-1",
   };
 }
 
@@ -40,25 +42,19 @@ function tabWithId(id: string, paneId: string): Tab {
     id,
     title: "Terminal",
     rootNode: { type: "leaf", paneId },
-    focusedPaneId: paneId,
   };
 }
 
 /** A single-panel layout with an arbitrary number of tabs, for tab commands. */
-function makeLayoutWithTabs(
-  tabs: Tab[],
-  selectedTabId: string = tabs[0].id,
-): WorkspaceLayout {
+function makeLayoutWithTabs(tabs: Tab[]): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs,
-    selectedTabId,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -73,57 +69,27 @@ function twoPaneTab(): Tab {
       first: { type: "leaf", paneId: "pane-1" },
       second: { type: "leaf", paneId: "pane-2" },
     },
-    focusedPaneId: "pane-2",
-  };
-}
-
-function makeMultiPanelLayout(): WorkspaceLayout {
-  const activeTab = singlePaneTab();
-  const activePanel: Panel = {
-    id: "panel-1",
-    tabs: [activeTab],
-    selectedTabId: activeTab.id,
-    pinnedTabIds: [],
-  };
-  const otherTab: Tab = {
-    id: "tab-2",
-    title: "Terminal",
-    rootNode: { type: "leaf", paneId: "pane-9" },
-    focusedPaneId: "pane-9",
-  };
-  const otherPanel: Panel = {
-    id: "panel-2",
-    tabs: [otherTab],
-    selectedTabId: otherTab.id,
-    pinnedTabIds: [],
-  };
-  return {
-    panelTree: {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      first: { type: "leaf", panelId: activePanel.id },
-      second: { type: "leaf", panelId: otherPanel.id },
-    },
-    panels: { [activePanel.id]: activePanel, [otherPanel.id]: otherPanel },
-    activePanelId: activePanel.id,
   };
 }
 
 function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
+  // These handlers are viewport-only now (ADR-179 D5) and never send a
+  // `LayoutCommand`, but `setupStore` still seeds the fake server so a test
+  // that reads `workspaceLayouts` sees the same layout either way.
+  resetFakeLayoutServer();
+  seedLayout(WS_PATH, layout);
   useAppStore.setState({
     activeWorkspacePath: activePath,
     workspaceLayouts: { [WS_PATH]: layout },
+    viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -141,6 +107,19 @@ function tabHolding(paneId: string): Tab | undefined {
   return undefined;
 }
 
+/** This renderer's focused pane for the tab holding `paneId` (ADR-179 D3). */
+function focusOfTabHolding(paneId: string): string | null {
+  const tab = tabHolding(paneId);
+  return tab
+    ? useAppStore.getState().viewports[WS_PATH]?.focusedPaneIds[tab.id] ?? null
+    : null;
+}
+
+/** This renderer's selected tab in a panel of the active workspace. */
+function selectedTabId(panelId = "panel-1"): string | null {
+  return selectSelectedTabId(useAppStore.getState(), panelId);
+}
+
 const run = (cmd: string, args: Record<string, unknown> = {}) =>
   appCommandHandlers[cmd](args);
 
@@ -149,322 +128,12 @@ beforeEach(() => {
   setupStore(makeLayout(singlePaneTab()));
 });
 
-describe("list-panes", () => {
-  it("returns the layout snapshot", () => {
-    setupStore(makeLayout(twoPaneTab()));
-    useAppStore.setState({
-      paneContentType: { "pane-2": "browser" },
-      paneUrl: { "pane-2": "https://example.com" },
-    });
-
-    expect(run("list-panes")).toEqual({
-      workspacePath: WS_PATH,
-      activeTabId: "tab-1",
-      focusedPaneId: "pane-2",
-      tabs: [
-        {
-          tabId: "tab-1",
-          title: "Terminal",
-          focusedPaneId: "pane-2",
-          panes: [
-            { paneId: "pane-1", contentType: "terminal" },
-            {
-              paneId: "pane-2",
-              contentType: "browser",
-              url: "https://example.com",
-            },
-          ],
-        },
-      ],
-    });
-  });
-
-  it("throws when no workspace is active", () => {
-    useAppStore.setState({ activeWorkspacePath: null });
-    expect(() => run("list-panes")).toThrow(/No active workspace/);
-  });
-});
-
-describe("split-pane", () => {
-  it("defaults the target to the active tab's focused pane", () => {
-    setupStore(makeLayout(twoPaneTab()));
-
-    const result = run("split-pane", { direction: "vertical" }) as {
-      paneId: string;
-    };
-
-    // pane-2 is focused, so the new pane is its sibling in a vertical split.
-    const root = tabHolding(result.paneId)!.rootNode;
-    expect(root).toMatchObject({
-      type: "split",
-      direction: "horizontal",
-      second: {
-        type: "split",
-        direction: "vertical",
-        first: { paneId: "pane-2" },
-        second: { paneId: result.paneId },
-      },
-    });
-  });
-
-  it("returns a paneId that exists in the store", () => {
-    const { paneId } = run("split-pane", {
-      paneId: "pane-1",
-      direction: "horizontal",
-    }) as { paneId: string };
-
-    expect(paneId).toMatch(/^pane-/);
-    expect(tabHolding(paneId)?.focusedPaneId).toBe(paneId);
-  });
-
-  it("honours position: first", () => {
-    const { paneId } = run("split-pane", {
-      direction: "horizontal",
-      position: "first",
-    }) as { paneId: string };
-
-    expect(tabHolding(paneId)!.rootNode).toMatchObject({
-      type: "split",
-      first: { paneId },
-      second: { paneId: "pane-1" },
-    });
-  });
-
-  it("applies contentType and url", () => {
-    const { paneId } = run("split-pane", {
-      direction: "horizontal",
-      contentType: "browser",
-      url: "https://example.com",
-    }) as { paneId: string };
-
-    const state = useAppStore.getState();
-    expect(state.paneContentType[paneId]).toBe("browser");
-    expect(state.paneUrl[paneId]).toBe("https://example.com");
-  });
-
-  it("applies contentType and command", () => {
-    const { paneId } = run("split-pane", {
-      direction: "horizontal",
-      contentType: "terminal",
-      command: "pnpm dev",
-    }) as { paneId: string };
-
-    const state = useAppStore.getState();
-    expect(state.pendingPaneCommands[paneId]).toBe("pnpm dev");
-  });
-
-  it("throws when a browser split also carries a command", () => {
-    expect(() =>
-      run("split-pane", {
-        direction: "horizontal",
-        contentType: "browser",
-        url: "https://example.com",
-        command: "pnpm dev",
-      }),
-    ).toThrow(/command applies only to a terminal or agent pane/);
-  });
-
-  it("throws when a non-browser split carries a url", () => {
-    expect(() =>
-      run("split-pane", {
-        direction: "horizontal",
-        contentType: "terminal",
-        url: "https://example.com",
-      }),
-    ).toThrow(/url applies only to contentType 'browser'/);
-  });
-
-  it("succeeds on a pane in a non-active panel", () => {
-    setupStore(makeMultiPanelLayout());
-
-    const { paneId } = run("split-pane", {
-      paneId: "pane-9",
-      direction: "horizontal",
-    }) as { paneId: string };
-
-    expect(tabHolding(paneId)?.focusedPaneId).toBe(paneId);
-  });
-
-  it("throws on an unknown paneId", () => {
-    expect(() =>
-      run("split-pane", { paneId: "pane-nope", direction: "horizontal" }),
-    ).toThrow(/Unknown paneId: pane-nope/);
-  });
-
-  it("throws on an invalid direction", () => {
-    expect(() => run("split-pane", { direction: "sideways" })).toThrow(
-      /direction must be one of/,
-    );
-    expect(() => run("split-pane", {})).toThrow(/direction must be one of/);
-  });
-
-  it("throws on an invalid contentType", () => {
-    expect(() =>
-      run("split-pane", {
-        direction: "horizontal",
-        contentType: "spreadsheet",
-      }),
-    ).toThrow(/contentType must be one of/);
-  });
-
-  it("throws when there is no active workspace", () => {
-    useAppStore.setState({ activeWorkspacePath: null });
-    expect(() => run("split-pane", { direction: "horizontal" })).toThrow(
-      /No active workspace/,
-    );
-  });
-});
-
-describe("new-tab", () => {
-  it("creates a plain terminal tab", () => {
-    const { tabId, paneId } = run("new-tab", { contentType: "terminal" }) as {
-      tabId: string;
-      paneId: string;
-    };
-
-    const tab = tabHolding(paneId);
-    expect(tab?.id).toBe(tabId);
-    expect(useAppStore.getState().pendingPaneCommands[paneId]).toBeUndefined();
-  });
-
-  it("creates a terminal tab that runs a command", () => {
-    const { paneId } = run("new-tab", {
-      contentType: "terminal",
-      command: "pnpm dev",
-    }) as { tabId: string; paneId: string };
-
-    expect(useAppStore.getState().pendingPaneCommands[paneId]).toBe("pnpm dev");
-  });
-
-  it("sets paneUrl for a browser tab", () => {
-    const { tabId, paneId } = run("new-tab", {
-      contentType: "browser",
-      url: "https://example.com",
-    }) as { tabId: string; paneId: string };
-
-    const state = useAppStore.getState();
-    expect(state.paneUrl[paneId]).toBe("https://example.com");
-    expect(state.paneContentType[paneId]).toBe("browser");
-    expect(tabHolding(paneId)?.id).toBe(tabId);
-  });
-
-  it("leaves the current tab selected when background is true", () => {
-    const { tabId } = run("new-tab", {
-      contentType: "browser",
-      url: "https://example.com",
-      background: true,
-    }) as { tabId: string };
-
-    const state = useAppStore.getState();
-    const panel = state.workspaceLayouts[WS_PATH].panels["panel-1"];
-    expect(panel.selectedTabId).toBe("tab-1");
-    expect(panel.tabs.some((t) => t.id === tabId)).toBe(true);
-  });
-
-  it("throws when a browser tab has no url", () => {
-    expect(() => run("new-tab", { contentType: "browser" })).toThrow(
-      /requires a url/,
-    );
-  });
-
-  it("throws on an invalid contentType", () => {
-    expect(() => run("new-tab", { contentType: "diff" })).toThrow(
-      /contentType must be one of/,
-    );
-  });
-
-  function registerOtherWorkspace() {
-    useProjectStore.setState({
-      projects: [
-        {
-          id: "p1",
-          name: "manor",
-          path: "/repo",
-          workspaces: [{ path: OTHER_WS_PATH }],
-        },
-      ] as unknown as ProjectInfo[],
-      selectedProjectIndex: 0,
-    });
-  }
-
-  it("creates the tab in the target workspace, then restores the previous workspace", () => {
-    registerOtherWorkspace();
-
-    const { tabId, paneId } = run("new-tab", {
-      contentType: "terminal",
-      workspacePath: OTHER_WS_PATH,
-    }) as { tabId: string; paneId: string };
-
-    const state = useAppStore.getState();
-    // The user's foreground workspace is never hijacked.
-    expect(state.activeWorkspacePath).toBe(WS_PATH);
-
-    // But the tab really was created in the target workspace.
-    const otherLayout = state.workspaceLayouts[OTHER_WS_PATH];
-    const tab = Object.values(otherLayout.panels)
-      .flatMap((p) => p.tabs)
-      .find((t) => t.id === tabId);
-    expect(tab).toBeDefined();
-    expect(hasPaneId(tab!.rootNode, paneId)).toBe(true);
-
-    const oldLayout = state.workspaceLayouts[WS_PATH];
-    expect(Object.values(oldLayout.panels).flatMap((p) => p.tabs)).toHaveLength(
-      1,
-    );
-  });
-
-  it("returns the tabId/paneId of the tab created in the target workspace", () => {
-    registerOtherWorkspace();
-
-    const created = run("new-tab", {
-      contentType: "browser",
-      url: "https://example.com",
-      workspacePath: OTHER_WS_PATH,
-    }) as { tabId: string; paneId: string };
-
-    expect(created.tabId).toEqual(expect.any(String));
-    expect(created.paneId).toEqual(expect.any(String));
-
-    const otherLayout = useAppStore.getState().workspaceLayouts[OTHER_WS_PATH];
-    const tab = Object.values(otherLayout.panels)
-      .flatMap((p) => p.tabs)
-      .find((t) => t.id === created.tabId);
-    expect(tab && hasPaneId(tab.rootNode, created.paneId)).toBe(true);
-  });
-
-  it("leaves activeWorkspacePath unchanged when background is invalid", () => {
-    registerOtherWorkspace();
-
-    expect(() =>
-      run("new-tab", {
-        contentType: "browser",
-        url: "https://example.com",
-        workspacePath: OTHER_WS_PATH,
-        background: "yes",
-      }),
-    ).toThrow(/background must be a boolean/);
-
-    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
-    // No tab should have been created in the target workspace either.
-    expect(
-      useAppStore.getState().workspaceLayouts[OTHER_WS_PATH],
-    ).toBeUndefined();
-  });
-
-  it("throws on an unknown workspacePath", () => {
-    expect(() =>
-      run("new-tab", { contentType: "terminal", workspacePath: "/nope" }),
-    ).toThrow(/Unknown workspace: \/nope/);
-    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
-  });
-});
-
 describe("focus-pane", () => {
   it("focuses an existing pane", () => {
     setupStore(makeLayout(twoPaneTab()));
 
     expect(run("focus-pane", { paneId: "pane-1" })).toEqual({ ok: true });
-    expect(tabHolding("pane-1")?.focusedPaneId).toBe("pane-1");
+    expect(focusOfTabHolding("pane-1")).toBe("pane-1");
   });
 
   it("throws on an unknown paneId", () => {
@@ -478,40 +147,6 @@ describe("focus-pane", () => {
   });
 });
 
-describe("close-pane", () => {
-  beforeEach(() => {
-    vi.stubGlobal("window", {
-      ...window,
-      electronAPI: {
-        ...(window as unknown as { electronAPI: Record<string, unknown> })
-          .electronAPI,
-        agents: { abandonForPane: vi.fn().mockResolvedValue(undefined) },
-      },
-    });
-  });
-
-  it("closes an existing pane", () => {
-    setupStore(makeLayout(twoPaneTab()));
-
-    expect(run("close-pane", { paneId: "pane-1" })).toEqual({ ok: true });
-    expect(tabHolding("pane-1")).toBeUndefined();
-    expect(tabHolding("pane-2")).toBeDefined();
-  });
-
-  it("throws on an unknown paneId", () => {
-    expect(() => run("close-pane", { paneId: "pane-nope" })).toThrow(
-      /Unknown paneId/,
-    );
-  });
-
-  it("succeeds on a pane in a non-active panel", () => {
-    setupStore(makeMultiPanelLayout());
-
-    expect(run("close-pane", { paneId: "pane-9" })).toEqual({ ok: true });
-    expect(tabHolding("pane-9")).toBeUndefined();
-  });
-});
-
 describe("select-tab", () => {
   it("selects an existing tab in the active panel", () => {
     setupStore(
@@ -522,10 +157,7 @@ describe("select-tab", () => {
     );
 
     expect(run("select-tab", { tabId: "tab-2" })).toEqual({ tabId: "tab-2" });
-    expect(
-      useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"]
-        .selectedTabId,
-    ).toBe("tab-2");
+    expect(selectedTabId()).toBe("tab-2");
   });
 
   it("throws on an unknown tabId", () => {
@@ -544,22 +176,26 @@ describe("select-tab", () => {
 describe("next-tab / prev-tab", () => {
   it("selects the next tab, wrapping around", () => {
     setupStore(
-      makeLayoutWithTabs(
-        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
-        "tab-2",
-      ),
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
     );
+    // The selection is this renderer's, so it is set the way a user would
+    // set it rather than baked into the layout (ADR-179 D3).
+    useAppStore.getState().selectTab("tab-2");
 
     expect(run("next-tab")).toEqual({ tabId: "tab-1" });
   });
 
   it("selects the previous tab", () => {
     setupStore(
-      makeLayoutWithTabs(
-        [tabWithId("tab-1", "pane-1"), tabWithId("tab-2", "pane-2")],
-        "tab-2",
-      ),
+      makeLayoutWithTabs([
+        tabWithId("tab-1", "pane-1"),
+        tabWithId("tab-2", "pane-2"),
+      ]),
     );
+    useAppStore.getState().selectTab("tab-2");
 
     expect(run("prev-tab")).toEqual({ tabId: "tab-1" });
   });
@@ -571,319 +207,10 @@ describe("next-tab / prev-tab", () => {
   });
 });
 
-describe("close-tab", () => {
-  it("closes an existing tab", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(run("close-tab", { tabId: "tab-1" })).toEqual({ ok: true });
-    expect(
-      useAppStore
-        .getState()
-        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
-    ).toEqual(["tab-2"]);
-  });
-
-  it("throws on an unknown tabId", () => {
-    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
-
-    expect(() => run("close-tab", { tabId: "tab-nope" })).toThrow(
-      /Unknown tabId: tab-nope/,
-    );
-  });
-});
-
-describe("close-other-tabs / close-tabs-to-right", () => {
-  beforeEach(() => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-        tabWithId("tab-3", "pane-3"),
-      ]),
-    );
-  });
-
-  it("closes every other tab", () => {
-    expect(run("close-other-tabs", { tabId: "tab-2" })).toEqual({ ok: true });
-    expect(
-      useAppStore
-        .getState()
-        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
-    ).toEqual(["tab-2"]);
-  });
-
-  it("closes every tab to the right", () => {
-    expect(run("close-tabs-to-right", { tabId: "tab-1" })).toEqual({
-      ok: true,
-    });
-    expect(
-      useAppStore
-        .getState()
-        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
-    ).toEqual(["tab-1"]);
-  });
-
-  it("throws on an unknown tabId", () => {
-    expect(() => run("close-other-tabs", { tabId: "tab-nope" })).toThrow(
-      /Unknown tabId: tab-nope/,
-    );
-    expect(() => run("close-tabs-to-right", { tabId: "tab-nope" })).toThrow(
-      /Unknown tabId: tab-nope/,
-    );
-  });
-});
-
-describe("pin-tab", () => {
-  it("pins then unpins a tab, returning the new state", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(run("pin-tab", { tabId: "tab-1" })).toEqual({
-      tabId: "tab-1",
-      pinned: true,
-    });
-    expect(run("pin-tab", { tabId: "tab-1" })).toEqual({
-      tabId: "tab-1",
-      pinned: false,
-    });
-  });
-
-  it("throws on an unknown tabId", () => {
-    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
-
-    expect(() => run("pin-tab", { tabId: "tab-nope" })).toThrow(
-      /Unknown tabId: tab-nope/,
-    );
-  });
-});
-
-describe("duplicate-tab", () => {
-  it("duplicates a tab and returns the new tabId", () => {
-    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
-
-    const result = run("duplicate-tab", { tabId: "tab-1" }) as {
-      tabId: string;
-    };
-
-    expect(result.tabId).not.toBe("tab-1");
-    expect(
-      useAppStore
-        .getState()
-        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
-    ).toEqual(["tab-1", result.tabId]);
-  });
-
-  it("throws on an unknown tabId", () => {
-    setupStore(makeLayoutWithTabs([tabWithId("tab-1", "pane-1")]));
-
-    expect(() => run("duplicate-tab", { tabId: "tab-nope" })).toThrow(
-      /Unknown tabId: tab-nope/,
-    );
-  });
-});
-
-describe("reorder-tabs", () => {
-  it("reorders the active panel's tabs", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(run("reorder-tabs", { tabIds: ["tab-2", "tab-1"] })).toEqual({
-      ok: true,
-    });
-    expect(
-      useAppStore
-        .getState()
-        .workspaceLayouts[WS_PATH].panels["panel-1"].tabs.map((t) => t.id),
-    ).toEqual(["tab-2", "tab-1"]);
-  });
-
-  it("throws when tabIds omits a current tab", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(() => run("reorder-tabs", { tabIds: ["tab-1"] })).toThrow(
-      /reorder-tabs/,
-    );
-  });
-
-  it("throws when tabIds has a duplicate", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(() => run("reorder-tabs", { tabIds: ["tab-1", "tab-1"] })).toThrow(
-      /reorder-tabs/,
-    );
-  });
-
-  it("throws when tabIds names a tab that does not exist", () => {
-    setupStore(
-      makeLayoutWithTabs([
-        tabWithId("tab-1", "pane-1"),
-        tabWithId("tab-2", "pane-2"),
-      ]),
-    );
-
-    expect(() =>
-      run("reorder-tabs", { tabIds: ["tab-1", "tab-nope"] }),
-    ).toThrow(/reorder-tabs/);
-  });
-});
-
-describe("open-diff", () => {
-  it("creates and focuses a diff tab", () => {
-    const result = run("open-diff") as { tabId: string };
-
-    const panel =
-      useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"];
-    expect(panel.selectedTabId).toBe(result.tabId);
-    const diffTab = panel.tabs[panel.tabs.length - 1];
-    expect(useAppStore.getState().paneContentType[diffTab.focusedPaneId]).toBe(
-      "diff",
-    );
-  });
-});
-
-describe("set-pane-title / clear-pane-title", () => {
-  it("sets then clears a pane's title", () => {
-    expect(
-      run("set-pane-title", { paneId: "pane-1", title: "My Title" }),
-    ).toEqual({ paneId: "pane-1", title: "My Title" });
-    expect(useAppStore.getState().paneTitle["pane-1"]).toBe("My Title");
-
-    expect(run("clear-pane-title", { paneId: "pane-1" })).toEqual({
-      paneId: "pane-1",
-    });
-    expect(useAppStore.getState().paneTitle["pane-1"]).toBeUndefined();
-  });
-
-  it("throws on an unknown paneId", () => {
-    expect(() =>
-      run("set-pane-title", { paneId: "pane-nope", title: "x" }),
-    ).toThrow(/Unknown paneId: pane-nope/);
-    expect(() => run("clear-pane-title", { paneId: "pane-nope" })).toThrow(
-      /Unknown paneId: pane-nope/,
-    );
-  });
-});
-
-describe("move-pane", () => {
-  it("moves a pane next to another pane, keeping its paneId", () => {
-    setupStore(makeMultiPanelLayout());
-
-    const result = run("move-pane", {
-      paneId: "pane-9",
-      targetPaneId: "pane-1",
-      direction: "horizontal",
-    }) as { paneId: string };
-
-    expect(result).toEqual({ paneId: "pane-9" });
-    expect(tabHolding("pane-9")).toBeDefined();
-  });
-
-  it("throws on an unknown source paneId", () => {
-    setupStore(makeMultiPanelLayout());
-
-    expect(() =>
-      run("move-pane", {
-        paneId: "pane-nope",
-        targetPaneId: "pane-1",
-        direction: "horizontal",
-      }),
-    ).toThrow(/Unknown paneId: pane-nope/);
-  });
-
-  it("throws on an unknown target paneId", () => {
-    setupStore(makeMultiPanelLayout());
-
-    expect(() =>
-      run("move-pane", {
-        paneId: "pane-9",
-        targetPaneId: "pane-nope",
-        direction: "horizontal",
-      }),
-    ).toThrow(/Unknown paneId: pane-nope/);
-  });
-});
-
-describe("extract-pane-to-tab", () => {
-  it("extracts a pane into its own tab", () => {
-    setupStore(makeLayout(twoPaneTab()));
-
-    const result = run("extract-pane-to-tab", { paneId: "pane-2" }) as {
-      tabId: string;
-    };
-
-    expect(tabHolding("pane-2")?.id).toBe(result.tabId);
-  });
-
-  it("throws on an unknown paneId", () => {
-    expect(() => run("extract-pane-to-tab", { paneId: "pane-nope" })).toThrow(
-      /Unknown paneId: pane-nope/,
-    );
-  });
-
-  it("throws on an unknown targetPanelId", () => {
-    setupStore(makeLayout(twoPaneTab()));
-
-    expect(() =>
-      run("extract-pane-to-tab", {
-        paneId: "pane-2",
-        targetPanelId: "panel-nope",
-      }),
-    ).toThrow(/Unknown panelId: panel-nope/);
-  });
-});
-
-describe("reopen-closed-pane", () => {
-  beforeEach(() => {
-    vi.stubGlobal("window", {
-      ...window,
-      electronAPI: {
-        ...(window as unknown as { electronAPI: Record<string, unknown> })
-          .electronAPI,
-        agents: { abandonForPane: vi.fn().mockResolvedValue(undefined) },
-      },
-    });
-  });
-
-  it("throws when there is nothing to reopen", () => {
-    expect(() => run("reopen-closed-pane")).toThrow(/Nothing to reopen/);
-  });
-
-  it("reopens the most recently closed pane", () => {
-    setupStore(makeLayout(twoPaneTab()));
-    run("close-pane", { paneId: "pane-1" });
-
-    expect(tabHolding("pane-1")).toBeUndefined();
-    expect(run("reopen-closed-pane")).toEqual({ ok: true });
-    expect(tabHolding("pane-1")).toBeDefined();
-  });
-});
-
 describe("focus-next-pane / focus-prev-pane", () => {
   it("cycles focus forward and back through the panes in the active tab", () => {
-    setupStore(makeLayout(twoPaneTab())); // focusedPaneId starts at pane-2
+    setupStore(makeLayout(twoPaneTab()));
+    useAppStore.getState().focusPane("pane-2");
 
     expect(run("focus-next-pane")).toEqual({ paneId: "pane-1" });
     expect(run("focus-prev-pane")).toEqual({ paneId: "pane-2" });
@@ -917,274 +244,22 @@ describe("set-active-workspace", () => {
   });
 });
 
-/**
- * `start-agent` is the ADR-176 fix: every read and write keys off the
- * requested `workspacePath`, so a launch aimed at one workspace can no longer
- * seed its prompt onto whichever workspace happened to be active.
- */
-describe("start-agent", () => {
-  const WS_AGENT_CMD = "claude --workspace";
-  const OTHER_AGENT_CMD = "codex --other";
-
-  let selectWorkspace: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    // `launchAgentInWorkspace` (agent-prompt-launch.ts) selects the target
-    // workspace through the project store before it does anything else, so
-    // the sidebar highlight follows — that store action calls out to main.
-    selectWorkspace = vi.fn();
-    vi.stubGlobal("window", {
-      ...window,
-      electronAPI: {
-        ...(window as unknown as { electronAPI: Record<string, unknown> })
-          .electronAPI,
-        projects: { selectWorkspace },
-      },
-    });
-  });
-
-  /** Two workspaces with different agent commands, the *other* one active. */
-  function setupTwoWorkspaces() {
-    useProjectStore.setState({
-      projects: [
-        {
-          id: "p1",
-          name: "manor",
-          path: "/repo",
-          agentCommand: WS_AGENT_CMD,
-          workspaces: [{ path: WS_PATH }],
-        },
-        {
-          id: "p2",
-          name: "other",
-          path: "/other",
-          agentCommand: OTHER_AGENT_CMD,
-          workspaces: [{ path: OTHER_WS_PATH }],
-        },
-      ] as unknown as ProjectInfo[],
-      selectedProjectIndex: 1,
-    });
-    useAppStore.setState({
-      activeWorkspacePath: OTHER_WS_PATH,
-      workspaceLayouts: {
-        [WS_PATH]: makeLayout(singlePaneTab()),
-        [OTHER_WS_PATH]: makeLayout(tabWithId("tab-other", "pane-other")),
-      },
-    });
-  }
-
-  const start = (args: Record<string, unknown>) =>
-    run("start-agent", args) as Promise<{
-      tabId: string;
-      paneId: string;
-      workspacePath: string;
-    }>;
-
-  const pending = () => useAppStore.getState().pendingStartupCommands;
-
-  it("seeds the prompt on the requested workspace, not the active one", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "fix the bug" });
-
-    // The regression: the pending command used to land on OTHER_WS_PATH,
-    // while the tab opened in WS_PATH.
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "fix the bug"`);
-    expect(pending()[OTHER_WS_PATH]).toBeUndefined();
-    expect(useAppStore.getState().activeWorkspacePath).toBe(WS_PATH);
-  });
-
-  it("resolves the command from the requested workspace's project", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(pending()[WS_PATH]).toContain(WS_AGENT_CMD);
-    expect(pending()[WS_PATH]).not.toContain(OTHER_AGENT_CMD);
-  });
-
-  it("falls back to the default command for a project without one", async () => {
-    setupTwoWorkspaces();
-    useProjectStore.setState({
-      projects: [
-        {
-          id: "p1",
-          name: "manor",
-          path: "/repo",
-          workspaces: [{ path: WS_PATH }],
-        },
-      ] as unknown as ProjectInfo[],
-    });
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(pending()[WS_PATH]).toBe(`${DEFAULT_AGENT_COMMAND} "go"`);
-  });
-
-  it("prefers an explicit agentCommand over the project's", async () => {
-    setupTwoWorkspaces();
-
-    await start({
-      workspacePath: WS_PATH,
-      prompt: "go",
-      agentCommand: "my-agent --flag",
-    });
-
-    expect(pending()[WS_PATH]).toBe('my-agent --flag "go"');
-  });
-
-  it("uses the configured home harness for the home surface", async () => {
-    setupTwoWorkspaces();
-    usePreferencesStore.setState((s) => ({
-      preferences: {
-        ...s.preferences,
-        homeHarness: "custom",
-        homeCustomCommand: "my-harness --go",
-        homeCustomInterrupt: "",
-      },
-    }));
-
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
-
-    expect(pending()[HOME_PATH]).toBe('my-harness --go "go"');
-  });
-
-  it("escapes shell metacharacters in the prompt", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: 'say "hi" $NOW' });
-
-    expect(pending()[WS_PATH]).toBe(`${WS_AGENT_CMD} "say \\"hi\\" \\$NOW"`);
-  });
-
-  it("flattens a multi-line prompt to a single line before seeding it", async () => {
-    setupTwoWorkspaces();
-
-    // The exact shape `renderPrompt` (electron/routes/projects.ts) produces
-    // for the default batch-create-workspaces prompt: title, blank line,
-    // body. An unflattened newline either stalls the shell on a continuation
-    // prompt or submits the turn early on the blank line.
-    await start({
-      workspacePath: WS_PATH,
-      prompt: "Work on GitHub issue #1: title\n\nbody",
-    });
-
-    const seeded = pending()[WS_PATH];
-    expect(seeded).not.toContain("\n");
-    expect(seeded).toBe(
-      `${WS_AGENT_CMD} "Work on GitHub issue #1: title body"`,
-    );
-  });
-
-  it("selects the target workspace through the project store, so the sidebar follows", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(selectWorkspace).toHaveBeenCalledWith("p1", 0);
-  });
-
-  it("seeds the bare launch command when no prompt is given", async () => {
-    setupTwoWorkspaces();
-
-    await start({ workspacePath: WS_PATH });
-
-    // A pane with no pending command boots a plain shell, so the base agent
-    // command still has to be seeded — only the prompt argument is absent.
-    expect(pending()[WS_PATH]).toBe(WS_AGENT_CMD);
-  });
-
-  it("returns the created tab and pane", async () => {
-    setupTwoWorkspaces();
-
-    const result = await start({ workspacePath: WS_PATH, prompt: "go" });
-
-    expect(result.workspacePath).toBe(WS_PATH);
-    const tab = tabHolding(result.paneId);
-    expect(tab?.id).toBe(result.tabId);
-  });
-
-  it("refetches projects only when the workspace is unknown", async () => {
-    setupTwoWorkspaces();
-    const loadProjects = vi.fn(async () => {});
-    useProjectStore.setState({ loadProjects });
-
-    await start({ workspacePath: WS_PATH, prompt: "go" });
-    expect(loadProjects).not.toHaveBeenCalled();
-
-    // A worktree created moments ago over the control server is not in the
-    // store yet, so its agent command cannot resolve without a refetch.
-    useAppStore.setState({
-      workspaceLayouts: {
-        ...useAppStore.getState().workspaceLayouts,
-        "/test/fresh": makeLayout(tabWithId("tab-fresh", "pane-fresh")),
-      },
-    });
-    await start({ workspacePath: "/test/fresh", prompt: "go" });
-    expect(loadProjects).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not refetch projects for the home surface", async () => {
-    setupTwoWorkspaces();
-    const loadProjects = vi.fn(async () => {});
-    useProjectStore.setState({ loadProjects });
-
-    await start({ workspacePath: HOME_PATH, prompt: "go" });
-
-    expect(loadProjects).not.toHaveBeenCalled();
-  });
-
-  it("requires a workspacePath", async () => {
-    await expect(start({ prompt: "go" })).rejects.toThrow(
-      /Missing required string argument: workspacePath/,
-    );
-  });
-
-  it("throws when there is no panel to open the agent in", async () => {
-    setupTwoWorkspaces();
-    // A layout whose activePanelId names no panel — `addTab` returns null
-    // rather than throwing, and a silent no-op reported as success is worse
-    // than an error.
-    useAppStore.setState({
-      workspaceLayouts: {
-        ...useAppStore.getState().workspaceLayouts,
-        [WS_PATH]: { ...makeLayout(singlePaneTab()), activePanelId: "gone" },
-      },
-    });
-
-    await expect(start({ workspacePath: WS_PATH })).rejects.toThrow(
-      /No active panel to open an agent in/,
-    );
-  });
-});
-
 describe("dispatch table", () => {
-  it("exposes exactly the correlated commands", () => {
+  /**
+   * Viewport and nothing else (ADR-179 D5). `start-agent` was the last
+   * non-viewport entry and left for `electron/routes/agents.ts` in ticket 11,
+   * once the launch line it had to seed had a server-side home — see
+   * `agents-launch.test.ts` for what it does there.
+   */
+  it("exposes exactly the viewport commands (ADR-179 D5)", () => {
     expect(Object.keys(appCommandHandlers).sort()).toEqual([
-      "clear-pane-title",
-      "close-other-tabs",
-      "close-pane",
-      "close-tab",
-      "close-tabs-to-right",
-      "duplicate-tab",
-      "extract-pane-to-tab",
       "focus-next-pane",
       "focus-pane",
       "focus-prev-pane",
-      "list-panes",
-      "move-pane",
-      "new-tab",
       "next-tab",
-      "open-diff",
-      "pin-tab",
       "prev-tab",
-      "reopen-closed-pane",
-      "reorder-tabs",
       "select-tab",
       "set-active-workspace",
-      "set-pane-title",
-      "split-pane",
-      "start-agent",
     ]);
   });
 

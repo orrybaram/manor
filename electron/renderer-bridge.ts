@@ -154,39 +154,6 @@ export async function proxyToRenderer(
   json(200, result.data);
 }
 
-/** What the renderer reports back after opening an agent pane. */
-export interface StartedAgent {
-  tabId: string;
-  paneId: string;
-  workspacePath: string;
-}
-
-/**
- * Ask the renderer to open a new agent pane in the given workspace, and await
- * the pane it created.
- *
- * Only the renderer owns the pane store, so the launch itself happens there
- * (`start-agent` in `src/lib/app-commands.ts` resolves the workspace's agent
- * command, seeds it, and adds a tab). This is a correlated round-trip rather
- * than a fire-and-forget send so callers learn whether a pane actually
- * appeared — a silent no-op reported as success is unretryable (ADR-176).
- *
- * `prompt` seeds the agent's first turn; `agentCommand` overrides the
- * workspace's configured launch command.
- */
-export async function startAgent(
-  workspacePath: string,
-  prompt?: string,
-  agentCommand?: string,
-): Promise<RendererResponse<StartedAgent>> {
-  const result = await requestRenderer("start-agent", {
-    workspacePath,
-    prompt,
-    agentCommand,
-  });
-  return result.ok ? { ok: true, data: result.data as StartedAgent } : result;
-}
-
 /**
  * Ask the renderer to run the project's worktree start script in a new
  * workspace. Like agents, the script needs a PTY the renderer owns, so main

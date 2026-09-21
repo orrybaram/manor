@@ -41,8 +41,28 @@ export interface PairResult {
   device: RemoteDeviceInfo;
   /** Shown once, never stored. */
   rawToken: string;
-  /** `https://<tunnel-host>/#<token>`, or null with no tunnel running. */
+  /** `https://<tunnel-host><page>#<token>`, or null with no tunnel running. */
   pairingUrl: string | null;
+  /**
+   * The page this device's link should open — `/app` or `/`, per `pageFor`.
+   *
+   * Carried on the result rather than recomputed by the caller: the pairing
+   * dialog also builds a loopback link for the no-tunnel case, and when the
+   * rule lived in two places that link kept pointing at the phone client for
+   * a `full` device.
+   */
+  page: string;
+}
+
+/**
+ * Which page a paired device's link opens.
+ *
+ * A `full` device is a browser that wants the whole app, so it lands on the
+ * web app at `/app` (ADR-178); the other two tiers get the small phone client
+ * at `/`. The fragment is the same either way — the page reads and strips it.
+ */
+export function pageFor(capability: Capability): string {
+  return capability === "full" ? "/app" : "/";
 }
 
 export class RemoteControlController {
@@ -139,13 +159,11 @@ export class RemoteControlController {
     const { device, rawToken } = this.deviceStore.pair(label, capability);
     const url = this.tunnel.status.url;
     this.emit();
-    // A `full` device is a browser that wants the whole app, so its link
-    // lands on `/app` (ADR-178); the other two tiers get the phone client at
-    // `/`. Same fragment either way — the page reads and strips it.
-    const page = capability === "full" ? "/app" : "/";
+    const page = pageFor(capability);
     return {
       device,
       rawToken,
+      page,
       pairingUrl: url ? `${url}${page}#${rawToken}` : null,
     };
   }

@@ -12,6 +12,7 @@ import type { AgentInfo } from "./agent-persistence";
 import type { AgentStatus } from "./terminal-host/types";
 import type { StatCounter, StatsStore } from "./stats-store";
 import { publishRendererBroadcast } from "./renderer-broadcast";
+import { isUnattended } from "./unattended";
 
 /** Mirrors `PrNotifyEventKind` in `src/utils/pr-notifications.ts`. */
 export type PrNotifyEventKind =
@@ -243,6 +244,9 @@ function presentNotification(
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
     return false;
   }
+  // A test run must not put banners and sound on the developer's desktop; the
+  // record above is still written, which is what the tests read.
+  if (isUnattended()) return false;
 
   const notification = new Notification({
     title: opts.title,

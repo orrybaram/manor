@@ -32,6 +32,15 @@ export interface PtyBackend {
 
   write(sessionId: string, data: string): void;
 
+  /**
+   * Queue a write that fires once the session's shell has produced output —
+   * i.e. has reached a prompt. What a pending pane command is typed with
+   * (ADR-179 ticket 11) and what the prewarm manager injects with: a write
+   * sent the instant a session is spawned lands in a line editor that has not
+   * initialised yet and is swallowed.
+   */
+  writeAfterReady(sessionId: string, data: string): Promise<void>;
+
   /** Resize a session, resolving once the backend's pty is at that size. */
   resize(sessionId: string, cols: number, rows: number): Promise<void>;
 

@@ -3,6 +3,8 @@ import path from "path";
 import { expect, type Page } from "@playwright/test";
 
 import {
+  assertVisiblePaneCount,
+  bootWorkspaceWithTerminal,
   createWorkspace,
   importSeededProject,
   openTerminalTab,
@@ -10,14 +12,19 @@ import {
 } from "./fixtures";
 import { FAKE_AGENT, FAKE_AGENT_BANNER, FAKE_AGENT_ECHO } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
-import { readSessionMeta, waitForVisibleSession } from "./helpers/local-api";
+import { layout, readSessionMeta, waitForVisibleSession } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
 import {
   closeSettings,
   enableRemoteControl,
   pairDevice,
 } from "./helpers/settings";
-import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
+import {
+  activePaneId,
+  awaitShellReady,
+  runInTerminal,
+  scrollback,
+} from "./helpers/terminal";
 
 /**
  * ADR-178 slice 1 end to end: a browser on a PC opens `/app`, pairs at `full`,
@@ -94,6 +101,43 @@ async function paneFontSize(page: Page, paneId: string): Promise<number | null> 
     const handle = window.__manorTerminals?.get(id);
     return handle?.term.options.fontSize ?? null;
   }, paneId);
+}
+
+/** Every tab button, in DOM order. */
+function tabs(page: Page) {
+  return page.locator('[data-testid="tab"]');
+}
+
+/** The one tab button this renderer currently has selected. */
+function selectedTab(page: Page) {
+  return page.locator('[data-testid="tab"][aria-selected="true"]');
+}
+
+/** The pane ids the active tab is showing, in DOM order — mirrors `smoke.spec.ts`. */
+async function visiblePaneIds(page: Page): Promise<string[]> {
+  return page
+    .locator('[data-testid="workspace-pane"]:visible')
+    .evaluateAll((panes) =>
+      panes.map((pane) => pane.getAttribute("data-pane-id") ?? ""),
+    );
+}
+
+/**
+ * Open the command palette and run the command labelled `label`.
+ *
+ * The same route `command-palette-frequent.spec.ts` drives: this is the
+ * affordance ADR-179 D7 claims a browser has for structural commands
+ * (split, close, …) that have no dedicated keybinding pressed here.
+ */
+async function runPaletteCommand(page: Page, label: string): Promise<void> {
+  const input = page.getByPlaceholder("Type a command...");
+  await page.keyboard.press("Meta+k");
+  await expect(input).toBeVisible();
+  await input.fill(label);
+  const item = page.locator("[cmdk-item]", { hasText: label }).first();
+  await expect(item).toBeVisible();
+  await item.click();
+  await expect(input).not.toBeVisible();
 }
 
 test.describe("web app (ADR-178 slice 1)", () => {
@@ -210,6 +254,249 @@ test.describe("web app (ADR-178 slice 1)", () => {
       expect(["pty.create", "agents.setPaneContext"]).toContain(entry.route);
       expect(entry.target).toBe(desktopPaneId);
       expect(entry.outcome).toBe("sent");
+    }
+  });
+
+  /**
+   * ADR-179 D6: with no desktop viewer left, the most recently attached
+   * bridge viewer owns the pane's winsize, and it hears so live rather than
+   * on its next `pty.create`.
+   *
+   * The desktop stops watching the pane by *closing* it (`Meta+w`) rather
+   * than popping it into a window of its own and closing that: a popped tab
+   * that is later unclaimed comes back to the primary's tab strip and
+   * remounts there at once (every tab of a workspace stays mounted so
+   * switching never sends a spurious `SIGWINCH` — see
+   * `workspace-switching.spec.ts`), which would race this test against the
+   * desktop reattaching. A closed pane does not come back on its own — only
+   * an explicit reopen does — so the browser's ownership is stable, not just
+   * transiently true. The trade is the note in the ticket: closing ends the
+   * session after `REOPEN_GRACE_MS` unless it is reopened first, so this test
+   * reads everything it needs well inside that ten-second grace, the same
+   * margin `smoke.spec.ts`'s reopen test relies on.
+   */
+  test("a browser becomes the winsize owner once the desktop stops watching the pane", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("web-app-d6");
+
+    await bootWorkspaceWithTerminal(app, window, tempHome, "d6-e2e");
+    const desktopPaneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, desktopPaneId);
+
+    const port = await enableRemoteControl(window);
+    const device = await pairDevice(window, {
+      label: "d6 browser",
+      capability: "full",
+    });
+    await closeSettings(window);
+
+    const client = await openWebApp(port, device.token);
+    try {
+      const browserPaneId = await activePaneId(client.page);
+      expect(browserPaneId).toBe(desktopPaneId);
+
+      // The desktop owns the winsize while it has the pane mounted (D5): the
+      // browser follows, and says so.
+      await expect(
+        client.page.getByTestId("terminal-follower"),
+      ).toBeVisible({ timeout: 20_000 });
+      await film.shot(client.page, "browser-follower-before");
+
+      await window.keyboard.press("Meta+w");
+      await expect(
+        window.locator('[data-testid="terminal-pane"]'),
+      ).toHaveCount(0, { timeout: 10_000 });
+
+      // The browser is now the pane's only viewer: it hears so live, and its
+      // next fit becomes the pane's real size — `readSessionMeta` reads that
+      // size back from the daemon itself, not from anything the browser
+      // claims about its own view.
+      await expect(
+        client.page.getByTestId("terminal-follower"),
+      ).toHaveCount(0, { timeout: 5_000 });
+      await film.shot(client.page, "browser-follower-after");
+
+      const meta = await readSessionMeta(request, tempHome, desktopPaneId);
+      expect(meta.cols).not.toBeNull();
+      expect(meta.rows).not.toBeNull();
+    } finally {
+      film.write("browser-console-d6.log", client.log.join("\n") + "\n");
+      await client.close();
+    }
+  });
+
+  /**
+   * ADR-179 D7 end to end: a browser's split, new tab, close and reopen are
+   * ordinary layout commands, not a local-only fiction. Every assertion below
+   * is made against the desktop window or the daemon's own scrollback file —
+   * nothing is taken on the browser's word alone.
+   *
+   * Also pins D3's "tab set shared, selection local": a `layout.changed`
+   * broadcast never moves a renderer off the tab it was looking at, so a
+   * browser arranging its own tab does not drag the desk along with it.
+   */
+  test("the browser arranges the desk's layout, the desk follows, and back", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("web-app-d7");
+
+    await bootWorkspaceWithTerminal(app, window, tempHome, "d7-e2e");
+    const paneA = await activePaneId(window);
+    await awaitShellReady(window, tempHome, paneA);
+    const tab1Id = await tabs(window).first().getAttribute("data-tab-id");
+    expect(tab1Id).toBeTruthy();
+
+    const port = await enableRemoteControl(window);
+    const device = await pairDevice(window, {
+      label: "d7 browser",
+      capability: "full",
+    });
+    await closeSettings(window);
+
+    const client = await openWebApp(port, device.token);
+    try {
+      await expect(
+        client.page.getByTestId("project-header").filter({ hasText: PROJECT_NAME }),
+      ).toBeVisible({ timeout: 30_000 });
+      const browserPaneId = await activePaneId(client.page);
+      expect(browserPaneId).toBe(paneA);
+
+      // 1. Browser splits, desk shows it.
+      await runPaletteCommand(client.page, "Split Horizontal");
+      await assertVisiblePaneCount(window, 2);
+      await assertVisiblePaneCount(client.page, 2);
+      const snapshotAfterSplit = await layout(request, tempHome);
+      const tab1AfterSplit = snapshotAfterSplit.tabs.find(
+        (t) => t.tabId === tab1Id,
+      );
+      expect(tab1AfterSplit?.panes).toHaveLength(2);
+      const paneB = (await visiblePaneIds(window)).find((id) => id !== paneA);
+      expect(paneB).toBeTruthy();
+      await film.shot(window, "d7-desktop-after-browser-split");
+      await film.shot(client.page, "d7-browser-after-split");
+
+      // 3. The ADR-178 "layout changes aren't saved" refusal is gone — it
+      // never toasts, on this split or anything after it.
+      await expect(
+        client.page.getByText("Layout changes aren't saved", { exact: false }),
+      ).toHaveCount(0);
+
+      // 2. Desk closes, browser follows, no error toast.
+      await window
+        .locator(`[data-pane-id="${paneB}"] [data-testid="terminal-pane"]`)
+        .click();
+      await window.keyboard.press("Meta+w");
+      await assertVisiblePaneCount(window, 1);
+      await assertVisiblePaneCount(client.page, 1);
+      await expect(client.page.locator('[class*="iconError"]')).toHaveCount(0);
+      await film.shot(client.page, "d7-browser-after-desktop-close");
+
+      // 4. Selection is local: the tab set is shared, but which tab each
+      // renderer is looking at is each renderer's own business (D3).
+      await window.keyboard.press("Meta+t");
+      await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
+      const tab2Id = (
+        await tabs(window).evaluateAll((els) =>
+          els.map((el) => el.getAttribute("data-tab-id")),
+        )
+      ).find((id) => id !== tab1Id);
+      expect(tab2Id).toBeTruthy();
+
+      await client.page.locator(`[data-tab-id="${tab1Id}"]`).click();
+      await window.locator(`[data-tab-id="${tab2Id}"]`).click();
+      await expect(selectedTab(window)).toHaveAttribute("data-tab-id", tab2Id!);
+      await expect(selectedTab(client.page)).toHaveAttribute(
+        "data-tab-id",
+        tab1Id!,
+      );
+
+      // One layout.changed, sent from the browser's own tab: it must not
+      // drag the desk off tab2, and it does not move the browser either
+      // (it was already on tab1).
+      await runPaletteCommand(client.page, "Split Vertical");
+      await expect
+        .poll(
+          async () =>
+            (await layout(request, tempHome)).tabs.find(
+              (t) => t.tabId === tab1Id,
+            )?.panes.length,
+          { timeout: 15_000 },
+        )
+        .toBe(2);
+      await expect(selectedTab(window)).toHaveAttribute("data-tab-id", tab2Id!);
+      await expect(selectedTab(client.page)).toHaveAttribute(
+        "data-tab-id",
+        tab1Id!,
+      );
+      await film.shot(window, "d7-desktop-keeps-its-own-tab");
+      await film.shot(client.page, "d7-browser-keeps-its-own-tab");
+
+      // 5. Reopen from the browser: close a pane on the desk, bring it back
+      // with the browser's own keybinding — `reopen-pane` (Reopen Closed
+      // Pane) is bound to Meta+Shift+t and has no command-palette entry
+      // (`useCommands.tsx` never lists it), so the keybinding is the real
+      // affordance a browser has for it — and the same shell reattaches,
+      // same discipline as `smoke.spec.ts`'s reopen test.
+      await window.locator(`[data-tab-id="${tab2Id}"]`).click();
+      await assertVisiblePaneCount(window, 1);
+      const paneD = await activePaneId(window);
+      await awaitShellReady(window, tempHome, paneD);
+
+      await window.keyboard.press("Meta+d");
+      await assertVisiblePaneCount(window, 2);
+      const paneG = (await visiblePaneIds(window)).find((id) => id !== paneD);
+      expect(paneG).toBeTruthy();
+      await awaitShellReady(window, tempHome, paneG!);
+
+      await window
+        .locator(`[data-pane-id="${paneG}"] [data-testid="terminal-pane"]`)
+        .click();
+      await window.keyboard.type("MARK=warm-reopen-from-browser");
+      await window.keyboard.press("Enter");
+      await expect
+        .poll(() => scrollback(tempHome, paneG!), { timeout: 15_000 })
+        .toContain("MARK=warm-reopen-from-browser");
+
+      await window
+        .locator(`[data-pane-id="${paneG}"] [data-testid="terminal-pane"]`)
+        .click();
+      await window.keyboard.press("Meta+w");
+      await assertVisiblePaneCount(window, 1);
+
+      // Well inside the 10s grace (REOPEN_GRACE_MS): the browser reopens it
+      // and it is the same shell, not a fresh one.
+      await client.page.keyboard.press("Meta+Shift+t");
+      await expect
+        .poll(
+          async () =>
+            (await layout(request, tempHome)).tabs.find(
+              (t) => t.tabId === tab2Id,
+            )?.panes.length,
+          { timeout: 15_000 },
+        )
+        .toBe(2);
+      await assertVisiblePaneCount(window, 2);
+
+      await window
+        .locator(`[data-pane-id="${paneG}"] [data-testid="terminal-pane"]`)
+        .click();
+      await window.keyboard.type('echo "mark:$MARK"');
+      await window.keyboard.press("Enter");
+      await expect
+        .poll(() => scrollback(tempHome, paneG!), { timeout: 15_000 })
+        .toContain("mark:warm-reopen-from-browser");
+      await film.shot(window, "d7-desktop-after-browser-reopen");
+      await film.shot(client.page, "d7-browser-after-reopen");
+    } finally {
+      film.write("browser-console-d7.log", client.log.join("\n") + "\n");
+      await client.close();
     }
   });
 

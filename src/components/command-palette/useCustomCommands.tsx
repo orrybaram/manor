@@ -26,10 +26,9 @@ export function useCustomCommands({
     if (!project) return [];
 
     const runInNewTab = (command: string) => {
-      // addTerminalTab scopes the pending command to the new tab's own pane,
-      // so it runs regardless of the pane's resolved cwd (unlike the
-      // workspace-scoped setPendingStartupCommand, which only fires for the
-      // first tab of a freshly-opened worktree).
+      // addTerminalTab queues the command against the new tab's own pane, on
+      // the server (ADR-179 ticket 11), so it runs whichever renderer mounts
+      // the pane and regardless of the cwd that pane resolves to.
       addTerminalTab(command);
       onClose();
     };

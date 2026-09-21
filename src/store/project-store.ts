@@ -698,9 +698,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // to observe the same session without owning its lifecycle.
         startSetupScript(wsPath, startScript);
       } else if (agentCommand) {
-        // No start script — use the existing pending startup command + addTab pattern
-        useAppStore.getState().setPendingStartupCommand(wsPath, agentCommand);
-        useAppStore.getState().addTab();
+        // No start script — open the agent tab and let the server type the
+        // launch line into it (ADR-179 ticket 11).
+        useAppStore.getState().addTerminalTab(agentCommand, "agent-startup");
         useAppStore.getState().clearWorktreeSetup(wsPath);
       } else {
         // No commands at all — clear setup state
@@ -771,8 +771,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
       const startScript = updated.worktreeStartScript;
       if (startScript) {
-        useAppStore.getState().setPendingStartupCommand(wsPath, startScript);
-        useAppStore.getState().addTab();
+        useAppStore.getState().addTerminalTab(startScript);
       }
     }
     return wsPath;

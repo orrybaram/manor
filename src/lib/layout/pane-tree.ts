@@ -334,3 +334,18 @@ export function prevPaneId(
   if (idx === -1) return ids[0] ?? null;
   return ids[(idx - 1 + ids.length) % ids.length];
 }
+
+/** Update the url of a leaf node, leaving the rest of the tree by reference. */
+export function updateLeafUrl(
+  node: PaneNode,
+  paneId: string,
+  url: string,
+): PaneNode {
+  if (node.type === "leaf") {
+    return node.paneId === paneId ? { ...node, url } : node;
+  }
+  const first = updateLeafUrl(node.first, paneId, url);
+  const second = updateLeafUrl(node.second, paneId, url);
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}

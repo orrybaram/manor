@@ -155,6 +155,8 @@ const ROOT_VALUES: Record<string, unknown> = {
   /** Detached windows are Electron's (ADR-156); a tab is never one. */
   isDetached: false,
   detachedWindowId: null,
+  /** And a browser never claims a tab either (ADR-179 D4): it sees them all. */
+  claim: null,
   /** The preload reads this off its own launch argv. A page has no argv. */
   env: { isPackaged: false },
 };
@@ -207,6 +209,16 @@ function looksLikeSubscription(method: string): boolean {
 class BridgeConnection {
   private socket: WebSocket | null = null;
   private ready = false;
+  /**
+   * What the host calls this socket, from the hello reply (ADR-179 D3).
+   *
+   * Null until the first hello, and a *different* value after a reconnect —
+   * which is correct: it names a connection, and a layout command's origin is
+   * the connection that sent it. A hint addressed to the previous id simply
+   * does not apply, and the reconcile that runs on every broadcast leaves the
+   * tab looking where it was looking.
+   */
+  rendererId: string | null = null;
   /** Set by a 4401/4403: this token will not work, so stop dialling. */
   private stopped = false;
   private attempt = 0;
@@ -300,7 +312,18 @@ class BridgeConnection {
     this.socket = socket;
     socket.onopen = () => {
       // Authentication is a frame, not a URL — see the server's header.
-      socket.send(JSON.stringify({ type: "hello", token: this.options.token }));
+      // `previousId` is this connection's own rendererId from before the
+      // reconnect, if it had one — the server reuses it when nothing else is
+      // holding it, so a selection hint addressed to "the tab that sent this"
+      // still finds it after a blip, and this connection's `pty-attachments`
+      // viewer identity does not reset (ADR-179 ticket 4's report).
+      socket.send(
+        JSON.stringify({
+          type: "hello",
+          token: this.options.token,
+          ...(this.rendererId !== null && { previousId: this.rendererId }),
+        }),
+      );
     };
     socket.onmessage = (event: MessageEvent) => {
       this.onFrame(String(event.data));
@@ -324,7 +347,11 @@ class BridgeConnection {
     }
 
     if (!this.ready) {
-      if (frame.type === "hello" && frame.ok === true) this.onReady();
+      if (frame.type === "hello" && frame.ok === true) {
+        this.rendererId =
+          typeof frame.rendererId === "string" ? frame.rendererId : null;
+        this.onReady();
+      }
       return;
     }
 
@@ -606,6 +633,10 @@ export function createWsBridge(options: WsBridgeOptions): ElectronAPI {
         if (typeof prop !== "string" || NOT_MEMBERS.has(prop)) {
           return undefined;
         }
+        // Not in `ROOT_VALUES`: it is not a constant. The host names the
+        // connection in its hello reply, and names it again after a
+        // reconnect (ADR-179 D3).
+        if (prop === "rendererId") return connection.rendererId;
         if (hasOwn(ROOT_VALUES, prop)) return ROOT_VALUES[prop];
         if (hasOwn(ROOT_SUBSCRIPTIONS, prop) || hasOwn(LOCALLY_SERVED, prop)) {
           const existing = rootMembers.get(prop);

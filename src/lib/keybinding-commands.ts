@@ -1,4 +1,9 @@
-import { useAppStore } from "../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneOfActiveTab,
+  selectSelectedTabId,
+} from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
@@ -21,12 +26,12 @@ import { isWebApp } from "./platform";
  * Keybinding commands that are meaningful in ANY window — the primary window
  * and the detached popup windows of ADR-156 alike.
  *
- * Both renderers (`App` and `DetachedApp`) mount their own global key handler,
- * so anything defined only in `App` is silently dead in a popout. Keeping the
- * window-agnostic half here is what stops the two from drifting: a popout gets
- * new tab / new agent / new browser / pane / panel / browser commands for free,
- * and `App` layers the primary-only commands (settings, command palette,
- * sidebar, new workspace, navigation history) on top.
+ * Every window runs `App` (ADR-179 D4), but a detached one withholds the
+ * primary-only handlers and forwards those combos to the primary window
+ * instead — so what is defined here is what a popout can actually run: new
+ * tab / new agent / new browser / pane / panel / browser commands, with
+ * settings, the command palette, the sidebar, new workspace and navigation
+ * history layered on only where there is chrome for them.
  *
  * Every handler reads from `getState()` rather than React state so the map can
  * be built once, outside the render cycle.
@@ -35,13 +40,7 @@ import { isWebApp } from "./platform";
 /** The focused pane's id when that pane is a browser, else undefined. */
 function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-  if (!layout) return;
-  const panel = layout.panels[layout.activePanelId];
-  if (!panel) return;
-  const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-  if (!tab) return;
-  const focusedPaneId = tab.focusedPaneId;
+  const focusedPaneId = selectFocusedPaneOfActiveTab(state);
   if (!focusedPaneId) return;
   if (state.paneContentType[focusedPaneId] !== "browser") return;
   return focusedPaneId;
@@ -102,12 +101,21 @@ export async function startNewAgent(
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed()
     : null;
-  if (activeWorkspacePath && !prewarmed?.commandInjected) {
-    useAppStore
-      .getState()
-      .setPendingStartupCommand(activeWorkspacePath, command);
+  if (!prewarmed) {
+    useAppStore.getState().addTerminalTab(command, "agent-startup");
+    return;
   }
-  useAppStore.getState().addTab(prewarmed?.paneId);
+  // The prewarmed session already exists, so its pane id is known before the
+  // tab is: queue the launch line against it directly, and only when the
+  // warm session is not already running one (ADR-179 ticket 11).
+  if (!prewarmed.commandInjected) {
+    await window.electronAPI.layout.setPendingCommand(
+      prewarmed.paneId,
+      command,
+      "agent-startup",
+    );
+  }
+  useAppStore.getState().addTab(prewarmed.paneId);
 }
 
 /**
@@ -148,9 +156,8 @@ export function createSharedKeybindingHandlers(
     "reopen-pane": () => store().reopenClosedPane(),
     "close-tab": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      const panel = layout?.panels[layout.activePanelId];
-      if (panel?.selectedTabId) state.requestCloseTab(panel.selectedTabId);
+      const tabId = selectSelectedTabId(state, selectActivePanelId(state));
+      if (tabId) state.requestCloseTab(tabId);
     },
     "next-tab": () => store().selectNextTab(),
     "prev-tab": () => store().selectPrevTab(),
@@ -177,21 +184,21 @@ export function createSharedKeybindingHandlers(
     "focus-prev-panel": () => store().focusPrevPanel(),
     "close-panel": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      if (!layout) return;
-      state.closePanel(layout.activePanelId);
+      const panelId = selectActivePanelId(state);
+      if (panelId) state.closePanel(panelId);
     },
     "move-tab-to-next-panel": () => {
       const state = store();
       const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      if (!layout) return;
-      const panel = layout.panels[layout.activePanelId];
-      if (!panel) return;
+      const panelId = selectActivePanelId(state);
+      if (!layout || !panelId) return;
+      const tabId = selectSelectedTabId(state, panelId);
+      if (!tabId) return;
       const panelIds = Object.keys(layout.panels);
       if (panelIds.length < 2) return;
-      const idx = panelIds.indexOf(layout.activePanelId);
+      const idx = panelIds.indexOf(panelId);
       const nextId = panelIds[(idx + 1) % panelIds.length];
-      state.moveTabToPanel(panel.selectedTabId, nextId);
+      state.moveTabToPanel(tabId, nextId);
     },
     "browser-zoom-in": () => getFocusedBrowserRef()?.zoomIn(),
     "browser-zoom-out": () => getFocusedBrowserRef()?.zoomOut(),
@@ -199,11 +206,7 @@ export function createSharedKeybindingHandlers(
     "browser-reload": () => getFocusedBrowserRef()?.reload(),
     "browser-focus-url": () => {
       const state = store();
-      const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-      const panel = layout?.panels[layout.activePanelId];
-      if (!panel) return;
-      const tab = panel.tabs.find((t) => t.id === panel.selectedTabId);
-      const focusedPaneId = tab?.focusedPaneId;
+      const focusedPaneId = selectFocusedPaneOfActiveTab(state);
       if (
         !focusedPaneId ||
         state.paneContentType[focusedPaneId] !== "browser"

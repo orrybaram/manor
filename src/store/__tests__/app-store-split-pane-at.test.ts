@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore } from "../app-store";
+import { useAppStore, selectFocusedPaneId } from "../app-store";
+import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import type { Panel, WorkspaceLayout } from "../app-store";
+import {
+  queuedCommands,
+  resetFakeLayoutServer,
+  seedLayout,
+} from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 // with a minimal electronAPI mock. No additional stubbing needed here.
@@ -18,35 +24,36 @@ function makeLayout(): WorkspaceLayout {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf" as const, paneId: ORIGINAL_PANE_ID },
-    focusedPaneId: ORIGINAL_PANE_ID,
   };
   const panel: Panel = {
     id: panelId,
     tabs: [tab],
-    selectedTabId: "tab-1",
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId },
     panels: { [panelId]: panel },
-    activePanelId: panelId,
   };
 }
 
 function setupStore(layout?: WorkspaceLayout) {
+  // The server holds the same layout the store starts from: every
+  // structural action goes through it now (ADR-179 D1).
+  resetFakeLayoutServer();
+  const start = layout ?? makeLayout();
+  seedLayout(WS_PATH, start);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: layout ?? makeLayout() },
+    workspaceLayouts: { [WS_PATH]: start },
+    viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -55,9 +62,9 @@ function setupStore(layout?: WorkspaceLayout) {
 
 function getActiveTab() {
   const state = useAppStore.getState();
-  const layout = state.workspaceLayouts[WS_PATH];
-  const panel = layout.panels[layout.activePanelId];
-  return panel.tabs.find((t) => t.id === "tab-1")!;
+  return state.workspaceLayouts[WS_PATH].panels["panel-1"].tabs.find(
+    (t) => t.id === "tab-1",
+  )!;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +83,7 @@ describe("splitPaneAt", () => {
     expect(newPane).not.toBe(ORIGINAL_PANE_ID);
 
     const tab = getActiveTab();
-    expect(tab.focusedPaneId).toBe(newPane);
+    expect(selectFocusedPaneId(useAppStore.getState(), tab.id)).toBe(newPane);
     expect(tab.rootNode).toEqual({
       type: "split",
       direction: "horizontal",
@@ -154,6 +161,10 @@ describe("splitPaneAt", () => {
     if (tab.rootNode.type !== "split") throw new Error("Expected split");
     expect(tab.rootNode.second).toEqual({ type: "leaf", paneId: newPane });
     expect(useAppStore.getState().paneContentType[newPane]).toBeUndefined();
-    expect(useAppStore.getState().pendingPaneCommands[newPane]).toBe("npm test");
+    // The command is queued on the server for the minted pane (ADR-179
+    // ticket 11), not held in this store.
+    expect(queuedCommands).toEqual([
+      { paneId: newPane, text: "npm test", kind: "agent-startup" },
+    ]);
   });
 });

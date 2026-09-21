@@ -13,11 +13,18 @@ import {
 import type { BrowserPaneRef } from "../../components/workspace-panes/BrowserPane/BrowserPane";
 import { MAIN_WINDOW_KEYBINDINGS } from "../menu-commands";
 import { useAppStore } from "../../store/app-store";
+import { allPaneIds } from "../layout/pane-tree";
+import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import type { ProjectInfo } from "../../store/project-store";
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
+import {
+  queuedCommands,
+  resetFakeLayoutServer,
+  seedLayout,
+} from "../../store/__tests__/fake-layout-server";
 
 const WS_PATH = "/test/workspace";
 
@@ -25,13 +32,11 @@ function makeLayout(tab: Tab): WorkspaceLayout {
   const panel: Panel = {
     id: "panel-1",
     tabs: [tab],
-    selectedTabId: tab.id,
     pinnedTabIds: [],
   };
   return {
     panelTree: { type: "leaf", panelId: panel.id },
     panels: { [panel.id]: panel },
-    activePanelId: panel.id,
   };
 }
 
@@ -40,7 +45,6 @@ function singlePaneTab(): Tab {
     id: "tab-1",
     title: "Terminal",
     rootNode: { type: "leaf", paneId: "pane-1" },
-    focusedPaneId: "pane-1",
   };
 }
 
@@ -76,19 +80,23 @@ function keyEvent(key: string, mods: Partial<KeyboardEvent> = {}) {
 
 beforeEach(() => {
   useProjectStore.setState({ projects: [], selectedProjectIndex: 0 });
+  // The server starts from the same layout: a keybinding that changes the
+  // layout sends a command and reads the broadcast back (ADR-179 D1).
+  resetFakeLayoutServer();
+  const layout = makeLayout(singlePaneTab());
+  seedLayout(WS_PATH, layout);
   useAppStore.setState({
     activeWorkspacePath: WS_PATH,
-    workspaceLayouts: { [WS_PATH]: makeLayout(singlePaneTab()) },
+    workspaceLayouts: { [WS_PATH]: layout },
+    viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
+    layoutVersions: {},
+    serverLayouts: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
     paneContentType: {},
     paneUrl: {},
     panePickedElement: {},
-    closedPaneIds: new Set(),
-    closedPaneStack: [],
-    pendingStartupCommands: {},
-    pendingPaneCommands: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
     webviewFocusedPaneId: null,
@@ -96,9 +104,9 @@ beforeEach(() => {
 });
 
 describe("createSharedKeybindingHandlers", () => {
-  // Regression guard for the popout gap: `DetachedApp` used to hand-roll a
-  // subset of the handler map, so commands like new-agent and new-browser were
-  // silently dead in a detached window. Both windows now build from this map.
+  // Regression guard for the popout gap: a detached window used to hand-roll
+  // a subset of the handler map, so commands like new-agent and new-browser
+  // were silently dead there. Every window builds from this map now.
   it("covers every command that is meaningful outside the primary window", () => {
     const handlers = createSharedKeybindingHandlers();
     for (const id of [
@@ -170,9 +178,9 @@ describe("createSharedKeybindingHandlers", () => {
   it("new-browser opens a browser tab in the active panel", () => {
     createSharedKeybindingHandlers()["new-browser"]();
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    const panel = layout.panels[layout.activePanelId];
+    const panel = layout.panels["panel-1"];
     expect(panel.tabs).toHaveLength(2);
-    const paneId = panel.tabs[1].focusedPaneId;
+    const paneId = allPaneIds(panel.tabs[1].rootNode)[0];
     expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
   });
 });
@@ -189,7 +197,7 @@ describe("resolveWorkspaceCommand", () => {
 });
 
 describe("startNewAgent", () => {
-  it("seeds the workspace's agent command and adds a tab without prewarm", async () => {
+  it("queues the workspace's agent command on the new tab's pane without prewarm", async () => {
     useProjectStore.setState({ projects: [makeProject("my-agent")] });
     const consumePrewarmed = vi.fn();
     vi.stubGlobal("window", {
@@ -200,11 +208,18 @@ describe("startNewAgent", () => {
     await startNewAgent({ prewarm: false });
 
     expect(consumePrewarmed).not.toHaveBeenCalled();
-    expect(useAppStore.getState().pendingStartupCommands[WS_PATH]).toBe(
-      "my-agent",
-    );
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    expect(layout.panels[layout.activePanelId].tabs).toHaveLength(2);
+    const tabs = layout.panels["panel-1"].tabs;
+    expect(tabs).toHaveLength(2);
+    // The launch line waits on the server now (ADR-179 ticket 11), keyed by
+    // the pane the new tab minted.
+    expect(queuedCommands).toEqual([
+      {
+        paneId: allPaneIds(tabs[1].rootNode)[0],
+        text: "my-agent",
+        kind: "agent-startup",
+      },
+    ]);
     vi.unstubAllGlobals();
   });
 
@@ -225,12 +240,38 @@ describe("startNewAgent", () => {
     await startNewAgent({ prewarm: true });
 
     // The command already ran in the prewarmed session — don't queue it again.
-    expect(
-      useAppStore.getState().pendingStartupCommands[WS_PATH],
-    ).toBeUndefined();
+    expect(queuedCommands).toEqual([]);
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
-    const tabs = layout.panels[layout.activePanelId].tabs;
-    expect(tabs[1].focusedPaneId).toBe("pane-warm");
+    const tabs = layout.panels["panel-1"].tabs;
+    expect(allPaneIds(tabs[1].rootNode)).toEqual(["pane-warm"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("queues the command against the prewarmed pane when it was not injected", async () => {
+    useProjectStore.setState({ projects: [makeProject("my-agent")] });
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: {
+        ...window.electronAPI,
+        pty: {
+          consumePrewarmed: vi
+            .fn()
+            .mockResolvedValue({ paneId: "pane-warm", commandInjected: false }),
+        },
+      },
+    });
+
+    await startNewAgent({ prewarm: true });
+
+    // The pane id is known before the tab is, so the line is queued straight
+    // against the warm session the tab adopts.
+    expect(queuedCommands).toEqual([
+      {
+        paneId: "pane-warm",
+        text: "my-agent",
+        kind: "agent-startup",
+      },
+    ]);
     vi.unstubAllGlobals();
   });
 });

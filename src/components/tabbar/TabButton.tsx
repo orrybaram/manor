@@ -8,8 +8,16 @@ import X from "lucide-react/dist/esm/icons/x";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { useShallow } from "zustand/react/shallow";
-import { useAppStore } from "../../store/app-store";
-import { countTabsInWindow, trackHandoff } from "../../lib/window-handoff";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectFocusedPaneId,
+} from "../../store/app-store";
+import {
+  detachTabToNewWindow,
+  hasOwnClaim,
+  returnToPrimaryWindow,
+} from "../../lib/detach";
 import { useKeybinding } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
 import { useTabTitle } from "../../hooks/useTabTitle";
@@ -136,16 +144,14 @@ export function TabButton(props: TabButtonProps) {
     if (!wsPath) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const layout = s.workspaceLayouts[wsPath];
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
-    for (const panel of Object.values(layout.panels)) {
-      const tab = panel.tabs.find((t) => t.id === tabId);
-      if (tab) return {
-        contentType: s.paneContentType[tab.focusedPaneId] as string | undefined,
-        favicon: s.paneFavicon[tab.focusedPaneId] as string | undefined,
-        audioPlaying: !!s.paneAudioPlaying[tab.focusedPaneId],
-        audioMuted: !!s.paneAudioMuted[tab.focusedPaneId],
-        focusedPaneId: tab.focusedPaneId,
-      };
-    }
+    const paneId = selectFocusedPaneId(s, tabId);
+    if (paneId) return {
+      contentType: s.paneContentType[paneId] as string | undefined,
+      favicon: s.paneFavicon[paneId] as string | undefined,
+      audioPlaying: !!s.paneAudioPlaying[paneId],
+      audioMuted: !!s.paneAudioMuted[paneId],
+      focusedPaneId: paneId,
+    };
     return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
   }));
   const { hasOtherClosableTabs, hasClosableTabsToRight } = useAppStore(useShallow((s) => {
@@ -332,7 +338,9 @@ export function TabButton(props: TabButtonProps) {
                 const layout = state.workspaceLayouts[wsPath];
                 if (!layout) return;
                 const panelIds = Object.keys(layout.panels);
-                const currentIdx = panelIds.indexOf(layout.activePanelId);
+                const currentIdx = panelIds.indexOf(
+                  selectActivePanelId(state) ?? "",
+                );
                 const nextPanelId = panelIds[(currentIdx + 1) % panelIds.length];
                 state.moveTabToPanel(tabId, nextPanelId);
               }}
@@ -340,58 +348,24 @@ export function TabButton(props: TabButtonProps) {
               Move Tab to Next Panel
             </ContextMenu.Item>
           )}
-          {/* A popout's sole tab offers no "new window": tearing it out empties
-              this window, which then closes itself — a no-op with extra steps.
-              A popout holding several tabs can still spawn another window.
-              `window.detachTab` has no browser meaning either (ADR-178) —
-              removed there, not disabled. */}
-          {!isWebApp() &&
-            !(window.electronAPI?.isDetached && countTabsInWindow() === 1) && (
+          {/* A detached window's one tab offers no "new window": popping it
+              out again would leave this window holding nothing, which closes
+              it — a no-op with extra steps. `window.detachTab` has no browser
+              meaning either (ADR-178) — removed there, not disabled. */}
+          {!isWebApp() && !hasOwnClaim() && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => {
-                void (async () => {
-                  try {
-                    const payload = useAppStore.getState().serializeTabForDetach(tabId);
-                    const bounds = await window.electronAPI.window.getBounds();
-                    const spawnBounds = {
-                      x: bounds.x + 40,
-                      y: bounds.y + 40,
-                      width: 900,
-                      height: 600,
-                    };
-                    await window.electronAPI.window.detachTab(payload, spawnBounds);
-                    useAppStore.getState().removeDetachedTabLocally(tabId);
-                  } catch (err) {
-                    console.error("Failed to detach tab to new window", err);
-                  }
-                })();
-              }}
+              onSelect={() => void detachTabToNewWindow(tabId)}
             >
               Move to New Window
             </ContextMenu.Item>
           )}
-          {window.electronAPI?.isDetached && (
+          {hasOwnClaim() && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => {
-                void (async () => {
-                  try {
-                    const store = useAppStore.getState();
-                    const payload = store.serializeTabForDetach(tabId);
-                    // Release panes and drop the tab from THIS store BEFORE the
-                    // window closes, so DetachedApp's beforeunload finds an empty
-                    // store and kills nothing (preserving the reattached panes).
-                    store.removeDetachedTabLocally(tabId);
-                    await trackHandoff(
-                      window.electronAPI.window.reattachTab(payload),
-                    );
-                    // Main closes this window after forwarding the payload.
-                  } catch (err) {
-                    console.error("Failed to reattach tab to main window", err);
-                  }
-                })();
-              }}
+              /* Closing is the whole operation: the claim dies with the
+                 window and the tab is already in the primary (ADR-179 D4). */
+              onSelect={() => returnToPrimaryWindow()}
             >
               Move Back to Main Window
             </ContextMenu.Item>

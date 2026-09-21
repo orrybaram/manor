@@ -7,7 +7,7 @@
 
 import { resolveWorkspacePath } from "./context";
 // Type-only: erased at compile time, so the MCP process stays Electron-free.
-import type { LayoutSnapshot } from "../../src/store/layout-snapshot";
+import type { LayoutSnapshot } from "../../src/lib/layout/snapshot";
 import type { ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 

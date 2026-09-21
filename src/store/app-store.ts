@@ -160,18 +160,28 @@ function restoreWorkspaceState(
     );
   }
 
-  // v2 format: has panel tree
+  // v2 format: has panel tree. Selection ids are repaired rather than trusted:
+  // a newer build's layout file keeps them elsewhere, and a missing
+  // `activePanelId` leaves every "new tab" action with no panel to target.
   const panels: Record<string, Panel> = {};
   for (const [panelId, pp] of Object.entries(persisted.panels ?? {})) {
-    panels[panelId] = {
-      id: pp.id,
-      tabs: pp.tabs.map((pt) => ({
+    const tabs = pp.tabs.map((pt) => {
+      const paneIds = allPaneIds(pt.rootNode);
+      return {
         id: pt.id,
         title: pt.title,
         rootNode: pt.rootNode,
-        focusedPaneId: pt.focusedPaneId,
-      })),
-      selectedTabId: pp.selectedTabId,
+        focusedPaneId: paneIds.includes(pt.focusedPaneId)
+          ? pt.focusedPaneId
+          : paneIds[0],
+      };
+    });
+    panels[panelId] = {
+      id: pp.id,
+      tabs,
+      selectedTabId: tabs.some((t) => t.id === pp.selectedTabId)
+        ? pp.selectedTabId
+        : (tabs[0]?.id ?? ""),
       pinnedTabIds: pp.pinnedTabIds ?? [],
     };
   }
@@ -181,10 +191,17 @@ function restoreWorkspaceState(
     return createEmptyLayout();
   }
 
+  const activePanelId = panels[persisted.activePanelId]
+    ? persisted.activePanelId
+    : allPanelIds(persisted.panelTree).find((id) => panels[id]);
+  if (!activePanelId) {
+    return createEmptyLayout();
+  }
+
   return {
     panelTree: persisted.panelTree,
     panels,
-    activePanelId: persisted.activePanelId,
+    activePanelId,
   };
 }
 

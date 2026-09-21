@@ -47,24 +47,24 @@ device, which session, which of the two actions, and the **length and SHA-256**
 of the text. The text itself is never recorded — an audit log that accumulated
 the things you typed would be a worse leak than the thing it audits.
 
-What is **not** on a `read` or `send` device's surface at all: creating or
-deleting projects and workspaces, launching agents, splitting or closing
-panes, opening tabs, and anything to do with issues. Those routes are not
-"blocked" — they are absent from the table the remote listener dispatches
+What is **not** on `read`, `send`, or `full`'s surface over this listener:
+creating or deleting projects and workspaces, launching agents, splitting or
+closing panes, opening tabs, and anything to do with issues. Those routes are
+not "blocked" — they are absent from the table the remote listener dispatches
 against, so no mistake in an authentication check can reach them. That
-guarantee, and the allowlist it rests on, is what `read` and `send` _are_. It
-does not extend to the third tier.
+guarantee, and the allowlist it rests on, is what all three tiers get over
+HTTP.
 
-A device paired at `full` (**Everything**) gets none of that filtering.
-Authentication is the only boundary in front of it, and behind that boundary
-is the whole route table: it can do everything the desktop app can, including
+A device paired at `full` (**Everything**) is not distinguished from a `send`
+device here. Its wider reach — everything the desktop app can do, including
 creating and removing projects and workspaces, launching agents, and every
-pane and tab mutation. Every mutating request from a `full` device still gets
-a line in the audit log — the route and what it targeted, never a body — but
-none of them waits on a `confirmed: true` the way a `send` device's writes do,
-because the desktop UI's own confirmation dialogs are already standing in
-front of every one of these actions. Say it plainly: a leaked `full` token is
-a leaked machine.
+pane and tab mutation — exists only on `/ws`, the WebSocket bridge described
+below, where authentication is the only boundary. Every mutating call a
+`full` device makes there still gets a line in the audit log — the method and
+what it targeted, never a body — but none of them waits on a `confirmed: true`
+the way a `send` device's HTTP writes do, because the desktop UI's own
+confirmation dialogs are already standing in front of every one of these
+actions. Say it plainly: a leaked `full` token is a leaked machine.
 
 Not quite none of that filtering, though. A short list of methods refuses
 every device regardless of tier — `LOCAL_ONLY` in the handler table

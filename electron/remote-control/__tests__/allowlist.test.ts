@@ -6,11 +6,9 @@
  * in `routes` may appear on the remote table (a future route must not arrive
  * there by accident).
  *
- * ADR-178 added a third tier for which neither direction applies: a `full`
- * device is handed the whole table. That is asserted here too, in its own
- * block, and — the point of the exercise — every deny-assertion below is run
- * against `read` and `send` by name rather than against "the remote table",
- * so nobody can read a passing suite as saying `full` is narrow.
+ * `full` gets exactly the `send` table over HTTP (ADR-182 D2) — its wider
+ * reach lives entirely on the bridge, tested in
+ * `the bridge's LOCAL_ONLY (ADR-180 D4)` below, not here.
  */
 
 import { describe, it, expect } from "vitest";
@@ -51,8 +49,8 @@ describe("the remote allowlist", () => {
     );
   });
 
-  it("is a strict subset of the real table for read and for send", () => {
-    for (const capability of ["read", "send"] as const) {
+  it("is a strict subset of the real table for every tier", () => {
+    for (const capability of ["read", "send", "full"] as const) {
       const remote = remoteRouteTable(routes, capability);
       const real = new Set(routes);
       for (const route of remote) expect(real.has(route)).toBe(true);
@@ -75,44 +73,27 @@ describe("the remote allowlist", () => {
 });
 
 /**
- * The third tier (ADR-178 D3). It is not a longer allowlist and this block
- * exists to keep anyone from turning it into one: `allowedKeys` answers `null`
- * — "there is no list" — and the table a `full` device dispatches against is
- * the real one, row for row.
+ * The third tier over HTTP (ADR-182 D2). It is not a longer allowlist than
+ * `send` and this block exists to keep anyone from making it one: `full`'s
+ * wider reach exists only on the bridge, tested in
+ * `the bridge's LOCAL_ONLY (ADR-180 D4)` below.
  */
-describe("the full tier", () => {
-  it("has no allowlist at all", () => {
-    expect(allowedKeys("full")).toBeNull();
-    expect(allowedKeys("read")).toBeInstanceOf(Set);
-    expect(allowedKeys("send")).toBeInstanceOf(Set);
+describe("the full tier, over HTTP", () => {
+  it("gets exactly the send allowlist, the same Set instance's contents", () => {
+    expect(allowedKeys("full")).toEqual(allowedKeys("send"));
   });
 
-  it("is the entire route table, in order", () => {
-    expect(keys(remoteRouteTable(routes, "full"))).toEqual(keys(routes));
+  it("gets exactly the send table, row for row", () => {
+    expect(keys(remoteRouteTable(routes, "full"))).toEqual(
+      keys(remoteRouteTable(routes, "send")),
+    );
   });
 
-  it("carries the real handler objects, not copies of them", () => {
-    const remote = remoteRouteTable(routes, "full");
-    expect(remote).toHaveLength(routes.length);
-    remote.forEach((route, i) => expect(route).toBe(routes[i]));
-  });
-
-  it("includes exactly what the other two tiers exclude", () => {
-    const full = new Set(keys(remoteRouteTable(routes, "full")));
-    for (const key of keys(remoteRouteTable(routes, "send")))
-      expect(full.has(key)).toBe(true);
-    for (const route of routes) {
-      if (route.method === "DELETE")
-        expect(full.has(routeKey(route))).toBe(true);
-    }
-    expect(full.has("POST /tabs")).toBe(true);
-    expect(full.has("POST /panes/split")).toBe(true);
-  });
-
-  it("hands back a copy, so a caller's wrapping cannot reach the real table", () => {
-    const remote = remoteRouteTable(routes, "full");
-    remote.length = 0;
-    expect(routes.length).toBeGreaterThan(0);
+  it("excludes everything send excludes: any DELETE, layout mutation", () => {
+    const full = keys(remoteRouteTable(routes, "full"));
+    expect(remoteRouteTable(routes, "full").filter((r) => r.method === "DELETE")).toEqual([]);
+    expect(full).not.toContain("POST /tabs");
+    expect(full).not.toContain("POST /panes/split");
   });
 });
 
@@ -149,8 +130,10 @@ describe("the listener's own routes", () => {
 /**
  * Deny-assertions. Each line is a family that must stay off the remote
  * surface; widening the allowlist means deleting one of these on purpose.
+ * Run against `full` too (ADR-182 D2): over HTTP it excludes exactly what
+ * `send` excludes.
  */
-describe.each(["read", "send"] as const)(
+describe.each(["read", "send", "full"] as const)(
   "the remote table for the %s tier excludes",
   (capability) => {
     const remote = remoteRouteTable(routes, capability);
@@ -218,7 +201,7 @@ describe("the launch route", () => {
     expect(keys(remoteRouteTable(routes, "send"))).toContain("POST /agents");
   });
 
-  it("is present for a full device, like every other row", () => {
+  it("is present for a full device, same as a send device", () => {
     expect(keys(remoteRouteTable(routes, "full"))).toContain("POST /agents");
   });
 

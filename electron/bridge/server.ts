@@ -464,8 +464,8 @@ export class BridgeServer {
       // `bridgeTarget` would otherwise write the key a stolen token just
       // tried to use into the very log meant to catch it.
       target: SECRET_FIRST_ARG.has(route) ? null : bridgeTarget(args),
-      // No bodies, for the reason `fullTierWrite` gives: the table's arguments
-      // are too varied to fish in safely, and one of them is a keystroke.
+      // No bodies: the table's arguments are too varied to fish in safely,
+      // and one of them is a keystroke.
       textLength: null,
       textSha256: null,
       interrupt: false,

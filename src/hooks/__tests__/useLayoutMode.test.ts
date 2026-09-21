@@ -124,6 +124,28 @@ describe("useLayoutMode", () => {
     expect(mode()).toBe("desk");
   });
 
+  it("mirrors the mode onto <html data-layout> for portaled UI, and follows it", () => {
+    // A Radix portal mounts under <body>, outside `.app`, so the command
+    // palette's phone CSS keys off `:root[data-layout]` — which only works if
+    // this attribute tracks the same answer the hook gives.
+    const mql = stubMatchMedia(true);
+    stubDetached(false);
+    mountHook();
+    expect(document.documentElement.dataset.layout).toBe("phone");
+
+    act(() => {
+      mql.set(false);
+    });
+    expect(document.documentElement.dataset.layout).toBe("desk");
+  });
+
+  it("mirrors desk onto <html> for a narrow detached window", () => {
+    stubMatchMedia(true);
+    stubDetached(true);
+    mountHook();
+    expect(document.documentElement.dataset.layout).toBe("desk");
+  });
+
   it("unsubscribes from the media query on unmount", () => {
     const mql = stubMatchMedia(false);
     stubDetached(false);

@@ -17,11 +17,32 @@ export const PHONE_MAX_WIDTH = 767;
 
 const PHONE_QUERY = `(max-width: ${PHONE_MAX_WIDTH}px)`;
 
+/**
+ * Put the layout mode on `<html data-layout>` as well as on `.app`.
+ *
+ * `App` sets `data-layout` on its `.app` root, which every in-tree phone rule
+ * keys off. A Radix portal is not in that tree — it mounts under `<body>` — so
+ * phone CSS for portaled UI (the command palette) could never match
+ * `.app[data-layout="phone"]`, and the palette opened on a phone as the desk's
+ * centered card. Portaled rules key off `:root[data-layout="phone"]` instead,
+ * and this keeps that attribute true. It is done here, in the one listener
+ * that already decides the mode, rather than in a second effect that could
+ * disagree with it.
+ */
+function mirrorOntoDocument(): void {
+  document.documentElement.dataset.layout = getSnapshot();
+}
+
 /** Subscribes `onChange` to the media query the layout mode reads. */
 function subscribe(onChange: () => void): () => void {
   const mql = window.matchMedia(PHONE_QUERY);
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
+  const handle = () => {
+    mirrorOntoDocument();
+    onChange();
+  };
+  mirrorOntoDocument();
+  mql.addEventListener("change", handle);
+  return () => mql.removeEventListener("change", handle);
 }
 
 /**

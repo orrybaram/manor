@@ -351,6 +351,8 @@ describe("two windows on one pane (D6)", () => {
   /** The session's grid, as the daemon would report it. */
   let sessionSize: { cols: number; rows: number };
   let createdAt: Array<[string, number, number]>;
+  /** Every session the Manor server dropped its daemon stream for. */
+  let detached: string[];
   let windows: FakeWindow[];
   let transport: IpcBridgeTransport;
   let server: BridgeServer;
@@ -361,6 +363,13 @@ describe("two windows on one pane (D6)", () => {
       .filter(([channel]) => channel === BRIDGE_EVENT)
       .map(([, frame]) => frame as Record<string, unknown>)
       .filter((frame) => frame.event === "winsizeOwner");
+  }
+
+  function detach(win: FakeWindow) {
+    return invoke(
+      { ns: "pty", method: "detach", args: [PANE] },
+      win.webContents,
+    );
   }
 
   function create(win: FakeWindow, cols: number, rows: number) {
@@ -376,6 +385,7 @@ describe("two windows on one pane (D6)", () => {
     resetAttachments();
     sessionSize = { cols: 80, rows: 24 };
     createdAt = [];
+    detached = [];
     windows = [];
     const deps = {
       getRendererWindows: () => windows,
@@ -393,6 +403,9 @@ describe("two windows on one pane (D6)", () => {
           },
           getSnapshot: async () => ({ ...sessionSize }),
           resize: async () => {},
+          detach: async (sessionId: string) => {
+            detached.push(sessionId);
+          },
         },
       },
     } as unknown as IpcDeps;
@@ -469,6 +482,37 @@ describe("two windows on one pane (D6)", () => {
       rows: 40,
     });
     expect(createdAt).toEqual([[PANE, 120, 40]]);
+  });
+
+  /**
+   * The Manor server holds one daemon stream per session for every renderer,
+   * and `pty.detach` fires on every terminal effect cleanup. Before this was
+   * guarded, one viewer unmounting a pane dropped the stream out from under
+   * all the others — a browser switching workspace froze the desk's terminal.
+   */
+  it("keeps the stream for the others when one window detaches", async () => {
+    const first = makeWindow(11);
+    const second = makeWindow(22);
+    windows.push(first, second);
+
+    await create(first, 80, 24);
+    await create(second, 120, 40);
+
+    await detach(second);
+    expect(detached).toEqual([]);
+  });
+
+  it("drops the stream when the last window detaches", async () => {
+    const first = makeWindow(11);
+    const second = makeWindow(22);
+    windows.push(first, second);
+
+    await create(first, 80, 24);
+    await create(second, 120, 40);
+
+    await detach(second);
+    await detach(first);
+    expect(detached).toEqual([PANE]);
   });
 
   it("gives the winsize back when the owning window closes", async () => {

@@ -410,9 +410,28 @@ export const HANDLERS = {
     if (viewer) release(paneId, viewer);
     return ptyClose(deps, paneId);
   },
+  /**
+   * Stop *this* viewer watching — and drop the daemon stream only if it was
+   * the last one.
+   *
+   * The Manor server holds exactly one stream subscription per session for
+   * every renderer it serves (`terminal-host/client.ts`'s `wanted` set), and
+   * `ptyDetach` unsubscribes it. Called unconditionally, one viewer's detach
+   * was everyone's: `useTerminalConnection` detaches on every effect cleanup,
+   * so a browser that merely switched away from a workspace it shared with the
+   * desk cut the desk's terminal off mid-stream, and it stayed frozen until
+   * something remounted it. Present since ADR-178 slice 1; ADR-180 D6 is what
+   * made "who else is watching" a question this handler can answer.
+   *
+   * A socket that drops without detaching releases its viewers in
+   * `BridgeServer.drop` and leaves the stream subscribed — output with no
+   * subscriber is discarded at the fan-out, which costs a little and loses
+   * nothing, and the next `pty.create` reuses the live subscription.
+   */
   "pty.detach": (deps: IpcDeps, paneId: string, origin?: LayoutOrigin) => {
     const viewer = viewerOf(origin);
     if (viewer) release(paneId, viewer);
+    if (ownerOf(paneId)) return;
     return ptyDetach(deps, paneId);
   },
   /**

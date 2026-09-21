@@ -186,7 +186,7 @@ scenarios, the four other stale specs, and a green unattended run.
 | `pr-badge-matrix` | fixture stale — lucide renamed `shield-question` to `shield-question-mark` and left the old module as a re-export, so the app kept compiling | `a9d10b9` |
 | `sidebar-pr-tweaks` | spec stale, and **it was asserting nothing**: the comment card moved to `ui/PrCommentCard` (`bf77ca65`) and took its class names with it, so four comment authors read as zero and every assertion below passed vacuously. `PrCommentCard` now carries test ids | `a9d10b9` |
 | `claude-resize-duplication` | spec stale, twice over — see below | `d922ad6` |
-| `read-state.spec.ts:139` | **passes with no change.** Something between its last failure and now fixed it; `test-results/.last-run.json` reports `passed`. Not claimed as a fix by any ticket — watch it in the full run rather than assuming | — |
+| `read-state.spec.ts:139` | spec stale — **see the correction below**; an earlier version of this row said it passed with no change, and that was wrong | see below |
 
 **The resize guard had stopped guarding.** `claude-resize-duplication` is the
 only spec that drives the real `claude` at the ADR-163/164/165 bug, and it had
@@ -263,3 +263,40 @@ socket never carries it.
 drops newest overflow events" timed out at 5004ms once in a full `vitest` run.
 It passed 5/5 in isolation and has no dependency on the bridge. A
 load-dependent timeout, pre-existing.
+
+
+## Correction: `read-state.spec.ts:139` never passed
+
+The table above originally said this spec "passes with no change". **It did
+not.** That run exited 1; the orchestrator read `test-results/.last-run.json`,
+which was left over from the *previous* run (`claude-resize-duplication`,
+passing) because the rtk proxy had swallowed this run's own output. It failed
+in every run after that: both full suites, 3/3 in isolation.
+
+**Root cause: the spec was stale since ADR-167.** `8007d5c` gave the sidebar's
+workspace row its own `WorkspaceIndicatorDot`, which renders
+`data-testid="workspace-indicator"` with `data-kind="done_unread"` — and the
+spec was still waiting for `data-testid="agent-dot"` with
+`data-status="responded"`, an element the row has not rendered since. It could
+never pass. Fixed to assert the indicator, and to assert that it goes away
+entirely once read, which is what ADR-167 designed (a seen `responded` is not
+news on the workspace row, so `toWorkspaceIndicator` returns null).
+
+Found by dumping the renderer's actual state at the moment of failure: the
+replica held A's layout, the pane's live status was `responded`, the
+renderer's own unseen set held the agent, and the pane ids matched — every
+input correct, and the element absent. That combination can only mean the
+test is looking for the wrong element.
+
+**A hypothesis that was tested and discarded, recorded so nobody re-runs it.**
+Before the dump, the leading theory was that `pty.detach` — which fires on
+every pane unmount — dropping the Manor server's daemon stream for a pane
+with no remaining viewer left a background pane's `agentStatus`/`cwd`/`exit`
+unheard, so ADR-179 D3's server-derived state went stale while off screen.
+A release-only `pty.detach` was built and the spec run 3× against it: still
+3/3 failing. Reverted; `23023f0`'s guarded detach (drop the stream only when
+the last viewer lets go) stands. The *layering* question it raised is real
+and unanswered — should a renderer's detach ever reach the daemon, given a
+renderer is the server's viewer and not the daemon's client (ADR-178 D4)? —
+but nothing here demonstrates a bug from it, so it is a question for a
+future ADR, not a change for this one.

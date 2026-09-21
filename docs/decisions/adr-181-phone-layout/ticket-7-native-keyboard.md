@@ -1,6 +1,6 @@
 ---
 title: Typing on a phone is xterm and the native keyboard
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2, 3]

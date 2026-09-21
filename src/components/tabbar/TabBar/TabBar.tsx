@@ -16,6 +16,7 @@ import {
 import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { useProjectStore } from "../../../store/project-store";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
 import { TabButton } from "../TabButton";
 import styles from "./TabBar.module.css";
@@ -111,6 +112,10 @@ export function TabBar(props: TabBarProps) {
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const requestCloseTab = useAppStore((s) => s.requestCloseTab);
   const togglePinTab = useAppStore((s) => s.togglePinTab);
+  // ADR-181 D5: dragging a tab (reorder, move-into-panel, detach-by-drag) is
+  // one gesture, gated off entirely below rather than left half-working
+  // under a thumb.
+  const isPhone = useLayoutMode() === "phone";
   const pinnedTabIds = useMemo(
     () => panel?.pinnedTabIds ?? [],
     [panel?.pinnedTabIds],
@@ -570,7 +575,7 @@ export function TabBar(props: TabBarProps) {
                   canClose={true}
                   isDragging={dragIndex === idx}
                   isDropTarget={isDropTarget}
-                  draggable={!isPinned}
+                  draggable={!isPinned && !isPhone}
                   onSelect={() => {
                     ensureFocused();
                     selectTab(tab.id);
@@ -584,10 +589,12 @@ export function TabBar(props: TabBarProps) {
                     togglePinTab(tab.id);
                   }}
                   onDragStart={
-                    isPinned ? undefined : (e) => handleTabDragStart(idx, e)
+                    isPinned || isPhone
+                      ? undefined
+                      : (e) => handleTabDragStart(idx, e)
                   }
-                  onDrag={isPinned ? undefined : handleTabDrag}
-                  onDragEnd={isPinned ? undefined : handleTabDragEnd}
+                  onDrag={isPinned || isPhone ? undefined : handleTabDrag}
+                  onDragEnd={isPinned || isPhone ? undefined : handleTabDragEnd}
                   buttonRef={(el) => {
                     if (el) itemRefs.current.set(idx, el);
                     else itemRefs.current.delete(idx);

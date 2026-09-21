@@ -37,6 +37,7 @@ import {
 import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
 import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
 import { usePrWatcher } from "../../../hooks/usePrWatcher";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ProjectItem } from "../ProjectItem";
 import { PortsList } from "../../ports/PortsList";
 import { AgentsList } from "../AgentsList";
@@ -81,6 +82,12 @@ export function Sidebar(props: SidebarProps) {
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
   const setSidebarWidth = useProjectStore((s) => s.setSidebarWidth);
+  // ADR-181 D5: on a phone the sidebar lives in `SidebarDrawer`'s fixed-width
+  // sheet, so neither the width handle nor the pointer-drag reorders below
+  // (workspace/folder here, whole-project below) have anywhere useful to go —
+  // and unlike the tab/pane drags, nothing here already gates `draggable`
+  // off, since this is a `pointerdown`-driven reorder, not native HTML5 DnD.
+  const isPhone = useLayoutMode() === "phone";
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
@@ -111,6 +118,13 @@ export function Sidebar(props: SidebarProps) {
 
   const handleProjectDragStart = useCallback(
     (idx: number, e: ReactPointerEvent) => {
+      // ADR-181 D5: a pointerdown-driven reorder, not native HTML5 DnD — the
+      // project header's own `touch-action: none` (`ProjectItem.tsx`) stops
+      // it fighting the sidebar's scroll on release, but `setPointerCapture`
+      // below still claims the gesture the instant a finger lands, ahead of
+      // a long-press opening the row's context menu. No touch idiom needs
+      // reordering projects, so the whole gesture is off in phone mode.
+      if (isPhone) return;
       if (e.button !== 0) return;
 
       const target = e.currentTarget as HTMLElement;
@@ -196,7 +210,7 @@ export function Sidebar(props: SidebarProps) {
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [projects, reorderProjects],
+    [projects, reorderProjects, isPhone],
   );
 
   const getProjectTransformStyle = (idx: number): React.CSSProperties => {
@@ -425,10 +439,16 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <PortsList />
 
-      <div
-        className={`${styles.resizeHandle} ${isResizing ? styles.resizeHandleActive : ""}`}
-        onMouseDown={handleResizeStart}
-      />
+      {/* ADR-181 D5: `SidebarDrawer` forces its own fixed width on the phone
+          sheet this renders inside (`.sheet [data-focus-region="sidebar"]`,
+          `SidebarDrawer.module.css`) — the handle has nothing to resize
+          there, and this is a mouse drag with no touch idiom regardless. */}
+      {!isPhone && (
+        <div
+          className={`${styles.resizeHandle} ${isResizing ? styles.resizeHandleActive : ""}`}
+          onMouseDown={handleResizeStart}
+        />
+      )}
     </div>
   );
 }

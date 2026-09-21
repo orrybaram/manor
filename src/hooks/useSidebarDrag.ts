@@ -7,6 +7,7 @@ import {
   type SidebarItem,
 } from "../utils/sidebar-items";
 import { useDragOverlayStore } from "../store/drag-overlay-store";
+import { useLayoutMode } from "./useLayoutMode";
 
 /** Vertical gap between sidebar rows, from `ProjectItem.module.css`. */
 const ROW_GAP = 8;
@@ -47,6 +48,12 @@ export function useSidebarDrag({
   disabled: boolean;
   onDrop: (sourceKey: string, target: DropTarget, rows: Row[]) => void;
 }) {
+  // ADR-181 D5: a pointerdown-driven reorder like `Sidebar.tsx`'s project
+  // drag — `setPointerCapture` below claims the gesture the instant a finger
+  // lands on a workspace or folder row, ahead of both the drawer's own
+  // scroll and a long-press opening that row's context menu. No touch idiom
+  // needs reordering the sidebar, so it is off in phone mode.
+  const isPhone = useLayoutMode() === "phone";
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [intoFolderId, setIntoFolderId] = useState<string | null>(null);
@@ -71,7 +78,7 @@ export function useSidebarDrag({
 
   const handleDragStart = useCallback(
     (key: string, kind: "workspace" | "folder", e: ReactPointerEvent) => {
-      if (disabled) return;
+      if (disabled || isPhone) return;
       if (e.button !== 0) return;
 
       // The dragged key goes in so a folder drag never offers a slot inside
@@ -231,7 +238,7 @@ export function useSidebarDrag({
       target.addEventListener("pointerup", onUp);
       target.addEventListener("lostpointercapture", onUp);
     },
-    [items, collapsedFolderIds, disabled, onDrop],
+    [items, collapsedFolderIds, disabled, isPhone, onDrop],
   );
 
   /**

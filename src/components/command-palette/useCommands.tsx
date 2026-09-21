@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
+import ArrowRightLeft from "lucide-react/dist/esm/icons/arrow-right-left";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
@@ -22,7 +23,11 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import { useAppStore, selectActivePanelId } from "../../store/app-store";
+import {
+  useAppStore,
+  selectActivePanelId,
+  selectSelectedTabId,
+} from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { getAgentCommand } from "../../agent-defaults";
@@ -324,6 +329,32 @@ export function useCommands({
           const panelId = selectActivePanelId(state);
           if (!panelId) return;
           state.closePanel(panelId);
+          onClose();
+        },
+      },
+      {
+        id: "move-tab-to-next-panel",
+        label: "Move Tab to Next Panel",
+        icon: <ArrowRightLeft size={14} />,
+        shortcut: fmt("move-tab-to-next-panel"),
+        // ADR-181 D5: the touch idiom for this is dragging a tab into another
+        // panel's tab bar, which phone mode disables — this keeps "move" one
+        // of the pane/panel actions the palette reaches on its own, matching
+        // the tab context menu's "Move Tab to Next Panel" (`TabButton.tsx`).
+        keywords: ["panel", "move", "tab"],
+        action: () => {
+          const state = useAppStore.getState();
+          const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
+          const panelId = selectActivePanelId(state);
+          if (layout && panelId) {
+            const tabId = selectSelectedTabId(state, panelId);
+            const panelIds = Object.keys(layout.panels);
+            if (tabId && panelIds.length >= 2) {
+              const idx = panelIds.indexOf(panelId);
+              const nextId = panelIds[(idx + 1) % panelIds.length];
+              state.moveTabToPanel(tabId, nextId);
+            }
+          }
           onClose();
         },
       },

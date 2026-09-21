@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
 
 export type DragPayload =
   | { type: "tab"; tabId: string; grabOffset?: { x: number; y: number } }
@@ -30,11 +31,21 @@ type PaneDragProviderProps = {
 export function PaneDragProvider(props: PaneDragProviderProps) {
   const { children } = props;
 
+  const layoutMode = useLayoutMode();
   const [drag, setDrag] = useState<DragPayload | null>(null);
-  const startDrag = useCallback((payload: DragPayload) => {
-    useDragOverlayStore.getState().incrementDragCount();
-    setDrag(payload);
-  }, []);
+  const startDrag = useCallback(
+    (payload: DragPayload) => {
+      // ADR-181 D5: every tab/pane drag source gates its own `draggable`
+      // attribute off in phone mode, so this should never fire there — but
+      // this is the one chokepoint both a tab drag and a pane drag funnel
+      // through, so it stays a defensive no-op rather than trusting every
+      // future drag source to remember the gate itself.
+      if (layoutMode === "phone") return;
+      useDragOverlayStore.getState().incrementDragCount();
+      setDrag(payload);
+    },
+    [layoutMode],
+  );
   const endDrag = useCallback(() => {
     useDragOverlayStore.getState().decrementDragCount();
     setDrag(null);

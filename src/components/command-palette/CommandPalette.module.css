@@ -1413,3 +1413,57 @@ button.processKill:hover:not(:disabled) {
   text-decoration: none;
   color: var(--text-dim);
 }
+
+/* ── Phone (ADR-181 D5) ──
+ * `useLayoutMode()` is the app's one breakpoint (ADR-181 D2), so this keys
+ * off `.app[data-layout="phone"]` rather than a media query of its own,
+ * matching `TabBar.module.css`/`Phone.module.css`. The palette is the phone's
+ * command surface — the input pinned to the top, the list filling and
+ * scrolling the rest — rather than the desk layout's centered card.
+ * `.paletteWide`/`.paletteStats` (the issue-detail and stats views) fold into
+ * the same full-screen box instead of keeping their desk-mode widths: there
+ * is no narrower "wide" to be on a phone. The attribute selector gives every
+ * rule here higher specificity than `.paletteWide`/`.paletteStats` alone, so
+ * this wins regardless of source order.
+ */
+:global(.app[data-layout="phone"]) .palette,
+:global(.app[data-layout="phone"]) .paletteWide,
+:global(.app[data-layout="phone"]) .paletteStats {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+}
+
+/* The desk animation slides from `translate(-50%, -50%)`, which the
+   full-screen box above no longer sits at — a plain fade replaces it here so
+   the palette doesn't visibly jump to centered mid-animation. */
+:global(.app[data-layout="phone"]) .palette[data-state="open"],
+:global(.app[data-layout="phone"]) .paletteWide[data-state="open"],
+:global(.app[data-layout="phone"]) .paletteStats[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+:global(.app[data-layout="phone"]) .palette[data-state="closed"],
+:global(.app[data-layout="phone"]) .paletteWide[data-state="closed"],
+:global(.app[data-layout="phone"]) .paletteStats[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+:global(.app[data-layout="phone"]) .list,
+:global(.app[data-layout="phone"]) .paletteStats .list {
+  max-height: none;
+}
+
+:global(.app[data-layout="phone"]) .input {
+  padding: 16px;
+  /* Below 16px iOS Safari zooms the page in on focus. */
+  font-size: 16px;
+}

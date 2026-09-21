@@ -1,6 +1,6 @@
 ---
 title: In phone mode a split stacks its children, and nothing remounts
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [1]

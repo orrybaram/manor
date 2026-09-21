@@ -2,6 +2,7 @@ import {
   useAppStore,
   selectActivePanelId,
   selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
   selectSelectedTabId,
 } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
@@ -42,7 +43,7 @@ function focusedBrowserPaneId(): string | undefined {
   const state = useAppStore.getState();
   const focusedPaneId = selectFocusedPaneOfActiveTab(state);
   if (!focusedPaneId) return;
-  if (state.paneContentType[focusedPaneId] !== "browser") return;
+  if (selectPaneContentType(state, focusedPaneId) !== "browser") return;
   return focusedPaneId;
 }
 
@@ -209,7 +210,7 @@ export function createSharedKeybindingHandlers(
       const focusedPaneId = selectFocusedPaneOfActiveTab(state);
       if (
         !focusedPaneId ||
-        state.paneContentType[focusedPaneId] !== "browser"
+        selectPaneContentType(state, focusedPaneId) !== "browser"
       ) {
         return;
       }

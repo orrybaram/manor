@@ -98,7 +98,6 @@ beforeEach(() => {
         rootNode: { type: "leaf", paneId: "pane-1" },
       }),
     },
-    paneContentType: {},
   });
 });
 

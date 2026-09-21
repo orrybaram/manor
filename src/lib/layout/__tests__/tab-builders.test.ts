@@ -76,14 +76,6 @@ describe("findDiffPane", () => {
     const tab: Tab = { id: "t", title: "T", rootNode: { type: "leaf", paneId: "p" } };
     expect(findDiffPane(layoutOf(tab))).toBeNull();
   });
-
-  it("takes a caller's own idea of which panes are diffs", () => {
-    const tab: Tab = { id: "t", title: "T", rootNode: { type: "leaf", paneId: "p" } };
-    expect(findDiffPane(layoutOf(tab), (paneId) => paneId === "p")).toEqual({
-      paneId: "p",
-      tabId: "t",
-    });
-  });
 });
 
 describe("layoutPaneIds", () => {

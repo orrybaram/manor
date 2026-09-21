@@ -10,6 +10,8 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectFocusedPaneId,
+  selectPaneContentType,
+  selectPaneUrl,
   useSelectedTab,
   useVisibleTabs,
 } from "../../../store/app-store";
@@ -32,8 +34,8 @@ function deriveTabTitle(focusedPaneId: string): string {
   const s = useAppStore.getState();
   const title = s.paneTitle[focusedPaneId] ?? null;
   const cwd = s.paneCwd[focusedPaneId] ?? null;
-  const contentType = s.paneContentType[focusedPaneId] ?? null;
-  const paneUrl = s.paneUrl[focusedPaneId] ?? null;
+  const contentType = selectPaneContentType(s, focusedPaneId);
+  const paneUrl = selectPaneUrl(s, focusedPaneId);
 
   if (contentType === "diff") return "Diff";
   if (contentType === "browser") {
@@ -238,7 +240,7 @@ export function TabBar(props: TabBarProps) {
         allPaneIds(tab.rootNode)[0];
       const img = buildTabDragImage(
         deriveTabTitle(focusedPaneId),
-        st.paneContentType[focusedPaneId],
+        selectPaneContentType(st, focusedPaneId),
         st.paneFavicon[focusedPaneId] ?? undefined,
       );
       document.body.appendChild(img);

@@ -51,9 +51,14 @@ export interface IpcDeps {
   getRendererWindows: () => BrowserWindow[];
   /**
    * Register a detached popup window (created via `createDetachedWindow`) so it
-   * is tracked for broadcast and reachable by its windowId.
+   * is tracked for broadcast, reachable by its windowId, and known to the
+   * layout store as the holder of `claim` (ADR-179 D4).
    */
-  registerDetachedWindow: (windowId: string, win: BrowserWindow) => void;
+  registerDetachedWindow: (
+    windowId: string,
+    win: BrowserWindow,
+    claim: { workspacePath: string; tabId: string },
+  ) => void;
   backend: LocalBackend;
   layoutPersistence: LayoutPersistence;
   /** ADR-179. The one authority for every workspace's layout. */

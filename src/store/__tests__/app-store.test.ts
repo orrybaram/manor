@@ -4,6 +4,7 @@ import {
   selectActivePanelId,
   selectActiveWorkspace,
   selectFocusedPaneId,
+  selectPaneContentType,
   selectSelectedTabId,
   selectWebviewFocusVisible,
 } from "../app-store";
@@ -18,6 +19,7 @@ import {
   seedLayout,
   sentCommands,
   serverCalls,
+  settled,
 } from "./fake-layout-server";
 
 // window is provided by the setup file (src/store/__tests__/setup.ts)
@@ -145,12 +147,11 @@ function setupStore(layout?: WorkspaceLayout) {
     // first pane (ADR-179 D3).
     viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
-    paneContentType: {},
-    paneUrl: {},
+    paneLiveUrl: {},
     panePickedElement: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
@@ -191,11 +192,12 @@ function activeTab(): Tab {
 describe("Tab operations", () => {
   beforeEach(() => setupStore());
 
-  it("addTab creates a new tab in the active panel with a single leaf pane", () => {
+  it("addTab creates a new tab in the active panel with a single leaf pane", async () => {
     const panelBefore = getActivePanel();
     expect(panelBefore.tabs).toHaveLength(1);
 
     useAppStore.getState().addTab();
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(2);
@@ -204,10 +206,11 @@ describe("Tab operations", () => {
     expect(selectedTabId()).toBe(newTab.id);
   });
 
-  it("closeTab removes the tab", () => {
+  it("closeTab removes the tab", async () => {
     // Start with two tabs so closing one does not remove the panel
     setupStore(makeTwoTabLayout());
     useAppStore.getState().closeTab("tab-1");
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(1);
@@ -215,10 +218,11 @@ describe("Tab operations", () => {
     expect(selectedTabId()).toBe("tab-2");
   });
 
-  it("closeTab on the only tab in a multi-panel layout removes the panel", () => {
+  it("closeTab on the only tab in a multi-panel layout removes the panel", async () => {
     setupStore(makeTwoPanelLayout());
     // Make panel-1 the active panel (it already is), close its only tab
     useAppStore.getState().closeTab("tab-1");
+    await settled();
 
     const layout = getLayout();
     // panel-1 should be removed since it was the only tab
@@ -227,48 +231,55 @@ describe("Tab operations", () => {
     expect(layout.panels["panel-2"]).toBeDefined();
   });
 
-  it("selectTab moves this renderer's selection and nothing else", () => {
+  it("selectTab moves this renderer's selection and nothing else", async () => {
     setupStore(makeTwoTabLayout());
     const before = getLayout();
 
     useAppStore.getState().selectTab("tab-2");
+    await settled();
 
     expect(selectedTabId()).toBe("tab-2");
     // Viewport only: no command, so the shared structure is untouched (D3).
     expect(getLayout()).toBe(before);
   });
 
-  it("selectNextTab wraps around", () => {
+  it("selectNextTab wraps around", async () => {
     setupStore(makeThreeTabLayout());
     // Currently on tab-1, select tab-3 first
     useAppStore.getState().selectTab("tab-3");
+    await settled();
     useAppStore.getState().selectNextTab();
+    await settled();
 
     // Should wrap around to tab-1
     expect(selectedTabId()).toBe("tab-1");
   });
 
-  it("selectPrevTab wraps around", () => {
+  it("selectPrevTab wraps around", async () => {
     setupStore(makeThreeTabLayout());
     // Currently on tab-1
     useAppStore.getState().selectPrevTab();
+    await settled();
 
     // Should wrap to tab-3
     expect(selectedTabId()).toBe("tab-3");
   });
 
-  it("togglePinTab adds tab to pinnedTabIds", () => {
+  it("togglePinTab adds tab to pinnedTabIds", async () => {
     setupStore(makeTwoTabLayout());
     useAppStore.getState().togglePinTab("tab-1");
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.pinnedTabIds).toContain("tab-1");
   });
 
-  it("togglePinTab removes tab from pinnedTabIds when already pinned", () => {
+  it("togglePinTab removes tab from pinnedTabIds when already pinned", async () => {
     setupStore(makeTwoTabLayout());
     useAppStore.getState().togglePinTab("tab-1");
+    await settled();
     useAppStore.getState().togglePinTab("tab-1");
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.pinnedTabIds).not.toContain("tab-1");
@@ -278,8 +289,9 @@ describe("Tab operations", () => {
 describe("Pane operations", () => {
   beforeEach(() => setupStore());
 
-  it("splitPane('horizontal') splits the focused pane creating a split node", () => {
+  it("splitPane('horizontal') splits the focused pane creating a split node", async () => {
     useAppStore.getState().splitPane("horizontal");
+    await settled();
 
     const tab = activeTab();
     expect(tab.rootNode.type).toBe("split");
@@ -294,8 +306,9 @@ describe("Pane operations", () => {
     }
   });
 
-  it("splitPane('vertical') splits the focused pane vertically", () => {
+  it("splitPane('vertical') splits the focused pane vertically", async () => {
     useAppStore.getState().splitPane("vertical");
+    await settled();
 
     const tab = activeTab();
     expect(tab.rootNode.type).toBe("split");
@@ -304,62 +317,72 @@ describe("Pane operations", () => {
     }
   });
 
-  it("closePane removes pane from tree; if last pane in tab, closes tab", () => {
+  it("closePane removes pane from tree; if last pane in tab, closes tab", async () => {
     // Split first so we have two panes, then close one
     useAppStore.getState().splitPane("horizontal");
+    await settled();
 
     const paneIds = allPaneIds(activeTab().rootNode);
     expect(paneIds).toHaveLength(2);
 
     // Close the focused pane (second one after split)
     useAppStore.getState().closePane();
+    await settled();
 
     expect(allPaneIds(activeTab().rootNode)).toHaveLength(1);
   });
 
-  it("closePane on last pane in only tab closes the tab", () => {
+  it("closePane on last pane in only tab closes the tab", async () => {
     // Single pane tab - closing it should close the tab
     // Need two tabs so we can observe the tab being removed
     setupStore(makeTwoTabLayout());
     useAppStore.getState().selectTab("tab-1");
+    await settled();
 
     useAppStore.getState().closePane();
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs.find((t) => t.id === "tab-1")).toBeUndefined();
     expect(selectedTabId()).toBe("tab-2");
   });
 
-  it("reopenClosedPane puts back what the last close took", () => {
+  it("reopenClosedPane puts back what the last close took", async () => {
     setupStore(makeTwoTabLayout());
     useAppStore.getState().selectTab("tab-1");
+    await settled();
 
     useAppStore.getState().closeTab("tab-1");
+    await settled();
     expect(getActivePanel().tabs).toHaveLength(1);
 
     // The stack is the server's (ADR-179 D3): the command pops it, and the
     // broadcast is what puts the tab back here.
     useAppStore.getState().reopenClosedPane();
+    await settled();
 
     const panel = getActivePanel();
     expect(panel.tabs).toHaveLength(2);
     expect(panel.tabs.some((t) => t.id === "tab-1")).toBe(true);
   });
 
-  it("focusPane updates focusedPaneId", () => {
+  it("focusPane updates focusedPaneId", async () => {
     useAppStore.getState().splitPane("horizontal");
+    await settled();
 
     const paneIds = allPaneIds(activeTab().rootNode);
     const originalPane = paneIds[0]; // pane-1
 
     // Focus the original pane
     useAppStore.getState().focusPane(originalPane);
+    await settled();
 
     expect(focusedPaneId()).toBe(originalPane);
   });
 
-  it("focusNextPane cycles through panes", () => {
+  it("focusNextPane cycles through panes", async () => {
     useAppStore.getState().splitPane("horizontal");
+    await settled();
 
     const paneIds = allPaneIds(activeTab().rootNode);
 
@@ -368,12 +391,14 @@ describe("Pane operations", () => {
 
     // Focus next should cycle to pane-ids[0]
     useAppStore.getState().focusNextPane();
+    await settled();
 
     expect(focusedPaneId()).toBe(paneIds[0]);
   });
 
-  it("focusPrevPane cycles through panes", () => {
+  it("focusPrevPane cycles through panes", async () => {
     useAppStore.getState().splitPane("horizontal");
+    await settled();
 
     const paneIds = allPaneIds(activeTab().rootNode);
 
@@ -382,15 +407,17 @@ describe("Pane operations", () => {
 
     // Focus prev should cycle to pane-ids[0]
     useAppStore.getState().focusPrevPane();
+    await settled();
 
     expect(focusedPaneId()).toBe(paneIds[0]);
   });
 
-  it("refocusActivePane bumps paneFocusNonce without moving focus", () => {
+  it("refocusActivePane bumps paneFocusNonce without moving focus", async () => {
     const before = useAppStore.getState();
     const focusedBefore = focusedPaneId();
 
     useAppStore.getState().refocusActivePane();
+    await settled();
 
     const after = useAppStore.getState();
     expect(after.paneFocusNonce).toBe(before.paneFocusNonce + 1);
@@ -400,11 +427,13 @@ describe("Pane operations", () => {
     expect(focusedPaneId()).toBe(focusedBefore);
   });
 
-  it("every refocusActivePane is a distinct nonce", () => {
+  it("every refocusActivePane is a distinct nonce", async () => {
     const start = useAppStore.getState().paneFocusNonce;
 
     useAppStore.getState().refocusActivePane();
+    await settled();
     useAppStore.getState().refocusActivePane();
+    await settled();
 
     expect(useAppStore.getState().paneFocusNonce).toBe(start + 2);
   });
@@ -413,8 +442,9 @@ describe("Pane operations", () => {
 describe("Panel operations", () => {
   beforeEach(() => setupStore());
 
-  it("splitPanel creates a new panel with a split", () => {
+  it("splitPanel creates a new panel with a split", async () => {
     useAppStore.getState().splitPanel("horizontal");
+    await settled();
 
     const layout = getLayout();
     expect(layout.panelTree.type).toBe("split");
@@ -426,10 +456,11 @@ describe("Panel operations", () => {
     expect(selectActivePanelId(useAppStore.getState())).not.toBe("panel-1");
   });
 
-  it("closePanel removes panel, moves focus to sibling", () => {
+  it("closePanel removes panel, moves focus to sibling", async () => {
     setupStore(makeTwoPanelLayout());
 
     useAppStore.getState().closePanel("panel-1");
+    await settled();
 
     const layout = getLayout();
     expect(layout.panels["panel-1"]).toBeUndefined();
@@ -437,7 +468,7 @@ describe("Panel operations", () => {
     expect(selectActivePanelId(useAppStore.getState())).toBe("panel-2");
   });
 
-  it("moveTabToPanel moves tab between panels", () => {
+  it("moveTabToPanel moves tab between panels", async () => {
     setupStore(makeTwoPanelLayout());
 
     // Add a second tab to panel-1 so it is not left empty and removed. Both
@@ -462,6 +493,7 @@ describe("Panel operations", () => {
     }));
 
     useAppStore.getState().moveTabToPanel("tab-1", "panel-2");
+    await settled();
 
     const layout = getLayout();
     const panel1 = layout.panels["panel-1"];
@@ -480,18 +512,18 @@ describe("Workspace management", () => {
       workspaceLayouts: {},
       viewports: {},
       layoutVersions: {},
-      serverLayouts: {},
+      mountedWorkspaces: {},
       paneCwd: {},
       paneTitle: {},
       paneAgentStatus: {},
-      paneContentType: {},
-      paneUrl: {},
+      paneLiveUrl: {},
       panePickedElement: {},
     });
   });
 
-  it("setActiveWorkspace leaves a workspace the server never saw empty", () => {
+  it("setActiveWorkspace leaves a workspace the server never saw empty", async () => {
     useAppStore.getState().setActiveWorkspace(WS_PATH);
+    await settled();
 
     const state = useAppStore.getState();
     expect(state.activeWorkspacePath).toBe(WS_PATH);
@@ -500,28 +532,32 @@ describe("Workspace management", () => {
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
   });
 
-  it("setActiveWorkspace adopts what the server already holds", () => {
+  it("setActiveWorkspace adopts what the server already holds", async () => {
     const layout = makeLayout();
     broadcastLayout(WS_PATH, layout);
 
     useAppStore.getState().setActiveWorkspace(WS_PATH);
+    await settled();
 
     expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(layout);
   });
 
-  it("setActiveWorkspace reuses the replica it already has", () => {
+  it("setActiveWorkspace reuses the replica it already has", async () => {
     broadcastLayout(WS_PATH, makeLayout());
     useAppStore.getState().setActiveWorkspace(WS_PATH);
+    await settled();
     const layoutRef = useAppStore.getState().workspaceLayouts[WS_PATH];
 
     // Switch away and back
     useAppStore.getState().setActiveWorkspace("/other");
+    await settled();
     useAppStore.getState().setActiveWorkspace(WS_PATH);
+    await settled();
 
     expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(layoutRef);
   });
 
-  it("removeWorkspaceLayout drops the replica and its side maps", () => {
+  it("removeWorkspaceLayout drops the replica and its side maps", async () => {
     setupStore();
     // Set some metadata
     useAppStore.setState({
@@ -530,6 +566,7 @@ describe("Workspace management", () => {
     });
 
     useAppStore.getState().removeWorkspaceLayout(WS_PATH);
+    await settled();
 
     const state = useAppStore.getState();
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
@@ -539,7 +576,7 @@ describe("Workspace management", () => {
     expect(sentCommands).toEqual([]);
   });
 
-  it("a removed broadcast drops the replica rather than adopting it", () => {
+  it("a removed broadcast drops the replica rather than adopting it", async () => {
     setupStore();
     broadcastLayout(WS_PATH, makeLayout(), 3);
     useAppStore.setState({ paneCwd: { "pane-1": "/some/path" } });
@@ -548,12 +585,12 @@ describe("Workspace management", () => {
 
     const state = useAppStore.getState();
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
-    expect(state.serverLayouts[WS_PATH]).toBeUndefined();
+    expect(state.mountedWorkspaces[WS_PATH]).toBeUndefined();
     expect(state.layoutVersions[WS_PATH]).toBeUndefined();
     expect(state.paneCwd["pane-1"]).toBeUndefined();
   });
 
-  it("a workspace recreated after its removal starts over at version 1", () => {
+  it("a workspace recreated after its removal starts over at version 1", async () => {
     setupStore();
     broadcastLayout(WS_PATH, makeLayout(), 3);
     removeWorkspace(WS_PATH);
@@ -568,21 +605,24 @@ describe("Workspace management", () => {
 describe("Metadata tracking", () => {
   beforeEach(() => setupStore());
 
-  it("setPaneCwd updates paneCwd", () => {
+  it("setPaneCwd updates paneCwd", async () => {
     useAppStore.getState().setPaneCwd("pane-1", "/home/user");
+    await settled();
     expect(useAppStore.getState().paneCwd["pane-1"]).toBe("/home/user");
   });
 
-  it("setPaneCwd deduplicates same value", () => {
+  it("setPaneCwd deduplicates same value", async () => {
     useAppStore.getState().setPaneCwd("pane-1", "/home/user");
+    await settled();
     const stateRef = useAppStore.getState().paneCwd;
 
     useAppStore.getState().setPaneCwd("pane-1", "/home/user");
+    await settled();
     // Should be the exact same object (no state update)
     expect(useAppStore.getState().paneCwd).toBe(stateRef);
   });
 
-  it("setPaneAgentStatus updates paneAgentStatus", () => {
+  it("setPaneAgentStatus updates paneAgentStatus", async () => {
     useAppStore.getState().setPaneAgentStatus("pane-1", {
       kind: "claude",
       status: "thinking",
@@ -590,22 +630,45 @@ describe("Metadata tracking", () => {
       since: Date.now(),
       title: null,
     });
+    await settled();
     expect(useAppStore.getState().paneAgentStatus["pane-1"]?.status).toBe(
       "thinking",
     );
   });
 
-  it("setPaneContentType updates paneContentType", () => {
+  // What a pane is lives on its leaf (ADR-182 D9): nothing changes here
+  // until the server's broadcast brings the leaf back.
+  it("setPaneContentType retypes the pane's leaf, by way of the server", async () => {
     useAppStore.getState().setPaneContentType("pane-1", "browser");
-    expect(useAppStore.getState().paneContentType["pane-1"]).toBe("browser");
+    expect(selectPaneContentType(useAppStore.getState(), "pane-1")).toBe(
+      "terminal",
+    );
+
+    await settled();
+
+    expect(selectPaneContentType(useAppStore.getState(), "pane-1")).toBe(
+      "browser",
+    );
+    expect(activeTab().rootNode).toMatchObject({ contentType: "browser" });
   });
 
-  it("setPaneContentType with 'terminal' removes the entry (implicit default)", () => {
+  it("setPaneContentType back to 'terminal' retypes it again", async () => {
     useAppStore.getState().setPaneContentType("pane-1", "browser");
-    expect(useAppStore.getState().paneContentType["pane-1"]).toBe("browser");
+    await settled();
 
     useAppStore.getState().setPaneContentType("pane-1", "terminal");
-    expect(useAppStore.getState().paneContentType["pane-1"]).toBeUndefined();
+    await settled();
+
+    expect(selectPaneContentType(useAppStore.getState(), "pane-1")).toBe(
+      "terminal",
+    );
+  });
+
+  it("setPaneContentType sends nothing for a type the pane already has", async () => {
+    useAppStore.getState().setPaneContentType("pane-1", "terminal");
+    await settled();
+
+    expect(sentCommands).toEqual([]);
   });
 });
 
@@ -624,8 +687,9 @@ describe("Metadata tracking", () => {
 describe("addTerminalTab", () => {
   beforeEach(() => setupStore());
 
-  it("queues the command for the new tab's pane before creating the tab", () => {
+  it("queues the command for the new tab's pane before creating the tab", async () => {
     const created = useAppStore.getState().addTerminalTab("npm start");
+    await settled();
 
     expect(created).not.toBeNull();
     expect(queuedCommands).toEqual([
@@ -637,15 +701,16 @@ describe("addTerminalTab", () => {
     expect(sentCommands[sentCommands.length - 1].command.type).toBe("new-tab");
   });
 
-  it("passes the kind through for an agent launch", () => {
+  it("passes the kind through for an agent launch", async () => {
     useAppStore.getState().addTerminalTab("claude", "agent-startup");
+    await settled();
 
     expect(queuedCommands[queuedCommands.length - 1].kind).toBe(
       "agent-startup",
     );
   });
 
-  it("queues nothing when there is no workspace to open a tab in", () => {
+  it("queues nothing when there is no workspace to open a tab in", async () => {
     useAppStore.setState({ activeWorkspacePath: null });
 
     expect(useAppStore.getState().addTerminalTab("npm start")).toBeNull();
@@ -654,7 +719,7 @@ describe("addTerminalTab", () => {
 });
 
 describe("selectActiveWorkspace selector", () => {
-  it("returns the correct panel when workspace exists", () => {
+  it("returns the correct panel when workspace exists", async () => {
     setupStore();
     const panel = selectActiveWorkspace(useAppStore.getState());
     expect(panel).not.toBeNull();
@@ -662,7 +727,7 @@ describe("selectActiveWorkspace selector", () => {
     expect(panel!.tabs).toHaveLength(1);
   });
 
-  it("returns null when no active workspace", () => {
+  it("returns null when no active workspace", async () => {
     useAppStore.setState({
       activeWorkspacePath: null,
       workspaceLayouts: {},
@@ -671,7 +736,7 @@ describe("selectActiveWorkspace selector", () => {
     expect(panel).toBeNull();
   });
 
-  it("returns null when active workspace path has no layout", () => {
+  it("returns null when active workspace path has no layout", async () => {
     useAppStore.setState({
       activeWorkspacePath: "/nonexistent",
       workspaceLayouts: {},
@@ -684,31 +749,37 @@ describe("selectActiveWorkspace selector", () => {
 describe("webview focus", () => {
   beforeEach(() => setupStore());
 
-  it("setWebviewFocused records the focused pane", () => {
+  it("setWebviewFocused records the focused pane", async () => {
     useAppStore.getState().setWebviewFocused("pane-1", true);
+    await settled();
     expect(useAppStore.getState().webviewFocusedPaneId).toBe("pane-1");
   });
 
-  it("blur from a pane that does not own the focus is ignored", () => {
+  it("blur from a pane that does not own the focus is ignored", async () => {
     useAppStore.getState().setWebviewFocused("pane-1", true);
+    await settled();
     useAppStore.getState().setWebviewFocused("pane-2", false);
+    await settled();
     expect(useAppStore.getState().webviewFocusedPaneId).toBe("pane-1");
 
     useAppStore.getState().setWebviewFocused("pane-1", false);
+    await settled();
     expect(useAppStore.getState().webviewFocusedPaneId).toBeNull();
   });
 
-  it("selectWebviewFocusVisible is false when nothing is focused", () => {
+  it("selectWebviewFocusVisible is false when nothing is focused", async () => {
     expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
   });
 
-  it("selectWebviewFocusVisible is true for a pane in a selected tab", () => {
+  it("selectWebviewFocusVisible is true for a pane in a selected tab", async () => {
     useAppStore.getState().setWebviewFocused("pane-1", true);
+    await settled();
     expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(true);
   });
 
-  it("selectWebviewFocusVisible is false once the pane's tab is hidden", () => {
+  it("selectWebviewFocusVisible is false once the pane's tab is hidden", async () => {
     useAppStore.getState().setWebviewFocused("pane-1", true);
+    await settled();
     useAppStore.setState((s) => {
       const layout = s.workspaceLayouts[WS_PATH];
       const panel = layout.panels["panel-1"];
@@ -743,8 +814,9 @@ describe("webview focus", () => {
     expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
   });
 
-  it("selectWebviewFocusVisible is false in another workspace", () => {
+  it("selectWebviewFocusVisible is false in another workspace", async () => {
     useAppStore.getState().setWebviewFocused("pane-1", true);
+    await settled();
     useAppStore.setState({ activeWorkspacePath: "/other" });
     expect(selectWebviewFocusVisible(useAppStore.getState())).toBe(false);
   });

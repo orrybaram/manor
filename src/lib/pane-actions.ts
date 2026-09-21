@@ -10,6 +10,7 @@
 import {
   useAppStore,
   selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
   sendPendingCommand,
 } from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
@@ -63,7 +64,7 @@ export function convertFocusedPaneTo(contentType: PaneContentType): void {
   }
 
   const command = getAgentCommand(state.activeWorkspacePath);
-  const currentType = state.paneContentType[focusedPaneId] ?? "terminal";
+  const currentType = selectPaneContentType(state, focusedPaneId);
   if (currentType === "terminal") {
     window.electronAPI.pty.write(focusedPaneId, command + "\n");
     return;

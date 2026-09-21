@@ -114,6 +114,30 @@ export interface AgentService {
 
 const NO_AGENTS: AgentService = { abandonForPanes() {} };
 
+/**
+ * What main knows about a desktop window, by renderer id (D4).
+ *
+ * Asked rather than told, because both answers change as windows come and
+ * go. `claimOf` is the tab a detached window was opened to hold — its launch
+ * argument, which main wrote — so a claim never travels inside a viewport a
+ * renderer reports.
+ */
+export interface WindowDirectory {
+  isPrimary(rendererId: string): boolean;
+  claimOf(rendererId: string): { workspacePath: string; tabId: string } | null;
+}
+
+const NO_WINDOWS: WindowDirectory = {
+  isPrimary: () => false,
+  claimOf: () => null,
+};
+
+/** The file, as far as this store uses it; a test hands in memory. */
+export type LayoutFile = Pick<
+  LayoutPersistence,
+  "load" | "save" | "removeWorkspace"
+>;
+
 interface WorkspaceState
   extends Omit<LayoutEntry, "claims"> {
   closedStack: ClosedPane[];
@@ -182,16 +206,15 @@ export class LayoutStore {
   private dirty = false;
 
   /**
-   * @param isPrimary Whether a renderer id is the primary window's. Main owns
-   * that fact (`mainWindow.webContents.id`) and it changes as windows come and
-   * go, so it is asked rather than told. A store built without it has no
-   * primary and falls back to the most recent window report.
+   * @param windows Which renderer is the primary window, and which tab a
+   * detached one holds. A store built without it has no primary — it falls
+   * back to the most recent window report — and no claims.
    */
   constructor(
-    private readonly persistence: LayoutPersistence,
+    private readonly persistence: LayoutFile,
     private readonly broadcast: LayoutBroadcaster,
     private readonly backend: Pick<LocalBackend, "pty">,
-    private readonly isPrimary: (rendererId: string) => boolean = () => false,
+    private readonly windows: WindowDirectory = NO_WINDOWS,
     /**
      * A pane's title, off the command channel (D1). Optional, and a no-op by
      * default, so every existing caller of this constructor keeps working —
@@ -264,18 +287,6 @@ export class LayoutStore {
       workspacePath,
       entry: snapshot(state, this.claimsFor(workspacePath)),
     };
-  }
-
-  /**
-   * The workspace's layout, creating an empty single-panel one if this is the
-   * first time the server has heard of it. The panel id is minted here because
-   * nothing sent a command yet — every id in a *command* comes from its sender.
-   */
-  ensure(workspacePath: string): LayoutEntry {
-    return snapshot(
-      this.ensureState(workspacePath),
-      this.claimsFor(workspacePath),
-    );
   }
 
   /**
@@ -410,38 +421,37 @@ export class LayoutStore {
   }
 
   /**
-   * What one renderer is looking at (ADR-179 D3), and what it holds (D4).
+   * What one renderer is looking at (ADR-179 D3).
    *
    * Last writer wins for the **default viewport** — the answer handed to a
    * renderer that has never seen this workspace, not an authority over
-   * anyone's selection. A *claiming* window is excluded from that: its
-   * viewport is one tab, and handing the next renderer a workspace of one tab
-   * is exactly the bug claims exist to avoid. Only a window may claim; a
-   * bridge socket's `claim` is dropped here, and is not stored with the
-   * default viewport either.
+   * anyone's selection.
+   *
+   * A detached window's report is different (D4): it is how the window's
+   * claim takes effect — the claim itself comes from main, never from the
+   * report — and its viewport is not stored at all. It is one tab, and
+   * handing the next renderer a workspace of one tab is exactly the bug
+   * claims exist to avoid. A bridge socket never holds a claim.
    */
   reportViewport(
     workspacePath: string,
     origin: LayoutOrigin,
     viewport: WorkspaceViewport,
   ): void {
-    const isWindow = origin.kind === "window";
-    const claim = isWindow && typeof viewport.claim === "string"
-      ? viewport.claim
-      : undefined;
-    if (isWindow) {
-      this.setClaim(origin.id, workspacePath, claim, origin);
-      if (claim === undefined) {
-        this.windowViewports.set(workspacePath, viewport);
-        if (this.isPrimary(origin.id)) {
-          this.primaryViewports.set(workspacePath, viewport);
-        }
+    if (origin.kind === "window") {
+      const claim = this.windows.claimOf(origin.id);
+      if (claim) {
+        this.setClaim(origin.id, claim.workspacePath, claim.tabId, origin);
+        return;
+      }
+      this.windowViewports.set(workspacePath, viewport);
+      if (this.windows.isPrimary(origin.id)) {
+        this.primaryViewports.set(workspacePath, viewport);
       }
     }
     const state = this.entries.get(workspacePath);
-    if (!state || claim !== undefined) return;
-    const { claim: _refused, ...unclaimed } = viewport;
-    state.defaultViewport = unclaimed;
+    if (!state) return;
+    state.defaultViewport = viewport;
     this.schedulePersist();
   }
 
@@ -773,6 +783,11 @@ export class LayoutStore {
     }
   }
 
+  /**
+   * The workspace's state, creating an empty single-panel layout the first
+   * time the server hears of it. The panel id is minted here because no
+   * command carried one — every id in a *command* comes from its sender.
+   */
   private ensureState(workspacePath: string): WorkspaceState {
     const existing = this.entries.get(workspacePath);
     if (existing) return existing;

@@ -20,6 +20,7 @@ import {
   resetFakeLayoutServer,
   seedLayout,
   sentCommands,
+  settled,
 } from "./fake-layout-server";
 
 const WS_PATH = "/test/workspace";
@@ -81,12 +82,11 @@ function setupStore(layout: WorkspaceLayout) {
     workspaceLayouts: { [WS_PATH]: start },
     viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
-    paneContentType: {},
-    paneUrl: {},
+    paneLiveUrl: {},
     panePickedElement: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
@@ -118,10 +118,11 @@ describe("splitPaneAt across panels", () => {
     );
   });
 
-  it("splits a pane living in a non-active panel", () => {
+  it("splits a pane living in a non-active panel", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt("pane-b", "horizontal", "second");
+    await settled();
 
     expect(newPane).toBeTruthy();
     expect(tabHolding(newPane!)?.panelId).toBe(OTHER_PANEL);
@@ -139,10 +140,11 @@ describe("splitPaneAt across panels", () => {
     });
   });
 
-  it("leaves the active panel untouched when splitting elsewhere", () => {
+  it("leaves the active panel untouched when splitting elsewhere", async () => {
     const before = getPanel(ACTIVE_PANEL);
 
     useAppStore.getState().splitPaneAt("pane-b", "horizontal", "second");
+    await settled();
 
     expect(getPanel(ACTIVE_PANEL)).toEqual(before);
     expect(selectActivePanelId(useAppStore.getState())).toBe(ACTIVE_PANEL);
@@ -159,8 +161,9 @@ describe("closePaneById across panels", () => {
     );
   });
 
-  it("closes a pane living in a non-active panel", () => {
+  it("closes a pane living in a non-active panel", async () => {
     useAppStore.getState().closePaneById("pane-b1");
+    await settled();
 
     expect(tabHolding("pane-b1")).toBeNull();
     expect(tabHolding("pane-b2")?.panelId).toBe(OTHER_PANEL);
@@ -176,27 +179,30 @@ describe("closePaneById across panels", () => {
     });
   });
 
-  it("does not move focus to the panel it mutated", () => {
+  it("does not move focus to the panel it mutated", async () => {
     const activeBefore = getPanel(ACTIVE_PANEL);
 
     useAppStore.getState().closePaneById("pane-b1");
+    await settled();
 
     expect(selectActivePanelId(useAppStore.getState())).toBe(ACTIVE_PANEL);
     expect(getPanel(ACTIVE_PANEL)).toEqual(activeBefore);
   });
 
-  it("puts the pane back where it was when reopened", () => {
+  it("puts the pane back where it was when reopened", async () => {
     useAppStore.getState().closePaneById("pane-b1");
+    await settled();
     expect(tabHolding("pane-b1")).toBeNull();
 
     // The reopen stack is the server's (ADR-179 D3), and it remembers which
     // panel the pane came from — not the one the window happens to be on.
     useAppStore.getState().reopenClosedPane();
+    await settled();
 
     expect(tabHolding("pane-b1")?.panelId).toBe(OTHER_PANEL);
   });
 
-  it("closes the tab when the pane was the last one in a non-active panel's tab", () => {
+  it("closes the tab when the pane was the last one in a non-active panel's tab", async () => {
     setupStore(
       twoPanelLayout(
         [leafTab("tab-a", "pane-a")],
@@ -205,15 +211,17 @@ describe("closePaneById across panels", () => {
     );
 
     useAppStore.getState().closePaneById("pane-b1");
+    await settled();
 
     expect(tabHolding("pane-b1")).toBeNull();
     expect(getPanel(OTHER_PANEL).tabs.map((t) => t.id)).toEqual(["tab-b2"]);
   });
 
-  it("no-ops on an unknown paneId", () => {
+  it("no-ops on an unknown paneId", async () => {
     const before = useAppStore.getState().workspaceLayouts[WS_PATH];
 
     useAppStore.getState().closePaneById("pane-nope");
+    await settled();
 
     expect(useAppStore.getState().workspaceLayouts[WS_PATH]).toBe(before);
   });
@@ -230,8 +238,9 @@ describe("tab actions return their IDs", () => {
     );
   });
 
-  it("addTab returns the tabId and paneId it created", () => {
+  it("addTab returns the tabId and paneId it created", async () => {
     const created = useAppStore.getState().addTab();
+    await settled();
 
     expect(created).not.toBeNull();
     const tab = getPanel(ACTIVE_PANEL).tabs.find((t) => t.id === created!.tabId);
@@ -239,15 +248,17 @@ describe("tab actions return their IDs", () => {
     expect(allPaneIds(tab!.rootNode)).toEqual([created!.paneId]);
   });
 
-  it("addTab adopts a caller-supplied paneId (prewarmed PTY session)", () => {
+  it("addTab adopts a caller-supplied paneId (prewarmed PTY session)", async () => {
     const created = useAppStore.getState().addTab("pane-prewarmed");
+    await settled();
 
     expect(created!.paneId).toBe("pane-prewarmed");
     expect(tabHolding("pane-prewarmed")?.tab.id).toBe(created!.tabId);
   });
 
-  it("addTerminalTab returns its IDs and queues the command on the new pane", () => {
+  it("addTerminalTab returns its IDs and queues the command on the new pane", async () => {
     const created = useAppStore.getState().addTerminalTab("pnpm dev");
+    await settled();
 
     expect(created).not.toBeNull();
     // Queued on the server against the pane the tab minted (ADR-179 ticket
@@ -258,7 +269,7 @@ describe("tab actions return their IDs", () => {
     expect(tabHolding(created!.paneId)?.tab.id).toBe(created!.tabId);
   });
 
-  it("returns null from every creator when there is no active panel", () => {
+  it("returns null from every creator when there is no active panel", async () => {
     useAppStore.setState({ activeWorkspacePath: null });
 
     const state = useAppStore.getState();
@@ -290,7 +301,7 @@ describe("a split's queued command", () => {
     );
   });
 
-  it("is queued on the server for the pane the split minted", () => {
+  it("is queued on the server for the pane the split minted", async () => {
     const newPane = useAppStore
       .getState()
       .splitPaneAt("pane-a1", "horizontal", "second", {

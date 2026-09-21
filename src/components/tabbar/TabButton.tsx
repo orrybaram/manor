@@ -12,6 +12,7 @@ import {
   useAppStore,
   selectActivePanelId,
   selectFocusedPaneId,
+  selectPaneContentType,
 } from "../../store/app-store";
 import {
   detachTabToNewWindow,
@@ -146,7 +147,7 @@ export function TabButton(props: TabButtonProps) {
     if (!layout) return { contentType: undefined, favicon: undefined, audioPlaying: false, audioMuted: false, focusedPaneId: undefined };
     const paneId = selectFocusedPaneId(s, tabId);
     if (paneId) return {
-      contentType: s.paneContentType[paneId] as string | undefined,
+      contentType: selectPaneContentType(s, paneId),
       favicon: s.paneFavicon[paneId] as string | undefined,
       audioPlaying: !!s.paneAudioPlaying[paneId],
       audioMuted: !!s.paneAudioMuted[paneId],

@@ -328,8 +328,9 @@ export interface HostFacts {
    * The one tab this window holds of the shared layout (ADR-179 D4), from
    * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
    * in a browser — a claim is a desktop window's, and a browser always sees
-   * the whole workspace. The renderer reports it as part of its viewport; the
-   * tab itself never leaves the workspace.
+   * the whole workspace. Main knows it too, and the window's viewport reports
+   * are what make it take effect on the server; the tab itself never leaves
+   * the workspace.
    *
    * It is also the whole of what makes a window a detached one (ADR-182 D5):
    * a window is detached exactly when it holds a claim.

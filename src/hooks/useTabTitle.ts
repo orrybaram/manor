@@ -1,4 +1,9 @@
-import { useAppStore, useFocusedPane } from "../store/app-store";
+import {
+  selectPaneContentType,
+  selectPaneUrl,
+  useAppStore,
+  useFocusedPane,
+} from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
 
 export function useTabTitle(tabId: string): string {
@@ -11,10 +16,10 @@ export function useTabTitle(tabId: string): string {
     focusedPaneId ? (s.paneCwd[focusedPaneId] ?? null) : null,
   );
   const contentType = useAppStore((s) =>
-    focusedPaneId ? (s.paneContentType[focusedPaneId] ?? null) : null,
+    focusedPaneId ? selectPaneContentType(s, focusedPaneId) : null,
   );
   const paneUrl = useAppStore((s) =>
-    focusedPaneId ? (s.paneUrl[focusedPaneId] ?? null) : null,
+    focusedPaneId ? selectPaneUrl(s, focusedPaneId) : null,
   );
   // A user-pinned agent name (rename in the Agents list) labels the tab too,
   // so the sidebar and tab bar never disagree about what a pane is called.

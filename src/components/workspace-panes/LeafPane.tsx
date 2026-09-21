@@ -16,6 +16,9 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
+  usePaneContentType,
+  usePaneUrl,
 } from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
 import {
@@ -64,8 +67,8 @@ export function LeafPane(props: LeafPaneProps) {
   const focusedPaneId = useAppStore(selectFocusedPaneOfActiveTab);
   const paneTitle = useAppStore((s) => s.paneTitle[paneId]);
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
-  const contentType = useAppStore((s) => s.paneContentType[paneId]);
-  const paneUrl = useAppStore((s) => s.paneUrl[paneId]);
+  const contentType = usePaneContentType(paneId);
+  const paneUrl = usePaneUrl(paneId);
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
@@ -192,7 +195,7 @@ export function LeafPane(props: LeafPaneProps) {
     const img = buildDragImage(
       styles.paneDragImage,
       title,
-      s.paneContentType[paneId],
+      selectPaneContentType(s, paneId),
       s.paneFavicon[paneId] ?? undefined,
     );
     document.body.appendChild(img);

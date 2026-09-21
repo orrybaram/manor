@@ -311,6 +311,7 @@ function App() {
   );
 
   const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
+  const mountedWorkspaces = useAppStore((s) => s.mountedWorkspaces);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const ws = useAppStore(selectActiveWorkspace);
 
@@ -756,24 +757,28 @@ function App() {
                 pixel box the active workspace has. Any geometry difference here
                 resizes the PTY on every workspace switch, and a SIGWINCH makes
                 full-screen TUIs repaint their frame into the scrollback — which
-                shows up as the same output duplicated over and over. */}
+                shows up as the same output duplicated over and over. Only a
+                workspace this window has opened renders at all: mounting a
+                pane creates its PTY. */}
             <div className="workspace-stack">
-              {Object.entries(workspaceLayouts).map(([wpath, wsLayout]) => (
-                <div
-                  key={wpath}
-                  style={
-                    wpath === activeWorkspacePath && hasTabs
-                      ? TAB_VISIBLE_STYLE
-                      : TAB_HIDDEN_STYLE
-                  }
-                >
-                  <PanelLayout
-                    node={wsLayout.panelTree}
-                    workspacePath={wpath}
-                    onNewAgent={handleNewAgent}
-                  />
-                </div>
-              ))}
+              {Object.entries(workspaceLayouts)
+                .filter(([wpath]) => mountedWorkspaces[wpath])
+                .map(([wpath, wsLayout]) => (
+                  <div
+                    key={wpath}
+                    style={
+                      wpath === activeWorkspacePath && hasTabs
+                        ? TAB_VISIBLE_STYLE
+                        : TAB_HIDDEN_STYLE
+                    }
+                  >
+                    <PanelLayout
+                      node={wsLayout.panelTree}
+                      workspacePath={wpath}
+                      onNewAgent={handleNewAgent}
+                    />
+                  </div>
+                ))}
               {!(activeWorkspacePath && hasTabs) && (
                 <div className="empty-surface">
                   <div className="drag-region" />

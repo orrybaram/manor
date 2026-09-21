@@ -79,16 +79,16 @@ export function findPanelWithPane(
 }
 
 /** One leaf of a pane tree — a pane, with what it renders. */
-type Leaf = Extract<PaneNode, { type: "leaf" }>;
+export type PaneLeaf = Extract<PaneNode, { type: "leaf" }>;
 
 /**
  * Every leaf of a workspace, with the tab and panel holding it, in panel,
  * tab and tree order. The one walk over a whole layout's panes: the id set,
- * the renderer's leaf side maps and the diff lookup are all built on it.
+ * the renderer's pane index and the diff lookup are all built on it.
  */
 export function* layoutLeaves(
   layout: WorkspaceLayout,
-): Generator<{ panel: Panel; tab: Tab; leaf: Leaf }> {
+): Generator<{ panel: Panel; tab: Tab; leaf: PaneLeaf }> {
   for (const panel of Object.values(layout.panels)) {
     for (const tab of panel.tabs) {
       const stack: PaneNode[] = [tab.rootNode];

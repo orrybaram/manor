@@ -98,7 +98,7 @@ export function register(deps: IpcDeps): void {
         formatClaimArg(workspacePath, tabId),
         spawnBounds,
       );
-      deps.registerDetachedWindow(windowId, win);
+      deps.registerDetachedWindow(windowId, win, { workspacePath, tabId });
       return windowId;
     },
   );

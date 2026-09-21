@@ -6,6 +6,7 @@ import { allPaneIds } from "../../lib/layout/pane-tree";
 import { allPanelIds } from "../../lib/layout/panel-tree";
 import type { Panel } from "../../lib/layout/workspace-layout";
 import {
+  leafOf,
   useAppStore,
   selectFocusedPaneOfActiveTab,
 } from "../../store/app-store";
@@ -30,15 +31,14 @@ function titleForPane(
   deps: {
     paneTitle: Record<string, string | undefined>;
     paneCwd: Record<string, string | undefined>;
-    paneUrl: Record<string, string | undefined>;
+    url: string | null;
     contentType: "terminal" | "browser" | "diff";
     pinnedAgentName: string | null;
   },
 ): string {
-  const { paneTitle, paneCwd, paneUrl, contentType, pinnedAgentName } = deps;
+  const { paneTitle, paneCwd, url, contentType, pinnedAgentName } = deps;
   const title = paneTitle[paneId] ?? null;
   const cwd = paneCwd[paneId] ?? null;
-  const url = paneUrl[paneId] ?? null;
 
   if (contentType === "diff") {
     return "Diff";
@@ -98,8 +98,7 @@ export function PaneSwitcherSheet(props: PaneSwitcherSheetProps) {
   );
   const paneTitle = useAppStore((s) => s.paneTitle);
   const paneCwd = useAppStore((s) => s.paneCwd);
-  const paneUrl = useAppStore((s) => s.paneUrl);
-  const paneContentType = useAppStore((s) => s.paneContentType);
+  const paneLiveUrl = useAppStore((s) => s.paneLiveUrl);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
   const currentPaneId = useAppStore(selectFocusedPaneOfActiveTab);
   const agents = useAgentStore((s) => s.agents);
@@ -133,14 +132,15 @@ export function PaneSwitcherSheet(props: PaneSwitcherSheetProps) {
             {panels.map((panel) =>
               panel.tabs.map((tab) =>
                 allPaneIds(tab.rootNode).map((paneId) => {
-                  const contentType = paneContentType[paneId] ?? "terminal";
+                  const leaf = leafOf(layout, paneId);
+                  const contentType = leaf?.contentType ?? "terminal";
                   const pinnedAgentName =
                     agents.find((a) => a.paneId === paneId && a.namePinned && a.name)
                       ?.name ?? null;
                   const title = titleForPane(paneId, {
                     paneTitle,
                     paneCwd,
-                    paneUrl,
+                    url: paneLiveUrl[paneId] ?? leaf?.url ?? null,
                     contentType,
                     pinnedAgentName,
                   });

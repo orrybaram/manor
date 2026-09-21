@@ -69,15 +69,14 @@ export interface LayoutEntry {
 }
 
 /**
- * Who sent a command, and — for a window — who is reporting a claim.
+ * Who sent a command, or reported a viewport.
  *
  * `window` is a renderer on this machine, `bridge` a paired device, `route`
  * the CLI, MCP or the server itself; the id is the connection id a renderer
  * is told as its `rendererId`. A command's origin is recorded rather than
  * acted on: the sender gets the same broadcast as everybody else (D1). A
- * viewport report's origin is load bearing, because `kind` decides whether a
- * `claim` in it is honoured at all and `id` is the window the claim belongs
- * to (D4).
+ * viewport report's origin is load bearing, because only a `window` can hold
+ * a claim, and `id` is the window main is asked about (D4).
  */
 export interface LayoutOrigin {
   kind: "window" | "bridge" | "route";

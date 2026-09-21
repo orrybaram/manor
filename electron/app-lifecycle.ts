@@ -163,6 +163,9 @@ export function initApp(devTitle: string | null): void {
   // which is how one is reached after it was created.
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
+  // The tab each detached window was opened to hold, by renderer id — the
+  // same fact its `--manor-claim=` argument tells the page (ADR-179 D4).
+  const windowClaims = new Map<string, { workspacePath: string; tabId: string }>();
 
   // What a closed window held — the panes it was a viewer of, and the tab it
   // claimed — is released when its bridge connection drops (the IPC
@@ -221,11 +224,19 @@ export function initApp(devTitle: string | null): void {
    * 2 calls this after creating the window so it can be reached by its windowId
    * (e.g. to deliver a one-shot detach payload) and receives broadcast events.
    */
-  function registerDetachedWindow(windowId: string, win: BrowserWindow): void {
+  function registerDetachedWindow(
+    windowId: string,
+    win: BrowserWindow,
+    claim: { workspacePath: string; tabId: string },
+  ): void {
+    // Read now: a closed window's `webContents` can no longer be asked.
+    const rendererId = String(win.webContents.id);
     detachedWindows.set(windowId, win);
+    windowClaims.set(rendererId, claim);
     trackRendererWindow(win);
     win.on("closed", () => {
       detachedWindows.delete(windowId);
+      windowClaims.delete(rendererId);
     });
   }
 
@@ -273,14 +284,19 @@ export function initApp(devTitle: string | null): void {
     layoutPersistence,
     (payload) => publishRendererBroadcast("layout", "changed", payload),
     backend,
-    // Which renderer is the primary window's (ADR-179 D4). Read at call time,
-    // not captured: `mainWindow` is nulled on close and set again on reopen,
-    // and a stale answer here would make `list_panes` describe a popout.
-    (rendererId) =>
-      mainWindow !== null &&
-      !mainWindow.isDestroyed() &&
-      !mainWindow.webContents.isDestroyed() &&
-      String(mainWindow.webContents.id) === rendererId,
+    {
+      // Which renderer is the primary window's (ADR-179 D4). Read at call
+      // time, not captured: `mainWindow` is nulled on close and set again on
+      // reopen, and a stale answer here would make `list_panes` describe a
+      // popout.
+      isPrimary: (rendererId) =>
+        mainWindow !== null &&
+        !mainWindow.isDestroyed() &&
+        !mainWindow.webContents.isDestroyed() &&
+        String(mainWindow.webContents.id) === rendererId,
+      // The tab a detached window holds; its reports are how that takes effect.
+      claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
+    },
     // A pane's title, off the command channel (ADR-182 D1) — the same
     // `publishRendererBroadcast` sink as `layout.changed`, on its own event
     // so a renderer's replica does not have to replace itself for a title.

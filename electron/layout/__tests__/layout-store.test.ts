@@ -91,6 +91,9 @@ describe("LayoutStore", () => {
   let abandonForPanes: ReturnType<typeof vi.fn<AgentService["abandonForPanes"]>>;
   let store: LayoutStore;
 
+  /** The tab each detached window was opened to hold, as main knows it. */
+  let windowClaims: Map<string, string>;
+
   function makeStore(primaryId = "primary"): LayoutStore {
     return new LayoutStore(
       persistence,
@@ -98,7 +101,13 @@ describe("LayoutStore", () => {
         broadcasts.push(payload);
       },
       { pty: { kill } } as unknown as Pick<LocalBackend, "pty">,
-      (rendererId) => rendererId === primaryId,
+      {
+        isPrimary: (rendererId) => rendererId === primaryId,
+        claimOf: (rendererId) => {
+          const tabId = windowClaims.get(rendererId);
+          return tabId === undefined ? null : { workspacePath: WS, tabId };
+        },
+      },
       (paneId, title) => {
         paneTitles.push({ paneId, title });
       },
@@ -106,16 +115,19 @@ describe("LayoutStore", () => {
     );
   }
 
-  /** A window's viewport report, optionally holding one tab (ADR-179 D4). */
-  function report(windowId: string, claim?: string): void {
+  /**
+   * A window's viewport report. `claim` makes it a detached window holding
+   * that tab — main's fact about it, not anything in the report (D4).
+   */
+  function report(windowId: string, claim?: string, workspacePath = WS): void {
+    if (claim !== undefined) windowClaims.set(windowId, claim);
     store.reportViewport(
-      WS,
+      workspacePath,
       { kind: "window", id: windowId },
       {
         activePanelId: "panel-1",
         selectedTabIds: { "panel-1": "tab-1" },
         focusedPaneIds: { "tab-1": "pane-1" },
-        ...(claim !== undefined && { claim }),
       },
     );
   }
@@ -139,6 +151,7 @@ describe("LayoutStore", () => {
     paneTitles = [];
     kill = vi.fn().mockResolvedValue(undefined);
     abandonForPanes = vi.fn<AgentService["abandonForPanes"]>();
+    windowClaims = new Map();
     store = makeStore();
   });
 
@@ -699,7 +712,7 @@ describe("LayoutStore", () => {
       });
     });
 
-    it("keeps a device's claim out of the claims and the default viewport", () => {
+    it("stores a device's report as the default viewport", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
 
@@ -710,7 +723,6 @@ describe("LayoutStore", () => {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
           focusedPaneIds: { "tab-1": "pane-diff" },
-          claim: "tab-1",
         },
       );
       store.flush();
@@ -718,7 +730,6 @@ describe("LayoutStore", () => {
       expect(store.claimsFor(WS)).toEqual([]);
       const stored = readFile().workspaces[0].defaultViewport;
       expect(stored.focusedPaneIds).toEqual({ "tab-1": "pane-diff" });
-      expect(stored).not.toHaveProperty("claim");
     });
 
     it("stands in for the primary only when a window reported it", () => {
@@ -785,6 +796,7 @@ describe("LayoutStore", () => {
       report("primary");
       const primaryDefault = store.get(WS)!.defaultViewport;
 
+      windowClaims.set("window-2", "tab-1");
       store.reportViewport(
         WS,
         { kind: "window", id: "window-2" },
@@ -792,7 +804,6 @@ describe("LayoutStore", () => {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
           focusedPaneIds: { "tab-1": "pane-diff" },
-          claim: "tab-1",
         },
       );
 
@@ -802,30 +813,30 @@ describe("LayoutStore", () => {
       expect(store.primaryViewport(WS)).toEqual(primaryDefault);
     });
 
-    it("ignores a claim from a bridge socket", () => {
+    it("never asks about a claim for a bridge socket", () => {
+      // Same id as a detached window: only a window's origin is looked up.
+      windowClaims.set("phone", "tab-1");
       store.reportViewport(
         WS,
         { kind: "bridge", id: "phone" },
-        {
-          activePanelId: "panel-1",
-          selectedTabIds: {},
-          focusedPaneIds: {},
-          claim: "tab-1",
-        },
+        { activePanelId: "panel-1", selectedTabIds: {}, focusedPaneIds: {} },
       );
 
       expect(store.claimsFor(WS)).toEqual([]);
       expect(broadcasts).toHaveLength(0);
     });
 
-    it("releases a claim when the window reports without one", () => {
+    it("keeps a claim through the window's reports on other workspaces", () => {
       report("window-2", "tab-1");
       broadcasts = [];
 
-      report("window-2");
+      report("window-2", undefined, "/project/other");
 
-      expect(store.claimsFor(WS)).toEqual([]);
-      expect(lastBroadcast().claims).toEqual([]);
+      expect(store.claimsFor(WS)).toEqual([
+        { windowId: "window-2", tabId: "tab-1" },
+      ]);
+      expect(broadcasts).toHaveLength(0);
+      expect(store.primaryViewport("/project/other")).toBeNull();
     });
 
     it("releases a claim when the window dies", () => {
@@ -1098,9 +1109,14 @@ describe("LayoutStore", () => {
     });
   });
 
-  describe("ensure", () => {
-    it("hands back a fresh single-panel layout the first time", () => {
-      const entry = store.ensure("/project/unseen");
+  describe("a workspace the server has never heard of", () => {
+    it("gets a single panel of its own on its first command", async () => {
+      await store.apply(
+        "/project/unseen",
+        { type: "new-tab", tab: leafTab("tab-1", "pane-1") },
+        { kind: "window", id: "1" },
+      );
+      const entry = store.get("/project/unseen")!;
       const panelIds = Object.keys(entry.layout.panels);
 
       expect(panelIds).toHaveLength(1);
@@ -1109,8 +1125,7 @@ describe("LayoutStore", () => {
         panelId: panelIds[0],
       });
       expect(entry.defaultViewport.activePanelId).toBe(panelIds[0]);
-      expect(entry.version).toBe(0);
-      expect(store.ensure("/project/unseen").layout).toBe(entry.layout);
+      expect(entry.version).toBe(1);
     });
   });
 });

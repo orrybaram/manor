@@ -39,7 +39,7 @@ export function createDiffTab(): Tab {
 /**
  * A copy of `tab` for `duplicate-tab`. Every pane gets a fresh id: a
  * duplicated tab is a second set of sessions, not a second view of the first.
- * `idMap` is old → new paneId, for a caller carrying per-pane state across.
+ * `idMap` is old → new paneId.
  */
 export function cloneTabWithFreshIds(tab: Tab): {
   tab: Tab;
@@ -52,20 +52,12 @@ export function cloneTabWithFreshIds(tab: Tab): {
 /**
  * The workspace's diff pane, wherever it is — any pane of any tab, not only
  * a tab's root. There is at most one.
- *
- * `isDiff` defaults to the leaf's own content type; the desktop store also
- * counts a pane it has marked as a diff and the broadcast has not yet
- * brought back.
  */
 export function findDiffPane(
   layout: WorkspaceLayout,
-  isDiff: (paneId: string, contentType: string | undefined) => boolean = (
-    _paneId,
-    contentType,
-  ) => contentType === "diff",
 ): { paneId: string; tabId: string } | null {
   for (const { tab, leaf } of layoutLeaves(layout)) {
-    if (isDiff(leaf.paneId, leaf.contentType)) {
+    if (leaf.contentType === "diff") {
       return { paneId: leaf.paneId, tabId: tab.id };
     }
   }

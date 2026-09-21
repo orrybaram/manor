@@ -1,44 +1,37 @@
 /**
- * The Manor server's layout store, in the test process (ADR-179 D1).
+ * The Manor server's layout store, in the test process (ADR-179 D1, ADR-182
+ * D9).
  *
- * The renderer no longer changes layout; it sends a `LayoutCommand` and waits
+ * The renderer does not change layout; it sends a `LayoutCommand` and waits
  * for the broadcast that comes back. A store test that wants to assert what a
  * split *did* therefore needs something on the other end of
- * `window.electronAPI.layout` — this is that something, and it runs the real
- * reducer, so the behavioural tests keep testing behaviour rather than a
- * recorded list of commands. `commands` is there for the tests that do want
- * to assert the command itself.
+ * `window.electronAPI.layout` — and that something is the real
+ * `LayoutStore`, built over an in-memory file and a PTY that kills nothing.
+ * What is left here is wiring and a few thin recording shims (`sentCommands`
+ * and friends) for the tests that assert the call itself.
  *
- * Two deliberate differences from `electron/layout/layout-store.ts`:
+ * The real store answers the way the desktop does, a round trip later: a
+ * command's broadcast lands after the `apply` promise's queue turns over, so a
+ * test that sends one awaits {@link settled} before it looks.
  *
- * - **It broadcasts synchronously**, inside `apply`, before the promise it
- *   returns resolves. The desktop's round trip is one IPC hop; reproducing it
- *   here would make every assertion in every store test await something, for
- *   no coverage.
- * - **A test seeds it** (`seedLayout`, which the `setupStore` helpers call
- *   next to `useAppStore.setState`). Nothing here reads the store: this is
- *   the other side of the wire, and it has to be able to disagree.
+ * Two things the real store cannot do on its own, both for a test playing
+ * "somebody else":
+ *
+ * - **`seedLayout`** hands it a workspace to start from, the way a
+ *   `layout.json` on disk would (`LayoutStore.load`).
+ * - **`broadcastLayout`** pushes an arbitrary layout at the renderer, at an
+ *   arbitrary version, as another renderer's command would have. The store
+ *   then holds that layout too, and every version it broadcasts afterwards
+ *   is counted on from there (see `versionBase`), so a later command still
+ *   reaches the renderer as the newer change.
  *
  * Installed from the vitest setup file, so `app-store.ts` finds it already on
  * `window.electronAPI` when it subscribes at import time.
  */
 
-import {
-  applyLayoutCommand,
-  type ClosedPane,
-  type LayoutCommand,
-} from "../../lib/layout/commands";
-import {
-  createSinglePanelLayout,
-  layoutPaneIds,
-  type WorkspaceLayout,
-} from "../../lib/layout/workspace-layout";
-import {
-  emptyViewport,
-  reconcileViewport,
-  type LayoutHint,
-  type WorkspaceViewport,
-} from "../../lib/layout/viewport";
+import type { ElectronAPI } from "../../electron";
+import type { LayoutCommand } from "../../lib/layout/commands";
+import { emptyViewport, type WorkspaceViewport } from "../../lib/layout/viewport";
 import type {
   LayoutBroadcast,
   LayoutOrigin,
@@ -47,6 +40,16 @@ import type {
   PersistedViewportFile,
 } from "../../lib/layout/protocol";
 import type { LayoutClaim } from "../../lib/layout/visible-tabs";
+import type { WorkspaceLayout } from "../../lib/layout/workspace-layout";
+import {
+  LayoutStore,
+  type LayoutFile,
+} from "../../../electron/layout/layout-store";
+import type { PersistedLayout } from "../../../electron/terminal-host/layout-persistence";
+import type { LocalBackend } from "../../../electron/backend/local-backend";
+
+type LayoutApi = ElectronAPI["layout"];
+type ViewportApi = ElectronAPI["viewport"];
 
 /** What the fake calls the renderer under test — matching `rendererId`. */
 export const FAKE_RENDERER_ID = "test-renderer";
@@ -57,15 +60,101 @@ export const FAKE_RENDERER_ID = "test-renderer";
  */
 const ELSEWHERE: LayoutOrigin = { kind: "route", id: "fake-layout-server" };
 
+/** The renderer under test, as the server names it on everything it sends. */
+const RENDERER: LayoutOrigin = { kind: "window", id: FAKE_RENDERER_ID };
+
 type Listener = (payload: LayoutBroadcast) => void;
 type PaneTitleListener = (payload: LayoutPaneTitlePayload) => void;
 
 const listeners = new Set<Listener>();
 const paneTitleListeners = new Set<PaneTitleListener>();
-const layouts = new Map<string, WorkspaceLayout>();
-const versions = new Map<string, number>();
-const closedStacks = new Map<string, ClosedPane[]>();
-const defaultViewports = new Map<string, WorkspaceViewport>();
+
+/**
+ * The version a workspace's server-side count starts from, per workspace.
+ *
+ * `broadcastLayout` stands in for a change the store did not make, at a
+ * version it did not count to; it reseeds the store (which starts again at 0)
+ * and moves this up, so what the renderer sees stays monotonic.
+ */
+const versionBase = new Map<string, number>();
+
+/** What the store's next `load()` reads — one workspace being seeded. */
+let fileToLoad: PersistedLayout | null = null;
+
+/** The store's `layout.json`: read when seeded, and never written anywhere. */
+const layoutFile: LayoutFile = {
+  load: () => fileToLoad,
+  save: () => {},
+  removeWorkspace: () => {},
+};
+
+/** The renderer's claim, as main knows it from the window's launch argument. */
+function claimOfRenderer(): { workspacePath: string; tabId: string } | null {
+  const api = (window as unknown as { electronAPI?: Partial<ElectronAPI> })
+    .electronAPI;
+  return api?.claim ?? null;
+}
+
+function makeServer(): LayoutStore {
+  return new LayoutStore(
+    layoutFile,
+    (payload) => {
+      const seen = { ...payload, version: external(payload.workspacePath, payload.version) };
+      for (const listener of listeners) listener(seen);
+    },
+    { pty: { kill: async () => {} } } as unknown as Pick<LocalBackend, "pty">,
+    {
+      isPrimary: (id) => id === FAKE_RENDERER_ID && claimOfRenderer() === null,
+      claimOf: (id) => (id === FAKE_RENDERER_ID ? claimOfRenderer() : null),
+    },
+    (paneId, title) => {
+      for (const listener of paneTitleListeners) listener({ paneId, title });
+    },
+  );
+}
+
+let server = makeServer();
+
+/** The real store behind the fake API, for a test that asks it directly. */
+export function layoutServer(): LayoutStore {
+  return server;
+}
+
+function external(workspacePath: string, version: number): number {
+  return version + (versionBase.get(workspacePath) ?? 0);
+}
+
+/** The version the renderer was last told, for one workspace. */
+function currentVersion(workspacePath: string): number {
+  return external(workspacePath, server.get(workspacePath)?.version ?? 0);
+}
+
+/** Every call still crossing the wire, so {@link settled} can wait them out. */
+const inFlight = new Set<Promise<unknown>>();
+
+function track<T>(call: Promise<T>): Promise<T> {
+  inFlight.add(call);
+  void call.finally(() => inFlight.delete(call)).catch(() => {});
+  return call;
+}
+
+/**
+ * Run `fn` on the server a hop later, the way an IPC call lands: never
+ * inside the store update that sent it.
+ */
+function hop<T>(fn: () => T): Promise<T> {
+  return track(Promise.resolve().then(fn));
+}
+
+/**
+ * Wait until every command sent so far has been applied and broadcast, and
+ * the store has read the answers.
+ */
+export async function settled(): Promise<void> {
+  while (inFlight.size > 0) await Promise.all([...inFlight]);
+  // One more turn for the `.then` the store hangs off each answer.
+  await Promise.resolve();
+}
 
 /** Every viewport report the store has made, newest last. */
 export const reportedViewports: Array<{
@@ -87,12 +176,19 @@ export function seedViewportFile(file: PersistedViewportFile | null): void {
   viewportFile = file;
 }
 
-/** Give the server a workspace's default viewport, for a renderer with none. */
+/**
+ * Give the server a workspace's default viewport, for a renderer with none —
+ * as a paired device's report would, which moves nothing but the default.
+ */
 export function seedDefaultViewport(
   workspacePath: string,
   viewport: WorkspaceViewport,
 ): void {
-  defaultViewports.set(workspacePath, viewport);
+  server.reportViewport(
+    workspacePath,
+    { kind: "bridge", id: "fake-device" },
+    viewport,
+  );
 }
 
 /** Every command the store has sent since the last reset, newest last. */
@@ -124,21 +220,51 @@ export const queuedCommands: Array<{
  */
 export const serverCalls: Array<"pending" | "apply"> = [];
 
-/** Give the server a workspace to start from — what `getAll` will answer. */
+/**
+ * Give the server a workspace to start from — what `getAll` will answer —
+ * the way a `layout.json` on disk does. The version the renderer knows the
+ * workspace at does not move.
+ */
 export function seedLayout(
   workspacePath: string,
   layout: WorkspaceLayout,
 ): void {
-  layouts.set(workspacePath, layout);
+  const version = currentVersion(workspacePath);
+  fileToLoad = {
+    version: 3,
+    workspaces: [
+      {
+        workspacePath,
+        panelTree: layout.panelTree,
+        panels: Object.fromEntries(
+          Object.entries(layout.panels).map(([panelId, panel]) => [
+            panelId,
+            {
+              id: panel.id,
+              tabs: panel.tabs.map((tab) => ({ ...tab, paneSessions: {} })),
+              pinnedTabIds: panel.pinnedTabIds,
+            },
+          ]),
+        ),
+        defaultViewport: emptyViewport(),
+      },
+    ],
+    lastActiveWorkspacePath: server.getLastActiveWorkspacePath(),
+  };
+  try {
+    server.load();
+  } finally {
+    fileToLoad = null;
+  }
+  versionBase.set(workspacePath, version);
 }
 
 /**
  * Push a layout at the store as if another renderer had changed it.
  *
  * `restored` is what the real server sends when a reopen lands inside its
- * grace: the sessions of the panes that came back. Nothing here can produce
- * one on its own — this fake keeps no `paneSessions` — so a test that cares
- * about it passes it in.
+ * grace: the sessions of the panes that came back. A test that cares about it
+ * passes it in, rather than closing and reopening a pane to get one.
  */
 export function broadcastLayout(
   workspacePath: string,
@@ -147,13 +273,14 @@ export function broadcastLayout(
   restored?: Record<string, PersistedPaneSession>,
   extra?: {
     origin?: LayoutOrigin;
-    hint?: LayoutHint;
+    hint?: LayoutBroadcast["hint"];
     claims?: LayoutClaim[];
   },
 ): void {
-  const next = version ?? (versions.get(workspacePath) ?? 0) + 1;
-  versions.set(workspacePath, Math.max(next, versions.get(workspacePath) ?? 0));
-  layouts.set(workspacePath, layout);
+  const held = currentVersion(workspacePath);
+  const next = version ?? held + 1;
+  seedLayout(workspacePath, layout);
+  versionBase.set(workspacePath, Math.max(next, held));
   for (const listener of listeners) {
     listener({
       workspacePath,
@@ -169,27 +296,11 @@ export function broadcastLayout(
 
 /**
  * Forget a workspace the way the server does when its worktree is removed
- * (ADR-182 D7): drop it, and tell every renderer it is gone with a `removed`
- * broadcast at the version it was at.
+ * (ADR-182 D7): `LayoutStore.remove`, which broadcasts `removed`.
  */
 export function removeWorkspace(workspacePath: string): void {
-  const layout = layouts.get(workspacePath);
-  const version = versions.get(workspacePath) ?? 0;
-  layouts.delete(workspacePath);
-  versions.delete(workspacePath);
-  closedStacks.delete(workspacePath);
-  defaultViewports.delete(workspacePath);
-  if (!layout) return;
-  for (const listener of listeners) {
-    listener({
-      workspacePath,
-      version,
-      layout,
-      claims: [],
-      origin: ELSEWHERE,
-      removed: true,
-    });
-  }
+  server.remove(workspacePath);
+  versionBase.delete(workspacePath);
 }
 
 /**
@@ -206,10 +317,10 @@ export function clearLayoutListeners(): void {
 }
 
 export function resetFakeLayoutServer(): void {
-  layouts.clear();
-  versions.clear();
-  closedStacks.clear();
-  defaultViewports.clear();
+  server.flush();
+  server = makeServer();
+  versionBase.clear();
+  inFlight.clear();
   reportedViewports.length = 0;
   viewportFile = null;
   sentCommands.length = 0;
@@ -219,7 +330,7 @@ export function resetFakeLayoutServer(): void {
 }
 
 /** The `viewport` namespace of `window.electronAPI`, served from memory. */
-export function fakeViewportApi(): Record<string, unknown> {
+export function fakeViewportApi(): ViewportApi {
   return {
     load: async () => viewportFile,
     save: async (file: PersistedViewportFile) => {
@@ -228,89 +339,63 @@ export function fakeViewportApi(): Record<string, unknown> {
   };
 }
 
-/** The `layout` namespace of `window.electronAPI`, served from memory. */
-export function fakeLayoutApi(): Record<string, unknown> {
+/** The `layout` namespace of `window.electronAPI`, served by the real store. */
+export function fakeLayoutApi(): LayoutApi {
   return {
     getAll: async () => {
-      const all: Record<string, unknown> = {};
-      for (const [workspacePath, layout] of layouts) {
+      const all = server.getAll();
+      for (const [workspacePath, entry] of Object.entries(all)) {
         all[workspacePath] = {
-          version: versions.get(workspacePath) ?? 0,
-          layout,
-          defaultViewport: reconcileViewport(
-            layout,
-            defaultViewports.get(workspacePath) ?? emptyViewport(),
-          ),
-          paneSessions: {},
+          ...entry,
+          version: external(workspacePath, entry.version),
         };
       }
       return all;
     },
-    getLastActive: async () => null,
-    apply: async (workspacePath: string, command: LayoutCommand) => {
+    getLastActive: async () => server.getLastActiveWorkspacePath(),
+    apply: (workspacePath: string, command: LayoutCommand) => {
       sentCommands.push({ workspacePath, command });
       serverCalls.push("apply");
-      const version = versions.get(workspacePath) ?? 0;
-      // A workspace the server has never heard of gets one, panel and all —
-      // `LayoutStore.ensure` does the same, and it is how the first tab of a
-      // brand-new workspace lands anywhere.
-      const layout =
-        layouts.get(workspacePath) ??
-        createSinglePanelLayout(`panel-${sentCommands.length}`, [], []);
-
-      const result = applyLayoutCommand(
-        { layout, closedStack: closedStacks.get(workspacePath) ?? [] },
-        command,
+      return track(
+        server
+          .apply(workspacePath, command, RENDERER)
+          .then((result) =>
+            "error" in result
+              ? result
+              : { ...result, version: external(workspacePath, result.version) },
+          ),
       );
-      closedStacks.set(workspacePath, result.closedStack);
-      const { hint } = result;
-      if (result.layout === layout) {
-        return { version, addedPaneIds: [], ...(hint && { hint }) };
-      }
-
-      // The command's selection hint rides back with the broadcast, tagged
-      // with the renderer that sent it, exactly as the server does it.
-      broadcastLayout(workspacePath, result.layout, version + 1, undefined, {
-        origin: { kind: "window", id: FAKE_RENDERER_ID },
-        ...(hint && { hint }),
-      });
-      const had = layoutPaneIds(layout);
-      const addedPaneIds = [...layoutPaneIds(result.layout)].filter(
-        (id) => !had.has(id),
-      );
-      return { version: version + 1, addedPaneIds, ...(hint && { hint }) };
     },
-    setPendingCommand: async (paneId: string, text: string, kind: string) => {
+    setPendingCommand: async (paneId, text, kind = "shell") => {
       queuedCommands.push({ paneId, text, kind });
       serverCalls.push("pending");
+      server.pendingCommands.set(paneId, text, kind);
     },
-    remove: async (workspacePath: string) => {
-      removeWorkspace(workspacePath);
-    },
-    reportViewport: async (
-      workspacePath: string,
-      viewport: WorkspaceViewport,
-    ) => {
-      // The real host names the reporter from the connection; the only
-      // connection here is the renderer under test.
+    reportViewport: (workspacePath, viewport) => {
       reportedViewports.push({
         workspacePath,
         rendererId: FAKE_RENDERER_ID,
         viewport,
       });
-      defaultViewports.set(workspacePath, viewport);
+      return hop(() => server.reportViewport(workspacePath, RENDERER, viewport));
     },
-    setPaneTitle: async (paneId: string, title: string | null) => {
+    setPaneTitle: (paneId, title) => {
       sentPaneTitles.push({ paneId, title });
-      for (const listener of paneTitleListeners) listener({ paneId, title });
+      return hop(() => {
+        server.setPaneTitle(paneId, title);
+      });
     },
     onChanged: (listener: Listener) => {
       listeners.add(listener);
-      return () => listeners.delete(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     onPaneTitle: (listener: PaneTitleListener) => {
       paneTitleListeners.add(listener);
-      return () => paneTitleListeners.delete(listener);
+      return () => {
+        paneTitleListeners.delete(listener);
+      };
     },
   };
 }

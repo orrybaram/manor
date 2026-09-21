@@ -23,8 +23,9 @@ import { method, type Caller, type HandlerCtx } from "../method";
  * `window` for a renderer on this machine and `bridge` for a paired device.
  * A window's id is its `webContents.id` as a string — the same id the page is
  * told as its `rendererId` — so a command's selection hint lands on the
- * window that sent it, and `kind` decides whether a viewport report's claim is
- * honoured (D4). The frame never supplies it.
+ * window that sent it, and `kind` decides whether a viewport report may stand
+ * in for the primary's or take up a detached window's claim (D4). The frame
+ * never supplies it.
  */
 function originOf(caller: Caller): LayoutOrigin {
   return {
@@ -109,10 +110,11 @@ export function layoutSetPaneTitle(
  * What the calling renderer is looking at (ADR-179 D3).
  *
  * Who is reporting is the caller, not anything in the frame: "was this a
- * window or a browser?" decides whether a `claim` is honoured and whether the
- * report stands in for the primary's viewport, and a client cannot be trusted
- * to answer it about itself. `LayoutStore.reportViewport` drops a claim from
- * anything but a window, so a phone cannot make a tab vanish from the desk.
+ * window or a browser?" decides whether the report stands in for the
+ * primary's viewport, and a client cannot be trusted to answer it about
+ * itself. No claim rides in the viewport: `LayoutStore.reportViewport` asks
+ * main which tab a window holds, so a phone cannot make a tab vanish from the
+ * desk.
  */
 export function layoutReportViewport(
   ctx: HandlerCtx,

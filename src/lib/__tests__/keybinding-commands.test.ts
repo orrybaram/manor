@@ -12,7 +12,7 @@ import {
 } from "../browser-pane-registry";
 import type { BrowserPaneRef } from "../../components/workspace-panes/BrowserPane/BrowserPane";
 import { MAIN_WINDOW_KEYBINDINGS } from "../menu-commands";
-import { useAppStore } from "../../store/app-store";
+import { selectPaneContentType, useAppStore } from "../../store/app-store";
 import { allPaneIds } from "../layout/pane-tree";
 import { emptyViewport, reconcileViewport } from "../layout/viewport";
 import { useProjectStore } from "../../store/project-store";
@@ -24,6 +24,7 @@ import {
   queuedCommands,
   resetFakeLayoutServer,
   seedLayout,
+  settled,
 } from "../../store/__tests__/fake-layout-server";
 
 const WS_PATH = "/test/workspace";
@@ -90,12 +91,11 @@ beforeEach(() => {
     workspaceLayouts: { [WS_PATH]: layout },
     viewports: { [WS_PATH]: reconcileViewport(layout, emptyViewport()) },
     layoutVersions: {},
-    serverLayouts: {},
+    mountedWorkspaces: {},
     paneCwd: {},
     paneTitle: {},
     paneAgentStatus: {},
-    paneContentType: {},
-    paneUrl: {},
+    paneLiveUrl: {},
     panePickedElement: {},
     pendingCloseConfirmPaneId: null,
     pendingCloseConfirmTabId: null,
@@ -175,13 +175,16 @@ describe("createSharedKeybindingHandlers", () => {
     expect([...ids].sort()).toEqual([...SHARED_WINDOW_COMMANDS].sort());
   });
 
-  it("new-browser opens a browser tab in the active panel", () => {
+  it("new-browser opens a browser tab in the active panel", async () => {
     createSharedKeybindingHandlers()["new-browser"]();
+    await settled();
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
     const panel = layout.panels["panel-1"];
     expect(panel.tabs).toHaveLength(2);
     const paneId = allPaneIds(panel.tabs[1].rootNode)[0];
-    expect(useAppStore.getState().paneContentType[paneId]).toBe("browser");
+    expect(selectPaneContentType(useAppStore.getState(), paneId)).toBe(
+      "browser",
+    );
   });
 });
 
@@ -206,6 +209,7 @@ describe("startNewAgent", () => {
     });
 
     await startNewAgent({ prewarm: false });
+    await settled();
 
     expect(consumePrewarmed).not.toHaveBeenCalled();
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
@@ -238,6 +242,7 @@ describe("startNewAgent", () => {
     });
 
     await startNewAgent({ prewarm: true });
+    await settled();
 
     // The command already ran in the prewarmed session — don't queue it again.
     expect(queuedCommands).toEqual([]);
@@ -411,7 +416,15 @@ describe("dispatchKeybinding", () => {
 
 /** Make pane-1 a registered browser pane and return its ref's spies. */
 function focusBrowserPane() {
-  useAppStore.setState({ paneContentType: { "pane-1": "browser" } });
+  // What a pane is lives on its leaf (ADR-182 D9).
+  useAppStore.setState({
+    workspaceLayouts: {
+      [WS_PATH]: makeLayout({
+        ...singlePaneTab(),
+        rootNode: { type: "leaf", paneId: "pane-1", contentType: "browser" },
+      }),
+    },
+  });
   const ref = {
     goBack: vi.fn(),
     goForward: vi.fn(),

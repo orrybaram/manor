@@ -349,9 +349,17 @@ export function isBrowserReservedCombo(combo: KeyCombo): boolean {
  * reachable from the palette and the menu; the user just has to get there
  * without the shortcut this ADR can't give them on the web.
  */
-export function platformDefaults(platform: string): KeybindingDef[] {
-  const isWeb = platform === "web";
-  const isMac = isWeb || platform.toLowerCase().includes("mac");
+export function platformDefaults(
+  platform: string,
+  { inBrowser = false }: { inBrowser?: boolean } = {},
+): KeybindingDef[] {
+  // Being in a browser and being on a Mac are separate facts, and must stay
+  // so. The OS decides ⌘ versus Ctrl; the browser only takes a few chords
+  // away. An earlier version folded both into a `"web"` platform string that
+  // meant "Mac-style", which handed a Windows or Linux browser ⌘ shortcuts
+  // it cannot type — a regression against passing `navigator.platform`,
+  // which had given it Ctrl all along.
+  const isMac = platform.toLowerCase().includes("mac");
 
   const mapped = isMac
     ? DEFAULT_KEYBINDINGS.map((def) => ({
@@ -369,7 +377,7 @@ export function platformDefaults(platform: string): KeybindingDef[] {
           : undefined,
       }));
 
-  if (!isWeb) return mapped;
+  if (!inBrowser) return mapped;
 
   return mapped.map((def) =>
     def.defaultCombo && isBrowserReservedCombo(def.defaultCombo)
@@ -417,9 +425,10 @@ export function deserializeCombo(s: string): KeyCombo {
 export function resolveBindings(
   overrides: Record<string, string>,
   platform: string,
+  opts: { inBrowser?: boolean } = {},
 ): { bindings: Record<string, KeyCombo>; overriddenIds: Set<string> } {
   const defaults: Record<string, KeyCombo> = {};
-  for (const def of platformDefaults(platform)) {
+  for (const def of platformDefaults(platform, opts)) {
     if (def.defaultCombo) defaults[def.id] = def.defaultCombo;
   }
 
@@ -486,7 +495,9 @@ export function comboToAccelerator(
  */
 function keysMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  return a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase();
+  return (
+    a.length === 1 && b.length === 1 && a.toLowerCase() === b.toLowerCase()
+  );
 }
 
 /** True for F1–F12, the only keys a binding may use without a modifier. */

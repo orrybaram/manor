@@ -162,11 +162,20 @@ test.describe("read state", () => {
     const workspaceItem = window.locator(
       `[data-testid="workspace-item"][data-workspace-path="${agentWorkspacePath}"]`,
     );
-    const dot = workspaceItem.locator('[data-testid="agent-dot"]');
-    await expect(dot).toHaveAttribute("data-status", "responded", {
+    // The workspace row's indicator, not a tab's `agent-dot`. ADR-167
+    // (`8007d5c`) gave the sidebar row its own `WorkspaceIndicatorDot`, which
+    // speaks in *indicator kinds* rather than agent statuses: a responded,
+    // unseen agent is `done_unread`. This spec still looked for the old
+    // `agent-dot` with `data-status="responded"` — an element the row has not
+    // rendered since — and so failed every run for long enough to be carried
+    // as a "known failure" through ADR-180.
+    const indicator = workspaceItem.locator(
+      '[data-testid="workspace-indicator"]',
+    );
+    await expect(indicator).toHaveAttribute("data-kind", "done_unread", {
       timeout: 30_000,
     });
-    await expect(dot).toHaveAttribute("data-pulse", "true");
+    await expect(indicator).toHaveAttribute("data-pulse", "true");
     await expect.poll(() => dockBadge(app), { timeout: 30_000 }).toBe("•");
 
     await workspaceItem.click();
@@ -176,9 +185,13 @@ test.describe("read state", () => {
       ),
     ).toBeVisible({ timeout: 30_000 });
 
-    await expect(dot).toHaveAttribute("data-pulse", "false", {
-      timeout: 30_000,
-    });
+    // Read, it stops pulsing — and on the workspace row that means the
+    // indicator goes away entirely rather than dimming. ADR-167: a responded
+    // agent that has been seen is not news, so `toWorkspaceIndicator` returns
+    // null for it and the row falls back to its folder icon. (A *tab's* dot
+    // behaves differently and keeps showing `responded` unpulsed; the first
+    // test in this file covers that.)
+    await expect(indicator).toHaveCount(0, { timeout: 30_000 });
     await expect.poll(() => dockBadge(app), { timeout: 30_000 }).toBe("");
   });
 });

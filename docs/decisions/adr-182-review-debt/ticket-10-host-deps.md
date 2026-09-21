@@ -1,6 +1,6 @@
 ---
 title: One HostDeps for routes and bridge; routes call bridge handlers
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [9]

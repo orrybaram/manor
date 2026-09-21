@@ -1,4 +1,94 @@
-import type { ElectronApplication } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
+
+/**
+ * The app's windows, driven from the main process.
+ *
+ * Playwright talks to a renderer, not to the OS chrome around it, so
+ * everything about a window *as a window* — its size, whether it exists at
+ * all, the native menu clicked for it — is reached through `app.evaluate`.
+ */
+
+/**
+ * How many renderer windows the app has open right now.
+ *
+ * Counts `BrowserWindow`s rather than Playwright pages because zero is the
+ * interesting answer, and a page that has gone away is not a thing a test can
+ * ask a question of.
+ */
+export function rendererWindowCount(app: ElectronApplication): Promise<number> {
+  return app.evaluate(
+    ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+  );
+}
+
+/**
+ * Close every window and wait until none is left.
+ *
+ * `close()` rather than `destroy()`: it is the path a ⌘W or a red button
+ * takes, which is what the app's own `closed` handlers are written for — the
+ * viewer release in `app-lifecycle.ts` (ADR-180 D6) and the claim release
+ * beside it (ADR-179 D4).
+ *
+ * On macOS the app outlives its last window, which is the state this exists
+ * to produce: the daemon, the layout server and the control listener are all
+ * still running with nothing on screen.
+ */
+export async function closeRendererWindows(
+  app: ElectronApplication,
+): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.close();
+    }
+  });
+  await expect.poll(() => rendererWindowCount(app), { timeout: 15_000 }).toBe(0);
+}
+
+/**
+ * Bring a window back the way clicking the dock icon does, and hand back its
+ * page.
+ *
+ * `app.emit("activate")` rather than a private main-process function: the
+ * `activate` handler is what reopens the primary window on macOS, and going
+ * through it means the window under test is built by the same code that
+ * builds the real one.
+ */
+export async function reopenPrimaryWindow(
+  app: ElectronApplication,
+): Promise<Page> {
+  const [page] = await Promise.all([
+    app.waitForEvent("window"),
+    app.evaluate(({ app: electronApp }) => {
+      electronApp.emit("activate");
+    }),
+  ]);
+  await page.waitForLoadState("domcontentloaded");
+  return page;
+}
+
+/**
+ * Click a native menu item by its label path, e.g. `["File", "New Tab"]`.
+ *
+ * The menu lives in main and has no DOM, so this reaches the installed
+ * template and clicks the item the way macOS would. `app-menu.spec.ts` and
+ * `detach.spec.ts` each carry their own copy of this; new callers take this
+ * one.
+ */
+export function clickMenuItem(
+  app: ElectronApplication,
+  labels: string[],
+): Promise<void> {
+  return app.evaluate(({ Menu, BrowserWindow }, path) => {
+    let items = Menu.getApplicationMenu()?.items ?? [];
+    let item: Electron.MenuItem | undefined;
+    for (const label of path) {
+      item = items.find((candidate) => candidate.label === label);
+      if (!item) throw new Error(`Menu item not found: ${path.join(" › ")}`);
+      items = item.submenu?.items ?? [];
+    }
+    item!.click(undefined, BrowserWindow.getAllWindows()[0], undefined);
+  }, labels);
+}
 
 /**
  * Drag the window edge the way a hand on it does: many small steps, each held

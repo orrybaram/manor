@@ -135,6 +135,27 @@ export async function splitPane(
   return (await res.json()) as { paneId: string };
 }
 
+/**
+ * POST a control-server route and hand back the status with the body,
+ * unchecked.
+ *
+ * Every other helper here throws on a non-2xx, because every other helper is
+ * asking for state. This one is for the tests where the *status* is the
+ * answer: `503` from a `proxyToRenderer` route is the app saying "no window
+ * is open to ask" (ADR-180 ticket 4), and a test that could only observe a
+ * thrown `Error` could not tell it from a `400`.
+ */
+export async function postRoute(
+  request: APIRequestContext,
+  tempHome: string,
+  route: string,
+  body: Record<string, unknown> = {},
+): Promise<{ status: number; body: unknown }> {
+  const res = await request.post(localApiUrl(tempHome, route), { data: body });
+  const parsed: unknown = await res.json().catch(() => null);
+  return { status: res.status(), body: parsed };
+}
+
 /** The id of the tab holding `paneId`, from the app's own layout snapshot. */
 export async function tabIdForPane(
   request: APIRequestContext,

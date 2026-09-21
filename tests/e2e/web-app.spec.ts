@@ -17,6 +17,7 @@ import { openWebApp } from "./helpers/phone";
 import {
   closeSettings,
   enableRemoteControl,
+  openRemoteControlSettings,
   pairDevice,
 } from "./helpers/settings";
 import {
@@ -25,6 +26,7 @@ import {
   runInTerminal,
   scrollback,
 } from "./helpers/terminal";
+import { closeRendererWindows } from "./helpers/window";
 
 /**
  * ADR-178 slice 1 end to end: a browser on a PC opens `/app`, pairs at `full`,
@@ -101,6 +103,112 @@ async function paneFontSize(page: Page, paneId: string): Promise<number | null> 
     const handle = window.__manorTerminals?.get(id);
     return handle?.term.options.fontSize ?? null;
   }, paneId);
+}
+
+/** The grid a pane is drawn at, read off the terminal rather than the DOM. */
+async function paneGrid(
+  page: Page,
+  paneId: string,
+): Promise<{ cols: number; rows: number }> {
+  return page.evaluate((id) => {
+    const handle = window.__manorTerminals?.get(id);
+    if (!handle) throw new Error(`no terminal registered for ${id}`);
+    return { cols: handle.term.cols, rows: handle.term.rows };
+  }, paneId);
+}
+
+/** A `pty.winsizeOwner` frame, as the page received it (`WinsizeOwnerEvent`). */
+interface OwnerEvent {
+  paneId: string;
+  cols: number;
+  rows: number;
+  owner: boolean;
+}
+
+/** Where `recordWinsizeOwner` parks the frames it has seen. */
+interface OwnerEventBag {
+  __winsizeOwnerEvents?: OwnerEvent[];
+}
+
+/**
+ * Start recording the `pty.winsizeOwner` frames this page receives for a pane.
+ *
+ * Subscribed through `window.electronAPI` — the same call `TerminalPane` makes
+ * — because the frame *is* the assertion here: a viewer that becomes the owner
+ * without making a call of its own can only have learned it this way
+ * (ADR-179 D6, ADR-180 D6). Watching the follower badge instead would also
+ * pass for a pane that simply went away.
+ */
+async function recordWinsizeOwner(page: Page, paneId: string): Promise<void> {
+  await page.evaluate((id) => {
+    const bag = window as unknown as OwnerEventBag;
+    bag.__winsizeOwnerEvents = [];
+    window.electronAPI.pty.onWinsizeOwner(id, (payload) => {
+      bag.__winsizeOwnerEvents?.push(payload);
+    });
+  }, paneId);
+}
+
+/** Every frame `recordWinsizeOwner` has collected so far. */
+function winsizeOwnerEvents(page: Page): Promise<OwnerEvent[]> {
+  return page.evaluate(
+    () => (window as unknown as OwnerEventBag).__winsizeOwnerEvents ?? [],
+  );
+}
+
+/**
+ * Call `ns.method` in a page and report how it settled, rejection included.
+ *
+ * `page.evaluate` cannot carry an `Error` back across the boundary, and the
+ * fields that matter are the ones a plain message would lose: `code` is what
+ * tells `unavailable:web` from a handler that failed, and `name` is what a
+ * component switches on (`BridgeUnavailableError`).
+ */
+async function invokeInPage(
+  page: Page,
+  ns: string,
+  method: string,
+  args: (string | number | boolean | null)[],
+): Promise<{
+  ok: boolean;
+  name: string | null;
+  code: string | null;
+  message: string | null;
+}> {
+  return page.evaluate(async (call) => {
+    const api = window.electronAPI as unknown as Record<
+      string,
+      Record<string, (...a: unknown[]) => Promise<unknown>>
+    >;
+    try {
+      await api[call.ns][call.method](...call.args);
+      return { ok: true, name: null, code: null, message: null };
+    } catch (err) {
+      const e = err as { name?: string; code?: string; message?: string };
+      return {
+        ok: false,
+        name: e.name ?? null,
+        code: e.code ?? null,
+        message: e.message ?? null,
+      };
+    }
+  }, { ns, method, args });
+}
+
+/**
+ * The paired devices, as a page's own `remoteControl.getStatus()` reports
+ * them.
+ *
+ * `getStatus` is deliberately *not* `LOCAL_ONLY` (ADR-180 ticket 10) — a
+ * device's settings page should not be lying to it about the surface it is on
+ * — so the same call works from the desk and from a `full` browser, and each
+ * is a witness for the other.
+ */
+function devicesSeenBy(page: Page): Promise<{ id: string; label: string }[]> {
+  return page.evaluate(async () => {
+    const status = await window.electronAPI.remoteControl.getStatus();
+    return status.devices.map((d) => ({ id: d.id, label: d.label }));
+  });
 }
 
 /** Every tab button, in DOM order. */
@@ -346,6 +454,117 @@ test.describe("web app (ADR-178 slice 1)", () => {
   });
 
   /**
+   * The same hand-off with the pane still on screen: the desk goes away, the
+   * browser keeps looking, and it is told — by a `pty.winsizeOwner` frame,
+   * not by a call of its own — that the grid is its to drive now (ADR-179 D6,
+   * reached from the desktop side since ADR-180 D6 made a window an ordinary
+   * connection).
+   *
+   * Sits beside the test above rather than inside it because the two let go
+   * differently, and only this one leaves the browser anything to inherit.
+   * Closing the *pane* removes it from the layout for every renderer — the
+   * browser's copy unmounts too — so the badge going away there is equally
+   * true of a pane that simply vanished. Closing the *window* removes only a
+   * viewer: the layout is the server's and the session is the daemon's, so
+   * the pane stays in the browser, its owner's connection is released
+   * (`releaseViewer`, `app-lifecycle.ts`), and ownership has somewhere to go.
+   * It is also the sentence ADR-178 starts from — the desk is closed, and
+   * the browser is still a terminal.
+   *
+   * Then the claim is cashed: the browser's viewport is widened, and the
+   * daemon's grid follows it. Before the hand-off the same kind of change
+   * moved nothing, which the first half pins.
+   */
+  test("the desk's window closes and the browser is told the winsize is its own", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("web-app-inherit");
+
+    await bootWorkspaceWithTerminal(app, window, tempHome, "inherit-e2e");
+    const paneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, paneId);
+    const deskCols = (await readSessionMeta(request, tempHome, paneId)).cols;
+    expect(deskCols).not.toBeNull();
+
+    const port = await enableRemoteControl(window);
+    const device = await pairDevice(window, {
+      label: "inherit browser",
+      capability: "full",
+    });
+    await closeSettings(window);
+
+    const client = await openWebApp(port, device.token);
+    try {
+      await expect(
+        client.page
+          .getByTestId("workspace-item")
+          .filter({ hasText: "inherit-e2e" }),
+      ).toBeVisible({ timeout: 30_000 });
+      expect(await activePaneId(client.page)).toBe(paneId);
+      await recordWinsizeOwner(client.page, paneId);
+
+      // While the desk has the pane, the browser follows: narrowing it scales
+      // its glyphs and leaves the session's grid exactly where the desk put it.
+      const follower = client.page.getByTestId("terminal-follower");
+      await expect(follower).toBeVisible({ timeout: 20_000 });
+      await client.page.setViewportSize({ width: 700, height: 800 });
+      await client.page.waitForTimeout(1_500);
+      expect((await readSessionMeta(request, tempHome, paneId)).cols).toBe(
+        deskCols,
+      );
+      await film.shot(client.page, "browser-follows-the-desk");
+
+      await closeRendererWindows(app);
+
+      // Told, not inferred.
+      await expect
+        .poll(() => winsizeOwnerEvents(client.page), { timeout: 20_000 })
+        .toContainEqual(expect.objectContaining({ paneId, owner: true }));
+      await expect(follower).toHaveCount(0, { timeout: 20_000 });
+      // Still a terminal, still this pane: the desk leaving took nothing with
+      // it.
+      expect(await activePaneId(client.page)).toBe(paneId);
+      await film.shot(client.page, "browser-owns-the-pane");
+
+      // And the grid is the browser's to move now.
+      await client.page.setViewportSize({ width: 1400, height: 900 });
+      await expect
+        .poll(
+          async () => (await readSessionMeta(request, tempHome, paneId)).cols,
+          { timeout: 20_000 },
+        )
+        .not.toBe(deskCols);
+      // The daemon's grid and the browser's agree, and it is the browser's
+      // measurement that got there: the grid moves from the stream (ADR-164),
+      // so the two settle together a beat after the resize lands. Both
+      // numbers are in the polled value so a failure shows the disagreement.
+      await expect
+        .poll(
+          async () => {
+            const [meta, grid] = await Promise.all([
+              readSessionMeta(request, tempHome, paneId),
+              paneGrid(client.page, paneId),
+            ]);
+            return {
+              session: meta.cols,
+              browser: grid.cols,
+              agree: meta.cols === grid.cols,
+            };
+          },
+          { timeout: 20_000 },
+        )
+        .toMatchObject({ agree: true });
+      await film.shot(client.page, "browser-drives-the-grid");
+    } finally {
+      film.write("browser-console-inherit.log", client.log.join("\n") + "\n");
+      await client.close();
+    }
+  });
+
+  /**
    * ADR-179 D7 end to end: a browser's split, new tab, close and reopen are
    * ordinary layout commands, not a local-only fiction. Every assertion below
    * is made against the desktop window or the daemon's own scrollback file —
@@ -531,6 +750,80 @@ test.describe("web app (ADR-178 slice 1)", () => {
       });
       await expect(client.page.getByTestId("project-header")).toHaveCount(0);
       await expect(client.page.getByTestId("workspace-item")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  /**
+   * ADR-180 D4: `LOCAL_ONLY` is a decision in the table, and a `full` device
+   * meets it.
+   *
+   * After D2/D3 the handler table is the whole allowlist — anything in a page
+   * can call `invoke(ns, method, …)` — so the one thing standing between a
+   * paired browser and pairing *more* browsers is this set. The reason it
+   * matters more than any other refusal is `handlers.ts`'s: a stolen `full`
+   * token that can pair is a token that survives its own revocation.
+   *
+   * Everything here crosses the real socket. `remoteControl` is not in the
+   * tab's own refusal list (`src/bridge/unavailable.ts` says so, and why), so
+   * the `unavailable:web` below is the *host* answering, from
+   * `BridgeServer.dispatch`, not the page declining to ask. `getStatus` on the
+   * same namespace is the control: open to a device, and the witness that
+   * the refused call changed nothing.
+   */
+  test("a full device is refused a LOCAL_ONLY method, and the device list does not move", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    await importSeededProject(app, window, tempHome);
+    const port = await enableRemoteControl(window);
+    const device = await pairDevice(window, {
+      label: "full browser",
+      capability: "full",
+    });
+    await closeSettings(window);
+
+    const client = await openWebApp(port, device.token);
+    try {
+      await expect(
+        client.page.getByTestId("project-header").filter({ hasText: PROJECT_NAME }),
+      ).toBeVisible({ timeout: 30_000 });
+
+      const before = await devicesSeenBy(client.page);
+      expect(before.map((d) => d.label)).toEqual([device.label]);
+
+      const pair = await invokeInPage(client.page, "remoteControl", "pair", [
+        "paired by a stolen token",
+        "full",
+      ]);
+      expect(pair).toMatchObject({
+        ok: false,
+        name: "BridgeUnavailableError",
+        code: "unavailable:web",
+      });
+      expect(pair.message).toContain("remoteControl.pair");
+
+      // Not a special case for pairing: the set refuses the rest of what it
+      // names the same way. `resetAll` takes no arguments, so nothing about
+      // this refusal can be a validation error in disguise.
+      const resetAll = await invokeInPage(
+        client.page,
+        "keybindings",
+        "resetAll",
+        [],
+      );
+      expect(resetAll).toMatchObject({ ok: false, code: "unavailable:web" });
+
+      // Nothing was paired: not by the browser's account, not by the desk's,
+      // and not on the settings page a person would look at.
+      const after = await devicesSeenBy(client.page);
+      expect(after.map((d) => d.id)).toEqual(before.map((d) => d.id));
+      const onTheDesk = await devicesSeenBy(window);
+      expect(onTheDesk.map((d) => d.id)).toEqual(before.map((d) => d.id));
+      await openRemoteControlSettings(window);
+      await expect(window.getByTestId("remote-device-row")).toHaveCount(1);
     } finally {
       await client.close();
     }

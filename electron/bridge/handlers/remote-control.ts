@@ -64,7 +64,7 @@ function assertTunnelKind(
   name: string,
 ): asserts value is TunnelKind | undefined {
   if (value === undefined) return;
-  if (value !== "tailscale" && value !== "cloudflared") {
+  if (value !== "tailscale") {
     throw new Error(`${name}: expected a tunnel kind, got ${String(value)}`);
   }
 }

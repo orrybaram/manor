@@ -70,7 +70,7 @@ const ALLOWED_PROTOCOLS = [
 ];
 
 function isTunnelKind(value: unknown): value is TunnelKind {
-  return value === "tailscale" || value === "cloudflared";
+  return value === "tailscale";
 }
 
 export const systemRoutes: Route[] = [
@@ -452,7 +452,7 @@ export const systemRoutes: Route[] = [
       const body = await readBody();
       const kind = body.kind;
       if (kind !== undefined && !isTunnelKind(kind)) {
-        json(400, { error: "'kind' must be 'tailscale' or 'cloudflared'" });
+        json(400, { error: "'kind' must be 'tailscale'" });
         return;
       }
       try {

@@ -284,15 +284,15 @@ const tools: ToolDef[] = [
   {
     name: "start_tunnel",
     description:
-      "Expose the remote-control listener through a tunnel. Requires remote control to be on and tailscale or cloudflared on PATH; Manor installs neither.",
+      "Expose the remote-control listener through a tunnel. Requires remote control to be on and tailscale on PATH; Manor does not install it.",
     inputSchema: {
       type: "object" as const,
       properties: {
         kind: {
           type: "string",
-          enum: ["tailscale", "cloudflared"],
+          enum: ["tailscale"],
           description:
-            "Which tunnel to use. Defaults to tailscale when it is installed.",
+            "Which tunnel to use. Tailscale is the only option.",
         },
       },
     },

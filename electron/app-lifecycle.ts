@@ -40,7 +40,7 @@ import { RemoteControlServer } from "./remote-control/server";
 import { BridgeServer } from "./bridge/server";
 import { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
-import { TunnelManager } from "./remote-control/tunnel";
+import { TAILSCALE_APP_CLI, TunnelManager } from "./remote-control/tunnel";
 import { RemoteControlController } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
 import type { ControlDeps } from "./routes/types";
@@ -345,9 +345,20 @@ export function initApp(devTitle: string | null): void {
   // manager is constructed here so shutdown can guarantee the child dies with
   // the app — a tunnel outliving Manor is the feature's worst failure mode.
   const remoteTunnel = new TunnelManager({
-    which: (bin) => backend.shell.which(bin),
+    which: async (bin) => {
+      const onPath = await backend.shell.which(bin);
+      if (onPath) return onPath;
+      // The Tailscale app (`brew install --cask tailscale-app`, or the App
+      // Store) ships its CLI inside the bundle and does not put it on PATH.
+      if (bin === "tailscale" && fs.existsSync(TAILSCALE_APP_CLI)) {
+        return TAILSCALE_APP_CLI;
+      }
+      return null;
+    },
     spawn: (command, args) =>
       spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }),
+    exec: (command, args) =>
+      backend.shell.exec(command, args, { timeout: 5_000 }),
   });
   const remoteControl = new RemoteControlController(
     remoteControlServer,

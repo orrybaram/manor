@@ -112,18 +112,21 @@ anything. Remote control is also off again after every restart, deliberately —
 a setting that silently reopens a listener after an update is exactly the
 surprise this feature cannot afford.
 
-**Tailscale is preferred over cloudflared**, and the difference is not
-convenience. With `tailscale serve`, only devices on your tailnet can reach the
-address at all, so the pairing token is a _second_ factor. With a Cloudflare
-quick tunnel the address is public and the token is the only thing between the
-internet and your session output. Manor detects both and installs neither.
+**Tailscale is the only tunnel.** With `tailscale serve`, only devices on your
+tailnet can reach the address at all, so the pairing token is a _second_
+factor. Manor used to offer a public cloudflared quick tunnel as well, but there
+the token was the only thing between the internet and your session output, so
+it was dropped. Manor finds `tailscale` on `PATH` or inside the Tailscale app
+bundle. If neither is there, the settings card offers **Install**, which runs
+`brew install --cask tailscale-app` in a small terminal you can watch and type
+into, then opens the app so you can sign in.
 
 ## Pairing a device
 
 1. **Settings → Remote control**, and turn on the toggle. The listener starts,
    still loopback-only.
-2. **Start a tunnel.** Manor names what becomes reachable, and which tool it
-   will use, before it starts anything.
+2. **Start the tunnel** — the main button on the card at the top of the page.
+   Manor names what becomes reachable before it starts anything.
 3. **Pair a device.** Give it a name and a tier — **Watch** (`read`), **Reply**
    (`send`), or **Everything** (`full`). Watch is the default and the one
    pre-selected; picking Everything shows its own warning in place of the usual
@@ -259,7 +262,7 @@ checking — without introducing another party to the trust model.
   this document.
 - **A hard crash could orphan the tunnel process.** Manor stops it on quit and
   again on process exit, but a `SIGKILL` to Manor leaves nothing to run. If
-  Manor was killed outright, check for a stray `cloudflared` or `tailscale`
+  Manor was killed outright, check for a stray `tailscale serve`
   process.
 
 ## Where things live

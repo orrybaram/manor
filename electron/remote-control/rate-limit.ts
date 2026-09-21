@@ -12,7 +12,7 @@
  *
  * **The "source" is coarser than it looks.** The listener binds loopback, so
  * every request that arrives through a tunnel has `127.0.0.1` as its peer:
- * behind cloudflared or `tailscale serve` this degenerates to a single bucket
+ * behind `tailscale serve` this degenerates to a single bucket
  * shared by every remote caller. That is deliberate, and it is why `server.ts`
  * verifies a token *before* consulting this class — a shared bucket that could
  * reject an authenticated request would let a stranger lock the owner out. It

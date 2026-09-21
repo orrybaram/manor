@@ -1,6 +1,6 @@
 ---
 title: Derive ElectronAPI from the handler table and share layout wire types
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3]

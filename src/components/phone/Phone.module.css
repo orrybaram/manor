@@ -14,8 +14,8 @@
  * winsize of — on every keyboard toggle. That is a SIGWINCH per toggle,
  * exactly the bug ADR-163/164/165 fixed for workspace switches. `100lvh` is
  * the viewport's size ignoring the keyboard, so opening it changes no row
- * count and sends no SIGWINCH. Ticket 7 (the native keyboard) depends on
- * this holding.
+ * count and sends no SIGWINCH. The native keyboard depends on this
+ * holding.
  */
 :global(.app[data-layout="phone"]) {
   height: 100lvh;
@@ -34,7 +34,7 @@
 }
 
 /*
- * ADR-181 ticket 4: `[data-mac-inset]` is only ever set on the Electron
+ * ADR-181 D3: `[data-mac-inset]` is only ever set on the Electron
  * desktop on macOS (`isElectronMacOS()` in `PhoneTopBar.tsx`) — the one
  * platform where `hiddenInset` + `trafficLightPosition`
  * (`electron/window.ts`) puts the red/yellow/green buttons over this bar's

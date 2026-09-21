@@ -30,10 +30,10 @@ import {
   type WindowInfo,
 } from "../../lib/detach-drag";
 import { usePaneDrag } from "./PaneDragContext";
-import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
+import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
@@ -48,6 +48,7 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { isWebApp } from "../../lib/platform";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -75,8 +76,7 @@ export function LeafPane(props: LeafPaneProps) {
   const splitPane = useAppStore((s) => s.splitPane);
   const requestClosePaneById = useAppStore((s) => s.requestClosePaneById);
   const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
-  const { drag, startDrag, endDrag } = usePaneDrag();
-  const layoutMode = useLayoutMode();
+  const { drag, dragEnabled, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -327,10 +327,8 @@ export function LeafPane(props: LeafPaneProps) {
       <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
-        // ADR-181 D5: this one gesture is drag-to-split AND detach-by-drag —
-        // both disabled in phone mode rather than half-starting under a
-        // thumb and fighting the page's own scroll/long-press.
-        draggable={layoutMode === "desk"}
+        // This one gesture is drag-to-split AND detach-by-drag (ADR-181 D5).
+        draggable={dragEnabled}
         onDragStart={handleStatusBarDragStart}
         onDrag={handleStatusBarDrag}
         onDragEnd={handleStatusBarDragEnd}
@@ -608,12 +606,21 @@ export function LeafPane(props: LeafPaneProps) {
           </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            <BrowserPane
-              ref={browserRef}
-              paneId={paneId}
-              initialUrl={paneUrl ?? "about:blank"}
-              onNavStateChange={handleNavStateChange}
-            />
+            {/* `<webview>` is Electron-only (ADR-178); the web app gets a
+                stand-in whose ref methods all no-op. */}
+            {isWebApp() ? (
+              <BrowserPaneUnavailable
+                ref={browserRef}
+                initialUrl={paneUrl ?? "about:blank"}
+              />
+            ) : (
+              <BrowserPane
+                ref={browserRef}
+                paneId={paneId}
+                initialUrl={paneUrl ?? "about:blank"}
+                onNavStateChange={handleNavStateChange}
+              />
+            )}
           </PaneContextMenu>
         ) : (
           <TerminalPane paneId={paneId} cwd={paneCwd || workspacePath} />

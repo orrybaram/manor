@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D3/D4/ticket 5: the pane switcher lists the active workspace's
+ * ADR-181 D3/D4: the pane switcher lists the active workspace's
  * panels → tabs → panes in layout order and moves the viewport through the
  * existing `focusPane` action on a tap — no new state (ADR-179 D3).
  */

@@ -128,7 +128,7 @@ function visibleLeaves(): string[] {
 
 function render(): void {
   act(() => {
-    root.render(createElement(PaneLayout, { node: ROOT, workspacePath: WS }));
+    root.render(createElement(PaneLayout, { node: ROOT, tabId: TAB, workspacePath: WS }));
   });
 }
 

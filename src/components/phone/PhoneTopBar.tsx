@@ -3,6 +3,9 @@ import Search from "lucide-react/dist/esm/icons/search";
 import SquareStack from "lucide-react/dist/esm/icons/square-stack";
 import { Button } from "../ui/Button/Button";
 import { isWebApp } from "../../lib/platform";
+import { workspaceDisplayName } from "../../lib/workspace-display-name";
+import { useAppStore } from "../../store/app-store";
+import { useProjectStore } from "../../store/project-store";
 import styles from "./Phone.module.css";
 
 /**
@@ -22,30 +25,32 @@ function isElectronMacOS(): boolean {
 }
 
 type PhoneTopBarProps = {
-  /** The active workspace's display name ("Home", or a project workspace's
-   *  name/branch). Truncation is CSS's job, not this component's, so a long
-   *  name degrades gracefully in whatever width the phone gives it. */
-  workspaceName: string;
-  /** Opens/closes the sidebar drawer. Ticket 4 renders what this opens. */
+  /** Opens/closes the sidebar drawer. */
   onToggleDrawer: () => void;
-  /** Opens the pane-switcher sheet. Ticket 5 renders what this opens. */
+  /** Opens the pane-switcher sheet. */
   onOpenPaneSwitcher: () => void;
-  /** Opens the command palette full screen. Ticket 6 styles it for phone
-   *  width; this button only opens the same `CommandPalette` the desk
-   *  layout already has. */
+  /** Opens the command palette — the same `CommandPalette` the desk layout
+   *  has, full screen at phone width. */
   onOpenPalette: () => void;
 };
 
 /**
  * ADR-181 D3: the phone shell's top bar — a drawer toggle, the active
  * workspace's name, and the two surfaces a phone reaches everything else
- * through (the pane switcher and the command palette). Rendered once, in
- * `App.tsx`, around the workspace stack — never inside a split component,
- * so it cannot affect a terminal's geometry, and switching panes remounts
- * nothing here either.
+ * through (the pane switcher and the command palette). Rendered once, by
+ * `PhoneChrome`, around the workspace stack — never inside a split
+ * component, so it cannot affect a terminal's geometry, and switching panes
+ * remounts nothing here either.
  */
 export function PhoneTopBar(props: PhoneTopBarProps) {
-  const { workspaceName, onToggleDrawer, onOpenPaneSwitcher, onOpenPalette } = props;
+  const { onToggleDrawer, onOpenPaneSwitcher, onOpenPalette } = props;
+
+  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
+  // Truncation is CSS's job, not this component's, so a long name degrades
+  // gracefully in whatever width the phone gives it.
+  const workspaceName = useProjectStore((s) =>
+    workspaceDisplayName(activeWorkspacePath, s.projects),
+  );
   const macChrome = isElectronMacOS();
 
   return (

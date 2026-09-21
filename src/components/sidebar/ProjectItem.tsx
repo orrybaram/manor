@@ -247,6 +247,8 @@ type ProjectItemProps = {
   onCreateWorktree: (name: string, branch: string, baseBranch?: string, useExistingBranch?: boolean) => Promise<string | null>;
   onOpenSettings?: () => void;
   onDragStart?: (e: ReactPointerEvent) => void;
+  /** Turns off the workspace/folder reorder drag inside this project. */
+  dragDisabled?: boolean;
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
   onOpenDiff?: (wsIndex: number) => void;
 };
@@ -267,6 +269,7 @@ export function ProjectItem(props: ProjectItemProps) {
     onCreateWorktree,
     onOpenSettings,
     onDragStart,
+    dragDisabled = false,
     onQuickMergeWorktree,
     onOpenDiff,
   } = props;
@@ -395,7 +398,7 @@ export function ProjectItem(props: ProjectItemProps) {
   } = useSidebarDrag({
     items,
     collapsedFolderIds,
-    disabled: editingPath !== null || editingFolderId !== null,
+    disabled: dragDisabled || editingPath !== null || editingFolderId !== null,
     onDrop: handleDrop,
   });
 

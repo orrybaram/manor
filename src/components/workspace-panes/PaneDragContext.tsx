@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
@@ -14,12 +15,17 @@ export type DragPayload =
 
 interface PaneDragContextValue {
   drag: DragPayload | null;
+  /** Whether tabs and panes can be dragged at all. Every drag source gates
+   *  its `draggable` attribute on this; nothing else needs to check, since a
+   *  drop target only mounts while a drag is live. */
+  dragEnabled: boolean;
   startDrag: (payload: DragPayload) => void;
   endDrag: () => void;
 }
 
 const PaneDragContext = createContext<PaneDragContextValue>({
   drag: null,
+  dragEnabled: false,
   startDrag: () => {},
   endDrag: () => {},
 });
@@ -31,31 +37,31 @@ type PaneDragProviderProps = {
 export function PaneDragProvider(props: PaneDragProviderProps) {
   const { children } = props;
 
-  const layoutMode = useLayoutMode();
+  // ADR-181 D5: a tab or pane drag is reorder, move-into-panel, drag-to-split
+  // and detach-by-drag in one gesture — all off in phone mode rather than
+  // half-starting under a thumb and fighting the page's own scroll and
+  // long-press.
+  const dragEnabled = useLayoutMode() === "desk";
   const [drag, setDrag] = useState<DragPayload | null>(null);
-  const startDrag = useCallback(
-    (payload: DragPayload) => {
-      // ADR-181 D5: every tab/pane drag source gates its own `draggable`
-      // attribute off in phone mode, so this should never fire there — but
-      // this is the one chokepoint both a tab drag and a pane drag funnel
-      // through, so it stays a defensive no-op rather than trusting every
-      // future drag source to remember the gate itself.
-      if (layoutMode === "phone") return;
-      useDragOverlayStore.getState().incrementDragCount();
-      setDrag(payload);
-    },
-    [layoutMode],
-  );
+  const startDrag = useCallback((payload: DragPayload) => {
+    useDragOverlayStore.getState().incrementDragCount();
+    setDrag(payload);
+  }, []);
   const endDrag = useCallback(() => {
     useDragOverlayStore.getState().decrementDragCount();
     setDrag(null);
   }, []);
 
+  const value = useMemo(
+    () => ({ drag, dragEnabled, startDrag, endDrag }),
+    [drag, dragEnabled, startDrag, endDrag],
+  );
+
   // Both tab and pane drags use native HTML5 DnD — the OS renders the drag
   // image, so there is no DOM ghost here. `drag` is still set during a drag so
   // pane drop zones render and highlight.
   return (
-    <PaneDragContext.Provider value={{ drag, startDrag, endDrag }}>
+    <PaneDragContext.Provider value={value}>
       {children}
     </PaneDragContext.Provider>
   );

@@ -152,3 +152,28 @@ after `4ebaeac`.** Ticket 15's runtime change is small — a dead parameter
 removed from `sendAgentUpdate` and `handleStreamEvent` — but it is on the
 agent-update path, so run `agent-rename.spec.ts` and `read-state.spec.ts`
 with that in mind.
+
+## The `markSeen` investigation: settled (orchestrator, `81c103b`)
+
+**The app was right and the spec was stale, and the failure read backwards.**
+
+`web-app.spec.ts` asserted `expect([...allowed]).toContain(entry.route)` —
+the *received array* is the allowlist and the *expected value* is the actual
+route. So a failure reading `Expected value: "agents.markSeen" / Received
+array: ["pty.create", "agents.setPaneContext"]` means an audit line for
+`agents.markSeen` **was written**: the browser called it. Ticket 12 read it
+as the browser never calling it, and the orchestrator repeated that; both
+were wrong.
+
+What actually happens: `markVisibleAgentsSeen` fires on every viewport change
+(ADR-179 ticket 4), ticket 9 put `agents.markSeen` on the table and in
+`MUTATING`, so a browser marking a visible agent seen now leaves an audit
+line the spec's two-route allowlist rejected. Whether the line appears at all
+depends on whether the desktop cleared the flag first — the unseen sets live
+on the Manor server — so the spec now allows the route rather than requiring
+it, and exempts it from the pane-id target check, because `bridgeTarget`
+records the first string argument and for `markSeen` that is an agent id.
+
+**Nothing further is owed on this item.** It is fixed and committed. Do not
+re-investigate it; the remaining work in this ticket is the four new
+scenarios, the four other stale specs, and a green unattended run.

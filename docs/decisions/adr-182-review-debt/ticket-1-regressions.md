@@ -1,6 +1,6 @@
 ---
 title: Fix pane titles, prompt launch and follower font regressions
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

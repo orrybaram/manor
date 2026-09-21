@@ -1,6 +1,6 @@
 ---
 title: Make the bridge the only surface for full devices
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

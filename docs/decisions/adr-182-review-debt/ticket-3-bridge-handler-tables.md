@@ -1,6 +1,6 @@
 ---
 title: Bridge namespaces export their own tables with ctx-first handlers
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1]

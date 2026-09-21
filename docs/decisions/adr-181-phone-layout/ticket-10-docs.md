@@ -1,6 +1,6 @@
 ---
 title: Docs and the record
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [9]

@@ -1,6 +1,6 @@
 ---
 title: E2E — prove the desktop is still the desktop
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [12, 15]

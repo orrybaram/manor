@@ -1,6 +1,6 @@
 ---
 title: Docs and the vocabulary
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [13]

@@ -177,3 +177,29 @@ records the first string argument and for `markSeen` that is an agent id.
 **Nothing further is owed on this item.** It is fixed and committed. Do not
 re-investigate it; the remaining work in this ticket is the four new
 scenarios, the four other stale specs, and a green unattended run.
+
+## The five stale specs: settled
+
+| spec | verdict | where |
+| --- | --- | --- |
+| `command-palette-frequent` | spec stale — the palette started keeping matching frequent commands pinned while searching (`8b18cee`) and lifting them out of their home groups | `a9d10b9` |
+| `pr-badge-matrix` | fixture stale — lucide renamed `shield-question` to `shield-question-mark` and left the old module as a re-export, so the app kept compiling | `a9d10b9` |
+| `sidebar-pr-tweaks` | spec stale, and **it was asserting nothing**: the comment card moved to `ui/PrCommentCard` (`bf77ca65`) and took its class names with it, so four comment authors read as zero and every assertion below passed vacuously. `PrCommentCard` now carries test ids | `a9d10b9` |
+| `claude-resize-duplication` | spec stale, twice over — see below | `d922ad6` |
+| `read-state.spec.ts:139` | **passes with no change.** Something between its last failure and now fixed it; `test-results/.last-run.json` reports `passed`. Not claimed as a fix by any ticket — watch it in the full run rather than assuming | — |
+
+**The resize guard had stopped guarding.** `claude-resize-duplication` is the
+only spec that drives the real `claude` at the ADR-163/164/165 bug, and it had
+been failing long enough to be carried as a known failure through this whole
+ADR. Two independent layers of staleness, each costing 120 seconds of silence:
+the trust prompt inverted (`❯ No, exit` is now the default, so the bare
+`Enter` quit Claude), and `Welcome back` turns out to print only on a *resumed*
+session. Both fixed; it passes in 39s and reproduces what it is for —
+`printed 198/198, duplicated 0 before the resize and 17 after`, under the
+ceiling `helpers/zq-run` documents as the emulator's floor rather than
+manor's.
+
+The lesson worth keeping: three of these five were specs that had quietly
+stopped testing their subject, and two of them (`sidebar-pr-tweaks`,
+`claude-resize-duplication`) were *green-adjacent* failures nobody read. A
+known-failure list is a place tests go to die.

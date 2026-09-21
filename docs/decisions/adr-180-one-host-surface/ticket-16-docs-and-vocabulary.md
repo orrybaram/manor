@@ -95,3 +95,62 @@ story of this ADR is, and several of them correct the index.
 - `tests/e2e/README.md`
 - `docs/decisions/adr-178-web-app-and-single-bridge/index.md`
 - `docs/decisions/adr-180-one-host-surface/index.md` — **this agent may edit it**; the usual "orchestrator owns `docs/decisions/`" rule is lifted for this ticket's two files, and only those two
+
+## Added after ticket 13 closed — read ticket 13's file in full
+
+Ticket 13 grew well past its brief. Its file is the primary source for the
+items below; read it, including its **Correction** section, before writing.
+
+**"What implementation found" must list these real bugs**, each with its
+commit — they are the strongest argument in the record for this ADR's
+approach, and none was its subject:
+
+| bug | since | fixed |
+| --- | --- | --- |
+| `MANOR_AGENT_KIND` silently dropped between IPC handler and daemon client | ADR-135 | `d04d8ed` (ticket 5) |
+| web app's stores never initialised against the bridge | ADR-178 slice 1 | `07c8d67` (ticket 14) |
+| `layout.reportViewport` stripped `claim` from desktop windows — detach broke | ADR-180 ticket 6, caught before shipping | ticket 6 |
+| **one viewer's `pty.detach` froze every other viewer's terminal** | ADR-178 slice 1 | `23023f0` |
+| **a stolen token trying to pair left no audit line** | ADR-178 slice 1 | `6bd3a3d` |
+| …and that fix made every browser mount write a `rejected` line | this ADR | `e89c96c` |
+
+**And the tests that had stopped testing their subject** — five "known
+failures" carried through this ADR, of which three were asserting nothing:
+`sidebar-pr-tweaks` (four authors read as zero, every assertion vacuous),
+`claude-resize-duplication` (the only real-agent guard on ADR-163/164/165,
+disabled by an inverted trust prompt), and `read-state:139` (stale since
+ADR-167). Plus `app-menu:75`, which raced Electron's default menu. Say plainly
+that a known-failure list is where tests go to die; it is the most
+transferable lesson this ADR produced.
+
+**Record the discarded hypothesis and the open question** from ticket 13's
+Correction section, under "Not decided here": should a renderer's `pty.detach`
+ever reach the daemon, given a renderer is the server's viewer and not the
+daemon's client (ADR-178 D4)? Tested, not demonstrated, deliberately left.
+
+**`markSeen` read backwards.** Record that `web-app.spec.ts`'s failure was
+misread as "the browser never calls `agents.markSeen`" when it meant the
+opposite. Short, but it belongs in the record because it was repeated before
+it was checked.
+
+**`docs/remote-control.md`'s `LOCAL_ONLY` paragraph** must also say: refused
+`LOCAL_ONLY` calls **are** audited as `rejected`/403 (since `6bd3a3d`), with a
+null target for methods whose first argument is a secret; and the prewarm pair
+is answered inside the browser tab, so a browser never sends it.
+
+**E2E README** (`tests/e2e/README.md`): add `bridge.spec.ts` to whatever index
+it keeps; note that `clickMenuItem` now exists in three places and should be
+one helper (do not refactor it — just record it); and write down the
+unattended-run rule the orchestrator learned the hard way: **a single
+Playwright invocation can run longer than an agent's 600s silence watchdog —
+run specs individually or in the background.**
+
+**Follow-ups to record, not to do** (a short list at the end of ADR-180's
+Consequences):
+- A follower's shrunken terminal font is never restored when it becomes the
+  owner (`useTerminalResize`).
+- The existing `web-app.spec.ts` D6 test's comment claims the browser becomes
+  "the pane's only viewer", but `Meta+w` removes the pane for every renderer;
+  the new window-close test is the real proof. Reword or retire the old one.
+- `agent-hooks.test.ts`'s queue-cap test times out at 5s under full-suite
+  load; passes 5/5 in isolation.

@@ -138,15 +138,25 @@ changes.
 
 **D4 — Caller class, and a table that says what it refuses.** Every connection
 is `local` (an Electron renderer window, authenticated by being one) or
-`device` (a paired `full` device). A table entry may be marked `LOCAL_ONLY`:
-`keybindings.set/reset/resetAll`, `remoteControl.setEnabled/pair/revoke/
-tunnel.*`, `viewport.load/save` and the prewarm pair. A device calling one
-gets `unavailable:web`, which is what it gets today — the difference is that
-it is now a decision in the table rather than an absence, and
-`allowlist.test.ts` asserts the list instead of asserting silence. Everything
-else on the table is reachable by a `full` device, which is ADR-178 D3 as
-written. `MUTATING` and the audit log are unchanged, and a `local` call is
-never audited: it is the user at the machine.
+`device` (a paired `full` device). A table entry may be marked `LOCAL_ONLY`.
+The list grew past what was scoped here as implementation found more of the
+same shape: `keybindings.set/reset/resetAll/runInMainWindow`,
+`remoteControl.setEnabled/pair/revoke/startTunnel/stopTunnel`,
+`viewport.load/save`, the prewarm pair (`pty.consumePrewarmed`/
+`updatePrewarmCwd`), `appCommands.result` (ticket 6 — addressed to the
+primary window only, so no device has anything to answer) and
+`linear.connect` (ticket 10 — the one method whose argument is a credential).
+A device calling one gets `unavailable:web`, which is what it gets today —
+the difference is that it is now a decision in the table rather than an
+absence, and `allowlist.test.ts` asserts the list instead of asserting
+silence. What was not decided here and had to be corrected mid-implementation:
+a refused `LOCAL_ONLY` call originally left no audit line at all, on the
+reasoning that nothing had happened; it does now, as `rejected`/403 (`6bd3a3d`,
+ticket 13), with a null target for a method whose first argument is a secret
+— see "What implementation found" below. Everything else on the table is
+reachable by a `full` device, which is ADR-178 D3 as written. `MUTATING` and
+the audit log are otherwise unchanged, and a `local` call is never audited:
+it is the user at the machine.
 
 **D5 — Events are subscriptions, on both transports.** Every non-native
 `webContents.send` becomes a bridge event frame. Broadcasts go through
@@ -171,10 +181,23 @@ no-op on the desktop.
 
 **D7 — The surface is checked at compile time.** `src/electron.d.ts` stays the
 contract. A type-level exhaustiveness check asserts that every method of
-`ElectronAPI` is in exactly one of three sets: the handler table, the native
-preload namespaces, or `LOCALLY_SERVED` (answered inside the tab). Adding a
-method to the interface without placing it is a type error, not a runtime
-`unavailable:web` discovered by whoever opened a browser. This is the
+`ElectronAPI` is placed. This paragraph originally named three sets — the
+handler table, the native preload namespaces, `LOCALLY_SERVED` — and shipped
+with four. Ticket 12 found the fourth while building the check: a `ns.onX(cb)`
+is not a table entry, it is a `subscribe` frame and an event somebody has to
+publish (D5), and the first three sets left all twenty-five non-native
+subscriptions unplaced — exactly the hole the Risks section below already
+named ("a `webContents.send` that nobody converts is a feature that quietly
+stops updating"). `SUBSCRIPTIONS` is that fourth set, and adding a listener to
+`ElectronAPI` now means naming the event it hears. Adding a method to the
+interface without placing it is a type error, not a runtime `unavailable:web`
+discovered by whoever opened a browser — but only since ticket 15 made
+`pnpm typecheck` run both tsconfigs and put it ahead of `pnpm build` in the
+gate. Before that, nothing in this repo ran `tsc` at all: the check existed,
+fired correctly in an editor, and ran nowhere a contributor's green build
+would see it. D7's promise — "a type error, not a runtime one" — became true
+on the day ticket 15 landed, seven tickets after this one shipped the check
+itself; say so rather than let the two dates blur into one. This is the
 mechanism that keeps the drift dead once this ADR closes it.
 
 **D8 — What gets deleted.** `electron/ipc/`'s `agents.ts`,
@@ -185,9 +208,15 @@ mechanism that keeps the drift dead once this ADR closes it.
 the table's implementation. `webview.ts`, `webview-keys.ts`, `window.ts`,
 `popups.ts`, `menu.ts` and the dialog/shell/clipboard/updater remnant of
 `misc.ts` stay, and are what `electron/ipc/` means from here on. `preload.ts`
-goes from 941 lines to the native namespaces plus `invoke`/`subscribe`.
-`src/web/ws-bridge.ts` becomes a re-export of `src/bridge/` for one release or
-is deleted outright with its callers updated.
+goes from 941 lines to the native namespaces plus `invoke`/`subscribe`. It
+landed at 494 lines, not the "well under 300" ticket 11 was asked for.
+`webview`'s 27 methods are ~250 of those on their own, plus the argv-derived
+facts and the bridge-event plumbing `invoke`/`subscribe` need; getting under
+300 means splitting `preload.ts` into several files, which ticket 11 judged
+correctly to be a different change from this one. Correct the number here
+rather than the code. `src/web/ws-bridge.ts` and `src/web/unavailable.ts`
+were deleted outright, not kept as a one-release re-export; their callers
+(`web-main.tsx`, `src/web/screens.tsx`) import from `src/bridge/` instead.
 
 ### What stays deliberately out
 
@@ -229,9 +258,81 @@ ADR could ship. Event migration is where silence hides: a `webContents.send`
 that nobody converts is a feature that quietly stops updating, which typecheck
 cannot see and only the E2E suite will.
 
+**What implementation found.** None of the six rows below was this ADR's
+subject. Four of them were only reachable because D1–D6 route the desktop and
+a browser through the same table and the same connection registry — a bug
+that only one caller could ever trigger had nowhere to hide once both callers
+ran the identical code path.
+
+| bug | since | fixed |
+| --- | --- | --- |
+| `MANOR_AGENT_KIND` silently dropped between the IPC handler and the daemon client — codex and pi panes reported as `claude` | ADR-135 | `d04d8ed` (ticket 5) |
+| the web app's zustand stores called the bridge inside `create()`'s own initializer, before `window.electronAPI` existed, and the `?.`-guard swallowed the failure | ADR-178 slice 1 | `07c8d67` (ticket 14) |
+| `layout.reportViewport` stripped `claim` from every caller — detach-to-window silently stopped working, caught before shipping only because `detach.spec.ts` exists | this ADR, ticket 6 | ticket 6 |
+| one viewer's `pty.detach` unsubscribed the daemon's stream unconditionally on unmount, freezing every other viewer's terminal | ADR-178 slice 1 | `23023f0` |
+| a device refused a `LOCAL_ONLY` method wrote nothing to the audit log — a stolen token probing for power left no trace | ADR-178 slice 1 | `6bd3a3d` |
+| …and auditing that refusal made every browser's mount of `App.tsx` write a `rejected` line for `pty.updatePrewarmCwd`, which the device never meant to send | this ADR | `e89c96c` |
+
+**A known-failure list is where tests go to die.** Five E2E specs were carried
+through this ADR as pre-existing failures unrelated to it, and three of them
+had quietly stopped testing their subject rather than caught anything real:
+`sidebar-pr-tweaks.spec.ts` — a comment card's class names moved to
+`ui/PrCommentCard` in an earlier commit, so four comment authors read as zero
+and every assertion below the count passed vacuously; `claude-resize-duplication.spec.ts`
+— the only spec that drives a real `claude` at the ADR-163/164/165
+resize-duplication bug — had its trust prompt invert (`❯ No, exit` is now the
+default), so a bare `Enter` quit the agent instead of accepting, and it had
+been failing 120 seconds at a time, silently, long enough to be carried as a
+known issue; `read-state.spec.ts:139` was stale since ADR-167, waiting on a
+`data-testid` the sidebar stopped rendering the day the workspace row got its
+own indicator dot. `command-palette-frequent.spec.ts` and `pr-badge-matrix.spec.ts`
+were the other two of the five, both plain fixture drift (a UI change kept
+matching frequent commands pinned while filtering; lucide renamed an icon and
+left a compiling re-export behind). A sixth, unrelated to the known-failure
+list but the same shape of trap: `app-menu.spec.ts`'s first test raced
+Electron's own default menu on a slow boot, reading it before Manor's
+`rebuild()` had replaced it, and failed only in full-suite runs. None of these
+was a hard bug, and that is exactly the point: a spec that fails for a reason
+that has nothing to do with what it tests accretes trust nobody re-earns until
+someone reads the failure rather than re-adding it to the list.
+
+**A misread, worth recording because it was repeated before it was checked.**
+`web-app.spec.ts`'s audit-allowlist assertion failed with `Expected:
+"agents.markSeen" / Received: ["pty.create", "agents.setPaneContext"]`. Ticket
+12 read that as "the browser never calls `agents.markSeen`," and the
+orchestrator repeated the reading before checking it. Backwards: the
+assertion is `expect([...allowed]).toContain(entry.route)`, so the *received
+array* is the allowlist and the *expected value* is the actual route — the
+failure means an audit line for `agents.markSeen` **was written**, because
+`markVisibleAgentsSeen` fires on every viewport change and the browser's own
+call to it left a line the spec's two-route allowlist rejected. The app was
+right; the spec was stale, and is fixed to allow the route rather than
+require it.
+
 **Not decided here.** Cloud authentication. Whether `electron/routes/` ever
 collapses into the table. Whether the desktop ever attaches to a remote host
-by default.
+by default. Whether a renderer's `pty.detach` should ever reach the daemon at
+all, given a renderer is the Manor server's viewer and not the daemon's
+client (ADR-178 D4) — raised while chasing `read-state.spec.ts:139` on the
+hypothesis that a detach with no remaining viewer left a background pane's
+server-derived state stale. A release-only `pty.detach` was built and the
+spec run three times against it, still failing 3/3; reverted, and
+`23023f0`'s guarded detach (drop the daemon stream only when the last viewer
+lets go) stands unchanged. The hypothesis was tested, not demonstrated — the
+spec's real cause was unrelated (see above) — so the layering question it
+raised is recorded and left for a future ADR rather than answered here.
+
+**Follow-ups, recorded rather than done.**
+
+- A follower's shrunken terminal font is never restored when it becomes the
+  winsize owner (`useTerminalResize`).
+- `web-app.spec.ts`'s existing D6 test comments that the browser becomes "the
+  pane's only viewer," but `Meta+w` removes the pane for every renderer — the
+  new window-close test this ADR added is the real proof of that property.
+  The old comment overclaims and should be reworded or retired.
+- `agent-hooks.test.ts`'s queue-cap test ("caps the queue at MAX_PENDING and
+  drops newest overflow events") times out at 5s under full-suite load;
+  passes 5/5 in isolation. Load-dependent, pre-existing, not chased.
 
 ## Tickets
 

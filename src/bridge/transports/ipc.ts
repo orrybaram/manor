@@ -14,19 +14,24 @@
  * `detachedWindowId`, `claim`, `env`) are read off the preload's own argv and
  * answered synchronously, because a component branching on them is rendering.
  *
- * **`native` is the migration shim.** ADR-178 D8 promised the preload would
- * end up as the namespaces that can never leave it — `webview`, `window`,
- * `menu`, `dialog`, `shell`, `clipboard`, `updater` — and nothing else. Today
- * it is still *every* namespace, so every call the proxy makes lands back in
- * the preload and the desktop behaves exactly as it did before this file
- * existed. Each later ticket takes a group out of `native`, and each one that
- * leaves starts going over `bridge:invoke` on the very next call, with no
- * change here and none in the 97 files that call it.
+ * **`native` is the final shape, not a shim in transit.** ADR-178 D8 named
+ * the end state — the preload keeps only what only Electron can do — and
+ * ADR-180 tickets 5 through 10 got there: `native` now holds exactly the
+ * seven namespaces ADR-178's "what can never mirror in a browser" table
+ * named from the start (`webview`, `window`, `menu`, `dialog`, `shell`,
+ * `clipboard`, `updater`), and nothing else. Every other namespace the proxy
+ * once fell through to here goes over `bridge:invoke` now, on every call,
+ * the same as it does from a browser — 140-odd methods crossed one group at
+ * a time, and this file did not have to change once for any of them.
  *
- * A *function* on `native` is a root-level member (`onAppCommand`,
- * `onProjectsChanged`, `sendAppCommandResult`) rather than a namespace, and
- * is served as a `locallyServed` entry with no dot in its name — the same way
- * the browser serves `sendAppCommandResult` out of `unavailable.ts`.
+ * `native` carries no root-level function either, by the end of this ADR.
+ * `onAppCommand`, `onProjectsChanged` and `sendAppCommandResult` predate the
+ * namespaces around them and used to be answered straight out of this
+ * object; they cross like everything else now, through `client.ts`'s
+ * `ROOT_SUBSCRIPTIONS` / `ROOT_INVOKES` — an app-command is addressed to the
+ * primary window's connection id (ADR-180 D5) rather than served here, and a
+ * browser's `onAppCommand` still resolves to the no-op `unavailable.ts`
+ * gives it, since nothing can deliver one to a tab.
  */
 
 import { UNAVAILABLE_CODE } from "../../../electron/bridge/types";

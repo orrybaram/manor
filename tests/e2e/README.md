@@ -26,6 +26,19 @@ pnpm e2e:web
 serves. Running Playwright directly skips that, which is what you want while
 iterating on test code and not on app code.
 
+**`pnpm build` runs `pnpm typecheck` first** (`tsc --noEmit` over both
+`tsconfig.json` and `tsconfig.electron.json`, zero baseline in either,
+ADR-180 ticket 15). A green build is a build in which the surface check
+(ADR-180 D7, `electron/bridge/surface.ts`) ran: adding a method to
+`ElectronAPI` without placing it fails the build by name rather than showing
+up later as a call that resolves to nothing. "Placing" a method means it
+appears in exactly one of four sets — `HANDLERS` (the handler table, reached
+from both transports), `nativeApi` (the preload namespaces that never leave
+Electron), `LOCALLY_SERVED` (answered inside a browser tab,
+`src/bridge/unavailable.ts`), or `SUBSCRIPTIONS` (a pushed event, in
+`electron/bridge/surface.ts` itself) — and the compiler error names which
+method is unplaced.
+
 Useful environment variables:
 
 | Variable                   | Effect                                                                                                                                         |
@@ -208,3 +221,31 @@ more general `openClient(url, { viewport })` that `openPhoneClient` and
 the browser exactly when the desktop still has the pane mounted, and the
 spec's whole "the desktop owns the winsize" assertion is watching for it plus
 the daemon's `cols` refusing to move while the browser's own viewport does.
+
+## The bridge (ADR-180)
+
+`bridge.spec.ts` is `web-app.spec.ts`'s sibling for what only makes sense once
+the desktop and a browser share one host surface: two desktop windows on one
+pane (the more recent attach owns the winsize, the older one follows — D6's
+repair, untested before this ADR), and the CLI's `app-command` path landing on
+whichever window comes back after every window has been closed. `web-app.spec.ts`
+itself carries the other two bridge scenarios ADR-180 added — a desktop window
+closing and handing winsize ownership to the browser it shared a pane with, and
+a `full` device refused a `LOCAL_ONLY` method with the device list unmoved —
+because they are extensions of tests already living there.
+
+A small piece of debt worth knowing about rather than fixing in passing:
+`clickMenuItem` (click a native menu item by its label path, the way macOS
+would) is defined four times — once as the real helper,
+`helpers/window.ts`, which `bridge.spec.ts` imports, and independently again
+in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
+should be one helper; nothing here does that yet.
+
+## Long unattended runs
+
+The whole suite, or most of it, in one Playwright invocation can run well
+past 600 seconds without producing a line of output in between — which looks
+identical to a hang to anything watching for silence, including an agent's
+own watchdog. Run specs individually or in small groups, or run a full
+invocation in the background and poll for its completion, rather than one
+foreground call over everything.

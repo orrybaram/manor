@@ -287,11 +287,16 @@ into being. It is also where multiple flaws live:
 > agent record continues to show the original cwd. Live cwd is tracked
 > separately on the session via OSC 7, but never propagated to the agent.
 
-> **🚩 Flaw — `agentKind` source mismatch.** Agent creation pulls `kind` from
-> the hook URL params (defaulting to `"claude"` at `agent-hooks.ts:100`),
-> not from `paneContext.agentCommand`. If the agent's hook script doesn't
-> set `MANOR_AGENT_KIND`, the kind silently defaults to `"claude"` even for
-> codex/pi sessions.
+> **✅ Resolved (ADR-180 ticket 5) — `agentKind` source mismatch.** Agent
+> creation pulls `kind` from the hook URL params (defaulting to `"claude"` at
+> `agent-hooks.ts:100`), and the params were the right place to read it — the
+> bug was upstream. `PtyBackend.createOrAttach` had no `env` parameter, so the
+> `MANOR_AGENT_KIND` that `electron/ipc/pty.ts` already built was silently
+> dropped between the IPC handler and the daemon client, and every hook script
+> ran without it (ADR-135 ticket 7's intent, unrealised since). Threading
+> `env` through — the change that also fixed `electron/ipc/pty.ts:127`'s
+> pre-existing type error — means codex and pi panes now report their real
+> kind instead of defaulting to `claude`.
 
 ### 4.6 Stop / SessionEnd ordering
 

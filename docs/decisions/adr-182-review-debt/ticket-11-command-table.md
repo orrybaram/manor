@@ -1,6 +1,6 @@
 ---
 title: One command table drives keybindings, menu, palette and web filter
-status: in-progress
+status: done
 priority: medium
 assignee: opus
 blocked_by: [10]

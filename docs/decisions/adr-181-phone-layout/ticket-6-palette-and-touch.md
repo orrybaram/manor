@@ -1,6 +1,6 @@
 ---
 title: The palette is full screen, and drags stay off a phone
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [3]

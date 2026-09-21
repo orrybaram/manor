@@ -82,6 +82,11 @@ The app's Electron `userData` (localStorage, session storage) is pointed at
 `~/Library/Application Support/Electron` regardless of `HOME`, where one run
 sees what the last one persisted.
 
+`openTerminalTab` waits on the first *visible* `terminal-pane`, not the first
+one in the DOM — ADR-181 keeps every workspace's panes mounted while hidden
+(D1), so once a test has opened anything before this call, the first pane in
+the page is usually one of those, not the new one.
+
 The launched app's environment is scrubbed of `MANOR_*` and `ZDOTDIR`. A run
 started from a terminal _inside_ Manor would otherwise inherit that app's
 session variables, and the test app's shells would source another
@@ -221,6 +226,28 @@ more general `openClient(url, { viewport })` that `openPhoneClient` and
 the browser exactly when the desktop still has the pane mounted, and the
 spec's whole "the desktop owns the winsize" assertion is watching for it plus
 the daemon's `cols` refusing to move while the browser's own viewport does.
+
+## The phone layout (ADR-181)
+
+`phone.spec.ts` proves the desk's shared layout walks one pane at a time on a
+phone, over the same paired-`full` web app `web-app.spec.ts` opens, at a
+390×844 viewport: one pane full screen with the top bar, tab strip and no
+status bar or inline sidebar (D3); picking the split's other pane in the pane
+switcher moves the viewport with **no `pty.create` and no pane resize** — the
+audit log's `bridge`-transport count and each pane's grid before and after are
+the witnesses, since this is D1's whole promise; the drawer closing itself on
+a workspace pick; the command palette opening full screen and a command run
+from it (a split) landing on the desk's own layout too; the breakpoint reading
+width and not platform — a desktop window dragged narrow switches to phone
+chrome, a detached window below 768 px does not (D2); a drag gesture on a tab
+starting no drag (D5); and a tap on a terminal focusing xterm's own
+`.xterm-helper-textarea` synchronously, with `autocapitalize`, `autocorrect`,
+`autocomplete` and `spellcheck` all off and the viewport meta carrying
+`interactive-widget=resizes-visual` (D6). What it cannot do: raise a real soft
+keyboard. Playwright has no way to simulate one, so "opening the keyboard
+does not resize the terminal" is on the phone-layout ADR's hand-checked list,
+not asserted here — the spec proves the *focus* is keyboard-ready, not that a
+keyboard came up.
 
 ## The bridge (ADR-180)
 

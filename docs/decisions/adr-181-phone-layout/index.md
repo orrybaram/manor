@@ -95,7 +95,8 @@ desktop window dragged narrow, which is ADR-178 D1's "the desktop gets the
 responsive pass for free". A detached window (ADR-179 D4) is excluded — it is
 often narrow on purpose and already shows one claimed tab with no chrome.
 One hook, `useLayoutMode()`, owns the decision (`matchMedia` plus
-`isDetached`) and writes `data-layout="phone" | "desk"` on `.app` so CSS and
+`isDetached`) and writes `data-layout="phone" | "desk"` on `.app` — and, for
+CSS that lives outside the app's own tree, on `<html>` too (D5) — so CSS and
 components read one answer.
 
 **D3 — Phone chrome.** A top bar (the drawer toggle, the workspace name, the
@@ -118,7 +119,23 @@ button in the top bar opens it full screen at phone width. Every pane action
 that has no touch idiom — split, close, move, detach — is already a palette
 command and stays reachable there; drag-to-split, drag-tab and detach-by-drag
 are disabled in phone mode rather than half-working under a thumb. Radix
-context menus open on long-press, so the pane menu comes along.
+context menus open on long-press, so the pane menu comes along. The audit this
+decision calls for found one gap and one deliberate absence: "Move Tab to Next
+Panel" existed only in the tab's context menu, so a phone had no way to move a
+tab at all, and is now also a palette command (`move-tab-to-next-panel`);
+detach was already excluded from the web palette (`NATIVE_ONLY_COMMANDS`),
+which matches "what stays deliberately out" below rather than being a miss.
+
+The palette is a Radix `Dialog.Portal`, mounted under `<body>` and never
+inside `.app` — so phone CSS keyed off `.app[data-layout="phone"]` could never
+match it, and the palette opened on a phone as the desk's fixed 620 px
+centered card, hanging off both edges of a 390 px screen, with a 14 px input
+that makes iOS Safari zoom on focus. The width assertion in the E2E ticket
+*passed* anyway, because 620 px is still greater than 380. `useLayoutMode` now
+mirrors the mode onto `<html data-layout>` as well as `.app`, and every
+portaled phone rule keys off `:root[data-layout="phone"]` instead
+(`src/hooks/useLayoutMode.ts`, `CommandPalette.module.css`). The rule this
+teaches: **phone CSS for anything portaled keys off `:root`, never `.app`.**
 
 **D6 — Typing is the native keyboard into xterm.** Tapping a terminal focuses
 xterm's own textarea synchronously inside the touch, which is what makes iOS
@@ -138,7 +155,20 @@ have.** `Cmd+W`, `Cmd+T` and `Cmd+N` are the browser's before the page ever
 sees them. `platformDefaults()` in `src/lib/keybinding-defs.ts` gains a `web`
 variant that leaves those three commands unbound (they stay in the palette
 and the menu), and the keybindings page marks a browser-reserved chord as
-such rather than showing a shortcut that will close the tab.
+such rather than showing a shortcut that will close the tab. The match is on
+the **key combo**, via `BROWSER_RESERVED_COMBOS`, not on a fixed list of
+command ids — Manor binds `close-pane` to `Cmd+W`, not `close-tab` (that one
+is `Cmd+Shift+W`), so the correct fix strips whichever commands actually land
+on the reserved chords (`close-pane`, `new-tab`, `new-agent` by default, or
+whatever a user has rebound onto them), rather than hard-coding a command that
+happens to be wrong.
+
+The ticket that built this also shipped, then fixed, a regression: it passed
+a `"web"` platform string meaning "Mac-style," handing Windows and Linux
+browsers `⌘` shortcuts they cannot type. The fix makes "in a browser"
+orthogonal to the OS — `platformDefaults(platform, { inBrowser })`, where
+`platform` alone still decides ⌘ versus Ctrl. The lesson: a platform string
+must describe one fact, not two folded together.
 
 ### What stays deliberately out
 
@@ -151,6 +181,41 @@ such rather than showing a shortcut that will close the tab.
 - Anything the desktop-in-a-browser cannot mirror at all (ADR-178's list):
   webview panes, native menus, detach. Phone mode inherits those empty states
   unchanged.
+
+### Checked by hand, not by tests
+
+No agent in this ADR could launch Electron with a real window or hold a real
+phone, so the following are recorded as **things to verify on a device**, not
+as tested:
+
+- On a narrow macOS desktop window: the phone top bar clears the traffic
+  lights (`--traffic-light-inset`), the bar drags the window, and its own
+  buttons still click through the drag region.
+- The drawer on a real phone: it opens, a tap outside it closes it, focus
+  returns to the toggle afterward, and ~85% width feels right.
+- On iOS Safari and Android Chrome: (1) a tap on a terminal raises the soft
+  keyboard; (2) the keyboard opening does not resize the terminal or repaint a
+  full-screen TUI's frame into the scrollback; (3) a long-press opens the pane
+  menu under a real finger; (4) a vertical drag scrolls scrollback; (5) a
+  horizontal drag pans a follower wider than the phone.
+
+Playwright proves the focus call, the textarea's attributes and the viewport
+meta tag (`phone.spec.ts`) — not that a real soft keyboard behaves as D6
+predicts.
+
+### Follow-ups
+
+Listed so they are not lost, not fixed here:
+
+- `panelTreeContains` / `paneTreeContains` (`src/lib/layout/panel-tree.ts`,
+  `pane-tree.ts`) overlap the pre-existing `hasPanelId` / `hasPaneId` — thin
+  wrappers that also accept a null id. Collapse them when next touched.
+- The palette's detail and stats views (`.detailLayout`'s `1fr 220px` grid,
+  `.statsTiles`' four columns in `CommandPalette.module.css`) were not
+  redesigned for a phone and are cramped at 390 px.
+- "Reopen Closed Pane" (`reopen-pane`) stays keybinding-only — it is not in
+  the command palette, so a phone with no keybinding bound to it has no way to
+  reach it at all.
 
 ## Consequences
 

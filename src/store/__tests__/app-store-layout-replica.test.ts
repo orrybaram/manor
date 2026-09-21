@@ -96,7 +96,8 @@ describe("actions send commands", () => {
     const { workspacePath, command } = sentCommands[0];
     expect(workspacePath).toBe(WS_PATH);
     expect(command).toMatchObject({
-      type: "split-pane",
+      type: "split-pane-at",
+      position: "second",
       paneId: "pane-1",
       direction: "vertical",
     });

@@ -7,7 +7,7 @@
  * - **Structural** routes — split, close, move, pin, reorder, new tab,
  *   reopen — call `deps.layoutStore.apply()` directly. They mint whatever
  *   ids the command needs (a sender's job, never the reducer's — see
- *   `src/lib/layout/commands.ts`), resolve which workspace from the request
+ *   `src/lib/layout/commands/`), resolve which workspace from the request
  *   the same way every time (see `resolveWorkspacePath`), and need no
  *   window: `manor split-pane` now works with the desktop closed.
  * - **Viewport** routes — focus, select, next/prev tab, set the active
@@ -230,17 +230,6 @@ function queuePendingCommand(
   );
 }
 
-/** Every pane a workspace renders, across every panel and tab. */
-function paneIdsOf(layout: WorkspaceLayout): Set<string> {
-  const ids = new Set<string>();
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) {
-      for (const paneId of allPaneIds(tab.rootNode)) ids.add(paneId);
-    }
-  }
-  return ids;
-}
-
 /**
  * Mark a closed pane's active agent abandoned.
  *
@@ -408,9 +397,6 @@ export const paneRoutes: Route[] = [
         return;
       }
 
-      const before = store.get(workspacePath);
-      const beforeVersion = before?.version ?? 0;
-      const beforeIds = before ? paneIdsOf(before.layout) : new Set<string>();
       // Viewport default: the active panel, when a window has reported one.
       const panelId =
         store.primaryViewport(workspacePath)?.activePanelId ?? undefined;
@@ -424,17 +410,10 @@ export const paneRoutes: Route[] = [
         json(400, { error: result.error });
         return;
       }
-      if (result.version === beforeVersion) {
-        json(200, { reopened: false });
-        return;
-      }
-      const after = store.get(workspacePath);
-      const newIds = after
-        ? [...paneIdsOf(after.layout)].filter((id) => !beforeIds.has(id))
-        : [];
+      const { addedPaneIds } = result;
       json(200, {
-        reopened: true,
-        ...(newIds.length === 1 && { paneId: newIds[0] }),
+        reopened: addedPaneIds.length > 0,
+        ...(addedPaneIds.length === 1 && { paneId: addedPaneIds[0] }),
       });
     },
   },
@@ -541,8 +520,6 @@ export const paneRoutes: Route[] = [
             targetPaneId,
             direction,
             position,
-            // Seeds the source panel if emptying it left the last panel blank.
-            fallbackTab: createTab(),
           },
           json,
         );
@@ -571,8 +548,7 @@ export const paneRoutes: Route[] = [
           return;
         }
         const entry = store.get(workspacePath);
-        const found = entry && findPanelWithPane(entry.layout, paneId);
-        if (!entry || !found) {
+        if (!entry || !findPanelWithPane(entry.layout, paneId)) {
           json(400, { error: `Unknown paneId: ${paneId}` });
           return;
         }
@@ -581,32 +557,24 @@ export const paneRoutes: Route[] = [
           return;
         }
 
-        const { panel, tab } = found;
-        const sole =
-          tab.rootNode.type === "leaf" && tab.rootNode.paneId === paneId;
-        // Already a tab of its own, staying where it is: nothing structural
-        // to do — selecting it is viewport, and there is no window here to
-        // move it in.
-        if (sole && (targetPanelId ?? panel.id) === panel.id) {
-          json(200, { tabId: tab.id });
-          return;
-        }
-
         const mintedTabId = newTabId();
-        const ok = await applyOrError(
-          store,
+        const result = await store.apply(
           workspacePath,
           {
             type: "extract-pane-to-tab",
             paneId,
             targetPanelId,
             newTabId: mintedTabId,
-            fallbackTab: createTab(),
           },
-          json,
+          ROUTE_ORIGIN,
         );
-        if (!ok) return;
-        json(200, { tabId: sole ? tab.id : mintedTabId });
+        if ("error" in result) {
+          json(400, { error: result.error });
+          return;
+        }
+        // The tab the pane ended up in — the minted one, or the tab it
+        // already had when it was that tab's only pane.
+        json(200, { tabId: result.hint?.selectTab?.tabId ?? mintedTabId });
       } catch (err) {
         badRequest(json, err);
       }
@@ -898,12 +866,10 @@ export const tabRoutes: Route[] = [
         return;
       }
       const entry = store.get(workspacePath);
-      const found = entry && findPanelWithTab(entry.layout, tabId);
-      if (!entry || !found) {
+      if (!entry || !findPanelWithTab(entry.layout, tabId)) {
         json(400, { error: `Unknown tabId: ${tabId}` });
         return;
       }
-      const wasPinned = found.panel.pinnedTabIds.includes(tabId);
       const ok = await applyOrError(
         store,
         workspacePath,
@@ -911,7 +877,12 @@ export const tabRoutes: Route[] = [
         json,
       );
       if (!ok) return;
-      json(200, { tabId, pinned: !wasPinned });
+      const after = store.get(workspacePath);
+      const found = after && findPanelWithTab(after.layout, tabId);
+      json(200, {
+        tabId,
+        pinned: found ? found.panel.pinnedTabIds.includes(tabId) : false,
+      });
     },
   },
 

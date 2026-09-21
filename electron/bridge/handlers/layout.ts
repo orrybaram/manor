@@ -43,8 +43,9 @@ export function layoutGetLastActive(ctx: HandlerCtx): string | null {
 }
 
 /**
- * Run one layout command. The answer is the new version, not the new layout:
- * the layout arrives on `layout.changed`, at every renderer at once.
+ * Run one layout command. The answer is the version, the command's selection
+ * hint and the panes it added — not the new layout, which arrives on
+ * `layout.changed`, at every renderer at once.
  */
 export function layoutApply(
   ctx: HandlerCtx,

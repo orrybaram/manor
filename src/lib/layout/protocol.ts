@@ -121,8 +121,18 @@ export interface LayoutBroadcast {
 /** The renderer's name for the same payload. */
 export type LayoutChangedPayload = LayoutBroadcast;
 
-/** `layout.apply` answers with the new version, never with a layout. */
-export type LayoutApplyResult = { version: number } | { error: string };
+/**
+ * What `layout.apply` answers: the version the workspace is at afterwards,
+ * never a layout — that arrives on `layout.changed`, at every renderer.
+ *
+ * `hint` is the command's selection hint, answered even when the command
+ * changed nothing and so broadcast nothing (an extract of a pane that is
+ * already a tab still says which tab). `addedPaneIds` are the panes the
+ * command put into the tree — what a reopen brought back.
+ */
+export type LayoutApplyResult =
+  | { version: number; hint?: LayoutHint; addedPaneIds: string[] }
+  | { error: string };
 
 /**
  * A pane's title, off the command channel (ADR-182 D1).

@@ -859,22 +859,38 @@ function selectTabLocally(
 /**
  * Send one command for one workspace, and forget it.
  *
- * Nothing waits for the answer: the answer is a version number, and what the
- * caller actually wants — the new layout — arrives at every renderer at once
- * on `layout.changed`. A command naming an id the server does not have is a
- * no-op there, not an error, so the only thing worth reporting here is a
- * transport failure.
+ * Nothing waits for the answer: what the caller actually wants — the new
+ * layout — arrives at every renderer at once on `layout.changed`, with the
+ * command's selection hint for this one. A command naming an id the server
+ * does not have is a no-op there, not an error.
+ *
+ * The one thing read off the answer is a hint for a command that changed
+ * nothing: no broadcast follows it, so the hint is applied here instead. A
+ * version that did not move past the one held when the command went out is
+ * how that is told.
  */
 function sendLayoutCommand(
   workspacePath: string,
   command: LayoutCommand,
 ): void {
+  const held = useAppStore.getState().layoutVersions[workspacePath] ?? 0;
   const applied = window.electronAPI?.layout?.apply(workspacePath, command);
   void applied
     ?.then((result) => {
-      if (result && "error" in result) {
+      if (!result) return;
+      if ("error" in result) {
         console.error(`[layout] ${command.type} refused:`, result.error);
+        return;
       }
+      const { hint } = result;
+      if (!hint || result.version !== held) return;
+      useAppStore.setState((state) => {
+        const layout = state.workspaceLayouts[workspacePath];
+        if (!layout) return {};
+        return withViewport(state, workspacePath, (vp) =>
+          applyHint(layout, vp, hint, hiddenTabsOf(state, workspacePath, layout)),
+        );
+      });
     })
     .catch((err: unknown) => {
       console.error(`[layout] ${command.type} failed:`, err);
@@ -1618,9 +1634,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const path = get().activeWorkspacePath;
     if (!paneId || !path) return;
     sendLayoutCommand(path, {
-      type: "split-pane",
+      type: "split-pane-at",
       paneId,
       direction,
+      position: "second",
       newPaneId: newPaneId(),
     });
   },
@@ -1685,9 +1702,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       targetPaneId,
       direction,
       position,
-      // Emptying the last panel would leave the workspace with nowhere to put
-      // anything; the reducer seeds it with this instead.
-      fallbackTab: createTab(),
     });
   },
 
@@ -1705,7 +1719,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       targetPaneId,
       direction,
       position,
-      fallbackTab: createTab(),
     });
   },
 
@@ -1717,24 +1730,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!found) return null;
     // A pane that is already its tab's only leaf keeps its tab; anything else
     // moves into a tab minted here. Either way the answer is known before the
-    // command is sent, which is what lets this stay synchronous.
+    // command is sent, which is what lets this stay synchronous. A pane that
+    // is its tab already, staying put, changes nothing on the server, whose
+    // answer still carries the hint that selects it (see `sendLayoutCommand`).
     const sole =
       found.tab.rootNode.type === "leaf" &&
       found.tab.rootNode.paneId === paneId;
-    // Already a tab of its own, staying where it is: nothing structural
-    // happens, so there is no command and no broadcast — only this window's
-    // selection moves (ADR-179 D3).
-    if (sole && (targetPanelId ?? found.panel.id) === found.panel.id) {
-      set(selectTabLocally(state, ctx.path, found.tab.id));
-      return found.tab.id;
-    }
     const mintedTabId = newTabId();
     sendLayoutCommand(ctx.path, {
       type: "extract-pane-to-tab",
       paneId,
       targetPanelId,
       newTabId: mintedTabId,
-      fallbackTab: createTab(),
     });
     return sole ? found.tab.id : mintedTabId;
   },
@@ -2073,26 +2080,33 @@ export const useAppStore = create<AppState>((set, get) => ({
   splitPanel: (direction: SplitDirection) => {
     const ctx = getActivePanelContext(get());
     if (!ctx) return;
+    // A panel's only tab stays where it is — moving it out would empty the
+    // panel, and the reducer removes an emptied panel — so the split opens a
+    // fresh terminal beside it instead.
+    if (ctx.panel.tabs.length === 1) {
+      sendLayoutCommand(ctx.path, {
+        type: "split-panel-with-new-tab",
+        tab: createTab(),
+        direction,
+        newPanelId: newPanelId(),
+        sourcePanelId: ctx.panel.id,
+      });
+      return;
+    }
     sendLayoutCommand(ctx.path, {
       type: "split-panel",
       panelId: ctx.panel.id,
       direction,
       newPanelId: newPanelId(),
-      // The selected tab moves into the new panel; if that empties the
-      // source panel, it gets a fresh terminal rather than nothing.
+      // The selected tab moves into the new panel.
       tabId: selectSelectedTabId(get(), ctx.panel.id, ctx.path) ?? undefined,
-      fallbackTab: createTab(),
     });
   },
 
   closePanel: (panelId: string) => {
     const path = get().activeWorkspacePath;
     if (!path) return;
-    sendLayoutCommand(path, {
-      type: "close-panel",
-      panelId,
-      fallbackPanelId: newPanelId(),
-    });
+    sendLayoutCommand(path, { type: "close-panel", panelId });
   },
 
   focusPanel: (panelId: string) =>
@@ -2143,7 +2157,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       targetPanelId,
       direction,
       newPanelId: newPanelId(),
-      fallbackTab: createTab(),
     });
   },
 
@@ -2157,7 +2170,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: "merge-tab-into-tab",
       sourceTabId,
       targetTabId,
-      fallbackTab: createTab(),
     });
   },
 

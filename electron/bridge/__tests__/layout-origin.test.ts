@@ -68,7 +68,13 @@ function makeWindow(id: number) {
 
 type FakeWindow = ReturnType<typeof makeWindow>;
 
-const SPLIT = { type: "split-pane", paneId: "pane-1", direction: "row" };
+const SPLIT = {
+  type: "split-pane-at",
+  paneId: "pane-1",
+  direction: "horizontal",
+  position: "second",
+  newPaneId: "pane-2",
+};
 
 describe("a layout command's origin", () => {
   let windows: FakeWindow[];

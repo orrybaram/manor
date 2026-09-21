@@ -25,6 +25,7 @@ import {
 } from "../../terminal-host/layout-persistence";
 import type { LocalBackend } from "../../backend/local-backend";
 import type { Tab } from "../../../src/lib/layout/workspace-layout";
+import { findLeaf } from "../../../src/lib/layout/commands";
 
 const WS = "/project/main";
 
@@ -200,7 +201,7 @@ describe("LayoutStore", () => {
         { kind: "window", id: "1" },
       );
 
-      expect(result).toEqual({ version: 1 });
+      expect(result).toMatchObject({ version: 1, addedPaneIds: ["pane-2"] });
       expect(broadcasts).toHaveLength(1);
       expect(broadcasts[0].workspacePath).toBe(WS);
       expect(broadcasts[0].version).toBe(1);
@@ -224,8 +225,8 @@ describe("LayoutStore", () => {
         { kind: "bridge", id: "web" },
       );
 
-      expect(await first).toEqual({ version: 1 });
-      expect(await second).toEqual({ version: 2 });
+      expect(await first).toMatchObject({ version: 1 });
+      expect(await second).toMatchObject({ version: 2 });
       expect(broadcasts.map((b) => b.version)).toEqual([1, 2]);
       expect(
         store.get(WS)!.layout.panels["panel-1"].tabs.map((t) => t.id),
@@ -284,15 +285,16 @@ describe("LayoutStore", () => {
       expect(store.get(WS)!.paneSessions["pane-diff"]).toBeUndefined();
     });
 
-    it("fills the reopen stack's metadata from the server, not the sender", async () => {
-      // No `paneMetadata` on the command at all: the url and content type come
-      // from the tree, the cwd from `paneSessions` (ADR-179 D3).
+    it("reopens a closed browser pane with its url, and says what came back", async () => {
+      // Nothing about the pane travels in the commands: the leaf goes onto
+      // the reopen stack whole and comes back whole (ADR-182 D6).
       await store.apply(
         WS,
         {
-          type: "split-pane",
+          type: "split-pane-at",
           paneId: "pane-1",
           direction: "horizontal",
+          position: "second",
           newPaneId: "pane-web",
           contentType: "browser",
           url: "http://localhost:3000",
@@ -304,16 +306,20 @@ describe("LayoutStore", () => {
         { type: "close-pane", paneId: "pane-web" },
         { kind: "window", id: "1" },
       );
-      await store.apply(
+      const result = await store.apply(
         WS,
         { type: "reopen-closed-pane", newTabId: "tab-restored" },
         { kind: "window", id: "1" },
       );
 
+      expect(result).toMatchObject({ addedPaneIds: ["pane-web"] });
       const tab = store.get(WS)!.layout.panels["panel-1"].tabs[0];
-      const restored = JSON.stringify(tab.rootNode);
-      expect(restored).toContain("pane-web");
-      expect(restored).toContain("browser");
+      expect(findLeaf(tab.rootNode, "pane-web")).toEqual({
+        type: "leaf",
+        paneId: "pane-web",
+        contentType: "browser",
+        url: "http://localhost:3000",
+      });
     });
 
     it("creates the workspace when it has never heard of it", async () => {
@@ -323,7 +329,7 @@ describe("LayoutStore", () => {
         { kind: "route", id: "cli" },
       );
 
-      expect(result).toEqual({ version: 1 });
+      expect(result).toMatchObject({ version: 1, addedPaneIds: ["pane-9"] });
       const entry = store.get("/project/brand-new")!;
       const panels = Object.values(entry.layout.panels);
       expect(panels).toHaveLength(1);
@@ -337,7 +343,7 @@ describe("LayoutStore", () => {
         { kind: "window", id: "1" },
       );
 
-      expect(result).toEqual({ version: 0 });
+      expect(result).toEqual({ version: 0, addedPaneIds: [] });
       expect(broadcasts).toHaveLength(0);
     });
 

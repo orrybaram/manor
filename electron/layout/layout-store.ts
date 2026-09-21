@@ -32,10 +32,10 @@ import * as crypto from "node:crypto";
 
 import {
   applyLayoutCommand,
+  findLeaf,
+  isLayoutCommandType,
   type ClosedPane,
   type LayoutCommand,
-  type PaneMetadata,
-  type PaneMetadataMap,
 } from "../../src/lib/layout/commands";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
 import type { WorkspaceViewport } from "../../src/lib/layout/viewport";
@@ -49,13 +49,11 @@ import type {
 } from "../../src/lib/layout/protocol";
 import {
   type Panel,
-  type PaneContentType,
   type Tab,
   type WorkspaceLayout,
   createSinglePanelLayout,
   findPanelWithPane,
 } from "../../src/lib/layout/workspace-layout";
-import type { PaneNode } from "../../src/lib/layout/pane-tree";
 import type { LocalBackend } from "../backend/local-backend";
 import { PendingCommands } from "./pending-commands";
 import {
@@ -97,56 +95,6 @@ export type LayoutBroadcaster = (payload: LayoutBroadcast) => void;
 interface WorkspaceState
   extends Omit<LayoutEntry, "claims"> {
   closedStack: ClosedPane[];
-}
-
-/** Every command the reducer answers to. An unknown one is refused, not run. */
-const COMMAND_TYPES: ReadonlySet<string> = new Set<LayoutCommand["type"]>([
-  "new-tab",
-  "close-tab",
-  "duplicate-tab",
-  "close-other-tabs",
-  "close-tabs-to-right",
-  "reorder-tabs",
-  "toggle-pin-tab",
-  "split-pane",
-  "split-pane-at",
-  "move-pane",
-  "move-tab-to-pane",
-  "extract-pane-to-tab",
-  "close-pane",
-  "reopen-closed-pane",
-  "set-pane-content-type",
-  "split-panel",
-  "close-panel",
-  "merge-tab-into-tab",
-  "update-panel-ratio",
-  "move-tab-to-panel",
-  "split-panel-with-tab",
-  "split-panel-with-new-tab",
-  "update-split-ratio",
-]);
-
-/**
- * What every leaf of a workspace renders, keyed by paneId — the half of a
- * pane's metadata that lives in the tree rather than in `paneSessions`.
- */
-function treeMetadata(layout: WorkspaceLayout): Record<string, PaneMetadata> {
-  const metadata: Record<string, PaneMetadata> = {};
-  const walk = (node: PaneNode): void => {
-    if (node.type === "leaf") {
-      metadata[node.paneId] = {
-        contentType: (node.contentType as PaneContentType) ?? "terminal",
-        ...(node.url !== undefined && { url: node.url }),
-      };
-      return;
-    }
-    walk(node.first);
-    walk(node.second);
-  };
-  for (const panel of Object.values(layout.panels)) {
-    for (const tab of panel.tabs) walk(tab.rootNode);
-  }
-  return metadata;
 }
 
 /** Every tab a workspace holds, across every panel. */
@@ -597,7 +545,7 @@ export class LayoutStore {
     if (
       !command ||
       typeof command !== "object" ||
-      !COMMAND_TYPES.has(command.type)
+      !isLayoutCommandType(command.type)
     ) {
       return {
         error: `unknown layout command from ${origin.kind} ${origin.id}: ${
@@ -609,47 +557,48 @@ export class LayoutStore {
     const state = this.ensureState(workspacePath);
     const before = state.layout;
 
-    const metadata = treeMetadata(before);
     const result = applyLayoutCommand(
       { layout: before, closedStack: state.closedStack },
       command,
-      paneMetadata(state, metadata),
     );
-    state.closedStack = result.closedStack;
+    state.closedStack = titleClosedPane(state, result.closedStack);
+    // What the command implies about the *sender's* selection, to travel back
+    // with the broadcast (D3) — and in the answer, for a command that changed
+    // nothing and so broadcasts nothing.
+    const { hint } = result;
 
     if (result.layout === before) {
       // A command naming an id that is not in the tree is a no-op, not an
       // error — a stale command from a slow renderer is normal (D1).
-      return { version: state.version };
+      return { version: state.version, addedPaneIds: [], ...(hint && { hint }) };
     }
-
-    // What the command implies about the *sender's* selection, to travel back
-    // with the broadcast (D3). Extracted from `effects` rather than being a
-    // second return value, so the reducer has one output.
-    const { killPanes: _k, releasedPanes: _r, ...rest } = result.effects;
-    const hint = Object.keys(rest).length > 0 ? rest : undefined;
 
     state.layout = result.layout;
     state.version += 1;
     this.lastActiveWorkspacePath = workspacePath;
+
+    const had = layoutPaneIds(before);
+    const addedPaneIds = [...layoutPaneIds(state.layout)].filter(
+      (paneId) => !had.has(paneId),
+    );
 
     // A reopen takes its panes back off death row: whatever is still warm is
     // reattached rather than respawned, and what the server knows about those
     // panes rides along on the broadcast so they mount with it.
     const restored =
       command.type === "reopen-closed-pane"
-        ? this.reclaim(state, before)
+        ? this.reclaim(state, addedPaneIds)
         : undefined;
 
     // Ending sessions is the server's job now (D2): the renderer sends the
     // command after its confirmation dialog, and the effect lands here. Not
     // at once, though — a terminal pane's shell stays warm for the grace, so
     // "reopen closed pane" is a real undo (see REOPEN_GRACE_MS).
-    for (const paneId of result.effects.killPanes) {
+    for (const paneId of result.killPanes) {
       // A pane that never mounted can still be closed — by another window, or
       // by the CLI. Whatever was queued for it has nowhere left to go.
       this.pendingCommands.clear(paneId);
-      if ((metadata[paneId]?.contentType ?? "terminal") !== "terminal") {
+      if (contentTypeOf(before, paneId) !== "terminal") {
         delete state.paneSessions[paneId];
         continue;
       }
@@ -671,26 +620,24 @@ export class LayoutStore {
       ...(restored && { restored }),
     });
 
-    return { version: state.version };
+    return { version: state.version, addedPaneIds, ...(hint && { hint }) };
   }
 
   /**
    * Panes a reopen just put back, cancelling the kills they were waiting out.
    *
-   * Told structurally — every pane in the new tree that was not in the old
-   * one — so it covers a reopened *tab* (many panes) and a reopened pane
-   * alike, without a second reading of the reducer's stack entry. A pane
-   * whose session is already gone (grace elapsed, or the daemon lost it)
-   * simply contributes nothing, and the renderer mounts it fresh.
+   * Told structurally — every pane the command added to the tree — so it
+   * covers a reopened *tab* (many panes) and a reopened pane alike, without a
+   * second reading of the reducer's stack entry. A pane whose session is
+   * already gone (grace elapsed, or the daemon lost it) simply contributes
+   * nothing, and the renderer mounts it fresh.
    */
   private reclaim(
     state: WorkspaceState,
-    before: WorkspaceLayout,
+    addedPaneIds: string[],
   ): Record<string, PersistedPaneSession> | undefined {
-    const had = layoutPaneIds(before);
     const restored: Record<string, PersistedPaneSession> = {};
-    for (const paneId of layoutPaneIds(state.layout)) {
-      if (had.has(paneId)) continue;
+    for (const paneId of addedPaneIds) {
       this.cancelKill(paneId);
       const session = state.paneSessions[paneId];
       if (session) restored[paneId] = session;
@@ -850,27 +797,28 @@ function emptySession(paneId: string): PersistedPaneSession {
 }
 
 /**
- * What the reopen stack needs about every pane, from what the server knows.
+ * A closed pane's terminal title, onto the reopen stack entry the command
+ * just pushed.
  *
- * A pane's content type, url, cwd and title all live here — the first two in
- * the tree the command is about to change, the last two in `paneSessions`. No
- * sender is asked for them: `applyLayoutCommand` takes this map as its third
- * argument, and the closing commands are the only ones that read it (D3).
+ * The reducer keeps the pane's leaf — its url and content type are in the
+ * tree — but a title is server-derived `paneSessions` state it never sees
+ * (D3), and it is what a pane reopened into a tab of its own is named.
  */
-function paneMetadata(
+function titleClosedPane(
   state: WorkspaceState,
-  treeMeta: Record<string, PaneMetadata>,
-): PaneMetadataMap {
-  const metadata: PaneMetadataMap = {};
-  for (const [paneId, tree] of Object.entries(treeMeta)) {
-    const session = state.paneSessions[paneId];
-    metadata[paneId] = {
-      ...tree,
-      ...(session?.lastCwd != null && { cwd: session.lastCwd }),
-      ...(session?.lastTitle != null && { title: session.lastTitle }),
-    };
-  }
-  return metadata;
+  stack: ClosedPane[],
+): ClosedPane[] {
+  const head = stack[0];
+  if (stack === state.closedStack || head?.kind !== "pane") return stack;
+  const title = state.paneSessions[head.leaf.paneId]?.lastTitle;
+  return title ? [{ ...head, title }, ...stack.slice(1)] : stack;
+}
+
+/** What a pane renders, read off the tree; a pane it lacks is a terminal. */
+function contentTypeOf(layout: WorkspaceLayout, paneId: string): string {
+  const found = findPanelWithPane(layout, paneId);
+  const leaf = found && findLeaf(found.tab.rootNode, paneId);
+  return leaf?.contentType ?? "terminal";
 }
 
 /** Structure only: a v2 or early-v3 file's focus fields are read out into

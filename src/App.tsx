@@ -76,6 +76,7 @@ import {
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { PhoneTopBar } from "./components/phone/PhoneTopBar";
 import "./App.css";
 
 function App() {
@@ -90,6 +91,13 @@ function App() {
   // hook always answers "desk" for it, so both render paths below can share
   // this single call.
   const layoutMode = useLayoutMode();
+  // ADR-181 D3/D4/D5: phone-only chrome state. `PhoneTopBar`'s buttons only
+  // toggle it here — ticket 4 renders the drawer this opens, ticket 5 the
+  // pane-switcher sheet. The palette button reuses `paletteOpen` below
+  // rather than a state of its own: ticket 6 makes the existing
+  // `CommandPalette` full screen in phone mode, not a second surface.
+  const [_phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
+  const [_phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
 
   useMountEffect(() => {
     loadTheme();
@@ -344,6 +352,21 @@ function App() {
   const activeProject = projects.find((p) =>
     p.workspaces.some((w) => w.path === activeWorkspacePath),
   );
+  // The phone top bar's centre label (ADR-181 D3). Home has no owning
+  // project or workspace record, so it gets the same fixed label the
+  // sidebar gives it; a project workspace falls back the same way
+  // `resolveWorkspaceName` (WorkspaceSetupView) does — name, then branch,
+  // then the last path segment — so a workspace with neither still shows
+  // something.
+  const activeWorkspace = activeProject?.workspaces.find(
+    (w) => w.path === activeWorkspacePath,
+  );
+  const activeWorkspaceDisplayName = isHomePath(activeWorkspacePath)
+    ? "Home"
+    : activeWorkspace?.name ||
+      activeWorkspace?.branch ||
+      activeWorkspacePath?.split("/").pop() ||
+      "";
   // The launch command for the active surface. Home has no owning project and
   // boots the configured home harness in ~/.manor/home (the pty boundary maps
   // its sentinel path to the real dir); a project workspace uses its
@@ -691,7 +714,9 @@ function App() {
     <TooltipProvider>
     <div className="app" data-layout={layoutMode}>
       <div className="app-body">
-        {sidebarVisible && hasProjects && (
+        {/* ADR-181 D3: the sidebar is a drawer in phone mode (ticket 4), never
+            rendered inline — it would eat the whole screen at phone width. */}
+        {sidebarVisible && hasProjects && layoutMode === "desk" && (
           <Sidebar
             onShowAgents={() => setAgentsOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
@@ -700,6 +725,18 @@ function App() {
         )}
         <PaneDragProvider>
           <div className="main-content">
+            {/* ADR-181 D3: the phone top bar sits around the workspace stack,
+                not inside it — a sibling here, like the sidebar and status
+                bar, so nothing about the split components' element tree
+                changes and a pane switch still remounts nothing. */}
+            {layoutMode === "phone" && (
+              <PhoneTopBar
+                workspaceName={activeWorkspaceDisplayName}
+                onToggleDrawer={() => setPhoneDrawerOpen((v) => !v)}
+                onOpenPaneSwitcher={() => setPhonePaneSwitcherOpen(true)}
+                onOpenPalette={() => setPaletteOpen(true)}
+              />
+            )}
             {/* Every workspace renders through the same PanelLayout in a single
                 positioned stack, active or not. Inactive ones are only hidden,
                 never unmounted or re-parented, so their terminals keep the exact
@@ -740,11 +777,15 @@ function App() {
                 </div>
               )}
             </div>
-            <StatusBar
-              onNewWorkspace={handleNewWorkspace}
-              onNewAgentWithPrompt={handleNewAgentWithPrompt}
-              onOpenStats={handleOpenStats}
-            />
+            {/* ADR-181 D3: no status bar in phone mode — the top bar and the
+                palette are the phone's chrome. */}
+            {layoutMode === "desk" && (
+              <StatusBar
+                onNewWorkspace={handleNewWorkspace}
+                onNewAgentWithPrompt={handleNewAgentWithPrompt}
+                onOpenStats={handleOpenStats}
+              />
+            )}
           </div>
         </PaneDragProvider>
       </div>

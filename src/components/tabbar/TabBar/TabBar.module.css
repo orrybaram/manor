@@ -331,3 +331,45 @@
   background: var(--surface);
   color: var(--text-selected);
 }
+
+/*
+ * ADR-181 D3: only the active panel's TabBar is ever visible in phone
+ * mode — ticket 2's `SplitPanelLayout` hides every other panel (and its tab
+ * bar with it), so no filtering happens here, only a restyle: one row that
+ * scrolls horizontally instead of the desk layout's shrink-to-fit tabs.
+ * `useLayoutMode()` is the app's one breakpoint (ADR-181 D2), so this keys
+ * off `.app[data-layout="phone"]` rather than a media query of its own.
+ * Disabling the drag interactions themselves (reorder, detach, drop-to-split)
+ * is ADR-181 ticket 6 — this only keeps the row usable under a thumb in the
+ * meantime.
+ */
+:global(.app[data-layout="phone"]) .tabBar {
+  padding: 6px 8px 0;
+}
+
+:global(.app[data-layout="phone"]) .noSidebar {
+  padding-left: 8px;
+}
+
+:global(.app[data-layout="phone"]) .tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+:global(.app[data-layout="phone"]) .tabs::-webkit-scrollbar {
+  display: none;
+}
+
+:global(.app[data-layout="phone"]) .tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+:global(.app[data-layout="phone"]) .addButton {
+  min-width: 44px;
+  min-height: 44px;
+}

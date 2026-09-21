@@ -89,3 +89,58 @@ describe("PhoneTopBar", () => {
     expect(onOpenPaneSwitcher).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("PhoneTopBar — macOS traffic-light inset (ticket 4)", () => {
+  function render(): void {
+    act(() => {
+      root.render(
+        createElement(PhoneTopBar, {
+          workspaceName: "ws",
+          onToggleDrawer: () => {},
+          onOpenPaneSwitcher: () => {},
+          onOpenPalette: () => {},
+        }),
+      );
+    });
+  }
+
+  function topBar(): Element | null {
+    return container.querySelector('[data-testid="phone-top-bar"]');
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // @ts-expect-error test double for the preload bridge
+    delete window.electronAPI;
+  });
+
+  it("sets data-mac-inset on the Electron desktop on macOS", () => {
+    // @ts-expect-error test double for the preload bridge
+    window.electronAPI = { platform: "electron" };
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh" });
+
+    render();
+
+    expect(topBar()?.getAttribute("data-mac-inset")).toBe("true");
+  });
+
+  it("omits data-mac-inset on the Electron desktop off macOS", () => {
+    // @ts-expect-error test double for the preload bridge
+    window.electronAPI = { platform: "electron" };
+    vi.stubGlobal("navigator", { platform: "Win32", userAgent: "Windows" });
+
+    render();
+
+    expect(topBar()?.hasAttribute("data-mac-inset")).toBe(false);
+  });
+
+  it("omits data-mac-inset in a browser, even on macOS", () => {
+    // @ts-expect-error test double for the preload bridge
+    window.electronAPI = { platform: "web" };
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh" });
+
+    render();
+
+    expect(topBar()?.hasAttribute("data-mac-inset")).toBe(false);
+  });
+});

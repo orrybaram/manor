@@ -33,6 +33,24 @@
   -webkit-app-region: no-drag;
 }
 
+/*
+ * ADR-181 ticket 4: `[data-mac-inset]` is only ever set on the Electron
+ * desktop on macOS (`isElectronMacOS()` in `PhoneTopBar.tsx`) — the one
+ * platform where `hiddenInset` + `trafficLightPosition`
+ * (`electron/window.ts`) puts the red/yellow/green buttons over this bar's
+ * top-left corner. Left-pad by the same inset the tab strip's `.noSidebar`
+ * uses for the same reason (`--traffic-light-inset`, App.css), and make the
+ * bar itself a drag region so a narrow window keeps a way to move — a
+ * `<Button>` already sets `no-drag` on itself (Button.module.css), so the
+ * bar's own buttons stay clickable over the drag region. Everywhere else —
+ * a non-mac Electron window still has its own native title bar to drag by,
+ * a browser tab has no window chrome at all — neither applies.
+ */
+.topBar[data-mac-inset="true"] {
+  padding-left: var(--traffic-light-inset);
+  -webkit-app-region: drag;
+}
+
 .workspaceName {
   flex: 1;
   min-width: 0;

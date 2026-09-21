@@ -47,6 +47,12 @@
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;
+  /* Clears the macOS traffic lights (`trafficLightPosition` in
+     electron/window.ts). Shared so every piece of chrome that sits at the
+     window's top-left edge — the tab strip's `.noSidebar` and, in phone
+     mode, `PhoneTopBar` — pads by the same number rather than each picking
+     its own. */
+  --traffic-light-inset: 78px;
 }
 
 * {

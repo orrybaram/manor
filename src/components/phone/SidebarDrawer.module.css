@@ -1,0 +1,84 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+/*
+ * A left-edge sheet ~85% of the viewport wide, capped so it never grows
+ * past a sane drawer width on a desktop window merely dragged into phone
+ * mode. `Sidebar`'s own root sets an inline `width` (the desk layout's
+ * resizable `sidebarWidth`) — `[data-focus-region="sidebar"]` is `Sidebar`'s
+ * stable DOM hook, not a CSS-module class, so it can be targeted here to
+ * make it fill the sheet instead of keeping its desk-mode pixel width,
+ * without editing `Sidebar.tsx` for a phone-only concern.
+ */
+.sheet {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 101;
+  display: flex;
+  width: 85%;
+  max-width: 360px;
+  outline: none;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.sheet[data-state="open"] {
+  animation: slideIn 180ms ease-out;
+}
+
+.sheet[data-state="closed"] {
+  animation: slideOut 140ms ease-in;
+}
+
+.sheet [data-focus-region="sidebar"] {
+  width: 100% !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}

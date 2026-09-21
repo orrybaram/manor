@@ -77,6 +77,7 @@ import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "./lib/tab-styles";
 import { isWebApp } from "./lib/platform";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { PhoneTopBar } from "./components/phone/PhoneTopBar";
+import { SidebarDrawer } from "./components/phone/SidebarDrawer";
 import "./App.css";
 
 function App() {
@@ -92,11 +93,11 @@ function App() {
   // this single call.
   const layoutMode = useLayoutMode();
   // ADR-181 D3/D4/D5: phone-only chrome state. `PhoneTopBar`'s buttons only
-  // toggle it here — ticket 4 renders the drawer this opens, ticket 5 the
-  // pane-switcher sheet. The palette button reuses `paletteOpen` below
+  // toggle it here — ticket 4 renders the drawer this opens (below), ticket 5
+  // the pane-switcher sheet. The palette button reuses `paletteOpen` below
   // rather than a state of its own: ticket 6 makes the existing
   // `CommandPalette` full screen in phone mode, not a second surface.
-  const [_phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
+  const [phoneDrawerOpen, setPhoneDrawerOpen] = useState(false);
   const [_phonePaneSwitcherOpen, setPhonePaneSwitcherOpen] = useState(false);
 
   useMountEffect(() => {
@@ -718,6 +719,15 @@ function App() {
             rendered inline — it would eat the whole screen at phone width. */}
         {sidebarVisible && hasProjects && layoutMode === "desk" && (
           <Sidebar
+            onShowAgents={() => setAgentsOpen(true)}
+            onOpenProjectSettings={handleOpenProjectSettings}
+            onAddProject={handleAddProject}
+          />
+        )}
+        {layoutMode === "phone" && (
+          <SidebarDrawer
+            open={phoneDrawerOpen}
+            onOpenChange={setPhoneDrawerOpen}
             onShowAgents={() => setAgentsOpen(true)}
             onOpenProjectSettings={handleOpenProjectSettings}
             onAddProject={handleAddProject}

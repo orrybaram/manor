@@ -47,10 +47,14 @@ interface SidebarProps {
   onShowAgents?: () => void;
   onOpenProjectSettings?: (projectId: string) => void;
   onAddProject?: () => void;
+  /** ADR-181 ticket 4: fires after a workspace (or Home) is chosen — the
+   *  phone drawer closes on this rather than duplicating the selection
+   *  logic below. No-op inline in desk mode, where nothing passes it. */
+  onNavigate?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { onShowAgents, onOpenProjectSettings, onAddProject } = props;
+  const { onShowAgents, onOpenProjectSettings, onAddProject, onNavigate } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const canGoBack = useNavigationHistoryStore((s) => s.canGoBack());
@@ -87,6 +91,11 @@ export function Sidebar(props: SidebarProps) {
   usePrWatcher();
 
   const handleAddProject = onAddProject ?? (() => { });
+
+  const handleSelectHome = useCallback(() => {
+    setActiveWorkspace(HOME_PATH);
+    onNavigate?.();
+  }, [setActiveWorkspace, onNavigate]);
 
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);
@@ -295,10 +304,10 @@ export function Sidebar(props: SidebarProps) {
           data-sidebar-row=""
           tabIndex={-1}
           aria-current={homeActive ? "true" : undefined}
-          onClick={() => setActiveWorkspace(HOME_PATH)}
+          onClick={handleSelectHome}
           onKeyDown={(e) =>
             handleSidebarRowKeyDown(e, {
-              activate: () => setActiveWorkspace(HOME_PATH),
+              activate: handleSelectHome,
             })
           }
         >
@@ -371,10 +380,12 @@ export function Sidebar(props: SidebarProps) {
                           setProjectExpanded(project.id);
                           const wsIdx = project.selectedWorkspaceIndex;
                           selectWorkspace(project.id, wsIdx >= 0 ? wsIdx : 0);
+                          onNavigate?.();
                         }}
                         onRemove={() => removeProject(project.id)}
                         onSelectWorkspace={(wsIdx) => {
                           selectWorkspace(project.id, wsIdx);
+                          onNavigate?.();
                         }}
                         onRemoveWorktree={(ws, deleteBranch) => {
                           removeWorktreeWithToast(project, ws, deleteBranch);

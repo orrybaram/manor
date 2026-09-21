@@ -2,7 +2,24 @@ import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import Search from "lucide-react/dist/esm/icons/search";
 import SquareStack from "lucide-react/dist/esm/icons/square-stack";
 import { Button } from "../ui/Button/Button";
+import { isWebApp } from "../../lib/platform";
 import styles from "./Phone.module.css";
+
+/**
+ * `hiddenInset` + `trafficLightPosition` (`electron/window.ts`) are macOS-only
+ * — Electron ignores them elsewhere, so a narrow Electron window on another
+ * platform still has its own native title bar to drag by, and a browser tab
+ * has no window chrome at all. Only this combination needs the top bar to
+ * clear the traffic lights and stand in as a drag region.
+ */
+function isElectronMacOS(): boolean {
+  return (
+    !isWebApp() &&
+    typeof navigator !== "undefined" &&
+    (navigator.platform?.includes("Mac") ||
+      navigator.userAgent?.includes("Mac"))
+  );
+}
 
 type PhoneTopBarProps = {
   /** The active workspace's display name ("Home", or a project workspace's
@@ -29,9 +46,14 @@ type PhoneTopBarProps = {
  */
 export function PhoneTopBar(props: PhoneTopBarProps) {
   const { workspaceName, onToggleDrawer, onOpenPaneSwitcher, onOpenPalette } = props;
+  const macChrome = isElectronMacOS();
 
   return (
-    <div className={styles.topBar} data-testid="phone-top-bar">
+    <div
+      className={styles.topBar}
+      data-testid="phone-top-bar"
+      data-mac-inset={macChrome ? "true" : undefined}
+    >
       <Button
         variant="ghost"
         className={styles.iconButton}

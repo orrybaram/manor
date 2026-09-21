@@ -5,8 +5,8 @@ import {
   orderedWorkspacePaths,
   type MenuChrome,
 } from "../menu-handlers";
-import { DEFAULT_KEYBINDINGS } from "../keybinding-defs";
-import { MENU_ONLY_COMMANDS } from "../menu-commands";
+import { COMMANDS } from "../commands";
+import { SHARED_WINDOW_COMMANDS } from "../menu-commands";
 import { HOME_PATH } from "../home";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
@@ -18,16 +18,6 @@ import type {
 import type { WorkspaceLayout, Tab, Panel } from "../../store/app-store";
 
 const WS_PATH = "/repo/main";
-
-/**
- * Keybindings nothing in the command map services: terminal search is handled
- * by the focused terminal itself (Edit › Find… sends the menu-only `find`
- * command instead).
- */
-const PANE_OWNED_KEYBINDINGS = new Set(["terminal-search"]);
-
-/** Shared keybinding handlers that have no default binding of their own. */
-const UNBOUND_SHARED_COMMANDS = ["close-panel", "move-tab-to-next-panel"];
 
 function makeChrome(): MenuChrome {
   return {
@@ -235,36 +225,55 @@ describe("workspace stepping", () => {
 });
 
 describe("createMenuHandlers", () => {
-  it("covers every menu-only command", () => {
+  it("runs every table command that has a run", () => {
     const handlers = createMenuHandlers(makeChrome());
-    for (const id of MENU_ONLY_COMMANDS) {
-      expect(handlers[id], id).toBeTypeOf("function");
+    for (const def of COMMANDS) {
+      if (def.run) expect(handlers[def.id], def.id).toBeTypeOf("function");
+      else expect(handlers[def.id], def.id).toBeUndefined();
+    }
+    // Terminal search is serviced by the focused terminal itself (Edit ›
+    // Find… sends `find` instead), so its key must fall through.
+    expect(handlers["terminal-search"]).toBeUndefined();
+  });
+
+  it("keeps a popout's map to the shared-window commands", () => {
+    const handlers = createMenuHandlers(makeChrome(), { primary: false });
+    expect(Object.keys(handlers).sort()).toEqual(
+      [...SHARED_WINDOW_COMMANDS].sort(),
+    );
+  });
+
+  it("opens help links with openExternal, which also works on the web", () => {
+    const openExternal = vi.fn();
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { ...window.electronAPI, shell: { openExternal } },
+    });
+    try {
+      createMenuHandlers(makeChrome())["help-docs"]();
+      expect(openExternal).toHaveBeenCalledWith(
+        "https://github.com/orrybaram/manor#readme",
+      );
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 
-  it("covers every keybinding except the pane-owned ones", () => {
-    const handlers = createMenuHandlers(makeChrome());
-    for (const def of DEFAULT_KEYBINDINGS) {
-      if (PANE_OWNED_KEYBINDINGS.has(def.id)) {
-        expect(handlers[def.id], def.id).toBeUndefined();
-        continue;
-      }
-      expect(handlers[def.id], def.id).toBeTypeOf("function");
+  it("leaves native-only commands out of the web app's map", () => {
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { ...window.electronAPI, platform: "web" },
+    });
+    try {
+      const handlers = createMenuHandlers(makeChrome());
+      expect(handlers["add-project"]).toBeUndefined();
+      expect(handlers["detach-tab"]).toBeUndefined();
+      expect(handlers["open-in-editor"]).toBeUndefined();
+      expect(handlers["help-docs"]).toBeTypeOf("function");
+      expect(handlers["new-tab"]).toBeTypeOf("function");
+    } finally {
+      vi.unstubAllGlobals();
     }
-  });
-
-  // An id in the map that the menu never sends is harmless; an id the menu
-  // sends that is missing here is a dead menu item. Pin the whole set.
-  it("has exactly the expected key set", () => {
-    const expected = new Set<string>([
-      ...MENU_ONLY_COMMANDS,
-      ...DEFAULT_KEYBINDINGS.map((d) => d.id).filter(
-        (id) => !PANE_OWNED_KEYBINDINGS.has(id),
-      ),
-      ...UNBOUND_SHARED_COMMANDS,
-    ]);
-    const actual = Object.keys(createMenuHandlers(makeChrome()));
-    expect(actual.sort()).toEqual([...expected].sort());
   });
 
   it("routes chrome commands to the App callbacks", () => {

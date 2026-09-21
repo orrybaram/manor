@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import ArrowRightLeft from "lucide-react/dist/esm/icons/arrow-right-left";
@@ -23,383 +23,213 @@ import type { CommandItem, CategoryConfig } from "./types";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
-import {
-  useAppStore,
-  selectActivePanelId,
-  selectSelectedTabId,
-} from "../../store/app-store";
-import { useProjectStore } from "../../store/project-store";
-import { useToastStore } from "../../store/toast-store";
-import { getAgentCommand } from "../../agent-defaults";
-import { openInEditor } from "../../lib/editor";
-import {
-  convertFocusedPaneTo,
-  splitFocusedPaneWith,
-} from "../../lib/pane-actions";
-import { requestUi } from "../../utils/ui-request";
-import { focusRegionWhenReady } from "../../lib/focus-regions";
 import { isWebApp } from "../../lib/platform";
-import { commandAvailableOnWeb } from "../../lib/menu-commands";
+import { availableCommands, getCommand } from "../../lib/commands";
 import type { ActivePort } from "../../electron.d.ts";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
-  addTab: () => void;
   addBrowserTab: (url: string, opts?: { background?: boolean }) => void;
-  closePane: () => void;
-  closeTab: (tabId: string) => void;
-  splitPane: (direction: "horizontal" | "vertical") => void;
-  selectNextTab: () => void;
-  selectPrevTab: () => void;
-  focusNextPane: () => void;
-  focusPrevPane: () => void;
-  toggleSidebar: () => void;
   onClose: () => void;
   onOpenSettings?: (page?: SettingsPageId) => void;
-  onOpenFeedback?: () => void;
-  tabs: { id: string }[];
-  selectedTabId: string | null;
+  /** Run a command-table command through `App`'s one handler map. */
+  onRunCommand: (commandId: string, args?: Record<string, unknown>) => void;
   activePorts: ActivePort[];
-  openOrFocusDiff: () => void;
-  openDiffInNewPanel: () => void;
   navigateToProcesses: () => void;
   navigateToStats: () => void;
 }
 
+/** A palette item backed by a command-table entry (ADR-182 D10). */
+interface TableItem {
+  /** The table command the item runs; its label and shortcut come from it. */
+  command: string;
+  /**
+   * The item's own id and label, where they differ from the command's — a
+   * parameterised command (`split-with`), or an id usage ranking already
+   * knows (`new-project`).
+   */
+  id?: string;
+  label?: string;
+  args?: Record<string, unknown>;
+  icon?: ReactNode;
+  keywords?: string[];
+  suffix?: ReactNode;
+  /**
+   * Close the palette before running — for a command that moves focus or
+   * opens another surface. It runs a frame later, once the closing dialog
+   * has let go of the keyboard.
+   */
+  closeFirst?: true;
+}
+
 export function useCommands({
-  addTab,
   addBrowserTab,
-  closePane,
-  closeTab,
-  splitPane,
-  selectNextTab,
-  selectPrevTab,
-  focusNextPane,
-  focusPrevPane,
-  toggleSidebar,
   onClose,
   onOpenSettings,
-  onOpenFeedback,
-  tabs,
-  selectedTabId,
+  onRunCommand,
   activePorts,
-  openOrFocusDiff,
-  openDiffInNewPanel,
   navigateToProcesses,
   navigateToStats,
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
-  const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
 
   return useMemo(() => {
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id]) : undefined;
 
-    const tabItems: CommandItem[] = [
-      {
-        id: "new-tab",
-        label: "New Tab",
-        shortcut: fmt("new-tab"),
-        action: () => {
-          addTab();
-          onClose();
-        },
-      },
-      {
-        id: "new-browser",
-        label: "New Browser Window",
-        shortcut: fmt("new-browser"),
-        action: () => {
-          addBrowserTab("about:blank");
-          onClose();
-        },
-      },
-      {
-        id: "close-tab",
-        label: "Close Tab",
-        shortcut: fmt("close-tab"),
-        action: () => {
-          const tab = tabs.find((s) => s.id === selectedTabId);
-          if (tab) closeTab(tab.id);
-          onClose();
-        },
-      },
-      {
-        id: "next-tab",
-        label: "Next Tab",
-        shortcut: fmt("next-tab"),
-        action: () => {
-          selectNextTab();
-          onClose();
-        },
-      },
-      {
-        id: "prev-tab",
-        label: "Previous Tab",
-        shortcut: fmt("prev-tab"),
-        action: () => {
-          selectPrevTab();
-          onClose();
-        },
-      },
-    ];
+    // ADR-178: a command whose only implementation is Electron-only (the
+    // file dialog, the native menu, a detached window, …) has nothing to do
+    // on the web app, so it never appears rather than opening and failing.
+    // The table decides which those are; the palette just asks it.
+    const available = new Set(
+      availableCommands({ web: isWebApp() }).map((def) => def.id),
+    );
 
-    const paneItems: CommandItem[] = [
+    /** The palette's view of table commands, minus any this platform lacks. */
+    const fromTable = (entries: TableItem[]): CommandItem[] =>
+      entries.flatMap((entry): CommandItem[] => {
+        const def = getCommand(entry.command);
+        if (!def || !available.has(def.id)) return [];
+        const run = () => onRunCommand(entry.command, entry.args);
+        return [
+          {
+            id: entry.id ?? def.id,
+            label: entry.label ?? def.label,
+            icon: entry.icon,
+            shortcut: fmt(entry.command),
+            keywords: entry.keywords,
+            suffix: entry.suffix,
+            action: entry.closeFirst
+              ? () => {
+                  onClose();
+                  requestAnimationFrame(run);
+                }
+              : () => {
+                  run();
+                  onClose();
+                },
+          },
+        ];
+      });
+
+    const tabItems = fromTable([
+      { command: "new-tab" },
+      { command: "new-browser" },
+      { command: "close-tab" },
+      { command: "next-tab" },
+      { command: "prev-tab" },
+    ]);
+
+    const paneItems = fromTable([
+      { command: "close-pane" },
+      { command: "next-pane" },
+      { command: "prev-pane" },
+      { command: "split-h", icon: <Columns2 size={14} /> },
+      { command: "split-v", icon: <Rows2 size={14} /> },
       {
-        id: "close-pane",
-        label: "Close Pane",
-        shortcut: fmt("close-pane"),
-        action: () => {
-          closePane();
-          onClose();
-        },
-      },
-      {
-        id: "next-pane",
-        label: "Next Pane",
-        shortcut: fmt("next-pane"),
-        action: () => {
-          focusNextPane();
-          onClose();
-        },
-      },
-      {
-        id: "prev-pane",
-        label: "Previous Pane",
-        shortcut: fmt("prev-pane"),
-        action: () => {
-          focusPrevPane();
-          onClose();
-        },
-      },
-      {
-        id: "split-h",
-        label: "Split Horizontal",
-        icon: <Columns2 size={14} />,
-        shortcut: fmt("split-h"),
-        action: () => {
-          splitPane("horizontal");
-          onClose();
-        },
-      },
-      {
-        id: "split-v",
-        label: "Split Vertical",
-        icon: <Rows2 size={14} />,
-        shortcut: fmt("split-v"),
-        action: () => {
-          splitPane("vertical");
-          onClose();
-        },
-      },
-      {
+        command: "split-with",
         id: "split-with-terminal",
         label: "Split with Terminal",
+        args: { contentType: "terminal" },
         icon: <SquareTerminal size={14} />,
         keywords: ["split", "terminal", "pane"],
-        action: () => {
-          splitFocusedPaneWith();
-          onClose();
-        },
       },
       {
+        command: "split-with",
         id: "split-with-browser",
         label: "Split with Browser",
+        args: { contentType: "browser" },
         icon: <Globe size={14} />,
         keywords: ["split", "browser", "pane", "web", "preview"],
-        action: () => {
-          splitFocusedPaneWith("browser");
-          onClose();
-        },
       },
       {
+        command: "split-with",
         id: "split-with-diff",
         label: "Split with Diff",
+        args: { contentType: "diff" },
         icon: <GitCompareArrows size={14} />,
         keywords: ["split", "diff", "pane", "git", "changes"],
-        action: () => {
-          splitFocusedPaneWith("diff");
-          onClose();
-        },
       },
       {
+        command: "split-with",
         id: "split-with-agent",
         label: "Split with Agent",
+        args: { contentType: "agent" },
         icon: <Bot size={14} />,
         keywords: ["split", "agent", "pane", "claude"],
-        action: () => {
-          const awp = useAppStore.getState().activeWorkspacePath;
-          splitFocusedPaneWith("agent", getAgentCommand(awp));
-          onClose();
-        },
       },
       {
+        command: "convert-to",
         id: "convert-to-terminal",
         label: "Convert to Terminal",
+        args: { contentType: "terminal" },
         icon: <SquareTerminal size={14} />,
         keywords: ["convert", "terminal", "pane"],
-        action: () => {
-          convertFocusedPaneTo("terminal");
-          onClose();
-        },
       },
       {
+        command: "convert-to",
         id: "convert-to-browser",
         label: "Convert to Browser",
+        args: { contentType: "browser" },
         icon: <Globe size={14} />,
         keywords: ["convert", "browser", "pane", "web", "preview"],
-        action: () => {
-          convertFocusedPaneTo("browser");
-          onClose();
-        },
       },
       {
+        command: "convert-to",
         id: "convert-to-diff",
         label: "Convert to Diff",
+        args: { contentType: "diff" },
         icon: <GitCompareArrows size={14} />,
         keywords: ["convert", "diff", "pane", "git", "changes"],
-        action: () => {
-          convertFocusedPaneTo("diff");
-          onClose();
-        },
       },
       {
+        command: "convert-to",
         id: "convert-to-agent",
         label: "Convert to Agent",
+        args: { contentType: "agent" },
         icon: <Bot size={14} />,
         keywords: ["convert", "agent", "pane", "claude"],
-        action: () => {
-          convertFocusedPaneTo("agent");
-          onClose();
-        },
       },
-    ];
+    ]);
 
-    const panelItems: CommandItem[] = [
+    const panelItems = fromTable([
       {
-        id: "split-panel-right",
-        label: "Split Panel Right",
+        command: "split-panel-right",
         icon: <Columns2 size={14} />,
-        shortcut: fmt("split-panel-right"),
         keywords: ["panel", "split", "right"],
-        action: () => {
-          useAppStore.getState().splitPanel("horizontal");
-          onClose();
-        },
       },
       {
-        id: "split-panel-down",
-        label: "Split Panel Down",
+        command: "split-panel-down",
         icon: <Rows2 size={14} />,
-        shortcut: fmt("split-panel-down"),
         keywords: ["panel", "split", "down"],
-        action: () => {
-          useAppStore.getState().splitPanel("vertical");
-          onClose();
-        },
       },
       {
-        id: "focus-next-panel",
-        label: "Focus Next Panel",
-        shortcut: fmt("focus-next-panel"),
+        command: "focus-next-panel",
         keywords: ["panel", "next", "focus"],
-        action: () => {
-          useAppStore.getState().focusNextPanel();
-          onClose();
-        },
       },
       {
-        id: "focus-prev-panel",
-        label: "Focus Previous Panel",
-        shortcut: fmt("focus-prev-panel"),
+        command: "focus-prev-panel",
         keywords: ["panel", "previous", "focus"],
-        action: () => {
-          useAppStore.getState().focusPrevPanel();
-          onClose();
-        },
       },
+      { command: "close-panel", keywords: ["panel", "close"] },
       {
-        id: "close-panel",
-        label: "Close Panel",
-        keywords: ["panel", "close"],
-        action: () => {
-          const state = useAppStore.getState();
-          const wsPath = state.activeWorkspacePath;
-          if (!wsPath) return;
-          const panelId = selectActivePanelId(state);
-          if (!panelId) return;
-          state.closePanel(panelId);
-          onClose();
-        },
-      },
-      {
-        id: "move-tab-to-next-panel",
-        label: "Move Tab to Next Panel",
+        command: "move-tab-to-next-panel",
         icon: <ArrowRightLeft size={14} />,
-        shortcut: fmt("move-tab-to-next-panel"),
         // ADR-181 D5: the touch idiom for this is dragging a tab into another
         // panel's tab bar, which phone mode disables — this keeps "move" one
         // of the pane/panel actions the palette reaches on its own, matching
         // the tab context menu's "Move Tab to Next Panel" (`TabButton.tsx`).
         keywords: ["panel", "move", "tab"],
-        action: () => {
-          const state = useAppStore.getState();
-          const layout = state.workspaceLayouts[state.activeWorkspacePath ?? ""];
-          const panelId = selectActivePanelId(state);
-          if (layout && panelId) {
-            const tabId = selectSelectedTabId(state, panelId);
-            const panelIds = Object.keys(layout.panels);
-            if (tabId && panelIds.length >= 2) {
-              const idx = panelIds.indexOf(panelId);
-              const nextId = panelIds[(idx + 1) % panelIds.length];
-              state.moveTabToPanel(tabId, nextId);
-            }
-          }
-          onClose();
-        },
       },
-    ];
+    ]);
 
-    const gitItems: CommandItem[] = [
+    const gitItems = fromTable([
+      { command: "copy-branch", keywords: ["git", "branch", "clipboard"] },
       {
-        id: "copy-branch",
-        label: "Copy Branch Name",
-        shortcut: fmt("copy-branch"),
-        keywords: ["git", "branch", "clipboard"],
-        action: () => {
-          const awp = useAppStore.getState().activeWorkspacePath;
-          const proj = useProjectStore.getState().projects.find((p) =>
-            p.workspaces.some((w) => w.path === awp),
-          );
-          const ws = proj?.workspaces.find((w) => w.path === awp);
-          const branch = ws?.branch;
-          if (branch) {
-            navigator.clipboard.writeText(branch);
-            useToastStore.getState().addToast({
-              id: `copy-branch-${Date.now()}`,
-              message: `Copied "${branch}"`,
-              status: "success",
-            });
-          }
-          onClose();
-        },
-      },
-      {
-        id: "open-diff",
-        label: "Open Diff",
-        shortcut: fmt("open-diff"),
+        command: "open-diff",
         keywords: ["git", "changes", "diff", "staged"],
-        action: () => {
-          const { diffOpensInNewPanel } = usePreferencesStore.getState().preferences;
-          if (diffOpensInNewPanel) {
-            openDiffInNewPanel();
-          } else {
-            openOrFocusDiff();
-          }
-          onClose();
-        },
       },
-    ];
+    ]);
 
     const portItems: CommandItem[] = activePorts.map((p): CommandItem => {
       const url = p.hostname
@@ -435,83 +265,42 @@ export function useCommands({
     const editorName = usePreferencesStore.getState().preferences.defaultEditor || undefined;
 
     const generalItems: CommandItem[] = [
-      {
-        id: "new-project",
-        label: "New Project",
-        icon: <FolderPlus size={14} />,
-        keywords: ["add", "create", "project", "folder", "directory", "repo", "open"],
-        action: () => {
-          onClose();
-          void useProjectStore.getState().addProjectFromDirectory();
+      ...fromTable([
+        {
+          command: "add-project",
+          id: "new-project",
+          label: "New Project",
+          icon: <FolderPlus size={14} />,
+          keywords: ["add", "create", "project", "folder", "directory", "repo", "open"],
+          closeFirst: true,
         },
-      },
-      {
-        id: "settings",
-        label: "Settings",
-        icon: <Settings size={14} />,
-        shortcut: fmt("settings"),
-        action: () => {
-          onOpenSettings?.();
-          onClose();
+        { command: "settings", icon: <Settings size={14} /> },
+        { command: "toggle-sidebar", icon: <PanelLeft size={14} /> },
+        {
+          command: "focus-sidebar",
+          icon: <PanelLeft size={14} />,
+          keywords: ["keyboard", "navigate"],
+          closeFirst: true,
         },
-      },
-      {
-        id: "toggle-sidebar",
-        label: "Toggle Sidebar",
-        icon: <PanelLeft size={14} />,
-        shortcut: fmt("toggle-sidebar"),
-        action: () => {
-          toggleSidebar();
-          onClose();
+        {
+          command: "focus-tabbar",
+          icon: <Keyboard size={14} />,
+          keywords: ["keyboard", "navigate", "tabs"],
+          closeFirst: true,
         },
-      },
-      {
-        id: "focus-sidebar",
-        label: "Focus Sidebar",
-        icon: <PanelLeft size={14} />,
-        shortcut: fmt("focus-sidebar"),
-        keywords: ["keyboard", "navigate"],
-        action: () => {
-          onClose();
-          if (!useProjectStore.getState().sidebarVisible) toggleSidebar();
-          focusRegionWhenReady("sidebar");
+        {
+          command: "open-notifications",
+          icon: <Bell size={14} />,
+          keywords: ["notifications", "bell", "alerts"],
+          closeFirst: true,
         },
-      },
-      {
-        id: "focus-tabbar",
-        label: "Focus Tab Bar",
-        icon: <Keyboard size={14} />,
-        shortcut: fmt("focus-tabbar"),
-        keywords: ["keyboard", "navigate", "tabs"],
-        action: () => {
-          onClose();
-          focusRegionWhenReady("tabbar");
+        {
+          command: "open-in-editor",
+          icon: <ExternalLink size={14} />,
+          keywords: ["code", ...(editorName ? [editorName] : [])],
+          suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
         },
-      },
-      {
-        id: "open-notifications",
-        label: "Open Notifications",
-        icon: <Bell size={14} />,
-        shortcut: fmt("open-notifications"),
-        keywords: ["notifications", "bell", "alerts"],
-        action: () => {
-          onClose();
-          requestUi({ type: "open-notifications" });
-        },
-      },
-      {
-        id: "open-in-editor",
-        label: "Open in Editor",
-        icon: <ExternalLink size={14} />,
-        keywords: ["code", ...(editorName ? [editorName] : [])],
-        suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
-        action: () => {
-          if (activeWorkspacePath) {
-            openInEditor(activeWorkspacePath);
-          }
-          onClose();
-        },
-      },
+      ]),
       {
         id: "processes",
         label: "Processes",
@@ -532,25 +321,14 @@ export function useCommands({
           navigateToStats();
         },
       },
-      {
-        id: "submit-feedback",
-        label: "Submit Feedback",
-        icon: <MessageSquare size={14} />,
-        keywords: ["bug", "feature", "request", "report"],
-        action: () => {
-          onOpenFeedback?.();
-          onClose();
+      ...fromTable([
+        {
+          command: "submit-feedback",
+          icon: <MessageSquare size={14} />,
+          keywords: ["bug", "feature", "request", "report"],
         },
-      },
-      {
-        id: "ghosts",
-        label: "Ghosts!?",
-        icon: <span>👻</span>,
-        action: () => {
-          onClose();
-          requestUi({ type: "ghosts" });
-        },
-      },
+        { command: "ghosts", icon: <span>👻</span>, closeFirst: true },
+      ]),
     ];
 
     const openSettingsPage = (page: SettingsPageId) => () => {
@@ -603,7 +381,7 @@ export function useCommands({
       },
     ];
 
-    const categories: CategoryConfig[] = [
+    return [
       { id: "tabs", heading: "Tabs", visible: true, items: tabItems },
       { id: "panes", heading: "Panes", visible: true, items: paneItems },
       { id: "panels", heading: "Panels", visible: true, items: panelItems },
@@ -612,35 +390,13 @@ export function useCommands({
       { id: "general", heading: "General", visible: true, items: generalItems },
       { id: "settings", heading: "Settings", visible: true, items: settingsItems },
     ];
-
-    // ADR-178: a command whose only implementation is Electron-only (the
-    // file dialog, the native menu, a detached window, …) has nothing to do
-    // on the web app, so it never appears rather than opening and failing.
-    if (!isWebApp()) return categories;
-    return categories.map((category) => ({
-      ...category,
-      items: category.items.filter((item) => commandAvailableOnWeb(item.id)),
-    }));
   }, [
-    addTab,
     addBrowserTab,
-    closePane,
-    closeTab,
-    splitPane,
-    selectNextTab,
-    selectPrevTab,
-    focusNextPane,
-    focusPrevPane,
-    toggleSidebar,
     onClose,
     onOpenSettings,
-    onOpenFeedback,
-    tabs,
-    selectedTabId,
+    onRunCommand,
     bindings,
-    activeWorkspacePath,
     activePorts,
-    openOrFocusDiff,
     navigateToProcesses,
     navigateToStats,
   ]);

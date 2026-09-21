@@ -1,48 +1,43 @@
 /**
  * Renderer-side dispatch for the native application menu (ADR-170 §6).
  *
- * `createMenuHandlers` builds one command→action map for the primary window:
- * the window-agnostic keybinding handlers, the primary-only keybinding handlers
- * that used to live inline in `App`, and the menu-only commands that have no
- * keybinding at all. `App` uses the same map for key dispatch, so a command can
- * never work from the keyboard and be dead in the menu (or the reverse).
+ * `createMenuHandlers` builds one command→action map per window: `run` over
+ * the command table (`commands.ts`), against a context that adds `App`'s
+ * chrome to the shared one. `App` uses the same map for key dispatch, the
+ * native menu and the command palette, so a command can never work from one
+ * and be dead (or different) in another.
  *
- * Every handler reads `getState()` rather than React state — the map is built
- * outside the render cycle and `chrome` is the only React-owned surface it
- * touches. Actions that live in component-local state (dialogs, popovers, pane
- * search) go out over the `ui-request` bus instead.
+ * Every context member reads `getState()` rather than React state — the map
+ * is built outside the render cycle and `chrome` is the only React-owned
+ * surface it touches. Actions that live in component-local state (dialogs,
+ * popovers, pane search) go out over the `ui-request` bus instead.
  */
 
-import {
-  useAppStore,
-  selectActivePanelId,
-  selectSelectedTabId,
-} from "../store/app-store";
+import { useAppStore } from "../store/app-store";
 import {
   useProjectStore,
   runWorkspaceSetupScript,
   type ProjectInfo,
-  type WorkspaceInfo,
 } from "../store/project-store";
-import { useToastStore } from "../store/toast-store";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
-  createSharedKeybindingHandlers,
-  guardHandlersForWeb,
+  activeSurface,
+  createSharedCommandContext,
   resolveWorkspaceCommand,
 } from "./keybinding-commands";
-import {
-  convertFocusedPaneTo,
-  getFocusedPaneId,
-  splitFocusedPaneWith,
-  type PaneContentType,
-} from "./pane-actions";
+import { convertFocusedPaneTo, splitFocusedPaneWith } from "./pane-actions";
 import { detachTabToNewWindow, movePaneToNewWindow } from "./detach";
 import { openInEditor } from "./editor";
-import { focusRegion, focusRegionWhenReady } from "./focus-regions";
+import { focusRegionWhenReady } from "./focus-regions";
 import { HOME_PATH } from "./home";
-import { EXTERNAL_LINKS, type MenuCommandPayload } from "./menu-commands";
-import { requestUi } from "../utils/ui-request";
+import type { MenuCommandPayload } from "./menu-commands";
+import {
+  commandHandlers,
+  type CommandContext,
+  type CommandHandler,
+} from "./commands";
+import { openExternal } from "./open-external";
+import { isWebApp } from "./platform";
 import {
   buildSidebarItems,
   placeAfterFolder,
@@ -71,39 +66,7 @@ export interface MenuChrome {
 }
 
 /** Menu commands carry optional args (a workspace path, a folder id, …). */
-export type MenuHandler = (args?: Record<string, unknown>) => void;
-
-interface ActiveWorkspace {
-  project: ProjectInfo | null;
-  workspace: WorkspaceInfo | null;
-  path: string | null;
-}
-
-/** The active surface, resolved back to its owning project and workspace. */
-function activeWorkspace(): ActiveWorkspace {
-  const path = useAppStore.getState().activeWorkspacePath;
-  const project =
-    useProjectStore
-      .getState()
-      .projects.find((p) => p.workspaces.some((w) => w.path === path)) ?? null;
-  const workspace = project?.workspaces.find((w) => w.path === path) ?? null;
-  return { project, workspace, path };
-}
-
-/** The selected tab of the active panel, if any. */
-function activeTabId(): string | null {
-  const state = useAppStore.getState();
-  return selectSelectedTabId(state, selectActivePanelId(state));
-}
-
-/** A string arg, or null when the menu sent nothing usable. */
-function stringArg(
-  args: Record<string, unknown> | undefined,
-  key: string,
-): string | null {
-  const value = args?.[key];
-  return typeof value === "string" ? value : null;
-}
+export type MenuHandler = CommandHandler;
 
 /**
  * Every workspace the menu can switch between, in the order the sidebar shows
@@ -156,117 +119,25 @@ function ensureSidebarVisible(): void {
   if (!store.sidebarVisible) store.toggleSidebar();
 }
 
-function copyToClipboard(text: string, label: string): void {
-  void navigator.clipboard.writeText(text);
-  useToastStore.getState().addToast({
-    id: `${label}-${Date.now()}`,
-    message: `Copied "${text}"`,
-    status: "success",
-  });
-}
-
 /**
- * The full command→action map for the primary window.
- *
- * Shared keybinding handlers first, so the primary-only entries below can
- * override the ones that need this window's chrome (`close-tab`).
+ * What the command table's commands run against in a window with `App`'s
+ * chrome: the shared context plus the primary window's own surfaces.
  */
-export function createMenuHandlers(
-  chrome: MenuChrome,
-): Record<string, MenuHandler> {
-  const app = () => useAppStore.getState();
-
-  // `createSharedKeybindingHandlers` already guards its own half; wrapping
-  // the whole merged map (below) also neutralizes the primary-only entries
-  // — `open-in-editor`, `reveal-in-finder`, `detach-pane`, `detach-tab`, the
-  // help links — that only exist here (ADR-178 ticket 6).
-  return guardHandlersForWeb({
-    ...createSharedKeybindingHandlers({ prewarmNewAgent: true }),
-
-    // ── Primary-window keybindings ─────────────────────────────────────────
-    settings: () => chrome.openSettings(),
-    "command-palette": () => chrome.togglePalette(),
-    "toggle-sidebar": () => useProjectStore.getState().toggleSidebar(),
-    "focus-sidebar": () => {
-      // A visible sidebar takes focus now: the key that follows ⌘⇧E (an arrow,
-      // Home) can arrive before the next frame, and would reach the terminal.
-      if (focusRegion("sidebar")) return;
-      // A hidden sidebar has no rows to focus; show it and wait for the commit.
-      ensureSidebarVisible();
-      focusRegionWhenReady("sidebar");
-    },
-    // The notifications popover lives in the sidebar, so this is primary-only
-    // like `focus-sidebar`; a popout forwards it here (MAIN_WINDOW_KEYBINDINGS).
-    "open-notifications": () => requestUi({ type: "open-notifications" }),
-    "history-back": () => navigateBack(),
-    "history-forward": () => navigateForward(),
-    "new-workspace": () => chrome.openNewWorkspace(),
-    "close-tab": () => {
-      const tabId = activeTabId();
-      if (tabId) app().requestCloseTab(tabId);
-    },
-
-    // ── File ──────────────────────────────────────────────────────────────
-    "add-project": () => chrome.addProject(),
-    "open-in-editor": () => {
-      const { path } = activeWorkspace();
-      if (path) openInEditor(path);
-    },
-    "reveal-in-finder": () => {
-      const { path } = activeWorkspace();
-      if (path) void window.electronAPI.shell.showItemInFolder(path);
-    },
-    // Main routes this to whichever window has focus; closing it is all the
-    // renderer has to do.
-    "close-window": () => window.close(),
-
-    // ── Edit ──────────────────────────────────────────────────────────────
-    find: () => {
-      const paneId = getFocusedPaneId();
-      if (paneId) requestUi({ type: "pane-search", paneId });
-    },
-    "copy-workspace-path": () => {
-      const { path } = activeWorkspace();
-      if (path) copyToClipboard(path, "copy-workspace-path");
-    },
-
-    // ── View ──────────────────────────────────────────────────────────────
-    notifications: () => requestUi({ type: "open-notifications" }),
-    "your-issues": () => {
-      // Linear when the active project is linked to a team, else GitHub —
-      // the same choice `useIssuesShortcut` makes for the empty states.
-      const { project } = activeWorkspace();
-      const projectStore = useProjectStore.getState();
-      const fallback = projectStore.projects[projectStore.selectedProjectIndex];
-      const linked =
-        ((project ?? fallback)?.linearAssociations?.length ?? 0) > 0;
-      chrome.openPaletteView(linked ? "linear-all" : "github-all");
-    },
-    home: () => app().setActiveWorkspace(HOME_PATH),
-    processes: () => chrome.openPaletteView("processes"),
-    stats: () => chrome.openPaletteView("stats"),
-
-    // ── Workspace ─────────────────────────────────────────────────────────
-    "switch-workspace": (args) => {
-      const path = stringArg(args, "path");
-      if (path) switchToWorkspace(path);
-    },
-    "next-workspace": () => stepWorkspace(1),
-    "prev-workspace": () => stepWorkspace(-1),
-    "rename-workspace": () => {
-      const { project, path } = activeWorkspace();
-      if (!project || !path) return;
-      ensureSidebarVisible();
-      requestUi({ type: "rename-workspace", projectId: project.id, path });
-    },
-    "hide-workspace": () => {
-      const { project, path } = activeWorkspace();
-      if (project && path) hideWorkspaceAndNavigate(project.id, path);
-    },
-    "move-to-folder": (args) => {
-      const { project, workspace, path } = activeWorkspace();
+function createCommandContext(chrome: MenuChrome): CommandContext {
+  return {
+    ...createSharedCommandContext({ prewarmNewAgent: true }),
+    chrome,
+    toggleSidebar: () => useProjectStore.getState().toggleSidebar(),
+    ensureSidebarVisible,
+    focusRegionWhenReady: (region) => focusRegionWhenReady(region),
+    navigateBack,
+    navigateForward,
+    switchToWorkspace,
+    stepWorkspace,
+    hideWorkspace: hideWorkspaceAndNavigate,
+    moveActiveWorkspaceToFolder: (folderId) => {
+      const { project, workspace, path } = activeSurface();
       if (!project || !workspace || !path) return;
-      const folderId = stringArg(args, "folderId");
       const items = buildSidebarItems(project);
       const next = folderId
         ? placeInFolder(items, path, folderId)
@@ -275,89 +146,42 @@ export function createMenuHandlers(
           : items;
       void useProjectStore.getState().applySidebarChange(project.id, next);
     },
-    "merge-worktree": () => {
-      const { project, path } = activeWorkspace();
-      if (!project || !path) return;
-      ensureSidebarVisible();
-      requestUi({ type: "merge-worktree", projectId: project.id, path });
+    activeProjectLinkedToLinear: () => {
+      const { project } = activeSurface();
+      const projectStore = useProjectStore.getState();
+      const fallback = projectStore.projects[projectStore.selectedProjectIndex];
+      return ((project ?? fallback)?.linearAssociations?.length ?? 0) > 0;
     },
-    "delete-worktree": () => {
-      const { project, path } = activeWorkspace();
-      if (!project || !path) return;
-      ensureSidebarVisible();
-      requestUi({ type: "delete-worktree", projectId: project.id, path });
-    },
-    "project-settings": () => {
-      const { project } = activeWorkspace();
-      if (project) chrome.openProjectSettings(project.id);
-    },
-    "remove-project": () => {
-      const { project } = activeWorkspace();
-      if (!project) return;
-      ensureSidebarVisible();
-      requestUi({ type: "remove-project", projectId: project.id });
-    },
+    runSetupScript: runWorkspaceSetupScript,
+    agentCommand: resolveWorkspaceCommand,
+    splitFocusedPaneWith,
+    convertFocusedPaneTo,
+    movePaneToNewWindow: (paneId) => void movePaneToNewWindow(paneId),
+    detachTab: (tabId) => void detachTabToNewWindow(tabId),
+    openInEditor,
+    revealInFinder: (path) =>
+      void window.electronAPI.shell.showItemInFolder(path),
+    openExternal,
+    closeWindow: () => window.close(),
+  };
+}
 
-    // ── Pane ──────────────────────────────────────────────────────────────
-    "split-with": (args) => {
-      const contentType = (stringArg(args, "contentType") ??
-        "terminal") as PaneContentType;
-      const paneCommand =
-        contentType === "agent"
-          ? resolveWorkspaceCommand(app().activeWorkspacePath)
-          : undefined;
-      // A plain terminal is the default content — leave it unset, like the
-      // palette's "Split with Terminal" does.
-      splitFocusedPaneWith(
-        contentType === "terminal" ? undefined : contentType,
-        paneCommand,
-      );
-    },
-    "convert-to": (args) => {
-      const contentType = stringArg(args, "contentType");
-      if (contentType) convertFocusedPaneTo(contentType as PaneContentType);
-    },
-    "detach-pane": () => {
-      const paneId = getFocusedPaneId();
-      if (paneId) void movePaneToNewWindow(paneId);
-    },
-
-    // ── Agents ────────────────────────────────────────────────────────────
-    "run-setup-script": () => {
-      const { project, path } = activeWorkspace();
-      if (project?.worktreeStartScript && path) {
-        runWorkspaceSetupScript(path, project.worktreeStartScript);
-      }
-    },
-    "view-all-agents": () => chrome.openAgents(),
-    "focus-agent": (args) => {
-      const agentId = stringArg(args, "agentId");
-      if (agentId) chrome.resumeAgent(agentId);
-    },
-    "remote-control": () => chrome.openSettings("remote"),
-
-    // ── Window ────────────────────────────────────────────────────────────
-    "pin-tab": () => {
-      const tabId = activeTabId();
-      if (tabId) app().togglePinTab(tabId);
-    },
-    "detach-tab": () => {
-      const tabId = activeTabId();
-      if (tabId) void detachTabToNewWindow(tabId);
-    },
-
-    // ── Help ──────────────────────────────────────────────────────────────
-    // Main opens these itself; the handlers exist so every menu command has a
-    // renderer-side action even if the routing ever changes.
-    "help-docs": () =>
-      void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.docs),
-    "help-shortcuts": () => chrome.openSettings("keybindings"),
-    "help-release-notes": () =>
-      void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.releaseNotes),
-    "submit-feedback": () => chrome.openFeedback(),
-    "help-report-issue": () =>
-      void window.electronAPI.shell.openExternal(EXTERNAL_LINKS.newIssue),
-    ghosts: () => chrome.showGhosts(),
+/**
+ * The command→action map for a window running `App`: `run` over the whole
+ * command table (`commands.ts`), less the native-only commands on the web.
+ *
+ * `primary: false` — a detached window (ADR-179 D4) — keeps only the
+ * `scope: "any"` commands. A popout has none of the chrome the rest need;
+ * the dispatcher's fallback forwards their combos to the primary window, and
+ * main never routes their menu clicks here.
+ */
+export function createMenuHandlers(
+  chrome: MenuChrome,
+  { primary = true }: { primary?: boolean } = {},
+): Record<string, MenuHandler> {
+  return commandHandlers(createCommandContext(chrome), {
+    web: isWebApp(),
+    primary,
   });
 }
 

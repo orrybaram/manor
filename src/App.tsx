@@ -456,54 +456,52 @@ function App() {
   }, [loadProjects, setActiveWorkspace]);
 
   // Keybindings
-  // One command ID → action map for BOTH the keyboard and the native menu
-  // (ADR-170). The window-agnostic half is shared with the detached-window
-  // renderer (see `keybinding-commands`); the rest either needs this window's
-  // chrome — the callbacks below — or is menu-only. The primary window is the
-  // one that owns the prewarmed session, so it is also the only window that
-  // consumes it for a new agent.
-  const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
-  menuHandlersRef.current = createMenuHandlers({
-    openSettings: (page) => {
-      // Deep links open the page they name; the bare command (⌘, and the app
-      // menu's Settings… item) keeps toggling, as the keybinding always did.
-      if (page) {
-        handleOpenSettings(page);
-        return;
-      }
-      setSettingsPage(null);
-      setSettingsOpen((v) => !v);
-    },
-    togglePalette: () => setPaletteOpen((v) => !v),
-    openPaletteView: handleOpenPaletteView,
-    openNewWorkspace: () => setNewWorkspaceOpen(true),
-    addProject: () => void handleAddProject(),
-    openFeedback: handleOpenFeedback,
-    openAgents: () => setAgentsOpen(true),
-    openProjectSettings: handleOpenProjectSettings,
-    resumeAgent: (agentId) => {
-      // The menu only carries the id; resuming needs the whole record.
-      const agent = useAgentStore
-        .getState()
-        .agents.find((a) => a.id === agentId);
-      if (agent) void handleResumeAgent(agent);
-    },
-    showGhosts: triggerGhosts,
-  });
-
+  // One command ID → action map for the keyboard, the native menu AND the
+  // command palette — `run` over the command table (ADR-170, ADR-182 D10).
+  // The window-agnostic half is shared with the detached-window renderer (see
+  // `keybinding-commands`); the rest needs this window's chrome — the
+  // callbacks below. The primary window is the one that owns the prewarmed
+  // session, so it is also the only window that consumes it for a new agent.
+  //
   // A detached window shows one tab and none of the primary's chrome (D4), so
-  // a combo bound to the sidebar, the palette or settings runs in the primary
-  // window instead of silently doing nothing here. Both halves are needed: the
-  // handler is withheld so the dispatcher looks for a fallback, and the
-  // fallback forwards the command.
-  const localHandlers = useCallback((): Record<string, MenuHandler> => {
-    if (!OWN_CLAIM) return menuHandlersRef.current;
-    const handlers: Record<string, MenuHandler> = {};
-    for (const [id, handler] of Object.entries(menuHandlersRef.current)) {
-      if (!MAIN_WINDOW_KEYBINDINGS.has(id)) handlers[id] = handler;
-    }
-    return handlers;
-  }, []);
+  // its map holds only the table's `scope: "any"` commands, and a combo bound
+  // to the sidebar, the palette or settings runs in the primary window
+  // instead of silently doing nothing here: the dispatcher finds no handler
+  // and the fallback forwards the command.
+  const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
+  menuHandlersRef.current = createMenuHandlers(
+    {
+      openSettings: (page) => {
+        // Deep links open the page they name; the bare command (⌘, and the
+        // app menu's Settings… item) keeps toggling, as the keybinding always
+        // did.
+        if (page) {
+          handleOpenSettings(page);
+          return;
+        }
+        setSettingsPage(null);
+        setSettingsOpen((v) => !v);
+      },
+      togglePalette: () => setPaletteOpen((v) => !v),
+      openPaletteView: handleOpenPaletteView,
+      openNewWorkspace: () => setNewWorkspaceOpen(true),
+      addProject: () => void handleAddProject(),
+      openFeedback: handleOpenFeedback,
+      openAgents: () => setAgentsOpen(true),
+      openProjectSettings: handleOpenProjectSettings,
+      resumeAgent: (agentId) => {
+        // The menu only carries the id; resuming needs the whole record.
+        const agent = useAgentStore
+          .getState()
+          .agents.find((a) => a.id === agentId);
+        if (agent) void handleResumeAgent(agent);
+      },
+      showGhosts: triggerGhosts,
+    },
+    { primary: !OWN_CLAIM },
+  );
+
+  const localHandlers = useCallback(() => menuHandlersRef.current, []);
   const dispatchOptions = useMemo(
     () =>
       OWN_CLAIM
@@ -516,6 +514,12 @@ function App() {
           }
         : {},
     [],
+  );
+  // The palette runs its table items through the same map.
+  const runCommand = useCallback(
+    (commandId: string, args?: Record<string, unknown>) =>
+      dispatchMenuCommand({ commandId, args }, localHandlers()),
+    [localHandlers],
   );
 
   useMountEffect(() => {
@@ -812,7 +816,6 @@ function App() {
           open={paletteOpen}
           onClose={closePalette}
           onOpenSettings={handleOpenSettings}
-          onOpenFeedback={handleOpenFeedback}
           onNewWorkspace={handleNewWorkspace}
           initialView={paletteInitialView}
           initialIssueId={paletteInitialIssueId}
@@ -821,6 +824,7 @@ function App() {
           onViewAllAgents={() => setAgentsOpen(true)}
           onNewAgent={handleNewAgent}
           onNewAgentWithPrompt={handleNewAgentWithPrompt}
+          onRunCommand={runCommand}
         />
         <SettingsModal
           open={settingsOpen}

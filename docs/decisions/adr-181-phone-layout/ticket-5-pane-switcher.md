@@ -1,6 +1,6 @@
 ---
 title: The pane switcher sheet
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [3]

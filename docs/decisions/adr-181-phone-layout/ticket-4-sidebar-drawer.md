@@ -1,6 +1,6 @@
 ---
 title: The sidebar is a drawer on a phone
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

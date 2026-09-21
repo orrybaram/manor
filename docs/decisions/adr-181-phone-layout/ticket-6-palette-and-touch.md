@@ -35,3 +35,12 @@ terminal's touch handling.
 - `src/components/workspace-panes/PaneDropZone.tsx`, `PaneDragContext.tsx` — no drags in phone mode
 - `src/components/tabbar/TabBar/*` — no tab drag in phone mode
 - `src/components/command-palette/*` — only if a pane action is missing from it
+
+## Folded in from ticket 4
+
+The sidebar now lives in a drawer on a phone, but it still renders its
+**desk-mode width-resize handle** — a mouse drag, inside a sheet whose width
+is fixed. Add it to this ticket's "drags off in phone mode" list: no resize
+handle in phone mode. Also check that `useSidebarDrag`'s project
+drag-to-reorder does not swallow a scroll or a long-press inside the drawer;
+if it does, disable it in phone mode too, as with the other drags.

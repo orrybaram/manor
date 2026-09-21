@@ -50,3 +50,12 @@ blocked_by: [9]
 - **Follow-up to list, not fix:** `panelTreeContains` / `paneTreeContains`
   (ticket 2) overlap the existing `hasPanelId` / `hasPaneId`; they are thin
   wrappers that also accept a null id. Collapse them when next touched.
+
+## Hand-verification list (from tickets 3 and 4)
+
+Collect these into the ADR's record as **checked by hand on a device**, not
+claimed as tested — no agent could launch Electron or a real phone:
+- A narrow macOS desktop window: the phone top bar clears the traffic lights
+  (`--traffic-light-inset`), drags the window, and its buttons still click.
+- The drawer on a real phone: open, tap-outside to close, focus returns to the
+  toggle, ~85 % width feels right.

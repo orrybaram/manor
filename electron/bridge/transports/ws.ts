@@ -75,7 +75,7 @@ interface Socket {
    *
    * Mutable, not `readonly`: `onHello` may replace the freshly generated id
    * with the one the client says it held before a reconnect, so long as
-   * nothing live is still using it (ADR-179 ticket 4's report). A stable id
+   * nothing live is still using it. A stable id
    * is what lets a selection hint addressed to "the tab that sent this"
    * still find it after a blip, and what keeps this connection's
    * `pty-attachments` viewer identity from resetting on every reconnect. It
@@ -92,7 +92,7 @@ interface Socket {
 }
 
 /**
- * One `JSON.stringify` per frame, not per socket (ADR-180 ticket 4).
+ * One `JSON.stringify` per frame, not per socket.
  *
  * `BridgeServer.publish` hands the *same* frame object to every subscribed
  * connection in one synchronous loop, so a pane's output was serialised once
@@ -242,13 +242,9 @@ export class WsBridgeServer {
       clearTimeout(entry.helloTimer);
       entry.helloTimer = null;
     }
-    // ADR-179 ticket 4's report: a reconnecting client's id used to change
-    // every time, so a selection hint addressed to the id it *used* to have
-    // was simply dropped, and its `pty-attachments` viewer identity reset —
-    // looking, to ownership, like a brand new viewer rather than the same one
-    // resuming after a blip. Reused only when nothing live already answers to
-    // it: two sockets racing to be the same renderer is worse than either of
-    // them keeping the id it was just given.
+    // A reconnecting client's previous id is reused only when nothing live
+    // already answers to it: two sockets racing to be the same renderer is
+    // worse than either of them keeping the id it was just given.
     const previousId =
       typeof frame.previousId === "string" ? frame.previousId : null;
     if (previousId && !this.idIsHeld(previousId, entry)) {

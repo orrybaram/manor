@@ -1,12 +1,10 @@
 /**
  * `window.electronAPI`, built in the page over one transport (ADR-180 D3).
  *
- * The desktop renderer used to reach its host through a preload script: 211
- * methods across 26 namespaces, each of them an `ipcRenderer.invoke` or an
- * `ipcRenderer.on`. The web renderer (ADR-178 D8) is the same `.tsx` files
- * with no preload under them, so it installed an object of the same shape
- * whose methods were frames on a WebSocket. This module is that object for
- * both of them: one proxy, one protocol (`electron/bridge/types.ts`), and a
+ * The web renderer (ADR-178 D8) is the same `.tsx` files as the desktop with
+ * no preload under them, so it needs an object of the same shape whose
+ * methods are frames on a WebSocket. This module is that object for both of
+ * them: one proxy, one protocol (`electron/bridge/types.ts`), and a
  * `BridgeTransport` underneath it that is either `window.manorHost`'s IPC
  * channels or the `/ws` socket. Ninety-seven files call into it and not one
  * of them knows which.

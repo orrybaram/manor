@@ -82,7 +82,7 @@ vi.mock("electron", () => ({
       return Promise.resolve(undefined);
     },
     // `bridge:rendererId`, which main answers with `String(webContents.id)`
-    // — a string, and the preload takes nothing else (ADR-180 ticket 6).
+    // — a string, and the preload takes nothing else.
     sendSync: () => "7",
   },
 }));
@@ -346,10 +346,10 @@ describe("IpcBridgeTransport", () => {
 /**
  * ADR-180 D6, through the real handler table rather than a stand-in one.
  *
- * The headline of ticket 5: two renderer windows holding one pane are two
- * connections now, so one of them owns the winsize and the other is *told*
- * it does not — where before both were "the desktop", both measured, and both
- * resized the session on every layout tick.
+ * Two renderer windows holding one pane are two connections, so one of them
+ * owns the winsize and the other is *told* it does not — where before both
+ * were "the desktop", both measured, and both resized the session on every
+ * layout tick.
  */
 describe("two windows on one pane (D6)", () => {
   const PANE = "pane-a";

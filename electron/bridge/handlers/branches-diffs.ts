@@ -34,7 +34,7 @@ export function killAllActivePushes(): void {
   }
 }
 
-/** The branch and diff watchers, lifted for the ADR-180 ticket 8 crossing. */
+/** The branch and diff watchers. */
 export function branchesStart(ctx: HandlerCtx, paths: string[]): void {
   ctx.deps.branchWatcher.start(paths);
 }
@@ -78,7 +78,7 @@ export function diffsGetStagedFiles(
 }
 
 /**
- * The `git.*` writes, lifted for ADR-180 ticket 10.
+ * The `git.*` writes.
  *
  * Each keeps the `assertString` the wrapper ran, so a frame off the socket is
  * validated exactly as a desktop call is — which is the whole reason the

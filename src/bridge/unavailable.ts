@@ -134,10 +134,10 @@ const SERVED_HERE = {
    * window's* workspace, so a tab has none to steer and none to adopt. That
    * alone would only make these pointless. What makes them belong here is
    * that `App.tsx` calls `updatePrewarmCwd` on every workspace change: sent to
-   * the host, each one was refused, and once refused `LOCAL_ONLY` calls were
-   * audited (ADR-180 ticket 13) every browser mount wrote a `rejected` line
-   * the device never meant — noise in the one log whose job is to show a
-   * stolen token probing for power. `consumePrewarmed` answers `null`, the
+   * the host, each one would be refused, and since refused `LOCAL_ONLY` calls
+   * are audited, every browser mount would write a `rejected` line the device
+   * never meant — noise in the one log whose job is to show a stolen token
+   * probing for power. `consumePrewarmed` answers `null`, the
    * honest "none waiting", and its caller falls back to a fresh shell.
    */
   "pty.updatePrewarmCwd": () => Promise.resolve(),

@@ -193,7 +193,7 @@ export class LayoutStore {
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
   /**
-   * Commands queued for panes whose shells do not exist yet (ticket 11).
+   * Commands queued for panes whose shells do not exist yet.
    *
    * Here because every producer of one already holds the store — the
    * structural routes, `POST /agents`, `layout.setPendingCommand` — and
@@ -323,8 +323,8 @@ export class LayoutStore {
    * Every pane still in it ends the way a closed one does — its agent
    * abandoned, its shell killed — but at once: a removed worktree is a
    * directory about to be deleted, and there is nothing left to reopen a pane
-   * *into* (ADR-179 ticket 10's report). The same goes for the pending kills
-   * of panes closed a moment earlier.
+   * *into*. The same goes for the pending kills of panes closed a moment
+   * earlier.
    *
    * `ProjectManager.removeWorktree` and `removeProject` call this, so a
    * worktree removed from the sidebar, the CLI or MCP is torn down the same
@@ -395,15 +395,12 @@ export class LayoutStore {
   /**
    * A pane's title, off the command channel (ADR-182 D1).
    *
-   * `POST /panes/:id/title` and an MCP/CLI `set_pane_title` used to arrive as
-   * a `set-pane-title` layout command, which `applyNow` intercepted and wrote
-   * straight into `paneSessions` — a structural no-op, so nothing broadcast
-   * it and a title set from outside the desktop was invisible until the next
-   * unrelated layout change. This is that write, minus the command: it finds
-   * the owning workspace itself, so a caller does not resolve one first, and
-   * it publishes — a renderer's own OSC-title write still goes through
+   * `POST /panes/:id/title` and an MCP/CLI `set_pane_title` call this
+   * directly rather than going through a layout command: it finds the owning
+   * workspace itself, so a caller does not resolve one first, and it
+   * publishes — a renderer's own OSC-title write still goes through
    * `setPaneTitleFromStream`, not here, but every other source (a route, the
-   * bridge) now reaches every renderer the way `layout.changed` does.
+   * bridge) reaches every renderer the way `layout.changed` does.
    *
    * Returns false for a pane nothing owns — the route answers 400, the same
    * shape a stale paneId gets from `apply`.
@@ -851,8 +848,8 @@ export class LayoutStore {
   private toPersisted(): PersistedLayout {
     const workspaces: PersistedWorkspace[] = [];
     for (const [workspacePath, state] of this.entries) {
-      // v3 with the focus fields gone from the tree (ADR-179 ticket 4): the
-      // selection lives in `defaultViewport` and in each renderer's own file.
+      // v3 has no focus fields in the tree: the selection lives in
+      // `defaultViewport` and in each renderer's own file.
       // A v3 file written before this still loads — the fields are optional
       // and simply ignored — and is rewritten clean the first time this runs.
       workspaces.push({
@@ -878,7 +875,7 @@ export class LayoutStore {
  * `paneSessions` is filtered to the panes the tree actually holds: a pane
  * closed inside the reopen grace keeps its row in memory — that is what makes
  * `restored` possible — but no tree holds it, and handing it to a renderer
- * would seed side maps for a pane that will never mount (ticket 10's report).
+ * would seed side maps for a pane that will never mount.
  */
 function snapshot(
   state: WorkspaceState,

@@ -5,7 +5,7 @@ import { method, type HandlerCtx } from "../method";
 import type { Theme, ThemeColors } from "../../theme";
 
 /**
- * Theme, whole (ADR-180 ticket 7), as the `theme` namespace of the handler
+ * Theme, whole, as the `theme` namespace of the handler
  * table. `setSelected` is not local-only — a paired `full` device setting the
  * theme is ADR-179 D6's broadcast working as designed, and the browser
  * already re-renders on it.
@@ -37,8 +37,8 @@ export function themeAllColors(
  * Select a theme and tell every viewer.
  *
  * A theme change is every viewer's, not just the caller's: without the
- * fan-out a second desktop window and every browser on the bridge kept the
- * old theme until they next remounted (ADR-179 ticket 7). The `POST /theme`
+ * fan-out a second desktop window and every browser on the bridge would keep
+ * the old theme until they next remounted. The `POST /theme`
  * route (CLI, MCP) calls this too, so it reaches the same viewers; it needs
  * only the theme manager, and has no caller to name.
  *

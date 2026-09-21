@@ -1,5 +1,5 @@
 /**
- * Whose window a layout command came from (ADR-179 D3, ADR-180 ticket 6).
+ * Whose window a layout command came from (ADR-179 D3).
  *
  * Nothing about the origin is checked by a type. The server hands every
  * handler the *connection* it was called on as `ctx.caller`, and

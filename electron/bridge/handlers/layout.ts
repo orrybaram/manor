@@ -62,7 +62,7 @@ export function layoutApply(
 }
 
 /**
- * Queue a command for a pane whose shell does not exist yet (ticket 11).
+ * Queue a command for a pane whose shell does not exist yet.
  *
  * The desktop's "new tab running `pnpm dev`", "split with agent" and agent
  * launches all land here, so they take the same road as `POST /tabs

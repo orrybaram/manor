@@ -187,8 +187,8 @@ export class IpcBridgeTransport {
    * Null when the window has never spoken a frame, which is not a hedge: a
    * connection is made lazily on a window's first `bridge:*` frame, so no
    * connection means a renderer that has not installed the bridge yet, and
-   * nothing addressed to it could arrive anyway. Callers that used to check
-   * "is there a window" check this instead and get a better answer.
+   * nothing addressed to it could arrive anyway. Callers check this rather
+   * than "is there a window" and get a better answer.
    *
    * Bound as a field because it is handed to `setRendererWindowResolver` as a
    * bare function.

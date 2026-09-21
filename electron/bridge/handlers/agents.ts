@@ -58,10 +58,10 @@ export interface PaneContext {
 }
 
 /**
- * The `agents` namespace of the handler table (ADR-180 ticket 9). "Check on
- * my agents from anywhere" is the sentence ADR-178 started from, so none of
- * it is local-only — a browser that could watch an agent but not mark it
- * seen was exactly the read-and-type state this ADR exists to end.
+ * The `agents` namespace of the handler table. "Check on my agents from
+ * anywhere" is the sentence ADR-178 started from, so none of it is
+ * local-only — a browser that could watch an agent but not mark it seen was
+ * exactly the read-and-type state this ADR exists to end.
  */
 export function agentsGetAll(ctx: HandlerCtx, opts?: AgentQuery): AgentInfo[] {
   return ctx.deps.agentManager.getAllAgents(opts);
@@ -107,7 +107,7 @@ export function agentsBuildResumeCommand(
  * Records which project/workspace a pane belongs to, so the sidebar's
  * per-pane agent metadata (and a later agent record for that pane) has a
  * project to point at. A write — this is why it is `mutating` on the ADR-178
- * bridge (ticket 10), audited by paneId the same way `pty.create` is.
+ * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
   ctx: HandlerCtx,
@@ -171,8 +171,8 @@ export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
  * cleared flags. The agent record itself didn't mutate, but `sendAgentUpdate`
  * ships the unseen flags alongside it — this is what keeps main authoritative
  * for pulse state, for a browser marking an agent seen exactly as much as a
- * desktop window doing it (ADR-179 ticket 4's fix for the viewport path
- * applies here too: the same broadcast, whichever caller wrote the Sets).
+ * desktop window doing it: the same broadcast, whichever caller wrote the
+ * Sets.
  */
 export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
   assertString(agentId, "agentId");

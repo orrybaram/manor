@@ -1,5 +1,5 @@
 /**
- * The desktop transport, over a fake `manorHost` (ADR-180 ticket 3).
+ * The desktop transport, over a fake `manorHost`.
  *
  * Three things this adapter decides, and nothing else: that a namespace the
  * preload still answers is called in process rather than sent anywhere, that

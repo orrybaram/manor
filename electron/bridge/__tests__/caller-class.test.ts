@@ -205,13 +205,11 @@ describe("the audit log, by caller class", () => {
   });
 
   /**
-   * This test used to assert the opposite — "writes nothing when a device is
-   * refused, because nothing happened" — and was reversed in ADR-180 ticket
-   * 13. No state changed, but something happened: a paired device asked for
+   * No state changed, but something happened: a paired device asked for
    * real power it is denied, and `remoteControl.pair` from a stolen token is
    * the single most important line this log can hold. The HTTP transport
    * already records its refusals as `rejected`; the bridge staying silent on
-   * the same event was the two transports of one gate disagreeing.
+   * the same event would be the two transports of one gate disagreeing.
    */
   it("writes a rejected line when a device is refused a LOCAL_ONLY method", async () => {
     const device = makeConnection("dev-1", "device");

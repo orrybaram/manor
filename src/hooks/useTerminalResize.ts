@@ -53,7 +53,7 @@ import type { Terminal } from "@xterm/xterm";
  * between frames; at 150ms it did not, and a six-second drag sent a dozen
  * sizes instead of one.
  */
-const SETTLE_MS = 400;
+export const SETTLE_MS = 400;
 
 /** A size, as measured or as sent. */
 export interface Dimensions {

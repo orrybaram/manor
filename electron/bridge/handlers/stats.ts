@@ -4,7 +4,7 @@ import type { StatsSummary } from "../../stats-store";
 import { method, type HandlerCtx } from "../method";
 
 /**
- * ADR-168's usage-stats surface, whole (ADR-180 ticket 7). `statsStore` is
+ * ADR-168's usage-stats surface, whole. `statsStore` is
  * main's single source of truth; the renderer only caches the summary it
  * broadcasts here.
  *
@@ -25,10 +25,10 @@ export function statsReset(ctx: HandlerCtx): void {
 /**
  * Wire the debounced `stats.changed` broadcast.
  *
- * Not `register()` — there is no `ipcMain.handle` left in this file (ADR-180
- * ticket 7 lifted both calls onto the handler table) — but the subscription
- * that turns a burst of recording into one broadcast still has to run once,
- * at boot, so `app-lifecycle.ts` calls this in `register()`'s place.
+ * Not `register()` — there is no `ipcMain.handle` left in this file, both
+ * calls live on the handler table — but the subscription that turns a burst
+ * of recording into one broadcast still has to run once, at boot, so
+ * `app-lifecycle.ts` calls this in `register()`'s place.
  */
 export function wireStatsBroadcast(deps: Pick<HostDeps, "statsStore">): void {
   const { statsStore } = deps;

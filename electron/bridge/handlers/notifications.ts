@@ -8,7 +8,7 @@ import type { HostDeps } from "../../ipc/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
- * The durable notification log (ADR-162, ADR-180 ticket 7). Main owns the
+ * The durable notification log (ADR-162). Main owns the
  * list; the renderer keeps a cache of it and never mutates its copy
  * speculatively — every mutation re-broadcasts the whole list through the
  * single send-site in `../notifications`.

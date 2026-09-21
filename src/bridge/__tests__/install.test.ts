@@ -1,6 +1,6 @@
 /**
  * The ordering invariant `install-desktop.ts` and `install-web.ts` both
- * state and hold (ADR-180 ticket 14): no store module may evaluate — read
+ * state and hold: no store module may evaluate — read
  * or subscribe to `window.electronAPI` at module scope, inside `create()`'s
  * initializer — before `window.electronAPI` exists.
  *
@@ -12,9 +12,8 @@
  * the calls a store's initializer makes at module scope actually reach a
  * transport — which only happens if the side-effect module that installs
  * the bridge was imported, and finished evaluating, first. Reversing the
- * import order (the bug ADR-178 slice 1 shipped, and the web still had
- * until this ticket) reproduces it below: the same store, the same spies,
- * zero calls.
+ * import order reproduces it below: the same store, the same spies, zero
+ * calls.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ManorHost } from "../../electron";

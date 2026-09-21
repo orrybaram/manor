@@ -128,11 +128,6 @@ export class BridgeServer {
    * the winsize (ADR-179 D6). Transports call this only for connections they
    * actually accepted: one that never got past authentication never attached
    * anything, so there is nothing to release and nobody to tell.
-   *
-   * It used to pass a `"bridge"` kind alongside the id, which was harmless
-   * only for as long as a desktop window's panes were held under its
-   * `webContents.id` by an `ipcMain` wrapper instead. Both are connections
-   * now (ADR-180 D6), and there is one id to release.
    */
   drop(connectionId: string): void {
     if (!this.connections.delete(connectionId)) return;
@@ -142,7 +137,7 @@ export class BridgeServer {
 
   /**
    * Told when a connection drops, after this class has released whatever it
-   * held (ADR-179 ticket 7). `app-lifecycle.ts` hands a closed window's claim
+   * held. `app-lifecycle.ts` hands a closed window's claim
    * back to the primary from here (`LayoutStore.releaseWindow`), so "a window
    * went away" is decided in one place for every transport.
    */
@@ -230,7 +225,7 @@ export class BridgeServer {
     // method is one that exists, is real power, and was refused *because*
     // it was asked for over a paired device — `remoteControl.pair` above all.
     // That is exactly the line an owner reading this log after a lost phone
-    // needs to see, and until ADR-180 ticket 13 it was never written.
+    // needs to see.
     const refusedLocalOnly =
       !!handler &&
       connection.callerClass === "device" &&
@@ -412,10 +407,9 @@ export class BridgeServer {
    * (ADR-179 D1): the server is the only writer, so a renderer replaces its
    * replica rather than patching it.
    *
-   * `theme.changed` (ADR-179 ticket 7) closed the one this table used to
-   * document as missing: `theme:setSelected` used to answer only the window
-   * that asked, so a second desktop window and every browser on the bridge
-   * kept the old theme until they next remounted.
+   * `theme.changed` keeps a second desktop window and every browser on the
+   * bridge in sync with the theme a `theme.setSelected` call chose, rather
+   * than each holding the theme it last remounted with.
    *
    * ADR-180 D5 adds the addressed half: a broadcast carrying a `to` is for
    * exactly one connection — `appCommands.command` to the primary window,

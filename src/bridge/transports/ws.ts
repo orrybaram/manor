@@ -179,7 +179,7 @@ class WsTransport implements BridgeTransport {
       // reconnect, if it had one — the server reuses it when nothing else is
       // holding it, so a selection hint addressed to "the tab that sent this"
       // still finds it after a blip, and this connection's `pty-attachments`
-      // viewer identity does not reset (ADR-179 ticket 4's report).
+      // viewer identity does not reset.
       socket.send(
         JSON.stringify({
           type: "hello",

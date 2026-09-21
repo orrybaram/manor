@@ -11,7 +11,7 @@ import {
 } from "../../process-control";
 
 /**
- * Daemon/process control, whole (ADR-180 ticket 8), as the `processes`
+ * Daemon/process control, whole, as the `processes`
  * namespace of the handler table. Everything but `list` kills something, is
  * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
  * and is `mutating`.

@@ -6,7 +6,7 @@ import type { HostDeps, WorkspaceMeta } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
 /**
- * The port scanner, whole (ADR-180 ticket 8), as the `ports` namespace of the
+ * The port scanner, whole, as the `ports` namespace of the
  * handler table.
  *
  * `deps` is the one long-lived `HostDeps` object app-lifecycle builds once

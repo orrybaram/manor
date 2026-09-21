@@ -1,5 +1,5 @@
 /**
- * `ptyCreate` typing a pane's queued command (ADR-179 ticket 11).
+ * `ptyCreate` typing a pane's queued command.
  *
  * The consumer end of `PendingCommands`: the moment a pane has a shell, the
  * line someone queued for it is written — once, by whichever viewer's

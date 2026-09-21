@@ -1,5 +1,6 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
+import { clickMenuItem } from "./helpers/window";
 
 /**
  * The whole app works from the keyboard (ADR-175).
@@ -754,26 +755,6 @@ test.describe("browser pane", () => {
 });
 
 // ── Popout windows ───────────────────────────────────────────────────────
-
-/**
- * Click an application-menu item by its label path, the way macOS would. The
- * menu lives in main, so this is `app.evaluate` rather than a DOM click; it is
- * setup (making a popout), not the behaviour under test.
- */
-function clickMenuItem(app: ElectronApplication, labels: string[]) {
-  return app.evaluate(({ Menu, BrowserWindow }, path) => {
-    let items = Menu.getApplicationMenu()?.items ?? [];
-    let item: Electron.MenuItem | undefined;
-    for (const label of path) {
-      item = items.find((candidate) => candidate.label === label);
-      if (!item) throw new Error(`Menu item not found: ${path.join(" › ")}`);
-      items = item.submenu?.items ?? [];
-    }
-    if (!item!.enabled) throw new Error(`Menu item disabled: ${path.join(" › ")}`);
-    const win = BrowserWindow.getAllWindows()[0];
-    item!.click(undefined, win, undefined);
-  }, labels);
-}
 
 test.describe("popout window", () => {
   /**

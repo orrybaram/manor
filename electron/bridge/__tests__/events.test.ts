@@ -1,10 +1,9 @@
 /**
- * Every push is a frame now (ADR-180 D5).
+ * Every push is a frame (ADR-180 D5).
  *
- * Main used to tell its renderer about the world on ~20 named
- * `webContents.send` channels; it tells every renderer — window or browser —
- * through the host surface instead. The three properties that has to hold,
- * and that nothing else checks, are here:
+ * Main tells every renderer — window or browser — about the world through
+ * the host surface. The three properties that has to hold, and that nothing
+ * else checks, are here:
  *
  * - a **broadcast** reaches every connection that asked for it;
  * - an **addressed** push reaches exactly one, which is the thing broadcast

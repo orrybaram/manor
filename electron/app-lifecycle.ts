@@ -69,13 +69,10 @@ import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
 
 /**
- * What a stream event means to *main* — which, since ADR-180 ticket 5, is no
- * longer "forward it to a window".
+ * What a stream event means to *main* — not "forward it to a window".
  *
- * Every pane's output, exit, cwd, resize, error and agent status used to go
- * out on a channel of its own — `pty-output-${paneId}` and five siblings, to
- * every live window, whether or not it had the pane. They are bridge event
- * frames now (D5): `BridgeServer.handleStreamEvent` publishes them as
+ * Every pane's output, exit, cwd, resize, error and agent status is a bridge
+ * event frame (D5): `BridgeServer.handleStreamEvent` publishes them as
  * `pty.output`/`exit`/`cwd`/`resized`/`agentStatus`/`error` keyed by paneId,
  * and a renderer hears only the panes it subscribed to — the same filter a
  * browser has always had, and the same `seq` riding along with the output
@@ -87,12 +84,8 @@ import * as menuIpc from "./ipc/menu";
  * event types say anything about that, which is why the other four are
  * absent rather than empty.
  *
- * There is no `window` parameter. This used to take one and the caller
- * looped over every renderer window to feed it, because `sendAgentUpdate`
- * addressed the legacy `agent-updated` channel to whichever window it was
- * handed. The loop went when `agents` crossed (ADR-180 ticket 9); the
- * argument every caller still passed and nobody read went with ticket 15.
- * The bridge reaches every window and every browser on its own.
+ * There is no `window` parameter: the bridge reaches every window and every
+ * browser on its own.
  */
 export function handleStreamEvent(
   event: StreamEvent,
@@ -220,8 +213,8 @@ export function initApp(devTitle: string | null): void {
   }
 
   /**
-   * Register a detached popup window created via `createDetachedWindow`. Ticket
-   * 2 calls this after creating the window so it can be reached by its windowId
+   * Register a detached popup window created via `createDetachedWindow`,
+   * called after creating the window so it can be reached by its windowId
    * (e.g. to deliver a one-shot detach payload) and receives broadcast events.
    */
   function registerDetachedWindow(
@@ -274,11 +267,9 @@ export function initApp(devTitle: string | null): void {
    * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
    * feeds every audience from the one place the layout changes.
    *
-   * It used to be two — a publish for the bridge, and a `layout:changed`
-   * send around every live window. The second one went with the namespace
-   * (ADR-180 ticket 6): a desktop window is a bridge connection now, so the
-   * sink reaches the windows and the sockets alike, and a renderer hears
-   * `layout.changed` by subscription rather than by having a `webContents`.
+   * A desktop window is a bridge connection, so the sink reaches the windows
+   * and the sockets alike, and a renderer hears `layout.changed` by
+   * subscription rather than by having a `webContents`.
    */
   const layoutStore = new LayoutStore(
     layoutPersistence,
@@ -485,22 +476,19 @@ export function initApp(devTitle: string | null): void {
   //
   // The daemon client holds exactly one handler, so this is the only place a
   // stream event can be observed: a second `onEvent` would replace this one
-  // rather than join it. That is why the bridge is fed from inside here — and
-  // since ADR-180 ticket 5 the bridge is the *only* consumer that forwards,
-  // to a renderer window and a paired device alike, each of them hearing only
-  // the panes it subscribed to. `handleStreamEvent` below keeps what is left:
-  // the agent bookkeeping the old per-pane sends were tangled up with.
+  // rather than join it. That is why the bridge is fed from inside here — the
+  // bridge is the *only* consumer that forwards, to a renderer window and a
+  // paired device alike, each of them hearing only the panes it subscribed
+  // to. `handleStreamEvent` below keeps what is left: the agent bookkeeping.
   backend.pty.onEvent((event: StreamEvent) => {
     bridgeServer.handleStreamEvent(event);
     // `paneSessions` is server-derived (ADR-179 D3): cwd, title and agent
     // status reach the layout file from the stream, not from a renderer
     // reporting what it saw.
     layoutStore.onPtyEvent(event);
-    // One call, not one per window (ADR-180 ticket 9): `sendAgentUpdate`
-    // only publishes to the bridge now, which already reaches every window
-    // and every browser on its own, so the per-window loop this used to be
-    // — kept alive only by the legacy `agent-updated` channel it addressed —
-    // is gone with it.
+    // One call, not one per window: `sendAgentUpdate` only publishes to the
+    // bridge, which already reaches every window and every browser on its
+    // own.
     handleStreamEvent(
       event,
       agentManager,
@@ -509,14 +497,13 @@ export function initApp(devTitle: string | null): void {
     );
   });
 
-  // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):
+  // `electron/ipc/` keeps exactly six things (ADR-180 D8):
   // `webview`/`webview-keys`, `window`, `popups`, `menu` and the native
   // remnant of `misc.ts` (dialog/shell/clipboard/updater), renamed
-  // `native.ts`. Everything else that used to `register()` here — layout,
-  // viewport, projects, pty, theme, agents, notifications, stats, ports,
-  // processes, branches/diffs, integrations, remote control — is a handler
-  // table entry now, and its implementation lives under
-  // `electron/bridge/handlers/`.
+  // `native.ts`. Everything else — layout, viewport, projects, pty, theme,
+  // agents, notifications, stats, ports, processes, branches/diffs,
+  // integrations, remote control — is a handler table entry, and its
+  // implementation lives under `electron/bridge/handlers/`.
   webviewIpc.register(ipcDeps);
   nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);

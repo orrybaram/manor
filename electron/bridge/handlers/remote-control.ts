@@ -1,6 +1,6 @@
 /**
- * The remote-control surface (ADR-161 ticket 6, ADR-180 ticket 10), as the
- * `remoteControl` namespace of the handler table.
+ * The remote-control surface, as the `remoteControl` namespace of the
+ * handler table.
  *
  * Thin by design: every decision — what starting a tunnel implies, what
  * disabling takes down with it — lives in `RemoteControlController`, so the

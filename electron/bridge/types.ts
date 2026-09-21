@@ -57,7 +57,7 @@ export const BRIDGE_UNSUBSCRIBE = "bridge:unsubscribe";
 /** Main → renderer: one `EventFrame`. */
 export const BRIDGE_EVENT = "bridge:event";
 /**
- * "Who am I?", answered synchronously (ADR-179 D3, ADR-180 ticket 6). The one
+ * "Who am I?", answered synchronously (ADR-179 D3). The one
  * channel that carries no frame: the preload has to know its `rendererId`
  * before the page's first line runs, and `webContents.id` is already in hand.
  */

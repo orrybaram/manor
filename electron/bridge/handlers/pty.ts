@@ -255,8 +255,8 @@ async function createSession(
       env,
     );
     // A pane opened "with a command" — `POST /tabs { command }`, a split with
-    // an agent, `POST /agents` — has its line waiting on the server (ADR-179
-    // ticket 11). This is the moment it has a shell to be typed into.
+    // an agent, `POST /agents` — has its line waiting on the server. This is
+    // the moment it has a shell to be typed into.
     if (isFreshSession(deps, paneId, result.snapshot !== null)) {
       await deliverPendingCommand(deps, paneId);
     }

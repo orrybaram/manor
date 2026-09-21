@@ -1,5 +1,5 @@
 /**
- * The proxy, over a transport that is not a socket (ADR-180 ticket 3).
+ * The proxy, over a transport that is not a socket.
  *
  * What is asserted here is the half of the client that is the same on a
  * desktop and in a browser: what `ns.method(...)` turns into, what a

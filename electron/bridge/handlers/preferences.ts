@@ -14,7 +14,7 @@ import {
 } from "../../../src/lib/menu-commands";
 
 /**
- * Preferences and keybindings (ADR-180 ticket 7), as the `preferences` and
+ * Preferences and keybindings, as the `preferences` and
  * `keybindings` namespaces of the handler table. The dialog, the shell escape
  * hatches, the clipboard and the updater are `electron/ipc/native.ts` — what
  * only Electron can do.
@@ -23,10 +23,7 @@ export function preferencesGetAll(ctx: HandlerCtx): AppPreferences {
   return ctx.deps.preferencesManager.getAll();
 }
 
-/**
- * A `full` device may write preferences (D3); this was off the slice-1 table
- * for scope, not policy.
- */
+/** A `full` device may write preferences (D3). */
 export function preferencesSet<K extends keyof AppPreferences>(
   ctx: HandlerCtx,
   key: K,
@@ -123,16 +120,15 @@ export function wireKeybindingsBroadcast(
 
 export const preferences = {
   getAll: method(preferencesGetAll),
-  // A `full` device may write preferences (D3); it was off the slice-1 table
-  // for scope, not policy.
+  // A `full` device may write preferences (D3).
   set: method(preferencesSet, { mutating: true }),
   playSound: method(preferencesPlaySound),
 };
 
 export const keybindings = {
   getAll: method(keybindingsGetAll),
-  // The keybindings page is read-only on web (ADR-178 ticket 6): a device is
-  // refused an edit the settings UI never offered it.
+  // The keybindings page is read-only on web: a device is refused an edit
+  // the settings UI never offered it.
   set: method(keybindingsSet, { localOnly: true }),
   reset: method(keybindingsReset, { localOnly: true }),
   resetAll: method(keybindingsResetAll, { localOnly: true }),

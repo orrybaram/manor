@@ -1,5 +1,5 @@
 /**
- * The last namespace group to cross (ADR-180 D4/D8, ticket 10).
+ * The last namespace group to cross (ADR-180 D4/D8).
  *
  * `git`, `github`, `linear` and `remoteControl` are table entries now, and two
  * things about them are decisions rather than mechanics — which means nothing

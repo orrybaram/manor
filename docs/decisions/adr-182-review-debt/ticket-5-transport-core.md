@@ -1,6 +1,6 @@
 ---
 title: One transport core — subscription registry, result frames, receive()
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [4]

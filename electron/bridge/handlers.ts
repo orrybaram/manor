@@ -31,11 +31,11 @@
  * names a resource only the machine has" and "this is a key, or the lock it
  * turns" — and they are spelled out at the set itself.
  *
- * Adding a *write* here is a security decision, not a convenience one. A
- * `full` device already reaches the whole HTTP route table (D3), so nothing
- * here is a new grant of power — but every method in this table is one more
- * thing a stolen `full` token can do without an audit line unless it is also
- * named in `MUTATING`.
+ * Adding a *write* here is a security decision, not a convenience one. Since
+ * ADR-182 D2 this table, not the HTTP route table, *is* the whole of what a
+ * `full` device reaches beyond `send` — so every method added here is new
+ * power, and every one of them is one more thing a stolen `full` token can do
+ * without an audit line unless it is also named in `MUTATING`.
  *
  * **What keeps this honest is a compile error.** `./surface.ts` derives every
  * `ns.method` of `ElectronAPI` and asserts that each one is served by this
@@ -810,10 +810,10 @@ export const HANDLERS = {
 
   // ── processes: daemon status, plus everything that kills something ──
   // (ADR-180 ticket 8). `list` was already reachable; the rest was
-  // deliberately absent from the slice-1 table because it kills things. A
-  // `full` device already reaches `POST /processes/kill`-shaped power
-  // through the route table (ADR-178 D3), so under D4 these are ordinary
-  // entries — every one of them is in `MUTATING`.
+  // deliberately absent from the slice-1 table because it kills things. Under
+  // D4 these are ordinary entries, reachable by a `full` device on the
+  // bridge and nowhere else (ADR-182 D2) — every one of them is in
+  // `MUTATING`.
   "processes.list": (deps: IpcDeps) => processesList(deps),
   "processes.killSession": (deps: IpcDeps, sessionId: string) =>
     processesKillSession(deps, sessionId),

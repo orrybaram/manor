@@ -21,11 +21,11 @@
  *   4. `Origin`/`Host` agreement, as defence in depth only. This is a
  *      browser-enforced control and `curl` does not enforce it, so it is never
  *      the boundary;
- *   5. dispatch against `remoteRouteTable(routes, device.capability)` — for
- *      `read` and `send`, a table that never contained the dangerous routes in
- *      the first place. For `full` (ADR-178 D3) it is the whole table, and
- *      step 3 is the only boundary there is; every non-GET row is wrapped in
- *      an audit line instead.
+ *   5. dispatch against `remoteRouteTable(routes, device.capability)` — a
+ *      table that never contained the dangerous routes in the first place,
+ *      for every tier. A `full` device gets exactly the `send` table here
+ *      (ADR-182 D2); everything it can do beyond that goes through `/ws`,
+ *      where the bridge's own local-only and audit rules apply.
  *
  * It binds `127.0.0.1` even when enabled. Reaching it from outside is the
  * tunnel's job (`./tunnel.ts`), which is a separate, explicit user action.
@@ -95,33 +95,15 @@ const GUARDED_WRITE_ROUTES = new Set([
   LAUNCH_ROUTE,
 ]);
 
-/**
- * Reads that happen to be POSTs.
- *
- * `guardWrites` decides what to audit by HTTP method, which is right for
- * ~100 routes and wrong for this one: `POST /sessions/read` returns
- * scrollback and changes nothing — it is a POST because the pane id and the
- * line count belong in a body, not because it acts. A `full` device polling
- * a terminal would otherwise write an audit line per poll, and a trail that
- * is mostly reads is a trail nobody reads.
- *
- * Keep this set tiny and justify each row: everything in it is a non-GET that
- * a `full` device performs with no record.
- */
-const READ_ONLY_POSTS = new Set(["POST /sessions/read"]);
-
 const MAX_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 /**
- * The three methods `Route` can declare. Anything else is not a route this
- * machine has, whatever the tier, so it dies at step 1 — before authentication
- * and before a body is read.
- *
- * `DELETE` is here for the `full` tier only (ADR-178). For `read` and `send`
- * the table still contains no `DELETE` row, so such a request falls through to
- * a 404: absent, as it always was, rather than the 405 this set used to give.
+ * The two methods any tier's table can ever contain (ADR-182 D2: `full` gets
+ * exactly the `send` table over HTTP, and neither holds a `DELETE` row).
+ * Anything else is not a route this machine has, so it dies at step 1 —
+ * before authentication and before a body is read.
  */
-const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
+const ALLOWED_METHODS = new Set(["GET", "POST"]);
 
 /**
  * The collaborators that have a sensible default. Named rather than positional
@@ -485,32 +467,14 @@ export class RemoteControlServer {
    * local MCP path must keep working exactly as it does, so the confirmation
    * and the audit line are remote-only concerns and live here.
    *
-   * For a `send` device this is the *third* gate. The first is the table: a
-   * device without the send capability never sees these routes at all, so
-   * nothing below is what stops it. `LAUNCH_ROUTE` gets a fourth — the
-   * workspace must be one the machine knows (ADR-177) — because it starts a
-   * process rather than typing at one.
-   *
-   * For a `full` device there is no first gate to lean on: `remoteRouteTable`
-   * handed back the whole table. So the rule is the blunt one — every route
-   * whose method is not `GET` gets an audit line, and none of them asks for
-   * `confirmed`. Asking would be theatre: the thing calling these is the
-   * desktop app running in a browser, and its own confirmation dialogs already
-   * stand in front of every destructive action. What is owed instead is a
-   * record, and that is what this writes.
+   * This is the *third* gate, for `send` and `full` alike (ADR-182 D2: the two
+   * get the same HTTP table). The first is the table: a device without at
+   * least the send capability never sees these routes at all, so nothing
+   * below is what stops it. `LAUNCH_ROUTE` gets a fourth — the workspace must
+   * be one the machine knows (ADR-177) — because it starts a process rather
+   * than typing at one.
    */
   private guardWrites(table: Route[], device: AuthenticatedDevice): Route[] {
-    if (device.capability === "full") {
-      return table.map((route) =>
-        route.method === "GET" || READ_ONLY_POSTS.has(routeKey(route))
-          ? route
-          : {
-              ...route,
-              handler: (ctx: RouteContext) =>
-                this.fullTierWrite(routeKey(route), route, device, ctx),
-            },
-      );
-    }
     return table.map((route) => {
       const key = routeKey(route);
       return GUARDED_WRITE_ROUTES.has(key)
@@ -521,78 +485,6 @@ export class RemoteControlServer {
           }
         : route;
     });
-  }
-
-  /**
-   * Run a `full` device's write and record that it happened.
-   *
-   * Nothing is refused here — the tier's whole definition is that
-   * authentication was the boundary. The line names the route and what it was
-   * aimed at, and stops there: no text, no hash. Every one of the desktop's
-   * ~100 routes takes a differently shaped body, and an audit log that went
-   * fishing through all of them would eventually land on one carrying a
-   * credential. Only the two field names the remote surface already trusted
-   * (`target`, `workspacePath`) are read, and otherwise the target is whatever
-   * the path itself captured.
-   */
-  private async fullTierWrite(
-    key: string,
-    route: Route,
-    device: AuthenticatedDevice,
-    ctx: RouteContext,
-  ): Promise<void> {
-    const target = await this.fullTierTarget(ctx);
-
-    const line = (outcome: RemoteAuditEntryOutcome, status: number) =>
-      this.audit.append({
-        at: new Date().toISOString(),
-        deviceId: device.id,
-        deviceLabel: device.label,
-        tier: "full",
-        route: key,
-        target,
-        textLength: null,
-        textSha256: null,
-        interrupt: key === INTERRUPT_ROUTE,
-        outcome,
-        status,
-      });
-
-    let status = 0;
-    const json: Json = (s, b) => {
-      status = s;
-      ctx.json(s, b);
-    };
-
-    try {
-      await route.handler({ ...ctx, json });
-    } catch (err) {
-      line("failed", 500);
-      throw err;
-    }
-    line(outcomeFor(status), status);
-  }
-
-  /**
-   * What a `full` device's write was aimed at, for the audit line.
-   *
-   * Body first, path second: `POST /sessions/send` names its target in the
-   * body while `DELETE /panes/:paneId` names it in the path, and the line
-   * should read the same way for both. `readBody()` is memoized by
-   * `makeReadBody`, so the handler below still gets the same parse rather than
-   * a consumed socket — and a body that never arrives or does not parse costs
-   * the line its target, never the request.
-   */
-  private async fullTierTarget(ctx: RouteContext): Promise<string | null> {
-    try {
-      const body = await ctx.readBody();
-      if (typeof body.target === "string") return body.target;
-      if (typeof body.workspacePath === "string") return body.workspacePath;
-    } catch {
-      // Fall through to the path.
-    }
-    const captured = Object.values(ctx.params);
-    return captured.length > 0 ? captured.join("/") : null;
   }
 
   private async guardedWrite(
@@ -635,7 +527,10 @@ export class RemoteControlServer {
         at: new Date().toISOString(),
         deviceId: device.id,
         deviceLabel: device.label,
-        tier: "send",
+        // Whichever tier actually made the call — `send` and `full` share
+        // this table and this gate (ADR-182 D2), so the line still says which
+        // one it was.
+        tier: device.capability === "full" ? "full" : "send",
         route: key,
         target,
         textLength: text === null ? null : text.length,
@@ -731,11 +626,7 @@ export class RemoteControlServer {
 
 type RemoteAuditEntryOutcome = "sent" | "rejected" | "failed";
 
-/**
- * How a completed handler reads in the trail. 2xx is the whole success range —
- * the acting routes all answer 200, but a `full` device reaches rows that
- * answer 201 or 204, and those are not rejections.
- */
+/** How a completed handler reads in the trail. The acting routes all answer 200. */
 function outcomeFor(status: number): RemoteAuditEntryOutcome {
   return status >= 200 && status < 300 ? "sent" : "rejected";
 }

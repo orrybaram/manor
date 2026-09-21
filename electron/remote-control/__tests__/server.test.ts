@@ -43,7 +43,7 @@ import type { LocalBackend } from "../../backend/local-backend";
 
 const READ_TOKEN = "read-token";
 const WRITE_TOKEN = "write-token";
-/** ADR-178's third tier: the whole route table, authentication the only gate. */
+/** ADR-178's third tier. Over HTTP it gets exactly the `send` table (ADR-182 D2). */
 const FULL_TOKEN = "full-token";
 /** The one workspace `withKnownWorkspace()` teaches the machine about. */
 const KNOWN_WORKSPACE = "/Users/me/manor";
@@ -325,16 +325,16 @@ describe("RemoteControlServer", () => {
       expect((await get("/projects/p1/issues", WRITE_TOKEN)).status).toBe(404);
     });
 
-    // 404 and not 405: `DELETE` is a method the listener now lets past step 1
-    // (a `full` device uses it), but the row was never in *this* device's
-    // table, so it is absent exactly as `/tabs` and `/projects` are.
-    it("404s a DELETE for a device below the full tier", async () => {
-      for (const token of [READ_TOKEN, WRITE_TOKEN]) {
+    // 405, not 404: `DELETE` is not a method any tier's table can declare any
+    // more (ADR-182 D2 — `full` gets exactly the `send` table, and neither
+    // holds a `DELETE` row), so it dies at step 1, before authentication.
+    it("405s a DELETE for every tier, full included", async () => {
+      for (const token of [READ_TOKEN, WRITE_TOKEN, FULL_TOKEN]) {
         const res = await fetch(`${base}/panes/pane-1`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
-        expect(res.status).toBe(404);
+        expect(res.status).toBe(405);
       }
     });
 
@@ -405,6 +405,7 @@ describe("RemoteControlServer", () => {
       expect(entries[0]).toMatchObject({
         outcome: "sent",
         status: 200,
+        tier: "send",
         deviceId: writer.id,
         deviceLabel: writer.label,
         route: "POST /sessions/send",
@@ -673,99 +674,45 @@ describe("RemoteControlServer", () => {
   });
 
   /**
-   * ADR-178 D3's third tier. Two properties, and they pull in opposite
-   * directions on purpose: a `full` device reaches everything the desktop app
-   * reaches with nothing to confirm, and every one of those requests leaves a
-   * line. The `send` device is asserted alongside in each case, so "full" can
-   * never quietly become what "send" means.
+   * ADR-182 D2: a `full` device gets exactly the `send` table over HTTP.
+   * Everything it can do beyond that — layout mutation, removing a
+   * workspace, anything `DELETE` — is reachable only on `/ws`, not asserted
+   * here. What is asserted is that the HTTP surface really is identical: the
+   * same gates, the same 404s, and an audit line that still says which
+   * device made the call.
    */
-  describe("the full tier", () => {
-    const del = (path: string, token: string, body?: unknown) =>
-      fetch(`${base}${path}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  describe("the full tier, over HTTP", () => {
+    it("needs confirmed:true just like a send device", async () => {
+      withLiveSession();
+      const res = await post("/sessions/send", FULL_TOKEN, {
+        target: "agent-1",
+        text: "hi",
       });
-
-    /**
-     * ADR-179 D5: `DELETE /panes/:paneId` drives the layout store directly
-     * now, no renderer round-trip — so, unlike the other full-tier routes
-     * here, it needs a real pane to close.
-     */
-    async function withPaneSeven(): Promise<void> {
-      await deps.layoutStore!.apply(
-        "/ws-with-pane-7",
-        {
-          type: "new-tab",
-          tab: {
-            id: "tab-7",
-            title: "Terminal",
-            rootNode: { type: "leaf", paneId: "pane-7" },
-          },
-        },
-        { kind: "route", id: "test" },
-      );
-    }
-
-    it("reaches a DELETE route that is absent for a send device", async () => {
-      await withPaneSeven();
-      expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
-
-      const res = await del("/panes/pane-7", FULL_TOKEN);
-      expect(res.status).toBe(200);
-      // No renderer to observe a proxied command any more — the mutation
-      // itself is the proof the full tier actually reached the handler:
-      // closing the same pane again 400s because it is genuinely gone.
-      expect((await del("/panes/pane-7", FULL_TOKEN)).status).toBe(400);
-    });
-
-    it("needs no confirmed:true, and audits the write anyway", async () => {
-      await withPaneSeven();
-      const res = await del("/panes/pane-7", FULL_TOKEN);
-      expect(res.status).toBe(200);
-
-      const entries = audit.read();
-      expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatchObject({
-        outcome: "sent",
-        status: 200,
-        tier: "full",
-        deviceId: everything.id,
-        deviceLabel: everything.label,
-        route: "DELETE /panes/:paneId",
-        // Nothing in the body to take it from, so the path's capture is it.
-        target: "pane-7",
-        textLength: null,
-        textSha256: null,
-        interrupt: false,
-      });
-    });
-
-    it("reaches layout mutation, which no allowlisted tier can", async () => {
-      expect(
-        (await post("/tabs", WRITE_TOKEN, { workspacePath: "/tmp" })).status,
-      ).toBe(404);
-
-      const res = await post("/tabs", FULL_TOKEN, {
-        contentType: "terminal",
-        workspacePath: KNOWN_WORKSPACE,
-      });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(400);
+      expect(ptyWrite).not.toHaveBeenCalled();
       expect(audit.read()[0]).toMatchObject({
-        tier: "full",
-        route: "POST /tabs",
-        target: KNOWN_WORKSPACE,
+        outcome: "rejected",
+        reason: "missing confirmed:true",
       });
     });
 
-    it("audits a send without confirmation and without the text", async () => {
+    it("gets the same workspace check a send device gets on a launch", async () => {
+      withKnownWorkspace();
+      const res = await post("/agents", FULL_TOKEN, {
+        workspacePath: "/tmp/anywhere-at-all",
+        prompt: "go",
+        confirmed: true,
+      });
+      expect(res.status).toBe(403);
+      expect(launchedWorkspaces()).toEqual([]);
+    });
+
+    it("audits a confirmed write, and the line says the tier is full", async () => {
       withLiveSession();
       const res = await post("/sessions/send", FULL_TOKEN, {
         target: "agent-1",
         text: "sk-secret-value",
+        confirmed: true,
       });
       expect(res.status).toBe(200);
       expect(ptyWrite).toHaveBeenCalled();
@@ -774,30 +721,39 @@ describe("RemoteControlServer", () => {
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({
         tier: "full",
+        deviceId: everything.id,
+        deviceLabel: everything.label,
         route: "POST /sessions/send",
         target: "agent-1",
-        // The tier reaches ~100 differently shaped bodies, so it fishes in
-        // none of them. No length, no hash, nothing to leak.
-        textLength: null,
-        textSha256: null,
+        textLength: "sk-secret-value".length,
       });
       expect(JSON.stringify(entries[0])).not.toContain("sk-secret-value");
     });
 
-    it("skips the workspace check a send device gets on a launch", async () => {
-      withKnownWorkspace();
-      const res = await post("/agents", FULL_TOKEN, {
-        workspacePath: "/tmp/anywhere-at-all",
-        prompt: "go",
+    it("cannot reach DELETE, layout mutation, or anything else send cannot", async () => {
+      expect(
+        (
+          await fetch(`${base}/panes/pane-1`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${FULL_TOKEN}` },
+          })
+        ).status,
+      ).toBe(405);
+      expect(
+        (await post("/tabs", FULL_TOKEN, { workspacePath: "/tmp" })).status,
+      ).toBe(404);
+      expect((await get("/projects", FULL_TOKEN)).status).toBe(404);
+    });
+
+    // ADR-182's own example: what used to be a route on the full tier's
+    // surface (ADR-180 marked its bridge method local-only, but the HTTP
+    // route stayed open) is now absent exactly as it is for `send` — the
+    // whole point of collapsing the two tables into one.
+    it("404s POST /remote-control/enabled, outside the tier's table", async () => {
+      const res = await post("/remote-control/enabled", FULL_TOKEN, {
+        enabled: true,
       });
-      // No `confirmed`, and a workspace the machine has never heard of: the
-      // desktop app can launch there, so this device can too.
-      expect(res.status).toBe(200);
-      expect(audit.read()[0]).toMatchObject({
-        tier: "full",
-        route: "POST /agents",
-        target: "/tmp/anywhere-at-all",
-      });
+      expect(res.status).toBe(404);
     });
 
     it("writes no line for a read", async () => {
@@ -828,9 +784,8 @@ describe("RemoteControlServer", () => {
       expect(audit.read()).toEqual([]);
     });
 
-    it("leaves every send-tier gate exactly where it was", async () => {
+    it("leaves every send-tier gate exactly where it was, for a send device", async () => {
       withLiveSession();
-      // Still refused without confirmation…
       expect(
         (
           await post("/sessions/send", WRITE_TOKEN, {
@@ -839,15 +794,18 @@ describe("RemoteControlServer", () => {
           })
         ).status,
       ).toBe(400);
-      // …still unable to reach the routes the allowlist never named…
-      expect((await del("/panes/pane-7", WRITE_TOKEN)).status).toBe(404);
       expect((await get("/projects", WRITE_TOKEN)).status).toBe(404);
-      // …and its own lines still say which tier wrote them.
-      expect(audit.read()[0]).toMatchObject({ tier: "send" });
     });
 
     it("keeps everything off a read-only device, DELETE included", async () => {
-      expect((await del("/panes/pane-7", READ_TOKEN)).status).toBe(404);
+      expect(
+        (
+          await fetch(`${base}/panes/pane-1`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${READ_TOKEN}` },
+          })
+        ).status,
+      ).toBe(405);
       expect((await get("/projects", READ_TOKEN)).status).toBe(404);
       expect(proxyToRenderer).not.toHaveBeenCalled();
       expect(audit.read()).toEqual([]);

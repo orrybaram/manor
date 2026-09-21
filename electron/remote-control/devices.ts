@@ -28,17 +28,20 @@ import { safeStorage } from "electron";
 import { remoteDevicesFile } from "../paths";
 
 /**
- * How much of the machine a paired device may reach (ADR-178 D3).
+ * How much of the machine a paired device may reach (ADR-178 D3, narrowed by
+ * ADR-182 D2).
  *
  *   - `read`  — the read half of the remote allowlist and nothing else.
  *   - `send`  — the read half plus the three acting routes, each behind
  *               `confirmed: true` and an audit line.
- *   - `full`  — the whole route table. Authentication is the only boundary;
- *               every non-GET is audited and nothing asks for `confirmed`.
+ *   - `full`  — the same HTTP surface as `send`. The rest — the whole bridge
+ *               table, authentication the only boundary, every mutation
+ *               audited and nothing asking for `confirmed` — is reachable
+ *               only over `/ws`.
  *
- * `read` and `send` are the two tiers `allowlist.ts` governs. `full` is
- * deliberately not expressible as a longer allowlist: the point of it is that
- * there is no list.
+ * All three tiers are HTTP allowlists governed by `allowlist.ts`; `full`'s
+ * wider reach lives entirely in the bridge (`electron/bridge/server.ts`),
+ * not here.
  */
 export type Capability = "read" | "send" | "full";
 

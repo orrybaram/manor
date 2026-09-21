@@ -13,10 +13,9 @@ import {
  * Daemon/process control, whole (ADR-180 ticket 8). `list` was already
  * lifted for the slice-1 bridge table; the rest of this namespace kills
  * something and was deliberately absent from that table. Under D4 that is no
- * longer a reason to hold it back — a `full` device already reaches
- * `POST /processes/kill`-shaped power through the route table (ADR-178 D3) —
- * so every one of these crosses as an ordinary entry, and every one of them
- * is in `MUTATING`.
+ * longer a reason to hold it back — every one of these crosses as an ordinary
+ * entry, reachable by a `full` device on the bridge and nowhere else
+ * (ADR-182 D2), and every one of them is in `MUTATING`.
  */
 export function processesList(deps: IpcDeps): unknown {
   const { backend, agentHookServer, webviewServer, portScanner } = deps;

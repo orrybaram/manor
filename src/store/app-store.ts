@@ -631,7 +631,7 @@ export function useVisibleTabs(
  * renderer has since closed, and a workspace adopted this tick has no
  * viewport entry at all.
  */
-function activePanelIdOf(
+export function activePanelIdOf(
   state: Pick<AppState, "workspaceLayouts" | "viewports">,
   path: string,
 ): string | null {

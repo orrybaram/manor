@@ -1,6 +1,6 @@
 ---
 title: Typing on a phone is xterm and the native keyboard
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2, 3]
@@ -63,3 +63,20 @@ any spec you need; the orchestrator runs it. You may run `pnpm typecheck`,
 - `src/hooks/useTerminalLifecycle.ts` — synchronous focus on tap in phone mode
 - wherever the xterm `Terminal` is constructed/opened — the textarea attributes
 - `src/hooks/__tests__/` — new unit tests
+
+## Folded in from ticket 6
+
+**A long-press on a terminal may lose to xterm.** `TerminalPane.tsx` wraps
+xterm's container in a Radix `ContextMenu.Trigger`, whose long-press is a
+700 ms `pointerdown` timer (gated on `pointerType !== "mouse"`) that **any**
+`pointermove` cancels — no distance threshold. Nothing in the codebase gives
+xterm's own touch or selection handling special treatment: no `touch-action`
+or `user-select` in `TerminalPane.module.css`, no touch xterm options. So on a
+real phone a long-press may start an xterm text selection, or a finger's
+natural wobble may cancel the timer, and the pane menu never opens.
+
+This ticket owns the terminal's touch handling, so decide it here, and keep it
+compatible with the tap-to-focus you are building: a *tap* focuses xterm and
+raises the keyboard; a *long-press* opens the pane menu; a *drag* scrolls (or
+pans a follower). Say in your report which of those three you could only
+reason about rather than observe.

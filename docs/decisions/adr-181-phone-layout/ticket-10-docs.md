@@ -59,3 +59,14 @@ claimed as tested — no agent could launch Electron or a real phone:
   (`--traffic-light-inset`), drags the window, and its buttons still click.
 - The drawer on a real phone: open, tap-outside to close, focus returns to the
   toggle, ~85 % width feels right.
+
+## Folded in from ticket 6
+
+- **Record the palette audit.** "Move Tab to Next Panel" existed only in the
+  tab's context menu, so a phone could not move a tab at all; ticket 6 added it
+  to the palette (`move-tab-to-next-panel`). Detach was already excluded from
+  the web palette (`NATIVE_ONLY_COMMANDS`), which matches ADR-181's "what stays
+  out". D5 should name both.
+- **Follow-up to list:** the palette's detail and stats views
+  (`.detailLayout`'s `1fr 220px` grid, `.statsTiles`' four columns) were not
+  redesigned for a phone and will be cramped at 390 px.
